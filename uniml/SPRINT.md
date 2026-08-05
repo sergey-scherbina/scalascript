@@ -50,10 +50,22 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
          patterns in the corpus were the empty string. `Pattern` is now a real ADT.
          A/B, not assertion: re-planting `enum.case` turns the census red at 142 and fails two
          shape tests; restoring it returns 0.
-      d. **[~] the real gaps, largest first** — `spike.narg` 772, `spike.interp` 589,
-         `spike.blockapp` 511, `decl:spike.sealed` 382, `spike.listlit` 252. These are honestly
-         reported and genuinely unmodelled, which is the difference between them and everything
-         above. NOT started; this is where the next session picks up.
+      d. **[x] the real gaps, top five closed** — `narg` 772, `interp` 589, `blockapp` 511,
+         `sealed` 382, `listlit` 252, plus `spike.lam` (a SECOND kind for lambda, `:1443`, that
+         only `spike.lambda` was handling). **Gaps 2,964 → 672, coverage 98.5% → 99.7%**, drops
+         still 0, nodes → 212,885. Floor raised 95.0 → 99.0: four points of slack is what let a
+         96.5% reading pass with every `if` mis-modelled.
+         Two of the five shape tests FAILED first, and both failures were findings, not typos:
+         - a leading `[` in STATEMENT position is a Markdown link-import, so the list-literal probe
+           measured a no-op. Asserted in value position instead, and the reason is in the test.
+         - **an import's PATH is not in the CST at all.** `parseImportStmt` consumes the dotted
+           path without attaching it and frames one carrier token, so `import a.b.c` and
+           `import x.y` are indistinguishable. Modelled as the contentless `NoOpDecl` it really is
+           rather than claimed as an import; filed as a dialect-side gap in `uniml/BACKLOG.md`,
+           because a v3 front cannot build a module graph from it. Pinned by a test so a dialect
+           fix is news.
+      Remaining, all honestly reported: `spike.pfblock` 185, `throw` 56, a nested `def` 48,
+      `givenobj` 45, `effectdecl` 42, `for` 37, `focusmarker`/`direct`/`try` 32 each, `summon` 26.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 

@@ -7,6 +7,31 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## the CST does not keep an import's PATH — a v3 front cannot resolve imports from it
+
+Found 2026-08-05 under `uniml-typed-ast`, by writing the assertion that the path was there and
+watching it fail. Not a projection bug: the information is not in the tree.
+
+`ScalaSpike.parseImportStmt` consumes the dotted path token by token and then calls `sealedNoop`,
+which frames `spike.sealed` from ONE carrier token. So `import a.b.c` and `import x.y` produce
+indistinguishable nodes, and the same holds for the Markdown link-import `[name](path)` and for an
+anonymous `given`, which share the kind.
+
+That is correct for the consumer it was built for — the v2 front treats imports as a parse-only
+no-op and resolves them by other means (`ssc1-front.ssc0:2485`). It is not correct for the role
+UniML is being readied for: `v3/specs/40-front-on-uniml.md` makes UniML the parser AND the AST, and
+a front that cannot see what a file imports cannot build a module graph.
+
+Pinned rather than assumed: `SpikeTypedRolesSpec` asserts the two imports project to the same
+contentless node, so a dialect change that starts keeping the path turns that test red and gets
+noticed instead of landing silently.
+
+**Not fixed here on purpose.** The fix is in the dialect — attach the path under roles
+(`imp.seg`/`imp.dot`, as `cc.field` and friends already do) — which changes the CST shape for every
+`.ssc` in the corpus and touches the frozen losslessness and breadth baselines. That deserves its
+own before/after, not a ride-along in an AST commit. Whoever takes SSC3-4 should treat it as a
+prerequisite rather than discovering it three files into writing the lowering.
+
 ## HAND-OVER: the typed AST (UNIML-SSC3 criterion 2)
 
 Written 2026-08-05 for whoever picks this up. Numbers measured the same day; re-measure before
@@ -589,6 +614,24 @@ self-parity test is not external conformance.
         Verified by A/B, not by assertion: re-planting the `enum.case` defect turns the census red.
         Shape assertions per construct in `SpikeTypedRolesSpec` (20 tests), since a COUNT cannot
         tell "not modelled" from "modelled wrongly" — the lesson the `if` bug taught, applied.
+        **Then step 3, the honestly-reported gaps: top five closed.** `narg` 772, `interp` 589,
+        `blockapp` 511, `sealed` 382, `listlit` 252, plus `spike.lam` — a SECOND CST kind for
+        lambda (`ScalaSpike.scala:1443`) that only `spike.lambda` was handling.
+        **Gaps 2,964 → 672, coverage 98.5% → 99.7%, nodes → 212,885, silent drops still 0.**
+        Coverage floor raised 95.0 → 99.0; four points of slack is what let a 96.5% reading pass
+        with every `if` in the corpus mis-modelled.
+        Two of the five shape tests failed first and both were FINDINGS: a leading `[` in statement
+        position is a link-import, so the list-literal probe was measuring a no-op; and an import's
+        PATH is not in the CST at all (own entry above). Modelled as `NoOpDecl` rather than claimed.
+        `interp` keeps prefix + raw text, and that is not a shortcut: the dialect does not
+        decompose an interpolation — `spike.interp` holds exactly two tokens — so the embedded
+        expressions are not subtrees that could be dropped. Splitting them is a re-lex and belongs
+        where the interpolation is given meaning.
+        Remaining, all honestly reported and none silent: `pfblock` 185, `throw` 56, a nested `def`
+        48, `givenobj` 45, `effectdecl` 42, `for` 37, `focusmarker`/`direct`/`try` 32 each,
+        `summon` 26. Evidence both slices: `cd uniml && sbt -batch test` exit 0, 10 projects
+        passing — the exact command and floor of the nightly `UniML — standalone build` job.
+        (`scripts/smoke-ci` does NOT cover uniml; its only mention is the comment recording why.)
 
   - [ ] **SSC3-B breadth — to the reachable floor, NOT to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
