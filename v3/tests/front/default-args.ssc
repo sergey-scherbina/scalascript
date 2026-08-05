@@ -1,0 +1,11 @@
+case class Conf(name: String, retries: Int = 3, verbose: Boolean = false)
+def render(value: Int = -1): String = "v=" + value
+def greet(who: String, greeting: String = "hello"): String = greeting + ", " + who
+
+println(Conf("a"))
+println(Conf("b", 5))
+println(Conf("c", 5, true))
+println(render())
+println(render(7))
+println(greet("x"))
+println(greet("x", "hi"))

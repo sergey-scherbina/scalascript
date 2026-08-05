@@ -78,7 +78,10 @@ enum Stmt:
   case Val(name: String, value: Expr, mutable: Boolean, pos: Pos)
   case Exp(e: Expr)
 
-final case class Param(name: String, pos: Pos)
+/** `default` is the `= expr` after the type: `def f(x: Int = 5)` and `case class C(x: Int = 5)`.
+  * Held as the unevaluated EXPRESSION, so a call site that omits the argument gets the expression
+  * substituted and evaluated there — which is what Scala does and what makes `= Nil` cheap. */
+final case class Param(name: String, pos: Pos, default: Option[Expr] = None)
 /** A `case class` declaration. Only the constructor SHAPE is kept: the field names and their
   * order, which is exactly what the IR's type table needs and all a Tier 0 program can use. */
 /** `parents` are the traits/classes named after `extends`/`with`. They are kept, not discarded,

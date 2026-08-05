@@ -109,6 +109,16 @@ object Parser:
     *
     * Discarding rather than reading is invariant I-2's consequence: there is no checker at Tier 0,
     * and half-reading types would put an unenforced notion of them into the front. */
+  /** `= expr` after a parameter's type. Parsed with `parseBin` at the comma's precedence rather
+    * than `parseExpr`, so the default ends at the `,` or `)` that separates parameters instead of
+    * swallowing them — `,` and `)` are punctuation and have no precedence, so the loop stops on
+    * its own. */
+  private def parseDefault(ts: List[Tok]): (Option[Expr], List[Tok]) =
+    if !isOp(peek(ts), "=") then (None, ts)
+    else
+      val (e, t) = parseExpr(ts.tail)
+      (Some(e), t)
+
   private def skipType(ts0: List[Tok]): List[Tok] =
     var ts =
       if isPunct(peek(ts0), "(") then
@@ -871,7 +881,9 @@ object Parser:
         if isId(peek(ts), "val") || isId(peek(ts), "var") then ts = ts.tail
         val (fn, fp, t) = expectName(ts)
         ts = skipTypeAnn(t)
-        fields = Param(fn, fp) :: fields
+        val (dflt, tD) = parseDefault(ts)
+        ts = tD
+        fields = Param(fn, fp, dflt) :: fields
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
     ts = expectPunct(ts, ")")
     val (parents, tp) = parseParents(ts)
@@ -1076,7 +1088,9 @@ object Parser:
       while go do
         val (pn, pp, t) = expectName(ts)
         ts = skipTypeAnn(t)
-        params = Param(pn, pp) :: params
+        val (dflt, tD) = parseDefault(ts)
+        ts = tD
+        params = Param(pn, pp, dflt) :: params
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
     ts = expectPunct(ts, ")")
     ts = skipTypeAnn(ts)

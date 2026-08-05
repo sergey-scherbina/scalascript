@@ -632,6 +632,61 @@ object Lower:
         }, res.map(go), p)
       case other => other
 
+  /** Bottom-up rewrite over an expression tree. `selfCalls` deliberately does NOT use this: it has
+    * to shrink its name set inside a lambda whose parameter shadows a method, and a plain walker
+    * carries no scope. Everything scope-INDEPENDENT goes through here rather than growing a third
+    * copy of the same twenty cases. */
+  private def mapDeep(e: Expr, f: Expr => Expr): Expr =
+    def go(x: Expr): Expr = mapDeep(x, f)
+    val rebuilt = e match
+      case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
+      case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+      case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
+      case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
+      case Expr.Not(x, p)               => Expr.Not(go(x), p)
+      case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
+      case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
+      case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
+      case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
+      case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
+      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
+      case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
+      case Expr.Match(sc, arms, p) =>
+        Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
+      case Expr.Block(sts, res, p) =>
+        Expr.Block(sts.map { st => st match
+          case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
+          case Stmt.Exp(x)           => Stmt.Exp(go(x))
+        }, res.map(go), p)
+      case other => other
+    f(rebuilt)
+
+  /** Substitute DEFAULT arguments at the call site. Scala's semantics: the default is an
+    * expression evaluated where the call is, not a value computed once at the declaration — which
+    * is why the parser keeps it unevaluated and this pastes it in.
+    *
+    * Trailing only. A call that omits a MIDDLE argument needs the parameter's name, which is what
+    * named arguments are for; without them, filling from the left is the only unambiguous reading
+    * and a short call to a function whose gap is not at the end stays an honest arity error. */
+  private def fillDefaults(e: Expr, sigs: List[(String, List[Param])]): Expr =
+    mapDeep(e, x => x match
+      case Expr.Call(fn, as, p) =>
+        sigs.find((n, _) => n == fn) match
+          case Some((_, ps)) if as.length < ps.length &&
+                                ps.drop(as.length).forall(q => q.default.isDefined) =>
+            Expr.Call(fn, as ++ ps.drop(as.length).map(q => q.default.get), p)
+          case _ => x
+      case Expr.MethodCall(r, nm, as, p) =>
+        sigs.find((n, _) => n.endsWith("." + nm)) match
+          case Some((_, ps0)) =>
+            // A method's first parameter is the receiver, added when it was flattened.
+            val ps = if ps0.nonEmpty && ps0.head.name == "this" then ps0.tail else ps0
+            if as.length < ps.length && ps.drop(as.length).forall(q => q.default.isDefined) then
+              Expr.MethodCall(r, nm, as ++ ps.drop(as.length).map(q => q.default.get), p)
+            else x
+          case None => x
+      case other => other)
+
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true
     case _                            => false
@@ -831,7 +886,13 @@ object Lower:
         Def(c.name + "." + mm.name, Param("this", mm.pos) :: mm.params, body, mm.pos)
       }
     }
-    val allDefs = (p.defs ++ objectDefs ++ methodDefs) :+ entryDef
+    val allDefs0 = (p.defs ++ objectDefs ++ methodDefs) :+ entryDef
+    // Every callable's signature, so a call site that omits a defaulted argument can be completed
+    // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`
+    // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
+    val sigs: List[(String, List[Param])] =
+      allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
+    val allDefs = allDefs0.map(d => d.copy(body = fillDefaults(d.body, sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
