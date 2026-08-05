@@ -16,6 +16,47 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## package-root-import-needs-an-exports-entry-on-int — and needs nothing on native
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: divergence
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-05 while implementing `native-front-has-no-package-namespace`, checking whether the
+new namespace should honour `exports:`. It should not, and does not — **both lanes expose a
+non-exported name through the package path**, because v1 wraps the whole module in the package
+objects and gates only the flat import bindings. That part agrees.
+
+What does not agree is importing a module BY ITS PACKAGE ROOT when the module declares `exports:`:
+
+```
+--- lib.ssc                     --- main.ssc
+package: p                      [p](./lib.ssc)
+exports:                        println(p.shown())
+  - shown                       println(p.hidden())
+
+def shown()  = "shown"
+def hidden() = "hidden"
+```
+
+```
+int     ->  [ERROR] 'p' is not exported by ./lib.ssc — add it to that module's `exports:` …
+native  ->  shown / hidden      (both fronts)
+```
+
+Adding `p` to `exports:` makes both lanes print `shown / hidden`, so this is only about the ROOT
+name. `SectionRuntime.runImport` checks every binding against `child.exportedNames`, and the link
+`[p]` binds the MODULE, whose name here is the package root — not a member, so the check rejects it.
+Real code mostly binds member names (`[jsonStringify](std/json.ssc)`), which is why nobody hit it.
+
+**Not decided, deliberately.** A package name is a namespace rather than a member, so *"the root is
+always importable"* and *"declare what you export, including the root"* are both defensible; picking
+one silently in a lane fix is how the two lanes drifted in the first place. No gate: writing one
+before the decision would freeze whichever answer runs today.
+
 ## an-example-uses-a-syntax-the-language-does-not-have-and-no-gate-runs-it
 
 <!-- status: open

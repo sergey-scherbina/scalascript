@@ -136,8 +136,13 @@ match sscLoadImps(…) { case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs)
   write through the flat name is not seen through the namespace. `var` is therefore NOT aliased —
   silently exposing a stale copy is worse than not exposing it. Whether package-qualified mutable
   state must work is a separate decision.
-- **`exports:` is not consulted yet.** Every top-level `def`/`val`/`object` of the module becomes a
-  member. v1 gates the flat import bindings on `exports:` but not this path.
+- **`exports:` does not gate the namespace, and that MATCHES v1** — measured, not assumed. A module
+  exporting only `shown` still answers `p.hidden()` on both lanes, because v1 wraps the whole module
+  in the package objects and gates only the flat import bindings. Where the two lanes differ is
+  narrower and is filed as `package-root-import-needs-an-exports-entry-on-int`: with `exports:`
+  declared but the package ROOT absent from it, `[p](./lib.ssc)` is refused outright by the
+  interpreter (`'p' is not exported by ./lib.ssc`) and accepted here. Adding `p` to `exports:` makes
+  both lanes agree.
 - **The stub member `__pkg`** exists because a registration object must be non-empty. It is
   reachable as `a.__pkg`. Harmless, and the alternative — teaching the front to register an empty
   object — is a front change for a cosmetic gain.
