@@ -1,0 +1,11 @@
+slug: uniml-typed-ast
+branch: feature/uniml-typed-ast
+agent: claude-code
+started: 2026-08-05T14:05:12Z
+heartbeat: 2026-08-05T14:05:12Z
+status: claimed-before-planning
+items: SSC3-P UNIML-SSC3
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SpikeTypedCoverageSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedIfSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedRolesSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeTypedShapeSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SpikeTypedAgreementSpec.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
