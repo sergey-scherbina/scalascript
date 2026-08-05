@@ -1,7 +1,7 @@
 package scalascript.uniml.ssc
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.uniml.UniNode
+import scalascript.uniml.{SourceSpan, UniNode}
 import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
 import java.nio.file.{Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
@@ -33,6 +33,29 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     * reaches the AST or is named by an `Unsupported`. Raising this to admit a new drop would give
     * back the property the census exists to hold — say `Unsupported` instead. */
   private val DroppedCeiling = 0
+
+  /** Token kinds that can carry program meaning — a name or a literal.
+    *
+    * NOT sufficient on its own, and the first version of this census learned that from its own
+    * output: it reported `var.kw -> spike.id` 1,437 times. **This dialect lexes keywords as
+    * identifiers** — `var`, `while`, `throw`, `for`, `new`, `import` are all `spike.id`, dispatched
+    * on their LEXEME the way the reference front does — so a rule keyed on the token kind calls
+    * every keyword in the corpus a dropped name. The ROLE is what separates them. */
+  private val ContentKinds = Set("spike.id", "spike.uid", "spike.int", "spike.float", "spike.str")
+
+  /** Roles naming SYNTAX — punctuation and keywords, which an AST is supposed to discard; that
+    * discarding is the whole difference between an AST and a CST.
+    *
+    * A suffix list rather than a full role table, because the dialect names these by convention
+    * (`if.kw`, `call.open`, `def.comma`) and a suffix cannot go stale the way an enumeration of
+    * every role would. It is still a judgement, and it is stated here rather than hidden in a
+    * predicate: anything NOT matching is treated as content and must be read or reported. */
+  private val SyntaxRoleSuffixes = Vector(
+    "kw", "open", "close", "comma", "dot", "colon", "semi", "eq", "arrow", "lparen", "rparen",
+    "lbrace", "rbrace", "lbracket", "rbracket", "class", "case", "tok", "derive", "noop.tok")
+
+  private def isSyntaxRole(role: String): Boolean =
+    SyntaxRoleSuffixes.exists(s => role == s || role.endsWith("." + s))
 
   private def repoRoot: Path =
     Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
@@ -96,10 +119,14 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     // Floors, not equalities: adding modelled nodes must not force a number to
     // move, but a regression in what is modelled has to fail.
     assert(nodes > 100000, s"only $nodes nodes reached the projection — the composer path broke")
-    // Raised 95.0 → 99.0 once the measurement reached 99.7%. A floor four points below the truth
-    // stopped being a gate: it is what let a 96.5% reading pass while every `if` in the corpus
-    // modelled both its branches as the words `then` and `else`.
-    assert(ofParsed > 99.0, f"typed coverage of parsed nodes fell to $ofParsed%.1f%%")
+    // 95.0 → 99.0 → 99.9, each raise following a measurement rather than leading it. A floor four
+    // points below the truth stopped being a gate: it is what let a 96.5% reading pass while every
+    // `if` in the corpus modelled both its branches as the words `then` and `else`.
+    //
+    // The 28 remaining gaps are all parse-recovery holes — `missing.right` is an infix whose right
+    // operand the DIALECT diagnosed as absent — so they are breadth (SSC3-B), not typing. There is
+    // no construct left that this projection does not model.
+    assert(ofParsed > 99.9, f"typed coverage of parsed nodes fell to $ofParsed%.2f%%")
   }
 
   /** The gap the number above CANNOT see, and the reason it reads high.
@@ -117,12 +144,19 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     * that projected as `Unsupported`, whose subtree is already counted above and is not a second
     * gap.
     *
-    * BRANCH children only, and the limitation is deliberate rather than an oversight: a token is
-    * frequently consumed as a STRING (`def.name`, `sel.field`, `cc.field`), which leaves a name
-    * in the AST but no node and therefore no span. Counting tokens here would report every
-    * identifier in the corpus as dropped. Token-level drops are real too — `(x)` projecting as
-    * `UnitLit` is one — and are asserted by SHAPE in `SpikeTypedRolesSpec` instead of by count. */
-  test("every CST subtree the projection silently drops is named and counted") {
+    * TOKENS COUNT TOO, and getting there took a second measurement rather than a cleverer
+    * inference. A token read for its lexeme becomes a `String` field and leaves no span, so
+    * judging tokens by the AST's spans alone would report every identifier in the corpus as
+    * dropped. The first version of this census therefore restricted itself to BRANCH children and
+    * SAID SO — and that stated blind spot is precisely where `group.elem` had been hiding, since
+    * `(x)` projecting as `UnitLit` loses a TOKEN. It was found by reading the dialect, not by
+    * measuring, which is not a method that scales.
+    *
+    * So the projection now reports what it read: `SpikeTyped.traced` records every span consumed
+    * as text, in `lex` and `text`, which are the only two places text is read. Consumed means
+    * "became a node OR was read as text", and both halves are now facts from the projection
+    * instead of inferences about it. */
+  test("every CST node the projection silently drops is named and counted") {
     val root = repoRoot
     val files = corpusFiles(root)
 
@@ -133,9 +167,9 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
 
     files.foreach { p =>
       scalaSubtrees(SscCompose.parse(new String(Files.readAllBytes(p), "UTF-8")).root).foreach { sr =>
-        val ast = SpikeTyped.module(sr)
+        val (ast, readAsText) = SpikeTyped.traced(sr)
         val all = SpikeAst.walk(ast)
-        val seen = all.map(_.span).toSet
+        val seen = all.map(_.span).toSet ++ readAsText
         val gaps = all.collect {
           case SpikeAst.Unsupported(_, s)     => s
           case SpikeAst.UnsupportedDecl(_, s) => s
@@ -151,20 +185,38 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
           case b: UniNode.Branch => seen.contains(b.span) || b.edges.exists(e => reached(e.child))
           case UniNode.Token(t)  => seen.contains(t.span)
 
+        def note(parent: String, role: String, what: String, at: SourceSpan): Unit =
+          dropped += 1
+          val key = s"$parent / $role -> $what"
+          dropKinds(key) = dropKinds.getOrElse(key, 0) + 1
+          dropWhere.getOrElseUpdate(key, s"${root.relativize(p)}:${at.start.line}")
+
         def descend(n: UniNode): Unit = n match
           case b: UniNode.Branch =>
             branches += 1
             b.edges.foreach { e =>
+              val role = e.role.getOrElse("«no role»")
               e.child match
                 case c: UniNode.Branch =>
-                  val role = e.role.getOrElse("«no role»")
                   if gaps.contains(c.span) then ()          // an honest gap, counted by the test above
                   else if reached(c) then descend(c)
-                  else
-                    dropped += 1
-                    val key = s"${b.kind} / $role -> ${c.kind}"
-                    dropKinds(key) = dropKinds.getOrElse(key, 0) + 1
-                    dropWhere.getOrElseUpdate(key, s"${root.relativize(p)}:${c.span.start.line}")
+                  else note(b.kind, role, c.kind, c.span)
+                // A token the AST may discard is SYNTAX — `if.kw`, `call.open`, `def.comma`.
+                // Discarding those is what makes an AST an AST. What it may NOT discard is a name
+                // or a literal. Both tests are needed and the KIND alone is not enough: this
+                // dialect lexes keywords as identifiers, so `var.kw` is a `spike.id` and a
+                // kind-only rule called 1,437 `var`s dropped names.
+                //
+                // `unparsed` and `trivia` are skipped for the same reason `SpikeTyped.kids` skips
+                // them: they are tokens the DIALECT did not parse, which is breadth (SSC3-B) and
+                // already counted as parse errors above. Charging them to the projection would
+                // bill one problem to the other — and at 9,000-odd rows it would have drowned
+                // every real finding.
+                case UniNode.Token(t)
+                    if ContentKinds.contains(t.kind) && !isSyntaxRole(role) &&
+                      !role.contains("unparsed") && !role.contains("trivia") =>
+                  if gaps.contains(t.span) || seen.contains(t.span) then ()
+                  else note(b.kind, role, t.kind, t.span)
                 case _ => ()
             }
           case _ => ()

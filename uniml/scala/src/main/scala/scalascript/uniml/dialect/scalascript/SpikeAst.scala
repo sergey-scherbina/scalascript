@@ -42,24 +42,34 @@ object SpikeAst:
     * node a `def`'s and a case class's are, because the CST gives all three the same shape. */
   final case class EnumCase(name: String, fields: Vector[Param], span: SourceSpan) extends Node
   final case class Given(name: Option[String], tpe: Option[TypeRef], body: Option[Expr], span: SourceSpan) extends Decl
-  final case class Extension(defs: Vector[Def], span: SourceSpan) extends Decl
+  /** `extension (r: T) def m … `. The RECEIVER was dropped for the whole corpus — an extension
+    * method without the thing it extends is not a smaller AST, it is a wrong one. Found by the
+    * token census only after that census learned to judge tokens, since `ext.recv` is a token. */
+  final case class Extension(recv: Option[Param], defs: Vector[Def], span: SourceSpan) extends Decl
   /** A top-level expression statement — `.ssc` allows them, and they are 96% of
     * the corpus's declaration slots, so modelling them is not an edge case. */
   final case class TopExpr(expr: Expr, span: SourceSpan) extends Decl
   final case class ObjectDecl(name: String, members: Vector[Decl], span: SourceSpan) extends Decl
-  /** A declaration the dialect parses and deliberately keeps NOTHING of: `import a.b.c`, the
-    * Markdown link-import `[name](path)`, and an anonymous `given`. All three frame as
-    * `spike.sealed`, a parse-only no-op for the v2 front, which resolves imports by other means.
+  /** `given n: T with { defs }` — a typeclass instance. Distinct from `Given` because it has
+    * MEMBERS rather than a right-hand side, which is the whole difference at the use site. */
+  final case class GivenObject(name: Option[String], tpe: Option[TypeRef], members: Vector[Decl], span: SourceSpan)
+      extends Decl
+  /** `effect E { ops }` / `multi effect E { ops }` — multi-shot when `multi` is present. */
+  final case class EffectDecl(name: String, multi: Boolean, ops: Vector[Decl], span: SourceSpan) extends Decl
+  /** An anonymous `given` — parsed, and genuinely carrying nothing. It shares the `spike.sealed`
+    * kind with imports, so telling the two apart is what the roles are for.
     *
-    * It carries no payload, and that is a statement about the CST rather than a shortcut here.
-    * `ScalaSpike.parseImportStmt` CONSUMES the dotted path without attaching it, then calls
-    * `sealedNoop`, which builds the frame from a single carrier token. So the path is not reachable
-    * from this node — not dropped by the projection, absent from the frame.
-    *
-    * This was found by asserting the path was there and watching it fail, and it MATTERS BEYOND
-    * this projection: a v3 front on UniML has to resolve imports, and the CST as it stands cannot
-    * tell it what is imported. Filed in `uniml/BACKLOG.md` as a dialect-side gap. */
+    * Carrying nothing is a fact about the construct here, not a shortcut. It used to be a fact
+    * about IMPORTS too, and that was a defect rather than a property: see `ImportDecl`. */
   final case class NoOpDecl(span: SourceSpan) extends Decl
+
+  /** `import a.b.c`, `import a.b.{x, y}`, `import a.b.*`, and the Markdown link-import
+    * `[name](path)`. `wildcard` is the `.*` form; `selectors` the `{x, y}` names.
+    *
+    * The path was NOT always reachable — see `NoOpDecl` above for what it looked like before, and
+    * why a count could never have found it. */
+  final case class ImportDecl(path: String, selectors: Vector[String], wildcard: Boolean, span: SourceSpan)
+      extends Decl
   final case class UnsupportedDecl(kind: String, span: SourceSpan) extends Decl
 
   final case class Param(name: String, tpe: Option[TypeRef], default: Option[Expr], using_ : Boolean, span: SourceSpan)
@@ -97,6 +107,44 @@ object SpikeAst:
     * parts are not subtrees that could be dropped. Splitting them is a re-lex, and it belongs
     * wherever the interpolation is given meaning, not here. */
   final case class Interp(prefix: String, raw: String, span: SourceSpan) extends Expr
+  final case class Throw(value: Expr, span: SourceSpan) extends Expr
+  /** `try b catch h finally f`. The handler is an expression, not a list of arms: the dialect
+    * accepts a partial-function literal, a braceless `case` run, or any `PartialFunction` VALUE
+    * (`ScalaSpike.parseTry`), and flattening the first two into arms would misrepresent the
+    * third as something it is not. */
+  final case class Try(body: Expr, handler: Option[Expr], finalizer: Option[Expr], span: SourceSpan) extends Expr
+  final case class For(gens: Vector[ForGen], body: Expr, isYield: Boolean, span: SourceSpan) extends Expr
+  /** One `x <- xs if p` of a for-comprehension. Several binders mean a tuple binder — the dialect
+    * records them flat and lets the count say so (`ScalaSpike.parseForGen`). */
+  final case class ForGen(binders: Vector[String], source: Expr, guard: Option[Expr], span: SourceSpan) extends Node
+  /** `a to b` / `a until b` — `to` and `until` are identifiers, not operators, so they are their
+    * own node rather than an `Infix`. */
+  final case class RangeOp(op: String, from: Expr, to: Expr, span: SourceSpan) extends Expr
+  /** `summon[T]`. The payload is the WHOLE type application as one string, joined without
+    * separators, because that is what the dialect captures and what resolution matches on —
+    * keeping only the head (`Show` of `Show[Int]`) never matches an instance. */
+  final case class Summon(tpe: String, span: SourceSpan) extends Expr
+  /** `{ case … }` — a partial-function literal. */
+  final case class PartialFn(arms: Vector[Arm], span: SourceSpan) extends Expr
+  final case class Quote(body: Expr, span: SourceSpan) extends Expr
+  final case class Splice(body: Expr, span: SourceSpan) extends Expr
+  final case class QuotedName(name: String, span: SourceSpan) extends Expr
+  /** A `def` in statement position — a local function. `Block` holds expressions, so this is the
+    * wrapper that lets one hold a declaration without `Block` becoming a list of `Node`. */
+  final case class LocalDef(decl: Def, span: SourceSpan) extends Expr
+  /** `???` — `Predef.???`, which the dialect gives its own leaf because it lowers to a prim. */
+  final case class NotImplemented(span: SourceSpan) extends Expr
+  /** `xs(i) = v` — an index assignment, distinct from `Assign` because the target is a call. */
+  final case class IndexAssign(target: Expr, value: Expr, span: SourceSpan) extends Expr
+  /** `x += 1`. The written operator is kept rather than desugared to `x = x + 1`: the CST says
+    * `+=`, and desugaring is a lowering decision. */
+  final case class CompoundAssign(name: String, op: String, value: Expr, span: SourceSpan) extends Expr
+  /** `val (a, b) = e` — a destructuring val. */
+  final case class TupleVal(names: Vector[String], rhs: Expr, span: SourceSpan) extends Expr
+  /** `direct[F] { … }` and the optics markers `Focus`/`Prism`. They erase to their contents for
+    * this dialect — it parses the language, it does not run the DSL — but they are what was
+    * written, so they are kept rather than unwrapped. */
+  final case class Marker(name: String, inner: Option[Expr], typeArgs: Vector[String], span: SourceSpan) extends Expr
   /** A CST shape this projection does not model yet. Never silently dropped. */
   final case class Unsupported(kind: String, span: SourceSpan) extends Expr
 
@@ -133,13 +181,28 @@ object SpikeAst:
     case EnumDecl(_, cs, _)       => cs.flatMap(walk)
     case EnumCase(_, fs, _)       => fs.flatMap(walk)
     case Given(_, t, b, _)        => t.toVector.flatMap(walk) ++ b.toVector.flatMap(walk)
-    case Extension(ds, _)         => ds.flatMap(walk)
+    case Extension(r, ds, _)      => r.toVector.flatMap(walk) ++ ds.flatMap(walk)
     case Infix(_, l, r, _)        => walk(l) ++ walk(r)
     case Prefix(_, e, _)          => walk(e)
     case Apply(f, as, _)          => walk(f) ++ as.flatMap(walk)
     case NamedArg(_, v, _)        => walk(v)
     case ListLit(es, _)           => es.flatMap(walk)
     case BlockApply(f, a, _)      => walk(f) ++ walk(a)
+    case Throw(v, _)              => walk(v)
+    case Try(b, h, f, _)          => walk(b) ++ h.toVector.flatMap(walk) ++ f.toVector.flatMap(walk)
+    case For(gs, b, _, _)         => gs.flatMap(walk) ++ walk(b)
+    case ForGen(_, s, g, _)       => walk(s) ++ g.toVector.flatMap(walk)
+    case RangeOp(_, f, t, _)      => walk(f) ++ walk(t)
+    case PartialFn(as, _)         => as.flatMap(walk)
+    case Quote(b, _)              => walk(b)
+    case Splice(b, _)             => walk(b)
+    case LocalDef(d, _)           => walk(d)
+    case IndexAssign(t, v, _)     => walk(t) ++ walk(v)
+    case CompoundAssign(_, _, v, _) => walk(v)
+    case TupleVal(_, r, _)        => walk(r)
+    case Marker(_, i, _, _)       => i.toVector.flatMap(walk)
+    case GivenObject(_, t, ms, _) => t.toVector.flatMap(walk) ++ ms.flatMap(walk)
+    case EffectDecl(_, _, ops, _) => ops.flatMap(walk)
     case Select(r, _, _)          => walk(r)
     case If(c, t, e, _)           => walk(c) ++ walk(t) ++ e.toVector.flatMap(walk)
     case Block(ss, _)             => ss.flatMap(walk)

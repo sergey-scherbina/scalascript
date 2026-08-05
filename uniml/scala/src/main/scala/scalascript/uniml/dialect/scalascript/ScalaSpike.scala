@@ -1236,22 +1236,38 @@ object SpikeParse:
 
   // `import a.b.c` / `import a.b.{x, y}` / `import a.b.*` — parse-only no-op (ssc1-front.ssc0:2485 → sealed).
   // Consume exactly the dotted path (+ optional `{…}` group / `.*` wildcard), like ssc1-front's skipPath.
+  // The PATH IS ATTACHED, and it did not used to be. Every token here was consumed and thrown
+  // away, so the frame carried one token and `import a.b.c` was indistinguishable from
+  // `import x.y` — correct for the v2 front, which resolves imports elsewhere and reads this as
+  // `Pair("sealed", "")`, and useless for the role UniML is being readied for: a v3 front on this
+  // tree has to build a module graph and there was nothing to build it from. Found by the typed
+  // projection asserting the path was there and failing.
+  //
+  // The KIND stays `spike.sealed` deliberately. `SpikeProject` matches on it and returns a
+  // constant, so extra children change nothing for the v2 lane; a new kind would have needed a
+  // change there and in every kind census. Consumers that want the path read the roles.
   private def parseImportStmt(c: Cur): Node =
-    val t0 = c.peek // carrier for the no-op frame (see sealedNoop)
-    c.advance() // `import`
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.kw"))) // `import`
     var go = true
     while go do
       if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then
-        c.advance()
-        if c.peekKind == "spike.dot" then c.advance() else go = false
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.seg")))
+        if c.peekKind == "spike.dot" then c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.dot")))
+        else go = false
       else if c.peekKind == "spike.lbrace" then
-        c.advance()
-        while c.peekKind != "spike.rbrace" && !c.eof do c.advance()
-        if c.peekKind == "spike.rbrace" then c.advance()
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok"))) // `{`
+        while c.peekKind != "spike.rbrace" && !c.eof do
+          // a selector group `{x, y}` — the names are segments, the commas are punctuation
+          val role = if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then "imp.sel" else "imp.tok"
+          c.advance().foreach(t => kids += Node.Leaf(t, Some(role)))
+        if c.peekKind == "spike.rbrace" then c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
         go = false
-      else if c.peekLexeme == "*" then { c.advance(); go = false }
+      else if c.peekLexeme == "*" then
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.wildcard")))
+        go = false
       else go = false
-    sealedNoop(t0)
+    Node.Frame("spike.sealed", None, kids.result())
 
   // topLevel: ssc1-front handles `import` ONLY in parseOneStmt (its TOP-LEVEL statement parser,
   // ssc1-front.ssc0:2526). Inside a block `import` is just a keyword in atom position, and parseAtom's

@@ -14,12 +14,40 @@ import SpikeAst.*
   * so coverage is a number rather than an impression. */
 object SpikeTyped:
 
+  /** Spans read AS TEXT during a `traced` projection — the census's missing half.
+    *
+    * A projected node carries the span of the CST node it came from, so anything that becomes a
+    * node is provably consumed. A token read for its LEXEME becomes a `String` field instead, and
+    * leaves no span behind: `def.name`, `sel.field`, `cc.field` are all consumed and all invisible.
+    * The drop census therefore had to restrict itself to BRANCH children, and that blind spot is
+    * exactly where `group.elem` hid — `(x)` projecting as `UnitLit` was found by reading the
+    * dialect, not by measuring, and the next one like it might not be.
+    *
+    * Every text read in this file goes through `lex` or `text`, so recording in those two places
+    * is complete by construction rather than by a list someone maintains. A `ThreadLocal` keeps
+    * concurrent test classes from seeing each other's reads; untraced projection pays one null
+    * check per read and allocates nothing. */
+  private val trace = new ThreadLocal[scala.collection.mutable.Set[SourceSpan]]
+
+  private def touch(n: UniNode): Unit =
+    val t = trace.get()
+    if t != null then t += span(n)
+
+  /** Project, and report every CST span the projection actually consumed — as a node OR as text.
+    *
+    * This exists so the coverage census can ask "did this reach the AST" of a TOKEN and get a
+    * true answer instead of an inference. It is also the honest basis for a source map later. */
+  def traced(root: UniNode): (Module, Set[SourceSpan]) =
+    val seen = scala.collection.mutable.Set.empty[SourceSpan]
+    trace.set(seen)
+    try (module(root), seen.toSet) finally trace.remove()
+
   private def span(n: UniNode): SourceSpan = n match
     case UniNode.Token(t)          => t.span
     case b: UniNode.Branch         => b.span
 
   private def lex(n: UniNode): String = n match
-    case UniNode.Token(t) => t.lexeme
+    case UniNode.Token(t) => touch(n); t.lexeme
     case _                => ""
 
   /** The source text of a node, branch or token.
@@ -31,8 +59,8 @@ object SpikeTyped:
     * value standing in for a subtree nobody read. Types are captured as token runs
     * (`ScalaSpike.captureType`), so concatenating is exactly how the reference reads them. */
   private def text(n: UniNode): String = n match
-    case UniNode.Token(t)  => t.lexeme
-    case b: UniNode.Branch => b.edges.map(e => text(e.child)).mkString
+    case UniNode.Token(t)  => touch(n); t.lexeme
+    case b: UniNode.Branch => touch(n); b.edges.map(e => text(e.child)).mkString
 
   private def typeRef(n: UniNode): TypeRef = TypeRef(text(n), span(n))
 
@@ -57,6 +85,15 @@ object SpikeTyped:
 
   private def allByRole(n: UniNode, role: String): Vector[UniNode] =
     kids(n).collect { case (Some(r), c) if r == role => c }
+
+  /** A role read as a FLAG — its presence is the whole payload (`for.yield`, `eff.multi`,
+    * `imp.wildcard`).
+    *
+    * It goes through `lex` rather than `isDefined` so the read is RECORDED. Testing presence alone
+    * consumes the token without leaving a trace, and the drop census — which learns what was
+    * consumed from the projection itself — then reports 22 perfectly-handled `yield`s and 13
+    * `multi`s as dropped. Found exactly that way. */
+  private def flag(n: UniNode, role: String): Boolean = byRole(n, role).map(lex).isDefined
 
   def module(root: UniNode): Module =
     Module(kids(root).map((_, c) => decl(c)), span(root))
@@ -85,16 +122,38 @@ object SpikeTyped:
     case "spike.given"     =>
       Given(byRole(n, "given.name").map(lex), byRole(n, "given.type").map(typeRef),
             byRole(n, "given.body").map(expr), span(n))
-    case "spike.extension" => Extension(kids(n).collect { case (_, c) if kind(c) == "spike.def" => defDecl(c) }, span(n))
+    case "spike.extension" =>
+      Extension(slots(n, "ext.recv", Set("ext.recvType"), "ext.dflt").headOption,
+                kids(n).collect { case (_, c) if kind(c) == "spike.def" => defDecl(c) }, span(n))
     case "spike.exprStmt"  => TopExpr(byRole(n, "stmt.expr").map(expr).getOrElse(UnitLit(span(n))), span(n))
     case "spike.object"    => ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "obj.member").map(decl), span(n))
     case "spike.val"       => TopExpr(valOf(n, "val"), span(n))
     case "spike.var"       => TopExpr(valOf(n, "var"), span(n))
-    // `import a.b.c`, a link-import and an anonymous `given` all frame as `spike.sealed`
-    // (`ScalaSpike.scala:1195`, :469, :1214). The frame holds ONE carrier token: `parseImportStmt`
-    // consumes the dotted path without attaching it, so there is no payload to project. Modelled
-    // as the no-op it is, rather than claimed as an import whose path this cannot supply.
-    case "spike.sealed"    => NoOpDecl(span(n))
+    // Statements that `.ssc` also allows at TOP LEVEL. `expr` already models each of them; only
+    // the declaration slot was missing, so they read as unmodelled constructs while the identical
+    // node inside a block projected fine — 65 of them, and a pure routing gap.
+    case "spike.while" | "spike.assign" | "spike.idxassign" | "spike.compoundassign" | "spike.tuppatval" =>
+      TopExpr(expr(n), span(n))
+    // `given n: T with { defs }` — MEMBERS, not a right-hand side, which is why it is not `Given`.
+    case "spike.givenobj"  =>
+      GivenObject(byRole(n, "given.name").map(lex), byRole(n, "given.type").map(typeRef),
+                  allByRole(n, "obj.member").map(decl), span(n))
+    // `given n = body` with no ascribed type — a plain val in given's clothing.
+    case "spike.givenval"  =>
+      Given(byRole(n, "given.name").map(lex), None, byRole(n, "given.body").map(expr), span(n))
+    case "spike.effectdecl" =>
+      EffectDecl(byRole(n, "eff.name").map(lex).getOrElse("_"), flag(n, "eff.multi"),
+                 allByRole(n, "eff.op").map(decl), span(n))
+    // `import a.b.c`, a link-import and an anonymous `given` all share the `spike.sealed` kind.
+    // The first two now carry their path (`imp.seg` / `imp.tok`); the third genuinely carries
+    // nothing, and telling them apart is what having the roles buys.
+    case "spike.sealed" =>
+      val segs = allByRole(n, "imp.seg").map(lex) ++ allByRole(n, "imp.tok").map(lex).filter(_.nonEmpty)
+      if segs.isEmpty then NoOpDecl(span(n))
+      else
+        ImportDecl(allByRole(n, "imp.seg").map(lex).mkString("."),
+                   allByRole(n, "imp.sel").map(lex),
+                   flag(n, "imp.wildcard"), span(n))
     case other             => UnsupportedDecl(other, span(n))
 
   private def valOf(n: UniNode, kw: String): Expr =
@@ -127,13 +186,24 @@ object SpikeTyped:
     flush()
     out.result()
 
+  /** One `x <- xs if p`. Two or more binders mean a TUPLE binder — the dialect records them flat
+    * and lets the count carry that, so the projection does the same rather than inventing a shape
+    * the CST does not have. */
+  private def forGen(n: UniNode): ForGen =
+    ForGen(allByRole(n, "gen.binder").map(lex),
+           byRole(n, "gen.gen").map(expr).getOrElse(Unsupported("missing.source", span(n))),
+           byRole(n, "gen.guard").map(expr), span(n))
+
   private def enumCase(n: UniNode): EnumCase =
     EnumCase(byRole(n, "ec.name").map(lex).getOrElse("_"),
              slots(n, "ec.field", Set("ec.fieldType"), "ec.dflt"), span(n))
 
   private def defDecl(n: UniNode): Def =
     Def(
-      byRole(n, "def.name").map(lex).getOrElse("_"),
+      // A DOTTED name is `def.name` plus one `def.nameseg` per segment — `def Source.distributed`
+      // (`ScalaSpike.scala:644`). Reading only `def.name` kept `Source` and lost the method, for
+      // 40 defs in the corpus. The reference has the same blind spot; it does not need the name.
+      (byRole(n, "def.name").map(lex).getOrElse("_") +: allByRole(n, "def.nameseg").map(lex)).mkString("."),
       slots(n, "def.param", Set("def.paramType", "def.usingtype"), "def.dflt"),
       byRole(n, "def.retType").map(typeRef),
       byRole(n, "def.body").map(expr).getOrElse(UnitLit(span(n))),
@@ -181,6 +251,10 @@ object SpikeTyped:
         case "spike.str"   => StrLit(SpikeStr.decode(t.lexeme), t.span)
         case "spike.id"    => Ident(t.lexeme, t.span)
         case "spike.uid"   => Ident(t.lexeme, t.span)
+        case "spike.qname" => QuotedName(t.lexeme, t.span)
+        // `???` lexes as an operator; the dialect gives it its own leaf role because it lowers to
+        // a prim. Named here so it stops reading as an unmodelled operator.
+        case "spike.op" if t.lexeme == "???" => NotImplemented(t.span)
         case other         => Unsupported(other, t.span)
     case b: UniNode.Branch =>
       b.kind match
@@ -249,9 +323,46 @@ object SpikeTyped:
         case "spike.interp" =>
           Interp(byRole(b, "interp.prefix").map(lex).getOrElse("s"),
                  byRole(b, "interp.raw").map(t => SpikeStr.decode(lex(t))).getOrElse(""), span(b))
+        case "spike.throw" =>
+          Throw(byRole(b, "throw.expr").map(expr).getOrElse(Unsupported("missing.throw", span(b))), span(b))
+        case "spike.try" =>
+          Try(byRole(b, "try.body").map(expr).getOrElse(UnitLit(span(b))),
+              byRole(b, "try.catch").map(expr), byRole(b, "try.finally").map(expr), span(b))
+        case "spike.for" =>
+          For(allByRole(b, "for.gen").map(forGen), byRole(b, "for.body").map(expr).getOrElse(UnitLit(span(b))),
+              flag(b, "for.yield"), span(b))
+        case "spike.rangeop" =>
+          RangeOp(byRole(b, "range.op").map(lex).getOrElse("to"),
+                  byRole(b, "range.lhs").map(expr).getOrElse(Unsupported("missing.lhs", span(b))),
+                  byRole(b, "range.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
+        // The WHOLE type application, joined without separators — `Show[Int]`, not `Show`. The
+        // reference is explicit that keeping only the head never matches an instance.
+        case "spike.summon"  => Summon(allByRole(b, "summon.tok").map(lex).mkString, span(b))
+        case "spike.pfblock" => PartialFn(kids(b).collect { case (_, c) if kind(c) == "spike.arm" => arm(c) }, span(b))
+        case "spike.quote"   => Quote(byRole(b, "quote.body").map(expr).getOrElse(UnitLit(span(b))), span(b))
+        case "spike.splice"  => Splice(byRole(b, "splice.body").map(expr).getOrElse(UnitLit(span(b))), span(b))
+        case "spike.def"     => LocalDef(defDecl(b), span(b))
+        case "spike.idxassign" =>
+          IndexAssign(byRole(b, "idxassign.lhs").map(expr).getOrElse(Unsupported("missing.lhs", span(b))),
+                      byRole(b, "idxassign.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
+        case "spike.tuppatval" =>
+          TupleVal(allByRole(b, "tup.name").map(lex),
+                   byRole(b, "val.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
+        case "spike.direct" =>
+          Marker("direct", byRole(b, "direct.block").map(expr),
+                 kids(b).collect { case (r, c) if !r.contains("direct.block") => lex(c) }.filter(_.nonEmpty), span(b))
+        case "spike.focusmarker" | "spike.prism" | "spike.directmarker" =>
+          val cs = kids(b).map((_, c) => c)
+          Marker(b.kind.stripPrefix("spike."), cs.headOption.map(expr), cs.drop(1).map(lex).filter(_.nonEmpty), span(b))
         case "spike.assign" =>
           Assign(byRole(b, "assign.name").map(lex).getOrElse("_"),
                  byRole(b, "assign.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
+        // `x += 1`. The base operator is the lexeme minus its `=`, and keeping the WRITTEN form
+        // rather than desugaring to `x = x + 1` is the projection's job: the CST says `+=`.
+        case "spike.compoundassign" =>
+          CompoundAssign(byRole(b, "ca.name").map(lex).getOrElse("_"),
+                         byRole(b, "ca.op").map(lex).getOrElse("+="),
+                         byRole(b, "ca.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
         case other => Unsupported(other, span(b))
 
   private def arm(n: UniNode): Arm =

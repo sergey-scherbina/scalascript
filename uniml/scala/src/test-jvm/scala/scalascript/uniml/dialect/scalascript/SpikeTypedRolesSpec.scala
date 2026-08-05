@@ -243,19 +243,122 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
       case other => fail(s"expected one Interp, got $other")
   }
 
-  test("an import is the no-op the CST records, and its PATH is not recoverable") {
-    // This test was written asserting the path was there, and failing it is what found the gap:
-    // `parseImportStmt` consumes `a.b.c` without attaching it and frames a single carrier token,
-    // so `import a.b.c` and `import x.y` are indistinguishable in the tree. Pinned here so that a
-    // dialect change which starts keeping the path is NEWS rather than a silent improvement — and
-    // so nobody builds import resolution on this node believing it carries one.
+  test("an import carries its path") {
+    // This assertion is what FOUND the gap: it was written, it failed, and the failure was the
+    // finding — `parseImportStmt` consumed `a.b.c` and threw it away, so two different imports
+    // produced indistinguishable nodes. The fix went into the dialect, which is where the path was
+    // missing; this is now the regression test for it.
     val ds = decls("import a.b.c\ndef main(): Int = 0")
-    assert(ds.collect { case n: SpikeAst.NoOpDecl => n }.sizeIs == 1,
-           s"expected one NoOpDecl, got ${ds.map(_.getClass.getSimpleName)}")
-    val one = project("import a.b.c\ndef main(): Int = 0").decls.head
-    val two = project("import x.y\ndef main(): Int = 0").decls.head
-    assert(one.getClass == two.getClass && one.isInstanceOf[SpikeAst.NoOpDecl],
-           "both imports should project to the same contentless node")
+    ds.collect { case i: SpikeAst.ImportDecl => i } match
+      case Vector(i) => assert(i.path == "a.b.c", s"import path is ${i.path}")
+      case other     => fail(s"expected one ImportDecl, got ${ds.map(_.getClass.getSimpleName)} / $other")
+  }
+
+  test("two different imports are DISTINGUISHABLE — the property that was missing") {
+    val one = decls("import a.b.c\ndef main(): Int = 0").collect { case i: SpikeAst.ImportDecl => i }.head
+    val two = decls("import x.y\ndef main(): Int = 0").collect { case i: SpikeAst.ImportDecl => i }.head
+    assert(one.path != two.path, s"both imports projected as ${one.path}")
+  }
+
+  test("a selector import and a wildcard import keep what distinguishes them") {
+    val sel = decls("import a.b.{x, y}\ndef main(): Int = 0").collect { case i: SpikeAst.ImportDecl => i }.head
+    assert(sel.selectors == Vector("x", "y"), s"selectors are ${sel.selectors}")
+    val wild = decls("import a.b.*\ndef main(): Int = 0").collect { case i: SpikeAst.ImportDecl => i }.head
+    assert(wild.wildcard, "the `.*` form should be marked as a wildcard")
+    assert(!sel.wildcard, "a selector import is not a wildcard")
+  }
+
+  test("an anonymous given is still a genuine no-op, not an import with an empty path") {
+    // The two share the `spike.sealed` kind, so the projection has to tell them apart by roles.
+    val ds = decls("given Int = 1\ndef main(): Int = 0")
+    assert(ds.collect { case i: SpikeAst.ImportDecl => i }.isEmpty,
+           s"an anonymous given projected as an import: ${ds.map(_.getClass.getSimpleName)}")
+  }
+
+  // ── 7. what only a TOKEN-aware census could find ──────────────────────────────────────────
+  // Both of these are tokens, so the branch-only census was blind to them by construction and the
+  // shape tests did not cover them because nobody thought to. They were found the moment the
+  // census could judge a token — which is the argument for measuring rather than for reading
+  // harder.
+
+  test("an extension keeps its RECEIVER") {
+    val e = decls("extension (s: Int) def twice(): Int = s\ndef main(): Int = 0").collect {
+      case e: SpikeAst.Extension => e
+    }.head
+    assert(e.defs.map(_.name) == Vector("twice"), s"methods are ${e.defs.map(_.name)}")
+    e.recv match
+      case Some(p) =>
+        assert(p.name == "s", s"receiver name is ${p.name}")
+        assert(p.tpe.map(_.text).contains("Int"), s"receiver type is ${p.tpe}")
+      case None => fail("the extension receiver was dropped — an extension without it is wrong, not smaller")
+  }
+
+  test("a dotted def name keeps every segment") {
+    val d = defs("def Source.distributed(): Int = 1").head
+    assert(d.name == "Source.distributed", s"dotted def name projected as ${d.name}")
+  }
+
+  // ── 8. the remaining constructs, closed to the reachable floor ────────────────────────────
+
+  private def firstOf[T](src: String)(pf: PartialFunction[SpikeAst.Node, T]): T =
+    SpikeAst.walk(project(src)).collectFirst(pf).getOrElse(fail(s"no matching node in:\n$src"))
+
+  test("throw keeps its operand") {
+    val t = firstOf("def f(): Int =\n  throw Err(1)\n") { case t: SpikeAst.Throw => t }
+    assert(t.value.isInstanceOf[SpikeAst.Apply], s"throw operand is ${t.value}")
+  }
+
+  test("try keeps body, handler and finalizer as three separate things") {
+    val t = firstOf("def f(): Int =\n  try g() catch { case e => 0 } finally h()\n") { case t: SpikeAst.Try => t }
+    assert(t.handler.isDefined, "the catch handler was dropped")
+    assert(t.finalizer.isDefined, "the finally block was dropped")
+    assert(SpikeAst.walk(t.handler.get).exists(_.isInstanceOf[SpikeAst.Arm]), s"handler is ${t.handler}")
+  }
+
+  test("a for comprehension keeps its generators, its guard and whether it yields") {
+    val f = firstOf("def f(xs: List): Int =\n  for x <- xs if x > 0 yield x\n") { case f: SpikeAst.For => f }
+    assert(f.isYield, "the `yield` was lost, which changes what the expression MEANS")
+    assert(f.gens.sizeIs == 1, s"generators are ${f.gens}")
+    assert(f.gens.head.binders == Vector("x"), s"binders are ${f.gens.head.binders}")
+    assert(f.gens.head.guard.isDefined, "the generator's guard was dropped")
+  }
+
+  test("a range keeps which word was written") {
+    // `to` and `until` differ by one element. Projecting both as the same node would be a silent
+    // off-by-one in every loop in the corpus.
+    assert(firstOf("def f(): Int =\n  1 to 10\n") { case r: SpikeAst.RangeOp => r }.op == "to")
+    assert(firstOf("def f(): Int =\n  1 until 10\n") { case r: SpikeAst.RangeOp => r }.op == "until")
+  }
+
+  test("summon keeps the WHOLE type application, not just its head") {
+    // Keeping only `Show` never matches an instance — the reference says so explicitly.
+    val s = firstOf("def f(): Int =\n  summon[Show[Int]]\n") { case s: SpikeAst.Summon => s }
+    assert(s.tpe.startsWith("Show"), s"summon type is ${s.tpe}")
+    assert(s.tpe.contains("Int"), s"the type ARGUMENT was dropped: ${s.tpe}")
+  }
+
+  test("a partial-function literal keeps its arms") {
+    val p = firstOf("def f(): Int =\n  g { case 1 => 2\n        case _ => 3 }\n") { case p: SpikeAst.PartialFn => p }
+    assert(p.arms.sizeIs == 2, s"arms are ${p.arms}")
+  }
+
+  test("a local def is a declaration inside a block, not an unsupported expression") {
+    val l = firstOf("def f(): Int =\n  def g(): Int = 1\n  g()\n") { case l: SpikeAst.LocalDef => l }
+    assert(l.decl.name == "g", s"local def name is ${l.decl.name}")
+  }
+
+  test("an effect declaration keeps its name, its ops and whether it is multi-shot") {
+    val e = firstOf("effect Ask:\n  def ask(): Int\ndef main(): Int = 0") { case e: SpikeAst.EffectDecl => e }
+    assert(e.name == "Ask", s"effect name is ${e.name}")
+    assert(e.ops.nonEmpty, "the effect's operations were dropped")
+    assert(!e.multi, "a plain effect is not multi-shot")
+  }
+
+  test("a given instance with members keeps them") {
+    val g = firstOf("given g: Show with\n  def show(): Int = 1\ndef main(): Int = 0") {
+      case g: SpikeAst.GivenObject => g
+    }
+    assert(g.members.nonEmpty, "the instance's methods were dropped")
   }
 
   // ── the general form, stated once over every construct above ──────────────────────────────
