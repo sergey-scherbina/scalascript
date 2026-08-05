@@ -129,10 +129,10 @@ reproducible from the entry above.
 
 ## js-package-import-emits-a-second-self-referential-const — `SyntaxError: Identifier 'org' has already been declared`
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: -
+     fixed-in: c338542dfff45e34e942b7c805032fab05fa2282
      gate: tests/e2e/package-keyword-smoke.sh -->
 
 **FIXED. The emitter had three guards and needed a fourth.** `JsGen.scala` ~2549 emitted the import
