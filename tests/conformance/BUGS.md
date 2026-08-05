@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too
+
+<!-- status: open
+     lane: apparatus
+     area: gate
+     fixed-in: -
+     gate: - -->
+
+`content-linked-namespaces` failed on every lane from 2026-06-05, the day it was added, until
+2026-08-05. It is in `contract-roster.tsv` and has NO row in `corpus-baseline.tsv`, which is the
+exact shape `contract.sc` calls a REGRESSION — so the gate that owns this corpus should have been
+red about it for two months.
+
+It probably was. `corpus-contract.yml` is `failure` on 5 of its last 8 nightly runs. A gate that is
+red more often than green stops being read, and then a genuine regression inside it is
+indistinguishable from the noise it already carries. That is the defect worth fixing here — not
+the one case, which is now green on INT, JS and JVM.
+
+**What this needs, and none of it is the case itself:**
+
+- why the nightly is red — the failing runs report jobs with no conclusion, which in this workflow
+  has previously meant a job TIMEOUT surfacing as `cancelled` rather than `failure`
+  (`project_corpus_contract_gate_0727`), so the run status may not be describing a corpus problem
+  at all;
+- whether any OTHER rostered case is in the same position — rostered, non-PASS, no baseline row.
+  One was found by accident while it was being used as a control for an unrelated change. Nobody
+  has asked the corpus that question directly;
+- a smaller signal than a 27-minute nightly, since the cost of the current one is what makes a red
+  cheap to leave.
+
+Found while fixing the case, not by the gate reporting it.
+
 ## corpus-contract-freeze-pairing-unchecked — editing the baseline without the roster header bricks the whole gate, and the freeze gate does not notice
 <!-- status: fixed
      lane: apparatus
