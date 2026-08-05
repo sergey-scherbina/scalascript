@@ -21,6 +21,9 @@ enum Value:
   case VInt(n: Long)
   case VFloat(d: Double)
   case VStr(s: String)
+  /** A char is an INTEGER that prints as a character — v2's model (`CharV extends IntV`), kept so
+    * the two lanes agree on `'x' + 1` (121) as well as on `println('x')` (x). */
+  case VChar(c: Char)
   case VData(tag: Int, fields: Array[Value])
   case VClos(f: Int, captured: List[Value])
   case VArr(items: Array[Value])
@@ -48,6 +51,7 @@ object Exec:
     case Value.VBool(b)   => if b then "true" else "false"
     case Value.VInt(n)    => n.toString
     case Value.VFloat(d)  => showFloat(d)
+    case Value.VChar(c)   => c.toString
     case Value.VStr(s)    => s
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
@@ -358,6 +362,14 @@ object Exec:
     (recv, name) match
       case (Value.VStr(s), "length")      => Value.VInt(s.length.toLong)
       case (Value.VStr(s), "toUpperCase") => Value.VStr(s.toUpperCase)
+      // `charAt` returns an INT on the reference lane — "abc".charAt(1) is 98, not 'b'. Char
+      // LITERALS are chars there and charAt is not; matching that is the point.
+      case (Value.VStr(s), "charAt") =>
+        args.head match
+          case Value.VInt(i) =>
+            if i < 0 || i >= s.length then throw ExecError("charAt " + i + " of a string of length " + s.length)
+            Value.VInt(s.charAt(i.toInt).toLong)
+          case v => throw ExecError("charAt " + show(v))
       case (Value.VStr(s), "toLowerCase") => Value.VStr(s.toLowerCase)
       case (Value.VStr(s), "isEmpty")     => Value.VBool(s.isEmpty)
       case (Value.VStr(s), "trim")        => Value.VStr(s.trim)
@@ -444,6 +456,10 @@ object Exec:
     // only a string on the LEFT and threw on the right, so `p._1 + p._2` over a mixed tuple failed
     // on one lane and printed on the other.
     case (BinOp.Add, x, Value.VStr(y))               => Value.VStr(showV(m, x) + y)
+    // Past the two string arms, a char IS its code point — which is what makes `'x' + 1` 121 and
+    // `'a' == 'a'` true without a second set of comparison arms.
+    case (o, Value.VChar(c), b)                     => binOp(m, o, Value.VInt(c.toLong), b)
+    case (o, a, Value.VChar(c))                     => binOp(m, o, a, Value.VInt(c.toLong))
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
     case (BinOp.Mul, Value.VInt(x), Value.VInt(y))   => Value.VInt(x * y)
@@ -475,6 +491,9 @@ object Exec:
   private def eq(a: Value, b: Value): Boolean = (a, b) match
     case (Value.VInt(x), Value.VInt(y))     => x == y
     case (Value.VStr(x), Value.VStr(y))     => x == y
+    case (Value.VChar(x), Value.VChar(y))   => x == y
+    case (Value.VChar(x), Value.VInt(y))    => x.toLong == y
+    case (Value.VInt(x), Value.VChar(y))    => x == y.toLong
     case (Value.VBool(x), Value.VBool(y))   => x == y
     case (Value.VFloat(x), Value.VFloat(y)) => x == y
     case (Value.VUnit, Value.VUnit)         => true
@@ -493,6 +512,11 @@ object Exec:
       // `println(…)` tail does not print twice.
       if args.nonEmpty && args.head != Value.VUnit then println(showV(m, args.head))
       Value.VUnit
+    // The reference lane's `char`: an Int in, a character out.
+    case "char" =>
+      args.head match
+        case Value.VInt(n) => Value.VChar(n.toChar)
+        case v             => throw ExecError("char of " + show(v))
     case "__throw__" =>
       throw ExecError(if args.isEmpty then "throw" else showV(m, args.head))
     case other => throw ExecError("unknown primitive '" + other + "'")

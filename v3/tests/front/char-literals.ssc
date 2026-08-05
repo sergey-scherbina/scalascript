@@ -1,0 +1,7 @@
+println('x')
+println('x' + 1)
+val c = 'A'
+println(c)
+println("abc".charAt(1))
+println('a' == 'a')
+println("s" + 'q')

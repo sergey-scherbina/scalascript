@@ -139,6 +139,17 @@ object Lower:
     case Expr.BoolLit(v, _) => constExpr(Lit.LBool(v), st0)
     case Expr.UnitLit(_)    => constExpr(Lit.LUnit, st0)
 
+    // A char is its CODE POINT passed through the `char` primitive, which both lanes have: v2's
+    // `CharV extends IntV` is an integer that prints as a character, so `'x' + 1` is 121 and
+    // `println('x')` is `x`. No new IR — a new `Lit` would have needed a codec, a verifier rule and
+    // two backend arms to express something the existing prim already does.
+    case Expr.CharLit(code, _) =>
+      val (k, st1) = st0.constIdx(Lit.LInt(code.toLong))
+      val (r, st2) = st1.fresh
+      val (pi, st3) = st2.primIdx("char")
+      val (d, st4) = st3.fresh
+      (List(Instr.Const(r, k), Instr.Prim(d, pi, List(r))), d, st4)
+
     case Expr.Name(n, p) =>
       st0.lookup(n) match
         case Some(r) => (Nil, r, st0)
@@ -489,6 +500,23 @@ object Lower:
         stf = sN2
       }
       (acc ++ List(Instr.Const(nr, nk), Instr.NewArr(d, nr)) ++ fill, d, stf)
+
+    // `mkAdd(1)` where `mkAdd` is a PARENLESS def returning a function. Two steps, not one: call
+    // `mkAdd` with no arguments to get the function, then APPLY it. Lowering it as a single call
+    // passed one argument to a zero-parameter function and produced invalid IR — caught by the
+    // verifier rather than by a wrong answer, which is what invariant I-4 exists for.
+    case Expr.Call(fn, argEs, p)
+        if argEs.nonEmpty && fns.contains(fn) && zeroArity.contains(fn) =>
+      val (fr, st1) = st0.fresh
+      var acc: List[Instr] = List(Instr.Call(fr, fns.indexOf(fn), Nil))
+      var regs: List[Int] = Nil
+      var st = st1
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (d, stF) = st.fresh
+      (acc :+ Instr.CallV(d, fr, regs), d, stF)
 
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil

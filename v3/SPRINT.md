@@ -301,3 +301,36 @@ reference accepts.
       `pairs.foreach { case (n, s) => … }`. Desugared to `x => x match { case … }`, so it inherits
       guards, nesting and fall-through from the match that already exists instead of getting a
       second, quieter implementation.
+
+## SSC3-9 — the blockers that were never the construct they were named after
+
+Three links in a row where the bucket's LABEL pointed at the wrong thing, and each was one line in
+one imported module reaching 116 files:
+
+| bucket said | it actually was |
+|---|---|
+| `expected an expression, found case` (123) | `case object SqlNull extends SqliteValue` |
+| `expected an expression, found <newline>` (120) | `val result =` with the value on the next line |
+| `unexpected character '''` → `unterminated character literal` (120) | **a block comment** — the apostrophe in the English word `journal's`, inside `/* … */`, which the lexer never skipped |
+
+The last one is the sharpest. A missing comment form does not announce itself; it announces
+whatever it stumbles into first — here an apostrophe in prose, reported as a character literal, in
+a file nobody was editing.
+
+- [x] **9a — a `val` may take an indented block.** `parseBody` rather than `parseExpr`, which is
+      what a `def` body already used. The asymmetry had no reason behind it.
+- [x] **9b — character literals.** Lowered to the code point through the `char` primitive BOTH
+      lanes have: v2 stores a char as `CharV extends IntV`, so `'x' + 1` is 121 and `println('x')`
+      is `x`. No new `Lit` — a new one would have needed a codec, a verifier rule and two backend
+      arms to express what the existing prim already does. `Char` was deferred in SSC3-7 on the
+      grounds that it would split the lanes; measuring the reference lane showed the opposite.
+- [x] **9c — `charAt` returns an INT**, matching v1: `"abc".charAt(1)` is 98. Char LITERALS are
+      chars there and `charAt` is not, and v3 copies the inconsistency rather than tidying it.
+- [x] **9d — nested block comments.**
+- [x] **9e — `mkAdd(1)` where `mkAdd` is a PARENLESS def returning a function.** Two steps: call it
+      with no arguments, then apply the result. Lowering it as one call passed an argument to a
+      zero-parameter function and produced INVALID IR — caught by the verifier, not by a wrong
+      answer, which is exactly what invariant I-4 is for. It was the corpus's only CRASH.
+
+**v3 accepts two things v1 rejects**, both in the safe direction: a trait's inherited concrete
+method, and a NESTED block comment (v1 answers `structural CoreIR contains parser sentinel _err`).

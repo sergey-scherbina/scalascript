@@ -30,6 +30,9 @@ enum Expr:
   case Interp(parts: List[String], exprs: List[Expr], pos: Pos)
   case BoolLit(v: Boolean, pos: Pos)
   case UnitLit(pos: Pos)
+  /** The CODE POINT. A char is an integer that prints as a character — that is the reference
+    * lane's model (`CharV extends IntV`), not a simplification made here. */
+  case CharLit(code: Int, pos: Pos)
   case Name(n: String, pos: Pos)
   case Bin(op: String, l: Expr, r: Expr, pos: Pos)
   case Neg(e: Expr, pos: Pos)
@@ -109,6 +112,7 @@ object Expr:
     case Interp(_, _, p)  => p
     case BoolLit(_, p)    => p
     case UnitLit(p)       => p
+    case CharLit(_, p)    => p
     case Name(_, p)       => p
     case Bin(_, _, _, p)  => p
     case Neg(_, p)        => p

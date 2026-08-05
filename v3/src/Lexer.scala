@@ -16,6 +16,9 @@ enum Tok:
   case TInt(text: String, pos: Pos)
   case TFloat(text: String, pos: Pos)
   case TStr(v: String, pos: Pos)
+  /** The CODE POINT, not a Char, because that is what it is on the reference lane: v2 stores a
+    * char as `CharV extends IntV` — an integer that prints differently. `'x' + 1` is 121 there. */
+  case TChar(code: Int, pos: Pos)
   /** `s"…"` — the RAW content, unescaped-but-unsplit. Splitting it needs the expression parser,
     * which the lexer does not have, so it hands the whole thing over. */
   case TInterp(raw: String, pos: Pos)
@@ -85,13 +88,18 @@ object Lexer:
         while !done(t) && (at(t) == ' ' || at(t) == '\t') do
           width = width + (if at(t) == '\t' then 8 - (width % 8) else 1)
           t = adv(t)
-        val blank = done(t) || at(t) == '\n' || at(t) == '\r' || isCommentStart(t)
+        val blank = done(t) || at(t) == '\n' || at(t) == '\r' || isCommentStart(t) ||
+                    isBlockCommentStart(t)
         if blank then
           // CONSUME the newline as well. `skipToLineEnd` stops AT it, so assigning its result here
           // left the position unmoved and the outer loop spun forever on a blank line between two
           // definitions. It presented as an empty result at exit 0 — the timeout, not a refusal —
           // which is why the front gate below runs a program with a blank line in it.
-          s = adv(skipToLineEnd(t))
+          // A BLOCK comment is skipped to its end, which may be many lines down; a line comment
+          // and a blank line end at the newline. Both then consume that newline, because
+          // `skipToLineEnd` stops AT it and leaving it made the outer loop spin.
+          s = if isBlockCommentStart(t) then adv(skipToLineEnd(skipBlockComment(t)))
+              else adv(skipToLineEnd(t))
         else
           s = t
           val cur = indents.head
@@ -115,6 +123,7 @@ object Lexer:
           atLineStart = true
         else if c == ' ' || c == '\t' || c == '\r' then s = adv(s)
         else if isCommentStart(s) then s = skipToLineEnd(s)
+        else if isBlockCommentStart(s) then s = skipBlockComment(s)
         else
           val (tok, s2) = one(s)
           tok match
@@ -135,6 +144,30 @@ object Lexer:
 
   private def isCommentStart(s: St): Boolean =
     !done(s) && at(s) == '/' && s.pos + 1 < s.src.length && s.src.charAt(s.pos + 1) == '/'
+
+  private def isBlockCommentStart(s: St): Boolean =
+    !done(s) && at(s) == '/' && s.pos + 1 < s.src.length && s.src.charAt(s.pos + 1) == '*'
+
+  // Block comments, NESTED, because Scala nests them and a non-nesting scanner ends the outer
+  // comment at the first inner close and then lexes prose as code.
+  //
+  // Their absence was the largest single refusal in the corpus at 116 cases - every one of them
+  // one doc comment in one imported module, and the diagnostic blamed the APOSTROPHE in the
+  // English word "journal's", which the lexer read as the start of a character literal. A missing
+  // comment form does not announce itself; it announces whatever it stumbles into first.
+  //
+  // Written with line comments on purpose: a doc comment describing this cannot quote the closing
+  // delimiter without ending itself, which is how the first attempt failed to compile.
+  private def skipBlockComment(s0: St): St =
+    var s = adv(adv(s0))
+    var depth = 1
+    while depth > 0 && !done(s) do
+      if at(s) == '/' && s.pos + 1 < s.src.length && s.src.charAt(s.pos + 1) == '*' then
+        depth = depth + 1; s = adv(adv(s))
+      else if at(s) == '*' && s.pos + 1 < s.src.length && s.src.charAt(s.pos + 1) == '/' then
+        depth = depth - 1; s = adv(adv(s))
+      else s = adv(s)
+    s
 
   private def skipToLineEnd(s0: St): St =
     var s = s0
@@ -205,6 +238,24 @@ object Lexer:
         if text != "s" then throw LexError(p, "the `" + text + "` interpolator is outside SSC3 core Tier 0; `s` is supported")
         (Tok.TInterp(raw, p), t)
       else (Tok.TId(text, p), s)
+    // `'x'` — a CHARACTER literal. Told apart from nothing: `'` has no other use in the language,
+    // so there is no ambiguity to resolve (Scala's `'sym` and type-parameter ticks are not Tier 0).
+    else if c == '\'' then
+      var s = adv(s0)
+      if done(s) then throw LexError(p, "unterminated character literal")
+      var code = 0
+      if at(s) == '\\' then
+        val e = adv(s)
+        if done(e) then throw LexError(p, "dangling escape in character literal")
+        val ch = at(e)
+        code = (if ch == 'n' then '\n' else if ch == 't' then '\t' else if ch == 'r' then '\r'
+                else if ch == '0' then 0.toChar else ch).toInt
+        s = adv(e)
+      else
+        code = at(s).toInt
+        s = adv(s)
+      if done(s) || at(s) != '\'' then throw LexError(p, "unterminated character literal")
+      (Tok.TChar(code, p), adv(s))
     else if c == '"' then
       var s = adv(s0)
       var text = ""
@@ -259,6 +310,7 @@ object Lexer:
     case Tok.TInt(t, _)   => t
     case Tok.TFloat(t, _) => t
     case Tok.TStr(v, _)   => "\"" + v + "\""
+    case Tok.TChar(c, _)  => "'" + c.toChar + "'"
     case Tok.TInterp(v, _) => "s\"" + v + "\""
     case Tok.TId(s, _)    => s
     case Tok.TOp(s, _)    => s
@@ -272,6 +324,7 @@ object Lexer:
     case Tok.TInt(_, p)   => p
     case Tok.TFloat(_, p) => p
     case Tok.TStr(_, p)   => p
+    case Tok.TChar(_, p)  => p
     case Tok.TInterp(_, p) => p
     case Tok.TId(_, p)    => p
     case Tok.TOp(_, p)    => p

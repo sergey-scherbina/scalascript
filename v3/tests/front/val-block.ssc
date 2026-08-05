@@ -1,0 +1,17 @@
+def compute(x: Int): Int = x * 3
+
+val result =
+  compute(4)
+println(result)
+
+def wrap(n: Int): Int =
+  val inner =
+    val a = n + 1
+    a * 2
+  inner + 1
+println(wrap(5))
+
+var acc = 0
+acc =
+  result + 1
+println(acc)

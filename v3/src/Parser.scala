@@ -339,6 +339,7 @@ object Parser:
     case Tok.TInt(t, p)  => (Pat.PLit(Expr.IntLit(longOf(t, p), p), p), ts.tail)
     case Tok.TFloat(t, p) => (Pat.PLit(Expr.DoubleLit(t.toDouble, p), p), ts.tail)
     case Tok.TStr(v, p)  => (Pat.PLit(Expr.StrLit(v, p), p), ts.tail)
+    case Tok.TChar(c, p) => (Pat.PLit(Expr.CharLit(c, p), p), ts.tail)
     case Tok.TId("true", p)  => (Pat.PLit(Expr.BoolLit(true, p), p), ts.tail)
     case Tok.TId("false", p) => (Pat.PLit(Expr.BoolLit(false, p), p), ts.tail)
     case Tok.TId(n, p) if !keywords.contains(n) =>
@@ -379,6 +380,7 @@ object Parser:
     case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)
     case Tok.TFloat(text, p) => (Expr.DoubleLit(text.toDouble, p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
+    case Tok.TChar(c, p) => (Expr.CharLit(c, p), ts.tail)
     case Tok.TInterp(raw, p) => (interp(raw, p), ts.tail)
     case Tok.TId("true", p)  => (Expr.BoolLit(true, p), ts.tail)
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
@@ -764,7 +766,7 @@ object Parser:
     case Tok.TId(kw, p) if (kw == "val" || kw == "var") && isPunct(peek(ts.tail), "(") =>
       val (pat, t1) = parsePat(ts.tail)
       val t2 = expectOp(skipTypeAnn(t1), "=")
-      val (e, t3) = parseExpr(t2)
+      val (e, t3) = parseBody(t2)
       val tmp = "$tup" + p.line + "_" + p.col
       val names = pat match
         case Pat.PCtor(cn, args, _) if cn.startsWith("Tuple") => args
@@ -785,7 +787,15 @@ object Parser:
       val (n, _, t1) = expectName(ts.tail)
       val t2 = skipTypeAnn(t1)
       val t3 = expectOp(t2, "=")
-      val (e, t4) = parseExpr(t3)
+      // `parseBody`, not `parseExpr`: the value may be an INDENTED BLOCK on the following lines —
+      //
+      //     val result =
+      //       compute(x)
+      //
+      // which is ordinary Scala and was 116 of 120 cases in the top refusal bucket, all reaching
+      // one line through an import. A `def` body already used `parseBody`; a `val` did not, and
+      // that asymmetry had no reason behind it.
+      val (e, t4) = parseBody(t3)
       (List(Stmt.Val(n, e, mutable, p)), t4)
     // `a(i) = v`. Told apart from a call by SCANNING to the matching `)` and looking for a single
     // `=` after it — a scan rather than a backtracking attempt, for the reason `lambdaAhead` gives:
@@ -797,7 +807,7 @@ object Parser:
       val (v, t4) = parseExpr(t3)
       (List(Stmt.Exp(Expr.Update(Expr.Name(n, p), idx, v, p))), t4)
     case Tok.TId(n, p) if !keywords.contains(n) && isOp(peek(ts.tail), "=") =>
-      val (e, t) = parseExpr(ts.tail.tail)
+      val (e, t) = parseBody(ts.tail.tail)
       (List(Stmt.Exp(Expr.Assign(n, e, p))), t)
     case _ =>
       val (e, t) = parseExpr(ts)

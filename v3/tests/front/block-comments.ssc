@@ -1,0 +1,9 @@
+val a = 1 /* inline */ + 2
+/* a block
+ * spanning lines with an apostrophe: journal's
+ * and /* a nested one */ inside
+ */
+println(a)
+/** a doc comment */
+def f(): Int = 7
+println(f())
