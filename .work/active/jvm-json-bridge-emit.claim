@@ -1,0 +1,12 @@
+slug: jvm-json-bridge-emit
+branch: feature/jvm-json-bridge-emit
+agent: claude-code
+started: 2026-08-05T09:14:28Z
+heartbeat: 2026-08-05T09:14:28Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm
+broad: emitting the bridge block belongs in JvmGen; the entry and gate live in the same module
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
