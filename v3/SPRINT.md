@@ -291,3 +291,13 @@ alphabet took: accepting more than the reference does cannot change the meaning 
 reference accepts.
 
 `trait` was 137 of 333 refusals. After this it is zero.
+
+- [x] **8e — `case object`.** A NULLARY CONSTRUCTOR, the same thing an enum's `case Red` produces —
+      not an `object`, which at Tier 0 is a namespace. Measured: 116 of the 123 cases in the top
+      refusal bucket were one line, `case object SqlNull extends SqliteValue`, in one imported
+      module. Twice in a row now the bucket's label named a construct the corpus barely used and
+      hid a single line that 116 files reach through an import.
+- [x] **8f — `{ case (k, v) => … }` as a LAMBDA.** How a destructuring callback is written —
+      `pairs.foreach { case (n, s) => … }`. Desugared to `x => x match { case … }`, so it inherits
+      guards, nesting and fall-through from the match that already exists instead of getting a
+      second, quieter implementation.

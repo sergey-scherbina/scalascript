@@ -595,6 +595,14 @@ object Parser:
     * the corpus, `{` was 27 of the first 60 refusals, the single largest cause. */
   private def parseBraceBlock(ts0: List[Tok]): (Expr, List[Tok]) =
     val p = posOf(ts0)
+    // `{ case (k, v) => … }` is a LAMBDA that matches its argument, not a block. It is how a
+    // destructuring callback is written — `pairs.foreach { case (n, s) => … }` — and desugaring it
+    // to `x => x match { case … }` means it inherits guards, nesting and fall-through from the
+    // match that already exists rather than getting a second, quieter implementation.
+    if isId(peek(skipLayout(ts0)), "case") then
+      val (arms, t) = parseMatchArms(braceArms(ts0))
+      val v = "$m" + p.line + "_" + p.col
+      return (Expr.Lambda(List(Param(v, p)), Expr.Match(Expr.Name(v, p), arms, p), p), t)
     var stmts: List[Stmt] = Nil
     var last: Option[Expr] = None
     var ts = ts0
@@ -727,6 +735,11 @@ object Parser:
 
   /** Newlines and INDENTs between a `for`'s generators carry no meaning — the `do`/`yield` says
     * where the header ends. DEDENTs are left alone: one of them closes the enclosing block. */
+  /** `parseMatchArms` wants to see the `{` so it can end at the matching `}`. `parseBraceBlock` is
+    * called with it already consumed, so it is put back — one token, and the alternative is a
+    * second arm-reading loop that would have to agree with the first about fall-through. */
+  private def braceArms(ts: List[Tok]): List[Tok] = Tok.TPunct("{", posOf(ts)) :: ts
+
   /** Does a balanced `( … )` starting here end at a lone `=`? `=` and not `==`, because `a(i) == v`
     * is an ordinary comparison and misreading it as an assignment would silently discard it. */
   private def updateAhead(ts0: List[Tok]): Boolean =
@@ -1034,6 +1047,23 @@ object Parser:
         val (d, t) = parseDef(ts)
         defs = d :: defs
         ts = t
+      else if isId(peek(ts), "case") && ts.tail.nonEmpty && isId(peek(ts.tail), "object") then
+        // `case object X extends T` is a NULLARY CONSTRUCTOR — the same thing an enum's `case Red`
+        // already produces — not an `object`, which at Tier 0 is a namespace. Measured: 116 of the
+        // 123 cases in the top refusal bucket were one line, `case object SqlNull extends
+        // SqliteValue`, in one imported module.
+        val cp = posOf(ts)
+        val (cn, _, t0) = expectName(ts.tail.tail)
+        var t = skipBrackets(t0)
+        val (parents, tParents) = parseParents(t)
+        t = tParents
+        if isPunct(peek(t), ":") then
+          val (members, t2) = parseMembers(t.tail, "class")
+          classes = ClassDef(cn, Nil, members, parents, cp) :: classes
+          ts = t2
+        else
+          classes = ClassDef(cn, Nil, Nil, parents, cp) :: classes
+          ts = t
       else if isId(peek(ts), "case") && ts.tail.nonEmpty && isId(peek(ts.tail), "class") then
         val (c, t) = parseCaseClass(ts.tail.tail, posOf(ts))
         classes = c :: classes

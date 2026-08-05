@@ -1,0 +1,14 @@
+trait SqliteValue
+case object SqlNull extends SqliteValue
+case class SqlInt(v: Int) extends SqliteValue
+
+def render(x: SqliteValue): String =
+  x match
+    case SqlNull => "NULL"
+    case SqlInt(v) => "int " + v
+
+println(render(SqlNull))
+println(render(SqlInt(7)))
+val pairs = List((1, "a"), (2, "b"))
+pairs.foreach { case (n, s) => println(s + "=" + n) }
+println(pairs.map { case (n, s) => n * 10 }.mkString(","))
