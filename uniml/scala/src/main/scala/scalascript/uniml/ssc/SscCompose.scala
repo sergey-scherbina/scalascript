@@ -156,8 +156,17 @@ object SscCompose:
           )
       diags = diags ++ remapped.diagnostics
       worsen(remapped.status)
+      // SPLICE the subtree where the body was, do not append it. Appending put the injected code
+      // after the closing fence marker, so an in-order walk of the composed tree reconstructed the
+      // right characters in the WRONG ORDER — `\u0060\u0060\u0060` before the code instead of after. The
+      // dialect's own losslessness spec cannot see this: it parses a bare dialect with no injection
+      // at all. Found by consuming the published artifact from outside the build and checking
+      // round-trip there.
+      val at = b.edges.indexWhere(_.role.contains(dropRole))
       val kept = b.edges.filterNot(_.role.contains(dropRole))
-      b.copy(edges = kept ++ remapped.roots.headOption.map(r => UniEdge(Some(tagOf(adapter)), r)).toVector)
+      val inj = remapped.roots.headOption.map(r => UniEdge(Some(tagOf(adapter)), r)).toVector
+      val before = if at < 0 then kept.length else b.edges.take(at).count(e => !e.role.contains(dropRole))
+      b.copy(edges = kept.take(before) ++ inj ++ kept.drop(before))
 
     def transform(n: UniNode): UniNode = n match
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>

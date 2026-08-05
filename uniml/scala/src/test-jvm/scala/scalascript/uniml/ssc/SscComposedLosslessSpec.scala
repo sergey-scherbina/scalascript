@@ -1,0 +1,72 @@
+package scalascript.uniml.ssc
+
+import java.nio.file.{Files, Path, Paths}
+import scala.jdk.CollectionConverters.*
+import org.scalatest.funsuite.AnyFunSuite
+import scalascript.uniml.*
+
+/** The COMPOSED tree reconstructs its source exactly — the property the whole front-end decision
+  * rests on, checked on the tree v3 would actually consume.
+  *
+  * `SpikeLosslessSpec` checks the bare dialect and cannot see this: it never injects. The composer
+  * used to APPEND an injected subtree instead of splicing it where the fence body was, so an
+  * in-order walk produced the right characters in the wrong order — the closing fence marker came
+  * out before the code. Every character was present, so a length or multiset check would have
+  * passed; only comparing the STRING catches it.
+  *
+  * Found by publishing the artifact and consuming it from outside the build, which is the only
+  * vantage point from which the composed tree is the thing under test rather than an intermediate.
+  */
+final class SscComposedLosslessSpec extends AnyFunSuite:
+
+  private def repoRoot: Path =
+    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
+      .find(p => Files.exists(p.resolve("AGENTS.md")))
+      .getOrElse(throw new IllegalStateException("repository root not found"))
+
+  private def text(n: UniNode): String = n match
+    case b: UniNode.Branch => b.edges.map(e => text(e.child)).mkString
+    case UniNode.Token(t)  => t.lexeme
+
+  test("every .ssc reconstructs exactly from the composed tree") {
+    val root = repoRoot
+    val files = Files.walk(root).iterator.asScala
+      .filter(_.toString.endsWith(".ssc"))
+      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
+        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
+      .toVector.sortBy(_.toString)
+    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
+
+    val broken = files.flatMap { p =>
+      val src = new String(Files.readAllBytes(p), "UTF-8")
+      val round = text(SscCompose.parse(src).root)
+      if round == src then None
+      else
+        // Report WHERE, not just that: the first differing offset is what names the construct.
+        val i = src.zip(round).indexWhere((a, b) => a != b)
+        Some(root.relativize(p).toString -> (if i < 0 then s"length ${src.length} vs ${round.length}" else s"first differs at $i"))
+    }
+    info(s"files=${files.size} exact=${files.size - broken.size}")
+    broken.foreach((f, why) => info(s"  $f — $why"))
+
+    // Frozen as a SET, not a count. A count lets one file break while another is fixed and stays
+    // green; the set catches both directions, and a file leaving it is as much news as a file
+    // joining it.
+    //
+    // What remains is NOT the composer — it is markdown's indented code block losing the 4-space
+    // prefix on continuation lines: `\n    lane  n\n    jvm  100` comes back as
+    // `\n    lane  n\njvm  100`. First line keeps its indent, the next does not. Filed separately;
+    // the composer's own defect (an injected subtree APPENDED instead of spliced, so the closing
+    // fence marker preceded the code) is fixed and took this from 0 exact to 1,173.
+    val known = Set(
+      "examples/effects.ssc",
+      "tests/conformance/map-getorelse-expr-receiver.ssc",
+      "tests/conformance/object-var-member-scope.ssc",
+      "v1/runtime/std/dep-cps-ping.ssc",
+      "v1/runtime/std/nodes.ssc",
+      "v1/runtime/std/streams.ssc",
+    )
+    val got = broken.map(_._1).toSet
+    assert(got == known,
+      s"composed round-trip changed.\n  newly broken: ${(got -- known).toVector.sorted}\n  newly exact:  ${(known -- got).toVector.sorted}")
+  }

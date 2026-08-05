@@ -132,7 +132,22 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           standalone build, so it could import v1 freely and nothing would notice. That is exactly
           the bridge's shape, sanctioned; an unsanctioned one would look identical. The isolation
           gate enumerates ten projects by name and would not fire either.
-      (1) publishable cross-built dialect: untouched.
+      (1) **publishable — WORKS, and consuming it found a defect nothing inside could see.**
+          `cd uniml && sbt publishLocal` already produces all ten artifacts (five modules x JVM/JS)
+          with poms, sources and javadoc, and the poms carry correct inter-module dependencies.
+          But "the command succeeded" is a self-report, so the check is a CONSUMER: a scala-cli
+          project outside this build, resolving `scalascript::scalascript-uniml-scalascript` from
+          ivy2Local, parsing a `.ssc` and round-tripping it.
+          **It printed `lossless=false`.** The composed tree APPENDED an injected subtree instead
+          of splicing it where the fence body was, so the closing fence marker came out BEFORE the
+          code — every character present, in the wrong order, which is why a length or multiset
+          check would have passed. `SpikeLosslessSpec` cannot see it: it parses a bare dialect and
+          never injects. Fixed; composed round-trip went to **1,173 of 1,179 exact** and is now
+          gated by `SscComposedLosslessSpec`, frozen as a SET so a file leaving it is also news.
+          The remaining 6 are a different defect — markdown indented code losing the four-space
+          prefix on continuation lines — filed in `uniml/BACKLOG.md`.
+          Still owed for a real release: license, scm and homepage in the poms, and a deliberate
+          version instead of sbt's default `0.1.0-SNAPSHOT`.
       **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
       function and tuple types in a parameter, and an interpolator prefix the lexer does not
       know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans

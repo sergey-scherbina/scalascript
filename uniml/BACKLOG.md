@@ -7,6 +7,27 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## indented code blocks lose the indent on every line after the first
+
+The composed tree reconstructs 1,173 of 1,179 `.ssc` exactly. The six that do not all fail the
+same way — a markdown indented code block keeps the four-space prefix on its FIRST line and drops
+it on every line after:
+
+    src   \n    lane    n     O.n\n    jvm     100   8
+    got   \n    lane    n     O.n\njvm     100   8
+
+`tests/conformance/object-var-member-scope.ssc` is the shortest reproduction, differing at offset
+617. The others: `examples/effects.ssc`, `tests/conformance/map-getorelse-expr-receiver.ssc`,
+`v1/runtime/std/dep-cps-ping.ssc`, `v1/runtime/std/nodes.ssc`, `v1/runtime/std/streams.ssc`.
+
+**Why the markdown corpus does not catch it.** That corpus checks CommonMark examples, and the
+indented-code work in UPR-3 was measured on it — 607 of 675 passing. This is the ScalaScript
+profile over real files, a combination the 675 do not contain. Two corpora, two questions.
+
+Frozen as a SET in `SscComposedLosslessSpec`, so a file leaving the list is as much news as one
+joining it.
+
+
 ## 2026-07-27 — UniML production completion (Sergiy: "Реализуй всё. Доведи до продакшена")
 
 **Claim: UNCLAIMED** — released 2026-07-28 in triage (heartbeat 2 h stale, no live
