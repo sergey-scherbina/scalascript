@@ -74,9 +74,19 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           no-duplicate-tokens, verified in both directions with a planted defect.
       (2) **typed projection — FIRST CUT.** `SpikeAst`/`SpikeTyped`, 96.3% of what the dialect
           parses, gated with floors. Nothing consumes it yet — no lowering to SSC IR.
-      (3) **breadth — 1,278 → 483 diagnostics, 92.1% of files completely clean.** Five slices,
-          each measured: `case object`, `extern`+qualified def names (which only work TOGETHER),
-          escaped identifiers, varargs, type ascription.
+      (3) **breadth — the probe was fixed first, then the biggest gap closed.** The headline could
+          not tell a language fix from a permissiveness win: an untagged fence defaults to
+          ScalaScript, so PROSE counts as broken code, and twice on 2026-08-04 a correct change was
+          credited for making a protocol diagram parse. `SscBreadthSpec` now attributes per FENCE —
+          1,650 tagged fences at 0.10 diagnostics each against 38 untagged ones at 2.53, **25x the
+          density in 2.3% of the fences** — and the TAGGED column has its own floor.
+          Then the first slice measured in the honest column: **a `def`'s result type is optional**,
+          as in Scala. The dialect demanded `: T`, and that one omission was 76 of 172 tagged
+          diagnostics. **tagged 172 → 94 (−45%), untagged 96 → 96 (UNCHANGED), clean files
+          94.8% → 96.5%.** The untagged column not moving is the point: this fix is a language fix,
+          and the split probe proves it rather than asserting it.
+          Earlier slices, each measured: `case object`, `extern`+qualified def names (which only
+          work TOGETHER), escaped identifiers, varargs, type ascription.
       (5) **measurement — DONE, and it removes the risk §4 opened with.** JMH both arms, alternated
           three rounds, medians: the composed front is **2.188 ms** on `actors.ssc` against v1's
           parser at **2.285 ms** — **0.96x, parity**, 13.5 MB/s over the file. Retained tree

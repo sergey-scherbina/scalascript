@@ -653,10 +653,14 @@ object SpikeParse:
           else moreParams = false
       expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
     // no `(` → parameterless def; the projection detects it by the absent `def.lparen` child.
-    expect(c, "spike.colon", "def.retColon", "':'").foreach(kids += _)
-    if c.peekKind == "spike.lparen" then skipBalancedParens(c) // `(A, B) => C` domain
-    else expectType(c, "def.retType").foreach(kids += _)
-    skipTypeTail(c) // function return type `: A => B` (the `=>` is part of the type; `=` ends it)
+    // The result type is OPTIONAL: Scala infers it, and `def f(x: Int) = x + 1` is ordinary code.
+    // The dialect used to demand it, and that single omission was 76 of the 172 diagnostics coming
+    // from tagged fences — 44% of everything the language column was reporting.
+    if c.peekKind == "spike.colon" then
+      expect(c, "spike.colon", "def.retColon", "':'").foreach(kids += _)
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c) // `(A, B) => C` domain
+      else expectType(c, "def.retType").foreach(kids += _)
+      skipTypeTail(c) // function return type `: A => B` (the `=>` is part of the type; `=` ends it)
     // an algebraic-effect row `! L` / `! (L1 & L2)` on the return type (`def f: T ! L = …`) — erased.
     if c.peekKind == "spike.op" && c.peekLexeme == "!" then
       c.advance()

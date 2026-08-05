@@ -48,6 +48,8 @@ final class SscBreadthSpec extends AnyFunSuite:
     var taggedFences = 0
     var untaggedFences = 0
     val shapes = scala.collection.mutable.Map.empty[String, Int]
+    val taggedShapes = scala.collection.mutable.Map.empty[String, Int]
+    val taggedExample = scala.collection.mutable.Map.empty[String, String]
     val worst = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
 
     files.foreach { p =>
@@ -56,9 +58,21 @@ final class SscBreadthSpec extends AnyFunSuite:
       else worst += ((root.relativize(p).toString, composed.diagnostics.size))
       total += composed.diagnostics.size
       composed.fences.filter(_.isScala).foreach { f =>
-        val n = SscCompose.parse("```" + (if f.lang.isEmpty then "scalascript" else f.lang) + "\n" + f.code + "```\n").diagnostics.size
-        if f.lang.isEmpty then { untaggedFences += 1; untaggedDiags += n }
-        else { taggedFences += 1; taggedDiags += n }
+        val ds = SscCompose.parse("```" + (if f.lang.isEmpty then "scalascript" else f.lang) + "\n" + f.code + "```\n").diagnostics
+        if f.lang.isEmpty then { untaggedFences += 1; untaggedDiags += ds.size }
+        else
+          taggedFences += 1
+          taggedDiags += ds.size
+          // Shapes from the TAGGED column only. Picking the next construct off the mixed histogram
+          // means picking off prose: the untagged bucket is 2.3% of the fences and a third of the
+          // diagnostics, and none of it is a language gap.
+          ds.foreach { d =>
+            val token = "'([^']*)'".r.findFirstMatchIn(d.message).map(_.group(1)).getOrElse("?")
+            val shape = d.message.replaceAll("'[^']*'", "'X'") + " <- " + token
+            taggedShapes(shape) = taggedShapes.getOrElse(shape, 0) + 1
+            if !taggedExample.contains(shape) then
+              taggedExample(shape) = root.relativize(p).toString + d.span.map(sp => ":" + sp.start.line).getOrElse("")
+          }
       }
       composed.diagnostics.foreach { d =>
         val token = "'([^']*)'".r.findFirstMatchIn(d.message).map(_.group(1)).getOrElse("?")
@@ -74,6 +88,8 @@ final class SscBreadthSpec extends AnyFunSuite:
     // untagged fence — a protocol diagram, an English sentence starting with the word `class`. The
     // TAGGED column is the one that measures the language.
     info(f"  by fence: tagged $taggedFences%4d fences / $taggedDiags%4d diags    untagged $untaggedFences%4d fences / $untaggedDiags%4d diags")
+    info("  TAGGED-only shapes — the language gaps, with one example each:")
+    taggedShapes.toVector.sortBy(-_._2).take(8).foreach((s, c) => info(f"    $c%4d  $s%-52s ${taggedExample.getOrElse(s, "")}"))
     shapes.toVector.sortBy(-_._2).take(8).foreach((s, c) => info(f"  $c%5d  $s"))
     worst.sortBy(-_._2).take(5).foreach((f, c) => info(f"  worst $c%5d  $f"))
 
