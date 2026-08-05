@@ -208,6 +208,27 @@ one reading stderr for diagnostics sees nothing. Not fixed here because moving t
 break consumers that match on stdout today — including gates. Note the release qualifier asserts
 `expect_empty vm-stderr`, which such an error would silently satisfy.
 
+**Progress 2026-08-05, run `30986892933`: `Qualify ssc-linux-x86_64` passed END TO END** — the first
+Qualify job that has ever completed in this repository. Image built, payload assembled, manifest
+written, `Qualify isolated shipped bytes` green under the new refusal contract, artifact uploaded.
+
+**7 (self-inflicted, fixed): pinning GraalVM to 21.0.11 made macos-15-intel impossible.** Oracle
+ships no macOS x64 build after 21.0.9. Checked rather than assumed:
+
+| version | macos-x64 | macos-aarch64 | linux-x64 |
+| --- | --- | --- | --- |
+| 21.0.9 | 200 | 200 | 200 |
+| 21.0.11 | **404** | 200 | 200 |
+| 21.0.12 | **404** | 200 | 200 |
+
+The pin was set to 21.0.11 because that is what was installed on the arm64 machine it was tested on
+— the same shape of error as testing a gate against the launcher that never had the bug. Repinned to
+21.0.9, the newest version present on all three release targets.
+
+Worth keeping: this also shows why `java-version: '21'` was worse than it looked. It does not merely
+float over time, it resolves to the newest build available *per platform*, so a single run could
+build x64 with 21.0.9 and aarch64 with something newer.
+
 **Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
 is the substantive one; 1 and 2 are bookkeeping in front of it.
 
