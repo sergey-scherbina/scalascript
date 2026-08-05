@@ -5,7 +5,7 @@ started: 2026-08-05T15:47:59Z
 heartbeat: 2026-08-05T15:47:59Z
 status: in-progress
 items: native-front-has-no-package-namespace
-paths: file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0 file:v2/lib/ssc1-front.ssc0 file:v2/BUGS.md file:v2/BACKLOG.md file:v2/SPRINT.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh file:v1/runtime/backend/jvm/BUGS.md file:.github/workflows/ci.yml file:v1/runtime/backend/interpreter/BUGS.md
+paths: file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0 file:v2/lib/ssc1-front.ssc0 file:v2/BUGS.md file:v2/BACKLOG.md file:v2/SPRINT.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh file:v1/runtime/backend/jvm/BUGS.md file:.github/workflows/ci.yml file:v1/runtime/backend/interpreter/BUGS.md file:BUGS.md
 scope: |
   `package:` binds a namespace on the native lane (specs/native-package-namespace.md).
   Widened 2026-08-05: ssc1-run-fsub.ssc0 (F assembles its closure from SOURCE, so the
