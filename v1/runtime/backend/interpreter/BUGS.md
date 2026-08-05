@@ -98,6 +98,39 @@ write to it is not visible to a subsequent read — plausibly a fresh instance p
 field write to a copied `InstanceV` field map. `native` gets it right, so the semantics are not in
 doubt.
 
+
+**Investigated 2026-08-05, not fixed. Six facts, each measured, so the next attempt starts where I
+stopped rather than where I started.**
+
+1. **The write LEAKS OUT of the object.** A bare `hits` read OUTSIDE `object org` — a name the
+   program never declares at top level — prints `1` after one `org.bump()`. So the value is not
+   discarded; it is written to `interp.globals`.
+2. **`ObjectVarEnvView.assign` is never called for it.** That function is documented as *"The single
+   place a bare-name assignment decides WHERE it lands. Every assignment site routes here — the
+   general `EvalRuntime` case and the `BlockRuntime` single-statement fast path"*. Instrumented to
+   print on entry, it produced NO output for this program. The claim names two sites; the one that
+   handles this assignment is not among them.
+3. **Not the fast tier and not the JIT.** `SSC_FASTTIER=0` and `SSC_JIT=0` each give the same
+   `1 1 0`.
+4. **Not the layout.** Braced `object org { … }` and indented `object org:` behave identically.
+5. **Two candidate fixes were tried and REFUTED**, both reverted:
+   - `ObjectVarEnvView.iterator` does not yield `MarkerKey` although `get`/`contains`/`getOrElse`
+     all answer it, so any consumer that COPIES an env drops the marker. Making the iterator yield
+     it changed nothing observable — worth knowing, and probably still worth doing on its own
+     merits, but it is not this bug.
+   - `BlockRuntime`'s unguarded `Term.Assign(Term.Name(x), rhs)` branch threads a new frame
+     (`FrameMap.one`) instead of routing. Making it call the router changed nothing — so that branch
+     is not the one taken either.
+6. **The machinery in `StatRuntime`'s `Defn.Object` case is present and looks right**: it collects
+   `varMemberNames`, registers `interp.objectVarStores(objectName) = members`, and re-points every
+   member `FunV` at an `ObjectVarEnvView` over the live map. The registration happens; the write
+   does not reach it.
+
+**Where I would go next:** find the assignment site that actually executes for a multi-statement
+method body — neither of the two named in that comment, nor the `BlockRuntime` branch above. Adding
+a `Thread.dumpStack()` at the point where `interp.globals(name) = v` is reached would name it in one
+run; I stopped before doing that, and it is the cheapest next step rather than a fourth guess.
+
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
 <!-- status: fixed
