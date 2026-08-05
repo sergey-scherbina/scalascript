@@ -49,7 +49,7 @@ surfaced it, and it deserves its own measurement rather than a patch bolted onto
 <!-- status: open
      lane: int
      area: runtime
-     gate: none -->
+     gate: tests/e2e/object-var-mutation-gate.sh -->
 
 **Ten lines, no imports, no front matter** (measured 2026-08-05):
 
