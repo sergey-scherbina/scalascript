@@ -2,10 +2,10 @@ slug: shared-session-module
 branch: feature/shared-session-module
 agent: claude-code
 started: 2026-08-05T07:49:45Z
-heartbeat: 2026-08-05T08:23:34Z
+heartbeat: 2026-08-05T08:55:28Z
 status: in-progress
 items: native-Response-session-transforms-missing
-paths: file:build.sbt file:v1/runtime/http-server/common/src/main/scala/scalascript/server/SessionCookie.scala file:v2/BUGS.md file:v1/runtime/http-server/session/src/main/scala/scalascript/server/SessionCookie.scala file:v1/runtime/http-server/session/src/test/scala/scalascript/server/SessionCookieTest.scala file:v1/runtime/http-server/common/src/test/scala/scalascript/server/SessionCookieTest.scala file:v1/runtime/std/http.ssc file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/session-roundtrip-gate.sh file:scripts/smoke-ci.ssc
+paths: file:build.sbt file:v1/runtime/http-server/common/src/main/scala/scalascript/server/SessionCookie.scala file:v2/BUGS.md file:v1/runtime/http-server/session/src/main/scala/scalascript/server/SessionCookie.scala file:v1/runtime/http-server/session/src/test/scala/scalascript/server/SessionCookieTest.scala file:v1/runtime/http-server/common/src/test/scala/scalascript/server/SessionCookieTest.scala file:v1/runtime/std/http.ssc file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/session-roundtrip-gate.sh file:scripts/smoke-ci.ssc file:v1/runtime/std/http-plugin/src/main/scala/scalascript/compiler/plugin/http/HttpIntrinsics.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: extern sessionSetCookie + case-class methods, native impl, read the cookie into Request.session
