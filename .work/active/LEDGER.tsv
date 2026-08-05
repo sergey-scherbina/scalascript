@@ -1,4 +1,5 @@
-# generation: 952
+# generation: 953
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
+v1-sibling-method-and-area-enum-early	claude-code	2026-08-05T09:00:54Z	int-case-class-method-cannot-call-a-sibling-method area-enum-caught-too-late	file:.githooks/pre-commit

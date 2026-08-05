@@ -1,0 +1,11 @@
+slug: v1-sibling-method-and-area-enum-early
+branch: feature/v1-sibling-method-and-area-enum-early
+agent: claude-code
+started: 2026-08-05T09:00:54Z
+heartbeat: 2026-08-05T09:00:54Z
+status: claimed-before-planning
+items: int-case-class-method-cannot-call-a-sibling-method area-enum-caught-too-late
+paths: file:.githooks/pre-commit
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
