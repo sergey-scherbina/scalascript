@@ -98,10 +98,11 @@ check "JS"     -  "$BIN/jssc"
 # `sscc` maps to `compile-jvm`: it writes an artifact and prints where it put it, so comparing its
 # output against the expected page failed for a reason that has nothing to do with `package:`
 # (measured 2026-08-04, `got:` was "JVM artifact written to …/consumer.scjvm"). `run-jvm` is the row
-# that actually runs the program — and with it the lane's real defect is visible: it emits
-# `import org.example.ui.{org}`, qualifying the module's LINK NAME with the package it declares.
-# Controlled: the identical import with no `package:` in the module prints `ui-card-hi`.
-check "JVM" "jvm-package-import-qualifies-the-link-name" "$BIN/ssc-tools" run-jvm
+# that actually runs the program — and with it the lane's real defect became visible: it emitted
+# `import org.example.ui.{org}`, importing the package ROOT from the package. Fixed 2026-08-05
+# (`jvm-package-import-qualifies-the-link-name`); the known-red declaration this row carried is gone
+# because the gate FAILS a declared row that starts passing.
+check "JVM" -  "$BIN/ssc-tools" run-jvm
 
 echo
 if [ $fail -eq 0 ]; then

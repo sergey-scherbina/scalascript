@@ -2749,10 +2749,28 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       // import. Naming them here is what made `import std.http.{route, serve, …}` fail with
       // `value route is not a member of object std.http` once std/http otherwise compiled.
       val externHere = importedExternNames.getOrElse(pkg.mkString("."), Set.empty)
-      requested.filterNot(sp => externHere.contains(sp.name) && sp.alias.isEmpty).foreach { spec =>
-        val target = reExports.getOrElse(spec.name, ReExportTarget(pkg, spec.name))
-        grouped.getOrElseUpdate(target.pkg, mutable.ListBuffer.empty) += ((target, spec))
+      // Same shape one level up: a binding naming the package ROOT binds the MODULE, not a member
+      // of it. `[org](./cards.ssc)` against a module declaring `package: org.example.ui` asked for
+      // `import org.example.ui.{org}` — and `org` is the OUTERMOST object the package wrap emits,
+      // already at top level of the generated file (measured: `object org {` at line 7063 of it,
+      // the bad import at 7072). There is nothing to import. int, native and js all resolve that
+      // link; jvm was the only lane that did not.
+      //
+      // Only the root: `[example]` / `[ui]` name inner segments, and the interpreter rejects those
+      // as `'example' not found in ./cards.ssc`, so there is nothing to reproduce for them.
+      val pkgRoot = pkg.headOption
+      // An ALIASED root gets a `val` instead of being dropped, or the alias would be unbound —
+      // `[org as o]` is a real surface that the interpreter resolves. Same shape as helperAliases.
+      val rootAliases = requested.flatMap { sp =>
+        if pkgRoot.contains(sp.name) then sp.alias.map(a => s"val $a = ${sp.name}") else None
       }
+      requested
+        .filterNot(sp => externHere.contains(sp.name) && sp.alias.isEmpty)
+        .filterNot(sp => pkgRoot.contains(sp.name))
+        .foreach { spec =>
+          val target = reExports.getOrElse(spec.name, ReExportTarget(pkg, spec.name))
+          grouped.getOrElseUpdate(target.pkg, mutable.ListBuffer.empty) += ((target, spec))
+        }
       val importLines = grouped.toList.flatMap { case (targetPkg, specs) =>
         if targetPkg.isEmpty then Nil
         else
@@ -2767,7 +2785,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           List(s"import ${targetPkg.mkString(".")}.{$specText}")
       }
       val lines =
-        importLines ++ helperAliases
+        importLines ++ rootAliases ++ helperAliases
       if lines.isEmpty then None
       else
         val src   = lines.mkString("\n")
