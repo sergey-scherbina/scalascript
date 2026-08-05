@@ -1087,7 +1087,15 @@ private[interpreter] object DispatchRuntime:
         val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
         if typeMethodMap != null then
           val fn = typeMethodMap.getOrElse(name, null)
-          if fn != null then interp.callTypeMethod1(fn, fields, arg)
+          // THE SECOND DISPATCH SITE. This single-argument fast path calls `callTypeMethod1`
+          // directly and so never reached `invokeTypeMethod`, where sibling binding lives — which is
+          // why `Response.withSession(payload)`, one argument, still said `Undefined: withHeader`
+          // after c04de5df1 made sibling calls work. A trace in `bindSiblings` printed NOTHING for
+          // that call, which is what turned three wrong guesses about the cause into a fact.
+          //
+          // Same binding, same cost: `bindSiblings` returns the map it was given unless the body
+          // applies a bare name that is a real sibling, and the answer is cached per body.
+          if fn != null then interp.callTypeMethod1(fn, bindSiblings(fn, recv, fields, interp), arg)
           else dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)
         else
           dispatchInstance(recv, typeName, fields, name, arg :: Nil, env, interp)

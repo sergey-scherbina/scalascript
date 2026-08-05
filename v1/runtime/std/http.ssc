@@ -231,16 +231,14 @@ case class Response(
   //     a case class declared in THIS file      R(1).viaSibling()  -> 3     works
   //     the same shape reached through import   withHeader(...)    -> Undefined: withHeader
   //
-  // The boundary is NOT the import — I guessed that first and it was wrong. A class added to THIS
-  // file and imported the same way calls its siblings fine (12). What makes `Response` different is
-  // that it also exists as a BUILTIN: BuiltinsRuntime registers it in globals as a companion, and
-  // the std-declared methods lose the collision. Filed as
-  // `int-builtin-shadowed-type-loses-its-declared-methods` — the same clash as the companion bug
-  // fixed earlier today, seen from the other side. Until that closes, this stays.
+  // `withHeader` is a sibling method, and this is the obvious spelling. It raised
+  // `Undefined: withHeader` on the v1 lane until BOTH dispatch sites bound siblings: c04de5df1 did
+  // `invokeTypeMethod`, and the single-argument fast path calling `callTypeMethod1` directly was a
+  // second decision site that it missed — which is exactly what `withSession(payload)` takes.
   def withSession(payload: Map[String, String]): Response =
-    Response(status, headers + ("Set-Cookie" -> sessionSetCookie(payload)), body)
+    withHeader("Set-Cookie", sessionSetCookie(payload))
 
   // Empty payload is the documented clear (`Max-Age=0`), so this is not a special case.
   def clearSession(): Response =
-    Response(status, headers + ("Set-Cookie" -> sessionSetCookie(Map())), body)
+    withHeader("Set-Cookie", sessionSetCookie(Map()))
 ```

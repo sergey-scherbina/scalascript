@@ -7,7 +7,7 @@ grepping for status.
 
 Newest first.
 
-## int-builtin-shadowed-type-loses-its-declared-methods — `Response` cannot call its own siblings
+## int-sibling-call-missed-the-single-arg-dispatch-site — `Undefined: withHeader` from a one-argument method
 
 <!-- status: open
      lane: int
@@ -15,33 +15,34 @@ Newest first.
      fixed-in: -
      gate: tests/e2e/session-roundtrip-gate.sh -->
 
-`Response.withSession` calling `withHeader` — a sibling method, both declared on the same case class
-in `std/http.ssc` — raises `Undefined: withHeader` on the v1 lane. `c04de5df1` made sibling calls
-work, and does not reach this one.
+**The fix is in this commit; `status` flips with the sha in the next one** — `fixed-in` takes a
+resolvable sha and amending to record one changes it.
 
-**RENAMED AND CORRECTED. My first two guesses at the boundary were both wrong, and each was
-disproven by one probe:**
+`Response.withSession(payload)` calling `withHeader` — siblings on the same case class — raised
+`Undefined: withHeader` on the v1 lane even after `c04de5df1` made sibling calls work.
 
-| probe | result |
-|---|---|
-| case class declared in the caller's own file | works (3) |
-| case class in a module reached by `[R](./m.ssc)` | works (3) — so it is NOT "imported" |
-| a NEW class added to `std/http.ssc` and exported, imported the same way | works (12) — so it is NOT "a std module" |
-| `Response`, in that same file, same import | **`Undefined: withHeader`** |
+**A SECOND DISPATCH SITE, and it took a trace to see it after three wrong guesses.** `bindSiblings`
+lives in `invokeTypeMethod`; the single-argument fast path in `DispatchRuntime` (~line 1090) calls
+`interp.callTypeMethod1(fn, fields, arg)` DIRECTLY and never goes through it. `withSession(payload)`
+takes one argument, so it took that path. It now binds siblings the same way, at the same cost — the
+map is returned unchanged unless the body applies a bare name that is a real sibling, cached per
+body.
 
-What is left is what makes `Response` different from the class sitting beside it: it ALSO exists as
-a builtin. `BuiltinsRuntime` (~line 782) registers `Response` in globals as an `InstanceV` companion
-carrying `html`/`text`/`json`, and `std/http.ssc` declares a `case class Response` with methods. The
-two representations collide, and the std-declared methods are what loses.
+**The three guesses, each disproven by one probe, are the useful part of this entry:**
 
-That is the same collision as `int-v1-lane-loses-a-builtin-companion-to-its-own-case-class`, fixed
-earlier today, seen from the other side: there the case-class constructor displaced the builtin
-companion, here the builtin displaces the declared methods. A fix should probably address both at
-once rather than adding a second one-way patch.
+| guess | probe | verdict |
+|---|---|---|
+| "v1 cannot resolve siblings at all" | a local case class | works — fixed by c04de5df1 |
+| "it is the import boundary" | a class in a module reached by `[R](./m.ssc)` | works |
+| "it is the builtin twin, `Response` has one" | a NEW class added to `std/http.ssc`, exported, imported | works (12) |
 
-**Why it matters beyond one method:** `std/http.ssc` carries the workaround — `withSession` builds
-its Response inline instead of calling `withHeader` — and any type that gains a builtin twin will
-silently lose its declared methods the same way.
+Every one of those was a plausible story about a real mechanism, and each cost a build. What ended it
+was putting a print inside `bindSiblings` and seeing NOTHING for the failing call — a negative
+observation, which no amount of reading would have produced. Arity, the thing none of the guesses
+mentioned, was the whole answer.
+
+The workaround in `std/http.ssc` — `withSession` building its Response inline — is removed, and its
+comment now describes the resolved cause rather than the third guess.
 
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
 <!-- status: open
