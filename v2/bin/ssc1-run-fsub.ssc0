@@ -320,7 +320,7 @@ def sscSkipImportSpace = (s, i) =>
     if #i.eq(c, 32) then sscSkipImportSpace(s, #i.add(i, 1))
     else if #i.eq(c, 9) then sscSkipImportSpace(s, #i.add(i, 1))
     else i
-def sscImportPathsFrom = (t, i, acc) =>
+def sscImportLinksFrom = (t, i, acc) =>
   let start = sscSkipImportSpace(t, i) in
   if #i.ge(start, #slen(t)) then reverse(acc)
   else if #i.eq(#scodeAt(t, start), 91) then
@@ -337,19 +337,19 @@ def sscImportPathsFrom = (t, i, acc) =>
         -- anything on this lane (v2/BUGS.md native-import-link-alias-is-ignored).
         let lab = #sslice(t, #i.add(start, 1), labelEnd) in
         if sscEndsSsc(p) then
-          sscImportPathsFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
+          sscImportLinksFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
         else if sscDirImportPath(p) then
-          sscImportPathsFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
+          sscImportLinksFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
         else Nil
     else Nil
   else Nil
-def sscImportPaths = (line) =>
+def sscImportLinksOn = (line) =>
   let t = strip(line) in
-  if #i.lt(#slen(t), 8) then Nil else sscImportPathsFrom(t, 0, Nil)
-def sscPushImports = (paths, acc) =>
-  match paths {
+  if #i.lt(#slen(t), 8) then Nil else sscImportLinksFrom(t, 0, Nil)
+def sscPushLinks = (links, acc) =>
+  match links {
     case Nil => acc
-    case Cons(path, rest) => sscPushImports(rest, Cons(path, acc))
+    case Cons(lp, rest) => sscPushLinks(rest, Cons(lp, acc))
   }
 def sscStartsChar = (s, c) =>
   if #i.eq(#slen(s), 0) then false else #i.eq(#scodeAt(s, 0), c)
@@ -398,16 +398,16 @@ def sscScanLines = (lines, mode, pending, acc) =>
             let joined = sscPendingJoin(pending, t) in
             let close = sscFindChar(joined, 1, 93) in
             if #i.lt(close, #slen(joined)) then
-              let paths = sscImportPaths(joined) in
-              sscScanLines(rest, mode, "", sscPushImports(paths, acc))
+              let links = sscImportLinksOn(joined) in
+              sscScanLines(rest, mode, "", sscPushLinks(links, acc))
             else sscScanLines(rest, mode, joined, acc)
         else
-          let paths = sscImportPaths(t) in
-          match paths {
+          let links = sscImportLinksOn(t) in
+          match links {
             case Nil =>
               if sscWrappedImportStart(t) then sscScanLines(rest, mode, t, acc)
               else sscScanLines(rest, mode, "", acc)
-            case _ => sscScanLines(rest, mode, "", sscPushImports(paths, acc))
+            case _ => sscScanLines(rest, mode, "", sscPushLinks(links, acc))
           }
   }
 -- The link view: `[Pair(label, path)]` in source order. `sscImports` is the PATH
