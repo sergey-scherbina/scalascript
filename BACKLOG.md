@@ -140,7 +140,31 @@ one.
 
 ### Slices
 
-- [ ] **S1 — measure what the binary actually needs.** The plugins are loaded at run time by the
+- [x] **S1 — measured, and the first cut was wrong.** Dropping every jar the plugins pull (17 jars,
+      60.6 MB) gave a 85 MB binary that built in 1m18s and passed **all four checks the release
+      qualifier makes** — and was broken: `run --v1` and `compile-jvm` both died with
+      `NoClassDefFoundError: Could not initialize class scalascript.parser.Parser`. scalameta and
+      scala3-compiler are load-bearing for the v1 front and the JVM backend.
+
+      Controlled comparison, same probes, same machine:
+
+      | binary | size | build | `run --v2` | `run --v1` | `compile-jvm` | `--bytecode` |
+      | --- | --- | --- | --- | --- | --- | --- |
+      | full | 192 MB | 4m36s | 84 | 84 | env error | refuses |
+      | **refined** | **145 MB** | 1m55s | 84 | 84 | *same* env error | refuses |
+      | over-cut | 85 MB | 1m18s | 84 | **NoClassDefFound** | **NoClassDefFound** | refuses |
+
+      `compile-jvm` fails identically on full and refined, so that is the probe environment, not a
+      regression — which is the whole reason the control was run.
+
+      **Refined = drop only plugin RUNTIME deps** (sqlite-jdbc, h2, postgresql, HikariCP, pdfbox,
+      fontbox, openhtmltopdf, graphics2d, jsoup, xmpbox — 11 jars, 22.5 MB): behaviourally
+      indistinguishable from full, 47 MB smaller.
+
+- [ ] **S1b — the qualifier does not test `--v1` or `compile-jvm`.** The over-cut binary passed
+      every check it makes. That gap is worth closing on its own merits, independent of image size:
+      it is what would have let a broken binary ship.
+- [ ] **S1c — was measure what the binary actually needs.** The plugins are loaded at run time by the
       plugin host from `bin/lib/`; the question is which classes the *binary* touches before that.
       Do not guess from names: `--emit build-report` / `-H:+BuildReport` gives a per-package
       breakdown, and the qualifier already exercises the real entry points.
