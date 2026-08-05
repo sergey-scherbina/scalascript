@@ -85,7 +85,13 @@ for head, body in entries:
                                "so it ran on into the prose (invisible to bugs-report)")); continue
     fields = {}
     for fm in re.finditer(r"([a-z-]+)\s*:\s*([^\n]+)", m.group(1)):
-        fields[fm.group(1)] = fm.group(2).strip()
+        # A trailing ` · a | b | c` is a TEMPLATE COMMENT, not part of the value. specs/bugs-index.md
+        # spells the enums inside its example header so that copying the example — which is how
+        # headers actually get written — carries the allowed values with it. Without this strip that
+        # template could not be copied: the parser took the whole rest of the line, and `status:
+        # open        · open | fixed | …` failed the enum check. Twice on 2026-08-05 an out-of-enum
+        # `area` turned this gate red on clean main for everyone, which is what the template is for.
+        fields[fm.group(1)] = fm.group(2).split("·")[0].strip()
     for req in ("status", "lane", "area"):
         if req not in fields: problems.append((slug, f"missing required field `{req}`"))
     st = fields.get("status")

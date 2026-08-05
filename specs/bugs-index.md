@@ -32,13 +32,23 @@ Prose is for humans and stays exactly as it is. The header is for queries.
 Immediately after the `## <slug> — <one line>` heading, an HTML comment. It renders as nothing on
 GitHub and parses with one regex.
 
+The values are repeated INSIDE the template on purpose. Headers are written by copying a neighbour,
+not by reading the table below — and twice on 2026-08-05 an entry arrived with an `area` outside the
+enum (`gate`, then `corpus`), each time turning `tests/e2e/bugs-index-gate.sh` red on clean `main`
+for every agent. A template that carries its own enums is copied WITH them.
+
 ```markdown
 ## v2-front-curried-def-second-clause — F drops the second clause of a curried def
-<!-- status: open
-     lane: native
-     area: front
+<!-- status: open        · open | fixed | wontfix | duplicate | unknown
+     lane: native        · native | int | js | jvm | v2-jvm | v2-rust | apparatus | multi | n/a
+     area: front         · front | runtime | codegen | cli | conformance | build | docs | plugin | other
      gate: tests/e2e/v2-front-coverage.sh -->
 ```
+
+The `·` comments are optional in a real entry — keep or drop them. `tests/e2e/bugs-index-gate.sh`
+strips everything from the `·` onward before checking a value, which was added WITH this template:
+before that, copying the example verbatim failed the enum check, and a template nobody can copy
+safely is not a template.
 
 ```markdown
 ## v2-list-apply-method-stub — `xs.apply(i)` is a Stub
