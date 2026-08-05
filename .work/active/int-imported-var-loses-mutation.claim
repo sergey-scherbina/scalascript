@@ -1,0 +1,11 @@
+slug: int-imported-var-loses-mutation
+branch: feature/int-imported-var-loses-mutation
+agent: claude-code
+started: 2026-08-05T07:50:57Z
+heartbeat: 2026-08-05T07:50:57Z
+status: claimed-before-planning
+items: int-imported-module-var-loses-its-mutations
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/lang/core/src/main/scala/scalascript/interpreter/ImportResolver.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/conformance/imported-var-identity.ssc file:tests/conformance/expected/imported-var-identity.txt file:tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
