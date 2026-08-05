@@ -939,26 +939,32 @@ class JvmGen(
     }
     if firstStdObj < 0 then return src
 
-    // Collect uppercase specs from `import std.*` lines. Mixed imports such
-    // as `{Either, Left, Right, mapRight}` still need `Either` visible inside
-    // `object std`, but the lowercase helpers must remain file-level imports.
-    def uppercaseImportSpecs(line: String): List[String] =
+    // Collect specs from `import std.*` lines to re-import inside `object std`.
+    //
+    // THIS USED TO TAKE UPPERCASE NAMES ONLY, on the reasoning that "lowercase value-level names
+    // are only needed by user code at the file level, while nested std package code needs the
+    // type-like names". That is false as soon as one std module imports another: `std/json.ssc`
+    // calls `jsonCoreRender` / `jsonCoreParseStrict` / `jsonCoreParseTolerant`, which live in
+    // `std.json.core` because an imported module is emitted as a NESTED OBJECT. The caller sits in
+    // `std.json`, the callee one level deeper, and the file-level import is outside the merged
+    // `object std` — so six `[E006] Not found` on a five-line program that imports std/json.
+    //
+    // Additive: this pass only ADDS imports inside `object std`; the file-level lines stay where
+    // they are, so user code resolves exactly as before.
+    def hoistableImportSpecs(line: String): List[String] =
       val lb = line.lastIndexOf('{')
       val rb = line.lastIndexOf('}')
       if lb < 0 || rb <= lb then Nil
       else
         val namesPart = line.substring(lb + 1, rb)
-        namesPart.split(",").map(_.trim).filter(_.nonEmpty).toList.filter { spec =>
-          val target = if spec.contains(" as ") then spec.substring(0, spec.indexOf(" as ")).trim else spec
-          target.headOption.exists(_.isUpper)
-        }
+        namesPart.split(",").map(_.trim).filter(_.nonEmpty).toList
 
     val importBuf    = scala.collection.mutable.ListBuffer.empty[String]
     val removedLines = scala.collection.mutable.Set.empty[Int]
     for idx <- firstStdObj + 1 until n do
       val l = lines(idx)
       if l.startsWith("import std.") && !l.startsWith("import std.{") then
-        val specs = uppercaseImportSpecs(l)
+        val specs = hoistableImportSpecs(l)
         if specs.nonEmpty then
           val lb = l.lastIndexOf('{')
           val relativeHead = "  " + l.substring(0, lb + 1).replaceFirst("import std\\.", "import ")

@@ -137,9 +137,32 @@ object std {              10266
    makes it a FEATURE — the jvm lane needs those three hooks — and not something to patch in the
    emitter.
 
-**So the remaining work splits**: fix (1) in the emitter — qualify a call that crosses into a nested
-module object — and decide (2) separately, since it is a plugin the lane does not have. Neither is
-the `Cons` defect this entry was opened for, and (1) is the one that belongs to this module.
+**(1) IS FIXED, 2026-08-05, and it was one line of filter.** `hoistSscImportsIntoObjectStd` already
+exists for exactly this hazard — after `mergeDuplicatePackageObjects` merges the `object std` blocks,
+the file-level `import std.…` lines land outside them, so the pass re-imports names INSIDE
+`object std`. It took **uppercase names only**, with this reasoning in its own comment:
+
+> Lowercase value-level names (functions/vals such as `mapRight` or `serve`) are left in place —
+> those are only needed by user code at the file level, while nested std package code needs the
+> type-like names.
+
+**That is false the moment one std module imports another.** `std/json.ssc` calls `jsonCoreRender`,
+`jsonCoreParseStrict` and `jsonCoreParseTolerant` — lowercase, value-level, and needed by *nested
+std package code*, not by user code. Widened to hoist value-level names too. The pass only ADDS
+imports inside `object std`; the file-level lines are untouched, so user code resolves as before.
+
+```
+before   10 errors:  6 × Not found: jsonCore*   +  4 × Not found: __jsonCore*
+after     5 errors:  0                          +  5 × Not found: __jsonCore*
+```
+
+The six that were the emitter's fault are gone; what is left is exactly category (2).
+
+**(2) remains open and is a FEATURE, not a fix.** `__jsonCoreWrap`, `__jsonCoreWrapStrict`,
+`__jsonCoreEncodeValue`, `__jsonCoreRawStrict` and `__jsonCoreInstallRenderer` are `extern def`
+host hooks. js has them in `core-collections.mjs`, native in `JsonNativePlugin.scala`, the jvm lane
+has none. Until they exist, `std/json.ssc` — and therefore `std/http.ssc` — will not compile on this
+lane, and this entry stays open for that reason and no other.
 
 **A lead, not a claim:** the sibling pass `rewriteActorAstCallsInSource` parses the same way —
 `Source` then `Term`, no script dialect — so its `case None()` → `case None` rewrite is probably
