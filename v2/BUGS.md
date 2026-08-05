@@ -103,7 +103,7 @@ every request pays a JSON parse — but it is no longer a defect.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: e137a4994
+     fixed-in: b65d95cd0
      gate: tests/e2e/package-keyword-smoke.sh -->
 
 **FIXED 2026-08-05.** The entry's own two-file repro prints `ui-card-hi` on `ssc run`, matching

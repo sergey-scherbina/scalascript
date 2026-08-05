@@ -242,7 +242,7 @@ field write to a copied `InstanceV` field map. `native` gets it right, so the se
 doubt.
 
 **A second oracle, available since 2026-08-05.** The native lane now binds `package:` as a namespace
-too (`native-front-has-no-package-namespace`, fixed in `e137a4994`), so the ORIGINAL symptom — a
+too (`native-front-has-no-package-namespace`, fixed in `b65d95cd0`), so the ORIGINAL symptom — a
 package-declaring module losing its state — can be run on both lanes through the same construct:
 
 ```
