@@ -98,6 +98,59 @@ The decision, not the code, is the work: fetch enough history to answer, or answ
 deliberately and say so in the gate's header. Detail and the incident that found it are in `BUGS.md`
 `bugs-index-fixed-in-checks-resolvable-not-reachable`.
 
+## native-image-classpath-is-the-staging-classpath — the binary compiles in what it should load
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: task
+     gate: .github/workflows/native-release.yml -->
+
+**Decided by Sergiy 2026-08-05:** shrink the image rather than buy a bigger runner or ship without
+arm64. The release waits for this.
+
+**Why the image is 200 MB.** `cli` depends on every std plugin *directly*, and build.sbt says why:
+`installBin` stages `bin/lib/jars` from cli's `fullClasspath`. That is a staging list, and the
+native image is built from the same classpath — so everything meant to be *loaded at runtime from
+`bin/lib/`* is instead *compiled into the binary*.
+
+Measured from the build's own breakdown (`-H:+BuildOutputBreakdowns`, on by default):
+
+| origin | code |
+| --- | --- |
+| java.base | 15.68 MB |
+| **jdk.compiler** | 7.35 MB |
+| **h2-2.2.224.jar** | 7.03 MB |
+| **trees2 (scalameta)** | 6.76 MB |
+| svm.jar | 5.39 MB |
+| backend-interpreter | 5.23 MB |
+| java.xml | 4.63 MB |
+| core | 4.29 MB |
+| scala-library | 4.27 MB |
+| cli | 3.95 MB |
+| 174 more packages | 40.02 MB |
+
+A Java compiler, an embedded SQL database and a Scala parser the self-hosted native front does not
+use. h2 also brings postgresql and sqlite drivers.
+
+**Why it matters beyond size.** The 7 GB arm64 runner cannot build this image at any heap value —
+that is measured and closed (`tests/BUGS.md` `native-release-native-image-three-defects`, defects
+8–9). Less to compile is the only remaining lever that helps *every* platform rather than paying for
+one.
+
+### Slices
+
+- [ ] **S1 — measure what the binary actually needs.** The plugins are loaded at run time by the
+      plugin host from `bin/lib/`; the question is which classes the *binary* touches before that.
+      Do not guess from names: `--emit build-report` / `-H:+BuildReport` gives a per-package
+      breakdown, and the qualifier already exercises the real entry points.
+- [ ] **S2 — separate the two classpaths.** `installBin` keeps cli's full classpath (that is its
+      job); the image gets a narrower one. The risk to check, not assume: anything the binary
+      resolves eagerly rather than through the plugin host.
+- [ ] **S3 — re-qualify all three targets.** Success is not "smaller": it is the qualifier green,
+      including the refusal contract and the staged-front checks. A binary that shrank by dropping
+      something it needed fails at a user's first command, not at build time.
+
 ## ui-fetch-credentials — a token that cannot be baked into a generated binary
 
 <!-- status: open
