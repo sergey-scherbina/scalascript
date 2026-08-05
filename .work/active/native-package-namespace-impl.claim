@@ -2,7 +2,7 @@ slug: native-package-namespace-impl
 branch: feature/native-package-namespace-impl
 agent: claude-code
 started: 2026-08-05T15:47:59Z
-heartbeat: 2026-08-05T15:47:59Z
+heartbeat: 2026-08-05T19:10:00Z
 status: in-progress
 items: native-front-has-no-package-namespace
 paths: file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0 file:v2/lib/ssc1-front.ssc0 file:v2/BUGS.md file:v2/BACKLOG.md file:v2/SPRINT.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh file:v1/runtime/backend/jvm/BUGS.md file:.github/workflows/ci.yml file:v1/runtime/backend/interpreter/BUGS.md file:BUGS.md
@@ -11,4 +11,4 @@ scope: |
   Widened 2026-08-05: ssc1-run-fsub.ssc0 (F assembles its closure from SOURCE, so the
   shared loader alone would ship the feature on ONE front); jvm/BUGS.md (the gate's JVM
   row exposed a real jvm defect); ci.yml (registering the gate, which was orphaned).
-next: BUGS entries + ci.yml registration, then smoke-ci and push
+next: full v2 conformance sweep in flight, then rebuild + smoke-ci, then push 6 local commits
