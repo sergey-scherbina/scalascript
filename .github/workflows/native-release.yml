@@ -44,19 +44,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # native_image_xmx: the image builder prints its own requirement
-          # (>6.04 GB on ubuntu, >5.69 GB on intel) and the runners differ
-          # widely, so one figure cannot fit all three. arm64 has only 7 GB
-          # TOTAL — 6g leaves the OS ~1 GB and is the ceiling here, not a
-          # comfortable value. If it still starves, that runner is too small
-          # for this image and needs a larger one.
-          - runner: ubuntu-latest
+          # native_image_xmx is sized from a MEASUREMENT, not from the tool's
+          # advisory. Sampling RSS through a full local build:
+          #   sbt          peak 2306 MB
+          #   native-image peak 7652 MB at -Xmx6g
+          # i.e. resident set ~= Xmx + 1.6 GB of native memory the heap flag does
+          # not cover. That model explains every failure so far on the 7 GB arm64
+          # runner: the original 5g meant ~6 GB RSS beside a live 2.3 GB sbt on a
+          # 7 GB box (swap, then the watchdog's "no activity"), and 6g means
+          # ~7.6 GB RSS — larger than the whole machine — which is why that build
+          # crawled for over an hour.
+          #
+          # So arm64 gets 4g (~5.6 GB predicted RSS, fits with room for the OS)
+          # and the sbt phase is a separate step so its 2.3 GB is gone before
+          # native-image starts. The big runners keep generous values.
+          - runner: ubuntu-latest          # 15.61 GB
             artifact_id: ssc-linux-x86_64
             native_image_xmx: 10g
-          - runner: macos-latest
+          - runner: macos-latest           # 7.00 GB — the binding constraint
             artifact_id: ssc-macos-arm64
-            native_image_xmx: 6g
-          - runner: macos-15-intel
+            native_image_xmx: 4g
+          - runner: macos-15-intel         # 14.00 GB
             artifact_id: ssc-macos-x86_64
             native_image_xmx: 9g
 
@@ -92,22 +100,25 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
 
-      - name: Build native binary, frontend data, and plugin host
+      # SPLIT INTO TWO sbt INVOCATIONS ON PURPOSE. These used to be one command,
+      # which meant the sbt JVM — measured at 2306 MB peak RSS after compiling —
+      # was still resident while native-image asked for its own multiple GB. On
+      # the 7 GB arm64 runner that 2.3 GB is the difference between building and
+      # swapping. Letting sbt exit first costs a few seconds of reloading the
+      # build definition and buys back a third of that machine.
+      - name: Build jars and staged layout
+        run: |
+          sbt \
+            "cli/installBin" \
+            "pluginHost/assembly"
+
+      - name: Build native binary
         env:
           SSC_NATIVE_IMAGE_XMX: ${{ matrix.native_image_xmx }}
         run: |
-          # The `set cli / graalVMNativeImageOptions := ...` line that used to be
-          # here rewrote the reflection/resource config paths and forced
-          # -J-Xmx5g. Its comment called it a temporary diagnostic kept "while
-          # build.sbt is owned by a different live claim"; in fact it was load
-          # bearing, because build.sbt's own paths resolved to a directory that
-          # does not exist. build.sbt is fixed now (anchored on the build root)
-          # and takes the heap from SSC_NATIVE_IMAGE_XMX above, so the override
-          # is gone rather than merely trimmed.
-          sbt \
-            "cli/installBin" \
-            "cli/graalvm-native-image:packageBin" \
-            "pluginHost/assembly"
+          # sbt is gone from the previous step; this invocation compiles nothing
+          # and only forks native-image, so its own footprint stays small.
+          sbt "cli/graalvm-native-image:packageBin"
 
       - name: Assemble release payload
         env:
