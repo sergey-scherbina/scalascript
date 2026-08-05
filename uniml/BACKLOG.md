@@ -1448,7 +1448,18 @@ in one session, both correct on their own merits, both credited by this probe
 for making prose parse. A number that rewards permissiveness twice in a day is
 not measuring the language.
 
-**Not fixed here, and the fix is not obvious.** Skipping untagged fences would
+**FIXED 2026-08-05 by splitting the columns**, which was the first of the three options below.
+`SscBreadthSpec` now attributes diagnostics per FENCE rather than per file, and the split is
+stark: 1,650 tagged fences carry 172 diagnostics (0.10 each), 38 untagged ones carry 96 (2.53
+each) — **25x the density in 2.3% of the fences**. The tagged column has its own floor, verified
+by tightening it and watching it fail. A change that only makes prose parse now moves `untagged`
+and leaves `tagged` flat, which is the distinction the headline could not make.
+The entry stays open for the part that is NOT fixed: nothing prevents a future probe from
+reporting the mixture again, and the per-fence re-parse is an approximation — it re-parses each
+fence standalone, which is why tagged+untagged (268) is slightly under the headline (273); the
+remainder belongs to the markdown and front-matter layers.
+
+**The options as they stood, kept because the reasoning outlived the choice.** Skipping untagged fences would
 contradict the fences-optional rule and would stop measuring real code in every
 file that uses bare fences properly. Options worth weighing when someone takes it:
 count tagged and untagged fences as SEPARATE columns so a change cannot hide in

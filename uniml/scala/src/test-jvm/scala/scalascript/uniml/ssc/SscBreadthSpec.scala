@@ -38,6 +38,15 @@ final class SscBreadthSpec extends AnyFunSuite:
 
     var clean = 0
     var total = 0L
+    // Attribution BY FENCE, not by file. The note below the assertions used to say "17 files hold
+    // an untagged fence and those files account for 129 diagnostics" — which cannot tell whether
+    // the diagnostics came from the untagged fence or from a tagged one in the same file. These
+    // two counters can: each scalascript fence is re-parsed on its own and its diagnostics land in
+    // the bucket its OWN info string earns.
+    var taggedDiags = 0L
+    var untaggedDiags = 0L
+    var taggedFences = 0
+    var untaggedFences = 0
     val shapes = scala.collection.mutable.Map.empty[String, Int]
     val worst = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
 
@@ -46,6 +55,11 @@ final class SscBreadthSpec extends AnyFunSuite:
       if composed.diagnostics.isEmpty then clean += 1
       else worst += ((root.relativize(p).toString, composed.diagnostics.size))
       total += composed.diagnostics.size
+      composed.fences.filter(_.isScala).foreach { f =>
+        val n = SscCompose.parse("```" + (if f.lang.isEmpty then "scalascript" else f.lang) + "\n" + f.code + "```\n").diagnostics.size
+        if f.lang.isEmpty then { untaggedFences += 1; untaggedDiags += n }
+        else { taggedFences += 1; taggedDiags += n }
+      }
       composed.diagnostics.foreach { d =>
         val token = "'([^']*)'".r.findFirstMatchIn(d.message).map(_.group(1)).getOrElse("?")
         val shape = d.message.replaceAll("'[^']*'", "'X'") + " <- " + token
@@ -55,21 +69,33 @@ final class SscBreadthSpec extends AnyFunSuite:
 
     val pct = 100.0 * clean / files.size
     info(f"files=${files.size} clean=$clean ($pct%.1f%%) diagnostics=$total")
+    // The two columns exist so a change cannot be credited to the wrong one. Twice on 2026-08-04 a
+    // correct change moved the headline because the parser became willing to swallow PROSE from an
+    // untagged fence — a protocol diagram, an English sentence starting with the word `class`. The
+    // TAGGED column is the one that measures the language.
+    info(f"  by fence: tagged $taggedFences%4d fences / $taggedDiags%4d diags    untagged $untaggedFences%4d fences / $untaggedDiags%4d diags")
     shapes.toVector.sortBy(-_._2).take(8).foreach((s, c) => info(f"  $c%5d  $s"))
     worst.sortBy(-_._2).take(5).foreach((f, c) => info(f"  worst $c%5d  $f"))
 
     // Floors: a fix must be free to improve these without editing the test, but a
     // regression in what the front accepts has to fail.
     //
-    // ZERO IS NOT THE TARGET, and measuring said so. An UNTAGGED fence (```) defaults
-    // to ScalaScript, so a file whose fence holds a protocol diagram, shell output or
-    // pseudocode reports diagnostics no parser fix can remove — `mapreduce/shuffle.ssc`
-    // spends 18 on `Phase A (map stage):`. Measured 2026-08-04: of 64 files with any
-    // diagnostic, 17 hold an untagged fence and those files account for 129 of 366
-    // diagnostics. That 129 is an UPPER bound on the unreachable share — such a file
-    // may also have real gaps in its tagged fences — but the reachable floor is clearly
-    // above zero, and chasing zero would push toward changing the untagged default or
-    // teaching the parser prose, both wrong.
+    // ZERO IS NOT THE TARGET, and the two columns above say why with numbers rather than prose.
+    // An UNTAGGED fence (```) defaults to ScalaScript, so a fence holding a protocol diagram or
+    // shell output reports diagnostics no parser fix can remove. Measured 2026-08-05, per FENCE
+    // rather than per file: 1,650 tagged fences carry 172 diagnostics (0.10 each) while 38
+    // untagged ones carry 96 (2.53 each) — **25x the density in 2.3% of the fences**. That is
+    // what a bucket full of non-code looks like, and chasing the headline to zero would mean
+    // teaching the parser prose or changing the untagged default, both wrong.
+    //
+    // So TAGGED is the number that measures the language, and it gets its own floor. Twice on
+    // 2026-08-04 a correct change was credited by the headline for making prose parse; with the
+    // columns split, such a change moves `untagged` and leaves `tagged` flat, which is the
+    // difference between a language fix and a permissiveness win.
+    //
+    // tagged + untagged is slightly under `total` (268 vs 273): a handful of diagnostics come
+    // from the markdown and front-matter layers, which belong to no ScalaScript fence.
     assert(pct > 90.0, f"clean-parse rate fell to $pct%.1f%%")
-    assert(total < 900, s"diagnostics grew to $total")
+    assert(total < 500, s"diagnostics grew to $total")
+    assert(taggedDiags < 250, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
   }
