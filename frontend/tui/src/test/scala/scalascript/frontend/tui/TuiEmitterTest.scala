@@ -81,6 +81,66 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("fn tab_moves_focus()"))
   }
 
+  test("a self-test is emitted only when its premise holds — reactivity needs a DRAWN signal") {
+    // Measured in a real app (rozum:crates/rozum-meeting-tui, 2026-08-05): the reactivity test
+    // picked the first TEXT signal and asserted the value appears on screen. That app's first text
+    // signal is a fetch URL, which nothing draws, so the frame never changed and the generated
+    // test was red on correct code.
+    // The exact shape of the app this was found in: a picker writes a URL into a signal, a second
+    // table fetches from it, and NOTHING draws that signal.
+    val url   = new ReactiveSignal[String]("url", "http://example/start")
+    val rooms = new FetchUrlSignal("rooms", "http://example/rooms", "tick")
+    val msgs  = new FetchUrlSignal("msgs", "unused", "tick", urlId = Some("url"))
+    val rs = emitMain(View.Column(Seq(
+      View.DataTable(
+        TableDataSource.Remote(rooms, "entries"),
+        List(FieldColumnDef("Id", "id")),
+        actions    = List(RowActionDef.RowLink("open", url, "url")),
+        rowKeyPath = "id"
+      ),
+      View.DataTable(
+        TableDataSource.Remote(msgs, "entries"),
+        List(FieldColumnDef("Text", "text")),
+        rowKeyPath = "text"
+      )
+    )))
+    assert(rs.contains("""m.insert("url".to_string()"""), "the URL signal must be in the store")
+    assert(
+      !rs.contains("""signals.insert("url".to_string(), Value::S("SSC_RERENDER_SENTINEL"""),
+      "asserted a frame change for a signal nothing draws"
+    )
+
+    // Drawn → emitted, and about the signal that is actually on screen.
+    val shown = new ReactiveSignal[String]("shown", "v")
+    val rs2   = emitMain(View.SignalText(shown))
+    assert(rs2.contains("fn reactive_rerender()"))
+    assert(rs2.contains("""signals.insert("shown".to_string()"""))
+  }
+
+  test("a self-test is emitted only when its premise holds — events need an UNCONDITIONAL handler") {
+    // The same app's first activation was a row-pick over a table that is empty until a fetch
+    // lands, so `activate` correctly did nothing and the generated assertion failed. A row-pick
+    // alone must therefore emit no event test.
+    val feed = new FetchUrlSignal("rows", "http://example/rows", "tick")
+    val dest = new ReactiveSignal[String]("dest", "")
+    val rs = emitMain(View.DataTable(
+      TableDataSource.Remote(feed, "entries"),
+      List(FieldColumnDef("Id", "id")),
+      actions    = List(RowActionDef.RowLink("open", dest, "url")),
+      rowKeyPath = "id"
+    ))
+    assert(rs.contains("fn activate(focus: usize"), "the handler itself must still be emitted")
+    assert(
+      !rs.contains("fn event_handlers_run()"),
+      "emitted a store-mutation assertion for a handler that only writes when a row exists"
+    )
+
+    // An increment mutates whatever the store holds → the premise holds → the test is emitted.
+    val count = new ReactiveSignal[Int]("count", 0)
+    val rs2 = emitMain(View.Button(text("inc"), EventHandler.IncrementSignal(count, 1)))
+    assert(rs2.contains("fn event_handlers_run()"))
+  }
+
   test("Toggle reads its checkbox + label from the runtime store") {
     val on  = new ReactiveSignal[Boolean]("t1", true)
     val rs  = emitMain(View.Toggle(on, "Enabled"))

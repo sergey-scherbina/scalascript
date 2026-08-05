@@ -216,7 +216,7 @@ object TuiEmitter:
        |        let _ = run_interactive();
        |    }
        |}
-       |${genTests(signals, focusables.toSeq, remoteTable)}""".stripMargin
+       |${genTests(signals, focusables.toSeq, remoteTable, body.toString)}""".stripMargin
 
   // ── Emitted Rust runtime: Value + accessors ────────────────────────────
 
@@ -697,13 +697,30 @@ object TuiEmitter:
       |    false
       |}""".stripMargin
 
-  /** `#[cfg(test)]` self-tests: reactivity (text signal present), event
-   *  handlers run (a mutating focusable present), text typing (a text input
-   *  present), focus traversal (any focusable present). */
+  /** `#[cfg(test)]` self-tests: reactivity (a text signal that is actually DRAWN), event handlers
+   *  run (a focusable whose activation mutates unconditionally), text typing (a text input
+   *  present), focus traversal (any focusable present).
+   *
+   *  **Each test is emitted only when the emitter has checked its premise.** Two of them used to be
+   *  emitted on a weaker condition than they assert, and both were red in a real app
+   *  (`rozum:crates/rozum-meeting-tui`, 2026-08-05):
+   *
+   *  - reactivity picked the first TEXT signal, but asserted the new value appears ON SCREEN. The
+   *    app's first text signal was a fetch URL, which nothing draws, so the frame never changed.
+   *  - "event handlers run" picked the first focusable with any activation and asserted the store
+   *    changed. The app's first activation was `PickRow` over a table that is empty until a fetch
+   *    lands, so `activate` correctly did nothing.
+   *
+   *  A generated test whose premise the generator did not check is worse than no test: it is red on
+   *  a correct app, and a red nobody can act on is a red everybody learns to ignore. Where no
+   *  candidate qualifies, nothing is emitted — the same answer a derived check gives when a task
+   *  has no machine-checkable criterion.
+   */
   private def genTests(
       signals: mutable.LinkedHashMap[String, SigInfo],
       fs: Seq[Focusable],
-      hasRemoteTable: Boolean): String =
+      hasRemoteTable: Boolean,
+      renderBody: String): String =
     val tests = mutable.ArrayBuffer.empty[String]
     if hasRemoteTable then
       tests +=
@@ -721,7 +738,11 @@ object TuiEmitter:
           |            assert!(fetch_rows(invalid, "data", "id", &fields).is_err(), "accepted {}", invalid);
           |        }
           |    }""".stripMargin
-    signals.collectFirst { case (id, info) if info.isText => id }.foreach { id =>
+    // Drawn, not merely textual: the assertion is about the frame, so the premise has to be
+    // "this signal reaches the frame". `renderBody` is the emitted render function.
+    signals
+      .collectFirst { case (id, info) if info.isText && renderBody.contains(rustStr(id)) => id }
+      .foreach { id =>
       tests += s"""    #[test]
                   |    fn reactive_rerender() {
                   |        let mut signals = initial_signals();
@@ -732,7 +753,16 @@ object TuiEmitter:
                   |        assert!(after.contains("SSC_RERENDER_SENTINEL"), "new value not rendered");
                   |    }""".stripMargin
     }
-    fs.collectFirst { case f if f.activation.isDefined => f.idx }.foreach { idx =>
+    // Unconditional and offline. `PickRow` writes only when the table already has that row, which
+    // it does not before the first fetch; `Post` mutates only after a 2xx, so asserting on it would
+    // put a network call inside a unit test.
+    fs.collectFirst {
+      case f if f.activation.exists {
+            case Mutation.Set(_, _) | Mutation.Incr(_, _) | Mutation.Toggle(_) => true
+            case _                                                             => false
+          } =>
+        f.idx
+    }.foreach { idx =>
       tests += s"""    #[test]
                   |    fn event_handlers_run() {
                   |        let mut signals = initial_signals();

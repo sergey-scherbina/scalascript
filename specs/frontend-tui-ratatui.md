@@ -194,6 +194,23 @@ snapshot matches)
   `SSC_TUI_SNAPSHOT` env path renders once via `TestBackend` for CI. **Gate met:** `frontendTui/test` 20/20 —
   `TuiCargoSmokeTest` builds the loop crate, renders a signal-bound frame headlessly, AND runs `cargo test` on a
   generated `#[cfg(test)] reactive_rerender` that mutates a signal and asserts the frame changes.
+**The generated self-tests are emitted only when the emitter has checked their premise
+(2026-08-05).** Two of them used to be emitted on a weaker condition than they assert, and both were
+red on a correct app (`rozum:crates/rozum-meeting-tui`):
+
+- `reactive_rerender` picked the first TEXT signal and asserted the new value appears ON SCREEN.
+  That app's first text signal holds a fetch URL that a row-pick retargets, and nothing draws it, so
+  the frame never changed. It now picks a text signal the emitted `render_root` actually reads.
+- `event_handlers_run` picked the first focusable with any activation and asserted the store
+  changed. That app's first activation is `PickRow` over a table that is empty until a fetch lands,
+  so `activate` correctly did nothing. It now picks an activation that mutates unconditionally and
+  touches no network — `Set` / `Incr` / `Toggle`, never `Post` (a 2xx-gated write would put a
+  request inside a unit test) and never `PickRow`.
+
+Where no candidate qualifies, **nothing is emitted**. A generated test whose premise the generator
+did not check is worse than no test: it is red on correct code, and a red nobody can act on is a red
+everybody learns to ignore.
+
 - **Slice 3 — focus ring + keyboard + events. ✓ DONE (2026-06-23).** Emit assigns each focusable
   (`Button`/`TextInput`/`Toggle`) a document-order focus index; the crate carries `FOCUS_COUNT`, `is_text_input`,
   `focus_mark` (a `> ` indicator the focused widget renders), `activate`/`type_char`/`backspace` (generated
