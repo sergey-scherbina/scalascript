@@ -7,6 +7,47 @@ grepping for status.
 
 Newest first.
 
+## native-import-link-alias-is-ignored — `[greet as g]` binds nothing, package or not
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Measured 2026-08-06. `as` in a markdown import link is ignored on this lane — every form of it, and
+it has nothing to do with `package:`. Four alias forms, four lanes:
+
+```
+[org as o]     the package root          int OK   native err   js err   jvm OK
+[Card as C]    a member object           int OK   native err   js OK    jvm OK
+[helper as h]  a member def              int OK   native err   js OK    jvm OK
+[greet as g]   a module with NO package  int OK   native err   js OK    jvm OK
+```
+
+**Controlled**, which is what makes it a statement about `as` rather than about imports: the same
+link written `[greet](./plain.ssc)` and called as `greet("hi")` prints `hi-hi` on native. With the
+alias it is `ssc: unbound global: g`.
+
+Cause: `sscImportPathsFrom` (`v2/bin/ssc1-run.ssc0:319`) reads the label `[...]` ONLY to find its
+closing bracket, and returns paths. The label text — the thing carrying the binding names and their
+aliases — is discarded before any consumer sees it, so no alias can ever be bound. Every other lane
+threads the bindings: v1 has `imp.bindings` with `binding.alias`, and JvmGen builds its import list
+from them.
+
+**Two sub-cases, and they need different emissions.** For a member (`[greet as g]`) a value alias
+`def g = greet` is enough — the flat splice already defined `greet`. For the package ROOT
+(`[org as o]`) it is NOT: `org` is one of the synthetic namespace objects
+(`native-front-has-no-package-namespace`), and objects are not first-class values on this lane —
+`val Card = Card` is `unbound global: Card`. That row needs a second namespace CHAIN emitted under
+the alias root, whose members forward to the same `__pkgref_…` top-level refs the real chain uses.
+
+Filed after being mis-filed: this arrived as `aliased-package-root-import-is-unbound-on-native-and-js`
+in the root file, from a matrix that had exactly one alias row. Widening the matrix showed the root
+was not special here and that the js lane fails on a different, narrower thing — so one cross-module
+entry was the wrong shape and it moved to the two lanes that own the fixes.
+
 ## v2-string-codePointAt-not-dispatched — `"abc".codePointAt(0)` has no dispatch on the native lane
 
 <!-- status: fixed

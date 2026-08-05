@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## js-aliased-package-root-import-is-unbound — `[org as o]` throws, while every other alias works
+
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Measured 2026-08-06, from a four-form alias matrix. This lane binds `as` aliases correctly in every
+form EXCEPT the package root:
+
+```
+[org as o]     the package root          int OK   js err   jvm OK
+[Card as C]    a member object           int OK   js OK    jvm OK
+[helper as h]  a member def              int OK   js OK    jvm OK
+[greet as g]   a module with NO package  int OK   js OK    jvm OK
+```
+
+So this is not "js ignores aliases" — three of four rows are green, and the same fixture without
+`as` is green too. The failure is a RUNTIME one, not an unbound name:
+
+```
+[stdin]:1475   throw new Error('Method not found: ' + method + ' on ' + _show(obj));
+```
+
+which is the generated `_dispatch`, so `o` is bound to something that is not the module namespace
+object. That is a different cause from the native lane's (`native-import-link-alias-is-ignored`,
+where the alias is discarded before it reaches any consumer), and it wants its own look.
+
+The jvm fix for the same row is the shape worth reading first: `JvmGen.aliasBlock` now emits
+`val o = org` for an aliased root instead of `import org.example.ui.{org}`
+(`jvm-package-import-qualifies-the-link-name`, `06513400e`).
+
 ## a-char-literal-is-not-boxed-so-its-methods-are-not-found
 
 <!-- status: fixed
