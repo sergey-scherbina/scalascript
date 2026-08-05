@@ -1415,6 +1415,22 @@ object SpikeParse:
         case Some(arg) =>
           postfix(c, Node.Frame("spike.blockapp", None, Vector(atom.withRole("blkapp.fn"), arg.withRole("blkapp.arg"))))
         case None => c.reset(m); atom
+    // Type ascription in EXPRESSION position — `compute(1): Int`. The reference front accepts it
+    // (verified: `val n = compute(1): Int` prints 1 on the interpreter) and this dialect did not,
+    // which left the colon for the statement parser and produced "expected statement, found ':'".
+    // The type is ERASED, like every other type here.
+    //
+    // Reached only AFTER the fewer-braces branch above has declined, so the two cannot compete: a
+    // colon that opens a block or a lambda is an argument, and anything else that follows an
+    // expression is an ascription. `val x: Int` and `case n: Int =>` never arrive — their colons
+    // are consumed by the declaration and pattern parsers.
+    else if c.peekKind == "spike.colon" && c.peekLine == c.prevEndLine then
+      val m = c.mark
+      c.advance() // `:`
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c) else skipTypeRef(c)
+      skipTypeTail(c)
+      if c.mark == m + 1 then { c.reset(m); atom } // nothing consumed as a type — leave the colon
+      else postfix(c, atom)
     else if isKw(c, "match") then parseMatch(c, atom)
     else atom
 

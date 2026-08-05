@@ -57,16 +57,18 @@ final class SpikeFewerBracesSpec extends AnyFunSuite:
     clean("def f(v: Int): Int =\n  v match\n    case n: Int => n")
   }
 
-  test("a call with an ascription is a SEPARATE gap, and this pins which side it is on") {
-    // `val n = compute(1): Int` does not parse, and did not before fewer-braces either: the guard
-    // declines (no `=>` on the line), so the colon is left for the statement parser, which is
-    // exactly the previous behaviour. Written as an assertion that it FAILS rather than left out,
-    // so that closing the real gap makes this test fail and someone reads this comment.
+  test("ascription in EXPRESSION position — the gap this spec used to pin as open") {
+    // Until 2026-08-05 this failed and the spec asserted that it failed, with a note telling
+    // whoever closed the gap to come here. That is what happened; the note is kept because the
+    // mechanism is the point — a control that quietly starts testing a different defect is worse
+    // than no control, so it was written to break loudly when the world changed.
+    clean("def f(): Int =\n  val n = compute(1): Int\n  n")
+    clean("def f(): Int =\n  compute(1): Int\n")
+    clean("def f(): List[Int] =\n  xs.map(x => x): List[Int]\n")
+    // and it must still not become a block argument
     val r = parse("def f(): Int =\n  val n = compute(1): Int\n  n")
-    assert(r.diagnostics.map(_.message).contains("expected statement, found ':'"),
-      "ascription on a call now parses — good; delete this test and note the gap closed")
     assert(!r.roots.flatMap(kinds).contains("spike.blockapp"),
-      "an ascription must never become a block argument — the guard has stopped working")
+      "an ascription must never become a block argument — fewer-braces declines first, ascription takes it")
   }
 
   test("a colon that opens nothing is left alone") {

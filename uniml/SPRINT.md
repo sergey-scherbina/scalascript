@@ -122,7 +122,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           of nesting lost it. Found in `scripts/smoke-ci.ssc`, a script that runs in CI and
           therefore parses fine for the reference front, which is what made it obviously a gap on
           our side rather than bad source. **tagged 69 → 65.**
-          **tagged 172 → 65 across five slices, untagged 96 → 76, clean files 94.8% → 97.2%.**
+          A sixth: **type ascription in EXPRESSION position** — `compute(1): Int`. The reference
+          front accepts it (`val n = compute(1): Int` prints 1 on the interpreter); this dialect
+          left the colon for the statement parser. It sits AFTER the fewer-braces branch, so the
+          two cannot compete: a colon that opens a block or a lambda is an argument, anything else
+          after an expression is an ascription. **tagged 65 → 52, untagged 76 → 52.**
+          `SpikeFewerBracesSpec` had pinned this as an OPEN gap with an assertion that it still
+          failed, and a note to whoever closed it. Closing it broke that test, exactly as designed —
+          a control that quietly starts testing a different defect is worse than no control.
+          **tagged 172 → 52 across six slices, untagged 96 → 52, clean files 94.8% → 97.5%.**
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
