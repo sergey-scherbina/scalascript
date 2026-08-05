@@ -1,8 +1,7 @@
-# generation: 932
+# generation: 933
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:tests/e2e/run-lane-flags-are-flags.sh file:scripts/smoke-ci.ssc
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
-tui-table-fetch-failure	housekeeping-rozum	2026-08-05T06:56:42Z	a remote table must not panic the app when its fetch returns a non-JSON body	file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiFetchCargoTest.scala file:specs/frontend-tui-table-fetch-failure.md
 jvm-nested-module-qualification	claude-code	2026-08-05T07:03:05Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 gated-open-entries-sweep	claude-code	2026-08-05T07:09:35Z	native-upload-numberformat-on-dash	file:v2/BUGS.md
