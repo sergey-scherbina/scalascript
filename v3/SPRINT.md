@@ -349,3 +349,13 @@ method, and a NESTED block comment (v1 answers `structural CoreIR contains parse
       **v1 fails this one by printing `Stub`** — the silent sentinel at exit 0, not a diagnostic.
       Third construct where v3 is ahead of the reference lane, and the only one where the reference
       gives a WRONG ANSWER rather than a refusal.
+
+- [x] **9g — a single-line body may be an ASSIGNMENT.** `if curCount > 0 then leaves = leaves + 1`
+      — a statement, where `parseBody` parsed an expression. Fixed in `parseBody` itself, so `if`,
+      `else`, `while`, a `def` body and a lambda body all get it at once; `for … do` had to be
+      fixed on its own before this and is the reason the shared fix was obvious.
+
+      **v1 SILENTLY TRUNCATES the same program.** `while i < 3 do i = i + 1` makes it print 2 of 6
+      lines and exit 0 with no diagnostic — the same family as the recorded interpreter defect
+      where `if cond then <assign>` with no else is silently skipped. Worth filing separately: it
+      is a wrong answer, not a refusal.

@@ -1,0 +1,23 @@
+def pack(xs: List[Int]): Int =
+  var leaves = 0
+  var remaining = xs
+  var curCount = 0
+  while remaining.nonEmpty do
+    curCount = curCount + 1
+    remaining = remaining.tail
+  if curCount > 0 then leaves = leaves + 1
+  leaves
+
+var n = 0
+if true then n = 5
+println(n)
+if false then n = 9 else n = 7
+println(n)
+var i = 0
+while i < 3 do i = i + 1
+println(i)
+val a = Array(0, 0)
+if true then a(1) = 42
+println(a(1))
+println(pack(List(1, 2, 3)))
+println(pack(Nil))

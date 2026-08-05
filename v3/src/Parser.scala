@@ -616,7 +616,25 @@ object Parser:
         val (l, t) = parseLambda(skipLayout(ts.tail))
         (l, expectPunct(skipLayout(t), "}"))
       else parseBraceBlock(ts.tail)
+    // A single-line body may be an ASSIGNMENT, which is a statement and not an expression:
+    //
+    //     if curCount > 0 then leaves = leaves + 1
+    //
+    // Parsed as a statement and wrapped in a block with no result, which is correct rather than a
+    // workaround: an assignment's value is Unit either way. One place, so `if`, `while`, a `def`
+    // body and a lambda body all get it — `for … do` had to be fixed on its own before this.
+    else if assignAhead(ts) then
+      val (sts, t) = parseStmt(ts)
+      (Expr.Block(sts, None, posOf(ts)), t)
     else parseExpr(ts)
+
+  /** Is an ASSIGNMENT statement starting here — `x = e` or `a(i) = e`? A lone `=`, never `==`,
+    * which the operator lexer keeps as one token so there is nothing to disambiguate. */
+  private def assignAhead(ts: List[Tok]): Boolean = peek(ts) match
+    case Tok.TId(n, _) if !keywords.contains(n) =>
+      if isOp(peek(ts.tail), "=") then true
+      else isPunct(peek(ts.tail), "(") && updateAhead(ts.tail)
+    case _ => false
 
   /** A `{ … }` block. Inside braces the layout tokens carry no meaning — the braces already say
     * where the block ends — so INDENT/DEDENT/NEWLINE are skipped rather than parsed. Measured on
