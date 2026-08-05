@@ -135,6 +135,20 @@ reproducible from the entry above.
      fixed-in: -
      gate: tests/e2e/package-keyword-smoke.sh -->
 
+**FIXED. The emitter had three guards and needed a fourth.** `JsGen.scala` ~2549 emitted the import
+binding when `targetJsName != localJsName && !notExported && !declaredBindings.contains(localJsName)`.
+`declaredBindings` only tracks bindings emitted by that same loop, so it could not see the namespace
+`const org` the object path had already emitted — the check now also consults `topLevelConsts`.
+
+When the imported name IS the top-level namespace there is nothing to bind: `org.example.ui.Card`
+resolves through the object that is already there. Clean A/B on the same tree: reverted and rebuilt
+gives 2 × `const org` and node refusing the module, fixed gives 1 and `ui-card-hi`. Ordinary
+imports still bind (`[Helper](./h.ssc)` → `went`), which is the thing a guard like this could
+plausibly swallow.
+
+`package-keyword-smoke`'s JS row passes now. Its INT row still fails on
+`native-front-has-no-package-namespace` (v2/BUGS.md) and its JVM row is the gate invoking a compiler.
+
 Importing a module that declares `package: org.example.ui` emits the namespace correctly and then
 emits a SECOND binding for the same name, which selects the name out of its own namespace:
 

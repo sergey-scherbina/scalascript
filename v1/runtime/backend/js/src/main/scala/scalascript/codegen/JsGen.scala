@@ -2546,7 +2546,21 @@ class JsGen(
         // If the child module declares an exports list and this name is absent,
         // skip — don't block a later import from the correct module.
         val notExported = childExports.nonEmpty && !childExports.contains(b.name)
-        if targetJsName != localJsName && !notExported && !declaredBindings.contains(localJsName) then
+        // `!topLevelConsts.contains` is the third guard and it was missing. When the imported module
+        // declares `package: org.example.ui` and the import selects `org`, the namespace object is
+        // ALREADY emitted as a top-level `const org = (…)`; this line then emitted a SECOND
+        // `const org = org.example.ui.org;` — a redeclaration, which is a SyntaxError, and a target
+        // that selects `org` out of its own namespace, which does not exist. node refused the whole
+        // module at parse time:
+        //
+        //     SyntaxError: Identifier 'org' has already been declared
+        //
+        // `declaredBindings` only tracks bindings emitted by THIS loop, so it could not see the
+        // namespace const. When the name is already the top-level namespace there is nothing to
+        // bind: `org.example.ui.Card.render(…)` resolves through the object that is already there.
+        if targetJsName != localJsName && !notExported
+           && !declaredBindings.contains(localJsName)
+           && !topLevelConsts.contains(localJsName) then
           declaredBindings += localJsName
           line(s"const $localJsName = $targetJsName;")
     }
