@@ -158,6 +158,30 @@ after     5 errors:  0                          +  5 × Not found: __jsonCore*
 
 The six that were the emitter's fault are gone; what is left is exactly category (2).
 
+**A THIRD instance of the same shape, found and fixed 2026-08-05.** `genUserOnlyWithLineMap` also
+carries `qualifiedSrc.replace("__extern__", "???")` — for `extern def` stubs nested inside plain
+classes or non-recursing objects, which pass through scalameta's `.syntax` with the body marker
+intact. **`genModule` never applied it**, so those markers reached the compiler:
+`components-smoke`'s JVM lane reported **nine `Not found: __extern__` out of eighteen errors**, and
+they vanished the moment the same one-line patch was applied on the default path. 18 → 9.
+
+That is now three defects in one file with one cause: **the two emit paths apply different
+fixups**, and anything repaired in the bytecode path stays broken in the one `emit-scala` and
+`run-jvm` actually use. The `Cons` lowering, the `__extern__` marker, and — still unverified — the
+`case None()` rewrite in `rewriteActorAstCallsInSource`. Worth fixing as a structure rather than
+one pass at a time.
+
+**Measured chain across the day**, `std/json.ssc` on the jvm lane and the gates behind it:
+
+| | errors |
+|---|---|
+| start | 14 × `Cons` |
+| after `Cons` lowering | 10 (6 scope + 4 extern hooks) |
+| after value-level import hoisting | 5 (extern hooks only) |
+| `components-smoke` JVM, after the `__extern__` patch | 18 → 9 |
+
+`upload-smoke` **passes now** — it was red before these three and needed none of the json hooks.
+
 **(2) remains open and is a FEATURE, not a fix.** `__jsonCoreWrap`, `__jsonCoreWrapStrict`,
 `__jsonCoreEncodeValue`, `__jsonCoreRawStrict` and `__jsonCoreInstallRenderer` are `extern def`
 host hooks. js has them in `core-collections.mjs`, native in `JsonNativePlugin.scala`, the jvm lane

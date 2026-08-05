@@ -609,10 +609,22 @@ class JvmGen(
       }
       if hasViewDef then sb.append("serve(view(), 0)\n")
 
-    val fixedHead = maybeLowerCons(sb.substring(0, preambleLen))
+    val fixedHead = maybeLowerCons(sb.substring(0, preambleLen)).replace("__extern__", "???")
     // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into native
     // loops in the USER code only (parsing just the user slice, not the ~7k-line preamble).
+    // `.replace("__extern__", "???")`, the same patch `genUserOnlyWithLineMap` applies and for the
+    // same reason: an `extern def` nested inside a plain class or a non-recursing object passes
+    // through scalameta's `.syntax` with the body marker intact, and the compiler answers
+    // `Not found: __extern__`. `???` keeps the signature and turns a call into a
+    // `NotImplementedError`, which is what the intrinsic table is consulted to avoid.
+    //
+    // IT WAS ONLY IN THE BYTECODE PATH. `generate` → `genModule` — what `emit-scala` and `run-jvm`
+    // use — never applied it, so those markers reached the compiler: NINE of the eighteen errors on
+    // `components-smoke`'s JVM lane were this one line's absence. Second defect of exactly this
+    // shape in the same file today; the first was the `Cons` lowering. The two emit paths applying
+    // different fixups is the real bug behind both.
     val userSrc   = maybeLowerCons(fuseLazyListInSource(sb.substring(preambleLen)))
+      .replace("__extern__", "???")
     // Inject UI helper functions (top-level) + primitives object block when
     // the module uses a frontend framework.  Helpers are prepended so they're
     // defined before the `import std.ui.primitives.{serve,...}` line and can
