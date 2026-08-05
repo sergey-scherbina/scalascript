@@ -260,6 +260,23 @@ object SpikeLex:
           val width = if e == 'u' then 8 else 4
           var k = 0; while k < width && i < n do { advance(text.charAt(i)); k += 1 }
           emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
+        // A char literal only when the quote actually CLOSES. Taking three characters
+        // unconditionally lexed `'x)` as the "char" `'x)` and `'{ ` as `'{ ` — both `spike.int`,
+        // both nonsense — which is how Scala 3's quote forms arrived at the parser as numbers.
+        else if i + 2 < n && text.charAt(i + 2) == '\'' then
+          var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
+          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
+        // `'{ … }` — a Scala 3 quote block. The quote is its own token so the brace that follows
+        // is the ordinary `{` every block parser already knows.
+        else if i + 1 < n && text.charAt(i + 1) == '{' then
+          advance(text.charAt(i))
+          emit("spike.quote", start, "'", TokenChannel.Syntax)
+        // `'x` — a quoted name (an `Expr` reference in a macro). Not a char: no closing quote.
+        else if i + 1 < n && isSpikeIdStart(text.charAt(i + 1)) then
+          val sb = new StringBuilder
+          sb.append(text.charAt(i)); advance(text.charAt(i))
+          while i < n && isSpikeIdPart(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+          emit("spike.qname", start, sb.toString, TokenChannel.Syntax)
         else
           var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
           emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
@@ -275,6 +292,10 @@ object SpikeLex:
           case '[' => "spike.lbracket"
           case ']' => "spike.rbracket"
           case '@' => "spike.at"
+          // `$` opens a Scala 3 splice — `${ e }` or `$x`. It was `spike.junk`, which is how the
+          // parser came to report "unexpected token '$' in expression" on a construct the
+          // reference front runs.
+          case '$' => "spike.splice"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -1788,6 +1809,24 @@ object SpikeParse:
       case "spike.float"  => c.advance().map(t => Node.Leaf(t, Some("float")))
       case "spike.str"    => c.advance().map(t => Node.Leaf(t, Some("str")))
       case "spike.lparen" => parseParen(c)
+      // Scala 3 metaprogramming. All three erase to their contents for this dialect — it parses the
+      // language, it does not run the macro — but they must PARSE, because the reference front runs
+      // examples/quoted-macro-constfold.ssc and prints `literal: 7`.
+      //   'x        a quoted name          -> spike.qname leaf
+      //   '{ e }    a quote block          -> spike.quote  wrapping a block
+      //   ${ e }    a splice               -> spike.splice wrapping a block
+      //   $x        a splice of a name     -> spike.splice wrapping that name
+      case "spike.qname" => c.advance().map(t => Node.Leaf(t, Some("qname")))
+      case "spike.quote" =>
+        val kw = c.advance().get
+        val body = if c.peekKind == "spike.lbrace" then parseBracedBlock(c) else Node.Frame("spike.error", None, Vector.empty)
+        Some(Node.Frame("spike.quote", None, Vector(Node.Leaf(kw, Some("quote.kw")), body.withRole("quote.body"))))
+      case "spike.splice" =>
+        val kw = c.advance().get
+        val body =
+          if c.peekKind == "spike.lbrace" then parseBracedBlock(c)
+          else parsePostfix(c).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+        Some(Node.Frame("spike.splice", None, Vector(Node.Leaf(kw, Some("splice.kw")), body.withRole("splice.body"))))
       case "spike.lbracket" => Some(parseListLiteral(c)) // `[e1, e2, …]` bracket sugar → List(e1, …) (K62.6f)
       case "spike.lbrace" => Some(parseBracedBlock(c)) // `{ val … ; expr }` braced block (non-match position)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)

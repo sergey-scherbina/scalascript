@@ -189,7 +189,14 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           `SpikeFewerBracesSpec` had pinned this as an OPEN gap with an assertion that it still
           failed, and a note to whoever closed it. Closing it broke that test, exactly as designed —
           a control that quietly starts testing a different defect is worse than no control.
-          **tagged 172 → 52 across six slices, untagged 96 → 52, clean files 94.8% → 97.5%.**
+          A seventh: **Scala 3 quote and splice** — `'x`, `'{ … }`, `${ … }`, `$x`. The real defect
+          was in the LEXER and had nothing to do with macros: every `'` was assumed to open a char
+          literal of FIXED WIDTH, so `'x)` lexed as the char `'x)` and `'{ ` as `'{ `, both
+          `spike.int`. A char literal is now one only when the quote CLOSES; `$` became a token
+          instead of `spike.junk`. **tagged 52 → 42.**
+          **tagged 172 → 42 across seven slices, untagged 96 → 52, clean files 94.8% → 97.6%.**
+          Of the 42 left, 16 are the `@side` example that is invalid by measurement — so roughly
+          26 are real.
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
