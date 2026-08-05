@@ -704,6 +704,10 @@ object SpikeParse:
           // appearing twice makes the tree unable to reconstruct its source (it would
           // print `Int` twice) and defeats any scheme that maps tokens back by id.
           // Nothing reads `def.paramType`; `def.usingtype` is read at usingTypes.
+          // A BY-NAME parameter — `(block: => Unit)`. The `=>` comes BEFORE the type, so the
+          // type parser met an arrow where it wanted a name. `v1/runtime/std/http.ssc:89`,
+          // `extern def httpClient(baseUrl: String)(block: => Unit)`. Erased with the type.
+          if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance()
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
           else expectType(c, if usingClause then "def.usingtype" else "def.paramType").foreach(kids += _)
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
@@ -1332,16 +1336,21 @@ object SpikeParse:
     else
       expectName(c, "val.name", "val name").foreach(kids += _)
       skipTypeAnnotation(c) // optional `: T` (erased)
-      val eqLine = c.peekLine
-      expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
-      // `=` is a LAYOUT OPENER (isLayoutOpener, ssc1-front.ssc0:2841), so an RHS starting on a LATER line is
-      // an indented BLOCK — exactly like a def body — not a single expression. A lone-expression RHS lowers
-      // identically (lowerBlock's last-item case is the bare expr), so this only matters when the RHS spans
-      // several statements: `val x =` ⏎ `if c then html"…"` ⏎ `else html"…"` is FIVE statements once the
-      // custom interpolator splits each `html"…"` into a var + a string. parseExpr kept only the first and
-      // leaked the rest into the enclosing block.
-      kids += branchExpr(c, eqLine).withRole("val.rhs")
-      Node.Frame("spike.val", None, kids.result())
+      // An ABSTRACT val — `val id: String` inside a class or trait body, with no `=` and no RHS.
+      // `v1/runtime/std/geo.ssc:103` and `http.ssc:175` are both this, and demanding `=` consumed
+      // the rest of the file looking for one: "expected '=', found '<eof>'".
+      if c.peekKind != "spike.eq" then Node.Frame("spike.valdecl", None, kids.result())
+      else
+        val eqLine = c.peekLine
+        expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
+        // `=` is a LAYOUT OPENER (isLayoutOpener, ssc1-front.ssc0:2841), so an RHS starting on a LATER line is
+        // an indented BLOCK — exactly like a def body — not a single expression. A lone-expression RHS lowers
+        // identically (lowerBlock's last-item case is the bare expr), so this only matters when the RHS spans
+        // several statements: `val x =` ⏎ `if c then html"…"` ⏎ `else html"…"` is FIVE statements once the
+        // custom interpolator splits each `html"…"` into a var + a string. parseExpr kept only the first and
+        // leaked the rest into the enclosing block.
+        kids += branchExpr(c, eqLine).withRole("val.rhs")
+        Node.Frame("spike.val", None, kids.result())
 
   // `var x [: T] = e` → Pair("var", (name, e)); lowerProg backs it with an lcell and rewrites reads/writes.
   private def parseVarStmt(c: Cur): Node =

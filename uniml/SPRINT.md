@@ -200,9 +200,13 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           here. Rejecting the type took the `=` and the body with it, so one unhandled operator cost
           14 diagnostics in one file — 14 → 2 → 0. `throws` is not a keyword, it lexes as an
           identifier, so the rule matches the lexeme. **tagged 42 → 28.**
-          **tagged 172 → 28 across eight slices, untagged 96 → 52, clean files 94.8% → 97.7%.**
-          Of the 28 left, 16 are the `@side` example that is invalid by measurement — so roughly
-          **12 are real**, and the histogram's tail is flat at 2-3 each.
+          A ninth: **declarations that carry no value** — a by-name parameter `(block: => Unit)`
+          and an abstract `val id: String`. Both from `v1/runtime/std/`. The abstract val is the
+          instructive one: demanding `=` did not fail at the val, it consumed the REST OF THE FILE
+          looking for one and reported `expected '=', found '<eof>'`. A diagnostic pointing at
+          end-of-file usually means something earlier decided to keep going. **tagged 28 → 24.**
+          **tagged 172 → 24 across nine slices, untagged 96 → 52, clean files 94.8% → 97.9%.**
+          Of the 24 left, 6 are the invalid `@side` example — so **~18 real**, tail flat at 1-3.
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
