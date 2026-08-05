@@ -1416,7 +1416,7 @@ header/trunks. Every negative case must fail before returning a changed pager.
      area: runtime
      gate: tests/conformance/contract-roster.tsv
      gate: tests/e2e/freeze-consistency-gate.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: dd04074bd -->
 
 **Status:** OPEN — **measured, not mine to fix** (found 2026-07-28 by `f-try-multistmt-def-body`
 while rostering one new conformance case; the cases span at least six live claims, so a single
