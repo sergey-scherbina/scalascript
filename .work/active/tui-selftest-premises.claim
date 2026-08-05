@@ -1,0 +1,11 @@
+slug: tui-selftest-premises
+branch: feature/tui-selftest-premises
+agent: claude-code
+started: 2026-08-05T08:21:34Z
+heartbeat: 2026-08-05T08:21:34Z
+status: claimed-before-planning
+items: emit self-tests whose premise the emitter has checked
+paths: frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
