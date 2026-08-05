@@ -220,8 +220,51 @@ have":**
    looks like the intended architecture rather than a workaround, but it is a decision about the
    portable-json design, not a codegen patch, and it belongs to whoever owns that design.
 
-Either way the entry stays open, and what it is open FOR is now one sentence: on the jvm lane the
-portable json module has no host bridge, and `std/http` is what that costs.
+**OPTION 2 IS REFUTED, and it is the more dangerous of the two.** Measured, not argued:
+
+- **Coverage is 6 of 15.** The preamble defines `JsonValue`, `jsonParse`, `jsonRead`,
+  `jsonStringify`, `lookup`, `lookupOpt`. It does not define `jsonValue`, `jStr`, `jNum`, `jBool`,
+  `jDecimal`, `jField`, `jObj`, `jArr`, `jsonEscape`. So it is not "reuse what is there" — it is
+  reuse 40% and write the rest.
+- **The semantics are OPPOSITE.** The module documents itself as total: *"Null `JsonValue` /
+  zero-default, never a crash"*. The preamble's `JsonValue` throws — `apply`, `asString`, `asInt`
+  all raise. Same operation, missing key:
+
+  ```
+  builtin (jvm)        Exception: JsonValue: no key 'nope'
+  portable module      |end                    (empty string, no crash)
+  ```
+
+  Wiring the import to the builtin would make a program that returns a default on int/js/native
+  **crash at runtime on jvm** — compiling identically, diverging only when executed, on one lane.
+  That is the class of defect this repository spends most of its effort on, and it would be
+  introduced deliberately.
+
+**OPTION 3 — implement the hooks in `.ssc` instead — is also refuted, cheaply.** `extern def` has no
+fallback body: the host provides the name or it is missing. Giving them `.ssc` bodies would take js
+and native OFF their host implementations, which is a far larger blast radius than the jvm gap.
+
+**OPTION 1 IS PROVEN TO BE PLACEABLE, 2026-08-05.** The constraint stated above — the hooks must
+return `JsonCore*` ADT values whose types live in emitted module code the fixed preamble cannot name
+— is satisfied by emitting them AFTER the modules. Verified by hand on the real emitted source:
+appended the five definitions to the end, naming `std.json.core.JsonCoreNull` and friends, and
+
+```
+scala-cli compile probe2.sc   →  Compiled
+scala-cli run     probe2.sc   →  parsed
+```
+
+They are visible from inside `object std.json` (top-level script definitions resolve across the
+file) and they can name the nested module's types. **The `.sc` extension matters**: as a `.scala`
+compilation unit the same text fails with `Illegal start of toplevel definition` — the emitted
+output is a SCRIPT, which is the same fact that explained the `Cons` parse failure.
+
+**One sub-problem remains and it is the real work.** `__jsonCoreWrap` must return a value that
+navigates **totally** — `get` on a miss yields a Null wrapper, `asString` on a non-string yields
+`""`, never an exception (js does this in `_jsonValueTotal`). The jvm preamble's `JsonValue` is the
+opposite. So the emitted block needs its own total wrapper as well as the five hooks; it cannot
+delegate to what is already there. That is the piece to write, and it is ordinary work now rather
+than a design question.
 
 **(2) remains open and is a FEATURE, not a fix.** `__jsonCoreWrap`, `__jsonCoreWrapStrict`,
 `__jsonCoreEncodeValue`, `__jsonCoreRawStrict` and `__jsonCoreInstallRenderer` are `extern def`
