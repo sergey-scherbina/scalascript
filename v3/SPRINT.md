@@ -489,3 +489,30 @@ drifted in the direction its own warning was written about.
 - [x] **12h — six string methods.** `substring` `indexOf` `replace` `contains` `startsWith`
       `endsWith` ran on the bridge and refused on the executor — found while probing FOR the spec,
       which is the argument for re-measuring rather than transcribing.
+
+## SSC3-13 — the UniML integration, answered by probe
+
+Sergiy asked whether the AST should be built straight from UniML during parsing. Answered in
+`40-front-on-uniml.md` §5a, and the answer needed two corrections to my own earlier writing.
+
+- [x] **13a — §5 was WRONG and is corrected.** It listed five constructs as UniML's debt — `for`,
+      `try`/`throw`, `pfblock`, a nested `def`. All five were modelled. I built that table from the
+      prose of UniML's sprint file without opening `SpikeTyped.scala`, and the prose was stale by
+      ONE COMMIT. The measured state is coverage **100.0%**, gaps **28**, silent drops **0**, and
+      *no construct the CST has is unmodelled*. The 28 are parse-recovery holes — breadth, not
+      typing. A list inherited rather than measured, which is the error this repository documents
+      most and which I made against a colleague's notes.
+- [x] **13b — §5a answers the architecture question with the two trees measured.** `SpikeAst` has 47
+      node kinds and keeps Scala's SURFACE shapes — `For`/`ForGen`, `PartialFn`, `Tuple`,
+      `PatTuple`/`PatCons`, `IndexAssign`, `Infix`/`Prefix`, three separate call nodes. v3's `Ast`
+      has ~25 and has already desugared all of them. **The second projection is where v3's
+      desugaring lives; it is the work, not overhead.** Building from the CST would not remove it —
+      it would remove the compiler's help while doing it, and re-open the silent-miss hole UniML
+      just spent a sprint closing.
+- [x] **13c — the build integration is VERIFIED, no longer assumed.** Seven classpath entries from
+      sbt; a program compiled against them parses ScalaScript and projects `Def`, `ValDef`,
+      `For`+`ForGen`, `CaseClass` with a defaulted param, `Match` with `PatCons` — with spans, no
+      sbt at run time.
+- [x] **13d — two API facts found by the probe.** `SpikeTyped.module` takes a SCALA SUBTREE, not the
+      composed root. And a BARE `.ssc` yields ZERO subtrees, while fences have been optional here
+      since 2026-07-09 — a whole program would read as prose, silently. Filed in §5 as a request.

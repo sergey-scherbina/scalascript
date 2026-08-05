@@ -133,43 +133,116 @@ also keeps invariant I-1 honest in the way that matters: UniML is ours and has n
 dependencies, so depending on it adds no third party — but it is a separate build, and pretending
 otherwise would have produced a compile error at the worst possible moment.
 
-*Not yet verified:* that a v3 built against those jars runs. It cannot be verified from here today —
-the jars are not built in this worktree and sbt would contend with the live `uniml-typed-ast-complete`
-claim. It is the first step of the integration batch, not an assumption inside it.
+**VERIFIED 2026-08-06.** `sbt "export unimlScala/Compile/fullClasspath"` yields seven entries, and a
+scala-cli program compiled against them parses real ScalaScript and projects it:
 
-## 5 · What UniML still owes v3 — measured from UniML's OWN numbers, 2026-08-05
+```
+scala subtrees = 1
+  Def(f, Vector(Param(x, Some(TypeRef(Int, …)), None, false, …)), …)
+  TopExpr(ValDef(xs, Apply(Ident(List, …), Vector(IntLit(1, …), …)), …))
+  TopExpr(For(Vector(ForGen(Vector(y), Ident(xs, …), …)), …))
+  CaseClass(P, Vector(Param(a, Some(TypeRef(Int, …)), …), …), …)
+  TopExpr(Match(Ident(xs, …), Vector(Arm(PatCons(PatVar(h, …), …), …), …), …))
+```
 
-The projection is in good shape and the work behind it is careful: 1,185 files, 212,885 nodes,
-**99.7% coverage, 672 admitted gaps, 0 silent drops**. The finding that makes those numbers
-trustworthy is theirs, not v3's: **the coverage metric used to reward dropping nodes** — a dropped
-subtree is absent from BOTH sides of the ratio, so losing a construct RAISED the figure. They found
-it, fixed it, and admitted gaps went UP (2,943 → 2,964) as a result. A/B rather than assertion:
-re-planting `enum.case` turns the census red at 142.
+`def`, `val`, `for` with its generator, a `case class` with a defaulted parameter, a `match` with a
+cons pattern — with spans, from the classpath, with no sbt at run time. The integration question is
+answered.
 
-What still blocks the swap, in priority order for v3:
+**Two API facts the probe found, and both would have cost a round during the swap:**
 
-| # | what | why v3 needs it |
-|---|---|---|
-| 1 | **`for`** (37 gaps) | v3 supports `for … do` / `yield`, multiple generators and `if` guards, with a green fixture on both lanes. A swap today LOSES it. |
-| 2 | **`try` / `throw`** (32 + 56) | same — `try-catch.ssc` is green on both lanes today. |
-| 3 | **`spike.pfblock`** (185) | `{ case (k, v) => … }` as a lambda. v3 has it; it is how every destructuring callback is written. |
-| 4 | **a nested `def`** (48) | v3 lifts local functions; losing them silently would be worse than losing them loudly. |
-| 5 | **the ALPHABET** (`UNIML-SSC3-ALPHABET`, still open) | v3's requirement, and a language-level one: route character classification through the host and the same source lexes differently on JVM, JS and the v2 VM. The table is [`20-core-language.md`](20-core-language.md) §3 — every line a range comparison, no Unicode tables on any host. |
+1. `SpikeTyped.module` takes a SCALA SUBTREE, not the composed document's root. Handed the root it
+   returns `UnsupportedDecl(markdown.paragraph, …)` — correctly, because at that level the document
+   IS markdown. The subtrees are the branches whose `kind` starts with `spike.`.
+2. **A BARE `.ssc` yields ZERO scala subtrees.** Measured: bare → 0, ```` ```scalascript ```` → 1,
+   ```` ```scala ```` → 1. But fences have been OPTIONAL in this project since 2026-07-09 — a bare
+   `.ssc` is the program in its entirety, which `v3/src/Source.scala` implements and 6 of the 383
+   conformance cases rely on. Either v3 fences bare text before handing it over, or the composer
+   gains a bare mode. It is cheap on v3's side and belongs in §5 either way, because a front that
+   silently reads a whole program as prose is the quietest failure in this document.
 
-Two more that v3 can live without today but should be recorded:
+## 5 · What UniML still owes v3 — CORRECTED 2026-08-06
 
-- **an import's PATH is not in the CST.** `parseImportStmt` consumes the dotted path without
-  attaching it, so `import a.b.c` and `import x.y` are indistinguishable. UniML filed this
-  themselves and modelled it as the contentless `NoOpDecl` it really is, which is the honest
-  choice. **It does not block v3**, because v3's imports are markdown links (`[names](path.ssc)`)
-  read from the source TEXT by `Loader`, not from the tree — a fact worth stating so nobody
-  sequences the swap behind it.
-- `givenobj` 45, `effectdecl` 42, `focusmarker`/`direct`/`try` 32 each, `summon` 26 — all outside
-  SSC3 core Tier 0 today, so they are not v3's blockers. `given`/`using` in particular stays refused
-  by v3 on its own grounds: it needs type-directed resolution, which Tier 0 does not have.
+**The previous version of this section was wrong, and the way it was wrong is worth keeping.** It
+listed five blockers — `for`, `try`/`throw`, `spike.pfblock`, a nested `def` — as constructs UniML
+had not modelled. They were modelled. I built that table from the prose of UniML's sprint file
+without opening `SpikeTyped.scala`, and the prose was stale by ONE COMMIT: `b5035d15d` had already
+closed every one of them. Reading the code takes a minute and would have caught it.
 
-**The ordering is a request, not an instruction.** UniML's claim is theirs; this table exists so the
-sequencing question has a measured answer instead of two agents guessing at each other.
+That is the same error this repository keeps paying for, applied to a sibling's work instead of my
+own: **a list inherited rather than measured.** `30-portable-subset.md` says it about gap maps and
+`SSC3-4` says it about UniML's own gaps; it applies to a colleague's sprint notes too.
+
+The measured state, from UniML's own gate:
+
+| | |
+|---|---|
+| files / nodes | 1,185 / 221,824 |
+| coverage of what the dialect parses | **100.0%** |
+| admitted gaps | **28** |
+| silently dropped subtrees | **0** |
+
+**No construct the CST has is unmodelled.** The 28 are parse-recovery holes — an infix whose
+operand the DIALECT itself diagnosed — which makes them a BREADTH question about the dialect, not a
+typing question about the projection.
+
+So the remaining question for v3 is not "has UniML modelled it" but **"does the ScalaSpike dialect
+PARSE what SSC3 core needs"**, which is a different item with a different owner. One requirement is
+still open and it is v3's:
+
+- **the composer has no BARE mode.** A `.ssc` with no code fence yields zero ScalaScript subtrees,
+  and fences have been optional in this project since 2026-07-09. v3 can work around it by fencing
+  the text itself, so this is a request rather than a blocker — but the failure it prevents is a
+  whole program read as prose, with no diagnostic.
+- **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls. The table is
+  [`20-core-language.md`](20-core-language.md) §3. Route classification through the host and the same
+  source lexes differently on JVM, JS and the v2 VM; the language's syntax becomes host-dependent.
+
+And one fact recorded so nobody sequences behind it: **an import's PATH is absent from the CST.**
+`parseImportStmt` consumes the dotted path without attaching it, so `import a.b.c` and `import x.y`
+are indistinguishable. UniML filed this itself and modelled it as the contentless `NoOpDecl` it
+really is. It does not block v3: v3's imports are markdown links (`[names](path.ssc)`) read from the
+source TEXT by `Loader`, never from the tree.
+
+## 5a · Why the projection reads the TYPED AST and not the CST — Sergiy's question, 2026-08-06
+
+*"Что насчёт того, чтобы строить AST для v3 прямо из UniML во время парсинга?"* Three architectures
+are being compared, and the measurement that separates them is what the two trees actually contain.
+
+**C — build v3's `Ast` inside the parser's actions.** Rejected, and not narrowly. It destroys the
+lossless CST, which is UniML's entire value and the thing every measurement in §5 is taken against;
+it couples UniML's Scala dialect to v3's types, so UniML stops being a reusable framework and
+becomes v3's front; and it removes the ability to ask *did everything the parser saw reach the
+AST?* — the question whose answer was **6,641 silently dropped subtrees** the day somebody asked it.
+
+**B — CST → v3's `Ast`, one projection instead of two.** This is the real content of the question
+and the saving it points at is real. It is still the wrong trade, because it re-opens exactly the
+hole UniML has just spent a sprint closing: a CST branch is `Branch(kind: String, …)`, so a `kind`
+v3 forgets is a SILENT MISS. There is no exhaustiveness to lean on, and the failure mode is not a
+crash — it is a smaller tree that still lowers, still runs, and prints something plausible. The
+typed layer plus `Unsupported` is what converts that into a countable number, and a coverage metric
+that REWARDED dropping is what it looks like when nobody is counting.
+
+**A — CST → typed projection → v3's `Ast`.** Chosen. The second projection is checked by the
+compiler: a `SpikeAst` node v3 forgets is a compile error.
+
+**The cost the question is pointing at is real, and here it is measured.** `SpikeAst` has 47 node
+kinds and keeps Scala's SURFACE shapes: `For`/`ForGen`, `PartialFn`, `Tuple`/`TupleVal`,
+`PatTuple`/`PatCons`, `IndexAssign`, `CompoundAssign`, `Infix`/`Prefix`, and `Select` + `Apply` +
+`BlockApply` as three separate nodes. v3's `Ast` has about 25 and has already desugared all of them
+— `for` into `map`/`flatMap`/`foreach`, a tuple into `Call("TupleN")`, `a(i) = v` into `Update`,
+three call shapes into one `MethodCall`.
+
+So the second projection is **where v3's desugaring decisions live. It is not overhead; it is the
+work.** Building from the CST would not remove that work — it would remove the compiler's help
+while doing it.
+
+**What is NOT rejected** is the stronger version of the same instinct: delete v3's `Ast` and lower
+from `SpikeAst` directly, so the language has ONE tree. That may well be right, and it is sequenced
+rather than refused — `Lower.scala` is the largest and most measured part of v3, and rewriting it
+against a different tree in the same step as the parser swap is precisely the risk this plan is
+shaped to avoid. Once §7's differential is green, that question is small, cheap and reversible;
+today it is none of those.
 
 ## 6 · What v3 does on its own side, before any of that lands
 
