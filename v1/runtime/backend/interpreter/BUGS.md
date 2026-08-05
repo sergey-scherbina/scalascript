@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
+
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: none -->
+
+Eight lines, measured 2026-08-05:
+
+```
+case class Box(n: Int):
+  def twice(): Int = n * 2
+  def quad(): Int = twice() * 2
+
+def main() =
+  println(Box(3).twice())
+  println(Box(3).quad())
+```
+
+    ssc-tools run --v1   ->  6, then [ERROR] [line 3, col 21] Undefined: twice
+    ssc run              ->  6, 12
+
+The SAME method resolves from outside the class and not from a sibling method's body. `n` resolves
+fine in both, so it is not the instance scope generally — it is specifically another method of the
+same class.
+
+**Found by hitting it, not by looking for it.** `Response.withSession` in `std/http.ssc` was written
+as `withHeader("Set-Cookie", …)`, the obvious spelling, and died on v1 with `Undefined: withHeader`
+while working on the native lane. Sidestepped there by inlining the one-line body
+(`Response(status, headers + (…), body)`), which is why that file now builds the response directly
+and says so — but the workaround is in std, and any user writing an ordinary case class hits this
+with nothing to tell them why.
+
+Not fixed here: this is method resolution in the interpreter, well outside the session work that
+surfaced it, and it deserves its own measurement rather than a patch bolted onto that commit.
+
 ## int-object-var-mutation-does-not-persist — a `var` inside an `object` never changes
 
 <!-- status: open

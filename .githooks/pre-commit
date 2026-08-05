@@ -144,4 +144,45 @@ EOF
     fi
     ;;
 esac
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `area:` must be in the enum — checked HERE, at the author's commit, not by the
+# shared gate after the push.
+#
+# THREE TIMES on 2026-08-04/05 an entry landed with a value that is not in
+# `specs/bugs-index.md` — `gate`, `corpus`, and one before them. Each turned
+# `bugs-index-gate` red on main for EVERY agent until its author noticed, and each
+# was a single word. The gate is not at fault: it caught all three. It just runs
+# after the damage, and the suite it lives in takes minutes, so people push first.
+#
+# Only STAGED BUGS.md files, only the `area:` lines, so the cost is a grep.
+staged_bugs="$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)BUGS\.md$' || true)"
+if [ -n "$staged_bugs" ]; then
+  # The enum lives in specs/bugs-index.md; read it from there rather than repeating
+  # it, so the two cannot drift — a hard-coded copy here would become the fourth
+  # place this list is written down.
+  enum_line="$(grep -m1 '^| `area`' specs/bugs-index.md 2>/dev/null || true)"
+  allowed="$(printf '%s' "$enum_line" | grep -oE '`[a-z-]+`' | tr -d '`' | grep -v '^area$' || true)"
+  if [ -n "$allowed" ]; then
+    bad=0
+    for f in $staged_bugs; do
+      while IFS= read -r val; do
+        printf '%s
+' "$allowed" | grep -qx "$val" || {
+          [ "$bad" -eq 0 ] && echo "✋ pre-commit: an \`area:\` value is not in the enum." >&2
+          bad=1
+          echo "   $f: area: $val" >&2
+        }
+      done < <(git show ":$f" 2>/dev/null | grep -oE '^ *area: *[a-z-]+' | awk '{print $2}')
+    done
+    if [ "$bad" -ne 0 ]; then
+      echo "" >&2
+      echo "   Allowed (specs/bugs-index.md): $(printf '%s' "$allowed" | tr '\n' ' ')" >&2
+      echo "   This is the check that stops the SHARED bugs-index gate going red on main for" >&2
+      echo "   everyone — it has happened three times, each for one word." >&2
+      echo "   Override (rarely correct): git commit --no-verify" >&2
+      exit 1
+    fi
+  fi
+fi
 exit 0
