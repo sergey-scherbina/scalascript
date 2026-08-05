@@ -332,10 +332,14 @@ def sscImportPathsFrom = (t, i, acc) =>
       if #i.ge(close, #slen(t)) then Nil
       else
         let p = #sslice(t, #i.add(labelEnd, 2), close) in
+        -- The LABEL travels with the path from here on. It used to be read only to find
+        -- this closing bracket and then dropped, which is why no `[x as y]` ever bound
+        -- anything on this lane (v2/BUGS.md native-import-link-alias-is-ignored).
+        let lab = #sslice(t, #i.add(start, 1), labelEnd) in
         if sscEndsSsc(p) then
-          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
         else if sscDirImportPath(p) then
-          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(Pair(lab, p), acc))
         else Nil
     else Nil
   else Nil
@@ -406,7 +410,11 @@ def sscScanLines = (lines, mode, pending, acc) =>
             case _ => sscScanLines(rest, mode, "", sscPushImports(paths, acc))
           }
   }
-def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), 0, "", Nil))
+-- The link view: `[Pair(label, path)]` in source order. `sscImports` is the PATH
+-- projection of it, unchanged in shape, so every existing consumer -- the loaders,
+-- sscOrderMod, sscResolveImports, the content projection -- sees what it always saw.
+def sscImportLinks = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), 0, "", Nil))
+def sscImports = (src) => sscMapSnd(sscImportLinks(src))
 
 -- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
 -- in-tree v1/runtime); everything else is relative to the importing file.
@@ -672,6 +680,148 @@ def sscPkgNsSource = (pkg, defs) =>
                sscPkgObjBlocks(leaf, defs))))))))
     else ""
 
+-- ── `as` in an import link (v2/BUGS.md native-import-link-alias-is-ignored) ──
+-- `[greet as g](./plain.ssc)` must bind `g`, and on this lane it bound nothing: the
+-- scanner above read the label `[...]` only to find its closing bracket and threw the
+-- text away. Every other lane threads the bindings (v1 `imp.bindings` with
+-- `binding.alias`; JvmGen builds its import list from them).
+--
+-- ONE scanner, two views. `sscScanLines` collects `Pair(label, path)` and `sscImports`
+-- projects the paths back out, so the module graph, `sscOrderMod`, the content
+-- projection and the F runner all see exactly what they saw before. A SECOND scanner
+-- would have had to repeat the fence-mode and wrapped-link handling, and a copy of that
+-- is how a link inside an opaque ```text fence becomes an import.
+def sscSndOf = (p) => match p { case Pair(a, b) => b }
+def sscMapSnd = (xs) =>
+  match xs { case Nil => Nil case Cons(h, t) => Cons(sscSndOf(h), sscMapSnd(t)) }
+
+-- `x as y` -> Pair(x, y); a bare `x` -> Pair(x, x). Matched as the WORD `as` with a
+-- space on each side, so a name that merely contains the letters (`aspect`, `class`)
+-- is untouched.
+def sscAsAt = (s, i) =>
+  if #i.gt(#i.add(i, 4), #slen(s)) then #slen(s)
+  else if #seq(#sslice(s, i, #i.add(i, 4)), " as ") then i
+  else sscAsAt(s, #i.add(i, 1))
+def sscBindingOf = (item) =>
+  let t = strip(item) in
+  let j = sscAsAt(t, 0) in
+  if #i.ge(j, #slen(t)) then Pair(t, t)
+  else Pair(strip(#sslice(t, 0, j)), strip(#sslice(t, #i.add(j, 4), #slen(t))))
+def sscSplitCommas = (s, i, cur, acc) =>
+  if #i.ge(i, #slen(s)) then reverse(Cons(cur, acc))
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 44) then sscSplitCommas(s, #i.add(i, 1), "", Cons(cur, acc))
+    else sscSplitCommas(s, #i.add(i, 1), #sconcat(cur, #sslice(s, i, #i.add(i, 1))), acc)
+-- Only the RENAMING bindings: a bare `[greet]` already resolves through the flat splice,
+-- and both sides must be plain identifiers or the emitted source would not parse — the
+-- same guard the package namespace needs, for the same reason.
+def sscAliasesOfLabel = (label) =>
+  let rec go = (items) =>
+    match items {
+      case Nil => Nil
+      case Cons(item, rest) =>
+        match sscBindingOf(item) {
+          case Pair(orig, alias) =>
+            if #seq(orig, alias) then go(rest)
+            else if sscPkgIdentOk(orig) then
+              (if sscPkgIdentOk(alias) then Cons(Pair(orig, alias), go(rest)) else go(rest))
+            else go(rest)
+        }
+    } in
+  go(sscSplitCommas(label, 0, "", Nil))
+
+def sscFirstSeg = (pkg) => #sslice(pkg, 0, sscFindChar(pkg, 0, 46))
+def sscReplaceFirstSeg = (pkg, seg) =>
+  let j = sscFindChar(pkg, 0, 46) in
+  if #i.ge(j, #slen(pkg)) then seg else #sconcat(seg, #sslice(pkg, j, #slen(pkg)))
+
+-- Alias source for ONE link. The two sub-cases are not the same emission:
+--  * a MEMBER alias is a value alias -- the flat splice already defined `greet`.
+--  * the package ROOT is not. `org` is a synthetic namespace object and objects are NOT
+--    first-class values on this lane (`val Card = Card` answers `unbound global: Card`),
+--    so that row needs a second namespace CHAIN rooted at the alias, whose members
+--    forward to the very same `__pkgref_…` top-level refs the real chain uses. That is
+--    `sscPkgNsSource` again with the first segment replaced -- one definition, now three
+--    names, still no copy.
+-- Is `name` a top-level `object` of this module, and what does it hold? An object
+-- cannot be aliased by value -- `def C = Card` binds something whose `.render` answers
+-- `unhandled runtime effect: C.render` -- so it needs an object of its own that
+-- forwards, exactly like a package namespace member.
+def sscIsObjectNamed = (defs, name) =>
+  match defs {
+    case Nil => false
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            (match data {
+              case Pair(oname, ostmts) =>
+                if #seq(oname, name) then true else sscIsObjectNamed(rest, name)
+            })
+          else sscIsObjectNamed(rest, name)
+      }
+  }
+def sscObjMembersNamed = (defs, name) =>
+  match defs {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            (match data {
+              case Pair(oname, ostmts) =>
+                if #seq(oname, name) then sscPkgMemberNames(ostmts, false)
+                else sscObjMembersNamed(rest, name)
+            })
+          else sscObjMembersNamed(rest, name)
+      }
+  }
+def sscAliasSrcFor = (dir, rel, label) =>
+  let target = sscResolve(dir, rel) in
+  let path = if sscEndsSsc(target) then target else #sconcat(target, "/index.ssc") in
+  let modStr = #utf8->str(#io.readFile(path)) in
+  let modDefs = sscDefsOnly(parse(sscProgramSource(modStr))) in
+  let pkg = sscPkgName(modStr) in
+  let root = if #seq(pkg, "") then "" else sscFirstSeg(pkg) in
+  let rec go = (bs) =>
+    match bs {
+      case Nil => ""
+      case Cons(b, rest) =>
+        match b {
+          case Pair(orig, alias) =>
+            let one =
+              if #seq(orig, root) then
+                sscPkgNsSource(sscReplaceFirstSeg(pkg, alias), modDefs)
+              else if sscIsObjectNamed(modDefs, orig) then
+                #sconcat("object ", #sconcat(alias, #sconcat(":\n  def __pkg = 0\n",
+                  sscPkgFwdLines(orig, sscObjMembersNamed(modDefs, orig)))))
+              else #sconcat("def ", #sconcat(alias, #sconcat(" = ", #sconcat(orig, "\n")))) in
+            #sconcat(one, go(rest))
+        }
+    } in
+  go(sscAliasesOfLabel(label))
+
+-- Every aliased link in a file, as one source string. Files with no `as` anywhere pay
+-- one label scan and read no extra files.
+def sscAliasSource = (fileStr, dir) =>
+  let rec go = (links) =>
+    match links {
+      case Nil => ""
+      case Cons(lp, rest) =>
+        match lp {
+          case Pair(label, rel) =>
+            match sscAliasesOfLabel(label) {
+              case Nil => go(rest)
+              case _   => #sconcat(sscAliasSrcFor(dir, rel, label), go(rest))
+            }
+        }
+    } in
+  go(sscImportLinks(fileStr))
+def sscAliasDefs = (fileStr, dir) =>
+  let src = sscAliasSource(fileStr, dir) in
+  if #i.eq(#slen(src), 0) then Nil else sscDefsOnly(parse(src))
+
 def sscLoadMod = (rawPath, seen) =>
   let path0 = sscNormalize(rawPath) in
   -- Directory import: `[names](./dir)` with no `.ssc` extension loads `dir/index.ssc`
@@ -687,8 +837,12 @@ def sscLoadMod = (rawPath, seen) =>
     -- property and therefore EAGER, so its right-hand side must already exist.
     let nsSrc = sscPkgNsSource(sscPkgName(fileStr), defs) in
     let nsDefs = if #i.eq(#slen(nsSrc), 0) then Nil else sscDefsOnly(parse(nsSrc)) in
+    -- `[x as y]` aliases sit BETWEEN the imports and this module's own defs: their
+    -- right-hand sides come from the imports, and this module's code may use them.
+    let alDefs = sscAliasDefs(fileStr, sscDir(path)) in
     match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
-      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, sscApp(defs, nsDefs)), seen2)
+      case Pair(impDefs, seen2) =>
+        Pair(sscApp(impDefs, sscApp(alDefs, sscApp(defs, nsDefs))), seen2)
     }
 def sscLoadImps = (imps, dir, seen) =>
   match imps {
@@ -720,8 +874,11 @@ def sscLoadRoot = (rawPath, seen) =>
     }
   else
     let stmts = parse(src) in
+    -- A root keeps its top-level EXPRESSIONS, so the aliases have to be defined before
+    -- them, not after: a value alias is a parameterless property and therefore eager.
+    let alDefs = sscAliasDefs(fileStr, sscDir(path)) in
     match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
-      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, stmts), seen2)
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, sscApp(alDefs, stmts)), seen2)
     }
 def sscLoadRoots = (paths, seen) =>
   match paths {
@@ -974,10 +1131,17 @@ def sscConcatSources = (paths) =>
       -- Parsing is guarded on the package being declared, so a module without one
       -- pays nothing.
       let pkg = sscPkgName(fileStr) in
-      let src =
+      let src1 =
         if #seq(pkg, "") then src0
         else #sconcat(src0,
                #sconcat("\n\n", sscPkgNsSource(pkg, sscDefsOnly(parse(src0))))) in
+      -- `[x as y]` aliases are PREPENDED to the importing file's own source, not
+      -- appended: this list is post-order so the targets are already above, and this
+      -- file's top-level expressions may use the alias. Appending would define it after
+      -- they had run.
+      let alSrc = sscAliasSource(fileStr, sscDir(p)) in
+      let src = if #i.eq(#slen(alSrc), 0) then src1
+                else #sconcat(alSrc, #sconcat("\n\n", src1)) in
       let more = sscConcatSources(rest) in
       if #i.eq(slen(more), 0) then src
       else (if #i.eq(slen(src), 0) then more

@@ -104,6 +104,68 @@ check "JS"     -  "$BIN/jssc"
 # because the gate FAILS a declared row that starts passing.
 check "JVM" -  "$BIN/ssc-tools" run-jvm
 
+# ── `as` in the link, four forms ────────────────────────────────────────────────────────────────
+#
+# A second consumer against the SAME module, plus one against a module with no `package:` at all —
+# that last one is what separates "aliasing is broken" from "aliasing a package root is broken", and
+# it is the row that reframed the whole task: native ignored `as` everywhere, not just on packages.
+#
+# Each row runs with the alias AND with the same link written without it. The unaliased run is the
+# ABSENT-STATE CONTROL: if it were failing too, a green alias row would be meaningless, and if the
+# alias row passed while the control failed the fixture would be lying about what it exercises.
+
+cat > "$WORK/plain.ssc" <<'EOF'
+---
+name: plain
+---
+```scalascript
+def greet(t: String): String = "hi-" + t
+```
+EOF
+
+alias_case() {  # alias_case <name> <module> <link> <call> <plain-link> <plain-call> <expected>
+    local name="$1" mod="$2" link="$3" call="$4" plink="$5" pcall="$6" exp="$7"
+    cat > "$WORK/a_$name.ssc" <<EOF
+---
+name: a_$name
+---
+[$link]($mod)
+
+\`\`\`scalascript
+println($call)
+\`\`\`
+EOF
+    cat > "$WORK/n_$name.ssc" <<EOF
+---
+name: n_$name
+---
+[$plink]($mod)
+
+\`\`\`scalascript
+println($pcall)
+\`\`\`
+EOF
+    local got ctl
+    got=$("$BIN/ssc" run "$WORK/a_$name.ssc" 2>"$WORK/a_$name.err" | grep -vE '^[[:space:]]*$' | tr '\n' '|')
+    ctl=$("$BIN/ssc" run "$WORK/n_$name.ssc" 2>/dev/null | grep -vE '^[[:space:]]*$' | tr '\n' '|')
+    if [ "$ctl" != "$exp|" ]; then
+        echo "  [FAIL] alias/$name  — the CONTROL (no \`as\`) does not pass: got $ctl"
+        echo "         A green alias row would prove nothing while this is red."
+        fail=1
+    elif [ "$got" = "$exp|" ]; then
+        echo "  [PASS] alias/$name"
+    else
+        echo "  [FAIL] alias/$name  got: $got"
+        [ -s "$WORK/a_$name.err" ] && sed 's/^/         stderr: /' "$WORK/a_$name.err" | head -2
+        fail=1
+    fi
+}
+
+echo
+alias_case root    ./cards.ssc "org as o"    'o.example.ui.Card.render("hi")' "org"    'org.example.ui.Card.render("hi")' ui-card-hi
+alias_case member  ./cards.ssc "Card as C"   'C.render("hi")'                 "Card"   'Card.render("hi")'                 ui-card-hi
+alias_case plainfn ./plain.ssc "greet as g"  'g("hi")'                        "greet"  'greet("hi")'                       hi-hi
+
 echo
 if [ $fail -eq 0 ]; then
     echo "package: keyword resolves on every lane that does not carry a declared gap."
