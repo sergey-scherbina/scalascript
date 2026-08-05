@@ -1,7 +1,6 @@
-# generation: 956
+# generation: 957
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
 int-object-var-mutation	claude-code	2026-08-05T09:01:29Z	int-object-var-mutation-does-not-persist	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/conformance/object-var-mutation.ssc file:tests/conformance/expected/object-var-mutation.txt file:tests/conformance/contract-roster.tsv
 release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md
-jvm-json-hook-placement-proof	claude-code	2026-08-05T09:05:15Z	jvm-lane-cannot-compile-a-json-import	file:v1/runtime/backend/jvm/BUGS.md
