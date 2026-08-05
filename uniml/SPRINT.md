@@ -85,6 +85,17 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           diagnostics. **tagged 172 → 94 (−45%), untagged 96 → 96 (UNCHANGED), clean files
           94.8% → 96.5%.** The untagged column not moving is the point: this fix is a language fix,
           and the split probe proves it rather than asserting it.
+          Two more slices on the same evidence, each measured in the honest column:
+          a **dotted name in a pattern refers** (`case scala.util.Failure(e) =>` — Scala binds only
+          a SIMPLE identifier, so the first segment's case stops mattering once a `.` follows):
+          tagged 94 → 86, untagged unchanged, and the file carrying the top three shapes went to
+          ZERO diagnostics. Then **Scala 3 fewer-braces** (`xs.foreach: x =>`, `handle(x):` + case
+          arms): tagged 86 → **71**, untagged 96 → 94, clean 96.9%.
+          Fewer-braces is guarded three ways because `:` is the most overloaded token in the
+          language — the receiver must be a call or a selection, the colon must open a block or a
+          lambda, and the argument backtracks if it does not parse as one. The spec's controls are
+          the ascriptions, not the new forms.
+          **tagged 172 → 71 across three slices, untagged 96 → 94.**
           Earlier slices, each measured: `case object`, `extern`+qualified def names (which only
           work TOGETHER), escaped identifiers, varargs, type ascription.
       (5) **measurement — DONE, and it removes the risk §4 opened with.** JMH both arms, alternated

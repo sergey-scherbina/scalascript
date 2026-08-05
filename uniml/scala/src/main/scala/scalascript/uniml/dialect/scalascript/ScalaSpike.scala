@@ -424,6 +424,31 @@ object SpikeParse:
       var q = p + 1
       while q < toks.length && toks(q).kind == "spike.ws" do q += 1
       if q < toks.length then toks(q).kind else "spike.eof"
+    /** Is the `:` under the cursor Scala 3's fewer-braces argument, rather than a type ascription?
+      *
+      * `:` is the most overloaded token in the language — ascription, a pattern's type, a parameter
+      * — so this answers only for the two shapes fewer-braces actually takes, and says no otherwise:
+      *   `f(x):` NEWLINE indented-block     the argument is a block or a set of `case` arms
+      *   `f.foreach: (a, b) =>`             the lambda header is on the colon's own line
+      * The second needs a bounded scan for `=>` before the line ends, because `x: (Int, String)` is
+      * an ascription that looks identical until the arrow decides it.
+      */
+    def colonOpensBlockArg: Boolean =
+      skipTrivia()
+      if p >= toks.length || toks(p).kind != "spike.colon" then false
+      else
+        val colonLine = toks(p).span.start.line
+        var q = p + 1
+        while q < toks.length && toks(q).kind == "spike.ws" do q += 1
+        if q >= toks.length then false
+        else if toks(q).span.start.line > colonLine then true // indented block on the next line
+        else
+          // same line: a lambda header, so look for `=>` before this line ends
+          var found = false
+          while q < toks.length && toks(q).span.start.line == colonLine && !found do
+            if toks(q).lexeme == "=>" then found = true else q += 1
+          found
+
     def advance(): Option[SourceToken] = { skipTrivia(); if p < toks.length then { val t = toks(p); p += 1; Some(t) } else None }
     def skipSemis(): Unit = while peekKind == "spike.semi" do advance()
     def diagnostics: Vector[Diagnostic] = diags.result()
@@ -1371,8 +1396,44 @@ object SpikeParse:
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
       val arg = parseBlockArg(c)
       postfix(c, Node.Frame("spike.blockapp", None, Vector(atom.withRole("blkapp.fn"), arg.withRole("blkapp.arg"))))
+    // Scala 3 fewer-braces: `e: <arg>` is `e { <arg> }`. Guarded three ways, because `:` also means
+    // ascription: the receiver must be a CALL or a SELECTION (a bare name cannot reach this), the
+    // colon must open a block or a lambda (`colonOpensBlockArg`), and the whole thing backtracks if
+    // the argument turns out not to parse as one.
+    else if c.peekKind == "spike.colon" && (roleKind(atom) == "spike.call" || roleKind(atom) == "spike.sel")
+      && c.colonOpensBlockArg then
+      val m = c.mark
+      c.advance() // `:`
+      parseColonBlockArg(c) match
+        case Some(arg) =>
+          postfix(c, Node.Frame("spike.blockapp", None, Vector(atom.withRole("blkapp.fn"), arg.withRole("blkapp.arg"))))
+        case None => c.reset(m); atom
     else if isKw(c, "match") then parseMatch(c, atom)
     else atom
+
+  /** The argument after a fewer-braces `:`. Mirrors [[parseBlockArg]]'s three shapes — `case` arms,
+    * a lambda, a plain block — but bounded by INDENTATION instead of a closing brace. */
+  private def parseColonBlockArg(c: Cur): Option[Node] =
+    c.skipSemis()
+    if isKw(c, "case") then
+      val armCol = c.peekCol
+      val arms = Vector.newBuilder[Node]
+      while isKw(c, "case") && c.peek2Lexeme != "class" && c.peekCol >= armCol do { arms += parseArm(c); c.skipSemis() }
+      Some(Node.Frame("spike.pfblock", None, arms.result()))
+    else
+      val params: Vector[SourceToken] =
+        if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then { val nm = c.advance().get; c.advance(); Vector(nm) }
+        else if c.peekKind == "spike.lparen" then
+          val m = c.mark
+          tryLambdaParams(c) match
+            case Some(ps) if c.peekLexeme == "=>" => c.advance(); ps
+            case _ => c.reset(m); Vector.empty
+        else Vector.empty
+      c.skipSemis()
+      if c.eof then None
+      else
+        val body = parseBlock(c, c.peekCol)
+        Some(if params.isEmpty then body else Node.Frame("spike.lam", None, params.map(t => Node.Leaf(t, Some("lam.param"))) :+ body.withRole("lam.body")))
 
   // `{ … }` as a call argument, wrapped as a lambda — mirrors ssc1-front parseBlockArg (ssc1-front.ssc0:1750):
   //   `{ case P => B; … }`  → __pf => __pf match { … }  (spike.pfblock)
