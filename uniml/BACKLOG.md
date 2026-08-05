@@ -7,6 +7,40 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## the composer parses fences the reference front does not, and the difference is not the tag
+
+Measured 2026-08-05 while working breadth, and it changes how the remaining diagnostics should be
+read.
+
+`v1/runtime/std/ui/form.ssc` contains `formBody([...])` inside a ```` ```scala ```` fence. `...` is
+NOT valid ScalaScript — the reference front rejects `g([...])`, `g(1, ...)` and `val x = [...]`
+identically. Yet `ssc-tools run --v1 v1/runtime/std/ui/form.ssc` exits clean, while extracting that
+same fence into a file of its own makes the reference front fail on it.
+
+**The tag is not the difference**: ```` ```scala ````, ```` ```scalascript ```` and ```` ```ssc ````
+all fail identically on the extracted fence. So something about the FILE takes that block out of
+scope, and `SscCompose` does not reproduce it — it hands the block to the ScalaScript dialect and
+counts the resulting diagnostics.
+
+What the reference front has and the composer does not, from `v1/lang/core/.../ast/AST.scala:350`:
+
+    def isDocOnly:      cb.attrs.get("doc").exists(_ != "false")
+    def isProgramCode:  Lang.isParseable(cb.lang) && !cb.isDocOnly
+
+with a comment that reads like it was written after this exact bug: *"a `@doc` block is parseable by
+construction, and a lane that forgets the second half re-creates exactly the INT-vs-native
+divergence `@doc` exists to remove."* The composer asks only the first half.
+
+That is not yet a complete explanation — form.ssc's fence carries no `doc` attribute, and its front
+matter (`exports:`) is the other candidate — which is exactly why this is filed rather than fixed.
+**Whoever takes it should start by finding what makes the reference front skip that block**, not by
+adding an attribute check on a guess.
+
+**Why it matters beyond one file.** Every diagnostic the breadth probe reports from a block the
+reference front would not compile is a false gap, and the probe is what decides where parser work
+goes. Two of the remaining shapes are exactly this shape.
+
+
 ## the CST does not keep an import's PATH — a v3 front cannot resolve imports from it
 
 Found 2026-08-05 under `uniml-typed-ast`, by writing the assertion that the path was there and

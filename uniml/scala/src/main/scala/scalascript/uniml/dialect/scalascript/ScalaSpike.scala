@@ -1882,9 +1882,15 @@ object SpikeParse:
   // `try BODY [catch handler] [finally F]` (ssc1-front.ssc0:1061) → __tryCatch__ / __tryCatchFinally__ /
   // __tryFinally__ prims (BODY & finally become 0-arg thunks in the projection; the catch is a partial fn).
   private def parseTry(c: Cur): Node =
+    val tryLine = c.peekLine
     c.advance() // `try`
     val kids = Vector.newBuilder[Node]
-    parseExpr(c, 1).foreach(b => kids += b.withRole("try.body"))
+    // A body starting on a LATER line is an indented block, exactly like a def body. Taking a single
+    // expression kept only the first statement and left the rest — and the `catch` — to the
+    // enclosing block, which then read `case` at statement level and asked for `case class`.
+    // `examples/graphql-client.ssc:74` is `try` ⏎ two statements ⏎ `catch`.
+    if !c.eof && c.peekLine > tryLine then kids += parseBlock(c, c.peekCol).withRole("try.body")
+    else parseExpr(c, 1).foreach(b => kids += b.withRole("try.body"))
     if isWord(c, "catch") then
       c.advance() // `catch`
       val handler =

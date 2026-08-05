@@ -205,8 +205,20 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           instructive one: demanding `=` did not fail at the val, it consumed the REST OF THE FILE
           looking for one and reported `expected '=', found '<eof>'`. A diagnostic pointing at
           end-of-file usually means something earlier decided to keep going. **tagged 28 → 24.**
-          **tagged 172 → 24 across nine slices, untagged 96 → 52, clean files 94.8% → 97.9%.**
-          Of the 24 left, 6 are the invalid `@side` example — so **~18 real**, tail flat at 1-3.
+          A tenth: **`try` with an INDENTED BLOCK body.** `catch` was already handled, braceless
+          arms included; the body was not, so a single expression was taken and the rest — plus the
+          `catch` — fell out to the enclosing block, which met `case` at statement level and asked
+          for `case class`. The diagnostic named `case`, three lines below the real cause.
+          **tagged 24 → 18.**
+          **tagged 172 → 18 across ten slices, untagged 96 → 52, clean files 94.8% → 98.1%.**
+          ⚠️ And a finding that limits what the rest of this column means: **the composer parses
+          fences the reference front does not.** `std/ui/form.ssc` holds `[...]` — invalid, the
+          reference rejects it in isolation — inside a ```` ```scala ```` fence, yet the reference
+          runs that FILE clean while failing on the same fence extracted. The tag is not the
+          difference. `isProgramCode` in v1 is `isParseable(lang) && !isDocOnly`; the composer asks
+          only the first half. Filed in `uniml/BACKLOG.md` with the measurement, unfixed, because
+          the cause is not yet established and guessing at an attribute check would be the same
+          mistake in the other direction.
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
