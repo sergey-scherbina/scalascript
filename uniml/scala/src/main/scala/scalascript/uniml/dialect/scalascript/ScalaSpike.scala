@@ -1396,12 +1396,19 @@ object SpikeParse:
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
       val arg = parseBlockArg(c)
       postfix(c, Node.Frame("spike.blockapp", None, Vector(atom.withRole("blkapp.fn"), arg.withRole("blkapp.arg"))))
-    // Scala 3 fewer-braces: `e: <arg>` is `e { <arg> }`. Guarded three ways, because `:` also means
-    // ascription: the receiver must be a CALL or a SELECTION (a bare name cannot reach this), the
-    // colon must open a block or a lambda (`colonOpensBlockArg`), and the whole thing backtracks if
-    // the argument turns out not to parse as one.
-    else if c.peekKind == "spike.colon" && (roleKind(atom) == "spike.call" || roleKind(atom) == "spike.sel")
-      && c.colonOpensBlockArg then
+    // Scala 3 fewer-braces: `e: <arg>` is `e { <arg> }`.
+    //
+    // The receiver may be ANY expression, including a bare name — `apiClients:` followed by an
+    // indented block is what the reference front accepts, and it was refused here until 2026-08-05
+    // by a guard requiring a call or a selection. The dialect's job is to match the reference
+    // front's PARSE, not to judge meaning: v1 parses that and fails at runtime with "Undefined:
+    // apiClients", which is a type error, not a syntax one.
+    //
+    // Two guards carry it instead, and `SpikeFewerBracesSpec`'s ascription cases are what keep them
+    // honest: `colonOpensBlockArg` requires an indented block on the next line or a `=>` before the
+    // current line ends — so `val x: Int = 1` and `(x: Int)` are untouched — and the argument
+    // backtracks to the colon if it does not parse as one.
+    else if c.peekKind == "spike.colon" && c.colonOpensBlockArg then
       val m = c.mark
       c.advance() // `:`
       parseColonBlockArg(c) match

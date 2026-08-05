@@ -40,9 +40,18 @@ final class SpikeFewerBracesSpec extends AnyFunSuite:
     clean("def f(): Unit =\n  runIt():\n    val a = 1\n    println(a)")
   }
 
-  test("ASCRIPTION still parses — the control, and the reason for the three guards") {
-    // A bare name can never reach the fewer-braces branch: the receiver must be a call or a
-    // selection. These are the shapes that would break if that guard were dropped.
+  test("a bare name is a valid receiver — the reference front accepts it") {
+    // `apiClients:` + indented block. Refused here until the receiver guard came off; v1 parses it
+    // and fails at RUNTIME with "Undefined: apiClients", which is a type error, not a syntax one.
+    val r = clean("def f(): Unit =\n  apiClients:\n    println(1)\n")
+    assert(r.roots.flatMap(kinds).contains("spike.blockapp"))
+    // A lambda header after a bare name too.
+    clean("def f(): Unit =\n  each: x =>\n    println(x)\n")
+  }
+
+  test("ASCRIPTION still parses — the control, and the only thing holding the line") {
+    // With the receiver guard gone, `colonOpensBlockArg` is what keeps every one of these an
+    // ascription: none has an indented block after the colon, and none has a `=>` on its line.
     clean("def f(): Int =\n  val x: Int = 1\n  x")
     clean("def f(): List[Int] =\n  val xs: List[Int] = List(1, 2)\n  xs")
     clean("def f(v: Int): Int =\n  v match\n    case n: Int => n")

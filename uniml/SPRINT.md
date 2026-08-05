@@ -95,7 +95,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           language — the receiver must be a call or a selection, the colon must open a block or a
           lambda, and the argument backtracks if it does not parse as one. The spec's controls are
           the ascriptions, not the new forms.
-          **tagged 172 → 71 across three slices, untagged 96 → 94.**
+          A fourth slice came from checking a candidate instead of implementing it. `apiClients:` +
+          indented block looked like invalid content in a fence tagged `scala @side=client`; the
+          reference front PARSES it and fails at runtime with "Undefined: apiClients" — a type
+          error, not a syntax one. **My fewer-braces guard was stricter than the reference**,
+          requiring a call or a selection as the receiver. Relaxed to any expression, with
+          `colonOpensBlockArg` alone holding the line against ascription:
+          **tagged 71 → 69, untagged 87 → 76.**
+          The standard this settles is worth more than the number: *the dialect matches the
+          reference front's PARSE, and does not judge meaning.*
+          **tagged 172 → 69 across four slices, untagged 96 → 76.**
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
