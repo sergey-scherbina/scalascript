@@ -220,6 +220,52 @@ difference this method carries.
 FAILURE — an incomplete parse with 85 diagnostics. Every number below reports diagnostics, status
 and node count beside the time.
 
+## 4.2c SSC3-M results — speed is not a constraint, and §4.2's number was an artifact
+
+Measured 2026-08-05, JMH on both arms with identical settings, alternated three rounds, medians.
+Host load rose 4.98 -> 6.09 -> 8.40 across the rounds and the readings moved less than 3%, which is
+the main reason to believe them.
+
+| | predicted (§4.2b) | measured |
+|---|---|---|
+| throughput, composed front | 0.4-0.8 MB/s | **13.5 MB/s** over the file, 12.2 over code |
+| ratio against v1's `Parser` | 5-15x slower | **0.96x — parity** |
+| retained tree | 10-25x source | **29.8x** (829.7 KiB per tree) |
+
+**Both disqualifying thresholds are clear.** Throughput is 27x above the 0.5 MB/s floor that would
+have made a compile parse-dominated; retained size is under the 50x ceiling. Nothing here refuses
+the front-end plan, and the concern §4 opened with — "parse performance is unknown, and if UniML is
+the front it runs on every compile of every file" — is now answered: it costs the same as the
+parser it replaces.
+
+**My prediction was not merely off, it was qualitatively wrong**, and the reason is worth more than
+the number. I predicted 5-15x slower from the shape of the design — a materialised token vector
+folded into a lossless tree, against a conventional parser that drops trivia as it goes. That
+reasoning is sound and the conclusion is still false: a `Vector[VmToken]` plus one fold is simply
+not expensive next to what a parser does per node. Reasoning from an architecture's shape predicts
+its cost badly, which is the whole reason §1.3 asks for the prediction in writing.
+
+**§4.2's "~0.9-1.0 MB/s real parse" was an artifact and should not be carried forward.** Its two
+history rows say what happened: the "clean" reading is `0.0897 ms` on an **84-byte** input, where
+per-parse fixed cost is the entire measurement — 84 B / 0.0897 ms is arithmetically 0.94 MB/s and
+means nothing about throughput. The other row, `2.11 ms` on `actors.ssc`, was rejected as measuring
+a failed parse (85 diagnostics) — yet the composed front now takes **2.188 ms** on the same file
+for a COMPLETE parse. The rejected timing was roughly right; what was wrong was the arm it came
+from, and no reading of a real file at real size was ever taken.
+
+**The bare dialect must never be quoted as the front.** On a literate `.ssc` it is
+`status=Incomplete` with 46 diagnostics and runs in 0.713 ms — three times "faster" than the
+composed front because it gives up on the 9.9% of the file that is markdown prose. The trap §4.2
+recorded is still live, and this is its second instance in the same document.
+
+**Method notes.** Retained size is the live set, not allocation, and the first probe could not be
+reported: holding one tree and reading the heap spread 11.8x-47.7x over five rounds because
+classloading and JIT structures are in the same delta. Measuring the SLOPE between ten trees and
+one cancels them and spreads 28.3-31.8x. The arms cannot share a build — `compilerBench` would need
+to depend on `unimlScala` and the root `build.sbt` is held by another claim — so they are separate
+JMH invocations, alternated; JMH forks per benchmark anyway, so a shared sbt session would not have
+bought a shared JVM.
+
 ## 4.3 SSC3-L attempted — three ordered obstacles, measured
 
 Attempted 2026-08-01 and **reverted**. The attempt is recorded because it located the real

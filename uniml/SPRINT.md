@@ -77,8 +77,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       (3) **breadth — 1,278 → 483 diagnostics, 92.1% of files completely clean.** Five slices,
           each measured: `case object`, `extern`+qualified def names (which only work TOGETHER),
           escaped identifiers, varargs, type ascription.
-      (5) **measurement — partly.** Throughput ~0.9-1.0 MB/s on a loaded host; the ratio against
-          `F` is still owed, and retained tree size is unmeasured.
+      (5) **measurement — DONE, and it removes the risk §4 opened with.** JMH both arms, alternated
+          three rounds, medians: the composed front is **2.188 ms** on `actors.ssc` against v1's
+          parser at **2.285 ms** — **0.96x, parity**, 13.5 MB/s over the file. Retained tree
+          **29.8x** source, measured as the slope between ten held trees and one because the naive
+          probe spread 11.8x-47.7x. Both disqualifying thresholds clear by a wide margin.
+          I predicted 5-15x SLOWER and was qualitatively wrong; §4.2c says why.
+          ⚠️ §4.2's `~0.9-1.0 MB/s` was an ARTIFACT — measured on an **84-byte** input, where fixed
+          cost is the whole reading. Do not carry it forward. And the bare dialect's 0.713 ms is
+          not a speed result: on a literate `.ssc` it is `Incomplete` with 46 diagnostics.
       (1) publishable cross-built dialect and (6) v1/v2-independence: untouched.
       **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
       function and tuple types in a parameter, and an interpolator prefix the lexer does not

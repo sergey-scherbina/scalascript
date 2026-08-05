@@ -131,6 +131,22 @@ lazy val unimlScalaCross =
 
 lazy val unimlScala = unimlScalaCross.jvm
 
+// SSC3-M measurement arm. NOT aggregated on purpose: a benchmark has no tests to contribute to
+// `sbt test`, and the standalone isolation gate below enumerates exactly ten projects. Run with
+//   sbt "unimlBench/Jmh/run -i 5 -wi 3 -f 1 .*SpikeParserBench.*"
+// and read specs/uniml-ssc3-frontend.md §4.2b for the method and its one honest gap.
+lazy val unimlBench = project
+  .in(file("bench"))
+  .dependsOn(unimlScalaCross.jvm)
+  .enablePlugins(JmhPlugin)
+  .settings(
+    name := "scalascript-uniml-bench",
+    publish / skip := true,
+    Jmh / scalacOptions ++= sharedScalacOptions,
+    Jmh / javaOptions ++= Seq("-Xmx4g", "-XX:+UseG1GC"),
+  )
+  .settings(standaloneTargetSettings)
+
 lazy val root = project
   .in(file("."))
   .aggregate(

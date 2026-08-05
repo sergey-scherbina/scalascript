@@ -53,6 +53,10 @@ runtime/backend/interpreter-bench/scalascript.bench.*/
 lang/core-bench/scalascript.bench.*/
 bench/BASELINE_RUNTIME.md
 bench/jmh-results*.json
+# JMH's DEFAULT output name is jmh-result.text and the pattern above misses it, so every bench run
+# left a stageable artifact in whichever bench project ran. Both spellings, any bench directory.
+jmh-result.text
+jmh-results.text
 bench/jmh-smoke*.json
 bench/*.jfr
 
