@@ -13,7 +13,7 @@ Newest first.
      lane: apparatus
      area: build
      gate: tests/e2e/build-ram-guard-gate.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: 170a2cb52 -->
 
 Found 2026-08-04 by a smoke run that went red on a change (Set operators) that cannot touch a JVM
 memory guard. The failing assertion is load-dependent:
