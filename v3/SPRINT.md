@@ -444,3 +444,11 @@ Pointing scala-cli at both source trees does NOT work: UniML has a package
 `scalascript.uniml.dialect.scalascript`, and inside it `import scalascript.uniml.*` resolves to the
 INNERMOST `scalascript`. sbt never sees this because it compiles each subproject as its own unit.
 So UniML is consumed as JARS built by sbt — the same digest-keyed caching `v3/ssc3` already does.
+
+- [x] **11d — every gate goes through the cached driver.** Three of them still spelled out
+      `scala-cli run v3/src` and so were still on the un-cached path: `exec-gate` went red on
+      `type-args` with an EMPTY executor output for a program that runs correctly three times in a
+      row by hand. The driver gained a `v2` passthrough so a gate never has to name `scala-cli`
+      again. **The exec gate went from ~25 minutes to 26 seconds.** The race is the reason; the
+      speed is the side effect, and it is the one that makes running all five gates per batch
+      affordable.

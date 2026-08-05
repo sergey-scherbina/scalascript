@@ -14,8 +14,11 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
-SSC3="scala-cli run v3/src --server=false --quiet --"
-V2="scala-cli run v2/src --server=false --quiet --java-opt=-Xss512m --"
+# Through `v3/ssc3`, NOT `scala-cli run`: the driver caches a jar per source digest, and a bare
+# `scala-cli run` recompiles into a SHARED `.scala-build` that a concurrent one can delete
+# underneath it — the program then prints nothing and this gate reads that as a wrong answer.
+SSC3="v3/ssc3"
+V2="v3/ssc3 v2"
 fail=0; ran=0
 $SSC3 selftest >/dev/null 2>&1   # compile once; a compile racing the first case reads as a failure
 

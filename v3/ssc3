@@ -68,6 +68,13 @@ case "$cmd" in
     "${SSC3[@]}" build "$2" > "$ir" || exit 1
     "${V2[@]}" run-ir "$ir"
     ;;
+  # The v2 VM, for callers that drive it themselves — the gates run `run-ir` on a `.ssir` the front
+  # produced. Exposed here rather than letting each gate spell out `scala-cli run v2/src`, which is
+  # what put three of them back on the un-cached path and cost a red gate on a program that runs.
+  v2)
+    shift
+    exec "${V2[@]}" "$@"
+    ;;
   *)
     exec "${SSC3[@]}" "$@"
     ;;

@@ -14,7 +14,9 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
-SC="scala-cli run v3/src --server=false --quiet --"
+# Through `v3/ssc3`, NOT `scala-cli run` — see the note in exec-gate.sh: a bare `scala-cli run`
+# shares `.scala-build` with every other one and can lose a compile to a concurrent invocation.
+SC="v3/ssc3"
 fail=0
 
 echo "── 1. in-process self-test ─────────────────────────────────────────────"
