@@ -13,6 +13,26 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## `package:` binds a namespace on the native lane (claim `native-package-namespace-impl`)
+
+Spec: [`../specs/native-package-namespace.md`](../specs/native-package-namespace.md).
+Entry: [`BUGS.md`](BUGS.md) `native-front-has-no-package-namespace`.
+
+- [~] **N-1 — emit the namespace chain in `sscLoadMod`** (`v2/bin/ssc1-run.ssc0`). Read `package:`
+      from the module's front matter, take member names from the ALREADY-PARSED `defs`, emit
+      `def __pkgref_<prefix>__<n> = <n>` + `object <prefix>: def <n> = __pkgref_…` as text, parse it,
+      append AFTER `defs` (the alias is a parameterless property, therefore eager). A dotted package
+      needs one registration object PER PREFIX (`a`, `a_b`, `a_b_c`) — a missing intermediate is
+      `unbound global: a` at the call site, not a missing member.
+- [~] **N-2 — verify on BOTH fronts.** `SSC_FRONT=F` and `SSC_FRONT=legacy`, because the design this
+      replaced was measured on F alone: there `object ns: def ui = ui` aliases, on legacy the same
+      line is `unbound global: ns_ui` and its parameterful form HANGS. Every alias therefore goes
+      through a top-level `__pkgref_…` indirection so no member shadows its own right-hand side.
+- [~] **N-3 — the acceptance gate is the INT row of `tests/e2e/package-keyword-smoke.sh`.** Its JVM
+      row runs `bin/sscc` (the COMPILER — it prints "artifact written to …") and its JS row emits
+      `const org = org.example.ui.org;`. Both are separate defects; file them rather than widening
+      this slice.
+
 ## v2 source backend lanes (claim `v2-source-backend-lanes`)
 
 - [x] **B-1 — `v2-source-backends-miss-autoOutput`.** `v2-jvm` and `v2-rust` could not run ANY

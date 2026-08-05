@@ -475,6 +475,158 @@ def sscResolve = (dir, rel) =>
     if #io.exists(srcRel) then srcRel
     else sscNormalize(#sconcat(sscLibRoot(), rel))
 
+-- ── `package:` binds a namespace (specs/native-package-namespace.md) ────────
+-- A module whose front matter says `package: a.b.c` must ALSO be reachable as
+-- `a.b.c.<name>`, the way v1 does it (Parser.wrapSectionInPackage +
+-- SectionRuntime.packageMembers). This ADDS names; the flat splice below is
+-- untouched, so unqualified `ui("x")` keeps working.
+--
+-- The shape is not the obvious one, and each part of it was measured:
+--  * `object O: def f` lowers to the GLOBAL `O_f` (ssc1-lower `prefixDefs`), and a
+--    dotted selection joins segments with `_` and requires EVERY prefix to be a
+--    registered object -- `object org_example` alone gives `unbound global: org`.
+--  * An `object` nested inside an object body is DROPPED by `prefixDefs`. So the
+--    namespace is a CHAIN of flat objects (`a`, `a_b`, `a_b_c`), not nested ones.
+--  * Each member aliases through a top-level `__pkgref_…` instead of naming its
+--    source directly, because `object ns: def ui = ui` aliases under F but is
+--    `unbound global: ns_ui` under the reference front -- and its parameterful
+--    form `def ui(s) = ui(s)` HANGS there. An alias whose right-hand side is not
+--    a member of the enclosing object is the one form both fronts agree on.
+def sscHasPrefix = (s, p) =>
+  if #i.lt(#slen(s), #slen(p)) then false else #seq(#sslice(s, 0, #slen(p)), p)
+def sscUnquote = (s) =>
+  let n = #slen(s) in
+  if #i.lt(n, 2) then s
+  else
+    let a = #scodeAt(s, 0) in
+    if #i.eq(a, #scodeAt(s, #i.sub(n, 1))) then
+      (if #i.eq(a, 34) then #sslice(s, 1, #i.sub(n, 1))
+       else if #i.eq(a, 39) then #sslice(s, 1, #i.sub(n, 1))
+       else s)
+    else s
+def sscPkgFromLines = (ls) =>
+  match ls {
+    case Nil => ""
+    case Cons(l, rest) =>
+      let t = strip(l) in
+      if sscHasPrefix(t, "package:") then sscUnquote(strip(#sslice(t, 8, #slen(t))))
+      else sscPkgFromLines(rest)
+  }
+-- The module's declared package, "" when it declares none. Read from the RAW file:
+-- `sscProgramSource` has already stripped the front matter out of `modSrc`.
+def sscPkgName = (fileStr) =>
+  match extractFrontmatter(fileStr) {
+    case FrontmatterNone => ""
+    case FrontmatterText(yaml) => sscPkgFromLines(splitLines(yaml, 0, Nil))
+    case FrontmatterErr(message, line, column) => ""
+  }
+-- "a.b.c" -> ["a", "a_b", "a_b_c"]: the object name of every PREFIX, because a
+-- missing intermediate is what makes the whole selection unbound.
+def sscPkgPrefixes = (pkg, i, cur, acc) =>
+  if #i.ge(i, #slen(pkg)) then
+    (if #i.eq(#slen(cur), 0) then reverse(acc) else reverse(Cons(cur, acc)))
+  else
+    let c = #scodeAt(pkg, i) in
+    if #i.eq(c, 46) then
+      (if #i.eq(#slen(cur), 0) then sscPkgPrefixes(pkg, #i.add(i, 1), cur, acc)
+       else sscPkgPrefixes(pkg, #i.add(i, 1), #sconcat(cur, "_"), Cons(cur, acc)))
+    else sscPkgPrefixes(pkg, #i.add(i, 1),
+                        #sconcat(cur, #sslice(pkg, i, #i.add(i, 1))), acc)
+def sscPkgLeaf = (prefixes) =>
+  match prefixes {
+    case Nil => ""
+    case Cons(p, rest) => match rest { case Nil => p case _ => sscPkgLeaf(rest) }
+  }
+-- Member names of a declaration list. `var` is deliberately absent: the alias is a
+-- parameterless property and therefore EAGER, so aliasing a `var` would publish a
+-- SNAPSHOT of the cell under a name that looks live -- worse than not publishing it.
+def sscPkgMemberNames = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(stag, sdata) =>
+          let keep = if #seq(stag, "def") then true else #seq(stag, "val") in
+          if keep then
+            (match sdata { case Pair(n, sr) => Cons(n, sscPkgMemberNames(rest)) })
+          else sscPkgMemberNames(rest)
+      }
+  }
+def sscPkgRefName = (leaf, n) =>
+  #sconcat("__pkgref_", #sconcat(leaf, #sconcat("__", n)))
+def sscPkgRefLines = (leaf, names) =>
+  match names {
+    case Nil => ""
+    case Cons(n, rest) =>
+      #sconcat("def ", #sconcat(sscPkgRefName(leaf, n),
+        #sconcat(" = ", #sconcat(n, #sconcat("\n", sscPkgRefLines(leaf, rest))))))
+  }
+def sscPkgMemberLines = (leaf, names) =>
+  match names {
+    case Nil => ""
+    case Cons(n, rest) =>
+      #sconcat("  def ", #sconcat(n, #sconcat(" = ",
+        #sconcat(sscPkgRefName(leaf, n),
+          #sconcat("\n", sscPkgMemberLines(leaf, rest))))))
+  }
+-- `def m = Owner.m`: the right-hand side is a SELECTION, so it never collides with
+-- the member being defined -- no indirection needed, and both fronts agree on it.
+def sscPkgFwdLines = (owner, names) =>
+  match names {
+    case Nil => ""
+    case Cons(n, rest) =>
+      #sconcat("  def ", #sconcat(n, #sconcat(" = ",
+        #sconcat(owner, #sconcat(".", #sconcat(n,
+          #sconcat("\n", sscPkgFwdLines(owner, rest))))))))
+  }
+-- A registration object must be non-empty, hence `__pkg`. Teaching the front to
+-- register an empty object is a front change for a cosmetic gain.
+def sscPkgStub = (name) => #sconcat("object ", #sconcat(name, ":\n  def __pkg = 0\n"))
+def sscPkgStubs = (prefixes) =>
+  match prefixes {
+    case Nil => ""
+    case Cons(p, rest) =>
+      match rest {
+        case Nil => ""
+        case _ => #sconcat(sscPkgStub(p), sscPkgStubs(rest))
+      }
+  }
+def sscPkgObjBlocks = (leaf, stmts) =>
+  match stmts {
+    case Nil => ""
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            (match data {
+              case Pair(oname, ostmts) =>
+                #sconcat("object ", #sconcat(leaf, #sconcat("_", #sconcat(oname,
+                  #sconcat(":\n  def __pkg = 0\n",
+                    #sconcat(sscPkgFwdLines(oname, sscPkgMemberNames(ostmts)),
+                      sscPkgObjBlocks(leaf, rest)))))))
+            })
+          else sscPkgObjBlocks(leaf, rest)
+      }
+  }
+-- The whole namespace, as SOURCE. Built from the already-parsed declaration list
+-- rather than re-scanned from the text, so it cannot disagree about what was
+-- actually spliced -- and it needs no parameter lists, the alias being by VALUE.
+def sscPkgNsSource = (pkg, defs) =>
+  if #seq(pkg, "") then ""
+  else
+    let prefixes = sscPkgPrefixes(pkg, 0, "", Nil) in
+    match prefixes {
+      case Nil => ""
+      case _ =>
+        let leaf = sscPkgLeaf(prefixes) in
+        let names = sscPkgMemberNames(defs) in
+        #sconcat(sscPkgRefLines(leaf, names),
+          #sconcat(sscPkgStubs(prefixes),
+            #sconcat("object ", #sconcat(leaf, #sconcat(":\n  def __pkg = 0\n",
+              #sconcat(sscPkgMemberLines(leaf, names),
+                sscPkgObjBlocks(leaf, defs)))))))
+    }
+
 def sscLoadMod = (rawPath, seen) =>
   let path0 = sscNormalize(rawPath) in
   -- Directory import: `[names](./dir)` with no `.ssc` extension loads `dir/index.ssc`
@@ -485,8 +637,13 @@ def sscLoadMod = (rawPath, seen) =>
     let fileStr = #utf8->str(#io.readFile(path)) in
     let modSrc = sscProgramSource(fileStr) in
     let defs = sscDefsOnly(parse(modSrc)) in
+    -- `package: a.b.c` in the front matter ALSO publishes the module under that
+    -- name. Appended AFTER `defs`, never before: each alias is a parameterless
+    -- property and therefore EAGER, so its right-hand side must already exist.
+    let nsSrc = sscPkgNsSource(sscPkgName(fileStr), defs) in
+    let nsDefs = if #i.eq(#slen(nsSrc), 0) then Nil else sscDefsOnly(parse(nsSrc)) in
     match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
-      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2)
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, sscApp(defs, nsDefs)), seen2)
     }
 def sscLoadImps = (imps, dir, seen) =>
   match imps {
@@ -763,7 +920,19 @@ def sscConcatSources = (paths) =>
   match paths {
     case Nil => ""
     case Cons(p, rest) =>
-      let src = sscProgramSource(#utf8->str(#io.readFile(p))) in
+      let fileStr = #utf8->str(#io.readFile(p)) in
+      let src0 = sscProgramSource(fileStr) in
+      -- The `package:` namespace has to be appended HERE as well as in sscLoadMod:
+      -- F assembles its closure from SOURCE (this function), not from the shared
+      -- loaders' parsed defs, so a namespace added only there would exist on one
+      -- front and not the other -- and which front runs a file is not a choice.
+      -- Parsing is guarded on the package being declared, so a module without one
+      -- pays nothing.
+      let pkg = sscPkgName(fileStr) in
+      let src =
+        if #seq(pkg, "") then src0
+        else #sconcat(src0,
+               #sconcat("\n\n", sscPkgNsSource(pkg, sscDefsOnly(parse(src0))))) in
       let more = sscConcatSources(rest) in
       if #i.eq(slen(more), 0) then src
       else (if #i.eq(slen(src), 0) then more

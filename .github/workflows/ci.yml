@@ -291,6 +291,17 @@ jobs:
           tests/e2e/conformance-lanes-flag.sh
           tests/e2e/scljet-m2-corpus-smoke.sh
 
+      # Was in neither tier, which is why its failure went unread for weeks and got recorded in the
+      # orphan census as "empty output" — the gate discarded stderr. It runs four lanes end to end,
+      # one of them a scala-cli JVM compile: 6.5 s local, so it belongs here and not under the smoke
+      # suite's 420 s cap. Its JVM row is a DECLARED known-red naming its BUGS slug, and the gate
+      # fails if that row starts passing.
+      # The name is QUOTED: `package: ` inside an unquoted scalar is a mapping key, and yq rejected
+      # the whole file for it (`mapping values are not allowed in this context`) — a workflow that
+      # does not parse runs nothing at all.
+      - name: "Gates without a home — the package: keyword across four lanes"
+        run: tests/e2e/package-keyword-smoke.sh
+
   conformance:
     name: Conformance shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest

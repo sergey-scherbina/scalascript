@@ -1,8 +1,12 @@
 # `package:` must bind a namespace on the native lane
 
-**Status:** designed, not implemented. Entry: `v2/BUGS.md`
-`native-front-has-no-package-namespace`. Gate: `tests/e2e/package-keyword-smoke.sh` (currently RED,
-which is correct — it is the acceptance test).
+**Status:** in progress (`native-package-namespace-impl`). Entry: `v2/BUGS.md`
+`native-front-has-no-package-namespace`. Gate: `tests/e2e/package-keyword-smoke.sh` — its INT row is
+the acceptance test; its other two rows carry separate defects (see §Acceptance).
+
+**The design in §Design is the SECOND one.** The first is kept, with the measurement that killed it,
+because it was killed by a property that holds on one front and not the other — the kind of thing
+that is cheap to re-propose and expensive to re-discover.
 
 ## The defect
 
@@ -56,58 +60,103 @@ println(org.ui("x"))                     -- ui-x, NOT infinite recursion
 
 **Therefore: one definition, two names, no copy.** There is no identity decision left to make.
 
+## The design this spec first proposed, and the measurement that killed it (2026-08-05)
+
+The first draft said: keep the flat splice, and emit `object <pkg>: def <name> = <name>` beside it —
+one member per exported def, at the SAME name, relying on the probe above showing that a same-named
+member resolves OUTWARD to the top-level def rather than recursing.
+
+**That probe was run on ONE front.** Re-run on both:
+
+| source | `SSC_FRONT=F` | `SSC_FRONT=legacy` |
+|---|---|---|
+| `object ns: def ui = ui` | `ui-hi` | **`unbound global: ns_ui`** |
+| `object ns: def ui(s) = ui(s)` | `ui-hi` | **hangs — infinite recursion** |
+| `object ns: def render = Card.render` | `ui-card-hi` | `ui-card-hi` |
+
+So "a same-name member resolves outward" is an **F-only** property; the reference front resolves it
+INWARD, and the failure it produces is a hang. Building the namespace on it would have shipped a
+feature that works until a file is big enough for F to decline it — the shape recorded as
+`two-fronts-disagree-on-name-resolution`. The third row is the one both fronts agree on: an alias
+whose right-hand side names something that is **not** a member of the enclosing object.
+
 ## Design
 
-Keep the flat splice exactly as it is. Emit, alongside it, a synthetic alias object:
+Two facts about this lane decide the shape. Both were measured, not assumed:
+
+1. **`object O: def f(x)` lowers to the global `O_f`** (`v2/lib/ssc1-lower.ssc0:4470` `prefixDefs`),
+   and `O` is registered in `kc7bObjectsCell` by a PRE-PASS (`collectObjects`, :5202) — so
+   declaration order does not matter.
+2. **A dotted selection is resolved by joining segments with `_` and requiring EVERY prefix to be a
+   registered object.** `object org_example: def g` makes `org.example.g()` work *only* if `org` is
+   also a registered object; without it the error is `unbound global: org`. A nested `object` inside
+   an object body is DROPPED by `prefixDefs`, which is why `object a: object b: def f` gives
+   `unbound global: a_b`.
+
+Therefore a package `a.b.c` is expressed as a CHAIN of flat objects, and every alias goes through a
+top-level indirection so no member ever shadows its own right-hand side:
 
 ```
-object <pkg>:
-  def <name>(<params>) = <name>(<params>)     -- one per exported def
+def __pkgref_a_b_c__ui = ui          -- top level: `ui` cannot be a member here
+object a:        def __pkg = 0       -- registration stub for the prefix
+object a_b:      def __pkg = 0
+object a_b_c:    def __pkg = 0
+                 def ui = __pkgref_a_b_c__ui
+object a_b_c_Card:
+                 def render = Card.render   -- a member of an EXPORTED OBJECT
 ```
 
-Every member forwards to the top-level definition the flat splice already produced, so the two
-paths reach the same closure and — for a `var` — the same cell.
+The flat splice is untouched, so `ui("x")` keeps working. Every namespace member is a value alias of
+the one definition the flat splice produced — one definition, two names, no copy.
 
 ## Implementation
 
-All in the tower. `v2/bin/ssc1-run.ssc0`:
+All in the tower, `v2/bin/ssc1-run.ssc0`, inside `sscLoadMod`:
 
 ```
-def sscLoadMod = (rawPath, seen) =>
-  …
-  let defs = sscDefsOnly(parse(modSrc)) in
-  match sscLoadImps(…) { case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2) }
+let defs = sscDefsOnly(parse(modSrc)) in
+match sscLoadImps(…) { case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2) }
 ```
 
-1. **Read the package name.** `collectFrontmatter` (`v2/lib/mira-md.ssc0:168`) returns the
-   front-matter TEXT as `FrontmatterText(...)`; scan it for a `package:` line. `frontmatterLines`
-   and `skipYaml` (same file, :150/:162) are how `sscProgramSource` already reaches it.
-2. **Collect the exported def names and their parameter lists** from `modSrc`. A line scan is
-   idiomatic here — `sscImports`/`sscScanLines` (:405) already scan the source this way — and it
-   avoids reconstructing them from AST nodes.
-3. **Build the alias source as TEXT and parse it**, then `sscDefsOnly` it and `sscApp` it onto the
-   list `sscLoadMod` already returns. Emitting source and re-parsing is far less code than
-   constructing AST nodes, and it is the same construct the measurement above proved.
+1. **Read the package name** from the front matter of `fileStr` (not of `modSrc` — `sscProgramSource`
+   has already stripped it). `extractFrontmatter` (`v2/lib/mira-md.ssc0:175`) returns
+   `FrontmatterText(txt)`; scan its lines for `package:`.
+2. **Take the member names from `defs`, which is already parsed** — `Pair("def", Pair(name, …))`,
+   `Pair("object", Pair(name, members))`. This is strictly better than re-scanning the source: it
+   cannot disagree with what was actually spliced, and it needs no parameter lists, because the
+   alias is a VALUE alias.
+3. **Emit the block above as TEXT, `parse` it, `sscDefsOnly` it, and append it AFTER `defs`.** After,
+   not before: `def ui = __pkgref…` is a parameterless property and therefore EAGER, so its
+   right-hand side must already be defined.
 
 ## Limits, named rather than left to be found
 
-- **The alias is per `def`.** `org.hits` exposed as `def hits = hits` READS the live cell;
-  `org.hits = 5` would not write it. Whether package-qualified assignment must work is a smaller,
-  separate decision than the one this spec closes — do not let it hold up the rest.
-- **Filter to what is actually exported.** A module's `exports:` surface, where declared, gates the
-  members; without it, top-level defs.
-- **Nested packages** (`package: a.b`) are out of scope for the first slice. Say so in the entry if
-  the first implementation only handles a single segment.
+- **Value aliases are eager, so a `var` is snapshotted.** A top-level `var hits` is reachable as
+  `a.b.c.hits` with its value at load time; `a.b.c.hits = 5` does not write the cell, and a later
+  write through the flat name is not seen through the namespace. `var` is therefore NOT aliased —
+  silently exposing a stale copy is worse than not exposing it. Whether package-qualified mutable
+  state must work is a separate decision.
+- **`exports:` is not consulted yet.** Every top-level `def`/`val`/`object` of the module becomes a
+  member. v1 gates the flat import bindings on `exports:` but not this path.
+- **The stub member `__pkg`** exists because a registration object must be non-empty. It is
+  reachable as `a.__pkg`. Harmless, and the alternative — teaching the front to register an empty
+  object — is a front change for a cosmetic gain.
+- **`object` members alias only their `def`/`val` members**, one level deep. An object nested inside
+  an exported object is dropped by `prefixDefs` before this code ever sees it.
 
 ## Acceptance
 
-- `tests/e2e/package-keyword-smoke.sh` goes GREEN. It is red today, and it is the gate named on the
-  entry — no new gate is needed.
 - The entry's own two-file repro prints `ui-card-hi` on `ssc run`, matching `ssc-tools run --v1`.
-- **Unqualified names keep working**, on both lanes: that is the regression this design exists to
-  avoid, and it is the one a namespace-INSTEAD-of-splice implementation would break.
-- One identity check, since it is the question that blocked this: mutate through the namespace path
-  and read through the flat one (or the reverse) and get the same cell.
+- **Unqualified names keep working** — the regression this design exists to avoid, and the one a
+  namespace-INSTEAD-of-splice implementation would break.
+- Both fronts, checked explicitly with `SSC_FRONT=F` and `SSC_FRONT=legacy`, because the table above
+  is what a single-front measurement costs. F declines a file carrying a deep dotted selection and
+  the reference front runs it; that fallback is correct but it means an F-only check proves nothing.
+- `tests/e2e/package-keyword-smoke.sh` — its **INT row** (which runs `bin/ssc`, the native lane) is
+  the acceptance test. Its other two rows fail for reasons that are NOT this defect and are filed
+  separately: the JVM row invokes `bin/sscc`, a COMPILER, and compares its "artifact written to …"
+  message against a page; the JS row emits `const org = org.example.ui.org;`, a self-referential
+  binding. Do not read a red suite as this feature being broken — read the rows.
 
 ## A build hazard specific to this file
 

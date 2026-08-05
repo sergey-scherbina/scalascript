@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## jvm-package-import-qualifies-the-link-name — no module declaring `package:` can be imported
+
+<!-- status: open
+     lane: jvm
+     area: codegen
+     kind: bug
+     gate: tests/e2e/package-keyword-smoke.sh
+     fixed-in: - -->
+
+Found 2026-08-05 while fixing `native-front-has-no-package-namespace`, by pointing that gate's JVM
+row at a RUN (`ssc-tools run-jvm`) instead of at `bin/sscc`, which is the COMPILER and therefore
+prints "JVM artifact written to …" without ever compiling the generated Scala.
+
+Three lanes agree, one does not:
+
+```
+--- cards.ssc                          --- consumer.ssc
+---                                    ---
+name: cards                            name: consumer
+package: org.example.ui                ---
+---                                    [org](./cards.ssc)
+object Card:                           println(org.example.ui.Card.render("hi"))
+  def render(t: String): String =
+    "ui-card-" + t
+
+int / native / js   ->  ui-card-hi
+run-jvm             ->  value org is not a member of object …$_.this.org.example.ui
+                        (from a generated `import org.example.ui.{org}`)
+```
+
+`JvmGen.scala:2767` emits `import ${targetPkg.mkString(".")}.{$specText}`, where `specText` comes
+from `importBindings` — the names bound by the markdown link. For `[org](./cards.ssc)` that binding
+is the whole MODULE under the name `org`, not a member of the package, so qualifying it with the
+module's own package produces a name that cannot exist. The interpreter handles the same binding
+through `SectionRuntime.lookupExport`/`packageMembers`, which look in the package's members AND in
+the exported globals.
+
+**Controlled, so this is about `package:` and not about imports.** The identical two files with the
+`package:` line deleted (and the call written `Card.render("hi")`) print `ui-card-hi` on `run-jvm`.
+Renaming the link to `[cards]` changes only the name in the message — `value cards is not a member
+of object … org.example.ui` — so it is not a collision between the link name and the package root.
+
+The gate declares this row KNOWN-RED by slug and **fails if it starts passing**, so the declaration
+cannot outlive the fix.
+
 ## jvm-lane-cannot-compile-a-json-import — 14 type errors before a single line runs
 <!-- status: fixed
      lane: jvm
