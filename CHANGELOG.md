@@ -1,5 +1,18 @@
 # Changelog
 
+## ssc-tools-stdin-belongs-to-the-program (S3) — piped stdin now reaches your program
+Completed: 2026-08-05
+
+`ssc-tools <cmd>` no longer reads piped stdin as a sops secrets document. `printf 'ada' | ssc-tools
+run --v1 prompt.ssc` now prints `hello ada`; before, the CLI consumed the stream to EOF and the
+program saw EOF — indistinguishable from a user who typed nothing.
+
+Pass secrets explicitly instead: `ssc --secrets-file <(sops -d secrets.enc.yaml) …` (shipped
+earlier as S1). To restore the old behaviour while migrating, set `SSC_SOPS_STDIN=1`; that escape is
+pinned by `tests/e2e/stdin-belongs-to-the-program.sh` and is planned for removal a release later.
+
+The S2 deprecation notice is gone with the behaviour it warned about.
+
 ## 2026-08-01 — the sanctioned bug query stopped being wrong about one entry in six
 
 `AGENTS.md` bans grepping the prose for status and mandates `scripts/bugs-report`, after a

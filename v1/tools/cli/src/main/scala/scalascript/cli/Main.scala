@@ -76,7 +76,13 @@ import ArtifactInfoPrinters.*
   globalFlags.secretsFile match
     case Some(path) => loadSopsSecretsFrom(path)
     case None =>
-      if System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
+      // S3: the implicit slurp is now OPT-IN. Without `SSC_SOPS_STDIN=1` the CLI does not touch
+      // stdin at all and the program receives it — which is the universal convention, is what the
+      // default `bin/ssc` lane has always done, and is why the tools route was the anomaly.
+      // The replacement landed first (S1, `--secrets-file <path>`), then the warning (S2); this is
+      // the flip those two existed to make safe. BACKLOG.md `ssc-tools-stdin-belongs-to-the-program`.
+      if sys.env.contains("SSC_SOPS_STDIN")
+         && System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
         loadSopsSecrets()
 
   // Standalone meta-commands that don't dispatch to a command handler.
@@ -165,15 +171,9 @@ private def loadSopsSecrets(): Unit =
     // No release number, because there is none to name honestly — the build is `0.1.0-SNAPSHOT` and
     // the changelog is dated, not versioned. It names the tracking item instead, so anyone who hits
     // this can read the plan and its current state rather than wait for a version that has no date.
-    if raw.nonEmpty && sys.env.get("SSC_SOPS_STDIN").isEmpty then
-      System.err.println(
-        "ssc: stdin was consumed as a sops secrets document, so your program will not receive it.")
-      System.err.println(
-        "     This is being retired — see BACKLOG.md `ssc-tools-stdin-belongs-to-the-program`.")
-      System.err.println(
-        "     Pass secrets explicitly instead:  ssc --secrets-file <(sops -d secrets.enc.yaml) …")
-      System.err.println(
-        "     Set SSC_SOPS_STDIN=1 to silence this while you migrate.")
+    // The S2 deprecation notice lived here and is GONE, not silenced: it fired only when
+    // `SSC_SOPS_STDIN` was unset, and in that case nothing is consumed any more. Reaching this
+    // function now means the caller set the variable, i.e. asked for exactly this.
     if raw.nonEmpty then
       val doc = scalascript.parser.SimpleYaml.load[Any](raw)
       val flat = flattenYaml("", doc)

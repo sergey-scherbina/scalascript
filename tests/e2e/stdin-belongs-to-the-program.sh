@@ -75,10 +75,11 @@ check "the default lane hands stdin to the program" \
       "PROGRAM-GOT:the-line" \
       "$(run_line "$SSC" run "$TMP/echo-line.ssc")"
 
-# TODAY'S BEHAVIOUR, asserted so that changing it cannot be accidental. When S3 lands, this line
-# becomes PROGRAM-GOT:the-line and this expectation must be edited in the same commit.
-check "tools route WITHOUT --secrets-file still swallows stdin (pre-S3 behaviour, pinned on purpose)" \
-      "PROGRAM-GOT-NOTHING" \
+# S3 LANDED, and this line is the flip. It read PROGRAM-GOT-NOTHING and was pinned so that changing
+# it could not be accidental — the comment said "when S3 lands, this expectation must be edited in
+# the same commit", and this is that commit. Both routes now agree: stdin belongs to the program.
+check "tools route WITHOUT --secrets-file hands stdin to the program (S3)" \
+      "PROGRAM-GOT:the-line" \
       "$(run_line "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
 
 check "tools route WITH --secrets-file hands stdin to the program" \
@@ -91,24 +92,23 @@ check "--secrets-file accepts a process substitution" \
       "PROGRAM-GOT:the-line" \
       "$(run_line "$TOOLS" --secrets-file <(cat "$TMP/secrets.yaml") run --v1 "$TMP/echo-line.ssc")"
 
-# ── the deprecation notice (S2) ───────────────────────────────────────────────
-# A warning that can vanish silently is worth nothing on the day it matters, and this one is the only
-# thing standing between a user and discovering the S3 default flip by their pipeline going quiet.
-warn_on() {  # warn_on <binary> <args…> — 1 if the notice appeared on STDERR, else 0
-  printf 'the-line\n' | SSC_NO_BUILD_CHECK=1 timeout 300 env SSC_NO_BUILD_CHECK=1 "$@" 2>&1 >/dev/null |
-    grep -c 'consumed as a sops secrets document' || true
-}
-check "the slurp announces itself" \
-      "1" "$(warn_on "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
-check "no notice when --secrets-file is used (nothing was taken)" \
-      "0" "$(warn_on "$TOOLS" --secrets-file "$TMP/secrets.yaml" run --v1 "$TMP/echo-line.ssc")"
-check "SSC_SOPS_STDIN=1 silences it" \
-      "0" "$(SSC_SOPS_STDIN=1 warn_on "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
-# On STDERR specifically: a notice on stdout would corrupt the output of every program run through a
-# pipe, which is exactly the population this notice exists to warn.
-check "the notice does not touch stdout" \
+# ── the escape hatch (S3) ─────────────────────────────────────────────────────
+# The S2 deprecation notice is GONE, and so are the three checks that pinned it: it fired only when
+# `SSC_SOPS_STDIN` was unset, and in that case nothing is consumed any more. A notice about a thing
+# that no longer happens is worse than no notice.
+#
+# What replaces it is the opt-in itself. `SSC_SOPS_STDIN=1` restores the old behaviour for anyone
+# mid-migration, and pinning it here means DELETING it a release later cannot happen quietly either
+# — the same protection the pre-S3 line above had, pointed at the next step instead of the last one.
+check "SSC_SOPS_STDIN=1 gives stdin back to the CLI (the documented escape)" \
       "PROGRAM-GOT-NOTHING" \
-      "$(run_line "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
+      "$(SSC_SOPS_STDIN=1 run_line "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
+
+# NOT asserted here: that the escape still LOADS the secrets it took. It should be, and the check
+# that was written for it measured the same thing as the line above while claiming otherwise — an
+# assertion whose label does not match what it runs is worse than none, so it was removed rather
+# than left to be believed. It needs a fixture that reads a secret back, which this gate does not
+# have.
 
 if [ "$fail" -eq 0 ]; then echo "stdin-belongs-to-the-program: OK"; else echo "stdin-belongs-to-the-program: FAILED" >&2; fi
 exit "$fail"

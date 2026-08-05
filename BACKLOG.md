@@ -196,7 +196,7 @@ user report to surface this one.
       dated, so a version number here would have been invented. Behaviour unchanged; the four
       assertions in `tests/e2e/stdin-belongs-to-the-program.sh` pin it, including that it stays on
       stderr — a notice on stdout would corrupt the output of exactly the piped programs it warns.
-- [ ] **S3 — the implicit slurp becomes opt-in** (`SSC_SOPS_STDIN=1`), then the escape is deleted a
+- [x] **S3 — the implicit slurp becomes opt-in** DONE 2026-08-05. (`SSC_SOPS_STDIN=1`), then the escape is deleted a
       release later. CHANGELOG entry is part of this slice, not a follow-up.
       (Corrected 2026-07-31: the original S2/S3 split said "becomes opt-in" and then "flip the
       default", which is the same flip written twice. The missing step was the WARNING — nobody
