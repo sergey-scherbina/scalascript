@@ -1411,10 +1411,12 @@ newly freed pages, and prove two pre-commit reclaim batches read the staged
 header/trunks. Every negative case must fail before returning a changed pager.
 
 ## corpus-contract-roster-drift-48-cases — the always-on differential gate exits 1 for bookkeeping, not for a regression
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: runtime
-     gate: tests/conformance/contract-roster.tsv -->
+     gate: tests/conformance/contract-roster.tsv
+     gate: tests/e2e/freeze-consistency-gate.sh
+     fixed-in: PENDING-SHA -->
 
 **Status:** OPEN — **measured, not mine to fix** (found 2026-07-28 by `f-try-multistmt-def-body`
 while rostering one new conformance case; the cases span at least six live claims, so a single
@@ -1458,6 +1460,34 @@ full-corpus run, on a quiet machine.
 reproducing the recorded `baseline-sha256` before writing the new `roster-sha256`. The other 47 are
 untouched on purpose — each needs its own classification, and several belong to claims that are
 live right now.
+
+
+**CLOSED 2026-08-05 — the drift was 2 cases, not 48, and that is the first thing worth recording.**
+Between 07-28 and now the corpus absorbed almost all of it: `contract.sc --list` says 558 cases,
+the roster had 556, and the two missing were `credential-vocabulary` and
+`generic-ctor-and-array-alloc`. Both were run through the contract before being rostered — 5/5 PASS
+cells — so a roster row with NO baseline row is their correct classification ("absent = expected
+PASS"). Scoped run afterwards: `✓ contract GREEN`.
+
+So this never needed the six-claim coordination the entry (rightly, at the time) declined to do.
+
+**A count I got wrong on the way, which is why the prevention is shaped as it is.** My first
+measurement globbed `tests/conformance/*.ssc examples/*.ssc` and reported **37** missing. The tool
+says 2. The glob was wrong by 35 because `contract.sc` applies rules a directory listing does not
+know. Re-deriving the case set is precisely the mistake that lets drift back in.
+
+**Prevention — invariant I5 in `tests/e2e/freeze-consistency-gate.sh`, which runs per PUSH.** It
+ASKS `contract.sc --list` for the case set and diffs it against the roster, in both directions
+(missing rows, and rows naming a case that no longer exists). Two properties make it maintainable:
+
+- **Derived, never frozen.** It compares two sets; a frozen COUNT would go stale on the next case
+  added — which is how the roster drifted in the first place.
+- **Cheap enough for the push path**: `--list` is 0.49 s warm, less than the rest of that gate
+  (1.1 s). Drift used to surface only in the nightly, long after the push that caused it.
+
+Verified both ways: green on the true tree, and planting a missing row — with the header rehashed,
+so the existing pairing invariant could NOT be what fired — makes it fail naming the case. If
+`scala-cli` is absent the gate says so and skips, rather than passing silently.
 
 ## uniml-yaml-tag-percent-decoder-quadratic — legal long tags trigger repeated prefix copies
 <!-- status: fixed

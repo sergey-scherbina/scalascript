@@ -207,6 +207,44 @@ for case_file in "$CASES"/*.ssc; do
   [ "$named" -eq 1 ] || printf '  note: known-red on %s names no BUGS slug — it cannot be tracked back\n' "$case_name"
 done
 
+# ── I5: every corpus case has a roster row ────────────────────────────────────────────────────
+# `contract.sc` treats a case absent from the frozen roster as RED and exits 1, so drift here stops
+# the Corpus Contract for EVERYONE — and it only surfaced in the nightly, long after the push that
+# caused it. Measured 2026-07-28 it had reached 48 cases; by 2026-08-05, 2.
+#
+# The case set is ASKED OF contract.sc (`--list`), never re-derived here. Re-deriving it is exactly
+# the mistake this check exists to catch: a hand-rolled `tests/conformance/*.ssc examples/*.ssc` glob
+# over the same tree answered 593 where contract.sc says 558 — wrong by 35 — because the tool applies
+# rules a glob does not know. `--list` costs 0.49 s warm, less than the rest of this gate.
+#
+# DERIVED, not frozen: this compares two sets. A frozen COUNT would go stale on the next case added,
+# which is how the roster drifted in the first place.
+if command -v scala-cli >/dev/null 2>&1; then
+  listed="$(cd "$ROOT" && timeout 120 scala-cli tests/conformance/contract.sc -- --list 2>/dev/null \
+            | sed 's/[[:space:]]*$//' | grep -v '^$' | LC_ALL=C sort)"
+  if [ -z "$listed" ]; then
+    printf '  note: contract.sc --list produced nothing — roster drift NOT checked this run\n'
+  else
+    rostered="$(tail -n +2 "$ROOT/tests/conformance/contract-roster.tsv" | grep -v '^$' | LC_ALL=C sort)"
+    missing="$(comm -23 <(printf '%s\n' "$listed") <(printf '%s\n' "$rostered"))"
+    orphan="$(comm -13 <(printf '%s\n' "$listed") <(printf '%s\n' "$rostered"))"
+    if [ -n "$missing" ]; then
+      printf 'FAIL  corpus case(s) with no roster row — contract.sc exits 1 on these, for everyone:\n' >&2
+      printf '%s\n' "$missing" | sed 's/^/        /' >&2
+      printf '      add the row, then refresh roster-sha256 in the header (both must move together).\n' >&2
+      fail=1
+    fi
+    if [ -n "$orphan" ]; then
+      printf 'FAIL  roster row(s) naming a case the corpus no longer has:\n' >&2
+      printf '%s\n' "$orphan" | sed 's/^/        /' >&2
+      fail=1
+    fi
+    [ -n "$missing$orphan" ] || printf '  roster covers every corpus case (%s)\n' "$(printf '%s\n' "$listed" | wc -l | tr -d ' ')"
+  fi
+else
+  printf '  note: scala-cli absent — roster drift NOT checked this run\n'
+fi
+
 if [ "$fail" -ne 0 ]; then
   printf '\nfreeze-consistency-gate: FAIL — the freezes disagree about the same case.\n' >&2
   exit 1
