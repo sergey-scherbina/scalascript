@@ -229,30 +229,38 @@ Worth keeping: this also shows why `java-version: '21'` was worse than it looked
 float over time, it resolves to the newest build available *per platform*, so a single run could
 build x64 with 21.0.9 and aarch64 with something newer.
 
-**8: the arm64 runner was being asked for more memory than it has, and sbt was holding a third of
-it.** Sampled RSS through a full local build:
+**8: arm64 is squeezed from both sides, and one of my numbers was wrong.**
 
-| process | peak RSS |
+CORRECTION FIRST. An earlier version of this entry claimed `RSS ~= Xmx + 1.6 GB` from a local
+sampling of "sbt 2306 MB / native-image 7652 MB". That sampling matched processes whose command line
+contains `native-image` — which includes the **sbt** JVM, because its arguments carry the
+`…/graalvm-native-image/…` output path. The two figures are therefore mixed and the model built on
+them is withdrawn. What follows is only what the runner itself reports, plus like-for-like local
+comparisons.
+
+Measured on the 7 GB `macos-latest` runner:
+
+| arm64 heap | outcome |
 | --- | --- |
-| sbt | 2306 MB |
-| native-image at `-Xmx6g` | 7652 MB |
+| 4.44 GB (the old forced `5g`) | watchdog abort — but with a 2.3 GB sbt resident beside it |
+| **4g** | builder reports 3.56 GB usable (50.8% of 7 GB), 13–28% of wall time in GC, prints "Consider increasing the heap size", watchdog aborts after 52 min |
+| **6g** | does not fit the machine; crawled past 71 min |
 
-So **resident set ≈ Xmx + 1.6 GB** — native memory the heap flag does not cover. That single model
-explains every arm64 failure to date on a 7 GB machine:
+So the tool asks for *more* at 4g and the machine has no room at 6g.
 
-- the original forced `5g` → ~6 GB RSS, beside a live 2.3 GB sbt (the commands ran in ONE sbt
-  invocation) → 8.3 GB wanted on a 7 GB box → swap → the watchdog's "no activity", which reads like
-  a deadlock and is not one;
-- `6g` → ~7.6 GB RSS, *larger than the whole machine*, which is why that build crawled past an hour
-  where the same image takes 2–4 minutes on a 36 GB host.
+`-H:NumberOfThreads` is **not** a lever, measured rather than assumed: 3 → 2 moved peak by 1.4%, and
+at 5g the 2-thread build died with `OutOfMemoryError` where the 3-thread build finished in 5m58s.
+Fewer threads did not reduce the requirement; it made it worse.
 
-Fixed by changing the budget rather than dividing it: arm64 heap 6g → **4g** (~5.6 GB predicted,
-leaves the OS room), and the single sbt command **split into two steps** so sbt exits before
-native-image starts. Tuning the heap between 4.5 and 6 without the split would only move the failure
-point.
+Two changes did land and stand on their own: the single sbt command is now **two steps**, so sbt is
+not resident while the image builds, and the heap is per-runner. The remaining arm64 attempt is
+**5g** — the one untried point between two known-bad ones, and now without sbt beside it.
 
-Not yet measured on a runner. The prediction is explicit above so the next run either confirms it or
-refutes it.
+If 5g fails, the arithmetic is closed: this runner is too small for this image, and the choice is a
+larger runner or shipping without the arm64 artifact. Not more tuning between 4 and 6.
+
+**Status of the other two targets: both green.** `ssc-linux-x86_64` has passed end to end twice, and
+`ssc-macos-x86_64` passed once the GraalVM pin moved to 21.0.9.
 
 **Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
 is the substantive one; 1 and 2 are bookkeeping in front of it.

@@ -44,26 +44,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # native_image_xmx is sized from a MEASUREMENT, not from the tool's
-          # advisory. Sampling RSS through a full local build:
-          #   sbt          peak 2306 MB
-          #   native-image peak 7652 MB at -Xmx6g
-          # i.e. resident set ~= Xmx + 1.6 GB of native memory the heap flag does
-          # not cover. That model explains every failure so far on the 7 GB arm64
-          # runner: the original 5g meant ~6 GB RSS beside a live 2.3 GB sbt on a
-          # 7 GB box (swap, then the watchdog's "no activity"), and 6g means
-          # ~7.6 GB RSS — larger than the whole machine — which is why that build
-          # crawled for over an hour.
+          # native_image_xmx on arm64 is bounded from BOTH sides, measured:
+          #   4g  -> the builder reports 3.56 GB usable (50.8% of 7 GB), spends
+          #          13-28% of its time in GC, prints "Consider increasing the
+          #          heap size", and the watchdog aborts after 52 min
+          #   6g  -> does not fit the 7 GB machine at all; crawled past 71 min
+          #   5g  -> builds locally in 5m58s with default threads
+          # 5g was tried once on CI and failed, but that was BEFORE the sbt phase
+          # became its own step, so a 2.3 GB sbt was resident beside it. This is
+          # the one untried point between two known-bad ones.
           #
-          # So arm64 gets 4g (~5.6 GB predicted RSS, fits with room for the OS)
-          # and the sbt phase is a separate step so its 2.3 GB is gone before
-          # native-image starts. The big runners keep generous values.
+          # -H:NumberOfThreads is NOT a lever here and was measured rather than
+          # assumed: 3 -> 2 moved peak RSS by 1.4%, and at 5g the 2-thread build
+          # died with OutOfMemoryError where the 3-thread build succeeded.
+          #
+          # If 5g still fails, this runner is too small for this image and the
+          # choice is a larger runner or shipping without the arm64 artifact --
+          # not more tuning between 4 and 6.
           - runner: ubuntu-latest          # 15.61 GB
             artifact_id: ssc-linux-x86_64
             native_image_xmx: 10g
           - runner: macos-latest           # 7.00 GB — the binding constraint
             artifact_id: ssc-macos-arm64
-            native_image_xmx: 4g
+            native_image_xmx: 5g
           - runner: macos-15-intel         # 14.00 GB
             artifact_id: ssc-macos-x86_64
             native_image_xmx: 9g
