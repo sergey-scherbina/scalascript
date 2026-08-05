@@ -362,6 +362,35 @@ object Exec:
     (recv, name) match
       case (Value.VStr(s), "length")      => Value.VInt(s.length.toLong)
       case (Value.VStr(s), "toUpperCase") => Value.VStr(s.toUpperCase)
+      // A LANE DIVERGENCE, measured 2026-08-05: all four ran on the bridge and refused on the
+      // executor. Not silence — the executor names the method — but a program that works on one
+      // lane and not the other is exactly what invariant I-3 exists to prevent.
+      case (Value.VStr(s), "substring") =>
+        args match
+          case Value.VInt(a) :: Nil               => Value.VStr(s.substring(a.toInt))
+          case Value.VInt(a) :: Value.VInt(b) :: Nil => Value.VStr(s.substring(a.toInt, b.toInt))
+          case _ => throw ExecError("substring takes one or two integers")
+      case (Value.VStr(s), "indexOf") =>
+        args.head match
+          case Value.VStr(x) => Value.VInt(s.indexOf(x).toLong)
+          case v             => throw ExecError("indexOf " + show(v))
+      case (Value.VStr(s), "replace") =>
+        (args.head, args.tail.head) match
+          case (Value.VStr(a), Value.VStr(b)) => Value.VStr(s.replace(a, b))
+          case _                              => throw ExecError("replace takes two strings")
+      case (Value.VStr(s), "contains") =>
+        args.head match
+          case Value.VStr(x) => Value.VBool(s.contains(x))
+          case v             => throw ExecError("contains " + show(v))
+      case (Value.VStr(s), "startsWith") =>
+        args.head match
+          case Value.VStr(x) => Value.VBool(s.startsWith(x))
+          case v             => throw ExecError("startsWith " + show(v))
+      case (Value.VStr(s), "endsWith") =>
+        args.head match
+          case Value.VStr(x) => Value.VBool(s.endsWith(x))
+          case v             => throw ExecError("endsWith " + show(v))
+      case (Value.VStr(s), "nonEmpty") => Value.VBool(s.nonEmpty)
       // `charAt` returns an INT on the reference lane — "abc".charAt(1) is 98, not 'b'. Char
       // LITERALS are chars there and charAt is not; matching that is the point.
       case (Value.VStr(s), "charAt") =>

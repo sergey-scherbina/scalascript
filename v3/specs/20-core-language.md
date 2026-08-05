@@ -9,7 +9,7 @@ v3 starts from an IR, not from the existing front, so its coverage starts small 
 to describe that state, and only one of them is usable:
 
 - *"v3 supports most of ScalaScript"* — unfalsifiable, ages badly, and hides regressions;
-- *"v3 core is this list of constructs; against the 381-case conformance corpus it passes `N`"* —
+- *"v3 core is this list of constructs; against the conformance corpus it passes `N` of `M`"* —
   a number that a gate can hold and a person can read.
 
 This file is the list. The number is produced by `v3/corpus-report.sh` and is **non-regressing**:
@@ -17,41 +17,61 @@ This file is the list. The number is produced by `v3/corpus-report.sh` and is **
 
 ## 2 · The core
 
-**This table is MEASURED, not planned.** Every row was checked by running it; the first version of
-this section listed `Char`, tuples, guards and `Array` because they were intended, and none of them
-worked. A spec that describes something other than what exists is worse than no spec — it is a
-promise the reader cannot tell from a fact.
+**This table is MEASURED, not planned, and it has been wrong before.** Its first version listed
+`Char`, tuples, guards and `Array` because they were intended and none of them worked. It was
+re-measured on 2026-08-03 and again on **2026-08-05**, and the second re-measure is the reason this
+warning stays at the top: between the two, the table drifted the OTHER way — it still called `trait`,
+`Char`, tuples, guards and `Array` unimplemented weeks after they landed. A spec that describes
+something other than what exists is worse than no spec, in both directions.
 
-**Implemented — runs on BOTH lanes** (`v3/ssc3 run` through the v2 bridge, `ssc3 exec` on v3's own
-executor), and every row has a fixture under `v3/tests/front/`:
+Every row below has a fixture under `v3/tests/front/` that runs on **both lanes** — `ssc3 run`
+through the v2 bridge and `ssc3 exec` on v3's own executor — and is compared against a checked-in
+expectation. 46 fixtures at the time of writing.
 
 | group | constructs |
 |---|---|
-| literals | `Unit` `Boolean` `Int` (i64, incl. the `L` suffix) `Double` `String` |
-| interpolation | `s"… $name … ${expr} … $$"`, holes may contain anything, including strings |
-| definitions | `def` (recursive and mutually recursive), `val`, `var`, local and top-level |
+| literals | `Unit` `Boolean` `Int` (i64, incl. the `L` suffix) `Double` `String` `Char` |
+| interpolation | `s"… $name … ${expr} … $$"`, holes may contain anything |
+| definitions | `def` (recursive, mutually recursive, parameterless), `val`, `var`, local and top-level |
+| arguments | DEFAULTS on `def` and on `case class` fields; NAMED arguments in any order |
 | module scope | a top-level `val`/`var` is a module GLOBAL, visible inside any `def`; locals shadow it |
-| expressions | application, operators with precedence, `if`/`else`, blocks, `while`, assignment |
+| expressions | application, operators with Scala's precedence and associativity, `if`/`else`, blocks, `while`, assignment |
+| continuations | a value on the next line (`val x =` …), an `else` on its own line, a line ending in a binary operator |
+| statements | a single-line `if`/`while`/`for` body may be an ASSIGNMENT, not only an expression |
 | logic | `&&` / `\|\|` with short-circuit — lowered to `If`, never to a binary op |
-| functions | lambdas `(x) => e` and `{ x => e }`, closures with capture, `f(x)` on a value |
-| data | `case class`, `enum` with `case` members, `object` as a namespace |
-| matching | `match` with constructor, literal, binding and wildcard patterns; `h :: t` |
-| lists | `List(…)`, `::`, `Nil`, `Some`/`None`; `size` `head` `tail` `map` `filter` `sum` `mkString` `reverse` |
-| strings | `length` `toUpperCase` `toLowerCase` `trim` `isEmpty` `split` |
+| operators | arithmetic, comparison, bitwise `<< >> >>> & \| ^`, `++` `:+` `+:` `::` |
+| functions | lambdas `(x) => e` and `{ x => e }`, closures with capture INCLUDING nested capture, `f(x)` on a value, function types in signatures (`f: Int => Int`) |
+| data | `case class` **with a body of methods**, `case object`, `enum` with `case` members, `object` as a namespace |
+| traits | `trait` with abstract AND concrete members, `extends`/`with`, `override`, inheritance of concrete members, dispatch by the receiver's tag at RUN TIME |
+| tuples | `(a, b)` to arity 8, `._1`…, `case (a, b) =>`, `val (x, y) = e`, tuple types in signatures |
+| matching | constructor, literal, binding and wildcard patterns; `h :: t`; NESTED to any depth; guards (`case n if …`); alternatives (`case A \| B`); `{ case … }` as a lambda |
+| lists | `List(…)` `::` `Nil` `Some`/`None`; `size` `head` `tail` `map` `filter` `flatMap` `foreach` `sum` `mkString` `reverse` `sorted` `zip` `++` `:+` `+:` |
+| strings | `length` `isEmpty` `nonEmpty` `toUpperCase` `toLowerCase` `trim` `split` `charAt` `substring` `indexOf` `replace` `contains` `startsWith` `endsWith` |
+| arrays | `Array(…)`, `a(i)`, `a(i) = v`, `a.length` |
+| copy | `x.copy(field = v)` on any `case class` |
+| comprehensions | `for x <- xs do e` / `yield e`, several generators, `if` filters — desugared to `foreach`/`map`/`filter`/`flatMap` |
+| generics | type parameters and type arguments are PARSED AND ERASED, everywhere they may appear |
 | errors | `try`/`catch` binding one name, `throw` |
-| files | literate `.ssc` — the program in ```` ```scalascript ```` fences, line numbers preserved |
+| files | literate `.ssc` (```` ```scalascript ```` / ```` ```scala ```` fences, line numbers preserved); `//` and `/* … */` comments, the latter NESTED |
 | scripts | top-level statements ARE the program; `main()` runs after them if defined |
-| output | `println`, and per-block auto-output of a non-Unit tail |
+| output | `println`, per-block auto-output of a non-Unit tail, and one printing convention shared by both lanes |
 
-**Not implemented, measured on 2026-08-03** — each fails with a positioned diagnostic naming it,
-never with a wrong answer: `Char` literals, tuples, pattern guards (`case n if …`), `Array` as a
-source construct (the IR has arrays; the front has no syntax for them), `foreach`, `for`
-comprehensions, `trait`, `extension`, `given`/`using`, imports across files, and typed `catch` arms
-(the type is consumed and discarded, so an arm catches everything).
+**Not implemented, measured 2026-08-05** — each fails with a positioned diagnostic naming it, never
+with a wrong answer:
 
-**Where that leaves compatibility:** cross-file imports are the dominant remaining blocker — 73 of
-the 123 unknown-name refusals are three names from other files. §4's number is measured against
-single-file cases in practice, and that is a property of the corpus rather than a choice.
+| construct | why, where it is not just "not yet" |
+|---|---|
+| `given` / `using` | needs type-directed resolution. This is the one item on the list that Tier 0 cannot reach by adding syntax. |
+| `extension` | |
+| `lazy val` | |
+| varargs (`xs: Int*`) | |
+| curried application `f(a)(b)` | and therefore `foldLeft(z)(f)` |
+| `Map`, `Set`, and the `->` pair operator | |
+| an `object` member that is not a `def` | |
+| qualified enum access (`C.Red`) | the case is reachable unqualified |
+| exponent float literals (`1.0e10`) | |
+| a `def` nested inside a `def` | |
+| a `catch` with several typed arms | a single-name `catch` works and catches everything |
 
 ## 3 · The lexical alphabet — decided here so it needs no tables
 
@@ -94,6 +114,32 @@ cleanest and is disqualifying: the same source would then lex differently on the
 the v2 VM, making the language's syntax host-dependent. `Prim` is the right door for I/O and the
 wrong one for language semantics.
 
+## 3a · Printing, and why it is v1's convention rather than Scala's
+
+Both lanes print the same thing, and what they print was MEASURED off the reference lane rather than
+chosen:
+
+| value | v3 prints | Scala would print |
+|---|---|---|
+| `3.0` | `3` | `3.0` |
+| `-0.0` | `0` | `-0.0` |
+| `123456789.0` | `123456789` | `1.23456789E8` |
+| `P(1, 2)` | `P(1, 2)` | same |
+| `(1, "a")` | `(1, a)` | `(1,a)` |
+| an `Array` | `<foreign>` | `[I@…` |
+| `"abc".charAt(1)` | `98` | `b` |
+
+This is v1-parity behaviour, and v3 INHERITS it rather than forking it: `ssc3 run` goes through v2,
+and the corpus expectations are the ones every other lane is held to. Two consequences worth stating
+because each cost a debugging round:
+
+- the executor's printer is a SEPARATE function from `Text.floatText`, which is the canonical
+  `.ssir` form. One helper with two contracts is how `3.0` came to print as `3.0` on one lane and
+  `3` on the other for weeks, invisible because no fixture printed a whole-number `Double`;
+- a `Char` is an integer that prints as a character (v2 stores `CharV extends IntV`), which is why
+  `'x' + 1` is `121` and `charAt` returns `98`. `Char` was deferred once on a misread of exactly
+  this, and the misread was mine.
+
 ## 4 · How the number is produced
 
 `v3/corpus-report.sh` runs every `tests/conformance/*.ssc` case through `ssc3 run` and compares
@@ -109,6 +155,33 @@ a v3-specific one. Each case lands in exactly one bucket:
 
 `UNSUPPORTED` must name the construct. A refusal that says only "cannot compile" is a `CRASH` for
 reporting purposes, because a bucket you cannot act on is a bucket that hides work.
+
+## 4a · Where v3 accepts MORE than the reference lane
+
+Four constructs run on both v3 lanes and fail on the v1 interpreter. Recorded because a reader who
+finds them will otherwise think v3 is broken:
+
+| construct | what v1 does |
+|---|---|
+| a trait's concrete member inherited by a subclass | `__method__: no dispatch for .describe on Sq(3)` |
+| `case A \| B =>` | `match: no arm for IndexLeafPage/0` — it takes only the FIRST alternative |
+| a NESTED block comment | `structural CoreIR contains parser sentinel _err` |
+| `xs ++ ys ++` continued on the next line | prints the `Stub` SENTINEL at exit 0 — a wrong answer, not a refusal |
+| `while i < 3 do i = i + 1` | prints 2 of 6 lines and exits 0 with no diagnostic |
+
+This is the SAFE direction and it does not weaken invariant I-5. Accepting a program the reference
+rejects cannot change the meaning of a program the reference accepts, so `N` is unaffected; the
+reverse — matching a reference that gives a WRONG ANSWER — is what would be a defect. The last two
+rows are v1 defects rather than v1 limitations, and they are the shape this repository compares
+OUTPUT rather than exit codes to catch.
+
+## 4b · What the number does not measure
+
+`N` counts corpus cases. It does not count how pleasant v3 is to write, and on 2026-08-05 Sergiy
+chose the second explicitly: optimise for being able to write programs, not for `N`. The two pull
+apart — the corpus wall was `trait` and generics, which are library-author features, while what
+stops an ordinary program is tuples and `for`. `N` moved slowly through that stretch, and saying so
+is what a measured number is for.
 
 Two rules this repo paid for, applied here from the start:
 

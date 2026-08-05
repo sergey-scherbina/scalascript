@@ -41,11 +41,62 @@ having* — the same technique on UniML found 8 defects that point examples had 
 harness is worth more than any number of hand-written cases, because it compares rather than
 pre-judges.
 
+Two clarifications this invariant needed, both bought with a debugging round:
+
+*It is about v3's OWN lanes, not about v1.* v3 accepts several programs the v1 interpreter rejects
+(`20-core-language.md` §6). That is not an I-3 violation — I-3 asks that v3's two lanes agree with
+each other, and they do. Accepting more than the reference cannot change the meaning of a program
+the reference accepts, which is the same safe direction the identifier alphabet takes in §3 of the
+core-language spec. Where the reference produces a WRONG ANSWER rather than a refusal, v3 matching
+it would be the defect.
+
+*Agreement is not correctness.* 2026-08-05: a lifted lambda took its index BEFORE its body was
+lowered, so a lambda nested inside a capturing lambda and its enclosing one shared a number. Both
+lanes failed identically — the differential said GREEN, because a differential compares two things
+and says nothing when both are wrong the same way. The third opinion was the v1 interpreter. **When
+a differential is the only evidence, it is evidence of agreement and nothing more**; a third
+implementation, or an oracle outside the pair, is what turns it into evidence of correctness.
+
 **I-4 · No IR is executed unverified.** §4 of the IR spec. Loading always verifies.
 
 **I-5 · Compatibility is a measured number, never an adjective.** v3 defines a core language
 ([`20-core-language.md`](20-core-language.md)) and publishes `N/M` against the existing conformance
 corpus on every run. The gate is **non-regression** on `N`. "Mostly compatible" is not a status.
+
+## How v3 measures itself, and the ways the apparatus has lied
+
+Every number in these specs comes from a script. Those scripts have been wrong more often than the
+compiler has, and each way they were wrong is written down here because the next one will rhyme.
+
+**A gate that cannot fail is not a gate.** Before any harness is trusted, plant the defect it exists
+to catch and watch it go red. Three in this module have gone green while proving nothing: an F4
+dual-run gate that emitted nothing on a clean tree, a bridge refusal probe whose "untranslatable"
+instruction had quietly become translatable, and a front-diff gate that would have compared one
+front against itself. The first two were found by planting; the third says so in its own output.
+
+**Compare OUTPUT, never an exit code.** v1 signals failure by printing a `Stub` sentinel at exit 0,
+and v2 has done the same. A compile that dies mid-way also exits non-zero with an EMPTY stdout,
+which a gate reading exit codes calls a crash and a gate reading output calls a wrong answer — the
+second is the one you can act on.
+
+**A contended host does not report contention; it reports a defect.** Twice on 2026-08-05 the
+apparatus produced a total regression that did not exist: a corpus report run beside three gates
+said `CRASH 360, N = 0` against a true `N = 26`, and a `PATH` prefix meant to fix a broken
+environment silently swapped bash 5 for bash 3.2 and turned four smoke checks red. The mechanism in
+the first case took a third round to find: `scala-cli run` recompiles into a SHARED `.scala-build`,
+and a concurrent invocation deletes it underneath the running one, so the program prints nothing.
+The rule that follows is operational, not clever: **one gate run at a time, jars cached per source
+digest, and never a corpus report beside a gate.**
+
+**A differential proves agreement, not correctness** — see I-3.
+
+**A measurement answers only the question it literally asked.** A census of one refusal message is
+evidence about that message and nothing else. Three times in this module the bucket's LABEL named a
+construct the corpus barely used and hid a single line reached by 116 files through an import:
+`found case` was `case object`, `found <newline>` was a `val` with its value on the next line, and
+`unterminated character literal` was a block comment — the apostrophe in the English word
+`journal's`, inside `/* … */`, which the lexer had never learned to skip. **A missing form does not
+announce itself; it announces whatever it stumbles into first.**
 
 ## What v3 is not
 

@@ -452,3 +452,40 @@ So UniML is consumed as JARS built by sbt — the same digest-keyed caching `v3/
       again. **The exec gate went from ~25 minutes to 26 seconds.** The race is the reason; the
       speed is the side effect, and it is the one that makes running all five gates per batch
       affordable.
+
+## SSC3-12 — the specs catch up with what was measured
+
+Sergiy: "напиши об этом всем в спецификацию". The specs had drifted, and `20-core-language.md` had
+drifted in the direction its own warning was written about.
+
+- [x] **12a — `20-core-language.md` §2 re-measured.** The table still called `trait`, `Char`,
+      tuples, guards and `Array` unimplemented WEEKS after they landed. Its first version was wrong
+      the other way — listing things that did not work — and the warning at the top of it was
+      written for exactly that. Now it drifted in the opposite direction, so the warning now says
+      *both* directions. Re-measured construct by construct with a fresh probe set rather than
+      transcribed from the fixture names.
+- [x] **12b — a NOT-IMPLEMENTED table with reasons.** `given`/`using` is singled out: it is the one
+      item Tier 0 cannot reach by adding syntax, because it needs type-directed resolution. The
+      other ten are ordinary missing work — curried application, `Map`/`Set`, `lazy val`, varargs,
+      exponent literals, a nested `def`, a multi-arm `catch`, and the rest.
+- [x] **12c — §3a, printing.** Both lanes print v1's convention and not Scala's — `3.0` prints `3`,
+      an array prints `<foreign>`, `charAt` returns `98`. Written down with the two debugging rounds
+      that bought it: one helper serving both the canonical `.ssir` form and the language's output,
+      and `Char` deferred on a misreading of exactly this table.
+- [x] **12d — §4a, where v3 accepts MORE than v1.** Five constructs, two of which are v1 giving a
+      WRONG ANSWER rather than a refusal (`Stub` at exit 0; a silently truncated program). Recorded
+      so a reader who meets them does not conclude v3 is broken, and argued: accepting more cannot
+      change the meaning of a program the reference accepts, so `N` is unaffected.
+- [x] **12e — §4b, what the number does not measure.** `N` counts corpus cases, not how pleasant v3
+      is to write. Sergiy chose the second explicitly on 2026-08-05 and the two pull apart.
+- [x] **12f — `00-charter.md` I-3, two clarifications.** It is about v3's OWN two lanes, not about
+      v1. And **agreement is not correctness**: the nested-closure bug failed identically on both
+      lanes and the differential said GREEN. A differential is evidence of agreement; a third
+      implementation is what turns it into evidence of correctness.
+- [x] **12g — the charter gained "how the apparatus has lied".** A gate that cannot fail; compare
+      output never exit codes; a contended host reports a defect rather than contention; a
+      measurement answers only the question it literally asked. Every entry has the round that
+      bought it attached.
+- [x] **12h — six string methods.** `substring` `indexOf` `replace` `contains` `startsWith`
+      `endsWith` ran on the bridge and refused on the executor — found while probing FOR the spec,
+      which is the argument for re-measuring rather than transcribing.

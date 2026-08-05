@@ -1,0 +1,9 @@
+val s = "abcdef"
+println(s.substring(2))
+println(s.substring(1, 3))
+println(s.indexOf("cd"))
+println(s.replace("ab", "ZZ"))
+println(s.contains("cde"))
+println(s.startsWith("ab"))
+println(s.endsWith("ef"))
+println(s.nonEmpty)
