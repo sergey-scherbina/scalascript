@@ -748,6 +748,29 @@ def main() =
     println("        " + skipped.length.toString() + " optional check(s) NOT run: " +
             skipped.map(o => o.name).mkString(", ") + "   (SSC_SMOKE_OPTIONAL=1 runs them)")
 
+  // The three most expensive checks, with their SHARE of the run.
+  //
+  // This file already tells the reader what to look for — "one check that grew is the signal this
+  // exists for" — and then leaves them to scan sixty timings for it. On 2026-08-05 that scan found
+  // `launcher-input-digest` at 227 s: 27% of the run and 3x the next check, from a script spawning
+  // two processes per line over 7272 lines. Fixed, it is 18 s and the suite went 467.6 -> 266.1 s.
+  // Finding it took ranking the CI log by hand; printing the ranking costs nothing and is the
+  // difference between a number nobody acts on and one that names its own cause.
+  //
+  // A SHARE rather than a comparison with a previous run, deliberately: the suite keeps no history,
+  // and this file's own host-speed probe shows why a raw second-count would mislead — the same
+  // runner varies up to 1.4x day to day, so "slower than last time" is usually the host. A share is
+  // scale-free: uniform inflation leaves it unchanged, and one check growing moves it.
+  val ranked = outcomes.filter(o => !o.skipped).sortBy(o => 0 - o.tenths)
+  val totalTenths = outcomes.map(o => o.tenths).foldLeft(0)((a, b) => a + b)
+  if ranked.length > 0 && totalTenths > 0 then
+    println("")
+    println("most expensive checks")
+    ranked.take(3).foreach(o =>
+      val pct = (o.tenths * 100) / totalTenths
+      println("  " + pad(o.module + " " + o.name, 46) + showSeconds(o.tenths) +
+              "   " + pct.toString() + "% of the run"))
+
   if failed.length > 0 then
     println("")
     println("FAILED:")

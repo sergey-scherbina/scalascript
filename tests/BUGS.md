@@ -616,6 +616,28 @@ I added two gates in that window (`js-shaker-effectful-binding` 0.7s, `v2-char-n
 4.6s, 5.3s together). Naming that because "someone else's checks are the slow ones" is exactly the
 reasoning that spends a shared budget.
 
+**The suite now names its own worst check (2026-08-05).** Every overrun printed "read the per-check
+timings above: one check that grew is the signal this exists for", and then left the reader to scan
+sixty lines for it. It now prints the three most expensive checks with their SHARE of the run:
+
+```
+most expensive checks
+  tests run-lane-flags-are-flags       51.6s   8% of the run
+  tests import-alias                   42.2s   6% of the run
+  scripts claim-scope-hierarchy        28.0s   4% of the run
+```
+
+A share, not a comparison with a previous run, and not a raw second-count: this file's own host-speed
+probe measured the same runner varying up to 1.4x day to day, so "slower than last time" is usually
+the host. A share is scale-free — uniform inflation leaves it unchanged, one check growing moves it.
+
+The first run with it printed 8% at the top, which reads immediately as "nothing dominates, the host
+is loaded". Compare `launcher-input-digest` earlier the same day: 227 s, **27%** of the run and 3x
+the next check. Finding that took ranking a CI log by hand; the ranking now costs nothing.
+
+This entry stays open: what the suite should CONTAIN is still the question, and the budget number is
+still a proxy for it.
+
 ## orphaned-e2e-gates-52 — 52 of 126 gates were invoked by nothing, and 33 of those do not pass
 <!-- status: open
      lane: apparatus
