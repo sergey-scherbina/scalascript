@@ -136,10 +136,21 @@ Design, limits and the two rejected shapes: [`specs/native-package-namespace.md`
 
 **Named limits, carried forward rather than left to be found:** a `var` is NOT aliased (the alias is
 a parameterless property and therefore eager, so it would publish a stale snapshot under a live-
-looking name); `exports:` is not consulted, so every top-level `def`/`val`/`object` becomes a member;
-a registration object carries a `__pkg` stub because it must be non-empty. F still declines a file
-carrying a THREE-segment selection and the reference front runs it — correct output, slower path,
-and a separate F-coverage item.
+looking name); `exports:` does not gate the namespace, which MATCHES v1 — both lanes answer
+`p.hidden()` for a module exporting only `shown`; a registration object carries a `__pkg` stub
+because it must be non-empty. F still declines a file carrying a THREE-segment selection and the
+reference front runs it — correct output, slower path, and a separate F-coverage item.
+
+**One trap, found by the corpus and not by the gate.** The parsed statement list is FLAT, so the
+members of an `extension` block arrive as ordinary `def` statements. `std/parsing/combinators.ssc`
+declares `def ~`, `def |`, `def ~>`, `def <~` that way, and the first implementation emitted
+`def __pkgref_std_parsing__~ = ~` — every program importing that module died with `structural CoreIR
+contains parser sentinel _err`, a parse failure in GENERATED source reported against the USER's
+file. Two `indent-*` conformance cases went red and the A/B against `origin/main` is what named it.
+Names are now filtered by position (skip between `extension_start`/`extension_end`) and by shape
+(`[A-Za-z_][A-Za-z0-9_]*`), and a `package:` whose segments are not identifiers emits nothing. All
+three cases the sweep flagged now produce stdout byte-identical to `origin/main`'s tower;
+`fewer-braces-colon` is red in BOTH runs and is not this change's.
 
 **Found while fixing this:** `jvm-package-import-qualifies-the-link-name`
 (`v1/runtime/backend/jvm/BUGS.md`) — no module declaring `package:` can be imported on the jvm lane.

@@ -537,20 +537,65 @@ def sscPkgLeaf = (prefixes) =>
     case Nil => ""
     case Cons(p, rest) => match rest { case Nil => p case _ => sscPkgLeaf(rest) }
   }
--- Member names of a declaration list. `var` is deliberately absent: the alias is a
--- parameterless property and therefore EAGER, so aliasing a `var` would publish a
--- SNAPSHOT of the cell under a name that looks live -- worse than not publishing it.
-def sscPkgMemberNames = (stmts) =>
+-- A name that can appear on the left of `def <n> =` in generated source. Anything
+-- else is SKIPPED rather than emitted: `std/parsing/combinators.ssc` declares
+-- `def ~`, `def |`, `def ~>` and `def <~`, and emitting `def __pkgref_…__~ = ~`
+-- made the whole program `_err` -- a parse failure in generated code, reported
+-- against the user's file.
+def sscIsAlphaU = (c) =>
+  if #i.eq(c, 95) then true
+  else if #i.ge(c, 65) then
+    (if #i.le(c, 90) then true else (if #i.ge(c, 97) then #i.le(c, 122) else false))
+  else false
+def sscIsIdentTail = (c) =>
+  if sscIsAlphaU(c) then true else (if #i.ge(c, 48) then #i.le(c, 57) else false)
+def sscPkgIdentOk = (s) =>
+  if #i.eq(#slen(s), 0) then false
+  else if sscIsAlphaU(#scodeAt(s, 0)) then
+    let rec go = (i) =>
+      if #i.ge(i, #slen(s)) then true
+      else (if sscIsIdentTail(#scodeAt(s, i)) then go(#i.add(i, 1)) else false) in
+    go(1)
+  else false
+-- Member names of a declaration list. Three exclusions, each for its own reason:
+--  * `var` -- the alias is a parameterless property and therefore EAGER, so it would
+--    publish a SNAPSHOT of the cell under a name that looks live.
+--  * anything between `extension_start` and `extension_end` -- an extension method
+--    is a method on its receiver, not a member of the module, and its name is
+--    frequently an operator. The parsed list is FLAT, so the members of an
+--    extension block arrive as ordinary `def` statements and would otherwise be
+--    indistinguishable from top-level ones.
+--  * any name that is not a plain identifier (see above).
+def sscPkgMemberNames = (stmts, inExt) =>
   match stmts {
     case Nil => Nil
     case Cons(s, rest) =>
       match s {
         case Pair(stag, sdata) =>
-          let keep = if #seq(stag, "def") then true else #seq(stag, "val") in
-          if keep then
-            (match sdata { case Pair(n, sr) => Cons(n, sscPkgMemberNames(rest)) })
-          else sscPkgMemberNames(rest)
+          if #seq(stag, "extension_start") then sscPkgMemberNames(rest, true)
+          else if #seq(stag, "extension_end") then sscPkgMemberNames(rest, false)
+          else if inExt then sscPkgMemberNames(rest, inExt)
+          else
+            let keep = if #seq(stag, "def") then true else #seq(stag, "val") in
+            if keep then
+              (match sdata {
+                case Pair(n, sr) =>
+                  if sscPkgIdentOk(n) then Cons(n, sscPkgMemberNames(rest, inExt))
+                  else sscPkgMemberNames(rest, inExt)
+              })
+            else sscPkgMemberNames(rest, inExt)
       }
+  }
+-- Every prefix must be a usable object name, or nothing is emitted at all: a
+-- malformed `package:` value must not turn into generated source that fails to
+-- parse, because the diagnostic would name the USER's file.
+def sscPkgPrefixesOk = (ps) =>
+  match ps {
+    case Nil => false
+    case Cons(p, rest) =>
+      if sscPkgIdentOk(p) then
+        (match rest { case Nil => true case _ => sscPkgPrefixesOk(rest) })
+      else false
   }
 def sscPkgRefName = (leaf, n) =>
   #sconcat("__pkgref_", #sconcat(leaf, #sconcat("__", n)))
@@ -600,10 +645,12 @@ def sscPkgObjBlocks = (leaf, stmts) =>
           if #seq(tag, "object") then
             (match data {
               case Pair(oname, ostmts) =>
-                #sconcat("object ", #sconcat(leaf, #sconcat("_", #sconcat(oname,
-                  #sconcat(":\n  def __pkg = 0\n",
-                    #sconcat(sscPkgFwdLines(oname, sscPkgMemberNames(ostmts)),
-                      sscPkgObjBlocks(leaf, rest)))))))
+                if sscPkgIdentOk(oname) then
+                  #sconcat("object ", #sconcat(leaf, #sconcat("_", #sconcat(oname,
+                    #sconcat(":\n  def __pkg = 0\n",
+                      #sconcat(sscPkgFwdLines(oname, sscPkgMemberNames(ostmts, false)),
+                        sscPkgObjBlocks(leaf, rest)))))))
+                else sscPkgObjBlocks(leaf, rest)
             })
           else sscPkgObjBlocks(leaf, rest)
       }
@@ -615,17 +662,15 @@ def sscPkgNsSource = (pkg, defs) =>
   if #seq(pkg, "") then ""
   else
     let prefixes = sscPkgPrefixes(pkg, 0, "", Nil) in
-    match prefixes {
-      case Nil => ""
-      case _ =>
-        let leaf = sscPkgLeaf(prefixes) in
-        let names = sscPkgMemberNames(defs) in
-        #sconcat(sscPkgRefLines(leaf, names),
-          #sconcat(sscPkgStubs(prefixes),
-            #sconcat("object ", #sconcat(leaf, #sconcat(":\n  def __pkg = 0\n",
-              #sconcat(sscPkgMemberLines(leaf, names),
-                sscPkgObjBlocks(leaf, defs)))))))
-    }
+    if sscPkgPrefixesOk(prefixes) then
+      (let leaf = sscPkgLeaf(prefixes) in
+       let names = sscPkgMemberNames(defs, false) in
+       #sconcat(sscPkgRefLines(leaf, names),
+         #sconcat(sscPkgStubs(prefixes),
+           #sconcat("object ", #sconcat(leaf, #sconcat(":\n  def __pkg = 0\n",
+             #sconcat(sscPkgMemberLines(leaf, names),
+               sscPkgObjBlocks(leaf, defs))))))))
+    else ""
 
 def sscLoadMod = (rawPath, seen) =>
   let path0 = sscNormalize(rawPath) in

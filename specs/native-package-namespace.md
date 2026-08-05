@@ -148,6 +148,17 @@ match sscLoadImps(…) { case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs)
   object — is a front change for a cosmetic gain.
 - **`object` members alias only their `def`/`val` members**, one level deep. An object nested inside
   an exported object is dropped by `prefixDefs` before this code ever sees it.
+- **Extension methods are excluded, and this one is a trap rather than a limit.** The parsed
+  statement list is FLAT: the members of an `extension [A](p: Parser[A]) …` block arrive as ordinary
+  `def` statements, indistinguishable from top-level ones except by the `extension_start` /
+  `extension_end` markers around them. `std/parsing/combinators.ssc` declares `def ~`, `def |`,
+  `def ~>` and `def <~` that way, so the first implementation emitted `def __pkgref_…__~ = ~` and
+  every program importing that module died with `structural CoreIR contains parser sentinel _err` —
+  a parse failure in GENERATED source, reported against the user's file. Caught by the corpus, not
+  by the gate: two `indent-*` cases went red. Names are therefore filtered twice, by position (skip
+  everything between the markers, because an extension method belongs to its receiver and not to the
+  module) and by shape (`[A-Za-z_][A-Za-z0-9_]*`). A `package:` whose segments are not identifiers
+  emits nothing at all, for the same reason: bad generated source names the wrong file.
 
 ## Acceptance
 
