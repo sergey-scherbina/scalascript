@@ -259,6 +259,31 @@ file) and they can name the nested module's types. **The `.sc` extension matters
 compilation unit the same text fails with `Illegal start of toplevel definition` — the emitted
 output is a SCRIPT, which is the same fact that explained the `Cons` parse failure.
 
+**ATTEMPTED, AND IT FOUND A HARDER CONSTRAINT THAN "write a total wrapper", 2026-08-05.** I wrote
+the wrapper and the five hooks against the real emitted source and compiled. It fails, and not on
+the wrapper:
+
+```
+value get is not a member of jx3$_.this.std.json.JsonValue
+```
+
+**`JsonValue` is an opaque type in the module, and the accessors are not declared anywhere.**
+`std/json.ssc` has no `extension` block and no `def get` / `def asString` — the documented surface
+(`get` / `at` / `isNull` / `as*` / `opt*` / `getOrElse` / `raw`) is provided **by the host at
+runtime**, which is what "the bridge wraps portable JsonCore ADTs for method navigation" in that
+file's own comment actually means. js and native dispatch methods dynamically on the wrapped value;
+**the jvm lane dispatches statically**, so a wrapper's methods are unreachable through an
+`opaque type JsonValue = Any`.
+
+It is also a **name collision**, which sharpens the two-implementations finding: the preamble's
+navigable `class JsonValue(val raw: Any)` and the module's opaque `JsonValue` are both in scope, and
+`import std.json.JsonValue` makes the one without accessors win.
+
+**So the jvm bridge is not five hooks — it is five hooks PLUS the whole navigable surface as
+extension methods on the opaque type**, emitted in the same block. That is expressible (the opaque
+type is `Any` at runtime, so an extension can cast through it) but it is a different size of job,
+and it is the honest estimate this entry should carry rather than "ordinary work".
+
 **One sub-problem remains and it is the real work.** `__jsonCoreWrap` must return a value that
 navigates **totally** — `get` on a miss yields a Null wrapper, `asString` on a non-string yields
 `""`, never an exception (js does this in `_jsonValueTotal`). The jvm preamble's `JsonValue` is the
