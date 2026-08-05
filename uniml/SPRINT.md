@@ -151,8 +151,14 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           gated by `SscComposedLosslessSpec`, frozen as a SET so a file leaving it is also news.
           The remaining 6 are a different defect — markdown indented code losing the four-space
           prefix on continuation lines — filed in `uniml/BACKLOG.md`.
-          Still owed for a real release: license, scm and homepage in the poms, and a deliberate
-          version instead of sbt's default `0.1.0-SNAPSHOT`.
+          **Coordinates were WRONG, and only comparing the two builds showed it.** Each published
+          successfully on its own, so nothing looked broken: the root produced
+          `io.scalascript:scalascript-uniml_3:0.1.0` and this build
+          `scalascript:scalascript-uniml_3:0.1.0-SNAPSHOT` — the same sources as two artifacts a
+          consumer's build treats as unrelated. Fixed by matching the root, and `UnimlCoordinatesSpec`
+          reads BOTH build files so they cannot drift again (verified by planting 9.9.9).
+          License, homepage, scm and description added. Outside consumer re-verified at the new
+          coordinates: `status=Complete diagnostics=0 lossless=true`.
       **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
       function and tuple types in a parameter, and an interpolator prefix the lexer does not
       know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans

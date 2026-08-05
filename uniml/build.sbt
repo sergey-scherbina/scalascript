@@ -14,7 +14,25 @@
 // the dual build with `publishLocal` once UniML is truly extracted.
 
 ThisBuild / scalaVersion := "3.8.3"
-ThisBuild / organization := "scalascript"
+
+// MATCH THE ROOT BUILD'S COORDINATES. Both builds compile the same sources, so they must publish
+// the same artifact — otherwise `publishLocal` from here produced
+// `scalascript:scalascript-uniml_3:0.1.0-SNAPSHOT` while the root produced
+// `io.scalascript:scalascript-uniml_3:0.1.0`: same code, two coordinates, not interchangeable in a
+// consumer's build. Measured 2026-08-05 by publishing from both and listing ~/.ivy2/local.
+// Kept in step with `build.sbt` lines 2-3 by `UnimlCoordinatesSpec`, which reads them.
+ThisBuild / organization := "io.scalascript"
+ThisBuild / version      := "0.1.0"
+
+// Publishing metadata, so a released artifact says what it is and where it came from. The root
+// build declares none of this; when it publishes for real it should read from the same source.
+ThisBuild / licenses     := Seq("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / homepage     := Some(url("https://github.com/sergey-scherbina/scalascript"))
+ThisBuild / scmInfo      := Some(ScmInfo(
+  url("https://github.com/sergey-scherbina/scalascript"),
+  "scm:git:https://github.com/sergey-scherbina/scalascript.git",
+))
+ThisBuild / description  := "UniML — a lossless token-to-tree framework with dialects for JSON, YAML, Markdown, XML and ScalaScript."
 
 val scalatestV = "3.2.18"
 val upickleV   = "4.4.2"
