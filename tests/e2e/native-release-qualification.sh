@@ -208,20 +208,29 @@ println(answer)'
       exit 0
       ;;
     --interpret:vm-timeout) /bin/sleep 5; exit 0 ;;
-    --bytecode:asm-exit) exit 9 ;;
-    --bytecode:asm-output) printf '85\\n'; exit 0 ;;
-    --bytecode:asm-stderr)
-      printf 'asm warning\\n' >&2
+    # --bytecode on a native binary is REFUSED, so the stub models a refusal for the GOOD case and
+    # the mutations are shaped against that contract, not against the old "it really ran" one.
+    --bytecode:asm-succeeds)
+      # The failure that matters most: the binary quietly ran the program on the VM while being
+      # told --bytecode. Indistinguishable from success unless the qualifier demands a refusal.
       printf '84\\n'
       exit 0
       ;;
-    --bytecode:asm-fallback)
-      printf 'ssc: --bytecode fell back to the VM lane\\n' >&2
+    --bytecode:asm-refuses-but-prints)
+      printf 'ssc: --bytecode is not available in the native binary\\n' >&2
       printf '84\\n'
-      exit 0
+      exit 2
+      ;;
+    --bytecode:asm-refusal-silent)
+      # Non-zero, but says nothing about which flag or why.
+      exit 2
       ;;
     --bytecode:asm-timeout) /bin/sleep 5; exit 0 ;;
-    --interpret:*|--bytecode:*) printf '84\\n'; exit 0 ;;
+    --bytecode:*)
+      printf 'ssc: --bytecode is not available in the native binary: the lane loads generated classes at run time\\n' >&2
+      exit 2
+      ;;
+    --interpret:*) printf '84\\n'; exit 0 ;;
   esac
 fi
 
@@ -528,10 +537,9 @@ expect_fail vm-exit vm-exit
 expect_fail vm-output vm-stdout
 expect_fail vm-extra-newline vm-stdout
 expect_fail vm-stderr vm-stderr
-expect_fail asm-output asm-stdout
-expect_fail asm-exit asm-exit
-expect_fail asm-stderr asm-stderr
-expect_fail asm-fallback asm-no-fallback
+expect_fail asm-succeeds        asm-bytecode-refused
+expect_fail asm-refuses-but-prints asm-stdout
+expect_fail asm-refusal-silent  asm-refusal-names-flag
 expect_fail version-timeout version-timeout
 expect_fail vm-timeout vm-timeout
 expect_fail asm-timeout asm-timeout
