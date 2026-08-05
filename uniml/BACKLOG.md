@@ -7,7 +7,25 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## indented code blocks lose the indent on every line after the first
+## a paragraph's continuation line loses its leading whitespace
+
+Three files still fail composed round-trip, all the same way: inside a paragraph, the whitespace
+that begins a continuation line moves to the END of the block.
+
+    src   … `first + "/" +\n   second` …
+    got   … `first + "/" +\nsecond` …\n
+
+`v1/runtime/std/dep-cps-ping.ssc` (differs at 576) is the shortest; also `v1/runtime/std/nodes.ssc`
+and `v1/runtime/std/streams.ssc`. Order, not loss — the characters are all present, which is why a
+length check passes.
+
+Third instance of one shape in one afternoon: an injected subtree appended instead of spliced, an
+indented code block whose body interleaves with its indents, and now a paragraph's continuation
+prefix. Each was a token emitted somewhere other than where it sits in the source, and each was
+invisible to a check that counts rather than compares.
+
+## indented code blocks lose the indent on every line after the first — FIXED, and the cause was
+## not what this entry said
 
 The composed tree reconstructs 1,173 of 1,179 `.ssc` exactly. The six that do not all fail the
 same way — a markdown indented code block keeps the four-space prefix on its FIRST line and drops
@@ -23,6 +41,14 @@ it on every line after:
 **Why the markdown corpus does not catch it.** That corpus checks CommonMark examples, and the
 indented-code work in UPR-3 was measured on it — 607 of 675 passing. This is the ScalaScript
 profile over real files, a combination the 675 do not contain. Two corpora, two questions.
+
+**FIXED, and the diagnosis in this entry was wrong.** The indent was not being dropped by the
+indented-code handler: the COMPOSER was injecting a ScalaScript subtree into indented code blocks
+at all. An indented block is a `markdown.code-block` with no info string, so it fell through to the
+untyped-fence default, and its body interleaves with a per-line indent token — replacing that body
+with one subtree cannot preserve the order, so the indents ended up behind the code. Injection is
+now restricted to blocks carrying a `fence.open` edge. Composed exact 1,173 → 1,176, and a
+four-space-indented table stopped being handed to the compiler front as source.
 
 Frozen as a SET in `SscComposedLosslessSpec`, so a file leaving the list is as much news as one
 joining it.

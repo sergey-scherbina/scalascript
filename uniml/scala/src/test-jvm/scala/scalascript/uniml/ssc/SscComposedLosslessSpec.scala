@@ -53,15 +53,16 @@ final class SscComposedLosslessSpec extends AnyFunSuite:
     // green; the set catches both directions, and a file leaving it is as much news as a file
     // joining it.
     //
-    // What remains is NOT the composer — it is markdown's indented code block losing the 4-space
-    // prefix on continuation lines: `\n    lane  n\n    jvm  100` comes back as
-    // `\n    lane  n\njvm  100`. First line keeps its indent, the next does not. Filed separately;
-    // the composer's own defect (an injected subtree APPENDED instead of spliced, so the closing
-    // fence marker preceded the code) is fixed and took this from 0 exact to 1,173.
+    // Two composer defects are fixed and took this from 0 exact to 1,176: an injected subtree was
+    // APPENDED rather than spliced (the closing fence marker came out before the code), and an
+    // INDENTED code block was being injected at all — it is a `markdown.code-block` with no info
+    // string, so it fell through to the untyped-fence default, and its body is interleaved with a
+    // per-line indent token, so replacing the body with one subtree cannot preserve order.
+    //
+    // The three that remain are a THIRD site, in markdown rather than the composer: a paragraph's
+    // continuation line loses its leading whitespace, `+\n   second` coming back as `+\nsecond`
+    // with the spaces moved to the end. Same shape — order, not loss. Filed in uniml/BACKLOG.md.
     val known = Set(
-      "examples/effects.ssc",
-      "tests/conformance/map-getorelse-expr-receiver.ssc",
-      "tests/conformance/object-var-member-scope.ssc",
       "v1/runtime/std/dep-cps-ping.ssc",
       "v1/runtime/std/nodes.ssc",
       "v1/runtime/std/streams.ssc",

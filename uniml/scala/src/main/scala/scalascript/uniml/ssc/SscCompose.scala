@@ -169,6 +169,14 @@ object SscCompose:
       b.copy(edges = kept.take(before) ++ inj ++ kept.drop(before))
 
     def transform(n: UniNode): UniNode = n match
+      // ONLY a fenced block. An INDENTED code block is a `markdown.code-block` too, with no info
+      // string, so it used to fall through to the untyped-fence default and be parsed as
+      // ScalaScript — a four-space-indented table or program output handed to the compiler front.
+      // It also broke round-trip by construction: an indented block's body is INTERLEAVED with a
+      // per-line indent token, so replacing the body with one subtree cannot preserve the order,
+      // and the indents ended up behind the code. Six corpus files failed exactly that way.
+      case b: UniNode.Branch if b.kind == "markdown.code-block" && !b.edges.exists(_.role.contains("fence.open")) =>
+        b
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>
         val lang = infoOf(b)
         val code = textOfRole(b, "code") // raw, lossless fence body — trailing EOL included
