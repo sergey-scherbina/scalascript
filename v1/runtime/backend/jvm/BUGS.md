@@ -182,6 +182,47 @@ one pass at a time.
 
 `upload-smoke` **passes now** — it was red before these three and needed none of the json hooks.
 
+**THE FRAMING WAS WRONG AND IS CORRECTED, 2026-08-05: the jvm lane is not without json.** It has a
+SECOND, OLDER implementation, emitted in the runtime preamble and marked `v1.5 Tier 5 #22 option
+(c)` — `def jsonParse`, `def jsonStringify`, and a `class JsonValue(val raw: Any)` with
+`apply` / `get` / `asString` navigation. It works:
+
+```
+val v = jsonParse("{\"a\":1}"); println(jsonStringify(v))     // no import
+
+int {"a":1}      js {"a":1}      jvm {"a":1}
+```
+
+So there are two paths, and only one is broken:
+
+| path | jvm |
+|---|---|
+| builtin globals, no import | works |
+| `[jsonParse](std/json.ssc)` — the portable json-core module | 5 × `Not found: __jsonCore*` |
+
+**The remaining harm is precise, and it is not small.** `std/http.ssc` imports `std/json.ssc`, so
+**any program importing std/http does not compile on this lane**:
+
+```
+[route, serve, Response, Request](std/http.ssc)     int: registered     jvm: 9 errors
+```
+
+**That makes the fork decidable, which it was not when this entry said "a plugin the lane does not
+have":**
+
+1. **Implement the five hooks on jvm.** They must return JsonCore ADT values, and those types are
+   emitted into `object std.json.core` — user-module code the fixed preamble cannot name. Whatever
+   holds the implementations has to be emitted AFTER the modules, or build the ADTs structurally.
+   That constraint is the real content of this option.
+2. **Let the builtin serve the import.** The preamble already defines exactly the names
+   `std/json.ssc` exports, and `JvmCapabilities` already maps `QualifiedName`s to `RuntimeCall`s —
+   the machinery for "this module resolves to the host implementation on this lane" exists. This
+   looks like the intended architecture rather than a workaround, but it is a decision about the
+   portable-json design, not a codegen patch, and it belongs to whoever owns that design.
+
+Either way the entry stays open, and what it is open FOR is now one sentence: on the jvm lane the
+portable json module has no host bridge, and `std/http` is what that costs.
+
 **(2) remains open and is a FEATURE, not a fix.** `__jsonCoreWrap`, `__jsonCoreWrapStrict`,
 `__jsonCoreEncodeValue`, `__jsonCoreRawStrict` and `__jsonCoreInstallRenderer` are `extern def`
 host hooks. js has them in `core-collections.mjs`, native in `JsonNativePlugin.scala`, the jvm lane
