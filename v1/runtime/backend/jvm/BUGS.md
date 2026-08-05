@@ -64,10 +64,25 @@ object for names that were deliberately removed from it. **Importing an `extern 
 cannot work on this lane**, and no bridge fixes it: the names resolve fine at top level, it is the
 `import std.http.{…}` line that must not name them.
 
-The fix belongs at the import-emission site (`JvmGen`, where `specText` is built from the requested
-specs) and needs one piece of information that is not there today — which of the target module's
-names were `extern def`. That is the next step, and it is a different kind of change from the two
-bridges, which is why it is written down rather than attempted at the end of them.
+**FIXED 2026-08-05, and `std/http.ssc` now compiles AND RUNS on the jvm lane:**
+
+```
+[route, serve, Response, Request](std/http.ssc)     int: registered     jvm: registered
+```
+
+`importedExternNames` records, per imported package, the names that module declares `extern def` —
+collected in `recordImportMetadata` where the sibling registries already are — and the
+import-emission site drops them. They resolve unqualified from the top level, which is where the
+host defines them; the import was asking the module object for names deliberately removed from it.
+Aliased specs are left alone: `a as b` needs a real member to alias.
+
+**`components-smoke` passes**, having been red through this whole chain, and `upload` and
+`validation` with it.
+
+**`middleware-smoke` still fails on jvm, and it is a THIRD kind of gap** — 44 errors, all
+`not a member of Any`. That is static dispatch on an untyped value, the same family as the opaque
+`JsonValue` problem that shaped the json bridge, and it is not an extern or an import question. Not
+folded in here.
 
 **Measured 2026-08-04.** Five lines, one import, four lanes:
 

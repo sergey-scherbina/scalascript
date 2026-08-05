@@ -256,6 +256,13 @@ class JvmGen(
   private val importedTypeExports = mutable.Map.empty[String, List[String]]
   private val importedExtensionExports = mutable.Map.empty[String, List[String]]
   private val importedReExports = mutable.Map.empty[String, Map[String, ReExportTarget]]
+  /** Per imported package: the names that module declares `extern def`.
+   *
+   *  Those stubs are STRIPPED from the emitted module object — the host provides them at the
+   *  script's top level instead — so an `import std.http.{route, serve}` asks the object for names
+   *  deliberately removed from it and fails with `value route is not a member of object std.http`.
+   *  The names resolve fine unqualified; it is the import that must not mention them. */
+  private val importedExternNames = mutable.Map.empty[String, Set[String]]
 
   // ─── Strategy D, Step 2 — dep-mode CPS fixpoint state ─────────────
   //
@@ -2737,7 +2744,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
           extensionSpecs.map(n => ImportSpec(n, None))
       val reExports = importedReExports.getOrElse(pkgPath, Map.empty)
       val grouped = mutable.LinkedHashMap.empty[List[String], mutable.ListBuffer[(ReExportTarget, ImportSpec)]]
-      requested.foreach { spec =>
+      // Drop the module's `extern def` names: the emitter strips those stubs from the module
+      // object and the host defines them at the script's top level, where they resolve without an
+      // import. Naming them here is what made `import std.http.{route, serve, …}` fail with
+      // `value route is not a member of object std.http` once std/http otherwise compiled.
+      val externHere = importedExternNames.getOrElse(pkg.mkString("."), Set.empty)
+      requested.filterNot(sp => externHere.contains(sp.name) && sp.alias.isEmpty).foreach { spec =>
         val target = reExports.getOrElse(spec.name, ReExportTarget(pkg, spec.name))
         grouped.getOrElseUpdate(target.pkg, mutable.ListBuffer.empty) += ((target, spec))
       }
@@ -2825,6 +2837,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       importedTypeExports ++= nested.importedTypeExports
       importedExtensionExports ++= nested.importedExtensionExports
       importedReExports   ++= nested.importedReExports
+      importedExternNames ++= nested.importedExternNames
       if pkg.nonEmpty then
         val pkgPath = pkg.mkString(".")
         val extensionExps =
@@ -2866,6 +2879,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       if extensionExps.nonEmpty then
         importedExtensionExports(pkgPath) =
           (importedExtensionExports.getOrElse(pkgPath, Nil) ++ extensionExps).distinct
+      val externs = moduleExternDefNames(importedModule)
+      if externs.nonEmpty then
+        importedExternNames(pkgPath) =
+          importedExternNames.getOrElse(pkgPath, Set.empty) ++ externs
       val reExports = inferReExportTargets(importedModule, resolved / os.up, Set(resolved.toString))
       if reExports.nonEmpty then
         importedReExports(pkgPath) =
@@ -2876,6 +2893,23 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       ScalaNode.fold(block.node)(topLevelExtensionNamesInTree) ++
         topLevelExtensionNamesInSource(block.src)
     }.distinct
+
+  /** Top-level `extern def` names in an imported module — the ones the emitter strips and the host
+   *  supplies at top level. Traversal mirrors [[moduleTopLevelExtensionNames]]. */
+  private def moduleExternDefNames(module: Module): Set[String] =
+    def loop(sections: List[Section]): List[String] =
+      sections.flatMap { section =>
+        section.content.flatMap {
+          case cb: Content.CodeBlock if cb.isProgramCode =>
+            cb.tree.toList.flatMap(node => ScalaNode.fold(node) { tree =>
+              tree.collect {
+                case d: Defn.Def if EffectAnalysis.isExternDef(d.body) => d.name.value
+              }
+            })
+          case _ => Nil
+        } ++ loop(section.subsections)
+      }
+    loop(module.sections).toSet
 
   private def moduleTopLevelExtensionNames(module: Module): List[String] =
     val moduleIndent = module.manifest.flatMap(_.pkg).fold(0)(_.size * 2)
