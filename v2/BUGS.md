@@ -148,9 +148,10 @@ declares `def ~`, `def |`, `def ~>`, `def <~` that way, and the first implementa
 contains parser sentinel _err`, a parse failure in GENERATED source reported against the USER's
 file. Two `indent-*` conformance cases went red and the A/B against `origin/main` is what named it.
 Names are now filtered by position (skip between `extension_start`/`extension_end`) and by shape
-(`[A-Za-z_][A-Za-z0-9_]*`), and a `package:` whose segments are not identifiers emits nothing. All
-three cases the sweep flagged now produce stdout byte-identical to `origin/main`'s tower;
-`fewer-braces-colon` is red in BOTH runs and is not this change's.
+(`[A-Za-z_][A-Za-z0-9_]*`), and a `package:` whose segments are not identifiers emits nothing. Full
+v2 lane, same command both times: **355 passed / 3 failed before the filter, 357 / 1 after**. The one
+remaining failure is `fewer-braces-colon`, byte-identical to `origin/main`'s tower and already
+described in `v2/BACKLOG.md` — red in both runs, and not this change's.
 
 **Found while fixing this:** `jvm-package-import-qualifies-the-link-name`
 (`v1/runtime/backend/jvm/BUGS.md`) — no module declaring `package:` can be imported on the jvm lane.
