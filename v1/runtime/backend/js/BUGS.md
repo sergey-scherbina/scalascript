@@ -12,7 +12,7 @@ Newest first.
 <!-- status: fixed
      lane: js
      area: runtime
-     fixed-in: ec9240d2b
+     fixed-in: bf7f833da
      gate: tests/e2e/js-char-classification-parity.sh -->
 
 **FIXED at the function boundary, not in the runtime.** `intParamGuardLines` already coerced
