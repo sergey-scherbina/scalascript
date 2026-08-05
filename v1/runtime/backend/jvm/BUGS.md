@@ -79,10 +79,38 @@ Aliased specs are left alone: `a as b` needs a real member to alias.
 **`components-smoke` passes**, having been red through this whole chain, and `upload` and
 `validation` with it.
 
-**`middleware-smoke` still fails on jvm, and it is a THIRD kind of gap** — 44 errors, all
-`not a member of Any`. That is static dispatch on an untyped value, the same family as the opaque
-`JsonValue` problem that shaped the json bridge, and it is not an extern or an import question. Not
-folded in here.
+**`middleware-smoke` still fails on jvm, and it is a THIRD kind of gap — REDUCED 2026-08-05 to a
+signature mismatch.** 44 errors, and the distinct ones are two:
+
+```
+10909 |      next().withHeader("X-Request-Id", id)      value withHeader is not a member of Any
+10915 |      resp.withHeader("X-Response-Time-Ms", …)   value withHeader is not a member of Any
+```
+
+The declaration and the host disagree about the type:
+
+| | signature |
+|---|---|
+| `std/http.ssc` (the contract) | `extern def use(fn: (Request, () => Response) => Response)` |
+| jvm host (`RestRuntime.scala:721`) | `def use(fn: (Request, () => Any) => Any)` |
+
+`std/middleware.ssc` is unambiguous about which is right — it documents `type Handler = Request =>
+Response` and a middleware as `(Request => Response) => (Request => Response)`. **The host signature
+is WIDER than the declared contract**, so on a lane with type inference the lambda's `next` infers
+`() => Any` and every `.withHeader` under it is unreachable. On js and native nothing notices,
+because they dispatch the method dynamically at runtime — **a wider host signature is invisible
+until a static lane reads it.**
+
+**The fix is to align them, and the obstacle is named:** the chain is `Any`-typed on purpose one
+layer down, because *route handlers* may return a String or anything else and
+`_ssc_ui_backend_response` coerces at the end. So narrowing `use` needs an `Any → Response`
+coercion at the point `next()` is handed to the middleware, and that coercion does not exist at that
+layer today. Handlers returning `Any` and middleware declared `Response` are two different contracts
+that currently share one buffer.
+
+That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
+problem either — this one is a plain mismatch between what a module declares and what a host
+provides.
 
 **Measured 2026-08-04.** Five lines, one import, four lanes:
 
