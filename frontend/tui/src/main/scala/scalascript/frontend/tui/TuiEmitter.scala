@@ -496,7 +496,26 @@ object TuiEmitter:
   private def genTableHelpers(hasRemoteTable: Boolean): String =
     if !hasRemoteTable then ""
     else
-      """fn json_field(row: &serde_json::Value, path: &str) -> String {
+      """thread_local! {
+        |    // The last rows each remote table parsed successfully. A fetch already retains its
+        |    // last-good BODY on failure; a table needs the same for the case where the body
+        |    // arrived and was not what a table can read — a 401, a 500, an error page.
+        |    static LAST_ROWS: std::cell::RefCell<HashMap<String, Vec<Vec<String>>>> =
+        |        std::cell::RefCell::new(HashMap::new());
+        |}
+        |/// Rows for one remote table: remember a good parse, and on a bad one keep showing the
+        |/// last good rows rather than panicking. `expect` here used to kill the process on any
+        |/// non-JSON body, which is every ordinary way a server says no.
+        |fn table_rows(id: &str, parsed: Result<Vec<Vec<String>>, String>) -> Vec<Vec<String>> {
+        |    match parsed {
+        |        Ok(rows) => {
+        |            LAST_ROWS.with(|c| c.borrow_mut().insert(id.to_string(), rows.clone()));
+        |            rows
+        |        }
+        |        Err(_) => LAST_ROWS.with(|c| c.borrow().get(id).cloned().unwrap_or_default()),
+        |    }
+        |}
+        |fn json_field(row: &serde_json::Value, path: &str) -> String {
         |    let mut cur = row;
         |    for part in path.split('.') { cur = match cur.get(part) { Some(x) => x, None => return String::new() }; }
         |    match cur {
@@ -903,7 +922,8 @@ object TuiEmitter:
             val header = columns.map(c => rustStr(c.title)).mkString(", ")
             val fields = columns.map(c => rustStr(c.fieldPath)).mkString(", ")
             val common = s"    { let __json = sig(signals, ${rustStr(fetchSig.id)}); " +
-                   s"let __rows = fetch_rows(&__json, ${rustStr(rowsPath)}, ${rustStr(rowKeyPath)}, &[$fields]).expect(\"invalid DataTable row identity\"); " +
+                   s"let __rows = table_rows(${rustStr(fetchSig.id)}, " +
+                   s"fetch_rows(&__json, ${rustStr(rowsPath)}, ${rustStr(rowKeyPath)}, &[$fields])); " +
                    s"let __trows: Vec<Row> = __rows.iter().map(|r| Row::new(r.iter().cloned().collect::<Vec<String>>())).collect(); " +
                    s"let __t = Table::new(__trows, [$widths]).header(Row::new(vec![$header]))"
             rowLink match

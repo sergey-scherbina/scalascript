@@ -422,6 +422,51 @@ final class TuiFetchCargoTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("a table whose fetch is refused renders empty instead of killing the app"):
+    assume(cargoAvailable, "cargo not on PATH — skipping fetch cargo gate")
+    val refuse = new java.util.concurrent.atomic.AtomicBoolean(true)
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/rooms", (ex: com.sun.net.httpserver.HttpExchange) => {
+      // A 401 with a plain-text body — what a daemon actually says when a credential is missing.
+      val (status, body) =
+        if refuse.get() then (401, "401 Unauthorized\n")
+        else (200, """{"entries":[{"name":"ROOM-VISIBLE"}]}""")
+      val bytes = body.getBytes("UTF-8")
+      ex.sendResponseHeaders(status, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val rooms = new FetchUrlSignal("rooms", s"http://127.0.0.1:$port/rooms", "tick")
+      val view = View.Column(Seq(
+        View.Text(() => "ALIVE"),
+        View.DataTable(TableDataSource.Remote(rooms, "entries"),
+          List(FieldColumnDef("Room", "name")), rowKeyPath = "name")
+      ))
+      val probe =
+        """
+          |#[cfg(test)]
+          |mod table_failure_regression {
+          |    use super::*;
+          |
+          |    #[test]
+          |    fn a_refused_fetch_renders_empty_and_the_app_survives() {
+          |        let mut signals = initial_signals();
+          |        bootstrap(&mut signals);
+          |        // Rendering with a refused body must NOT panic — this is the whole test, and only
+          |        // running the binary can show it. The heading proves the frame was produced.
+          |        let frame = render_to_string(80, 12, &signals, 0);
+          |        assert!(frame.contains("ALIVE"), "the app did not render a frame:\n{}", frame);
+          |        assert!(!frame.contains("ROOM-VISIBLE"), "rows appeared while the fetch was refused");
+          |    }
+          |}
+          |""".stripMargin
+      runProbe(view, probe, "a_refused_fetch_renders_empty_and_the_app_survives", "ssc-tui-tablefail-")
+      assert(refuse.get(), "the probe should never have needed the healthy response")
+    finally
+      server.stop(0)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then

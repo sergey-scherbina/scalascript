@@ -150,6 +150,29 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""signals.insert("tab".to_string(), Value::I(1));"""))
   }
 
+  test("a remote table tolerates a body it cannot read; a static one still must not") {
+    // Found running the generated client as a shipped binary: `expect` on the parse killed the
+    // process on any non-JSON body — a 401 while a credential is missing, a 500, an offline
+    // daemon. Every gate until then pointed a remote table at a healthy fixture, so the failure
+    // path had never run.
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val remote = View.DataTable(TableDataSource.Remote(feed, "entries"),
+      List(FieldColumnDef("Room", "name")), rowKeyPath = "name")
+    val rs = emitMain(remote)
+    assert(rs.contains("""table_rows("rooms", fetch_rows("""))
+    assert(rs.contains("fn table_rows("))
+    assert(!rs.contains("""expect("invalid DataTable row identity")"""),
+      "a remote table must not panic on a body it cannot read")
+
+    // The strict path stays where it belongs: a StaticRows identity is known at emit time, so a
+    // bad one is a source defect and SHOULD stop the build's own tests rather than render empty.
+    val static = View.DataTable(
+      TableDataSource.StaticRows(List(Map("a" -> "1"))),
+      List(FieldColumnDef("A", "a")), rowKeyPath = "a")
+    val rs2 = emitMain(static)
+    assert(!rs2.contains("fn table_rows("), "a static table needs no last-good cache")
+  }
+
   test("DataTable with a Remote source lowers to a runtime fetch_rows table + serde_json dep") {
     val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
     val dt = View.DataTable(
