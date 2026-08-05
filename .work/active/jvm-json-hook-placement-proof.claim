@@ -1,0 +1,11 @@
+slug: jvm-json-hook-placement-proof
+branch: feature/jvm-json-hook-placement-proof
+agent: claude-code
+started: 2026-08-05T09:05:15Z
+heartbeat: 2026-08-05T09:05:15Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: file:v1/runtime/backend/jvm/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
