@@ -1,0 +1,12 @@
+slug: jvm-nested-module-qualification
+branch: feature/jvm-nested-module-qualification
+agent: claude-code
+started: 2026-08-05T07:03:05Z
+heartbeat: 2026-08-05T07:03:05Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm
+broad: the call site and the nesting are both produced by JvmGen; which function owns the qualification is what this measures first
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
