@@ -334,3 +334,18 @@ a file nobody was editing.
 
 **v3 accepts two things v1 rejects**, both in the safe direction: a trait's inherited concrete
 method, and a NESTED block comment (v1 answers `structural CoreIR contains parser sentinel _err`).
+
+- [x] **9f — a trailing binary operator continues the expression onto the next line.**
+
+      journalU32(record.pageNumber.toLong) ++ byteSliceToList(record.page) ++
+        journalU32(checksum)
+
+      Scala's rule, and the top refusal at 119 cases. The layout after the operator is consumed
+      unconditionally — unlike the `else` continuation there is nothing to guess, since an operator
+      with no right operand cannot mean anything else — but the INDENTs crossed are still counted
+      so their DEDENTs can be taken back. An unmatched DEDENT ends the enclosing block one
+      statement early, which is the half the `else` continuation had to learn the hard way.
+
+      **v1 fails this one by printing `Stub`** — the silent sentinel at exit 0, not a diagnostic.
+      Third construct where v3 is ahead of the reference lane, and the only one where the reference
+      gives a WRONG ANSWER rather than a refusal.

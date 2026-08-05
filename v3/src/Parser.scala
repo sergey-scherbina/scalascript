@@ -191,17 +191,43 @@ object Parser:
   private def parseBin(ts0: List[Tok], minPrec: Int): (Expr, List[Tok]) =
     var (lhs, ts) = parseUnary(ts0)
     var go = true
+    var indents = 0
     while go do
       peek(ts) match
         case Tok.TOp(op, p) if prec(op) >= minPrec && prec(op) > 0 =>
           // `::` is RIGHT-associative, so it recurses at its own precedence rather than one above:
           // `1 :: 2 :: Nil` must be `1 :: (2 :: Nil)`, and left association would build a list
           // whose tail is a number.
-          val (rhs, ts2) = parseBin(ts.tail, if rightAssoc(op) then prec(op) else prec(op) + 1)
+          //
+          // A TRAILING operator continues the expression onto the next line:
+          //
+          //     journalU32(record.pageNumber.toLong) ++ byteSliceToList(record.page) ++
+          //       journalU32(checksum)
+          //
+          // which is Scala's rule and was the top refusal at 119 cases. The layout after the
+          // operator is consumed unconditionally here — unlike the `else` continuation, there is
+          // nothing to guess: an operator with no right operand cannot mean anything else.
+          val (afterOp, moreIndents) = skipContinuation(ts.tail)
+          indents = indents + moreIndents
+          val (rhs, ts2) = parseBin(afterOp, if rightAssoc(op) then prec(op) else prec(op) + 1)
           lhs = Expr.Bin(op, lhs, rhs, p)
           ts = ts2
         case _ => go = false
-    (lhs, ts)
+    (lhs, dropDedents(ts, indents))
+
+  /** Layout after a trailing binary operator, reporting how many INDENTs were crossed so their
+    * DEDENTs can be taken back — an unmatched DEDENT ends the enclosing block one statement early,
+    * which is the half of this that the `else` continuation had to learn the hard way. */
+  private def skipContinuation(ts0: List[Tok]): (List[Tok], Int) =
+    var ts = ts0
+    var n = 0
+    var go = true
+    while go do
+      if peek(ts).isInstanceOf[Tok.TNewline] then ts = ts.tail
+      else if peek(ts).isInstanceOf[Tok.TIndent] then
+        ts = ts.tail; n = n + 1
+      else go = false
+    (ts, n)
 
   /** Postfix `.name` / `.name(args)`, left-associative so `a.b.c(1).d` chains. Measured on the
     * corpus, `.` was ~104 of 343 remaining refusals — the largest single cause by a wide margin. */

@@ -1,0 +1,16 @@
+def f(a: Int, b: Int): Int = a + b
+
+val xs = List(1) ++ List(2) ++
+  List(3)
+println(xs.mkString(","))
+
+val ok = 1 > 0 ||
+  2 > 3 ||
+  4 > 5
+println(ok)
+
+val total = f(1, 2) +
+  f(3, 4) +
+  f(5, 6)
+println(total)
+println(xs.size)
