@@ -251,7 +251,7 @@ object Parser:
       else if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
         peek(ts.tail) match
           case Tok.TId(nm, p) =>
-            val afterName = ts.tail.tail
+            val afterName = skipBrackets(ts.tail.tail)
             if isPunct(peek(afterName), "(") then
               val (as, t) = parseArgs(afterName.tail)
               e = Expr.MethodCall(e, nm, as, p); ts = t
@@ -350,9 +350,23 @@ object Parser:
   /** A pattern, with the infix cons form `h :: t` folded into the ordinary `Cons(h, t)`. It is
     * spelled differently and means the same thing, so it becomes the same node. */
   private def parsePat(ts0: List[Tok]): (Pat, List[Tok]) =
+    val (first, tsA) = parseConsPat(ts0)
+    // `A | B | C`. Collected here rather than in `parsePatAtom` so that `h :: t` binds tighter,
+    // which is Scala's grouping: `a :: b | c` is `(a :: b) | c`.
+    if !isOp(peek(tsA), "|") then (first, tsA)
+    else
+      var alts = List(first)
+      var ts = tsA
+      while isOp(peek(ts), "|") do
+        val (nxt, t) = parseConsPat(ts.tail)
+        alts = alts :+ nxt
+        ts = t
+      (Pat.PAlt(alts, Pat.posOf(first)), ts)
+
+  private def parseConsPat(ts0: List[Tok]): (Pat, List[Tok]) =
     val (head, ts) = parsePatAtom(ts0)
     if isOp(peek(ts), "::") then
-      val (tail, t) = parsePat(ts.tail)
+      val (tail, t) = parseConsPat(ts.tail)
       (Pat.PCtor("Cons", List(head, tail), Pat.posOf(head)), t)
     else (head, ts)
 
@@ -428,10 +442,15 @@ object Parser:
       val (e, t) = parseExpr(ts.tail)
       (Expr.Call("__throw__", List(e), p), t)
     case Tok.TId(n, p) if !keywords.contains(n) =>
-      if isPunct(peek(ts.tail), "(") then
-        val (as, t) = parseArgs(ts.tail.tail)
+      // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,
+      // like every other type at Tier 0 — there is no checker, and half-reading them would put an
+      // unenforced notion of types into the front. `a[0]` is not indexing in this language (arrays
+      // use `a(0)`), so a `[` after a name is unambiguously a type argument list.
+      val afterTy = skipBrackets(ts.tail)
+      if isPunct(peek(afterTy), "(") then
+        val (as, t) = parseArgs(afterTy.tail)
         (Expr.Call(n, as, p), t)
-      else (Expr.Name(n, p), ts.tail)
+      else (Expr.Name(n, p), afterTy)
     case Tok.TPunct("(", p) =>
       if isPunct(peek(ts.tail), ")") then (Expr.UnitLit(p), ts.tail.tail)
       else

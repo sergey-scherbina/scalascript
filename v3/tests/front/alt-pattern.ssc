@@ -1,0 +1,20 @@
+trait PageKind
+case object TableLeafPage extends PageKind
+case object IndexLeafPage extends PageKind
+case object OverflowPage extends PageKind
+
+def isLeaf(k: PageKind): String =
+  k match
+    case TableLeafPage | IndexLeafPage => "leaf"
+    case OverflowPage => "overflow"
+
+def small(n: Int): String =
+  n match
+    case 1 | 2 | 3 => "small"
+    case _ => "big"
+
+println(isLeaf(TableLeafPage))
+println(isLeaf(IndexLeafPage))
+println(isLeaf(OverflowPage))
+println(small(2))
+println(small(9))

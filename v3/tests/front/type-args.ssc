@@ -1,0 +1,12 @@
+def empty[A](): List[A] = Nil
+def firstOr[A](xs: List[A], d: A): A =
+  xs match
+    case h :: _ => h
+    case Nil => d
+
+println(empty[Int]().size)
+println(firstOr[Int](List(7, 8), 0))
+println(firstOr(List(7, 8), 0))
+println(List[Int](1, 2, 3).sum)
+val xs = List(1, 2, 3)
+println(xs.map[Int]((n) => n * 2).mkString(","))

@@ -64,6 +64,10 @@ enum Pat:
   case PBind(name: String, pos: Pos)
   case PLit(value: Expr, pos: Pos)
   case PCtor(name: String, args: List[Pat], pos: Pos)
+  /** `case A | B =>`. The alternatives BIND NOTHING — Scala requires every alternative to bind the
+    * same names, and the only way to satisfy that without analysis is to bind none. So this is a
+    * pure disjunction of tests and needs no per-alternative environment. */
+  case PAlt(alts: List[Pat], pos: Pos)
 
 object Pat:
   def posOf(p: Pat): Pos = p match
@@ -71,6 +75,7 @@ object Pat:
     case PBind(_, x)    => x
     case PLit(_, x)     => x
     case PCtor(_, _, x) => x
+    case PAlt(_, x)     => x
 
 /** `guard` is the optional `if cond` between the pattern and the `=>`. It is part of the ARM, not
   * of the pattern, because it is an ordinary expression evaluated with the pattern's bindings in

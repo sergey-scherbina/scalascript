@@ -770,6 +770,38 @@ object Lower:
 
   /** Does every named argument of a `copy` name a field of this class? A class that does not have
     * all of them cannot be the receiver, so it contributes no arm. */
+  /** One alternative's test, as a boolean in a register. Only shapes that bind NOTHING are
+    * allowed — a wildcard, a literal, or a nullary constructor — because an alternative that bound
+    * a name would need every other alternative to bind the same one, and deciding that needs the
+    * analysis Tier 0 does not have. Refused by name rather than half-supported. */
+  private def altTest(p0: Pat, vr: Int, classes: List[ClassDef], fns: List[String],
+                      zeroArity: List[String], st0: St, ap: Pos): (List[Instr], Int, St) =
+    p0 match
+      case Pat.PWild(_) =>
+        val (k, st1) = st0.constIdx(Lit.LBool(true))
+        val (r, st2) = st1.fresh
+        (List(Instr.Const(r, k)), r, st2)
+      case Pat.PLit(v, _) =>
+        val (vi, lr, st1) = lower(v, fns, classes, zeroArity, st0)
+        val (cr, st2) = st1.fresh
+        (vi :+ Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, vr, lr), cr, st2)
+      case Pat.PCtor(cname, Nil, cp) =>
+        val arity = classes.find(c => c.name == cname).map(c => c.fields.length)
+          .orElse(ctors.find((n, _) => n == cname).map((_, ar) => ar))
+          .getOrElse(throw LowerFail(cp, "unknown constructor '" + cname + "' in a pattern"))
+        if arity != 0 then
+          throw LowerFail(cp, "'" + cname + "' takes " + arity +
+            " field(s); an alternative pattern may not bind at Tier 0")
+        val (t, st1) = st0.typeIdx(cname, 0)
+        val (tagK, st2) = st1.constIdx(Lit.LInt(t.toLong))
+        val (tagV, st3) = st2.fresh
+        val (tagR, st4) = st3.fresh
+        val (cr, st5) = st4.fresh
+        (List(Instr.Tag(tagR, vr), Instr.Const(tagV, tagK),
+              Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagR, tagV)), cr, st5)
+      case other =>
+        throw LowerFail(Pat.posOf(other), "an alternative pattern may not bind a name at Tier 0")
+
   private def copyFits(c: ClassDef, args: List[Expr]): Boolean =
     args.forall { a => a match
       case Expr.NamedArg(n, _, _) => c.fields.exists(f => f.name == n)
@@ -783,6 +815,7 @@ object Lower:
   private def patNames(p: Pat): List[String] = p match
     case Pat.PBind(n, _)       => List(n)
     case Pat.PCtor(_, args, _) => args.flatMap(a => patNames(a))
+    // An alternative binds nothing by construction — see `Pat.PAlt`.
     case _                     => Nil
 
   /** Arms, in source order, as nested `If`s. Built back to front so each arm's `else` is the rest
@@ -840,6 +873,29 @@ object Lower:
           val (cr, st2) = st1.fresh
           val (inner, st3) = testPat(more, guard, body, dst, rest, fns, classes, zeroArity, env, st2)
           (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, vr, lr), Instr.If(cr, inner, rest)), st3)
+        // `case A | B =>` — a DISJUNCTION of tests, evaluated into one boolean and then branched
+        // on once. Alternatives bind nothing, so there is no environment to reconcile between
+        // them; that restriction is Scala's, not a simplification made here, and an alternative
+        // that would bind is refused by name rather than silently binding from whichever matched.
+        case Pat.PAlt(alts, ap) =>
+          // Nested `If`s that set ONE boolean, not a chain of `BOr`: `||` is lowered to `If`
+          // everywhere else in this file because it short-circuits, and a bitwise or on two
+          // booleans is not defined on either lane. Built back to front so each alternative's
+          // else-branch is the next test — and so the BODY appears once, not once per alternative.
+          val (res, stR) = st0.fresh
+          val (fk, st1) = stR.constIdx(Lit.LBool(false))
+          val (tk, st2) = st1.constIdx(Lit.LBool(true))
+          var chain: List[Instr] = Nil
+          var st = st2
+          alts.reverse.foreach { alt =>
+            val (ti, tr, stN) = altTest(alt, vr, classes, fns, zeroArity, st, ap)
+            st = stN
+            chain = ti :+ Instr.If(tr, List(Instr.Const(res, tk)), chain)
+          }
+          val (inner, stF) = testPat(more, guard, body, dst, rest,
+                                     fns, classes, zeroArity, env, st)
+          ((Instr.Const(res, fk) :: chain) :+ Instr.If(res, inner, rest), stF)
+
         case Pat.PCtor(cname, cargs, cp) =>
           val arity = classes.find(c => c.name == cname).map(c => c.fields.length)
             .orElse(ctors.find((n, _) => n == cname).map((_, ar) => ar))

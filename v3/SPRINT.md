@@ -384,3 +384,19 @@ the race window shrinks from every invocation to the first, a failure is a non-z
 named cause instead of silence, and the gates got several times faster.
 
 **Rule for this module: one gate run at a time, and never a corpus report beside one.**
+
+## SSC3-10 — alternatives and type arguments
+
+- [x] **10a — `case A | B =>`.** 116 cases, and the alternatives BIND NOTHING — Scala requires
+      every alternative to bind the same names, and binding none is the only way to satisfy that
+      without analysis. So it is a pure disjunction of tests, built as nested `If`s that set ONE
+      boolean rather than a chain of `BOr`: `||` is lowered to `If` everywhere else in this file
+      because it short-circuits, and a bitwise or on two booleans is defined on neither lane. Built
+      back to front so the BODY appears once rather than once per alternative.
+
+      **v1 answers `match: no arm for IndexLeafPage/0`** — it takes only the FIRST alternative and
+      loses the rest. Fourth construct where v3 is ahead of the reference lane.
+- [x] **10b — type arguments in an EXPRESSION.** `List[Int](1, 2, 3)`, `empty[A]()`,
+      `xs.map[Int](f)`. 158 cases, the largest bucket once alternatives landed. Skipped like every
+      other type at Tier 0: `a[0]` is not indexing in this language — arrays use `a(0)` — so a `[`
+      after a name is unambiguously a type argument list and there is nothing to disambiguate.
