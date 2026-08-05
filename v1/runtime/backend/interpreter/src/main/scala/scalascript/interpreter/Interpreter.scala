@@ -751,6 +751,27 @@ class Interpreter(
       methodUsesThisCache.put(body, java.lang.Boolean.valueOf(found))
       found
 
+  /** The bare names a method body APPLIES — `twice()` but not `x.twice()` and not a mention of
+   *  `twice` as a value. Cached by body identity like `methodUsesThis`, and for the same reason:
+   *  it decides whether a dispatch pays for binding siblings, so it must not be recomputed per
+   *  call. A body that calls no bare name yields Nil and costs one map lookup.
+   *
+   *  Exists because a case-class method could not call a sibling method: the method body's
+   *  environment is the instance's FIELDS, so `n` resolved and `twice` did not
+   *  (`int-case-class-method-cannot-call-a-sibling-method`, `Undefined: twice` on the v1 lane while
+   *  the native lane answered 12). */
+  private val bareAppliedNamesCache: java.util.IdentityHashMap[scala.meta.Tree, List[String]] =
+    java.util.IdentityHashMap()
+  private[interpreter] def bareAppliedNames(body: scala.meta.Tree): List[String] =
+    val cached = bareAppliedNamesCache.get(body)
+    if cached != null then cached
+    else
+      val acc = scala.collection.mutable.LinkedHashSet.empty[String]
+      body.traverse { case scala.meta.Term.Apply.After_4_6_0(scala.meta.Term.Name(n), _) => acc += n }
+      val out = acc.toList
+      bareAppliedNamesCache.put(body, out)
+      out
+
   /** Cache (paramNames, paramTypes) for each lambda parameter clause.
    *  A lambda evaluated in a tight loop recreates these Lists on every iteration;
    *  caching by ParamClause identity saves O(n_params) allocations per pass. */

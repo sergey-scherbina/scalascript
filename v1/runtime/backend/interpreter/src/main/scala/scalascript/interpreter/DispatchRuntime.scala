@@ -3379,8 +3379,41 @@ private[interpreter] object DispatchRuntime:
 
   /** Invoke a resolved type method, binding `this` to the receiver when the body
    *  references it (cached). Keeps the common `this`-free path allocation-free. */
+  /** Bind the type's OWN methods that this body calls bare, so a method can call a sibling.
+   *
+   *  The body's environment is the instance's FIELDS, which is why `n` resolved and `twice` did not
+   *  — `Undefined: twice` on v1 where the native lane answered 12
+   *  (`int-case-class-method-cannot-call-a-sibling-method`). Binding the whole method table on
+   *  every dispatch would put an allocation on the hottest path in the interpreter, so the names a
+   *  body actually applies are computed ONCE per body (`interp.bareAppliedNames`, cached by tree
+   *  identity like `methodUsesThis`) and only those that are real siblings are bound.
+   *
+   *  A body that calls no bare name — the overwhelming majority — pays one cache hit and returns
+   *  the same `fields` map it was given.
+   */
+  private def bindSiblings(fn: Value.FunV, recv: Value, fields: Map[String, Value], interp: Interpreter): Map[String, Value] =
+    val applied = interp.bareAppliedNames(fn.body)
+    if applied.isEmpty then fields
+    else recv match
+      case inst: Value.InstanceV =>
+        interp.typeMethods.get(inst.typeName) match
+          case Some(methods) =>
+            var out = fields
+            applied.foreach { name =>
+              // A name already in scope wins: a field or a local shadows a method, as it would in
+              // Scala, and a genuinely global function must not be captured by a same-named method.
+              if !out.contains(name) then
+                methods.get(name).foreach { sib =>
+                  out = out.updated(name, Value.NativeFnV(name, as => invokeTypeMethod(sib, recv, fields, as, interp)))
+                }
+            }
+            out
+          case None => fields
+      case _ => fields
+
   private def invokeTypeMethod(fn: Value.FunV, recv: Value, fields: Map[String, Value], args: List[Value], interp: Interpreter): Computation =
-    val callFields = if interp.methodUsesThis(fn.body) then fields.updated("this", recv) else fields
+    val withSiblings = bindSiblings(fn, recv, fields, interp)
+    val callFields = if interp.methodUsesThis(fn.body) then withSiblings.updated("this", recv) else withSiblings
     args match
       case List(a) => interp.callTypeMethod1(fn, callFields, a)
       case _       => interp.callTypeMethod(fn, callFields, args)

@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## int-global-fn-shadows-a-same-named-method — the lanes disagree about which one a bare call means
+
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: tests/e2e/sibling-method-gate.sh -->
+
+```
+def size(): Int = 100
+
+case class Shadowed(n: Int):
+  def size(): Int = n
+  def viaGlobal(): Int = size()
+
+def main() = println(Shadowed(7).viaGlobal())
+```
+
+    ssc run              ->  7    (the method — what Scala would do)
+    ssc-tools run --v1   ->  100  (the top-level function)
+
+Surfaced by the sibling-method fix above but NOT caused by it: v1 answered 100 before and after.
+Deliberately not pinned by that gate — asserting either number would make one lane's answer the
+contract while the other is arguably the correct one, and the fix that closes this should decide
+which on purpose.
+
+**Recorded because I mis-measured it first.** I read both lanes as answering 100 and wrote that
+down; the native run prints two front-fallback notes ahead of its output, so a `tail -3` had read
+the wrong three lines. The gate caught it on its first run — which is the argument for writing the
+gate before believing the measurement, not after.
+
+
 ## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
 
 <!-- status: open
@@ -14,6 +46,17 @@ Newest first.
      area: runtime
      fixed-in: -
      gate: none -->
+
+**FIXED.** A method body is evaluated with the instance's FIELDS as its environment, which is why
+`n` resolved and `twice` did not. `DispatchRuntime.bindSiblings` now binds the type's own methods
+that the body calls BARE, driven by `Interpreter.bareAppliedNames` — the applied names are computed
+once per body and cached by tree identity, like `methodUsesThis` beside it, so a body that calls no
+bare name returns the same map it was given. Binding the whole method table per dispatch would have
+put an allocation on the hottest path in the interpreter.
+
+A/B on one tree: reverted and rebuilt gives `Undefined: twice`, fixed gives 12, and the native lane
+answered 12 throughout. Gate `tests/e2e/sibling-method-gate.sh`, wired; smoke 67/67.
+
 
 Eight lines, measured 2026-08-05:
 

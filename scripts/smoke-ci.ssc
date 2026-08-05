@@ -265,6 +265,9 @@ val suite = List(
   Check("scripts", "sscpkg-temp-cleanup", "tests/e2e/sscpkg-temp-cleanup-smoke.sh", List(), 60000),
   Check(".", "scljet-capability-manifest", "tests/e2e/scljet-capability-manifest.sh", List(), 60000),
   Check("v1/runtime/backend/interpreter", "int-string-concat", "tests/e2e/int-string-concat.sh", List(), 60000),
+  // A method calling a sibling method of the same class, both lanes. The shadowing case is
+  // deliberately NOT asserted — the lanes disagree and it is filed, not pinned.
+  Check("v1/runtime/backend/interpreter", "sibling-method", "tests/e2e/sibling-method-gate.sh", List(), 180000),
   Check("v2", "v2-annotated-field-derives", "tests/e2e/v2-annotated-field-derives.sh", List(), 60000),
   Check("v2", "v2-std-index-arity", "tests/e2e/v2-std-index-arity.sh", List(), 60000),
   Check("v2", "v2-string-plus-vs-user-concat", "tests/e2e/v2-string-plus-vs-user-concat-ext.sh", List(), 60000),
