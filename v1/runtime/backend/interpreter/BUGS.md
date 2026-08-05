@@ -126,10 +126,29 @@ stopped rather than where I started.**
    member `FunV` at an `ObjectVarEnvView` over the live map. The registration happens; the write
    does not reach it.
 
-**Where I would go next:** find the assignment site that actually executes for a multi-statement
-method body — neither of the two named in that comment, nor the `BlockRuntime` branch above. Adding
-a `Thread.dumpStack()` at the point where `interp.globals(name) = v` is reached would name it in one
-run; I stopped before doing that, and it is the cheapest next step rather than a fourth guess.
+**Sharpened 2026-08-05, with the instrument itself verified.**
+
+`ObjectVarEnvView.assign` is **never called — for any assignment**, not just the object one. A probe
+on its first line printed nothing for a program that mutates a top-level `var` AND an object `var`
+in the same run, while both assignments took effect (`1`, `1`). So the function documented as *"the
+single place a bare-name assignment decides WHERE it lands"* is not on the path either takes.
+
+**The instrument was validated before that conclusion was drawn, and the first attempt was wrong.**
+`strings` on the compiled class returned ZERO lines — not even `object-vars`, the MarkerKey literal
+that is certainly there — so an earlier reading of "my probe never reached the jar" measured nothing
+at all. `grep -a` on the same file finds both the MarkerKey and the probe, in the compiled class and
+in the shipped jar. The build ships the instrumentation; the code simply does not run.
+
+**Next step, unchanged in shape but now better aimed:** find what DOES execute for
+`Term.Assign(Term.Name(x), rhs)`, given that neither `ObjectVarEnvView.assign` nor the
+`BlockRuntime` branch that threads a `FrameMap` is it. A breakpoint or stack dump belongs at the
+place a top-level `var` assignment succeeds — that path exists and works, and whatever it is, the
+object case is going through it and losing the object's identity on the way.
+
+**A tool note worth more than this bug**: on this host `strings` silently produces nothing for a
+`.class` file. Use `grep -a`. An empty result from `strings` reads exactly like "the string is not
+there", and that is how it cost two wrong conclusions here.
+
 
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
