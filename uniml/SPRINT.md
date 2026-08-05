@@ -86,7 +86,21 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           ⚠️ §4.2's `~0.9-1.0 MB/s` was an ARTIFACT — measured on an **84-byte** input, where fixed
           cost is the whole reading. Do not carry it forward. And the bare dialect's 0.713 ms is
           not a speed result: on a literate `.ssc` it is `Incomplete` with 46 diagnostics.
-      (1) publishable cross-built dialect and (6) v1/v2-independence: untouched.
+      (6) **v1/v2-independence — HOLDS, and is ENFORCED rather than merely observed.** Censused
+          every import in `uniml/`: 118 `scalascript.uniml`, 2 `scalascript.markup` (which lives
+          here), and 3 reaching v1 — all 3 inside `markdown/bridge`, whose entire purpose is that
+          bridge. The bridge is defined ONLY in the root build and depends on `core`; the
+          standalone build does not contain it.
+          **The standalone build IS the gate**, which is better than a grep: planted
+          `import scalascript.ast.DocumentContent` into `SscCompose` and it fails with "value ast
+          is not a member of scalascript". `ci.yml`'s UniML job runs that build, so the invariant
+          is checked on every PR and nightly.
+          ⚠️ **Residual hole, recorded rather than glossed:** a NEW module added under `uniml/` to
+          the ROOT build only would escape this entirely — it would never be compiled by the
+          standalone build, so it could import v1 freely and nothing would notice. That is exactly
+          the bridge's shape, sanctioned; an unsanctioned one would look identical. The isolation
+          gate enumerates ten projects by name and would not fire either.
+      (1) publishable cross-built dialect: untouched.
       **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
       function and tuple types in a parameter, and an interpolator prefix the lexer does not
       know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans
