@@ -1,5 +1,26 @@
 # Changelog
 
+## aliased-package-root — `as` in an import link binds on the native lane
+Completed: 2026-08-06
+
+`[greet as g](./plain.ssc)` bound nothing on native, and not because of `package:` — the same link
+without `as` worked. A four-form matrix across four lanes showed native ignored the whole `as`
+surface while js fails on exactly one form, so the entry filed the day before ("the aliased package
+root is unbound on native and js") described neither lane and was split to the two that own the
+fixes.
+
+The scanner read the link label only to find its closing bracket and dropped the text. It now
+carries `Pair(label, path)`, with `sscImports` as the path projection of it — one scanner, two
+views, so the module graph and every other consumer see what they always saw.
+
+An alias turned out to be three different emissions: a value alias for a member `def`, a forwarding
+`object` for a member object (objects are not first-class values on this lane — `def C = Card` binds
+something whose `.render` answers `unhandled runtime effect`), and a second namespace chain for the
+package root. Both fronts carry it, in different places: the legacy path threads parsed defs, F
+assembles from source and needs them PREPENDED to the importing file.
+
+Three gate rows, each paired with the same link written without `as` as an absent-state control.
+
 ## native-package-namespace-impl — `package:` binds a namespace on the native lane
 Completed: 2026-08-05
 
