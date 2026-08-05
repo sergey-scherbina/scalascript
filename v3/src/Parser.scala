@@ -807,9 +807,14 @@ object Parser:
         fields = Param(fn, fp) :: fields
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
     ts = expectPunct(ts, ")")
+    val (parents, tp) = parseParents(ts)
+    ts = tp
+    // A BODY. It used to be refused by name, which was the honest thing while methods could not be
+    // lowered; they can now, so the refusal would be the dishonest one.
     if isPunct(peek(ts), ":") then
-      throw ParseFail(posOf(ts), "a `case class` body is outside SSC3 core Tier 0 — only the constructor is supported")
-    (ClassDef(name, fields.reverse, p), ts)
+      val (members, t2) = parseMembers(ts.tail, "class")
+      (ClassDef(name, fields.reverse, members, parents, p), t2)
+    else (ClassDef(name, fields.reverse, Nil, parents, p), ts)
 
   /** `enum E:` / `enum E { … }` with `case A` and `case B(f: T)` members.
     *
@@ -860,7 +865,7 @@ object Parser:
                 fields = Param(fn, fp) :: fields
                 if isPunct(peek(t2), ",") then t2 = t2.tail else g2 = false
             t2 = expectPunct(t2, ")")
-          out = ClassDef(n, fields.reverse, np) :: out
+          out = ClassDef(n, fields.reverse, Nil, Nil, np) :: out
           ts = t2
           if isPunct(peek(ts), ",") then ts = ts.tail else more = false
     (out, ts)
@@ -870,6 +875,78 @@ object Parser:
     * A `val` member is REFUSED by name rather than skipped: it needs a module-level cell, which the
     * IR has (`GlobGet`/`GlobSet`) and the v2 bridge does not translate yet. Skipping it would leave
     * the program referring to a name that silently does not exist. */
+  /** `extends A with B` — the names are KEPT (a class inherits its parents' concrete methods) and
+    * nothing is checked with them. Type arguments are discarded like every other type at Tier 0. */
+  private def parseParents(ts0: List[Tok]): (List[String], List[Tok]) =
+    if !isId(peek(ts0), "extends") then (Nil, ts0)
+    else
+      var out: List[String] = Nil
+      var ts = ts0.tail
+      var go = true
+      while go do
+        val (n, _, t) = expectName(ts)
+        out = out :+ n
+        ts = skipBrackets(t)
+        // `extends T(args)` — a parent constructor call. Discarded: at Tier 0 a parent contributes
+        // methods, not initialisation.
+        if isPunct(peek(ts), "(") then
+          var depth = 1
+          ts = ts.tail
+          while depth > 0 && !peek(ts).isInstanceOf[Tok.TEof] do
+            if isPunct(peek(ts), "(") then depth = depth + 1
+            else if isPunct(peek(ts), ")") then depth = depth - 1
+            ts = ts.tail
+        if isId(peek(ts), "with") then ts = ts.tail else go = false
+      (out, ts)
+
+  /** The `def` members of a `class`/`trait`/`object` body, indented or braced. One reader for all
+    * three, because they differ in what the members MEAN, not in how they are written. */
+  private def parseMembers(ts0: List[Tok], what: String): (List[Def], List[Tok]) =
+    var ts = ts0
+    var braced = false
+    if isPunct(peek(skipNewlines(ts)), "{") then
+      braced = true
+      ts = skipNewlines(ts).tail
+    else
+      val t = skipNewlines(ts)
+      if t.head.isInstanceOf[Tok.TIndent] then ts = t.tail
+      else throw ParseFail(posOf(t), "expected the " + what + "'s members, indented or in braces")
+    var members: List[Def] = Nil
+    var go = true
+    while go do
+      ts = if braced then skipLayout(ts) else skipNewlines(ts)
+      if braced && isPunct(peek(ts), "}") then
+        ts = ts.tail; go = false
+      else if !braced && ts.head.isInstanceOf[Tok.TDedent] then
+        ts = ts.tail; go = false
+      else if ts.head.isInstanceOf[Tok.TEof] then go = false
+      else if isId(peek(ts), "override") || isId(peek(ts), "final") then ts = ts.tail
+      else if isId(peek(ts), "def") then
+        val (d, t) = parseDef(ts)
+        members = d :: members
+        ts = t
+      else
+        throw ParseFail(posOf(ts), "only `def` members are supported in a " + what +
+          " at Tier 0, found " + Lexer.show(peek(ts)))
+    (members.reverse, ts)
+
+  /** `trait T:` — the members it declares. An ABSTRACT member (`def f(x: Int): Int` with no `=`)
+    * is a declaration and contributes nothing to run time; a CONCRETE one is inherited by every
+    * class that extends the trait. No dispatch table and no type checker: a call on a value is
+    * resolved by the receiver's tag, which is what the field-by-name `Switch` already does. */
+  private def parseTrait(ts0: List[Tok], p: Pos): (TraitDef, List[Tok]) =
+    val (name, _, t0) = expectName(ts0)
+    var ts = skipBrackets(t0)
+    val (parents, t1) = parseParents(ts)
+    ts = t1
+    if !isPunct(peek(ts), ":") && !isPunct(peek(skipNewlines(ts)), "{") then
+      // `trait Marker` with no body is a name and nothing else.
+      (TraitDef(name, Nil, parents, p), ts)
+    else
+      if isPunct(peek(ts), ":") then ts = ts.tail
+      val (members, t2) = parseMembers(ts, "trait")
+      (TraitDef(name, members, parents, p), t2)
+
   private def parseObject(ts0: List[Tok], p: Pos): (ObjectDef, List[Tok]) =
     val (name, _, t0) = expectName(ts0)
     var ts = skipBrackets(t0)
@@ -918,6 +995,9 @@ object Parser:
     // that resolves to a zero-arity def becomes a call.
     if !isPunct(peek(afterName), "(") then
       var ts0 = skipTypeAnn(afterName)
+      // ABSTRACT: no `=`, so no body. Only meaningful inside a trait, and given a placeholder body
+      // rather than an Option because every later phase then keeps ONE shape of `Def` to handle.
+      if !isOp(peek(ts0), "=") then return (Def(name, Nil, Expr.Name("__abstract__", p), p), ts0)
       ts0 = expectOp(ts0, "=")
       val (body0, tEnd) = parseBody(ts0)
       return (Def(name, Nil, body0, p), tEnd)
@@ -933,9 +1013,11 @@ object Parser:
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
     ts = expectPunct(ts, ")")
     ts = skipTypeAnn(ts)
-    ts = expectOp(ts, "=")
-    val (body, t3) = parseBody(ts)
-    (Def(name, params.reverse, body, p), t3)
+    if !isOp(peek(ts), "=") then (Def(name, params.reverse, Expr.Name("__abstract__", p), p), ts)
+    else
+      ts = expectOp(ts, "=")
+      val (body, t3) = parseBody(ts)
+      (Def(name, params.reverse, body, p), t3)
 
   def parse(src: String): Program =
     var ts = Lexer.lex(src)
@@ -943,6 +1025,7 @@ object Parser:
     var top: List[Stmt] = Nil
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
+    var traits: List[TraitDef] = Nil
     var go = true
     while go do
       ts = skipLayout(ts)
@@ -960,7 +1043,9 @@ object Parser:
         objects = o :: objects
         ts = t
       else if isId(peek(ts), "trait") then
-        throw ParseFail(posOf(ts), "`trait` is outside SSC3 core Tier 0 — it needs dispatch, which needs a type checker")
+        val (tr, t) = parseTrait(ts.tail, posOf(ts))
+        traits = tr :: traits
+        ts = t
       else if isId(peek(ts), "enum") then
         val (cs, t) = parseEnum(ts.tail)
         classes = cs.reverse ++ classes
@@ -972,4 +1057,4 @@ object Parser:
         val (sts, t) = parseStmt(ts)
         sts.foreach { st => top = st :: top }
         ts = t
-    Program(defs.reverse, top.reverse, classes.reverse, objects.reverse)
+    Program(defs.reverse, top.reverse, classes.reverse, objects.reverse, traits.reverse)

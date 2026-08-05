@@ -260,3 +260,34 @@ interpreter produce byte-identical output for the whole fixture.
 object to v1 and v2 and they say so. Printing the contents would read better and would make v3's
 two lanes disagree on every program that prints an array, which is invariant I-3. The executor's own
 diagnostics still show the contents, because they are not the language's output.
+
+## SSC3-8 — methods, traits, and dispatch WITHOUT a type checker
+
+The refusal `trait` used to carry — "it needs dispatch, which needs a type checker" — was my claim,
+and measuring it showed it was too strong. v3's dispatch has been dynamic from the start: `Invoke`
+asks the value, and the field-by-name `Switch` already picks an arm by the receiver's TAG at run
+time. A `trait` needs exactly that and nothing more. Only `given`/`using` genuinely needs types,
+and it stays refused.
+
+- [x] **8a — `case class` bodies.** Methods become ordinary top-level `C.m` functions taking the
+      receiver first, the same flattening `object` members get. The body is prefixed with a `val`
+      per field, so an unqualified `x` inside a method means `this.x` and a later local `val x`
+      shadows it by ordinary scoping rather than by a special rule.
+- [x] **8b — `trait`.** Abstract members make the NAME known; concrete ones are inherited by every
+      class that extends the trait, transitively, with the subclass's own definition winning.
+      `override` and `final` are accepted and carry no meaning at Tier 0.
+- [x] **8c — dispatch.** `recv.m(args)` becomes a `Switch` with an arm per declaring class calling
+      `C.m` directly, and a DEFAULT that falls back to `Invoke`. No new IR, and it works on both
+      lanes because the arms are ordinary calls rather than a v2 method table v3 cannot populate.
+- [x] **8d — self-calls.** Inside a method, an unqualified call to a SIBLING method means
+      `this.that(…)`. Rewritten on the AST while methods are being flattened, because by lowering
+      time a method is an ordinary top-level function with no memory of its class.
+
+**v3 now accepts a program v1 REJECTS.** A trait's concrete member inherited by a subclass fails on
+the v1 interpreter with `__method__: no dispatch for .describe on Sq(3)`; v3 runs it on both of its
+lanes. That is not a divergence in the sense invariant I-3 forbids — I-3 is about v3's two lanes
+agreeing with each other, and they do, byte for byte. It is the same safe direction the identifier
+alphabet took: accepting more than the reference does cannot change the meaning of a program the
+reference accepts.
+
+`trait` was 137 of 333 refusals. After this it is zero.

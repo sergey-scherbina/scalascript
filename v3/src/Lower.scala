@@ -37,7 +37,7 @@ object Lower:
     * generated for arities nobody writes. A 9-tuple gets an ordinary "unknown constructor". */
   val tupleClasses: List[ClassDef] =
     (2 to 8).toList.map { n =>
-      ClassDef("Tuple" + n, (1 to n).toList.map(i => Param("_" + i, Pos.none)), Pos.none)
+      ClassDef("Tuple" + n, (1 to n).toList.map(i => Param("_" + i, Pos.none)), Nil, Nil, Pos.none)
     }
 
   private final case class St(
@@ -337,6 +337,42 @@ object Lower:
       val (d, st1) = st.fresh
       (acc :+ Instr.Call(d, fns.indexOf(obj + "." + nm), regs.reverse), d, st1)
 
+    // A call whose name is a METHOD of some declared class. Same shape as the field read below —
+    // a `Switch` with an arm per declaring class and a DEFAULT that dispatches dynamically — and
+    // for the same reason: without a type checker, only the receiver knows which class it is.
+    //
+    // This is what makes `trait` work at Tier 0. A trait contributes a NAME and, if its member has
+    // a body, an implementation that its subclasses inherit; the call site never needs to know the
+    // static type, because the arm is chosen by the tag at run time. `given`/`using` is the part
+    // that genuinely needs types, and it stays refused.
+    case Expr.MethodCall(recv, nm, argEs, p)
+        if classes.exists(c => c.methods.exists(mm => mm.name == nm)) =>
+      val owners = classes.filter(c => c.methods.exists(mm => mm.name == nm))
+      val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
+      var acc = ri
+      var argRegs: List[Int] = Nil
+      var st = st1
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; argRegs = argRegs :+ ar; st = stN
+      }
+      val (d, stD) = st.fresh
+      st = stD
+      var arms: List[SwitchArm] = Nil
+      owners.foreach { o =>
+        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        st = sN
+        val fi = fns.indexOf(o.name + "." + nm)
+        if fi < 0 then throw LowerFail(p, "method '" + nm + "' of " + o.name + " was not lifted")
+        val (cr, sN2) = st.fresh
+        st = sN2
+        arms = arms :+ SwitchArm(t, List(Instr.Call(cr, fi, rr :: argRegs), Instr.Move(d, cr)))
+      }
+      val (nk, stK) = st.constIdx(Lit.LStr(nm))
+      val (ir2, stF) = stK.fresh
+      (acc :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, argRegs), Instr.Move(d, ir2))),
+       d, stF)
+
     // A no-argument call whose name is a FIELD of some declared class lowers to a `Switch` with an
     // arm per declaring class and a DEFAULT that dispatches dynamically. That shape is the oracle's
     // (`_sel_head` in v2's own output), and it is the only thing that resolves `head-field-shadow`:
@@ -529,6 +565,49 @@ object Lower:
   /** Every name a pattern binds, at ANY depth. One level was enough while patterns could not nest;
     * `case Right(ByteRead(v, _))` binds `v` two levels down, and a closure that missed it would
     * capture nothing and read a stale slot. */
+  /** An ABSTRACT member: declared, no body. The parser gives it a placeholder body it can be told
+    * apart by, because a trait's abstract members exist to make the NAME known — a call to one is
+    * dispatched by the receiver's tag to whichever class implements it. */
+  /** Inside a method, an unqualified call to a SIBLING method means `this.that(…)`.
+    *
+    * Rewritten on the AST rather than resolved in the lowering, because the lowering does not know
+    * which class a function came from — by then a method is an ordinary top-level `C.m`. Doing it
+    * here keeps that flattening total.
+    *
+    * Field names are NOT rewritten: they are already bound as locals at the top of the method body,
+    * so an unqualified `x` resolves by ordinary scoping and a local `val x` shadows it, exactly as
+    * it would anywhere else. */
+  private def selfCalls(e: Expr, ms: List[String]): Expr =
+    def go(x: Expr): Expr = selfCalls(x, ms)
+    e match
+      case Expr.Call(fn, as, p) if ms.contains(fn) =>
+        Expr.MethodCall(Expr.Name("this", p), fn, as.map(go), p)
+      case Expr.Name(n, p) if ms.contains(n) => Expr.MethodCall(Expr.Name("this", p), n, Nil, p)
+      case Expr.Call(fn, as, p)              => Expr.Call(fn, as.map(go), p)
+      case Expr.MethodCall(r, n, as, p)      => Expr.MethodCall(go(r), n, as.map(go), p)
+      case Expr.Bin(o, l, r, p)              => Expr.Bin(o, go(l), go(r), p)
+      case Expr.Neg(x, p)                    => Expr.Neg(go(x), p)
+      case Expr.Not(x, p)                    => Expr.Not(go(x), p)
+      case Expr.If(c, t, el, p)              => Expr.If(go(c), go(t), el.map(go), p)
+      case Expr.While(c, b, p)               => Expr.While(go(c), go(b), p)
+      case Expr.Assign(n, v, p)              => Expr.Assign(n, go(v), p)
+      case Expr.Update(a, i, v, p)           => Expr.Update(go(a), go(i), go(v), p)
+      case Expr.Lambda(ps, b, p)             => Expr.Lambda(ps, selfCalls(b, ms.filter(m => !ps.exists(q => q.name == m))), p)
+      case Expr.Try(b, x, h, p)              => Expr.Try(go(b), x, go(h), p)
+      case Expr.Interp(parts, xs, p)         => Expr.Interp(parts, xs.map(go), p)
+      case Expr.Match(sc, arms, p) =>
+        Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
+      case Expr.Block(sts, res, p) =>
+        Expr.Block(sts.map { st => st match
+          case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
+          case Stmt.Exp(x)           => Stmt.Exp(go(x))
+        }, res.map(go), p)
+      case other => other
+
+  private def isAbstract(d: Def): Boolean = d.body match
+    case Expr.Name("__abstract__", _) => true
+    case _                            => false
+
   private def patNames(p: Pat): List[String] = p match
     case Pat.PBind(n, _)       => List(n)
     case Pat.PCtor(_, args, _) => args.flatMap(a => patNames(a))
@@ -688,7 +767,43 @@ object Lower:
     // Object members are flattened into `Object.member` top-level functions before anything else
     // looks at the name list, so a qualified call resolves by ordinary lookup.
     val objectDefs = p.objects.flatMap(o => o.defs.map(d => d.copy(name = o.name + "." + d.name)))
-    val allDefs = (p.defs ++ objectDefs) :+ entryDef
+    // Every class's FULL method set: its own, plus the concrete members of the traits it extends,
+    // transitively. A member the subclass defines itself WINS — that is what overriding means, and
+    // it falls out of putting the class's own methods first and de-duplicating by name.
+    val resolved = p.classes.map { c =>
+      var seen = c.methods.map(_.name)
+      var inherited: List[Def] = Nil
+      var queue = c.parents
+      var guard = 0
+      while queue.nonEmpty && guard < 64 do
+        guard = guard + 1
+        val head = queue.head
+        queue = queue.tail
+        p.traits.find(t => t.name == head).foreach { t =>
+          queue = queue ++ t.parents
+          t.methods.foreach { mm =>
+            if !seen.contains(mm.name) && !isAbstract(mm) then
+              seen = mm.name :: seen
+              inherited = inherited :+ mm
+          }
+        }
+      c.copy(methods = c.methods.filter(mm => !isAbstract(mm)) ++ inherited)
+    }
+    // Methods become ORDINARY top-level functions taking the receiver first — the same flattening
+    // `object` members get. The body is prefixed with a `val` per field so that an unqualified `x`
+    // inside a method means `this.x`, and a local `val x` later shadows it exactly as it would in
+    // any other block.
+    val methodDefs = resolved.flatMap { c =>
+      c.methods.map { mm =>
+        val binds = c.fields.map(f =>
+          Stmt.Val(f.name, Expr.MethodCall(Expr.Name("this", mm.pos), f.name, Nil, mm.pos),
+                   false, mm.pos))
+        val inner = selfCalls(mm.body, c.methods.map(_.name))
+        val body = if binds.isEmpty then inner else Expr.Block(binds, Some(inner), mm.pos)
+        Def(c.name + "." + mm.name, Param("this", mm.pos) :: mm.params, body, mm.pos)
+      }
+    }
+    val allDefs = (p.defs ++ objectDefs ++ methodDefs) :+ entryDef
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
@@ -709,7 +824,7 @@ object Lower:
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
-      val (body, r, st) = lower(d.body, names, p.classes ++ tupleClasses, zeroArityNames, st0)
+      val (body, r, st) = lower(d.body, names, resolved ++ tupleClasses, zeroArityNames, st0)
       consts = st.consts
       prims = st.prims
       types = st.types

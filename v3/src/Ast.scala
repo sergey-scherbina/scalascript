@@ -78,7 +78,17 @@ enum Stmt:
 final case class Param(name: String, pos: Pos)
 /** A `case class` declaration. Only the constructor SHAPE is kept: the field names and their
   * order, which is exactly what the IR's type table needs and all a Tier 0 program can use. */
-final case class ClassDef(name: String, fields: List[Param], pos: Pos)
+/** `parents` are the traits/classes named after `extends`/`with`. They are kept, not discarded,
+  * for ONE purpose: a class inherits its parents' concrete methods. No type checking is done with
+  * them — dispatch is by the receiver's tag at run time, which is what makes traits possible at
+  * Tier 0 at all. */
+final case class ClassDef(name: String, fields: List[Param], methods: List[Def],
+                          parents: List[String], pos: Pos)
+
+/** A `trait`: a name, the methods it declares (bodies optional) and its own parents. Abstract
+  * members carry no body and exist only so a call to them is not an unknown name; concrete ones are
+  * inherited by every class that extends it. */
+final case class TraitDef(name: String, methods: List[Def], parents: List[String], pos: Pos)
 final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
 /** A `.ssc` file is a SCRIPT: `def`s are declarations and everything else is the program body,
   * executed in order. That is the project's model, not a v3 invention — measured on the corpus,
@@ -89,7 +99,7 @@ final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
 final case class ObjectDef(name: String, defs: List[Def], pos: Pos)
 
 final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef],
-                         objects: List[ObjectDef])
+                         objects: List[ObjectDef], traits: List[TraitDef] = Nil)
 
 object Expr:
   def posOf(e: Expr): Pos = e match

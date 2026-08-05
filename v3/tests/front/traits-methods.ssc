@@ -1,0 +1,23 @@
+trait Shape:
+  def area(): Int
+  def describe(): String = "area " + area()
+
+case class Sq(side: Int) extends Shape:
+  def area(): Int = side * side
+
+case class Rect(w: Int, h: Int) extends Shape:
+  def area(): Int = w * h
+  override def describe(): String = "rect " + w + "x" + h
+
+case class Counter(start: Int):
+  def plus(n: Int): Int = start + n
+  def doubled: Int = start * 2
+  def twicePlus(n: Int): Int = doubled + plus(n)
+
+val shapes = List(Sq(3), Rect(2, 5))
+for s <- shapes do println(s.area())
+for s <- shapes do println(s.describe())
+println(Counter(10).plus(5))
+println(Counter(10).doubled)
+println(Counter(10).twicePlus(1))
+println(shapes.map((s) => s.area()).sum)

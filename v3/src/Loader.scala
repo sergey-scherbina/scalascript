@@ -143,11 +143,13 @@ object Loader:
     var defs: List[Def] = Nil
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
+    var traits: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
     units.foreach { u =>
       defs = defs ++ u.program.defs
       classes = classes ++ u.program.classes
       objects = objects ++ u.program.objects
+      traits = traits ++ u.program.traits
       val keep =
         if u.path == root.path then u.program.topLevel
         else u.program.topLevel.filter { s => s match
@@ -156,4 +158,4 @@ object Loader:
         }
       top = top ++ keep
     }
-    Program(defs, top, classes, objects)
+    Program(defs, top, classes, objects, traits)
