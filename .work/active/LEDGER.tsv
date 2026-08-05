@@ -5,4 +5,3 @@ uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-
 release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md
 jvm-json-bridge-emit	claude-code	2026-08-05T09:14:28Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 int-sibling-method-resolution	claude-code	2026-08-05T09:16:08Z	int-case-class-method-cannot-call-a-sibling-method	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:tests/e2e/sibling-method-gate.sh file:scripts/smoke-ci.ssc
-object-var-gate	claude-code	2026-08-05T09:41:03Z	int-object-var-mutation-does-not-persist	file:tests/e2e/object-var-mutation-gate.sh file:v1/runtime/backend/interpreter/BUGS.md file:SPRINT.md
