@@ -873,9 +873,33 @@ addCommandAlias("publishInterpreter", ";ir/publishLocal;backendSpi/publishLocal;
 // runtime instead of being duplicated as a string template inside
 // JvmGen.serveRuntime.  No interpreter coupling — all definitions are
 // self-contained Scala classes / objects.
+// Version-neutral pieces both HTTP lanes need. SessionCookie is 174 lines of pure JDK crypto —
+// javax.crypto.Mac, SecretKeySpec, Base64, MessageDigest — with no ScalaScript type in it, and both
+// the v1 dispatch loop and the native fast plugin need exactly the same signing. Duplicating it
+// would mean two implementations of an HMAC scheme that must agree byte for byte to keep a cookie
+// readable across lanes.
+//
+// The PATH says v1/ for the same reason `httpFastEngine` does: this tree is where the HTTP server
+// lives, and that module is already admitted to the standard native tier. The NAME deliberately
+// carries no version, because the contents do not.
+lazy val httpSessionShared = project
+  .in(file("v1/runtime/http-server/session"))
+  // `logger` and nothing else. SessionCookie's ONE non-JDK use is a single `_log.warn` when
+  // SSC_SESSION_SECRET is unset — worth keeping, because a process-local random key means sessions
+  // silently stop surviving a restart, and that is precisely the thing an operator must be told.
+  // The import sits INSIDE the object behind BUILD-ONLY markers, which is why a look at the file's
+  // import block says "pure JDK" and is wrong; I made that claim before compiling it.
+  .dependsOn(logger)
+  .settings(
+    name := "scalascript-http-session",
+    libraryDependencies += scalatestTest,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val runtimeServerCommon = project
   .in(file("v1/runtime/http-server/common"))
-  .dependsOn(logger)
+  .dependsOn(logger, httpSessionShared)
   .settings(
     name := "scalascript-runtime-server-common",
     libraryDependencies ++= Seq(
@@ -889,10 +913,16 @@ lazy val runtimeServerCommon = project
     // generated scala-cli scripts (replacing the duplicated copies that
     // previously lived inside JvmGen.serveRuntime as a string template).
     Compile / resourceGenerators += Def.task {
+      // TWO source dirs, not one. `JvmGenPreamble` inlines a NAMED list that includes
+      // "SessionCookie" (lines ~223 and ~246), and that file now lives in httpSessionShared. If
+      // this generator only walked this module's own sources, the move would have taken
+      // SessionCookie out of the generated scala-cli scripts SILENTLY — codegen would emit a
+      // preamble missing a name it goes on to reference, and nothing here would have said so.
       val srcDir  = (Compile / scalaSource).value / "scalascript" / "server"
+      val sharedDir = (httpSessionShared / Compile / scalaSource).value / "scalascript" / "server"
       val outBase = (Compile / resourceManaged).value / "http-server-common-sources" / "scalascript" / "server"
       IO.createDirectory(outBase)
-      (srcDir ** "*.scala").get.map { f =>
+      ((srcDir ** "*.scala").get ++ (sharedDir ** "*.scala").get).map { f =>
         val target = outBase / f.getName
         IO.copyFile(f, target)
         target
