@@ -5,7 +5,7 @@ started: 2026-08-04T21:40:45Z
 heartbeat: 2026-08-04T21:40:45Z
 status: claimed-before-planning
 items: UNIML-SSC3 UNIML-SSC3-ALPHABET
-paths: uniml file:bench/history.tsv file:.gitignore file:build.sbt mod:v1/lang/uniml-bridge
+paths: uniml file:bench/history.tsv file:.gitignore file:build.sbt mod:v1/lang/uniml-bridge file:tests/e2e/project-partition-gate.sh file:specs/project-partitioning.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
