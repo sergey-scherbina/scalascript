@@ -1,0 +1,11 @@
+slug: native-package-namespace-impl
+branch: feature/native-package-namespace-impl
+agent: claude-code
+started: 2026-08-05T15:47:59Z
+heartbeat: 2026-08-05T15:47:59Z
+status: claimed-before-planning
+items: native-front-has-no-package-namespace
+paths: file:v2/bin/ssc1-run.ssc0 file:v2/lib/ssc1-front.ssc0 file:v2/BUGS.md file:v2/BACKLOG.md file:v2/SPRINT.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
