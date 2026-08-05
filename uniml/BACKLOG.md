@@ -7,6 +7,83 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## HAND-OVER: the typed AST (UNIML-SSC3 criterion 2)
+
+Written 2026-08-05 for whoever picks this up. Numbers measured the same day; re-measure before
+trusting them, since every one of them moved during the writing of this entry.
+
+### What it is
+
+UniML stores a `.ssc` as a LOSSLESS CST — every token, including whitespace and comments, so the
+tree reconstructs the file byte for byte. That is the right STORAGE and the wrong INTERFACE: a
+`Branch(kind: String, …)` is an open universe, so code dispatching on it gets no exhaustivity from
+the compiler. The typed projection is the interface — a sealed ADT over the same tree.
+
+    .ssc  ->  UniML CST (lossless)  ->  typed projection (the AST)  ->  SSC IR  ->  run
+
+`specs/uniml-ssc3-frontend.md` §3 argues the split; `v3/specs/40-front-on-uniml.md` §3 is v3's side
+of the same decision.
+
+### Where it lives
+
+    uniml/scala/src/main/scala/…/dialect/scalascript/SpikeAst.scala      92 lines — the sealed ADT
+    uniml/scala/src/main/scala/…/dialect/scalascript/SpikeTyped.scala   137 lines — CST -> ADT
+    uniml/scala/src/test-jvm/…/ssc/SpikeTypedCoverageSpec.scala          the corpus floor
+    uniml/scala/src/test-jvm/…/dialect/scalascript/SpikeTypedIfSpec.scala  a SHAPE assertion
+
+`Unsupported` / `UnsupportedDecl` are load-bearing: a projection that silently dropped what it does
+not model would report a clean AST for a file it half understood. Coverage is therefore countable —
+walk the AST, count the Unsupported nodes.
+
+### Where it stands
+
+    1,182 files   171,119 nodes   2,943 gaps   98.3% of what the dialect parses
+
+Real gaps, largest first: `spike.narg` 772 (named arguments), `spike.interp` 583 (string
+interpolation), `spike.blockapp` 509 (a block passed as an argument), `decl:spike.sealed` 382,
+`spike.listlit` 239, then a tail under 60 each.
+
+### The thing that matters most, and it is not the number
+
+**Nothing consumes this AST.** No lowering, no type checker, no printer — so 98.3% is a SELF-REPORT
+validated only by its own floor. Until something depends on the projection, nothing can refute it,
+and "the AST covers 98.3%" means "the projection did not say Unsupported", not "the projection was
+right".
+
+That is not hypothetical. On 2026-08-05 the histogram's biggest entry, `spike.kw` at 2,120 — 44% of
+all gaps — turned out to be a BUG, not a missing construct: the CST names an `if`'s keyword tokens
+`if.then`/`if.else` and its branches `if.thenE`/`if.elseE`, and the projection read the keyword
+roles. Every `if` in the corpus modelled both arms as the words `then` and `else`. The `If` node was
+present and its children were syntax. The floor said 96.5% and passed, because a COUNT cannot tell
+"not modelled" from "modelled wrongly".
+
+### What to do first
+
+1. **Re-measure.** `cd uniml && sbt "unimlScala/testOnly *SpikeTypedCoverageSpec"`. Do not inherit
+   the numbers above.
+2. **Audit the projection against the CST's ROLES, construct by construct.** The `if` bug is a class,
+   not an incident: `SpikeTyped` picks children by role name, and a role that names a keyword reads
+   as plausibly as one that names a subtree. Dump a CST (`sbt "unimlBench/runMain
+   scalascript.uniml.bench.Diagnose <file>"` for diagnostics; a five-line walker over `UniNode`
+   prints roles) and check each `byRole` against what is actually there. Cheaper than modelling a
+   new construct and probably worth more.
+3. **Then close real gaps**, largest first, and assert on SHAPE not on the count — see
+   `SpikeTypedIfSpec` for the pattern.
+
+### The boundary — read this before writing a lowering
+
+`v3/specs/40-front-on-uniml.md` §4 assigns UniML's readiness to the claim
+`uniml-ssc3-frontend-readiness` and says v3's item `SSC3-4` **consumes** the result and "does not do
+that work, and must not duplicate it". So: improving the projection is UniML-side work. Writing the
+lowering to SSC IR is `SSC3-4`, in `v3/`, held by the `ssc3-core` claim — coordinate there rather
+than starting one here. `v3/` also has a live claim on it, so the paths are not free.
+
+The most valuable single thing anyone can do for this criterion is make SOMETHING consume the
+projection end to end, even one file, and compare the result against the reference front. That turns
+98.3% from a self-report into a measurement. Everything else is polishing a number nobody has
+checked.
+
+
 ## a list item's continuation prefix is lost when a code span crosses the break
 
 Three files still fail composed round-trip. Minimal reproduction, and the isolation is the
