@@ -66,10 +66,23 @@ jobs:
         with:
           persist-credentials: false
 
+      # PINNED. `java-version: '21'` floats to the newest 21.0.x, which is the one
+      # unpinned input in a file where every action is pinned by SHA -- so the
+      # toolchain that builds a release could differ between two runs of the same
+      # tag. It already mattered: the arm64 runner failed inside native-image with
+      #   Image heap writing found a class not seen during static analysis
+      #   root: LocaleData$LocaleDataStrategy.getCandidateLocales
+      # on the 21.0.9 that '21' resolved to, while the same commit, same arch
+      # (arm64), same distribution (Oracle GraalVM) and same heap (6g) builds
+      # clean locally on 21.0.11 in 2m18s. Distribution, architecture and heap are
+      # therefore ruled OUT as the cause by measurement; the patch version is the
+      # remaining suspect (the other being the runner's 7 GB of RAM against 36 GB
+      # locally). Pinning is correct on its own merits and doubles as the test.
+      # tests/BUGS.md native-release-native-image-three-defects.
       - name: Setup GraalVM 21
         uses: graalvm/setup-graalvm@0def53c0fd8534bc13416c9469f5be45265824fd # v1
         with:
-          java-version: '21'
+          java-version: '21.0.11'
           distribution: graalvm
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
