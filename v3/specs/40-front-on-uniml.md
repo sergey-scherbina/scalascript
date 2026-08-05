@@ -187,22 +187,24 @@ operand the DIALECT itself diagnosed — which makes them a BREADTH question abo
 typing question about the projection.
 
 So the remaining question for v3 is not "has UniML modelled it" but **"does the ScalaSpike dialect
-PARSE what SSC3 core needs"**, which is a different item with a different owner. One requirement is
-still open and it is v3's:
+PARSE what SSC3 core needs"** — a different question with a different owner. **Measured 2026-08-06**,
+by running the dialect over every file and counting `spike.error`:
 
-- **the composer has no BARE mode.** A `.ssc` with no code fence yields zero ScalaScript subtrees,
-  and fences have been optional in this project since 2026-07-09. v3 can work around it by fencing
-  the text itself, so this is a request rather than a blocker — but the failure it prevents is a
-  whole program read as prose, with no diagnostic.
-- **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls. The table is
-  [`20-core-language.md`](20-core-language.md) §3. Route classification through the host and the same
-  source lexes differently on JVM, JS and the v2 VM; the language's syntax becomes host-dependent.
+| corpus | files | files with a parse error | `spike.error` nodes |
+|---|---|---|---|
+| `v3/tests/front/` — v3's own core, both lanes green | 46 | **1** | 1 |
+| `tests/conformance/` — the whole thing | 390 | **2** | 4 |
 
-And one fact recorded so nobody sequences behind it: **an import's PATH is absent from the CST.**
-`parseImportStmt` consumes the dotted path without attaching it, so `import a.b.c` and `import x.y`
-are indistinguishable. UniML filed this itself and modelled it as the contentless `NoOpDecl` it
-really is. It does not block v3: v3's imports are markdown links (`[names](path.ssc)`) read from the
-source TEXT by `Loader`, never from the tree.
+Three constructs in total, and two of them v3 does not support either:
+
+| construct | where | v3's? |
+|---|---|---|
+| `if c then a(i) = v` — an INDEX assignment as a single-line branch body | `assign-body.ssc` | **YES** — v3 core, fixture green on both lanes |
+| `x += 1` — compound assignment | `js-compound-assign.ssc` | no — outside Tier 0 |
+| `def <~>(b: Int)` — a user-defined symbolic operator | `js-symbolic-infix-operator.ssc` | no — outside Tier 0 |
+
+The narrowing is worth recording because it is not what the file name suggests: `a(1) = 4` on its
+own line parses, and `if c then n = 5` parses. Only the COMBINATION fails.
 
 ## 5a · Why the projection reads the TYPED AST and not the CST — Sergiy's question, 2026-08-06
 
@@ -243,6 +245,27 @@ rather than refused — `Lower.scala` is the largest and most measured part of v
 against a different tree in the same step as the parser swap is precisely the risk this plan is
 shaped to avoid. Once §7's differential is green, that question is small, cheap and reversible;
 today it is none of those.
+
+## 5b · So: the complete list, and it is short
+
+1. **`if c then a(i) = v`.** One construct, one line of one fixture, and the only breadth gap in
+   SSC3 core. Everything else the dialect already parses.
+2. **A BARE mode for the composer.** A `.ssc` with no code fence yields zero ScalaScript subtrees;
+   fences have been optional here since 2026-07-09. v3 can fence the text itself, so this is a
+   request — but the failure it prevents is a whole program read as prose with no diagnostic.
+3. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
+   [`20-core-language.md`](20-core-language.md) §3. Still open, and the only item on this list with a
+   consequence for the LANGUAGE rather than for a file: route classification through the host and
+   the same source lexes differently on JVM, JS and the v2 VM.
+
+Everything else is v3's own work: `SpikeAst` → v3's `Ast`, which is §5a's subject and where v3's
+desugaring lives.
+
+And one fact recorded so nobody sequences behind it: **an import's PATH is absent from the CST.**
+`parseImportStmt` consumes the dotted path without attaching it, so `import a.b.c` and `import x.y`
+are indistinguishable. UniML filed this itself and modelled it as the contentless `NoOpDecl` it
+really is. It does not block v3: v3's imports are markdown links (`[names](path.ssc)`) read from the
+source TEXT by `Loader`, never from the tree.
 
 ## 6 · What v3 does on its own side, before any of that lands
 

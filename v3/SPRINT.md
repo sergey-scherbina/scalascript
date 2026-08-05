@@ -516,3 +516,18 @@ Sergiy asked whether the AST should be built straight from UniML during parsing.
 - [x] **13d — two API facts found by the probe.** `SpikeTyped.module` takes a SCALA SUBTREE, not the
       composed root. And a BARE `.ssc` yields ZERO subtrees, while fences have been optional here
       since 2026-07-09 — a whole program would read as prose, silently. Filed in §5 as a request.
+
+- [x] **13e — UniML's BREADTH measured, which turned the question from open to closed.** The
+      projection is at 100%, so the only remaining question was whether the DIALECT parses what
+      SSC3 core needs. Answered by running it over every file and counting `spike.error`:
+
+      | corpus | files | with a parse error | `spike.error` |
+      |---|---|---|---|
+      | `v3/tests/front/` | 46 | **1** | 1 |
+      | `tests/conformance/` | 390 | **2** | 4 |
+
+      Three constructs in the whole corpus, and TWO of them v3 does not support either (`x += 1`,
+      a user-defined symbolic operator `def <~>`). **The entire breadth debt to v3 is one
+      construct**: `if c then a(i) = v`, an index assignment as a single-line branch body. Narrowed
+      by probe, and the narrowing is not what the file name suggests — `a(1) = 4` alone parses and
+      `if c then n = 5` parses; only the combination fails.
