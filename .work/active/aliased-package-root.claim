@@ -3,9 +3,9 @@ branch: feature/aliased-package-root
 agent: claude-code
 started: 2026-08-05T23:27:30Z
 heartbeat: 2026-08-05T23:27:30Z
-status: claimed-before-planning
+status: in-progress
 items: aliased-package-root-import-is-unbound-on-native-and-js
-paths: file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0 file:BUGS.md file:v2/SPRINT.md file:v2/BACKLOG.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh
+paths: file:v2/bin/ssc1-run.ssc0 file:v2/bin/ssc1-run-fsub.ssc0 file:BUGS.md file:v2/SPRINT.md file:v2/BACKLOG.md file:specs/native-package-namespace.md file:tests/e2e/package-keyword-smoke.sh file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
