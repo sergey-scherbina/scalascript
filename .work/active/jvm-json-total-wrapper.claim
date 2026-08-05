@@ -1,0 +1,12 @@
+slug: jvm-json-total-wrapper
+branch: feature/jvm-json-total-wrapper
+agent: claude-code
+started: 2026-08-05T09:08:46Z
+heartbeat: 2026-08-05T09:08:46Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm
+broad: the emitted hook block lives in JvmGen; the entry and any gate live in the same module
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
