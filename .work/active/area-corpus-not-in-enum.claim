@@ -1,0 +1,11 @@
+slug: area-corpus-not-in-enum
+branch: feature/area-corpus-not-in-enum
+agent: claude-code
+started: 2026-08-05T07:57:49Z
+heartbeat: 2026-08-05T07:57:49Z
+status: claimed-before-planning
+items: an-example-uses-a-syntax-the-language-does-not-have-and-no-gate-runs-it
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
