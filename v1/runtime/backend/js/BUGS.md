@@ -1419,44 +1419,6 @@ fixes this.
 evaluated to a `Stub` sentinel, and the program continued at exit 0. `isProduct`'s sentinel then
 drove an `if`. A gate keying on exit status sees success.
 
-## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
-<!-- status: open
-     lane: js
-     area: front -->
-
-**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while re-measuring
-`v2-native-scala-import-parse-only-noop`; the native lane is the correct one here).
-
-**Symptom.** Registering into a mutable registry defined by an imported module has no effect on the
-v1 INTERPRETER, while the native and JS lanes both see the registration.
-
-**Reproduce** — four lines, no plugin, no Scala-style import:
-
-````markdown
-[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
-
-```scalascript
-HandlerRegistry.clear()
-HandlerRegistry.register(NamedHandler("emit", (s: String) => List(s)))
-println(HandlerRegistry.registeredNames().length)
-```
-````
-
-| lane | result |
-|---|---|
-| `bin/ssc run` (native) | `1` |
-| `ssc-tools emit-js` + node | `1` |
-| `ssc-tools run --v1` (INT) | **`0`** |
-
-**Why it matters.** INT is the conformance suite's reference lane and the corpus contract's golden
-probe, so a case built on this pattern is graded against the one lane that gets it wrong. The
-larger fixture it was found in (`V2TuplePatternCliTest`'s map-reduce hoist) fails on INT for the
-same reason: `HandlerRegistry: no handler registered for 'emit'` after registering it.
-
-**Fix direction / relation.** Same family as
-`imported-builtin-native-runs-callback-in-defining-interpreter` — module-level mutable state and
-which interpreter instance owns it. Not taken by `v2-native-import-graph`: that claim's paths are
-`v2/bin/`, and this is the v1 interpreter.
 
 ## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
 <!-- status: open

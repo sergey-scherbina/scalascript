@@ -7,6 +7,67 @@ grepping for status.
 
 Newest first.
 
+## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
+<!-- status: open
+     lane: int
+     area: runtime -->
+
+**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while re-measuring
+`v2-native-scala-import-parse-only-noop`; the native lane is the correct one here).
+
+**Symptom.** Registering into a mutable registry defined by an imported module has no effect on the
+v1 INTERPRETER, while the native and JS lanes both see the registration.
+
+**Reproduce** — four lines, no plugin, no Scala-style import:
+
+````markdown
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
+
+```scalascript
+HandlerRegistry.clear()
+HandlerRegistry.register(NamedHandler("emit", (s: String) => List(s)))
+println(HandlerRegistry.registeredNames().length)
+```
+````
+
+| lane | result |
+|---|---|
+| `bin/ssc run` (native) | `1` |
+| `ssc-tools emit-js` + node | `1` |
+| `ssc-tools run --v1` (INT) | **`0`** |
+
+**Why it matters.** INT is the conformance suite's reference lane and the corpus contract's golden
+probe, so a case built on this pattern is graded against the one lane that gets it wrong. The
+larger fixture it was found in (`V2TuplePatternCliTest`'s map-reduce hoist) fails on INT for the
+same reason: `HandlerRegistry: no handler registered for 'emit'` after registering it.
+
+**Fix direction / relation.** Same family as
+`imported-builtin-native-runs-callback-in-defining-interpreter` — module-level mutable state and
+which interpreter instance owns it. Not taken by `v2-native-import-graph`: that claim's paths are
+`v2/bin/`, and this is the v1 interpreter.
+
+**Same root cause as `int-object-var-mutation-does-not-persist`** (linked 2026-08-05, and moved here
+from `v1/runtime/backend/js/BUGS.md` at the same time — it carried `lane: js` while every symptom and
+the fix are the interpreter's, which is what the layout rule routes on).
+
+That entry is this one REDUCED: no imports, no registry, no plugin —
+
+```scalascript
+object org:
+  var hits = 0
+  def bump(): Int = { hits = hits + 1; hits }
+org.bump(); org.bump()      int: 1 1     native: 1 2
+```
+
+A `var` inside an `object` does not keep its value on this lane, and `std/mapreduce/handlers.ssc`'s
+registry is exactly that: object-level mutable state reached through an import. Re-measured
+2026-08-05, this entry's own four-line repro still gives `0` on int and `1` on native.
+
+Keep both: this one carries the field report and the reason it matters — INT is the conformance
+suite's reference lane, so a case built on this pattern is graded against the lane that gets it
+wrong — while the other carries the ten-line reduction, the six measured facts and the gate
+(`tests/e2e/object-var-mutation-gate.sh`).
+
 ## int-global-fn-shadows-a-same-named-method — the lanes disagree about which one a bare call means
 
 <!-- status: open
@@ -192,6 +253,11 @@ object case is going through it and losing the object's identity on the way.
 `.class` file. Use `grep -a`. An empty result from `strings` reads exactly like "the string is not
 there", and that is how it cost two wrong conclusions here.
 
+
+**Field report of the same defect: `int-imported-module-mutable-registry-not-shared`** — a mutable
+registry defined by an imported module stays empty on this lane (int `0`, native `1`, js `1`),
+filed 2026-07-28 and re-measured 2026-08-05. That one carries why it matters: INT is the conformance
+suite's reference lane, so a case built on that pattern is graded against the lane that gets it wrong.
 
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
