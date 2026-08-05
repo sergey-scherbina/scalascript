@@ -5,7 +5,7 @@ started: 2026-08-05T18:44:08Z
 heartbeat: 2026-08-05T18:44:08Z
 status: in-progress
 items: jvm-package-import-qualifies-the-link-name
-paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/BUGS.md file:tests/e2e/package-keyword-smoke.sh file:v1/SPRINT.md file:v1/BACKLOG.md file:v1/runtime/backend/jvm/SPRINT.md
+paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/jvm/BUGS.md file:tests/e2e/package-keyword-smoke.sh file:v1/SPRINT.md file:v1/BACKLOG.md file:v1/runtime/backend/jvm/SPRINT.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
