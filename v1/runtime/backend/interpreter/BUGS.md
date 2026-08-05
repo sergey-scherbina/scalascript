@@ -241,6 +241,23 @@ write to it is not visible to a subsequent read — plausibly a fresh instance p
 field write to a copied `InstanceV` field map. `native` gets it right, so the semantics are not in
 doubt.
 
+**A second oracle, available since 2026-08-05.** The native lane now binds `package:` as a namespace
+too (`native-front-has-no-package-namespace`, fixed in `e137a4994`), so the ORIGINAL symptom — a
+package-declaring module losing its state — can be run on both lanes through the same construct:
+
+```
+module `package: app.counter` with `var hits`, then
+bump()  app.counter.bump()  app.counter.get()  get()
+
+native (both fronts)   1  2  2  2      one definition, two names, one cell
+int                    1  1  0  1      the qualified path is a separate copy
+```
+
+Note the int row's middle pair: `app.counter.bump()` returns 1 and `app.counter.get()` then returns
+0, so the qualified path does not see its OWN write. Same defect, reached without writing `object`
+by hand — which means every package-declaring module on this lane is affected, not only code that
+uses an object explicitly. Useful as a second repro shape when checking a candidate fix.
+
 
 **Investigated 2026-08-05, not fixed. Six facts, each measured, so the next attempt starts where I
 stopped rather than where I started.**
