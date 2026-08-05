@@ -1619,6 +1619,16 @@ final class RunCmd extends CliCommand:
         case "--native"                    => nativeFlag   = true
         case "--compat-frontend"           => compatFrontendFlag = true
         case "--bytecode"                  => bytecodeFlag = true
+        // The explicit opposite of --bytecode, and the spelling StandardMain has
+        // always accepted (StandardMain.scala:52-53). It was missing here, so on
+        // the native binary `run --v2 --interpret f.ssc` fell through to the
+        // `case f => fileArgs += f` arm below and was opened as a FILE:
+        //   FileNotFoundException: native frontend input not found: --interpret
+        // That is what the release qualifier's `vm-exit` check hit on the first
+        // run that ever reached it. NB the same fall-through silently turns any
+        // mistyped run flag into a missing-file error rather than an unknown-flag
+        // one — see tests/BUGS.md native-release-native-image-three-defects.
+        case "--interpret" | "--vm"        => bytecodeFlag = false
         case "--device-id" if it.hasNext  => deviceIdFlag = Some(it.next()); deviceFlag = true
         case "--frontend"         if it.hasNext =>
           val name = it.next()

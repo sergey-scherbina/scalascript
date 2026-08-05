@@ -270,6 +270,12 @@ val suite = List(
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
+  // ~2 s, and it covers a hole that cost a release. `run`'s parser ends in `case f => fileArgs += f`,
+  // so a lane flag it does not know becomes a FILE PATH: `--interpret` was absent from Main.scala
+  // while StandardMain had it, and the only thing that ever executed that path was the release
+  // qualifier — on the native binary, on a runner, in a workflow that had never reached that step.
+  // Both launchers are asserted because they are two entries onto one flag vocabulary.
+  Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 60000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at
   // a row count, the owner was maintained, and on 2026-07-31 they disagreed — the `sbt` job died at

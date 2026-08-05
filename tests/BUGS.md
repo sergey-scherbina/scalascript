@@ -178,6 +178,36 @@ Image heap writing found a class not seen during static analysis
 JDK locale data cached at build time and not seen by static analysis. **Expect this to become the
 blocker for all three once memory is fixed** — intel is not special, it just got there first.
 
+**4 (found once 1 and 2 let two runners reach the qualifier): `run` parses `--interpret` as a FILE.**
+`Main.scala`'s `run` parser ends in `case f => fileArgs += f`, so a flag it does not know becomes a
+path. `--bytecode` was handled; its opposite `--interpret` / `--vm` was not, though `StandardMain`
+has accepted both all along (`StandardMain.scala:52-53`). The native binary enters through
+`@main def ssc` in `Main.scala`, so the qualifier's `ssc run --v2 --interpret release-probe.ssc`
+died as:
+
+```
+java.io.FileNotFoundException: native frontend input not found: --interpret
+  at scalascript.cli.RunNativeV2$.$anonfun$5(RunNativeV2.scala:133)
+```
+
+Fixed, with gate `tests/e2e/run-lane-flags-are-flags.sh` (in smoke, ~2 s) asserting all five lane
+flags on BOTH launchers — `bin/ssc` (StandardMain) and `bin/ssc-tools` (`scalascript.cli.ssc`, the
+native binary's entry). The first draft tested only `bin/ssc` and passed against the unfixed tree,
+because that entry never had the bug: a probe whose subject is reachable without the thing under
+test measures nothing.
+
+**5 (open, filed not fixed): `run` prints its diagnostics to STDOUT.** Measured on the same command:
+
+```
+ssc-tools run --no-such-flag-xyzzy p.ssc  2>&1 >/dev/null   ->  (empty)
+ssc-tools run --no-such-flag-xyzzy p.ssc  2>/dev/null       ->  Error: File not found: --no-such-flag-xyzzy
+```
+
+An error in the data stream: a caller capturing program output gets the message mixed into it, and
+one reading stderr for diagnostics sees nothing. Not fixed here because moving the stream could
+break consumers that match on stdout today — including gates. Note the release qualifier asserts
+`expect_empty vm-stderr`, which such an error would silently satisfy.
+
 **Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
 is the substantive one; 1 and 2 are bookkeeping in front of it.
 
