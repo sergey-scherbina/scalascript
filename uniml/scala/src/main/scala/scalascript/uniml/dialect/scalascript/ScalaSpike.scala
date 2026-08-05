@@ -1439,7 +1439,7 @@ object SpikeParse:
       c.skipSemis()
       if c.eof then None
       else
-        val body = parseBlock(c, c.peekCol)
+        val body = parseBlock(c, c.peekCol, stopAtParen = c.parenDepth > 0)
         Some(if params.isEmpty then body else Node.Frame("spike.lam", None, params.map(t => Node.Leaf(t, Some("lam.param"))) :+ body.withRole("lam.body")))
 
   // `{ … }` as a call argument, wrapped as a lambda — mirrors ssc1-front parseBlockArg (ssc1-front.ssc0:1750):
@@ -1922,7 +1922,11 @@ object SpikeParse:
   // a branch that starts on a LATER line than its keyword is an indented block (Scala optional-braces),
   // exactly like a def body — else it is a single inline expression.
   private def branchExpr(c: Cur, kwLine: Int): Node =
-    if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol)
+    // stopAtParen for the same reason a lambda body needs it: inside `f(x =>` the branch's last
+    // line ends with the `)` that closes the CALL, and a column-bounded block would try to start a
+    // statement there. `modules.foreach(module =>\n  if n > 0 then\n    println(n))` is the shape,
+    // and scripts/smoke-ci.ssc spends four diagnostics on it.
+    if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol, stopAtParen = c.parenDepth > 0)
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `then r = n` (Scala 3)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 

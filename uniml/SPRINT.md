@@ -104,7 +104,14 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           **tagged 71 → 69, untagged 87 → 76.**
           The standard this settles is worth more than the number: *the dialect matches the
           reference front's PARSE, and does not judge meaning.*
-          **tagged 172 → 69 across four slices, untagged 96 → 76.**
+          A fifth: **an indented block inside parentheses ends at the closing paren.**
+          `f(x =>` + indented body has its last line end with the `)` that closes the CALL, and a
+          column-bounded block tries to start a statement there. `parseBlock` already had a
+          `stopAtParen` flag — a lambda body passed it, an `if`/`then` branch did not, so ONE level
+          of nesting lost it. Found in `scripts/smoke-ci.ssc`, a script that runs in CI and
+          therefore parses fine for the reference front, which is what made it obviously a gap on
+          our side rather than bad source. **tagged 69 → 65.**
+          **tagged 172 → 65 across five slices, untagged 96 → 76, clean files 94.8% → 97.2%.**
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
