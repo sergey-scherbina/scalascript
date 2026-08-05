@@ -175,6 +175,51 @@ Real parsing on clean input is ~1 MB/s, i.e. **14× slower than the flattering n
 front-end benchmark here must report diagnostics and node count beside the time, or it will
 measure how fast the parser gives up.
 
+## 4.2b SSC3-M reopened: the ratio and the retained size, predicted before measuring
+
+§4.2 owed two numbers and its throughput reading is now obsolete, so this is a re-measurement
+rather than a continuation. Written before running anything (`performance` §1.3).
+
+**Why the old number no longer describes the dialect.** §4.2 measured ~0.9-1.0 MB/s on a dialect
+that emitted NO trivia — it was fast partly because it was throwing the source away. Criterion (4)
+has since been closed: every one of 1,146 `.ssc` files now reconstructs exactly, which means the
+tree carries every whitespace and comment token it used to discard. §4.2 said in advance that this
+would make both time and size worse. So a fair reading needs the lossless number, not the old one.
+
+**Conditions.** The previous attempt was taken at host load 10.82 and called itself provisional for
+that reason; the reference arm was skipped because a comparison at that load is noise. This one
+runs at load ~1.4, and both arms alternate (`performance` §1.1) rather than being measured as a
+before-block and an after-block.
+
+**Expected:**
+
+- **Throughput 0.4-0.8 MB/s** — slower than the 0.9-1.0 recorded without trivia, because every
+  whitespace run is now a `SourceToken` with a kind, a channel and two `SourcePosition`s. Not
+  more than 2x slower, because the lexer already walked those characters; what changed is that it
+  keeps them.
+- **Ratio against v1's `Parser` 5-15x slower.** v1 drops trivia as it goes and emits a
+  conventional AST; UniML materialises a token vector and folds a tree over it.
+- **Retained tree 10-25x the source bytes.** §4.1 predicted 8-20x for the lossy tree; trivia adds
+  tokens without adding much text.
+
+**Disqualifying evidence, unchanged from §4.1 and restated so this cannot be quietly softened:**
+throughput below **0.5 MB/s** makes a whole-project compile parse-dominated and the front-end
+decision needs rethinking before UPR-4 is built; retained size above **50x** makes large projects
+a memory problem. Note the lower prediction bound and the disqualifying threshold now nearly
+touch — if the trivia cost lands at the pessimistic end, this measurement decides something.
+
+**Method, and its one honest gap.** Both arms use JMH with identical settings (3 warmup x 5
+measurement x 1 fork, average time). They cannot share a build: `compilerBench` would have to
+depend on `unimlScala`, which means editing the root `build.sbt`, and that file is held by another
+claim. So the arms are separate JMH invocations on the same machine, alternated, medians compared.
+JMH forks a fresh JVM per benchmark anyway, so "same sbt invocation" would not have bought a
+shared JVM — but the arms do not interleave within one process, and that is the residual
+difference this method carries.
+
+**The trap §4.2 recorded, still armed.** The first reading there was 14.18 MB/s and was measuring
+FAILURE — an incomplete parse with 85 diagnostics. Every number below reports diagnostics, status
+and node count beside the time.
+
 ## 4.3 SSC3-L attempted — three ordered obstacles, measured
 
 Attempted 2026-08-01 and **reverted**. The attempt is recorded because it located the real
