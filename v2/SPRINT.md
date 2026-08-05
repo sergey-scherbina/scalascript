@@ -55,25 +55,25 @@ the four rows:
 
 Control: the same link without `as` prints `hi-hi` on native.
 
-- [~] **A-1 — capture the link LABEL, additively.** `sscImportPathsFrom`
+- [x] **A-1 — capture the link LABEL, additively.** `sscImportPathsFrom`
       (`v2/bin/ssc1-run.ssc0:319`) reads `[...]` only to find its closing bracket and returns paths.
       Do NOT change what it returns: `sscImports` feeds the module graph, `sscOrderMod`, the content
       projection and the F runner, and widening its element type touches all of them. Add a PARALLEL
       scan returning only the aliased bindings — `Pair(path, Pair(origName, aliasName))` — so
       nothing that exists today changes shape.
-- [~] **A-2 — emit, and the two sub-cases need different emissions.** A member alias is a value
+- [x] **A-2 — emit, and the two sub-cases need different emissions.** A member alias is a value
       alias: `def g = greet`, the flat splice having already defined `greet`. The package ROOT is
       not — `org` is a synthetic namespace object and objects are NOT first-class values here
       (`val Card = Card` is `unbound global: Card`), so that row needs a second namespace CHAIN
       rooted at the alias whose members forward to the same `__pkgref_…` refs the real chain uses.
       Reuse `sscPkgNsSource` with the first segment replaced.
-- [~] **A-3 — both fronts, and they need it in different places.** The legacy path threads parsed
+- [x] **A-3 — both fronts, and they need it in different places.** The legacy path threads parsed
       defs, so alias defs go between `impDefs` and `defs` in `sscLoadMod` / `sscLoadRoot`. F
       assembles from SOURCE (`sscConcatSources`, `ssc1-run-fsub.ssc0`), where they must be
       PREPENDED to the importing file's own source — appending would place them after that file's
       top-level expressions, and a value alias is eager. Same trap as the namespace work: a fix in
       the shared loader alone reaches one front.
-- [~] **A-4 — gate before release.** The existing `package-keyword-smoke.sh` covers the unaliased
+- [x] **A-4 — gate before release.** The existing `package-keyword-smoke.sh` covers the unaliased
       forms only. Add the four alias rows, and verify with the ABSENT-state control (the same links
       without `as`) so the gate cannot pass by accident.
 

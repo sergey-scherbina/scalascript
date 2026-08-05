@@ -9,14 +9,40 @@ Newest first.
 
 ## native-import-link-alias-is-ignored — `[greet as g]` binds nothing, package or not
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/package-keyword-smoke.sh
+     fixed-in: PENDING -->
 
-Measured 2026-08-06. `as` in a markdown import link is ignored on this lane — every form of it, and
+**FIXED 2026-08-06.** All four alias forms bind on this lane, checked on BOTH fronts explicitly
+(`SSC_FRONT=F` and `SSC_FRONT=legacy`), and the gate grew three rows for it — each paired with the
+same link written WITHOUT `as` as an absent-state control, so a green alias row cannot mean
+"the fixture stopped exercising anything". Verified in both directions: with the tower reverted all
+three fail and the four original rows stay green.
+
+The scanner now carries `Pair(label, path)` and `sscImports` is the PATH PROJECTION of it — one
+scanner, two views. A second scanner would have had to repeat the fence-mode and wrapped-link
+handling, and a copy of that is how a link inside an opaque ```text fence becomes an import.
+
+**Three emissions, because an alias is three different things here** — the sub-case list below was
+right about two of them and missed the third:
+
+| what `orig` names | emission | why not a value alias |
+|---|---|---|
+| a member `def` | `def g = greet` | — the flat splice already defined it |
+| a member `object` | `object C:` forwarding to `Card.<m>` | `def C = Card` binds something whose `.render` answers `unhandled runtime effect: C.render` |
+| the package root | a second namespace CHAIN rooted at the alias | same reason; members forward to the same `__pkgref_…` refs, so one definition now has three names and still no copy |
+
+Both fronts need it in different places, which is the trap this area already carries once: the
+legacy path threads parsed defs, so aliases go between `impDefs` and `defs`; F assembles from SOURCE
+(`sscConcatSources`), where they are PREPENDED to the importing file's own source — appending would
+define them after that file's top-level expressions had run, and a value alias is eager.
+
+### Original report (superseded 2026-08-06)
+
+Measured 2026-08-06. `as` in a markdown import link was ignored on this lane — every form of it, and
 it has nothing to do with `package:`. Four alias forms, four lanes:
 
 ```
@@ -26,17 +52,17 @@ it has nothing to do with `package:`. Four alias forms, four lanes:
 [greet as g]   a module with NO package  int OK   native err   js OK    jvm OK
 ```
 
-**Controlled**, which is what makes it a statement about `as` rather than about imports: the same
-link written `[greet](./plain.ssc)` and called as `greet("hi")` prints `hi-hi` on native. With the
-alias it is `ssc: unbound global: g`.
+**Controlled**, which is what made it a statement about `as` rather than about imports: the same
+link written `[greet](./plain.ssc)` and called as `greet("hi")` printed `hi-hi` on native. With the
+alias it was `ssc: unbound global: g`.
 
-Cause: `sscImportPathsFrom` (`v2/bin/ssc1-run.ssc0:319`) reads the label `[...]` ONLY to find its
-closing bracket, and returns paths. The label text — the thing carrying the binding names and their
-aliases — is discarded before any consumer sees it, so no alias can ever be bound. Every other lane
+Cause: `sscImportPathsFrom` (`v2/bin/ssc1-run.ssc0:319`) read the label `[...]` ONLY to find its
+closing bracket and returned paths. The label text — the thing carrying the binding names and their
+aliases — was discarded before any consumer saw it, so no alias could ever be bound. Every other lane
 threads the bindings: v1 has `imp.bindings` with `binding.alias`, and JvmGen builds its import list
 from them.
 
-**Two sub-cases, and they need different emissions.** For a member (`[greet as g]`) a value alias
+**Two sub-cases, and they need different emissions.** (There were three — see above.) For a member (`[greet as g]`) a value alias
 `def g = greet` is enough — the flat splice already defined `greet`. For the package ROOT
 (`[org as o]`) it is NOT: `org` is one of the synthetic namespace objects
 (`native-front-has-no-package-namespace`), and objects are not first-class values on this lane —
