@@ -90,6 +90,11 @@ object SpikeTyped:
     case "spike.object"    => ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "obj.member").map(decl), span(n))
     case "spike.val"       => TopExpr(valOf(n, "val"), span(n))
     case "spike.var"       => TopExpr(valOf(n, "var"), span(n))
+    // `import a.b.c`, a link-import and an anonymous `given` all frame as `spike.sealed`
+    // (`ScalaSpike.scala:1195`, :469, :1214). The frame holds ONE carrier token: `parseImportStmt`
+    // consumes the dotted path without attaching it, so there is no payload to project. Modelled
+    // as the no-op it is, rather than claimed as an import whose path this cannot supply.
+    case "spike.sealed"    => NoOpDecl(span(n))
     case other             => UnsupportedDecl(other, span(n))
 
   private def valOf(n: UniNode, kw: String): Expr =
@@ -228,9 +233,22 @@ object SpikeTyped:
         case "spike.match" =>
           Match(byRole(b, "match.scrut").map(expr).getOrElse(Unsupported("missing.scrutinee", span(b))),
                 kids(b).collect { case (_, c) if kind(c) == "spike.arm" => arm(c) }, span(b))
-        case "spike.lambda" =>
+        // TWO kinds for one construct: `spike.lam` (`ScalaSpike.scala:1443`) and `spike.lambda`
+        // (:1476, :1680, :1688) carry the same roles, and handling only the second left the first
+        // reported as an unmodelled construct it is not.
+        case "spike.lambda" | "spike.lam" =>
           Lambda(allByRole(b, "lam.param").map(lex),
                  byRole(b, "lam.body").map(expr).getOrElse(UnitLit(span(b))), span(b))
+        case "spike.narg" =>
+          NamedArg(byRole(b, "narg.name").map(lex).getOrElse("_"),
+                   byRole(b, "narg.val").map(expr).getOrElse(Unsupported("missing.narg.val", span(b))), span(b))
+        case "spike.listlit"  => ListLit(allByRole(b, "list.el").map(expr), span(b))
+        case "spike.blockapp" =>
+          BlockApply(byRole(b, "blkapp.fn").map(expr).getOrElse(Unsupported("missing.fn", span(b))),
+                     byRole(b, "blkapp.arg").map(expr).getOrElse(UnitLit(span(b))), span(b))
+        case "spike.interp" =>
+          Interp(byRole(b, "interp.prefix").map(lex).getOrElse("s"),
+                 byRole(b, "interp.raw").map(t => SpikeStr.decode(lex(t))).getOrElse(""), span(b))
         case "spike.assign" =>
           Assign(byRole(b, "assign.name").map(lex).getOrElse("_"),
                  byRole(b, "assign.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))

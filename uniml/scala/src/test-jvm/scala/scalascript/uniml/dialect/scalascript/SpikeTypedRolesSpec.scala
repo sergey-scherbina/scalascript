@@ -198,6 +198,66 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
     assert(n == 3, s"expected 3 pattern nodes (Sm, v, _), walked $n")
   }
 
+  // ── 6. the five constructs that were HONESTLY unmodelled ──────────────────────────────────
+  // These differ in kind from everything above: they said `Unsupported` and were counted. That is
+  // the difference between a gap and a lie, and it is why they were safe to leave until the audit
+  // was done. Shape assertions all the same — the count that reported them cannot tell whether
+  // what replaced them is right.
+
+  test("a named argument keeps its label and its value, and is not an assignment") {
+    val args = SpikeAst.walk(project("def f(): Int =\n  g(label = 1)\n")).collect {
+      case n: SpikeAst.NamedArg => n
+    }
+    assert(args.sizeIs == 1, s"expected one NamedArg, got $args")
+    assert(args.head.name == "label", s"label is ${args.head.name}")
+    assert(args.head.value.isInstanceOf[SpikeAst.IntLit], s"value is ${args.head.value}")
+  }
+
+  test("a list literal keeps its elements") {
+    // In VALUE position. A leading `[` in statement position is a Markdown link-import, so
+    // `def f(): Int =\n  [1, 2, 3]` produces a no-op and no list at all — which is what the first
+    // version of this test measured, and the empty result is what said so.
+    SpikeAst.walk(project("val xs = [1, 2, 3]\ndef main(): Int = 0")).collect {
+      case l: SpikeAst.ListLit => l
+    } match
+      case Vector(l) => assert(l.elems.sizeIs == 3, s"[1, 2, 3] projected with ${l.elems.size}: ${l.elems}")
+      case other     => fail(s"expected one ListLit, got $other")
+  }
+
+  test("a block argument keeps both the callee and the block") {
+    SpikeAst.walk(project("def f(): Int =\n  g { 1 }\n")).collect { case b: SpikeAst.BlockApply => b } match
+      case Vector(b) =>
+        assert(b.fn.isInstanceOf[SpikeAst.Ident], s"callee is ${b.fn}")
+        assert(b.fn.asInstanceOf[SpikeAst.Ident].name == "g")
+        assert(SpikeAst.walk(b.arg).exists(_.isInstanceOf[SpikeAst.IntLit]), s"block arg is ${b.arg}")
+      case other => fail(s"expected one BlockApply, got $other")
+  }
+
+  test("an interpolation keeps its prefix and its raw text") {
+    // The dialect does not decompose an interpolation — two tokens, prefix and raw — so this is
+    // the whole of what the CST has. `$x` staying inside the text is not a drop.
+    SpikeAst.walk(project("def f(x: Int): Int =\n  s\"a $x b\"\n")).collect { case i: SpikeAst.Interp => i } match
+      case Vector(i) =>
+        assert(i.prefix == "s", s"prefix is ${i.prefix}")
+        assert(i.raw.contains("$x"), s"raw text is ${i.raw}")
+      case other => fail(s"expected one Interp, got $other")
+  }
+
+  test("an import is the no-op the CST records, and its PATH is not recoverable") {
+    // This test was written asserting the path was there, and failing it is what found the gap:
+    // `parseImportStmt` consumes `a.b.c` without attaching it and frames a single carrier token,
+    // so `import a.b.c` and `import x.y` are indistinguishable in the tree. Pinned here so that a
+    // dialect change which starts keeping the path is NEWS rather than a silent improvement — and
+    // so nobody builds import resolution on this node believing it carries one.
+    val ds = decls("import a.b.c\ndef main(): Int = 0")
+    assert(ds.collect { case n: SpikeAst.NoOpDecl => n }.sizeIs == 1,
+           s"expected one NoOpDecl, got ${ds.map(_.getClass.getSimpleName)}")
+    val one = project("import a.b.c\ndef main(): Int = 0").decls.head
+    val two = project("import x.y\ndef main(): Int = 0").decls.head
+    assert(one.getClass == two.getClass && one.isInstanceOf[SpikeAst.NoOpDecl],
+           "both imports should project to the same contentless node")
+  }
+
   // ── the general form, stated once over every construct above ──────────────────────────────
 
   test("no keyword or punctuation token projects as an expression") {

@@ -96,7 +96,10 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     // Floors, not equalities: adding modelled nodes must not force a number to
     // move, but a regression in what is modelled has to fail.
     assert(nodes > 100000, s"only $nodes nodes reached the projection — the composer path broke")
-    assert(ofParsed > 95.0, f"typed coverage of parsed nodes fell to $ofParsed%.1f%%")
+    // Raised 95.0 → 99.0 once the measurement reached 99.7%. A floor four points below the truth
+    // stopped being a gate: it is what let a 96.5% reading pass while every `if` in the corpus
+    // modelled both its branches as the words `then` and `else`.
+    assert(ofParsed > 99.0, f"typed coverage of parsed nodes fell to $ofParsed%.1f%%")
   }
 
   /** The gap the number above CANNOT see, and the reason it reads high.

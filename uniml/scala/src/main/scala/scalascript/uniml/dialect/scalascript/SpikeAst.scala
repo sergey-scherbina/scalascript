@@ -47,6 +47,19 @@ object SpikeAst:
     * the corpus's declaration slots, so modelling them is not an edge case. */
   final case class TopExpr(expr: Expr, span: SourceSpan) extends Decl
   final case class ObjectDecl(name: String, members: Vector[Decl], span: SourceSpan) extends Decl
+  /** A declaration the dialect parses and deliberately keeps NOTHING of: `import a.b.c`, the
+    * Markdown link-import `[name](path)`, and an anonymous `given`. All three frame as
+    * `spike.sealed`, a parse-only no-op for the v2 front, which resolves imports by other means.
+    *
+    * It carries no payload, and that is a statement about the CST rather than a shortcut here.
+    * `ScalaSpike.parseImportStmt` CONSUMES the dotted path without attaching it, then calls
+    * `sealedNoop`, which builds the frame from a single carrier token. So the path is not reachable
+    * from this node — not dropped by the projection, absent from the frame.
+    *
+    * This was found by asserting the path was there and watching it fail, and it MATTERS BEYOND
+    * this projection: a v3 front on UniML has to resolve imports, and the CST as it stands cannot
+    * tell it what is imported. Filed in `uniml/BACKLOG.md` as a dialect-side gap. */
+  final case class NoOpDecl(span: SourceSpan) extends Decl
   final case class UnsupportedDecl(kind: String, span: SourceSpan) extends Decl
 
   final case class Param(name: String, tpe: Option[TypeRef], default: Option[Expr], using_ : Boolean, span: SourceSpan)
@@ -70,6 +83,20 @@ object SpikeAst:
   final case class While(cond: Expr, body: Expr, span: SourceSpan) extends Expr
   final case class Tuple(elems: Vector[Expr], span: SourceSpan) extends Expr
   final case class UnitLit(span: SourceSpan) extends Expr
+  /** `f(label = value)`. A named argument is not an `Assign`: it names a PARAMETER, and a lowering
+    * has to reorder it against the callee's declared order. Keeping it distinct is what lets it. */
+  final case class NamedArg(name: String, value: Expr, span: SourceSpan) extends Expr
+  final case class ListLit(elems: Vector[Expr], span: SourceSpan) extends Expr
+  /** `f { … }` and its fewer-braces form `f: …`. Kept apart from `Apply` because the CST keeps
+    * them apart; collapsing here would decide, at projection time, a question that belongs to the
+    * lowering — and the projection's job is to say what was written. */
+  final case class BlockApply(fn: Expr, arg: Expr, span: SourceSpan) extends Expr
+  /** `s"a $x b"`. The dialect does NOT decompose an interpolation: `spike.interp` holds exactly two
+    * tokens, the prefix and the raw string (`ScalaSpike.scala:1904`), with the embedded expressions
+    * still inside the string as text. So keeping the raw text here loses nothing the CST had — the
+    * parts are not subtrees that could be dropped. Splitting them is a re-lex, and it belongs
+    * wherever the interpolation is given meaning, not here. */
+  final case class Interp(prefix: String, raw: String, span: SourceSpan) extends Expr
   /** A CST shape this projection does not model yet. Never silently dropped. */
   final case class Unsupported(kind: String, span: SourceSpan) extends Expr
 
@@ -110,6 +137,9 @@ object SpikeAst:
     case Infix(_, l, r, _)        => walk(l) ++ walk(r)
     case Prefix(_, e, _)          => walk(e)
     case Apply(f, as, _)          => walk(f) ++ as.flatMap(walk)
+    case NamedArg(_, v, _)        => walk(v)
+    case ListLit(es, _)           => es.flatMap(walk)
+    case BlockApply(f, a, _)      => walk(f) ++ walk(a)
     case Select(r, _, _)          => walk(r)
     case If(c, t, e, _)           => walk(c) ++ walk(t) ++ e.toVector.flatMap(walk)
     case Block(ss, _)             => ss.flatMap(walk)
