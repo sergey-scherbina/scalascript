@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## int-imported-type-methods-are-not-siblings — a sibling call works for a local class, not an imported one
+
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: tests/e2e/session-roundtrip-gate.sh -->
+
+`c04de5df1` made a case-class method able to call a sibling. It covers a type declared in the SAME
+file and not one that arrives through an import. Measured 2026-08-05, same shape both times:
+
+```
+case class R(n: Int):                          --- declared locally
+  def withH(k: String): R = R(n + k.length)
+  def viaSibling(): R = withH("ab")            ->  R(1).viaSibling().n = 3   ✓
+
+def withSession(...): Response =               --- Response comes from std/http.ssc
+  withHeader("Set-Cookie", …)                  ->  Undefined: withHeader     ✗
+```
+
+**Found by trying to delete the workaround the earlier fix was supposed to retire.** I had written
+in that commit that the inlined body in `std/http.ssc` could now go; it cannot, and the round-trip
+gate said so on the first run after the change — `/login sent no Set-Cookie`, both halves of the
+session broken. The workaround is back with the measurement in its comment rather than the old
+"v1 does not resolve siblings", which is no longer true and would have sent the next reader looking
+for a bug that is fixed.
+
+`bindSiblings` reads `interp.typeMethods(inst.typeName)`, so the likely shape is that an imported
+type's methods do not land under the same key — but that is a hypothesis, not a measurement, and the
+entry stops where the evidence does.
+
+
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
 <!-- status: open
      lane: int

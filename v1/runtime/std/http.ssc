@@ -224,10 +224,16 @@ case class Response(
   // The signing itself cannot live in ScalaScript — it is HMAC-SHA256 over a secret — so it is an
   // extern backed by `scalascript-http-session`, the module BOTH lanes now share. That is the point
   // of extracting it: one implementation of a scheme whose output has to stay readable across lanes.
-  // Built directly rather than through `withHeader`, which would be the obvious spelling: on the v1
-  // lane a case-class method calling a SIBLING method of the same class does not resolve —
-  // `Undefined: withHeader`, measured 2026-08-05 — while the same call from outside works. Inlining
-  // the one-line body sidesteps it; the divergence itself is filed separately.
+  // Built directly rather than through `withHeader`, and the reason is NARROWER than it looks.
+  // c04de5df1 made a case-class method able to call a sibling, and I came back to delete this
+  // workaround — the round-trip gate said no. Measured 2026-08-05:
+  //
+  //     a case class declared in THIS file      R(1).viaSibling()  -> 3     works
+  //     the same shape reached through import   withHeader(...)    -> Undefined: withHeader
+  //
+  // So sibling calls work for a locally declared type and not for one that arrives through an
+  // import, which is where `Response` comes from here. Filed as
+  // `int-imported-type-methods-are-not-siblings`; until that closes, this stays.
   def withSession(payload: Map[String, String]): Response =
     Response(status, headers + ("Set-Cookie" -> sessionSetCookie(payload)), body)
 
