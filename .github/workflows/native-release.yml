@@ -151,9 +151,16 @@ jobs:
           # image builder the room it has been starved of. If sbt OOMs here the
           # answer is to invoke native-image WITHOUT sbt, which needs build.sbt to
           # emit its own argv -- currently held by another claim.
-          JAVA_OPTS: -Xmx1500m
         run: |
-          sbt "cli/graalvm-native-image:packageBin"
+          # -J-Xmx, NOT JAVA_OPTS. This checkout has a .jvmopts pinning -Xmx4G (it exists so a
+          # dozen parallel worktrees' sbt servers cannot OOM the dev host), and sbt reads that
+          # file INSTEAD of JAVA_OPTS -- a first attempt set JAVA_OPTS and the arm64 log came back
+          # with an unchanged "max 4.00GB", i.e. the cap was silently ignored.
+          #
+          # -J flags are appended AFTER .jvmopts and the last -Xmx wins. Verified by reading the
+          # launched process rather than assumed:
+          #   java ... -Xmx4G -XX:+UseG1GC -Xmx1500m ...
+          sbt -J-Xmx1500m "cli/graalvm-native-image:packageBin"
 
       - name: Assemble release payload
         env:
