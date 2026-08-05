@@ -252,12 +252,24 @@ So the tool asks for *more* at 4g and the machine has no room at 6g.
 at 5g the 2-thread build died with `OutOfMemoryError` where the 3-thread build finished in 5m58s.
 Fewer threads did not reduce the requirement; it made it worse.
 
-Two changes did land and stand on their own: the single sbt command is now **two steps**, so sbt is
-not resident while the image builds, and the heap is per-runner. The remaining arm64 attempt is
-**5g** — the one untried point between two known-bad ones, and now without sbt beside it.
+**`5g` was tried and failed too** (40 min, GC 16–29%), and the log corrected a claim I had made:
+splitting the sbt command into two steps does **not** remove sbt from the image build. It cannot —
+sbt is the process that *forks* native-image, so it stays resident throughout. The arm64 log carries
+sbt's own GC warnings during the build, `[Heap: 0.51GB free of 1.69GB, max 4.00GB]`, i.e. ~1.7 GB
+beside native-image's 4.44 GB on a 7 GB machine. The split is still worth having (the compile phase
+is no longer in the same JVM) but it did not buy what was claimed for it.
 
-If 5g fails, the arithmetic is closed: this runner is too small for this image, and the choice is a
-larger runner or shipping without the arm64 artifact. Not more tuning between 4 and 6.
+So the numbers are: machine 7 GB, native-image needs ≥4.5 GB, sbt takes ~1.7 GB. Not more tuning of
+the first two — the third is the removable one.
+
+Next attempt, and the reasoning is stated so it can be checked rather than believed: cap sbt with
+`JAVA_OPTS: -Xmx1500m` for that step. It compiles nothing there (step 1 built the jars); it loads
+the build definition and forks.
+
+If sbt cannot work in 1500m, the real fix is to invoke native-image **without sbt at all**, which
+needs `build.sbt` to emit its own argv so the command has one source. `build.sbt` is held by another
+claim (`uniml-ssc3-frontend-readiness`, heartbeat 14 h stale, no commits, does not touch the file) —
+that is a release/claim decision for the owner, not something to take unilaterally twice.
 
 **Status of the other two targets: both green.** `ssc-linux-x86_64` has passed end to end twice, and
 `ssc-macos-x86_64` passed once the GraalVM pin moved to 21.0.9.

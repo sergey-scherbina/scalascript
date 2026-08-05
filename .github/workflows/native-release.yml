@@ -139,9 +139,20 @@ jobs:
       - name: Build native binary
         env:
           SSC_NATIVE_IMAGE_XMX: ${{ matrix.native_image_xmx }}
+          # sbt is CAPPED here because it does not go away: it is the process that
+          # forks native-image, so it stays resident for the whole image build.
+          # Splitting the steps (previous commit) did NOT remove it, contrary to
+          # what that commit claimed -- the arm64 log shows sbt's own GC warnings
+          # DURING the image build, "[Heap: 0.51GB free of 1.69GB, max 4.00GB]",
+          # i.e. ~1.7 GB alongside native-image's 4.44 GB on a 7 GB machine.
+          #
+          # This invocation compiles nothing (step 1 built the jars); it loads the
+          # build definition and forks. 1500m is enough for that and leaves the
+          # image builder the room it has been starved of. If sbt OOMs here the
+          # answer is to invoke native-image WITHOUT sbt, which needs build.sbt to
+          # emit its own argv -- currently held by another claim.
+          JAVA_OPTS: -Xmx1500m
         run: |
-          # sbt is gone from the previous step; this invocation compiles nothing
-          # and only forks native-image, so its own footprint stays small.
           sbt "cli/graalvm-native-image:packageBin"
 
       - name: Assemble release payload
