@@ -5,7 +5,7 @@ started: 2026-08-05T08:26:04Z
 heartbeat: 2026-08-05T08:26:04Z
 status: claimed-before-planning
 items: area-enum-not-visible-where-headers-are-written
-paths: file:specs/bugs-index.md
+paths: file:specs/bugs-index.md file:tests/e2e/bugs-index-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
