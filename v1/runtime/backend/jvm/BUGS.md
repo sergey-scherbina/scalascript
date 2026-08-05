@@ -13,7 +13,7 @@ Newest first.
      area: codegen
      kind: bug
      gate: tests/e2e/jvm-json-import-gate.sh
-     fixed-in: cbfb6b336 -->
+     fixed-in: 6c822d306 -->
 
 **FIXED 2026-08-05.** `[jsonParse](std/json.ssc)` compiles and runs on the jvm lane, and the whole
 documented navigable surface behaves **identically to the interpreter**, byte for byte:
