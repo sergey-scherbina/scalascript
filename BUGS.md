@@ -16,6 +16,48 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## aliased-package-root-import-is-unbound-on-native-and-js — `[org as o]` binds nothing
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: divergence
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-05 by a shape matrix built for `jvm-package-import-qualifies-the-link-name` — this row
+was added to be thorough about link-name forms, not because anything pointed at it.
+
+A module declares `package: org.example.ui`; the importer binds its ROOT under a different name:
+
+```
+--- cards.ssc                     --- consumer.ssc
+package: org.example.ui           [org as o](./cards.ssc)
+                                  println(o.example.ui.Card.render("hi"))
+object Card:
+  def render(t: String) = "ui-card-" + t
+```
+
+```
+int     ->  ui-card-hi
+jvm     ->  ui-card-hi          (was red too; fixed in bdebc1c80, which emits `val o = org`)
+native  ->  ssc: unbound global: o
+js      ->  Method not found: … (throws from the generated _dispatch)
+```
+
+**Not the same defect as the unaliased root**, which works on all four lanes — checked in the same
+matrix, same fixture, one character apart. Both failing lanes bind the module under its PACKAGE name
+and ignore the `as` clause: on native the namespace objects are emitted under `org`/`org_example`/
+`org_example_ui` (`native-front-has-no-package-namespace`, `e137a4994`'s successor `b65d95cd0`) with
+nothing consulting the link's alias, so `o` was never defined.
+
+The jvm fix is the shape to copy: for an aliased root, bind the alias to the root object rather than
+dropping the binding. On native that means one more emitted line beside the namespace chain; the js
+lane needs its own look, since its failure is a runtime dispatch error rather than an unbound name
+and may have a different cause.
+
+No gate: writing one before either lane implements it would only pin today's failure.
+
 ## package-root-import-needs-an-exports-entry-on-int — and needs nothing on native
 
 <!-- status: open

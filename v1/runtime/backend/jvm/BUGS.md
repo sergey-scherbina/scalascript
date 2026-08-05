@@ -7,20 +7,54 @@ grepping for status.
 
 Newest first.
 
-## jvm-package-import-qualifies-the-link-name — no module declaring `package:` can be imported
+## jvm-package-import-qualifies-the-link-name — the package ROOT could not be imported
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      area: codegen
      kind: bug
      gate: tests/e2e/package-keyword-smoke.sh
-     fixed-in: - -->
+     fixed-in: bdebc1c80 -->
+
+**FIXED 2026-08-05.** The gate's JVM row is green and its known-red declaration is gone — forced
+rather than chosen, since the gate FAILS a declared row that starts passing.
+
+**The heading was too broad and is corrected.** "No module declaring `package:` can be imported" was
+wrong: member names always worked. The shape matrix, four lanes against one module declaring
+`package: org.example.ui` with an `object Card` and a top-level `def helper` — before / after:
+
+```
+link text            int   native  js    jvm
+[org]      root      OK    OK      OK    err -> OK
+[org as o] root+alias OK   -       err   err -> OK
+[Card]     member    OK    OK      OK    OK  (unchanged)
+[helper]   member fn OK    OK      OK    OK  (unchanged)
+[ui]       inner seg err   OK      OK    err (unchanged — int rejects it too)
+[cards]    arbitrary err   OK      OK    err (unchanged — int rejects it too)
+```
+
+Only the first two rows were this defect: three lanes agree the package ROOT is importable. The last
+two stay errors ON PURPOSE — the interpreter answers `'cards' not found in ./cards.ssc`, so a fix
+making them work would be jvm disagreeing with the golden lane in the other direction. The
+native/js permissiveness there is `package-root-import-needs-an-exports-entry-on-int` in the root
+file.
+
+**Cause, read off the GENERATED Scala rather than inferred.** `object org {` sits at line 7063 of it,
+at top level, and the emitted `import org.example.ui.{org}` at 7072 — the object was already in
+scope and there was nothing to import. `aliasBlock` builds that line from the markdown link's
+bindings, and a link binds the MODULE, whose name here is the package root, not a member of the
+package. The fix drops such a binding, one line from the pre-existing `externHere` filter that
+handles the identical failure shape for `extern def` names (`value route is not a member of object
+std.http`). An ALIASED root emits `val o = org` instead of being dropped, or `[org as o]` — a
+surface the interpreter resolves — would leave `o` unbound.
+
+### Original report (superseded 2026-08-05)
 
 Found 2026-08-05 while fixing `native-front-has-no-package-namespace`, by pointing that gate's JVM
 row at a RUN (`ssc-tools run-jvm`) instead of at `bin/sscc`, which is the COMPILER and therefore
-prints "JVM artifact written to …" without ever compiling the generated Scala.
+printed "JVM artifact written to …" without ever compiling the generated Scala.
 
-Three lanes agree, one does not:
+Three lanes agreed, one did not:
 
 ```
 --- cards.ssc                          --- consumer.ssc
@@ -49,8 +83,8 @@ the exported globals.
 Renaming the link to `[cards]` changes only the name in the message — `value cards is not a member
 of object … org.example.ui` — so it is not a collision between the link name and the package root.
 
-The gate declares this row KNOWN-RED by slug and **fails if it starts passing**, so the declaration
-cannot outlive the fix.
+The gate declared this row KNOWN-RED by slug and would fail if it started passing — which is what
+removed the declaration when the fix landed.
 
 ## jvm-lane-cannot-compile-a-json-import — 14 type errors before a single line runs
 <!-- status: fixed
