@@ -515,7 +515,17 @@ object Parser:
       var ts = ts0
       var go = true
       while go do
-        val (e, t) = parseExpr(ts)
+        // `name = expr` is a NAMED argument. A lone `=`, never `==`, and never a bare name that
+        // simply happens to be followed by an assignment — inside an argument list there is no
+        // assignment statement to confuse it with.
+        val named = peek(ts) match
+          case Tok.TId(n, np) if !keywords.contains(n) && isOp(peek(ts.tail), "=") => Some((n, np))
+          case _                                                                   => None
+        val (e, t) = named match
+          case Some((n, np)) =>
+            val (v, tv) = parseExpr(ts.tail.tail)
+            (Expr.NamedArg(n, v, np), tv)
+          case None => parseExpr(ts)
         out = e :: out
         ts = t
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false

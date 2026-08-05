@@ -359,3 +359,28 @@ method, and a NESTED block comment (v1 answers `structural CoreIR contains parse
       lines and exit 0 with no diagnostic — the same family as the recorded interpreter defect
       where `if cond then <assign>` with no else is silently skipped. Worth filing separately: it
       is a wrong answer, not a refusal.
+
+- [x] **9h — named arguments and `copy`.** `pager.copy(cache = existingCache, lruOldestFirst = …)`
+      was 116 cases. Named arguments are resolved to positions on the AST, alongside defaults;
+      `copy` is resolved in the LOWERING, because which class the receiver is is not known until
+      run time — the same reason field-by-name access is a `Switch`. Each arm builds its own
+      constructor: named fields from the arguments, the rest read back off the receiver.
+
+### The apparatus defect that cost the most this session
+
+`v3/ssc3` compiled BOTH trees through `scala-cli run` on every invocation, into their shared
+`.scala-build`. Any concurrent scala-cli on the same tree cleans that directory underneath the
+running one; the compile dies with `NoSuchFileException` writing a `.tasty`, and the program
+produces **no output** — which a gate that compares output reads as a wrong answer.
+
+Measured: the same fixture, ten runs by hand, came back empty on runs 2, 3 and 5. A different
+fixture failed on each gate run, which is what made it look like a flaky v3 defect rather than a
+build race. The concurrent scala-cli was MY OWN — two overlapping background gate runs I had
+launched myself, the same mistake as the `CRASH 360` earlier, but this time with the mechanism
+identified rather than just the correlation.
+
+The driver now packages each tree once per SOURCE DIGEST and runs the jar. Three consequences:
+the race window shrinks from every invocation to the first, a failure is a non-zero exit with a
+named cause instead of silence, and the gates got several times faster.
+
+**Rule for this module: one gate run at a time, and never a corpus report beside one.**

@@ -1,0 +1,17 @@
+case class Conf(name: String, retries: Int = 3, verbose: Boolean = false)
+case class P(x: Int, y: Int)
+
+def area(width: Int, height: Int = 2): Int = width * height
+
+println(Conf("a", verbose = true))
+println(Conf(name = "b", retries = 9))
+println(Conf(retries = 1, name = "c", verbose = true))
+println(area(3))
+println(area(height = 5, width = 4))
+println(area(width = 6))
+val p = P(1, 2)
+println(p.copy(y = 20))
+println(p.copy(x = 10))
+println(p.copy(x = 7, y = 8))
+val c = Conf("z")
+println(c.copy(retries = 42))

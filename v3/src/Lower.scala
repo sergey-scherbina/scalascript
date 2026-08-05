@@ -348,6 +348,51 @@ object Lower:
       val (d, st1) = st.fresh
       (acc :+ Instr.Call(d, fns.indexOf(obj + "." + nm), regs.reverse), d, st1)
 
+    // `p.copy(y = 20)` — a new value of the SAME class with some fields replaced. Dispatched by
+    // the receiver's tag like every other method, and each arm builds its own constructor: the
+    // fields the call names come from the arguments, the rest are read back off the receiver.
+    //
+    // Not an AST rewrite, because which class it is is not known until run time — the same reason
+    // field-by-name access is a `Switch`.
+    case Expr.MethodCall(recv, "copy", argEs, p)
+        if classes.exists(c => c.fields.nonEmpty && copyFits(c, argEs)) =>
+      val owners = classes.filter(c => c.fields.nonEmpty && copyFits(c, argEs))
+      val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
+      var acc = ri
+      var st = st1
+      var named: List[(String, Int)] = Nil
+      argEs.foreach { a => a match
+        case Expr.NamedArg(n, v, _) =>
+          val (vi, vr, stN) = lower(v, fns, classes, zeroArity, st)
+          acc = acc ++ vi; named = named :+ ((n, vr)); st = stN
+        case other => throw LowerFail(p, "`copy` takes named arguments at Tier 0")
+      }
+      val (d, stD) = st.fresh
+      st = stD
+      var arms: List[SwitchArm] = Nil
+      owners.foreach { o =>
+        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        st = sN
+        var body: List[Instr] = Nil
+        var regs: List[Int] = Nil
+        o.fields.zipWithIndex.foreach { (f, i) =>
+          named.find((n, _) => n == f.name) match
+            case Some((_, vr)) => regs = regs :+ vr
+            case None =>
+              val (fr, s2) = st.fresh
+              st = s2
+              body = body :+ Instr.Field(fr, rr, t, i)
+              regs = regs :+ fr
+        }
+        val (cr, s3) = st.fresh
+        st = s3
+        arms = arms :+ SwitchArm(t, body ++ List(Instr.MkData(cr, t, regs), Instr.Move(d, cr)))
+      }
+      val (nk, stK) = st.constIdx(Lit.LStr("copy"))
+      val (ir2, stF) = stK.fresh
+      (acc :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))),
+       d, stF)
+
     // A call whose name is a METHOD of some declared class. Same shape as the field read below —
     // a `Switch` with an arm per declaring class and a DEFAULT that dispatches dynamically — and
     // for the same reason: without a type checker, only the receiver knows which class it is.
@@ -468,6 +513,12 @@ object Lower:
                          lifted = inner.lifted :+ f)
       val (d, st2) = st1.fresh
       (List(Instr.MkClos(d, idx, capRegs)), d, st2)
+
+    // A named argument that survived the resolution pass means the callee's signature was not
+    // known — a call through a value, or a method this front cannot see. A positioned refusal, not
+    // a MatchError: the compiler's own exhaustiveness warning is what found this.
+    case Expr.NamedArg(n, _, p) =>
+      throw LowerFail(p, "a named argument '" + n + "' in a call whose signature is not known")
 
     case Expr.Try(body, exn, handler, _) =>
       val (d, st1) = st0.fresh
@@ -670,22 +721,60 @@ object Lower:
     * and a short call to a function whose gap is not at the end stays an honest arity error. */
   private def fillDefaults(e: Expr, sigs: List[(String, List[Param])]): Expr =
     mapDeep(e, x => x match
+      // `copy` is resolved in the LOWERING, not here — it needs field reads and a constructor, and
+      // which class it is depends on the receiver at run time.
+      case Expr.MethodCall(_, "copy", _, _) => x
       case Expr.Call(fn, as, p) =>
         sigs.find((n, _) => n == fn) match
-          case Some((_, ps)) if as.length < ps.length &&
-                                ps.drop(as.length).forall(q => q.default.isDefined) =>
-            Expr.Call(fn, as ++ ps.drop(as.length).map(q => q.default.get), p)
-          case _ => x
+          case Some((_, ps)) => Expr.Call(fn, resolveArgs(as, ps, fn, p), p)
+          case _             => x
       case Expr.MethodCall(r, nm, as, p) =>
         sigs.find((n, _) => n.endsWith("." + nm)) match
           case Some((_, ps0)) =>
             // A method's first parameter is the receiver, added when it was flattened.
             val ps = if ps0.nonEmpty && ps0.head.name == "this" then ps0.tail else ps0
-            if as.length < ps.length && ps.drop(as.length).forall(q => q.default.isDefined) then
-              Expr.MethodCall(r, nm, as ++ ps.drop(as.length).map(q => q.default.get), p)
-            else x
+            Expr.MethodCall(r, nm, resolveArgs(as, ps, nm, p), p)
           case None => x
       case other => other)
+
+  /** Positional arguments, then NAMED ones placed by their parameter's name, then DEFAULTS for
+    * whatever is still missing. Returns the arguments UNCHANGED when the call cannot be completed,
+    * so an arity mistake is still reported as an arity mistake rather than being papered over with
+    * a confusing substitution. */
+  private def resolveArgs(as: List[Expr], ps: List[Param], what: String, p: Pos): List[Expr] =
+    val positional = as.takeWhile(a => !a.isInstanceOf[Expr.NamedArg])
+    val rest = as.drop(positional.length)
+    if rest.isEmpty && as.length >= ps.length then as
+    else if rest.exists(a => !a.isInstanceOf[Expr.NamedArg]) then
+      throw LowerFail(p, "a positional argument after a named one, in a call to '" + what + "'")
+    else
+      val named = rest.map { a => a match
+        case Expr.NamedArg(n, v, _) => (n, v)
+        case other                  => ("", other)
+      }
+      named.foreach { (n, _) =>
+        if !ps.exists(q => q.name == n) then
+          throw LowerFail(p, "'" + what + "' has no parameter named '" + n + "'")
+      }
+      var out: List[Expr] = positional
+      var ok = true
+      ps.drop(positional.length).foreach { q =>
+        named.find((n, _) => n == q.name) match
+          case Some((_, v)) => out = out :+ v
+          case None =>
+            q.default match
+              case Some(d) => out = out :+ d
+              case None    => ok = false
+      }
+      if ok then out else as
+
+  /** Does every named argument of a `copy` name a field of this class? A class that does not have
+    * all of them cannot be the receiver, so it contributes no arm. */
+  private def copyFits(c: ClassDef, args: List[Expr]): Boolean =
+    args.forall { a => a match
+      case Expr.NamedArg(n, _, _) => c.fields.exists(f => f.name == n)
+      case _                      => false
+    }
 
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true

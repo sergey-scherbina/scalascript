@@ -16,10 +16,46 @@
 #
 # `run` today means: .ssc -> AST -> SSC IR -> verify -> v2 Core IR -> the v2 VM. The last hop is
 # SSC3-3's bridge, which is why v3 has the whole v2 backend fleet without having written one.
+#
+# WHY JARS AND NOT `scala-cli run`. Every invocation used to compile both trees through scala-cli
+# into their shared `.scala-build`. Any CONCURRENT scala-cli on the same tree — another gate,
+# another agent — cleans that directory underneath the running one, and the compile dies with
+# `NoSuchFileException` writing a `.tasty`. The program then produces NO OUTPUT, which a gate
+# comparing output reads as a wrong answer.
+#
+# Measured: the same fixture, run ten times by hand, came back empty on runs 2, 3 and 5. It cost a
+# round of chasing a v3 defect that did not exist.
+#
+# So the driver packages each tree ONCE per source digest and runs the jar. The race window shrinks
+# from every invocation to the first, a failed package is a non-zero exit rather than silence, and
+# the gates get several times faster as a side effect.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SSC3=(scala-cli run "$ROOT/v3/src" --server=false --quiet --)
-V2=(scala-cli run "$ROOT/v2/src" --server=false --quiet --java-opt=-Xss512m --)
+JARS="$ROOT/v3/.jars"
+
+# The jar for a source tree, built if this exact source has not been built before. Written to a
+# temporary name and MOVED into place, so two processes racing on the same digest cannot leave a
+# half-written jar behind — the move is atomic, and both end up with the same bytes anyway.
+jar_for() {
+  local tree="$1" name="$2" dg jar tmp
+  mkdir -p "$JARS"
+  dg="$(cat "$tree"/*.scala | shasum | cut -c1-16)"
+  jar="$JARS/$name-$dg.jar"
+  if [ ! -f "$jar" ]; then
+    tmp="$jar.$$.tmp"
+    if ! scala-cli --power package "$tree" --assembly -o "$tmp" --server=false --quiet -f >&2; then
+      rm -f "$tmp"
+      echo "ssc3: failed to package $tree" >&2
+      return 1
+    fi
+    mv -f "$tmp" "$jar"
+  fi
+  printf '%s' "$jar"
+}
+
+V3JAR="$(jar_for "$ROOT/v3/src" ssc3)" || exit 2
+SSC3=(java -jar "$V3JAR")
+V2=(java -Xss512m -jar "$(jar_for "$ROOT/v2/src" ssc2)")
 
 cmd="${1:-}"
 case "$cmd" in

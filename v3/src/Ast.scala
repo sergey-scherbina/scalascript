@@ -49,6 +49,9 @@ enum Expr:
   /** `a(i) = v`. Separate from `Assign` because the target is an INDEX, not a name — and separate
     * from a method call because the IR has `ArrSet`, which both lanes already implement. */
   case Update(arr: Expr, index: Expr, value: Expr, pos: Pos)
+  /** `f(width = 3)`. Only ever appears INSIDE an argument list, and is resolved to a position
+    * before lowering — the IR has no notion of an argument's name. */
+  case NamedArg(name: String, value: Expr, pos: Pos)
   case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
   case Lambda(params: List[Param], body: Expr, pos: Pos)
   case Try(body: Expr, exn: String, handler: Expr, pos: Pos)
@@ -127,6 +130,7 @@ object Expr:
     case Block(_, _, p)   => p
     case Assign(_, _, p)  => p
     case Update(_, _, _, p) => p
+    case NamedArg(_, _, p) => p
     case Match(_, _, p)   => p
     case Lambda(_, _, p)  => p
     case Try(_, _, _, p)  => p
