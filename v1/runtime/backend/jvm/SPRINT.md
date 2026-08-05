@@ -36,15 +36,15 @@ arbitrary name are rejected by the interpreter too, so there is nothing to repro
 native/js permissiveness on the last row is filed separately as
 `package-root-import-needs-an-exports-entry-on-int`.
 
-- [~] **J-1 — `aliasBlock` must not import the package ROOT from the package.** `JvmGen.scala:2767`
+- [x] **J-1 — `aliasBlock` must not import the package ROOT from the package.** `JvmGen.scala:2767`
       emits `import ${targetPkg.mkString(".")}.{$specText}` where the specs come from the markdown
       link's bindings. For `[org](./cards.ssc)` that is `import org.example.ui.{org}`. Read the
       GENERATED Scala rather than inferring: `object org {` is at line 7063 of it, top level, and the
       bad import is at 7072 — the object is ALREADY in scope, so the binding needs no import at all.
       Fix: drop a binding whose name equals `pkg.head`.
-- [~] **J-2 — delete the known-red declaration from the gate.** Forced, not optional: the gate FAILS
+- [x] **J-2 — delete the known-red declaration from the gate.** Forced, not optional: the gate FAILS
       a declared row that starts passing, so leaving the slug in place turns green into red.
-- [~] **J-3 — re-run the shape matrix**, not just the gate's one fixture: root / member / def must
+- [x] **J-3 — re-run the shape matrix**, not just the gate's one fixture: root / member / def must
       all be green on jvm, and the inner-segment and arbitrary rows must stay errors. A fix that
       makes the arbitrary name work would be jvm disagreeing with the interpreter in the other
       direction.
