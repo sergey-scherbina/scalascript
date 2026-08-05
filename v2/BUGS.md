@@ -137,6 +137,46 @@ about identity, not a patch. It also lands in `sscLoadMod`, which every import o
 goes through. Recorded with the reduction so whoever takes it starts from the model question rather
 than from a smoke gate printing nothing.
 
+**The semantic choice this entry deferred is ANSWERED, by measurement (2026-08-05).** It was left
+open because a namespace has to come IN ADDITION to the flat splice, so the same definitions would
+be reachable by two paths — "for anything holding state that is a decision about identity, not a
+patch". Three probes on the native lane settle it:
+
+```scalascript
+def ui(s: String): String = "ui-" + s
+object org:
+  def ui(s: String): String = ui(s)      -- SAME name
+println(org.ui("x"))                     -- native: ui-x   (not infinite recursion)
+```
+
+1. A member of an `object` can call a top-level `def` (`org.ui2("x")` → `ui-x`).
+2. With the SAME name it still resolves OUTWARD, so `def ui = ui` inside `object org` is an alias,
+   not a self-call. That is the whole difficulty, and the language already does the right thing.
+3. This lane keeps object-level mutable state correctly — `object org: var hits` gives 1, 2, 2 where
+   `int` gives 1, 1, 0 (`int-object-var-mutation-does-not-persist`). So the identity question is not
+   merely answerable here, it is already answered in the direction a namespace needs.
+
+**So the shape is: keep the flat splice unchanged, and emit alongside it**
+
+```
+object <pkg>:
+  def <name>(<params>) = <name>(<params>)   -- one per exported def
+```
+
+One definition, two names, no copy, and nothing that works today stops working. `sscLoadMod`
+(`v2/bin/ssc1-run.ssc0:474`) is where it goes: it already returns the module's def list and appends
+it to the caller's, so the synthetic object is one more entry in that list.
+
+**Named limits, so the next person does not discover them:**
+- The alias is per DEF. A `var` member exposed as `def hits = hits` reads the live cell but
+  `org.hits = 5` would not write it. Whether package-qualified assignment must work is a smaller,
+  separate decision than the one this entry was blocked on.
+- The def list must be filtered to what is actually exported, and the parameter lists reproduced —
+  the tower has the def nodes, so this is mechanical rather than novel.
+
+**Not implemented.** The design is proven with the language's own constructs rather than argued, and
+the remaining work is emitting it inside the tower loader, which is a session of its own.
+
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: open
      lane: native
