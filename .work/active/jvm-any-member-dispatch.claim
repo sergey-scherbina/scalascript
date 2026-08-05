@@ -1,0 +1,12 @@
+slug: jvm-any-member-dispatch
+branch: feature/jvm-any-member-dispatch
+agent: claude-code
+started: 2026-08-05T14:04:35Z
+heartbeat: 2026-08-05T14:04:35Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm
+broad: the 44 errors are static dispatch on Any in emitted code; which emitter decision produces them is what this measures first
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
