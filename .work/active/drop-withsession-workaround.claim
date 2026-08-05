@@ -1,0 +1,11 @@
+slug: drop-withsession-workaround
+branch: feature/drop-withsession-workaround
+agent: claude-code
+started: 2026-08-05T09:55:10Z
+heartbeat: 2026-08-05T09:55:10Z
+status: claimed-before-planning
+items: int-case-class-method-cannot-call-a-sibling-method
+paths: file:v1/runtime/std/http.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
