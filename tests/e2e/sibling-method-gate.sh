@@ -18,7 +18,9 @@
 # method (7, which is what Scala would do) and v1 with the top-level function (100). This fix did not
 # change that and does not pin it, because pinning either answer would make one lane's behaviour the
 # contract while the other is arguably the correct one. Filed as
-# `int-global-fn-shadows-a-same-named-method` instead.
+# `two-fronts-disagree-on-name-resolution` instead — and the reason is sharper than a lane split:
+# the native answer here depends on whether front F lowered the file, so this same fixture gives 7
+# while the `Shadowed` class ALONE in a file gives 100.
 #
 # I first measured that case as "both lanes agree on 100" and was wrong: the native run prints two
 # front-fallback notes before its output, so a `tail -3` read the wrong three lines. The gate found

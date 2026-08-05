@@ -102,37 +102,42 @@ suite's reference lane, so a case built on this pattern is graded against the la
 wrong — while the other carries the ten-line reduction, the six measured facts and the gate
 (`tests/e2e/object-var-mutation-gate.sh`).
 
-## int-global-fn-shadows-a-same-named-method — the lanes disagree about which one a bare call means
+## two-fronts-disagree-on-name-resolution — the answer changes with unrelated content in the file
 
 <!-- status: open
-     lane: int
-     area: runtime
+     lane: multi
+     area: front
      fixed-in: -
      gate: tests/e2e/sibling-method-gate.sh -->
 
-```
-def size(): Int = 100
+A bare call where a top-level function and a method share a name resolves DIFFERENTLY on the native
+lane depending on what else is in the file. Same construct, same build, measured 2026-08-05:
 
-case class Shadowed(n: Int):
-  def size(): Int = n
-  def viaGlobal(): Int = size()
+| file | native | v1 |
+|---|---|---|
+| the three-class fixture in `sibling-method-gate.sh` | **7** (the method) | 100 |
+| the same `Shadowed` class alone in a file | **100** (the top-level fn) | 100 |
 
-def main() = println(Shadowed(7).viaGlobal())
-```
+The cause is not the shadowing rule. It is which FRONT lowered the file:
 
-    ssc run              ->  7    (the method — what Scala would do)
-    ssc-tools run --v1   ->  100  (the top-level function)
+    $ ssc run big.ssc     ->  "F did not lower this file"   -> falls back  -> 7
+    $ ssc run small.ssc   ->  (no note)                     -> F lowered   -> 100
 
-Surfaced by the sibling-method fix above but NOT caused by it: v1 answered 100 before and after.
-Deliberately not pinned by that gate — asserting either number would make one lane's answer the
-contract while the other is arguably the correct one, and the fix that closes this should decide
-which on purpose.
+So two fronts inside ONE lane disagree about name resolution, and which answer a program gets
+depends on whether F happened to accept it — for reasons unrelated to the names involved. That is
+worse than a lane divergence: a lane is a choice, this is not.
 
-**Recorded because I mis-measured it first.** I read both lanes as answering 100 and wrote that
-down; the native run prints two front-fallback notes ahead of its output, so a `tail -3` had read
-the wrong three lines. The gate caught it on its first run — which is the argument for writing the
-gate before believing the measurement, not after.
+**This entry replaces `int-global-fn-shadows-a-same-named-method`, which described the same
+measurement as a v1-vs-native disagreement.** That framing was wrong in a way that matters: it
+pointed at the interpreter, and the interpreter is consistent — it answers 100 either way. Both of
+the numbers I originally recorded were real; what I had not seen was that the native one is not
+stable.
 
+**Not caused by the sibling-call work**, checked rather than assumed: the commit before `b70a1e92c`
+gives 100/100 on the small file too, so nothing here regressed when siblings started binding.
+
+`sibling-method-gate.sh` deliberately does not assert this row. Pinning either number would freeze
+whichever front happens to run today.
 
 ## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
 
