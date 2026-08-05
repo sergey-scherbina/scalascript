@@ -10,7 +10,7 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] SSC3-P/typed-ast — **audit the projection against the CST's ROLES, then close real gaps.**
+- [x] SSC3-P/typed-ast — **audit the projection against the CST's ROLES, then close real gaps.**
       Claim `uniml-typed-ast`. Picks up the 2026-08-05 hand-over in `uniml/BACKLOG.md`, whose
       instruction was: re-measure, audit role by role, only then model new constructs.
       **Re-measured first, inheriting nothing: 1185 files, 171,119 nodes, 2,943 gaps, 98.3%** —
