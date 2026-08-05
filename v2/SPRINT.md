@@ -18,20 +18,25 @@ in its own worktree off `origin/main`.
 Spec: [`../specs/native-package-namespace.md`](../specs/native-package-namespace.md).
 Entry: [`BUGS.md`](BUGS.md) `native-front-has-no-package-namespace`.
 
-- [~] **N-1 — emit the namespace chain in `sscLoadMod`** (`v2/bin/ssc1-run.ssc0`). Read `package:`
+- [x] **N-1 — emit the namespace chain in `sscLoadMod`** (`v2/bin/ssc1-run.ssc0`). Read `package:`
       from the module's front matter, take member names from the ALREADY-PARSED `defs`, emit
       `def __pkgref_<prefix>__<n> = <n>` + `object <prefix>: def <n> = __pkgref_…` as text, parse it,
       append AFTER `defs` (the alias is a parameterless property, therefore eager). A dotted package
       needs one registration object PER PREFIX (`a`, `a_b`, `a_b_c`) — a missing intermediate is
       `unbound global: a` at the call site, not a missing member.
-- [~] **N-2 — verify on BOTH fronts.** `SSC_FRONT=F` and `SSC_FRONT=legacy`, because the design this
+- [x] **N-2 — verify on BOTH fronts.** `SSC_FRONT=F` and `SSC_FRONT=legacy`, because the design this
       replaced was measured on F alone: there `object ns: def ui = ui` aliases, on legacy the same
       line is `unbound global: ns_ui` and its parameterful form HANGS. Every alias therefore goes
       through a top-level `__pkgref_…` indirection so no member shadows its own right-hand side.
-- [~] **N-3 — the acceptance gate is the INT row of `tests/e2e/package-keyword-smoke.sh`.** Its JVM
-      row runs `bin/sscc` (the COMPILER — it prints "artifact written to …") and its JS row emits
-      `const org = org.example.ui.org;`. Both are separate defects; file them rather than widening
-      this slice.
+- [x] **N-3 — the acceptance gate, and it was measuring two things it did not claim.** The row
+      labelled `INT` ran `bin/ssc`, the NATIVE lane; the interpreter was never exercised. The `JVM`
+      row ran `bin/sscc`, the COMPILER, which prints "artifact written to …" without compiling the
+      generated Scala. Now four rows — INT / NATIVE / JS / JVM — and pointing the JVM one at a RUN
+      exposed a real defect, filed as `jvm-package-import-qualifies-the-link-name` and declared
+      known-red by slug (the gate fails if it starts passing). The JS row PASSES: the
+      `const org = org.example.ui.org;` failure recorded when this was planned came from a STALE
+      binary in the shared checkout, not from the js lane. Registered in `ci.yml` — 6.5 s local,
+      too heavy for the smoke suite's 420 s cap, and it had been in neither tier.
 
 ## v2 source backend lanes (claim `v2-source-backend-lanes`)
 

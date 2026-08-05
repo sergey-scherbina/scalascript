@@ -1,5 +1,31 @@
 # Changelog
 
+## native-package-namespace-impl — `package:` binds a namespace on the native lane
+Completed: 2026-08-05
+
+A module declaring `package: org.example.ui` is now reachable as `org.example.ui.Card.render(…)`
+from an importer on the native lane, matching the interpreter and the js lane. `ssc run` used to
+answer `unbound global: org` where `ssc-tools run --v1` printed the page. The flat splice is
+untouched, so unqualified names keep working — that is the regression a namespace-INSTEAD-of-splice
+implementation would have caused.
+
+The spec's design was wrong and one probe found it. It proposed `object <pkg>: def <name> = <name>`,
+relying on a same-named member resolving outward. That holds under F and NOT under the reference
+front, where the same line is `unbound global: ns_ui` and its parameterful form recurses forever —
+so it would have worked until a file was big enough for F to decline it. Aliases now go through a
+top-level `__pkgref_…` whose right-hand side is not a member of the enclosing object.
+
+Two other measurements shaped the result: a package is a CHAIN of flat objects (`a`, `a_b`, `a_b_c`)
+because a dotted selection joins segments with `_` and needs every prefix registered, and an object
+nested in an object body is dropped by the lowerer; and F does not go through the shared loader at
+all, assembling its closure from SOURCE, so both runners carry the change.
+
+`tests/e2e/package-keyword-smoke.sh` is now four honest rows — its `INT` row had been running the
+NATIVE lane, and its `JVM` row the COMPILER rather than a run. Pointed at a run, the JVM row exposed
+`jvm-package-import-qualifies-the-link-name`: no module declaring `package:` can be imported on that
+lane. It is filed, declared known-red by slug, and the gate fails if it starts passing. Registered in
+`ci.yml`, where it had never been — which is why its failure went unread for weeks.
+
 ## ssc-tools-stdin-belongs-to-the-program (S3) — piped stdin now reaches your program
 Completed: 2026-08-05
 
