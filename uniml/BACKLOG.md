@@ -7,17 +7,37 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## a paragraph's continuation line loses its leading whitespace
+## a list item's continuation prefix is lost when a code span crosses the break
 
-Three files still fail composed round-trip, all the same way: inside a paragraph, the whitespace
-that begins a continuation line moves to the END of the block.
+Three files still fail composed round-trip. Minimal reproduction, and the isolation is the
+interesting part:
 
-    src   … `first + "/" +\n   second` …
-    got   … `first + "/" +\nsecond` …\n
+    src   2. a (`x +\n   y`) b\n
+    got   2. a (`x +\ny`) b\n
 
-`v1/runtime/std/dep-cps-ping.ssc` (differs at 576) is the shortest; also `v1/runtime/std/nodes.ssc`
-and `v1/runtime/std/streams.ssc`. Order, not loss — the characters are all present, which is why a
-length check passes.
+The three-space continuation indent moves to the END of the block. Order, not loss — every
+character is present, which is why a length check passes and only comparing the string catches it.
+
+**It is a COMBINATION, and each half is green on its own.** Measured in this order, all passing:
+
+    1. one\n   two\n              list item with a plain continuation      OK
+    `x +\n   y`\n                 code span crossing a line break          OK
+    text `a\n b` more\n           code span inside a paragraph             OK
+    2. a (`x +\n   y`) b\n        the two together                        LOSS
+
+So three separate hypotheses each tested green before the fourth reproduced it. Worth remembering
+when the next one of these is chased: a construct that behaves on its own says nothing about the
+construct it is nested in.
+
+**The mechanism, as far as it is understood.** `matchContainers` strips a list item's continuation
+indent into `paragraphPendingPrefix` and emits it as its own trivia token. The inline parser then
+takes the paragraph's content, and a code span swallows the line break the prefix belonged in
+front of — leaving the prefix token with no position inside the inline stream, so it trails the
+block. A fix has to thread the continuation prefix into inline emission at its source offset
+rather than flushing it around the paragraph.
+
+Files: `v1/runtime/std/dep-cps-ping.ssc` (differs at 576, shortest), `v1/runtime/std/nodes.ssc`,
+`v1/runtime/std/streams.ssc`.
 
 Third instance of one shape in one afternoon: an injected subtree appended instead of spliced, an
 indented code block whose body interleaves with its indents, and now a paragraph's continuation
