@@ -29,12 +29,19 @@ So three separate hypotheses each tested green before the fourth reproduced it. 
 when the next one of these is chased: a construct that behaves on its own says nothing about the
 construct it is nested in.
 
-**The mechanism, as far as it is understood.** `matchContainers` strips a list item's continuation
-indent into `paragraphPendingPrefix` and emits it as its own trivia token. The inline parser then
-takes the paragraph's content, and a code span swallows the line break the prefix belonged in
-front of — leaving the prefix token with no position inside the inline stream, so it trails the
-block. A fix has to thread the continuation prefix into inline emission at its source offset
-rather than flushing it around the paragraph.
+**The mechanism, fully traced.** `matchContainers` strips a list item's continuation indent into
+`paragraphPendingPrefix`, and `emitParagraphWithSegments` puts it back after the k-th BREAK PIECE
+in the inline stream — "the k-th break ends segment k, so segment k+1's prefix follows", as its own
+comment says. When a code span crosses the line break there IS no break piece: the newline sits
+inside the span's single `CodeContent` lexeme. So the prefix has no position between pieces, the
+segment is never consumed, and `finishParagraph` flushes it after the block.
+
+**Which makes the fix bigger than it looks, and that is why this is filed rather than done.** The
+prefix belongs INSIDE a token, so a fix has to split the code span's `CodeContent` at the line
+break and emit the trivia between the halves. That changes the token stream for every multi-line
+code span, and the markdown corpus asserts on a `tokens` axis whose baselines are checksum-frozen —
+so it is a change plus a baseline regeneration, not a patch. Doing it alongside unrelated work
+would also deny both halves their own before/after.
 
 Files: `v1/runtime/std/dep-cps-ping.ssc` (differs at 576, shortest), `v1/runtime/std/nodes.ssc`,
 `v1/runtime/std/streams.ssc`.
