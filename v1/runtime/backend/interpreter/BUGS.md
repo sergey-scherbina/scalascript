@@ -9,14 +9,11 @@ Newest first.
 
 ## int-sibling-call-missed-the-single-arg-dispatch-site — `Undefined: withHeader` from a one-argument method
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
+     fixed-in: b70a1e92cc2c368a09170017eb25db6b04f5640d
      gate: tests/e2e/session-roundtrip-gate.sh -->
-
-**The fix is in this commit; `status` flips with the sha in the next one** — `fixed-in` takes a
-resolvable sha and amending to record one changes it.
 
 `Response.withSession(payload)` calling `withHeader` — siblings on the same case class — raised
 `Undefined: withHeader` on the v1 lane even after `c04de5df1` made sibling calls work.
