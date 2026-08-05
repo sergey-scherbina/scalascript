@@ -1,0 +1,11 @@
+slug: roster-drift-two-rows
+branch: feature/roster-drift-two-rows
+agent: claude-code
+started: 2026-08-05T07:33:21Z
+heartbeat: 2026-08-05T07:33:21Z
+status: claimed-before-planning
+items: corpus-contract-roster-drift-48-cases
+paths: file:tests/conformance/contract-roster.tsv file:tests/e2e/freeze-consistency-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

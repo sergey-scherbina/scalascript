@@ -1,7 +1,8 @@
-# generation: 935
+# generation: 936
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:tests/e2e/run-lane-flags-are-flags.sh file:scripts/smoke-ci.ssc
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
 jvm-nested-module-qualification	claude-code	2026-08-05T07:03:05Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 js-package-import-double-const	claude-code	2026-08-05T07:15:51Z	js-package-import-emits-a-second-self-referential-const	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md
+roster-drift-two-rows	claude-code	2026-08-05T07:33:21Z	corpus-contract-roster-drift-48-cases	file:tests/conformance/contract-roster.tsv file:tests/e2e/freeze-consistency-gate.sh
