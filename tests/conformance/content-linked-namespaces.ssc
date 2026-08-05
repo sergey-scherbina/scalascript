@@ -5,8 +5,8 @@ version: 1.0.0
 
 # Linked Content Namespaces
 
-[copyVersion](tests/conformance/lib/content-copy.ssc)
-[fallbackVersion](tests/conformance/lib/fallback-copy.ssc)
+[copyVersion](./lib/content-copy.ssc)
+[fallbackVersion](./lib/fallback-copy.ssc)
 [ContentValue, contentModules, contentModule, contentModuleSection, contentModuleBlock, contentModuleData, contentModuleMetadata, contentPlainText](std/content.ssc)
 
 ```scalascript
