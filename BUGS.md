@@ -40,7 +40,7 @@ object Card:
 
 ```
 int     ->  ui-card-hi
-jvm     ->  ui-card-hi          (was red too; fixed in bdebc1c80, which emits `val o = org`)
+jvm     ->  ui-card-hi          (was red too; fixed in 06513400e, which emits `val o = org`)
 native  ->  ssc: unbound global: o
 js      ->  Method not found: … (throws from the generated _dispatch)
 ```

@@ -14,7 +14,7 @@ Newest first.
      area: codegen
      kind: bug
      gate: tests/e2e/package-keyword-smoke.sh
-     fixed-in: bdebc1c80 -->
+     fixed-in: 06513400e -->
 
 **FIXED 2026-08-05.** The gate's JVM row is green and its known-red declaration is gone — forced
 rather than chosen, since the gate FAILS a declared row that starts passing.
