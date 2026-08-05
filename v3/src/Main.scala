@@ -197,7 +197,7 @@ object SelfTest:
   val code =
     try
       if args.isEmpty then
-        println("usage: ssc3 build|ir|exec <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
+        println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
         2
       else
         args.head match
@@ -210,6 +210,20 @@ object SelfTest:
           // The whole front, end to end: .ssc -> tokens -> AST -> SSC IR -> verify -> v2 Core IR.
           // Emitting rather than running, because spawning v2 is a host call and the kernel's only
           // door to the host is `Prim` (invariant I-1). `bin/ssc3` does the piping.
+          // The canonical `Ast`, as text. The apparatus the UniML swap is decided by: two fronts
+          // are compared by diffing THIS, not by comparing what a program printed after passing
+          // through the lowering, the verifier and a backend.
+          case "ast" if args.length >= 2 =>
+            val path = args(1)
+            val front = if args.length >= 3 then args(2) else Front.v3
+            try
+              print(AstText.render(Loader.merge(Loader.closure(path, front))))
+              0
+            catch
+              case e: LoadError => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+
           case "build" if args.length >= 2 =>
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")

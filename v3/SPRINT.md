@@ -400,3 +400,47 @@ named cause instead of silence, and the gates got several times faster.
       `xs.map[Int](f)`. 158 cases, the largest bucket once alternatives landed. Skipped like every
       other type at Tier 0: `a[0]` is not indexing in this language — arrays use `a(0)` — so a `[`
       after a name is unambiguously a type argument list and there is nothing to disambiguate.
+
+## SSC3-11 — the apparatus for the UniML front swap
+
+Sergiy asked whether v3 is ready to use UniML for the AST. The answer is yes, but **not in the shape
+the spec said**, and `v3/specs/40-front-on-uniml.md` was rewritten to say why: both earlier versions
+had v3 defining no AST of its own, which was true and cheap when `Lower.scala` was small. It is now
+the largest and most measured part of v3, and its behaviours were FOUND rather than designed —
+forty-five fixtures hold them. Replacing the AST and rewriting the lowering in one step risks all
+forty-five at once, and a differential between v3's two LANES cannot see it, because both lanes move
+together.
+
+So: **UniML's typed projection is mapped into v3's `Ast`; the lowering does not change.** That makes
+the swap gateable — the same source through both fronts must print the same `Ast`.
+
+- [x] **11a — `AstText`,** the canonical text form of an `Ast`. Positions are deliberately NOT
+      printed: two fronts may legitimately attribute a node to different columns, and a diff full of
+      position noise is a diff nobody reads. Shape and names are what must agree.
+- [x] **11b — `Front`,** one door from source text to a `Program`, threaded through `Loader` rather
+      than read from a global so two fronts can run in the SAME process on the same file. `uniml` is
+      a name that refuses with a pointer to the spec, and is deliberately ABSENT from `available`:
+      a name that is listed and then fails reads as a regression, one that never appeared reads as
+      unfinished work.
+- [x] **11c — `v3/front-diff.sh`.** It says out loud what it is today: ONE front, so nothing is
+      compared. It proves the printer is TOTAL over 39 fixtures, and it SELF-TESTS the comparator by
+      mutating one token and requiring the difference to be seen — the doctrine applied before the
+      thing it guards exists, because a comparator nobody has watched fail is a hypothesis.
+      Observed failing: with `render` returning an empty string the gate goes RED.
+
+### What UniML still owes v3 — the ordering request
+
+Written into `40-front-on-uniml.md` §5, measured from UniML's own numbers rather than guessed:
+`for` (37 gaps), `try`/`throw` (32 + 56), `spike.pfblock` (185), a nested `def` (48), and the
+ALPHABET item that is still open. Every one of the first four is a construct **v3 already supports
+with a green fixture on both lanes**, so a swap before they close would lose working features.
+
+Recorded as NOT a blocker, so nobody sequences behind it: an import's PATH is absent from the CST.
+v3's imports are markdown links read from the source TEXT by `Loader`, never from the tree.
+
+### And a build fact, measured
+
+Pointing scala-cli at both source trees does NOT work: UniML has a package
+`scalascript.uniml.dialect.scalascript`, and inside it `import scalascript.uniml.*` resolves to the
+INNERMOST `scalascript`. sbt never sees this because it compiles each subproject as its own unit.
+So UniML is consumed as JARS built by sbt — the same digest-keyed caching `v3/ssc3` already does.

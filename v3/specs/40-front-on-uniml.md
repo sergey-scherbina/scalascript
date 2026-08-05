@@ -28,6 +28,30 @@ Sergiy's decision is unchanged by this and is what both documents implement: Uni
 parsing and the AST. The refinement is *how* — one representation, two views, rather than one
 untyped tree that every later phase re-derives shape from.
 
+**It changed a SECOND time on 2026-08-05, and again because the facts moved.** Both earlier versions
+said v3 defines no AST type of its own. That was true and cheap when it was written: v3 had an
+interim parser and a small lowering. It is neither now. `Lower.scala` is the largest and most
+measured part of v3, and the behaviours in it were not designed — each was found by running the
+corpus and cost a debugging round: layout continuations for `else` and for a trailing operator,
+alternative patterns, default and named arguments, block comments, character literals, statement
+bodies, tuple destructuring. Forty-five fixtures hold them, on both lanes.
+
+Replacing the AST **and** rewriting the lowering in one step puts all forty-five at risk
+simultaneously, and a differential between v3's two LANES cannot see it — both lanes would move
+together. So:
+
+> **UniML's typed projection is mapped into v3's `Ast`. The lowering does not change.**
+
+This is not a retreat from Sergiy's decision; it is how to carry it out reversibly. UniML still
+supplies the parsing and the tree. What changes is that the swap is a PROJECTION rather than a
+transplant, which makes it gateable: the same source through both fronts must produce the same
+`Ast`, printed and compared as text. That gate is the acceptance criterion in §7, and it is the only
+form of this work that can be trusted, because it is the only one that can fail loudly.
+
+Whether v3's `Ast` survives once UniML's projection is proven equivalent is a LATER question with an
+answer that costs nothing to defer — and it is a much smaller question once the two are known to
+agree.
+
 ## 1 · Why UniML rather than a bespoke ADT
 
 - **It is ours and it has no dependencies.** Invariant I-1 asks that nothing in the chain be
@@ -87,7 +111,95 @@ Two things still hold at the seam, because the projection is where an unknown ki
 2. the **IR verifier remains the backstop** (I-4), now for lowering bugs rather than for missing
    cases the compiler can already prove absent.
 
-## 4 · What this depends on, and who owns it
+## 4 · How the two are BUILT together — measured, not assumed
+
+`v3/src` is compiled by scala-cli with no dependencies, UniML is an sbt project. The obvious idea —
+point scala-cli at both source trees — was tried on 2026-08-05 and **does not work**:
+
+```
+uniml/core/.../dialect/Literal.scala:3: import scalascript.uniml.*
+    value uniml is not a member of scalascript.uniml.dialect.scalascript
+```
+
+UniML has a package `scalascript.uniml.dialect.scalascript`. Inside it, `import scalascript.uniml.*`
+resolves the leading `scalascript` to the INNERMOST one, not the root. sbt never sees this because
+it compiles each subproject as its OWN compilation unit; merging the sources into one makes the
+shadowing reachable. The dialect also pulls in `markdown`, `yaml` and `json` — 33 files and ~10,200
+lines against v3's 14 files and ~5,200.
+
+**So UniML is consumed as JARS built by sbt, never by merging sources.** The driver already caches
+jars keyed on a source digest (`v3/ssc3`), and this is the same mechanism with one more input. It
+also keeps invariant I-1 honest in the way that matters: UniML is ours and has no third-party
+dependencies, so depending on it adds no third party — but it is a separate build, and pretending
+otherwise would have produced a compile error at the worst possible moment.
+
+*Not yet verified:* that a v3 built against those jars runs. It cannot be verified from here today —
+the jars are not built in this worktree and sbt would contend with the live `uniml-typed-ast-complete`
+claim. It is the first step of the integration batch, not an assumption inside it.
+
+## 5 · What UniML still owes v3 — measured from UniML's OWN numbers, 2026-08-05
+
+The projection is in good shape and the work behind it is careful: 1,185 files, 212,885 nodes,
+**99.7% coverage, 672 admitted gaps, 0 silent drops**. The finding that makes those numbers
+trustworthy is theirs, not v3's: **the coverage metric used to reward dropping nodes** — a dropped
+subtree is absent from BOTH sides of the ratio, so losing a construct RAISED the figure. They found
+it, fixed it, and admitted gaps went UP (2,943 → 2,964) as a result. A/B rather than assertion:
+re-planting `enum.case` turns the census red at 142.
+
+What still blocks the swap, in priority order for v3:
+
+| # | what | why v3 needs it |
+|---|---|---|
+| 1 | **`for`** (37 gaps) | v3 supports `for … do` / `yield`, multiple generators and `if` guards, with a green fixture on both lanes. A swap today LOSES it. |
+| 2 | **`try` / `throw`** (32 + 56) | same — `try-catch.ssc` is green on both lanes today. |
+| 3 | **`spike.pfblock`** (185) | `{ case (k, v) => … }` as a lambda. v3 has it; it is how every destructuring callback is written. |
+| 4 | **a nested `def`** (48) | v3 lifts local functions; losing them silently would be worse than losing them loudly. |
+| 5 | **the ALPHABET** (`UNIML-SSC3-ALPHABET`, still open) | v3's requirement, and a language-level one: route character classification through the host and the same source lexes differently on JVM, JS and the v2 VM. The table is [`20-core-language.md`](20-core-language.md) §3 — every line a range comparison, no Unicode tables on any host. |
+
+Two more that v3 can live without today but should be recorded:
+
+- **an import's PATH is not in the CST.** `parseImportStmt` consumes the dotted path without
+  attaching it, so `import a.b.c` and `import x.y` are indistinguishable. UniML filed this
+  themselves and modelled it as the contentless `NoOpDecl` it really is, which is the honest
+  choice. **It does not block v3**, because v3's imports are markdown links (`[names](path.ssc)`)
+  read from the source TEXT by `Loader`, not from the tree — a fact worth stating so nobody
+  sequences the swap behind it.
+- `givenobj` 45, `effectdecl` 42, `focusmarker`/`direct`/`try` 32 each, `summon` 26 — all outside
+  SSC3 core Tier 0 today, so they are not v3's blockers. `given`/`using` in particular stays refused
+  by v3 on its own grounds: it needs type-directed resolution, which Tier 0 does not have.
+
+**The ordering is a request, not an instruction.** UniML's claim is theirs; this table exists so the
+sequencing question has a measured answer instead of two agents guessing at each other.
+
+## 6 · What v3 does on its own side, before any of that lands
+
+Nothing in §5 blocks the apparatus. Under `ssc3-core`, in this order:
+
+1. **A canonical text form for `Ast`** — the same role `Text.write` plays for the IR. Without it two
+   fronts cannot be compared at all; with it the comparison is a diff a person can read.
+2. **A front SEAM** — one entry point from source text to `Program`, so a second implementation is a
+   parameter rather than an edit.
+3. **The differential gate** (§7). It lands with ONE front and is honest about that: it is a change
+   detector until the second front exists, and the file says so rather than implying coverage it
+   does not have.
+
+## 7 · Acceptance: the swap is a NUMBER, not a judgement
+
+The UniML front is adopted when, for every case in `v3/tests/front/` and every corpus case v3
+currently compiles, **both fronts produce the same `Ast`, byte for byte in canonical form**. Until
+then `SSC3_FRONT=uniml` selects it and the default does not, so the two can be compared at any time
+and a regression is one environment variable away from being isolated.
+
+Two rules this repository paid for, applied here from the start:
+
+- **Observe the gate failing first.** Before the front-diff gate is trusted, plant a divergence — a
+  dropped modifier, a reordered argument — and watch it go red. A gate that has only ever been green
+  is a hypothesis.
+- **Do not compare exit codes.** Compare the printed `Ast`. A parser that refuses and a parser that
+  returns an empty tree both exit 0 on some path, and this session already lost a round to an empty
+  output being read as a wrong answer.
+
+## 8 · What this depends on, and who owns it
 
 **Making UniML ready for this role is a separate piece of work under a separate claim**
 (`uniml-ssc3-frontend-readiness`, item `UNIML-SSC3`, spec `specs/uniml-ssc3-frontend.md`). `SSC3-4`
