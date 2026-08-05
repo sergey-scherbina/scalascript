@@ -105,9 +105,14 @@ object SpikeTyped:
           Select(byRole(b, "sel.obj").map(expr).getOrElse(Unsupported("missing.recv", span(b))),
                  byRole(b, "sel.field").map(lex).getOrElse("_"), span(b))
         case "spike.if" =>
+          // `if.then`/`if.else` are the KEYWORD tokens; the branches are `if.thenE`/`if.elseE`.
+          // Reading the keyword roles projected `then` and `else` themselves as the branches, so
+          // every `if` in the corpus modelled both arms as Unsupported("spike.kw") — 2,120 of the
+          // 4,851 recorded gaps, 44%, and the If node looked present while its children were the
+          // syntax that separates them.
           If(byRole(b, "if.cond").map(expr).getOrElse(Unsupported("missing.cond", span(b))),
-             byRole(b, "if.then").map(expr).getOrElse(UnitLit(span(b))),
-             byRole(b, "if.else").map(expr), span(b))
+             byRole(b, "if.thenE").map(expr).getOrElse(UnitLit(span(b))),
+             byRole(b, "if.elseE").map(expr), span(b))
         case "spike.block"    => Block(kids(b).map((_, c) => expr(c)), span(b))
         case "spike.exprStmt" => byRole(b, "stmt.expr").map(expr).getOrElse(UnitLit(span(b)))
         case "spike.val"      => valOf(b, "val")

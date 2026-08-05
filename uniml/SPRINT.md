@@ -72,8 +72,19 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       (4) **losslessness — DONE AND GATED.** Every one of 1,146 `.ssc` files reconstructs
           exactly; `SpikeLosslessSpec` checks reconstruction, chunk-invariance and
           no-duplicate-tokens, verified in both directions with a planted defect.
-      (2) **typed projection — FIRST CUT.** `SpikeAst`/`SpikeTyped`, 96.3% of what the dialect
-          parses, gated with floors. Nothing consumes it yet — no lowering to SSC IR.
+      (2) **typed projection — 98.3%, after a real bug the floor was hiding.** `SpikeAst`/
+          `SpikeTyped`. Every `if` in the corpus projected BOTH branches as
+          `Unsupported("spike.kw")`: the CST names the keyword tokens `if.then`/`if.else` and the
+          branches `if.thenE`/`if.elseE`, and the projection read the keyword roles. The `If` node
+          was present, its children were the syntax that separates them.
+          It hid behind a COUNT: 2,120 of 4,851 gaps, under a floor that only asked for >95%. A
+          count cannot tell "unmodelled construct" from "modelled wrongly", so `SpikeTypedIfSpec`
+          asserts on the SHAPE instead. Fixing it moved nodes 139,787 → 171,119 — the branches'
+          whole subtrees were never reaching the projection — gaps 4,851 → 2,943, coverage
+          96.5% → **98.3%**.
+          Still true and still the point: **nothing consumes this AST**, so its coverage number is
+          a self-report. Real gaps now, in order: `spike.narg` 772, `spike.interp` 583,
+          `spike.blockapp` 509, `decl:spike.sealed` 382, `spike.listlit` 239.
       (3) **breadth — the probe was fixed first, then the biggest gap closed.** The headline could
           not tell a language fix from a permissiveness win: an untagged fence defaults to
           ScalaScript, so PROSE counts as broken code, and twice on 2026-08-04 a correct change was
