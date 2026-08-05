@@ -64,8 +64,36 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
            rather than claimed as an import; filed as a dialect-side gap in `uniml/BACKLOG.md`,
            because a v3 front cannot build a module graph from it. Pinned by a test so a dialect
            fix is news.
-      Remaining, all honestly reported: `spike.pfblock` 185, `throw` 56, a nested `def` 48,
-      `givenobj` 45, `effectdecl` 42, `for` 37, `focusmarker`/`direct`/`try` 32 each, `summon` 26.
+      e. **[x] the census learned to judge TOKENS, and found two more real bugs immediately.**
+         The branch-only version stated its blind spot honestly — a token read for its lexeme
+         leaves a `String`, not a span — and that stated blind spot is exactly where `group.elem`
+         had hidden. Reading harder is not a method that scales, so `SpikeTyped.traced` now reports
+         every span consumed AS TEXT, recorded in `lex`/`text`, the only two places text is read.
+         Two wrong first attempts, both caught by their own output:
+         - kind-based content detection reported `var.kw -> spike.id` 1,437 times. **This dialect
+           lexes keywords as identifiers**, so kind alone calls every `var` a dropped name; the
+           ROLE is what separates them. Also skipped `unparsed`/`trivia`, which are breadth and
+           would have billed 9,000 rows of one problem to the other.
+         - flag-reads (`for.yield`, `eff.multi`) consumed a token via `isDefined`, leaving no
+           trace, so 35 correctly-handled tokens read as dropped. A `flag` helper records them.
+         **What it then found, neither visible to the branch census nor covered by any shape test:**
+         `ext.recv`/`ext.recvType` 35 — **an extension dropped its RECEIVER**, which makes the node
+         wrong rather than small — and `def.nameseg` 40, a dotted `def Source.distributed` keeping
+         only `Source`. Both fixed, both pinned.
+      f. **[x] the import PATH now exists**, fixed in the dialect where it was missing:
+         `parseImportStmt` attaches `imp.seg`/`imp.dot`/`imp.sel`/`imp.wildcard` instead of
+         consuming and discarding. Kind stays `spike.sealed` so `SpikeProject` and the v2 lane are
+         untouched. `ImportDecl(path, selectors, wildcard)`; an anonymous given stays `NoOpDecl`.
+         Losslessness green — the token sequence is unchanged, only its attachment.
+      g. **[x] every remaining construct closed**: `pfblock`, `throw`, `try`, `for`+`forgen`,
+         `rangeop`, `summon`, `givenobj`, `givenval`, `effectdecl`, `quote`/`splice`/`qname`,
+         `???`, local `def`, `idxassign`, `compoundassign`, `tuppatval`, the optics markers — plus
+         five statement kinds that `expr` already modelled and `decl` did not route, so the same
+         node projected fine inside a block and read as unmodelled at top level.
+      **FINAL: gaps 2,943 → 28, coverage 98.3% → 100.0%, silent drops 6,641 → 0, nodes 171,119 →
+      221,824.** The 28 are parse-recovery holes (`missing.right` = an infix whose operand the
+      DIALECT diagnosed), i.e. breadth, not typing. **No construct the CST has is unmodelled.**
+      Floor raised 95.0 → 99.0 → 99.9, each raise after a measurement rather than before one.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 

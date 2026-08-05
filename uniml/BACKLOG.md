@@ -41,10 +41,22 @@ reference front would not compile is a false gap, and the probe is what decides 
 goes. Two of the remaining shapes are exactly this shape.
 
 
-## the CST does not keep an import's PATH — a v3 front cannot resolve imports from it
+## the CST does not keep an import's PATH — FIXED 2026-08-05, same day it was filed
+
+**FIXED under `uniml-typed-ast-complete`.** `parseImportStmt` now attaches the path as
+`imp.seg`/`imp.dot`, selectors as `imp.sel` and `.*` as `imp.wildcard`, instead of consuming and
+discarding them. The frame KIND stays `spike.sealed` deliberately: `SpikeProject` matches on it and
+returns a constant, so the v2 lane sees no change and no kind census moves. Losslessness stayed
+green — the token sequence is identical, only its attachment changed. The projection reads it as
+`ImportDecl(path, selectors, wildcard)`, and an anonymous `given` — which shares the kind and
+genuinely carries nothing — stays `NoOpDecl`. Regression tests assert the path, the selectors, the
+wildcard, and that two different imports are DISTINGUISHABLE, which is the property that was
+missing. The original report follows.
+
+### Original report (superseded 2026-08-05)
 
 Found 2026-08-05 under `uniml-typed-ast`, by writing the assertion that the path was there and
-watching it fail. Not a projection bug: the information is not in the tree.
+watching it fail. Not a projection bug: the information was not in the tree.
 
 `ScalaSpike.parseImportStmt` consumes the dotted path token by token and then calls `sealedNoop`,
 which frames `spike.sealed` from ONE carrier token. So `import a.b.c` and `import x.y` produce
@@ -60,11 +72,10 @@ Pinned rather than assumed: `SpikeTypedRolesSpec` asserts the two imports projec
 contentless node, so a dialect change that starts keeping the path turns that test red and gets
 noticed instead of landing silently.
 
-**Not fixed here on purpose.** The fix is in the dialect — attach the path under roles
-(`imp.seg`/`imp.dot`, as `cc.field` and friends already do) — which changes the CST shape for every
-`.ssc` in the corpus and touches the frozen losslessness and breadth baselines. That deserves its
-own before/after, not a ride-along in an AST commit. Whoever takes SSC3-4 should treat it as a
-prerequisite rather than discovering it three files into writing the lowering.
+It was deferred once, on the reasoning that changing the CST shape touches frozen losslessness and
+breadth baselines and deserves its own before/after. It got one: the change landed alone, with the
+losslessness suite run against it, and the baselines did not move because the token SEQUENCE never
+changed — only which node owns each token. The caution was right and the cost was one build.
 
 ## HAND-OVER: the typed AST (UNIML-SSC3 criterion 2)
 
@@ -661,10 +672,25 @@ self-parity test is not external conformance.
         decompose an interpolation — `spike.interp` holds exactly two tokens — so the embedded
         expressions are not subtrees that could be dropped. Splitting them is a re-lex and belongs
         where the interpolation is given meaning.
-        Remaining, all honestly reported and none silent: `pfblock` 185, `throw` 56, a nested `def`
-        48, `givenobj` 45, `effectdecl` 42, `for` 37, `focusmarker`/`direct`/`try` 32 each,
-        `summon` 26. Evidence both slices: `cd uniml && sbt -batch test` exit 0, 10 projects
-        passing — the exact command and floor of the nightly `UniML — standalone build` job.
+        **Then the rest, under `uniml-typed-ast-complete`: gaps 672 → 28, coverage → 100.0%.**
+        Every remaining construct modelled — `pfblock`, `throw`, `try`, `for`, `rangeop`, `summon`,
+        `givenobj`, `givenval`, `effectdecl`, quote/splice/qname, `???`, a local `def`, index and
+        compound assignment, destructuring val, the optics markers — plus five statement kinds that
+        `expr` already handled and `decl` did not ROUTE, so the identical node projected fine inside
+        a block and read as unmodelled at top level. The 28 left are parse-recovery holes
+        (`missing.right` = an infix whose operand the DIALECT diagnosed): breadth, not typing.
+        **No construct the CST has is unmodelled.** Floor 95.0 → 99.0 → 99.9.
+        **The census learned to judge TOKENS, and that is what closed the loop.** The branch-only
+        version stated its blind spot honestly, and the blind spot is exactly where `group.elem`
+        had hidden — found by reading, which does not scale. `SpikeTyped.traced` now reports every
+        span consumed AS TEXT, recorded in `lex`/`text`, the only two places text is read.
+        Two wrong attempts first, each caught by its own output: a kind-based content rule reported
+        1,437 `var.kw -> spike.id` because **this dialect lexes keywords as identifiers**, and
+        flag-reads via `isDefined` consumed 35 tokens without leaving a trace. It then found two
+        bugs nothing else could: **an extension dropped its RECEIVER** (`ext.recv`, 35 — wrong, not
+        merely small) and a dotted `def Source.distributed` kept only `Source` (`def.nameseg`, 40).
+        Evidence, all slices: `cd uniml && sbt -batch test` exit 0, 10 projects passing — the exact
+        command and floor of the nightly `UniML — standalone build` job; 38 typed-AST tests green.
         (`scripts/smoke-ci` does NOT cover uniml; its only mention is the comment recording why.)
 
   - [ ] **SSC3-B breadth — to the reachable floor, NOT to zero.** Differential against `F` over the whole corpus until
