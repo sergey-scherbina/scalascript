@@ -7,62 +7,59 @@ grepping for status.
 
 Newest first.
 
-## int-imported-module-var-loses-its-mutations — `package:` freezes an imported module's state
+## int-object-var-mutation-does-not-persist — a `var` inside an `object` never changes
 
 <!-- status: open
      lane: int
      area: runtime
      gate: none -->
 
-**Measured 2026-08-05.** A module with a top-level `var`, imported and called twice:
+**Ten lines, no imports, no front matter** (measured 2026-08-05):
 
 ```scalascript
---- cards.ssc                     --- consumer.ssc
-var hits = 0                      [bump, peek](./cards.ssc)
-def bump(): Int =                 def main() =
-  hits = hits + 1                   println(bump()); println(bump()); println(peek())
-  hits
-def peek(): Int = hits
+object org:
+  var hits = 0
+  def bump(): Int =
+    hits = hits + 1
+    hits
+  def peek(): Int = hits
+def main() =
+  println(org.bump()); println(org.bump()); println(org.peek())
 ```
 
-| `cards.ssc` front matter | int | native |
-|---|---|---|
-| none | `1 2 2` | `1 2 2` |
-| `name: cards` | `1 2 2` | `1 2 2` |
-| **`package: org`** | **`1 1 1`** | `1 2 2` |
-
-**One line of front matter changes the answer, and only on int.** `bump()` returns 1 forever: every
-call runs against a frozen copy. Nothing reports an error — this is a wrong number, at exit 0.
-
-The package-qualified path is worse and locates the cause:
-
 ```
-[org](./cards.ssc)   →   org.bump()=1   org.bump()=1   org.peek()=0
+int    : 1  1  0        native : 1  2  2
 ```
 
-`peek` reads **0**, the value `hits` had before either call. So the writes are not merely lost, they
-land somewhere the reads do not see: the package object holds a SNAPSHOT of the module's globals.
+`bump()` returns 1 forever and `peek()` reads the value `hits` had before either call. The writes are
+not merely lost — they land where the reads cannot see them. No error, exit 0.
 
-**Where the machinery already tries and fails.** `SectionRuntime.runImport` has exactly this case in
-mind — `childHasVars = moduleDeclaresTopLevelVar(childModule)`, and when true it binds each exported
-function to run IN THE CHILD interpreter so "its reads AND `var` writes hit the module's LIVE
-globals". With `package:` that wrapper does not produce live behaviour, so either it is not reached
-or what it wraps is already a copy.
+**This entry was filed as an IMPORT bug and that was the symptom, not the defect.** The original
+repro was a module imported with `package: org` in its front matter losing its state, and the
+reduction ran through three layers before the floor:
 
-**A hypothesis I tested and REFUTED, recorded so the next attempt does not repeat it.**
-`rawChildCtx = exported ++ packageMembers(exported, childPkg)` lets the right side win, so I expected
-the package object's frozen fields to be shadowing the live exports and flipped the precedence to
-`packageMembers(...) ++ exported`. Rebuilt: **no change**, still `1 1 1`. Reverted. The frozen values
-are not arriving through that merge.
+1. `package:` in the front matter, and only `package:` — `name:` alone behaves correctly.
+2. `Parser.scala:87` `wrapSectionInPackage` rewrites every section of such a module into a synthetic
+   `object org: …`. So the module's top-level `var` becomes an object MEMBER.
+3. …and mutating an object member does not persist, with or without imports. The import path was
+   never the cause; it was the only place anyone had noticed.
 
-**Not a defect, though it looks like one while bisecting**: a standalone module with `package: org`
-and a `def main()` prints nothing on `run`, because its `main` is `org.main` and the runner looks for
-a top-level one. Mentioned only so the next person does not chase it.
+**Two things found on the way, both worth keeping:**
 
-Found while investigating `v2/BUGS.md native-front-has-no-package-namespace`, whose author worried
-that adding a namespace binding would raise a question about identity — two paths to one definition.
-The question is already live and already answered wrongly on this lane, in the opposite direction
-from the one expected: it is the lane WITH the package namespace that copies.
+- `ScalaNode.fold` does **not** walk a tree. It is `f(n.tree)` — the root node only. Every caller
+  written as if it recursed is inspecting one node. That is how
+  `moduleDeclaresTopLevelVar` reported `childHasVars=false` for a module that plainly declares one:
+  the `var` sat inside the synthetic object and nothing looked in.
+- Fixing that detection (`hasVarStat` now descends into `object` bodies) moves the imported case from
+  `1 1 1` to `1 1 0` — the same answer the ten-line repro gives with no import at all. It does not
+  fix anything, and it is landed for exactly that reason: the import path no longer contributes a
+  SECOND, different wrongness on top of this one, so whoever fixes object-var mutation will see one
+  behaviour to fix rather than two.
+
+**Not started.** The remaining question is where an object's `var` lives in the interpreter and why a
+write to it is not visible to a subsequent read — plausibly a fresh instance per selection, or a
+field write to a copied `InstanceV` field map. `native` gets it right, so the semantics are not in
+doubt.
 
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 

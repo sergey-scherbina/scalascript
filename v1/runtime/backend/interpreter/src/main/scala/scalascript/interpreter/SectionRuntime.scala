@@ -300,7 +300,20 @@ private[interpreter] object SectionRuntime:
   // decide whether the module's exported functions must run in the child interp (live module
   // globals) instead of an import-time snapshot. See bug interp-module-var-home.
   private def moduleDeclaresTopLevelVar(m: Module): Boolean =
-    def hasVarStat(stats: List[Stat]): Boolean = stats.exists(_.isInstanceOf[Defn.Var])
+    // Descends into `object` bodies. A module declaring `package: org` has every section rewritten
+    // into a synthetic `object org: …` (Parser.scala:87 `wrapSectionInPackage`), so its top-level
+    // `var` becomes a TEMPLATE member — and `ScalaNode.fold` does NOT walk the tree (it is
+    // `f(n.tree)`, the root only), so nothing else was going to find it. The caller then read the
+    // module as stateless, bound its exports to an import-time SNAPSHOT, and every mutation was
+    // silently lost: measured 2026-08-05, `bump(); bump(); peek()` gave 1 2 2 with no front matter
+    // and with `name:`, and 1 1 1 with `package: org`, while native gave 1 2 2 for all three. One
+    // line of front matter changed the answer, at exit 0.
+    // BUGS `int-imported-module-var-loses-its-mutations`.
+    def hasVarStat(stats: List[Stat]): Boolean = stats.exists {
+      case _: Defn.Var    => true
+      case o: Defn.Object => hasVarStat(o.templ.body.stats)
+      case _              => false
+    }
     def loop(section: Section): Boolean =
       section.content.exists {
         case cb: Content.CodeBlock if cb.isProgramCode =>
