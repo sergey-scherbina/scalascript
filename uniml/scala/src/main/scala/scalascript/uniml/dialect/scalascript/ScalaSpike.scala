@@ -1534,6 +1534,12 @@ object SpikeParse:
       // reachable. `case foo =>` below still binds, which is the rule in §"patterns" of the Scala
       // spec and the one place capitalisation changes meaning.
       case "spike.id" if c.peek2Kind == "spike.lparen" => parseCtorPat(c)
+      // A DOTTED name is a stable identifier, never a binder: `case scala.util.Failure(e) =>` and
+      // `case Status.Ok =>` both REFER. Scala binds only a simple identifier, so the case of the
+      // first segment is irrelevant once a `.` follows it — which is why this sits beside the rule
+      // above rather than under `spike.uid`. parseCtorPat already walks the `.seg` chain and keeps
+      // the last segment as the tag.
+      case "spike.id" if c.peek2Kind == "spike.dot" => parseCtorPat(c)
       case "spike.id"  => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get // incl. true/false → lpat bool
       case "spike.uid" => parseCtorPat(c)
       case "spike.lparen" => parseTuplePat(c)

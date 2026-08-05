@@ -65,6 +65,25 @@ final class SpikeCapitalisationSpec extends AnyFunSuite:
     assert(matcher.roots.flatMap(kindsOf).contains("spike.cpat"), "a simple uppercase identifier must match, not bind")
   }
 
+  test("a DOTTED name refers, whatever the case of its first segment") {
+    // `case scala.util.Failure(e) =>` is a stable identifier, not a binder — Scala binds only a
+    // SIMPLE identifier, so once a `.` follows, the first segment's case stops mattering. The
+    // dialect used to send a lowercase first segment down the binder path and then choke on the
+    // dot; `examples/bank-rails-fednow.ssc` spent 10 diagnostics on exactly that.
+    val lower = parse("def f(v: Int): Int =\n  v match\n    case scala.util.Failure(e) => 1")
+    assert(lower.diagnostics.isEmpty, s"${lower.diagnostics.map(_.message)}")
+    assert(lower.roots.flatMap(kindsOf).contains("spike.cpat"), "a dotted lowercase path must be a constructor pattern")
+
+    val upper = parse("def f(v: Int): Int =\n  v match\n    case Status.Ok => 1")
+    assert(upper.diagnostics.isEmpty, s"${upper.diagnostics.map(_.message)}")
+    assert(upper.roots.flatMap(kindsOf).contains("spike.cpat"))
+
+    // Control: WITHOUT the dot the same lowercase name still binds. If this flips, the change went
+    // too far and every lowercase pattern became a reference.
+    val bare = parse("def f(v: Int): Int =\n  v match\n    case scala => 1")
+    assert(!bare.roots.flatMap(kindsOf).contains("spike.cpat"), "a simple lowercase identifier must still bind")
+  }
+
   test("a non-ASCII capital matches, exactly as an ASCII one does — the table settled this") {
     // Sergiy's call, taken after the tableless answer was measured and found to diverge. `Число`
     // now behaves as `Foo` does, which is what a reader of the source would expect and what every
