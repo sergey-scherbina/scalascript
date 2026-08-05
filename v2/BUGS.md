@@ -177,6 +177,11 @@ it to the caller's, so the synthetic object is one more entry in that list.
 **Not implemented.** The design is proven with the language's own constructs rather than argued, and
 the remaining work is emitting it inside the tower loader, which is a session of its own.
 
+**Spec'd 2026-08-05:** [`specs/native-package-namespace.md`](../specs/native-package-namespace.md)
+carries the design, the three probes that closed the identity question, the implementation steps in
+`sscLoadMod`, the named limits, the acceptance criteria and a build hazard note for the tower file.
+Queued in [`v2/BACKLOG.md`](BACKLOG.md).
+
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: open
      lane: native
