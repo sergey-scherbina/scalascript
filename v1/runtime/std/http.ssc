@@ -231,9 +231,12 @@ case class Response(
   //     a case class declared in THIS file      R(1).viaSibling()  -> 3     works
   //     the same shape reached through import   withHeader(...)    -> Undefined: withHeader
   //
-  // So sibling calls work for a locally declared type and not for one that arrives through an
-  // import, which is where `Response` comes from here. Filed as
-  // `int-imported-type-methods-are-not-siblings`; until that closes, this stays.
+  // The boundary is NOT the import — I guessed that first and it was wrong. A class added to THIS
+  // file and imported the same way calls its siblings fine (12). What makes `Response` different is
+  // that it also exists as a BUILTIN: BuiltinsRuntime registers it in globals as a companion, and
+  // the std-declared methods lose the collision. Filed as
+  // `int-builtin-shadowed-type-loses-its-declared-methods` — the same clash as the companion bug
+  // fixed earlier today, seen from the other side. Until that closes, this stays.
   def withSession(payload: Map[String, String]): Response =
     Response(status, headers + ("Set-Cookie" -> sessionSetCookie(payload)), body)
 

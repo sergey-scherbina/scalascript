@@ -7,7 +7,7 @@ grepping for status.
 
 Newest first.
 
-## int-imported-type-methods-are-not-siblings — a sibling call works for a local class, not an imported one
+## int-builtin-shadowed-type-loses-its-declared-methods — `Response` cannot call its own siblings
 
 <!-- status: open
      lane: int
@@ -15,29 +15,33 @@ Newest first.
      fixed-in: -
      gate: tests/e2e/session-roundtrip-gate.sh -->
 
-`c04de5df1` made a case-class method able to call a sibling. It covers a type declared in the SAME
-file and not one that arrives through an import. Measured 2026-08-05, same shape both times:
+`Response.withSession` calling `withHeader` — a sibling method, both declared on the same case class
+in `std/http.ssc` — raises `Undefined: withHeader` on the v1 lane. `c04de5df1` made sibling calls
+work, and does not reach this one.
 
-```
-case class R(n: Int):                          --- declared locally
-  def withH(k: String): R = R(n + k.length)
-  def viaSibling(): R = withH("ab")            ->  R(1).viaSibling().n = 3   ✓
+**RENAMED AND CORRECTED. My first two guesses at the boundary were both wrong, and each was
+disproven by one probe:**
 
-def withSession(...): Response =               --- Response comes from std/http.ssc
-  withHeader("Set-Cookie", …)                  ->  Undefined: withHeader     ✗
-```
+| probe | result |
+|---|---|
+| case class declared in the caller's own file | works (3) |
+| case class in a module reached by `[R](./m.ssc)` | works (3) — so it is NOT "imported" |
+| a NEW class added to `std/http.ssc` and exported, imported the same way | works (12) — so it is NOT "a std module" |
+| `Response`, in that same file, same import | **`Undefined: withHeader`** |
 
-**Found by trying to delete the workaround the earlier fix was supposed to retire.** I had written
-in that commit that the inlined body in `std/http.ssc` could now go; it cannot, and the round-trip
-gate said so on the first run after the change — `/login sent no Set-Cookie`, both halves of the
-session broken. The workaround is back with the measurement in its comment rather than the old
-"v1 does not resolve siblings", which is no longer true and would have sent the next reader looking
-for a bug that is fixed.
+What is left is what makes `Response` different from the class sitting beside it: it ALSO exists as
+a builtin. `BuiltinsRuntime` (~line 782) registers `Response` in globals as an `InstanceV` companion
+carrying `html`/`text`/`json`, and `std/http.ssc` declares a `case class Response` with methods. The
+two representations collide, and the std-declared methods are what loses.
 
-`bindSiblings` reads `interp.typeMethods(inst.typeName)`, so the likely shape is that an imported
-type's methods do not land under the same key — but that is a hypothesis, not a measurement, and the
-entry stops where the evidence does.
+That is the same collision as `int-v1-lane-loses-a-builtin-companion-to-its-own-case-class`, fixed
+earlier today, seen from the other side: there the case-class constructor displaced the builtin
+companion, here the builtin displaces the declared methods. A fix should probably address both at
+once rather than adding a second one-way patch.
 
+**Why it matters beyond one method:** `std/http.ssc` carries the workaround — `withSession` builds
+its Response inline instead of calling `withHeader` — and any type that gains a builtin twin will
+silently lose its declared methods the same way.
 
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
 <!-- status: open
