@@ -121,6 +121,7 @@ extern def useGzip(): Unit
 
 // Cache helpers — add Cache-Control / ETag to an existing Response.
 // 304 short-circuit fires automatically in the server when ETag matches If-None-Match.
+extern def sessionSetCookie(payload: Map[String, String]): String
 extern def cacheable(response: Response, maxAge: Int): Response
 extern def cacheable(response: Response, maxAge: Int, etag: String): Response
 extern def noCache(response: Response): Response
@@ -213,4 +214,24 @@ case class Response(
   // registration says nothing about how a METHOD on a data value resolves.
   def withHeader(name: String, value: String): Response =
     Response(status, headers + (name -> value), body)
+
+  // Sessions ride the Set-Cookie header, computed HERE rather than deferred to the dispatch loop.
+  // v1 defers because it also runs an optional server-side store with SSID rotation; the native lane
+  // has no store at all, so for it the signed cookie IS the whole behaviour — which is exactly v1's
+  // own `sessionStoreEnabled = false` path. Doing it this way needs no change to the Response wire
+  // format: the native `Response` is a three-field DataV and stays one.
+  //
+  // The signing itself cannot live in ScalaScript — it is HMAC-SHA256 over a secret — so it is an
+  // extern backed by `scalascript-http-session`, the module BOTH lanes now share. That is the point
+  // of extracting it: one implementation of a scheme whose output has to stay readable across lanes.
+  // Built directly rather than through `withHeader`, which would be the obvious spelling: on the v1
+  // lane a case-class method calling a SIBLING method of the same class does not resolve —
+  // `Undefined: withHeader`, measured 2026-08-05 — while the same call from outside works. Inlining
+  // the one-line body sidesteps it; the divergence itself is filed separately.
+  def withSession(payload: Map[String, String]): Response =
+    Response(status, headers + ("Set-Cookie" -> sessionSetCookie(payload)), body)
+
+  // Empty payload is the documented clear (`Max-Age=0`), so this is not a special case.
+  def clearSession(): Response =
+    Response(status, headers + ("Set-Cookie" -> sessionSetCookie(Map())), body)
 ```

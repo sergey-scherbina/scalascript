@@ -365,7 +365,10 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       valueMap(formBody(req)),               // form  (index 4)
       filesValue(req),                       // files (index 5)
       valueMap(cookies(req.headers)),        // cookies (index 6)
-      valueMap(Map.empty),                   // session (index 7)
+      // session (index 7) — was hard-coded EMPTY, which is the half that makes a written cookie
+      // look like it works: `withSession` would sign and send one, and the next request would read
+      // nothing back. Same shared module as the writing side, so the two cannot drift.
+      valueMap(sessionOf(req.headers)),
       Value.DataV("None", Vector.empty),     // json  (index 8)
       valueMap(pathParams),                  // params (index 9)
       valueMap(req.query)))                  // query (index 10)
@@ -403,6 +406,11 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     if ct.startsWith("application/x-www-form-urlencoded") then
       HttpProtocol.parseFormUrlEncoded(new String(req.body, UTF_8))
     else Map.empty
+
+  private def sessionOf(headers: Map[String, String]): Map[String, String] =
+    headers.collectFirst { case (k, v) if k.equalsIgnoreCase("cookie") => v }
+      .flatMap(scalascript.server.SessionCookie.fromHeader)
+      .getOrElse(Map.empty)
 
   private def toResponse(value: Value): RawResponse = value match
     case Value.DataV("Response", Seq(Value.IntV(status), headerValue, Value.StrV(body))) =>

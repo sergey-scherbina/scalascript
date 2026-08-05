@@ -287,6 +287,24 @@ object HttpIntrinsics:
         case _   => PluginError.raise("useGzip()")
     },
 
+    // The v1 half of `Response.withSession` / `clearSession`, declared in std/http.ssc. Both lanes
+    // call the SAME `scalascript.server.SessionCookie` from the shared module, which is the whole
+    // reason it was extracted: a cookie signed on one lane has to verify on the other, and two
+    // HMAC implementations agreeing byte for byte is not something to hope for.
+    QualifiedName("sessionSetCookie") -> PluginNative.evalLegacy { (_, args) =>
+      // `MapVal` / `Str`, not a bare collection.Map — this plugin receives plugin-boxed values and
+      // the obvious Scala pattern silently fails to match, which surfaces as the intrinsic raising
+      // its OWN usage error rather than as a type problem. `openApiRegisterSchema` in this same file
+      // already had the right shape; I wrote the wrong one first and the error said only
+      // "sessionSetCookie(payload)".
+      args match
+        case List(MapVal(payload)) =>
+          val m: Map[String, String] =
+            payload.collect { case (Str(k), Str(v)) => (k, v) }.toMap
+          scalascript.server.SessionCookie.toSetCookie(m)
+        case _ => PluginError.raise("sessionSetCookie(payload)")
+    },
+
     QualifiedName("cacheable") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(resp, n: Long) =>

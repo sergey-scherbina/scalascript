@@ -243,6 +243,15 @@ final class HttpFastNativePlugin extends NativePlugin:
     native(context, "Response.redirect")(responseRedirect)
     native(context, "Response.notFound")(responseNotFound)
     native(context, "Response.status")(responseStatus)
+
+    // Backs `Response.withSession` / `clearSession` declared in std/http.ssc. The signing is
+    // HMAC-SHA256 over SSC_SESSION_SECRET and lives in `scalascript-http-session`, the module both
+    // lanes share — writing a second implementation here would mean two HMAC schemes that have to
+    // agree byte for byte for a cookie to survive a lane change.
+    native(context, "sessionSetCookie") { args =>
+      val payload = args.headOption.map(headers).getOrElse(Map.empty)
+      Value.StrV(scalascript.server.SessionCookie.toSetCookie(payload))
+    }
     val responseMethods = Map(
       "apply" -> closure(-1)(responseApply),
       "html" -> closure(-1)(responseHtml),

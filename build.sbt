@@ -339,7 +339,7 @@ lazy val v2NativeJsonPlugin = project
 // `v2NativeHttpPlugin` (v2/runtime/std/http-plugin), which was removed. See specs/v2-http-fast.md.
 lazy val v2NativeHttpFastPlugin = project
   .in(file("v2/runtime/std/http-fast-plugin"))
-  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin, httpFastEngine)
+  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin, httpFastEngine, httpSessionShared)
   .settings(
     name := "scalascript-v2-native-http-fast-plugin",
     libraryDependencies += scalatestTest,
@@ -2067,6 +2067,10 @@ lazy val cli = project
         // hf-5/hf-6: the http provider is now the from-scratch fast plugin (+ its shared
         // engine), replacing the removed com.sun `scalascript-v2-native-http-plugin_`.
         "scalascript-v2-native-http-fast-plugin_", "scalascript-http-fast-engine_",
+        // Sessions: the HMAC signing shared with the v1 lane, plus the one-file logger it warns
+        // through when SSC_SESSION_SECRET is unset. Admitted rather than reimplemented — two HMAC
+        // schemes would have to agree byte for byte for a cookie to survive a lane change.
+        "scalascript-http-session_", "scalascript-logger_",
         "scalascript-v2-native-sql-plugin_",
         "scalascript-v2-native-ui-plugin_", "scalascript-v2-native-state-effect-plugin_",
         "scalascript-v2-native-effect-runners-plugin_",
@@ -3961,7 +3965,7 @@ lazy val sqlPlugin = project
 
 lazy val httpPlugin = project
   .in(file("v1/runtime/std/http-plugin"))
-  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
+  .dependsOn(backendSpi, pluginApi, ir, core, httpSessionShared, testUtils % Test)
   .settings(
     name := "scalascript-http-plugin",
     libraryDependencies ++= Seq(scalatestTest),
