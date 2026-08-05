@@ -1,0 +1,11 @@
+slug: shared-session-module
+branch: feature/shared-session-module
+agent: claude-code
+started: 2026-08-05T07:49:45Z
+heartbeat: 2026-08-05T07:49:45Z
+status: claimed-before-planning
+items: native-Response-session-transforms-missing
+paths: file:build.sbt file:v1/runtime/http-server/common/src/main/scala/scalascript/server/SessionCookie.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

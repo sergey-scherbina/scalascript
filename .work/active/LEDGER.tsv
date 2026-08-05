@@ -1,5 +1,6 @@
-# generation: 941
+# generation: 942
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
 jvm-extern-marker-default-path	claude-code	2026-08-05T07:41:25Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
+shared-session-module	claude-code	2026-08-05T07:49:45Z	native-Response-session-transforms-missing	file:build.sbt file:v1/runtime/http-server/common/src/main/scala/scalascript/server/SessionCookie.scala file:v2/BUGS.md
