@@ -7,6 +7,63 @@ grepping for status.
 
 Newest first.
 
+## int-imported-module-var-loses-its-mutations — `package:` freezes an imported module's state
+
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none -->
+
+**Measured 2026-08-05.** A module with a top-level `var`, imported and called twice:
+
+```scalascript
+--- cards.ssc                     --- consumer.ssc
+var hits = 0                      [bump, peek](./cards.ssc)
+def bump(): Int =                 def main() =
+  hits = hits + 1                   println(bump()); println(bump()); println(peek())
+  hits
+def peek(): Int = hits
+```
+
+| `cards.ssc` front matter | int | native |
+|---|---|---|
+| none | `1 2 2` | `1 2 2` |
+| `name: cards` | `1 2 2` | `1 2 2` |
+| **`package: org`** | **`1 1 1`** | `1 2 2` |
+
+**One line of front matter changes the answer, and only on int.** `bump()` returns 1 forever: every
+call runs against a frozen copy. Nothing reports an error — this is a wrong number, at exit 0.
+
+The package-qualified path is worse and locates the cause:
+
+```
+[org](./cards.ssc)   →   org.bump()=1   org.bump()=1   org.peek()=0
+```
+
+`peek` reads **0**, the value `hits` had before either call. So the writes are not merely lost, they
+land somewhere the reads do not see: the package object holds a SNAPSHOT of the module's globals.
+
+**Where the machinery already tries and fails.** `SectionRuntime.runImport` has exactly this case in
+mind — `childHasVars = moduleDeclaresTopLevelVar(childModule)`, and when true it binds each exported
+function to run IN THE CHILD interpreter so "its reads AND `var` writes hit the module's LIVE
+globals". With `package:` that wrapper does not produce live behaviour, so either it is not reached
+or what it wraps is already a copy.
+
+**A hypothesis I tested and REFUTED, recorded so the next attempt does not repeat it.**
+`rawChildCtx = exported ++ packageMembers(exported, childPkg)` lets the right side win, so I expected
+the package object's frozen fields to be shadowing the live exports and flipped the precedence to
+`packageMembers(...) ++ exported`. Rebuilt: **no change**, still `1 1 1`. Reverted. The frozen values
+are not arriving through that merge.
+
+**Not a defect, though it looks like one while bisecting**: a standalone module with `package: org`
+and a `def main()` prints nothing on `run`, because its `main` is `org.main` and the runner looks for
+a top-level one. Mentioned only so the next person does not chase it.
+
+Found while investigating `v2/BUGS.md native-front-has-no-package-namespace`, whose author worried
+that adding a namespace binding would raise a question about identity — two paths to one definition.
+The question is already live and already answered wrongly on this lane, in the opposite direction
+from the one expected: it is the lane WITH the package namespace that copies.
+
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
 <!-- status: fixed
