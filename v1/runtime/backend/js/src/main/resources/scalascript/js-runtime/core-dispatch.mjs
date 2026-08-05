@@ -15,6 +15,16 @@ class _Char {
 }
 function _char(code) { return new _Char(code); }
 function _isChar(x)  { return x instanceof _Char; }
+// Coerce a value the CODEGEN knows is statically a Char into the box that dispatch keys on. A char
+// literal reaches here as a plain JS string (it shares its representation with a 1-char String), so
+// without this a `Char`-typed parameter took the String branch: `c.toInt` was parseInt -> NaN.
+// Anything else passes through UNCHANGED, so a wrong static guess degrades to today's behaviour
+// rather than corrupting a value.
+function _asChar(x) {
+  if (x instanceof _Char) return x;
+  if (typeof x === 'string' && x.length === 1) return _char(x.charCodeAt(0));
+  return x;
+}
 function _charCodeOrNull(x) {
   if (x instanceof _Char) return x.__c;
   if (typeof x === 'number') return x;

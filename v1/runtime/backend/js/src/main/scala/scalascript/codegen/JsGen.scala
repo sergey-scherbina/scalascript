@@ -3754,11 +3754,29 @@ class JsGen(
   private def isDeclaredIntParam(p: Term.Param): Boolean =
     p.decltpe.exists { case Type.Name("Int") => true; case _ => false }
 
+  private def isDeclaredCharParam(p: Term.Param): Boolean =
+    p.decltpe.exists { case Type.Name("Char") => true; case _ => false }
+
+  /** Entry guards. `Int` params accept a Char and take its code point; `Char` params take the box.
+    *
+    * The Char half exists because a char LITERAL reaches this lane as a plain JS string, sharing a
+    * representation with a one-character `String`, so `c.toInt` on a `Char` parameter reached the
+    * String branch of dispatch and returned **NaN silently** (`parseInt` being the right answer for
+    * a String). Coercing once at entry — rather than at every use — keeps it scoped to the function
+    * that DECLARED the type, which name-keyed module-global evidence would not: a same-named String
+    * elsewhere would then turn `"5".toInt` into 53, the same defect inverted.
+    *
+    * `_asChar` passes through anything that is not a one-character string, so a param that already
+    * holds a box, or holds something unexpected, behaves exactly as before.
+    */
   private def intParamGuardLines(paramVals: Seq[Term.Param]): List[String] =
     paramVals.collect {
       case p if isDeclaredIntParam(p) =>
         val n = safeJsParam(p.name.value)
         s"$n = _charCodeOrNull($n) ?? $n;"
+      case p if isDeclaredCharParam(p) =>
+        val n = safeJsParam(p.name.value)
+        s"$n = _asChar($n);"
     }.toList
 
   private def intParamReturnBody(paramVals: Seq[Term.Param], expr: String): String =
@@ -4812,7 +4830,7 @@ class JsGen(
 
     // Field/method selection without arguments
     case Term.Select(qual, name) =>
-      val qualJs = genExpr(qual)
+      val qualJs = genReceiver(qual)
       name.value match
         // js-collection-perf: numeric-conversion no-ops on a provably-numeric receiver lower to
         // native JS (matching the runtime: `.toInt`/`.toLong` → Math.trunc, `.toDouble` → identity)
@@ -5762,7 +5780,7 @@ class JsGen(
 
       // Method calls: obj.method(args) → _dispatch(obj, "method", [args])
       case Term.Select(qual, Term.Name(method)) =>
-        val qualJs = genExpr(qual)
+        val qualJs = genReceiver(qual)
         method match
           // foreach with a single fn arg: bypass _dispatch + avoid [fn] array allocation.
           // _forEach uses an indexed for-loop for arrays and falls back to _dispatch otherwise.
@@ -5813,6 +5831,27 @@ class JsGen(
   private def isFocusFun(t: Term): Boolean = t match
     case Term.Name("Focus") => true
     case _                  => false
+
+  /** A receiver, with a Char literal boxed.
+    *
+    * On this lane a `Char` literal and a one-character `String` have the SAME representation — both
+    * are a JS string — so a method call on a char literal took the String branch of `_dispatch`.
+    * `'A'.isDigit` threw "Method not found"; worse, `'a'.toInt` reached `parseInt` and came back
+    * **NaN silently**, because `parseInt` is the correct answer for a String.
+    *
+    * The runtime cannot fix that: `"12".toInt` must stay `12` while `'a'.toInt` must be `97`, and
+    * one representation cannot yield both. In RECEIVER position the static type IS known, so box it
+    * here — the same `_Char` that String iteration already produces, used for the same purpose:
+    * carrying "this is a Char, not a String" into dispatch.
+    *
+    * Deliberately NOT changing what `Lit.Char` emits everywhere. Equality, pattern matching and the
+    * name-keyed numeric evidence (46 sites) are all built on char-as-string, and `===` does not call
+    * `valueOf`, so a boxed char loses every numeric fast path. Making the representation uniform is
+    * a separate change with its own corpus run — filed in v1/runtime/backend/js/BUGS.md.
+    */
+  private def genReceiver(qual: Term): String = qual match
+    case Lit.Char(v) => s"_char(${v.toInt})"
+    case other       => genExpr(other)
 
   private def genCopy(qual: Term, args: List[Term]): String =
     val qualJs = genExpr(qual)

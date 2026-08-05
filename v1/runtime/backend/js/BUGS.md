@@ -9,11 +9,24 @@ Newest first.
 
 ## a-char-literal-is-not-boxed-so-its-methods-are-not-found
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: runtime
-     fixed-in: -
-     gate: - -->
+     fixed-in: ec9240d2b
+     gate: tests/e2e/js-char-classification-parity.sh -->
+
+**FIXED at the function boundary, not in the runtime.** `intParamGuardLines` already coerced
+declared `Int` params on entry; a `Char` param now gets the symmetric half, `c = _asChar(c);`.
+Scoped to the function that DECLARED the type, which is the point: seeding name-keyed
+module-global evidence instead would have made a same-named String elsewhere turn `"5".toInt`
+into 53 — this same defect inverted. `_asChar` passes through anything that is not a
+one-character string, so an unexpected value behaves exactly as before. A char literal used
+directly as a receiver is boxed at the call site by `genReceiver`.
+
+**Still open, and not pretended otherwise:** a Char inside a generic container, where no static
+type is available. Only a uniform representation closes that — see the note below on why it is a
+separate change.
+
 
 A `Char` obtained by iterating a String is boxed as `_Char` and dispatches correctly. A char
 LITERAL reaches the runtime as a plain JS string, so it takes the String branch of `_dispatch`,
