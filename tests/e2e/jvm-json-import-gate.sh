@@ -20,6 +20,8 @@
 #      Without it, "run-jvm is simply broken today" and "run-jvm cannot digest json" produce the
 #      same red, and only one of them is this entry.
 #
+# FIXED 2026-08-05. The declared gap is gone and the jvm cell counts with the rest — the gate
+# failed the moment it started passing, which is what the known-red block was for.
 # (v1/runtime/backend/jvm/BUGS.md jvm-lane-cannot-compile-a-json-import.)
 #
 # Usage: tests/e2e/jvm-json-import-gate.sh
@@ -63,19 +65,7 @@ check() { # $1 label, $2 expected substring, rest = command
   fi
 }
 
-# The jvm+json cell is a KNOWN GAP, declared rather than left red on arrival. A gate nobody asked
-# for that fails the day it lands is how a suite becomes noise people learn to ignore; a gap that is
-# declared and CANNOT ROT is not. If this cell starts passing, the gate FAILS and says to delete the
-# declaration — a known-red that quietly becomes a known-green is a permanent exemption for a fixed
-# bug. (v1/runtime/backend/jvm/BUGS.md jvm-lane-cannot-compile-a-json-import.)
-if SSC_NO_BUILD_CHECK=1 timeout 240 "$SSC" run-jvm "$TMP/with-json.ssc" 2>&1 | grep -q parsed; then
-  printf '  FAIL jvm    with json now COMPILES — the gap closed.\n'
-  printf '       Delete this known-red block, restore the plain check, and close\n'
-  printf '       v1/runtime/backend/jvm/BUGS.md jvm-lane-cannot-compile-a-json-import.\n'
-  fails=$((fails + 1))
-else
-  printf '  KNOWN GAP  jvm with json — jvm-lane-cannot-compile-a-json-import (declared, not counted)\n'
-fi
+check "jvm    with json" parsed       "$SSC" run-jvm  "$TMP/with-json.ssc"
 check "jvm    control"   "control ok" "$SSC" run-jvm  "$TMP/no-json.ssc"
 check "int    with json" parsed       "$SSC" run --v1 "$TMP/with-json.ssc"
 check "js     with json" parsed       "$SSC" run-js   "$TMP/with-json.ssc"
@@ -85,4 +75,4 @@ if [[ $fails -ne 0 ]]; then
   printf 'jvm-json-import-gate: FAIL (%d cell(s))\n' "$fails" >&2
   exit 1
 fi
-printf 'jvm-json-import-gate: OK (int/js/native run json; the jvm control compiles; jvm+json is a declared gap)\n'
+printf 'jvm-json-import-gate: OK (every lane runs a json import; the jvm control still compiles)\n'

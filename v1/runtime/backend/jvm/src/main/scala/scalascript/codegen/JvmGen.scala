@@ -649,7 +649,105 @@ class JvmGen(
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
-    fixedHead + merged + mainInvocation(blocks, merged, mainEntry.isDefined) + "\n"
+    val assembled = fixedHead + merged + mainInvocation(blocks, merged, mainEntry.isDefined) + "\n"
+    assembled + jsonHostBridge(assembled)
+
+
+  /** The jvm host bridge for the portable json module (`std/json.ssc`), appended when — and only
+   *  when — that module is in the emitted output.
+   *
+   *  WHY IT IS APPENDED RATHER THAN PUT IN THE PREAMBLE. The hooks must return `JsonCore*` ADT
+   *  values, and those types are emitted into `object std.json.core`, i.e. module code the fixed
+   *  preamble cannot name. Emitting after the modules resolves both ways: top-level definitions in
+   *  a script are visible from inside `object std.json`, and they can name the nested types.
+   *
+   *  WHY THERE IS NO WRAPPER CLASS. `JsonValue` is `opaque type = Any` and `std/json.ssc` declares
+   *  NO accessors — on js and native the host dispatches `get` / `asString` dynamically on the
+   *  wrapped value. The jvm lane dispatches STATICALLY, so a wrapper object's methods are
+   *  unreachable through the opaque type; that is what the first attempt at this failed on
+   *  (`value get is not a member of std.json.JsonValue`). Extension methods ON the opaque type are
+   *  what a static lane can offer, and they read the ADT directly — which makes `__jsonCoreWrap`
+   *  the identity.
+   *
+   *  TOTAL BY CONTRACT, matching the module's own promise ("Null `JsonValue` / zero-default, never
+   *  a crash"): a miss yields Null, a wrong shape yields the type's zero, nothing throws. The
+   *  preamble's older `class JsonValue` throws instead, which is why it could not simply serve this
+   *  import — see `BUGS.md jvm-lane-cannot-compile-a-json-import`.
+   *
+   *  Verified against the INTERPRETER as oracle, byte for byte:
+   *    a=1  s=hi  miss=[]  wrongType=[]  nested=true  idx=20  oob=[]  round="hi"
+   */
+  private def jsonHostBridge(src: String): String =
+    if !src.contains("__jsonCoreWrap") then ""
+    else
+      """
+        |
+        |// ── jvm host bridge for std/json.ssc (emitted by JvmGen.jsonHostBridge) ──────────────
+        |private def _sscCu(cu: List[Int]): String = cu.map(_.toChar).mkString
+        |private def _sscJStr(s: String): Any = std.json.core.JsonCoreString(s.map(_.toInt).toList)
+        |private def _sscJNull: Any = std.json.core.JsonCoreNull()
+        |private def _sscJv(x: Any): std.json.JsonValue = x.asInstanceOf[std.json.JsonValue]
+        |
+        |extension (v: std.json.JsonValue)
+        |  def raw: Any = v
+        |  def isNull: Boolean = v.isInstanceOf[std.json.core.JsonCoreNull]
+        |  def get(k: String): std.json.JsonValue = _sscJv(v match
+        |    case o: std.json.core.JsonCoreObject =>
+        |      o.fields.collectFirst {
+        |        case f: std.json.core.JsonCoreField if _sscCu(f.key) == k => f.value
+        |      }.getOrElse(_sscJNull)
+        |    case _ => _sscJNull)
+        |  def at(i: Int): std.json.JsonValue = _sscJv(v match
+        |    case a: std.json.core.JsonCoreArray if i >= 0 && i < a.items.length => a.items(i)
+        |    case _ => _sscJNull)
+        |  def asString: String = v match
+        |    case s: std.json.core.JsonCoreString => _sscCu(s.codeUnits)
+        |    case _ => ""
+        |  def asInt: Long = v match
+        |    case n: std.json.core.JsonCoreNumber => n.numberText.toDoubleOption.map(_.toLong).getOrElse(0L)
+        |    case _ => 0L
+        |  def asDouble: Double = v match
+        |    case n: std.json.core.JsonCoreNumber => n.numberText.toDoubleOption.getOrElse(0.0)
+        |    case _ => 0.0
+        |  def asBool: Boolean = v match
+        |    case b: std.json.core.JsonCoreBool => b.value
+        |    case _ => false
+        |  def asList: List[std.json.JsonValue] = v match
+        |    case a: std.json.core.JsonCoreArray => a.items.map(_sscJv)
+        |    case _ => Nil
+        |  def optString: Option[String] = v match
+        |    case s: std.json.core.JsonCoreString => Some(_sscCu(s.codeUnits))
+        |    case _ => None
+        |  def optInt: Option[Long] = v match
+        |    case n: std.json.core.JsonCoreNumber => n.numberText.toDoubleOption.map(_.toLong)
+        |    case _ => None
+        |  def getOrElse(k: String, fallback: String): String =
+        |    val g = v.get(k); if g.isNull then fallback else g.asString
+        |
+        |def __jsonCoreInstallRenderer(render: Any => String): Unit = ()
+        |def __jsonCoreWrap(core: Any): Any        = core
+        |def __jsonCoreRawStrict(result: Any): Any = result match
+        |  case ok: std.json.core.JsonCoreOk => ok.value
+        |  case other                        => other
+        |def __jsonCoreWrapStrict(result: Any): Any = __jsonCoreRawStrict(result)
+        |def __jsonCoreEncodeValue(value: Any): Any = value match
+        |  case null                          => _sscJNull
+        |  case None                          => _sscJNull
+        |  case Some(x)                       => __jsonCoreEncodeValue(x)
+        |  case s: String                     => _sscJStr(s)
+        |  case b: Boolean                    => std.json.core.JsonCoreBool(b)
+        |  case c: Char                       => _sscJStr(c.toString)
+        |  case n: Long                       => std.json.core.JsonCoreNumber(n.toString)
+        |  case n: Int                        => std.json.core.JsonCoreNumber(n.toString)
+        |  case d: Double                     =>
+        |    std.json.core.JsonCoreNumber(if d == d.toLong.toDouble then d.toLong.toString else d.toString)
+        |  case xs: List[?]                   => std.json.core.JsonCoreArray(xs.map(__jsonCoreEncodeValue))
+        |  case m: scala.collection.Map[?, ?] =>
+        |    std.json.core.JsonCoreObject(m.toList.map { case (k, vv) =>
+        |      std.json.core.JsonCoreField(k.toString.map(_.toInt).toList, __jsonCoreEncodeValue(vv))
+        |    })
+        |  case other                         => _sscJStr(other.toString)
+        |""".stripMargin
 
   /** The trailing `main()` call, or `""`.
    *

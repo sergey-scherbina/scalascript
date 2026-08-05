@@ -8,11 +8,42 @@ grepping for status.
 Newest first.
 
 ## jvm-lane-cannot-compile-a-json-import — 14 type errors before a single line runs
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      area: codegen
      kind: bug
-     gate: tests/e2e/jvm-json-import-gate.sh -->
+     gate: tests/e2e/jvm-json-import-gate.sh
+     fixed-in: cbfb6b336 -->
+
+**FIXED 2026-08-05.** `[jsonParse](std/json.ssc)` compiles and runs on the jvm lane, and the whole
+documented navigable surface behaves **identically to the interpreter**, byte for byte:
+
+```
+             a=1  s=hi  miss=[]  wrongType=[]  nested=true  idx=20  oob=[]  round="hi"
+int          ✓
+jvm          ✓   (was: 14 errors, then 10, then 5, then 0)
+```
+
+The gate no longer declares anything: all five cells count, and it **failed the moment the jvm cell
+started passing** — which is exactly what the known-red block existed to do, on my own gate.
+
+`JvmGen.jsonHostBridge` emits the bridge after the modules, and only when `__jsonCoreWrap` appears
+in the output. Three things had to be true at once, and each was found by trying:
+
+1. **appended, not preambled** — the hooks return `JsonCore*` values whose types live in
+   `object std.json.core`, which the fixed preamble cannot name;
+2. **extension methods, not a wrapper class** — `JsonValue` is `opaque type = Any` and the module
+   declares no accessors, because js and native dispatch them dynamically at runtime. A static lane
+   cannot reach a wrapper's methods through an opaque type, which is what the first attempt failed
+   on (`value get is not a member of std.json.JsonValue`). Reading the ADT directly from extensions
+   also makes `__jsonCoreWrap` the identity;
+3. **total, not throwing** — a miss yields Null, a wrong shape yields the type's zero, nothing
+   raises. The preamble's older `class JsonValue` does the opposite, which is why it could not
+   simply serve this import.
+
+**`std/http.ssc` still does not compile on this lane, and it is a DIFFERENT gap:** the json errors
+are gone and six remain, led by `Not found: sessionSetCookie`. Session/cookie host hooks are the
+next layer and are filed separately rather than folded in here.
 
 **Measured 2026-08-04.** Five lines, one import, four lanes:
 
