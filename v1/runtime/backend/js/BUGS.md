@@ -71,11 +71,11 @@ boxed, not another `case` in the String branch, and picking between those is the
 
 ## char-classification-diverges-from-the-interpreter-on-seven-predicates
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: runtime
-     fixed-in: -
-     gate: - -->
+     fixed-in: b8b58dfc3
+     gate: tests/e2e/js-char-classification-parity.sh -->
 
 `core-collections.mjs:373-384` implements `Char`'s classification with JS regex property escapes
 that are NOT the predicates Java answers, so the same ScalaScript program gives different answers
@@ -110,6 +110,19 @@ what `uniml`'s `UniAlphabet` now does for the one place case is load-bearing.
 `isDigit` from ASCII to all `Nd` is the language becoming MORE permissive on one lane, and a
 hand-written parser that leaned on `isDigit` being ASCII would silently change meaning. This needs
 the conformance corpus on both lanes, not a unit test.
+
+**FIXED, and the reference lane turned out to be wrong too.** Each predicate now uses the escape
+Java actually implements. Building the gate then showed that `DispatchRuntime` answered
+`isSpaceChar` with `c.isWhitespace` — a different predicate, disagreeing on 24 BMP characters —
+so a non-breaking space was not a space character on the interpreter while being one everywhere
+else. Fixing only js would have left the gate permanently red for a reason outside js.
+
+The gate needed no planted defect to prove it can fail: it went red on that divergence and
+localised it to two lines of output.
+
+Conformance after: 338 PASS int / 302 PASS js, the only failure being
+`content-linked-namespaces`, which fails identically in a tree WITHOUT the change — verified by
+running it there rather than assumed.
 
 Found while measuring the case question for `uniml-ssc3-frontend-readiness`; the harness is
 reproducible from the entry above.
