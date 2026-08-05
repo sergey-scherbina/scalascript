@@ -136,23 +136,6 @@ definitions would be reachable under two paths, and for anything holding state t
 about identity, not a patch. It also lands in `sscLoadMod`, which every import on the native lane
 goes through. Recorded with the reduction so whoever takes it starts from the model question rather
 than from a smoke gate printing nothing.
-**FIXED 2026-08-04.** Three separate causes, as the entry suspected:
-
-- **`--` never lexed.** `lexMinus` in `specs/v2.2-p6.5-fsub.ssc` had branches for `-=` and `->` and
-  none for `--`, so `xs -- ys` split into `-` and a unary minus and evaluated to `xs - (-ys)` —
-  the receiver unchanged. Now token kind 71, precedence 6 (the `++` slot), emitted through
-  `__arith__` by BOTH `emitBin` and `emitBinT` (twin walkers; fixing one is how this front's
-  regressions happen).
-- **`&`/`|` reached `i.and`/`i.or`**, which coerce to Int. The front cannot know the operand type,
-  so the Set meaning is reconstructed in the RUNTIME from the receiver — in both prim tables, the
-  n-ary and the binary fast path, which are separate copies.
-- **`Set(1, 2)(2)` was `app: not a function`** — the same callability hole this entry did not
-  mention, found by running the new gate on both lanes. Fixed here beside its interpreter twin
-  (`int-set-apply-is-not-membership`) rather than in a later commit.
-
-`--` on a non-Set now RAISES `No method '--' on …`, matching the interpreter, instead of falling to
-the arithmetic tail which would have rendered both sides and returned a STRING. Verified that unary
-minus is untouched: `a - -b` is still 8, `-a` still `-5`, on both lanes.
 
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: open
