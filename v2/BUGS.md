@@ -32,10 +32,10 @@ the whole code point — which is the reason the method exists at all.
 
 ## native-upload-numberformat-on-dash — multipart upload dies with `For input string: "-"`, JVM passes
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: plugin
-     fixed-in: -
+     fixed-in: 5fe93217f
      gate: tests/e2e/upload-smoke.sh -->
 
 **FOUND — and it is neither the native lane nor the http plugin.** The stack trace, which this entry
@@ -79,6 +79,24 @@ grepping for `toInt`, which is what I did and it did not find it.
 
 Note the row is labelled INT and is really the NATIVE lane — `bin/ssc` is `StandardMain`. Same
 mislabel a sibling documented across the other server smokes.
+
+
+**CLOSED 2026-08-05 — fixed in `5fe93217f`**, "json: a non-JSON request body must not 500 —
+parseNumber leaked NumberFormatException past parseOption".
+
+This entry had already done the hard part and named `liftRequest`'s unconditional
+`JsonParser.parseOption(body)` as the path. The fix went one level below that, which is why the line
+it names is UNCHANGED and still parses every non-empty body: `parseOption` catches `ParseError` and
+`parseNumber` was throwing `NumberFormatException`, a different exception, straight past it. A
+multipart body begins `--<boundary>`, so the `-` that starts no number escaped as a 500.
+
+Verified rather than assumed: `tests/e2e/upload-smoke.sh` now passes on ALL FOUR lanes with a real
+256-byte `curl -F`, and that request is exactly a non-JSON body reaching `liftRequest`. Had the
+exception still leaked, the native cell added on 2026-08-05 could not be green.
+
+Worth keeping: the entry's stack trace was what made this findable, and it pointed at a line that
+turned out to be innocent. The unconditional parse is still there and is still a design question —
+every request pays a JSON parse — but it is no longer a defect.
 
 ## native-front-has-no-package-namespace — `package: org` binds nothing on the native lane
 
@@ -342,10 +360,10 @@ need front-matter data to cross into a plugin on the run path.
 
 ## native-Response-withHeader-is-a-Stub — the sentinel was served as the response BODY at HTTP 200
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: -
+     fixed-in: b46cbb3a8
      gate: tests/e2e/response-transforms-gate.sh -->
 
 `resp.withHeader(name, value)` had no definition the native lane could reach, so the call yielded
@@ -372,6 +390,22 @@ lanes verified after: native serves the header and v1 still does, with replace-o
 `bin/lib/native-front/runtime`, so the first run after editing `v1/runtime/std/http.ssc` still
 measured the staged copy and reported the sentinel unchanged. That is a false RED rather than a
 false green, but it costs the same confusion.
+
+
+**CLOSED 2026-08-05 — fixed in `b46cbb3a8`**, "std: declare Response.withHeader in http.ssc — the
+native lane served the sentinel as the body".
+
+That is the commit this entry's own text refers to: *"The fix is in this commit; `status` and
+`fixed-in` follow in the next one."* The follow-up never landed, so the entry sat `open` with
+`fixed-in: -` while the defect was gone — and `tests/e2e/response-transforms-gate.sh`, the gate it
+names, has been passing outright, with no declared-gap cell to explain it.
+
+Verified by measurement, not by the gate: a native `Response.text("body").withHeader("X-Test",
+"yes")` answers `HTTP/1.1 200` with `X-Test: yes` and the body `body` — no `DataV(Stub, ...)`
+anywhere.
+
+The lesson is the bookkeeping one: "status follows in the next commit" is a promise that outlives
+the intention. A `fixed` header written in the same commit as the fix cannot be forgotten.
 
 ## native-Response-session-transforms-missing — `withSession` / `clearSession` have no native path
 
