@@ -650,7 +650,7 @@ class JvmGen(
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
     val assembled = fixedHead + merged + mainInvocation(blocks, merged, mainEntry.isDefined) + "\n"
-    assembled + jsonHostBridge(assembled)
+    assembled + jsonHostBridge(assembled) + httpHostBridge(assembled)
 
 
   /** The jvm host bridge for the portable json module (`std/json.ssc`), appended when — and only
@@ -747,6 +747,26 @@ class JvmGen(
         |      std.json.core.JsonCoreField(k.toString.map(_.toInt).toList, __jsonCoreEncodeValue(vv))
         |    })
         |  case other                         => _sscJStr(other.toString)
+        |""".stripMargin
+
+  /** The jvm host bridge for `std/http.ssc`'s session hook, on the same terms as
+   *  [[jsonHostBridge]]: appended after the modules, emitted only when the name is actually used.
+   *
+   *  `sessionSetCookie` is `extern def` in `std/http.ssc` — native implements it in
+   *  `HttpFastNativePlugin`, and this lane had nothing, which is what `std/http` failed on once the
+   *  json bridge landed. It DELEGATES rather than reimplements: the preamble already carries
+   *  `_buildSetCookie`, which is `SessionCookie.toSetCookie` from the shared
+   *  `scalascript-http-session` module. The native plugin's own comment says why that matters —
+   *  the signing is HMAC-SHA256 over `SSC_SESSION_SECRET`, and a second implementation here would
+   *  be a second HMAC scheme that has to agree byte for byte for a cookie to survive a lane change.
+   */
+  private def httpHostBridge(src: String): String =
+    if !src.contains("sessionSetCookie") then ""
+    else
+      """
+        |
+        |// ── jvm host bridge for std/http.ssc (emitted by JvmGen.httpHostBridge) ─────────────
+        |def sessionSetCookie(payload: Map[String, String]): String = _buildSetCookie(payload)
         |""".stripMargin
 
   /** The trailing `main()` call, or `""`.

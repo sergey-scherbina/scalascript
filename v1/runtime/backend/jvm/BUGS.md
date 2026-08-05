@@ -41,9 +41,33 @@ in the output. Three things had to be true at once, and each was found by trying
    raises. The preamble's older `class JsonValue` does the opposite, which is why it could not
    simply serve this import.
 
-**`std/http.ssc` still does not compile on this lane, and it is a DIFFERENT gap:** the json errors
-are gone and six remain, led by `Not found: sessionSetCookie`. Session/cookie host hooks are the
-next layer and are filed separately rather than folded in here.
+**`std/http.ssc` — 6 errors → 4, and the last four are a DIFFERENT KIND of gap.**
+
+`sessionSetCookie` is fixed the same way, by `JvmGen.httpHostBridge`, and it **delegates rather than
+reimplements**: the preamble already carries `_buildSetCookie`, which is
+`SessionCookie.toSetCookie` from the shared `scalascript-http-session` module. The native plugin's
+own comment is the reason — the signing is HMAC-SHA256 over `SSC_SESSION_SECRET`, and a second
+implementation would be a second HMAC scheme that has to agree byte for byte for a cookie to survive
+a lane change.
+
+**What is left is not a missing implementation — it is an import that cannot resolve:**
+
+```
+import std.http.{route, serve, Response, Request, UploadedFile}
+                 ^^^^^  ^^^^^
+value route is not a member of object std.http
+```
+
+`route` and `serve` are `extern def` in `std/http.ssc`, so the emitter STRIPS them from the module
+object, while the host implementations live at the script's TOP LEVEL. The import asks the module
+object for names that were deliberately removed from it. **Importing an `extern def` from a module
+cannot work on this lane**, and no bridge fixes it: the names resolve fine at top level, it is the
+`import std.http.{…}` line that must not name them.
+
+The fix belongs at the import-emission site (`JvmGen`, where `specText` is built from the requested
+specs) and needs one piece of information that is not there today — which of the target module's
+names were `extern def`. That is the next step, and it is a different kind of change from the two
+bridges, which is why it is written down rather than attempted at the end of them.
 
 **Measured 2026-08-04.** Five lines, one import, four lanes:
 
