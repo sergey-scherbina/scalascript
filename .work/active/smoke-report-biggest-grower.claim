@@ -1,0 +1,11 @@
+slug: smoke-report-biggest-grower
+branch: feature/smoke-report-biggest-grower
+agent: claude-code
+started: 2026-08-05T14:05:04Z
+heartbeat: 2026-08-05T14:05:04Z
+status: claimed-before-planning
+items: smoke-suite-over-its-own-budget
+paths: file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
