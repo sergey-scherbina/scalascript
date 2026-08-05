@@ -629,14 +629,34 @@ expect_exit vm 0
 expect_exact_line vm-stdout 84 "$LAST_STDOUT"
 expect_empty vm-stderr "$LAST_STDERR"
 
+# `--bytecode` on a NATIVE binary must be REFUSED, clearly and before doing any work.
+#
+# This check used to demand a real bytecode run — fallback marker ABSENT, stderr empty. That contract
+# is unsatisfiable by an ahead-of-time image and always was: the lane generates a class for the
+# user's program and loads it at run time, and the only mechanism that could support that (build-time
+# class predefinition) needs the exact bytecode while the image is being built, i.e. before the
+# program exists. The first run that ever reached this step proved it, identically on all three
+# runners:
+#
+#   com.oracle.svm.core.jdk.UnsupportedFeatureError:
+#     No classes have been predefined during the image build to load from bytecodes at runtime
+#
+# Refusal over fallback is Sergiy's decision (2026-08-05): a fallback answers a request for a FASTER
+# lane by quietly using a slower one, and the caller finds out only by reading stderr. A flag that
+# can never be honoured on this platform is rejected instead.
+#
+# So this asserts the refusal is real: non-zero exit, a message that names the flag, and NO output
+# from the program — a binary that printed 84 here would have run the program on the VM while being
+# told not to.
 run_process asm runtime "$RUN_DIR" "$SSC_EXE" run --v2 --bytecode release-probe.ssc
-expect_exit asm 0
-expect_exact_line asm-stdout 84 "$LAST_STDOUT"
-FALLBACK_MARKER='ssc: --bytecode fell back to the VM lane'
-if grep -Fq "$FALLBACK_MARKER" "$LAST_STDERR"; then
-  fail_check asm-no-fallback 'fallback marker absent' "$FALLBACK_MARKER"
+if [[ $LAST_RC -eq 0 ]]; then
+  fail_check asm-bytecode-refused 'non-zero exit (--bytecode is unsupported natively)' \
+    "exit 0; stdout=$(file_repr "$LAST_STDOUT")"
 fi
-expect_empty asm-stderr "$LAST_STDERR"
+if ! grep -Fq -- '--bytecode' "$LAST_STDERR"; then
+  fail_check asm-refusal-names-flag 'stderr naming --bytecode' "$(cat "$LAST_STDERR")"
+fi
+expect_empty asm-stdout "$LAST_STDOUT"
 
 run_process plugin plugin "$RUN_DIR" "$JAVA" -jar "$PLUGIN_HOST"
 expect_exit plugin-host 1

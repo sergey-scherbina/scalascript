@@ -6,7 +6,33 @@ object RunNativeV2:
   def run(files: List[String], argv: List[String], bytecode: Boolean): Unit =
     run(files, argv, bytecode, mutable = false)
 
+  /** True when this process IS an ahead-of-time image rather than a JVM.
+   *
+   *  `org.graalvm.nativeimage.imagecode` is the documented property GraalVM sets to "runtime" inside
+   *  a running image; it is absent on a JVM. Read as a property on purpose — referencing
+   *  `org.graalvm.nativeimage.ImageInfo` would make the JVM load a class that is not on the ordinary
+   *  classpath, the same trap `isAsmSizeLimit` avoids. */
+  private def inNativeImage: Boolean =
+    System.getProperty("org.graalvm.nativeimage.imagecode") != null
+
   def run(files: List[String], argv: List[String], bytecode: Boolean, mutable: Boolean): Unit =
+    // REFUSED, not degraded. --bytecode generates a class for the user's program and loads it at run
+    // time; an ahead-of-time image cannot define a class from bytes, and the only mechanism that
+    // could — build-time class predefinition — needs the exact bytecode while the image is built,
+    // i.e. before the program exists. So this is not "unavailable today", it is unsatisfiable for
+    // any input, and a flag that can never be honoured is more honestly rejected than silently
+    // substituted. Decided by Sergiy on 2026-08-05 over the alternative (fall back to the VM lane
+    // with a marker), because a fallback answers a request for a FASTER lane by quietly using a
+    // slower one, and the caller only learns by reading stderr.
+    //
+    // Deliberately BEFORE compile(): refusing after the work is done wastes it and reports the
+    // failure far from its cause.
+    if bytecode && inNativeImage then
+      System.err.println(
+        "ssc: --bytecode is not available in the native binary: the lane loads generated classes at "
+          + "run time, which an ahead-of-time image cannot do. Re-run without --bytecode (the VM "
+          + "lane), or use the JVM launcher `ssc-tools run --v2 --bytecode`.")
+      System.exit(2)
     val previousArgv = _root_.ssc.Runtime.argv
     val previousSource = _root_.ssc.Runtime.sourceText
     val compilation = compile(files, mutable)
