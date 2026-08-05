@@ -187,9 +187,29 @@ coercion at the point `next()` is handed to the middleware, and that coercion do
 layer today. Handlers returning `Any` and middleware declared `Response` are two different contracts
 that currently share one buffer.
 
+**AND THE COERCION HAS A HAZARD, which is why this is a design question and not a patch.** The
+final conversion's rules are exact:
+
+```
+Response         → as-is
+_StreamResponse  → drained into a string body
+anything else    → 200, Content-Type: text/plain; charset=utf-8, _show(other)
+```
+
+Narrowing `next()` to `Response` means coercing at the handler boundary — and that would **drain a
+`_StreamResponse` before the middleware ever sees it**, turning a streaming response into a buffered
+one. Silently, and only where a middleware is installed. So the declared contract
+(`() => Response`) cannot express what the host actually supports.
+
+**The shape that resolves it, offered rather than taken:** give `Response` and `_StreamResponse` a
+common supertype carrying `withHeader` — `withHeader` is already an ordinary member of `Response`
+(`std/http.ssc:215`) — and type the chain as that supertype. Then `next().withHeader(...)` compiles,
+nothing is drained early, and the host signature stops being wider than the contract because the
+contract finally names both things the host returns.
+
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
-problem either — this one is a plain mismatch between what a module declares and what a host
-provides.
+problem either — this one is a module declaring a narrower world than its host implements, and the
+fix is to widen the declaration honestly rather than to narrow the host and lose streaming.
 
 **Measured 2026-08-04.** Five lines, one import, four lanes:
 
