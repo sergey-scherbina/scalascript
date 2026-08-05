@@ -10,6 +10,53 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] SSC3-P/typed-ast — **audit the projection against the CST's ROLES, then close real gaps.**
+      Claim `uniml-typed-ast`. Picks up the 2026-08-05 hand-over in `uniml/BACKLOG.md`, whose
+      instruction was: re-measure, audit role by role, only then model new constructs.
+      **Re-measured first, inheriting nothing: 1185 files, 171,119 nodes, 2,943 gaps, 98.3%** —
+      the hand-over's numbers reproduce.
+      **The `if` bug is a class and reading the dialect found four more siblings before a line of
+      code was written.** All four are silent: they produce a well-formed AST node whose contents
+      are wrong or empty, and `Unsupported` never fires.
+      1. `enum.case` is a role the dialect NEVER EMITS — cases are `spike.enumcase` child
+         BRANCHES (`ScalaSpike.scala:883`), which is how `SpikeProject` reads them (:2334).
+         So every `EnumDecl` in the corpus carries `cases = Vector.empty`.
+      2. `spike.paren`/`spike.tuple` elements carry role `group.elem` (:1920) and may be TOKENS.
+         `SpikeTyped` keeps only children with `kind != "token"`, so `(x)` projects as `UnitLit`
+         and `(1, 2)` as an EMPTY `Tuple`.
+      3. `spike.given` drops `given.body` and `given.type` — a whole expression subtree gone.
+      4. `def.paramType` / `def.dflt` / `cc.method` / `cc.fieldType` are never read: `Param.tpe`
+         is unconditionally `None` and a case class's methods vanish.
+      **The metric itself is the deeper defect, and it is why these survived.** A dropped child
+      produces no node, so it is missing from BOTH sides of the ratio — dropping a construct
+      RAISES the coverage figure. The gate rewards the failure it exists to prevent.
+      Plan, in order:
+      a. **[x] a silent-drop census** in `SpikeTypedCoverageSpec`, walking CST→AST instead of
+         AST-only: for every branch child, did it reach the AST (its span among the AST's spans)?
+         Descent stops at a drop (recorded once, at the boundary) and at an honest `Unsupported`.
+         Branch children only — a token is often consumed as a STRING (`def.name`), so counting
+         tokens would report every identifier as dropped. Ceiling, not floor: may only go down.
+         **Read 6,641 against 2,943 admitted gaps.** A first version judged a node dropped when its
+         OWN span was absent, which called all 370 `spike.paren` unwraps a drop — a projection is
+         allowed to unwrap transparently, and that would have sent the first fix at working code.
+         Corrected to "nothing in the subtree survived", which still catches the real paren bug.
+      b. **[x]** token-level drops asserted by SHAPE in `SpikeTypedRolesSpec` — the census is
+         blind to them by construction, and `(x)` → `UnitLit` is one.
+      c. **[x] all five fixed, 20 shape assertions, and the census re-measured to 0.**
+         Nodes 171,119 → **197,773** (+26,654 subtrees that had never reached the projection),
+         coverage 98.3% → **98.5%**, admitted gaps 2,943 → 2,964 — UP, and that is the point:
+         what used to vanish now reports itself. **The biggest was the one nobody had named**:
+         `case.pat` read with a helper returning `""` for a branch, so all 4,579 structured
+         patterns in the corpus were the empty string. `Pattern` is now a real ADT.
+         A/B, not assertion: re-planting `enum.case` turns the census red at 142 and fails two
+         shape tests; restoring it returns 0.
+      d. **[~] the real gaps, largest first** — `spike.narg` 772, `spike.interp` 589,
+         `spike.blockapp` 511, `decl:spike.sealed` 382, `spike.listlit` 252. These are honestly
+         reported and genuinely unmodelled, which is the difference between them and everything
+         above. NOT started; this is where the next session picks up.
+      **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
+      the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
+
 - [~] UNIML-SSC3-ALPHABET — **one character classifier, no host `Char` calls.** v3 handed this
       over as a requirement on UniML (`v3/specs/40-front-on-uniml.md` §4: "the lexer may not use
       host `Char` classification"), and `20-core-language.md` §3 decides the alphabet: whitespace

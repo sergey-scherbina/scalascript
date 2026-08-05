@@ -12,6 +12,18 @@ verbatim, on 2026-07-30.
 Written 2026-08-05 for whoever picks this up. Numbers measured the same day; re-measure before
 trusting them, since every one of them moved during the writing of this entry.
 
+> **PICKED UP the same day by claim `uniml-typed-ast`; steps 1 and 2 are DONE and step 3 is the
+> live front.** Read this section for the reasoning — it is still the right reasoning — but take
+> the numbers from the SSC3-P entry below, because they moved again. In short: step 2 was worth
+> more than step 1, exactly as this section predicted. The role audit found **6,641 silently
+> dropped subtrees against 2,943 admitted gaps** — the coverage metric could not see them, since
+> a dropped child is absent from both sides of its ratio and dropping therefore RAISES the number.
+> The largest single item was the whole pattern language (4,579) arriving as the empty string.
+> All 6,641 are closed and a census now holds the count at 0.
+> **Step 3 — the real gaps (`narg`, `interp`, `blockapp`, `sealed`, `listlit`) — is still open**,
+> and so is the paragraph below about nothing consuming the AST: that remains true and remains
+> the most valuable thing anyone can do here.
+
 ### What it is
 
 UniML stores a `.ssc` as a LOSSLESS CST — every token, including whitespace and comments, so the
@@ -550,6 +562,33 @@ self-parity test is not external conformance.
         `blockapp` 504, `interp` 394, `listlit` 199.
         Still owed: the AST is not yet the thing anything CONSUMES — no lowering to SSC IR,
         and no differential proving `SpikeTyped` and `SpikeProject` agree on meaning.
+        **2026-08-05, claim `uniml-typed-ast` — the ROLE AUDIT the hand-over asked for, and the
+        count was hiding more than it reported.** Re-measured first, inheriting nothing: 1185
+        files / 171,119 nodes / 2,943 gaps / 98.3% reproduced exactly.
+        **The metric could not see its own largest failure.** `Unsupported` is honest about a shape
+        not MODELLED; it says nothing about a subtree never LOOKED AT. A dropped child produces no
+        node, so it is missing from the numerator AND the denominator — dropping a construct RAISES
+        the coverage figure. A second census in `SpikeTypedCoverageSpec` walks CST→AST instead and
+        asks of every branch child whether it reached the AST at all: **6,641 silently dropped
+        subtrees against 2,943 admitted gaps — 2.25× more dropped than reported.**
+        Nineteen distinct sites, summing exactly to the total, every one a variant of the `if` bug:
+        - `case.pat` read with a helper that returns `""` for a branch — **4,579 patterns**, the
+          whole pattern language, projected as the empty string. `case Some(x)` and `case _` were
+          indistinguishable, and an empty `String` is perfectly well-formed so nothing complained.
+        - `cc.fieldType` 1,720, `cc.method` 130, `def.dflt` 56, `cc.dflt` 14 — roles emitted by the
+          dialect and read by the reference, never read here. `Param.tpe` was hard-coded `None`.
+        - `enum.case` 142 — a role **the dialect never emits**; cases are `spike.enumcase` child
+          branches, so every `EnumDecl` in the corpus carried an empty case list.
+        - `group.elem` selected by "not a token", so `(x)` projected as `UnitLit` and `(1, 2)` as an
+          EMPTY tuple. Token-level, therefore invisible to the census too — caught by reading, held
+          by shape assertions.
+        **All 6,641 closed: the census now reads 0, and that is the gate's ceiling.** Nodes
+        171,119 → **197,773** (+26,654 subtrees that had never reached the projection), coverage
+        98.3% → **98.5%**, admitted gaps 2,943 → 2,964 — UP, which is the point: newly-reached
+        subtrees now report themselves honestly instead of vanishing.
+        Verified by A/B, not by assertion: re-planting the `enum.case` defect turns the census red.
+        Shape assertions per construct in `SpikeTypedRolesSpec` (20 tests), since a COUNT cannot
+        tell "not modelled" from "modelled wrongly" — the lesson the `if` bug taught, applied.
 
   - [ ] **SSC3-B breadth — to the reachable floor, NOT to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
