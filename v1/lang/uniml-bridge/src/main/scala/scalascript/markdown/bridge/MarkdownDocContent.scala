@@ -1,4 +1,4 @@
-package scalascript.uniml.dialect.markdown.bridge
+package scalascript.markdown.bridge
 
 import scalascript.ast.{ContentBlock, ContentInline, ContentValue, DocumentContent, EmbeddedKind, SectionContent}
 import scalascript.uniml.{Diagnostic, Severity}

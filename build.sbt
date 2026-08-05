@@ -795,8 +795,13 @@ lazy val unimlScalaJvm = unimlScalaCross.jvm
 lazy val unimlScalaJs  = unimlScalaCross.js
 lazy val unimlScala    = unimlScalaJvm
 
+// The adapter that turns UniML's markdown into v1's DocumentContent. It lives on V1's side of the
+// boundary because it PRODUCES v1's model: keeping it under uniml/ was the only reason the
+// statement "UniML depends on v1" was true, and with it moved the UniML tree has zero v1 imports.
+// Its independence is now structural rather than resting on the standalone build happening not to
+// include this module.
 lazy val unimlMarkdownBridge = project
-  .in(file("uniml/markdown/bridge"))
+  .in(file("v1/lang/uniml-bridge"))
   .dependsOn(unimlMarkdownJvm, core)
   .settings(
     name := "scalascript-uniml-markdown-bridge",

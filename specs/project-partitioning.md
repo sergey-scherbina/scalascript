@@ -474,7 +474,6 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   uniml/core                                     scalascript-uniml
   uniml/json                                     scalascript-uniml-json
   uniml/markdown                                 scalascript-uniml-markdown
-  uniml/markdown/bridge                          scalascript-uniml-markdown-bridge
   uniml/xml                                      scalascript-uniml-xml
   uniml/scala                                    scalascript-uniml-scalascript
   uniml/yaml                                     scalascript-uniml-yaml
@@ -592,7 +591,7 @@ reachable:
 | `uniml/yaml` | no | — |
 | `uniml/xml` | **no** — since `markup-core` left `v1/` for `uniml/markup` | — |
 | `uniml/markup` | no — zero dependencies of any kind | — |
-| `uniml/markdown/bridge` | yes | `v1/lang/{core,ir,value-data,yaml}`, `v1/runtime/backend/spi` |
+| *(none)* | — | the bridge moved to `v1/lang/uniml-bridge` on 2026-08-05 |
 
 **THE ABSTRACTION ALREADY EXISTS AND IT IS THE BRIDGE.** Every piece of v1 knowledge in UniML is
 concentrated in one two-file module whose name says so. Five of the seven modules reach nothing
@@ -621,12 +620,17 @@ The grouping rule is BY LIBRARY, not by dependency, and the bridge is what force
 it does depend on v1 and it lives with its library anyway. A library split across two trees costs a
 reader every time; a dependency is a fact one table records once.
 
-Nesting the bridge inside `uniml/markdown/` is safe because that project is `CrossType.Pure` with
-its sources under `uniml/markdown/src/` — verified, `unimlMarkdown/Compile/sources` contains zero
-files from `markdown/bridge/`.
+**2026-08-05 — the bridge LEFT `uniml/`, and this section's conclusion is stronger for it.** It now
+lives at `v1/lang/uniml-bridge`, because an adapter that PRODUCES v1's `DocumentContent` belongs on
+v1's side of the boundary. Nesting it under `uniml/markdown/` was safe for the build — that project
+is `CrossType.Pure` and `unimlMarkdown/Compile/sources` never contained it — but it was the single
+reason the sentence "UniML depends on v1" could be written at all.
 
-NOTHING IS LEFT TO ABSTRACT: `uniml/markdown/bridge` is now the ONLY module in UniML that reaches
-into `v1/`, and the gate says so with no exemption. `uniml/xml`'s last reach was
+NO MODULE IN UniML REACHES INTO `v1/` — measured, not asserted: every import under `uniml/*/src/`
+is `scalascript.uniml` (119) or `scalascript.markup` (2), which lives there. The independence is now
+STRUCTURAL: the standalone build refuses a v1 import outright (planted `import
+scalascript.ast.DocumentContent` and it failed with "value ast is not a member of scalascript"),
+rather than resting on that build happening not to include one module. `uniml/xml`'s last reach was
 `v1/runtime/std/markup-core`, which moved to `uniml/markup` — see 8.7. Every other UniML module
 depends on nothing outside UniML at all. Note that the table now has EIGHT rows and the group in §5
 still says seven: `uniml/markup` is a Part II module inside the `uniml/` directory, so the v1-reach

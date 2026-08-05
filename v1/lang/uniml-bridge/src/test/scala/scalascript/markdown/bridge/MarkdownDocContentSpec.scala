@@ -1,4 +1,4 @@
-package scalascript.uniml.dialect.markdown.bridge
+package scalascript.markdown.bridge
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ast.{ContentBlock, ContentInline, DocumentContent, EmbeddedKind, SectionContent}

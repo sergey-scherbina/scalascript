@@ -127,6 +127,11 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           `import scalascript.ast.DocumentContent` into `SscCompose` and it fails with "value ast
           is not a member of scalascript". `ci.yml`'s UniML job runs that build, so the invariant
           is checked on every PR and nightly.
+          **2026-08-05 — the bridge MOVED and the invariant is now absolute.** `uniml/markdown/bridge`
+          is `v1/lang/uniml-bridge`; every import under `uniml/*/src/` is `scalascript.uniml` (119)
+          or `scalascript.markup` (2), which lives there. The partition gate's bridge exemption is
+          DELETED rather than left true-by-accident — a dead exemption is where the next violation
+          hides — and its self-test still catches the planted `uniml/core` → v1 dependency, 6 of 6.
           ⚠️ **Residual hole, recorded rather than glossed:** a NEW module added under `uniml/` to
           the ROOT build only would escape this entirely — it would never be compiled by the
           standalone build, so it could import v1 freely and nothing would notice. That is exactly

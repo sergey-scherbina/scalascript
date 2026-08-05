@@ -1,10 +1,16 @@
 // Standalone build for the UniML library — builds independently of ScalaScript.
 //
-// `cd uniml && sbt test` compiles and tests core + json + yaml + markdown with
-// ZERO dependency on the ScalaScript (v1/v2) trees. The root ScalaScript build
-// references these same source dirs (the v1 bindings uniml-xml / uniml-markdown-
-// bridge depend on them), so both builds compile the same sources; this build is
-// the proof that UniML stands alone. Endgame (uniml-portable follow-up): replace
+// `cd uniml && sbt test` compiles and tests core + json + yaml + markdown + the ScalaScript dialect
+// with ZERO dependency on the ScalaScript (v1/v2) trees. The root ScalaScript build references these
+// same source dirs, so both builds compile the same sources; this build is the proof that UniML
+// stands alone — and it is a real proof, not a convention: planting `import
+// scalascript.ast.DocumentContent` into a source here fails with "value ast is not a member of
+// scalascript".
+//
+// 2026-08-05: the markdown->DocumentContent bridge, which was the ONLY thing under `uniml/` that
+// imported v1, moved to `v1/lang/uniml-bridge`. An adapter that produces v1's model belongs on v1's
+// side. Nothing under `uniml/` reaches v1 now, and `tests/e2e/project-partition-gate.sh` enforces it
+// with no exemption. Endgame (uniml-portable follow-up): replace
 // the dual build with `publishLocal` once UniML is truly extracted.
 
 ThisBuild / scalaVersion := "3.8.3"

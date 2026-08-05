@@ -11,7 +11,8 @@
 #   2. `v2/runtime/std/*` is exactly the shipped set and `v2/runtime/providers/*` is exactly the
 #      not-shipped set. That directory pair is the only place the boundary is encoded in the tree,
 #      and it is worth keeping exact so the rest of the repo can be moved TOWARD it.
-#   3. UniML reaches into `v1/` only through `uniml/markdown/bridge`. §8.3 asserted this once and was
+#   3. NO UniML module reaches into `v1/` — absolute since the bridge moved out on 2026-08-05.
+#      §8.3 asserted a weaker form of this once and was
 #      WRONG — the prose came from an extractor that read the next project's `.dependsOn(…)`. It is
 #      computed here so the claim cannot drift from the build again.
 #   4. no fossil directories in the main checkout (§6).
@@ -57,8 +58,9 @@ if [ "${1:-}" = "--self-test" ]; then
   # 3. a provider is shipped
   plant "v2/runtime/providers module added to standardJarPrefixes" \
         's|"scalascript-v2-native-json-plugin_",|"scalascript-v2-native-json-plugin_", "scalascript-v2-native-pdf-plugin_",|'
-  # 4. UniML reaches v1 outside the bridge — `uniml/core` made to depend on the v1 interpreter
-  plant "UniML module depending on v1 outside the bridge" \
+  # 4. UniML reaches v1 at all — `uniml/core` made to depend on the v1 interpreter. Was "outside
+  #    the bridge" until the bridge left `uniml/` on 2026-08-05; there is no exempt module now.
+  plant "UniML module depending on v1" \
         's|\.in(file("uniml/yaml"))|.in(file("uniml/yaml")).dependsOn(backendInterpreter)|'
   # 5. a fossil directory in the main checkout. Planted in a throwaway root, because the real one
   #    may legitimately have them right now — the gate must catch it either way.
@@ -157,18 +159,21 @@ for m in json.load(sys.stdin):
 # was a measurement bug — a fixed-size window that read the next project's `.dependsOn(…)` — so it
 # is computed here rather than restated, and each block is bounded at the next `lazy val`.
 #
-# There is no exemption. There used to be one — `uniml/xml` -> `v1/runtime/std/markup-core` — and it
-# is gone because markup-core left the v1 tree for `uniml/markup`, taking its dependencies (none)
-# with it. So this now reads exactly as it should: the bridge, and nothing else. `uniml/markup` is
+# There is no exemption, and there is no longer a bridge to be the exception either. Two have gone:
+# `uniml/xml` -> `v1/runtime/std/markup-core`, when markup-core left the v1 tree for `uniml/markup`;
+# and `uniml/markdown/bridge` itself, which moved to `v1/lang/uniml-bridge` on 2026-08-05. So this
+# now reads as strongly as it can: NOTHING under `uniml/` may reach v1. `uniml/markup` is
 # checked here like every other `uniml/*` module — the check-1 carve-out is about TIER, not v1
 # reach, and markup-core depends on nothing at all.
 while IFS=$'\t' read -r dir via; do
   [ -z "$dir" ] && continue
-  fail "UniML module reaches into v1/ without going through the bridge: $dir
+  fail "UniML module reaches into v1/: $dir
         via: $via
-        UniML must not be tied to a language version (specs/project-partitioning.md §8.3). Either
-        route it through uniml/markdown/bridge, or — if the dependency is on a module that is itself
-        v1-free and merely LIVES in the v1 tree — move that module out and widen the exemption here."
+        UniML must not be tied to a language version (specs/project-partitioning.md §8.3), and there
+        is no longer any exempt module to route through — the bridge moved to v1/lang/uniml-bridge
+        precisely so this could be absolute. Put the adapter on V1's side, where the type it
+        produces lives; or, if the dependency is on a module that is itself v1-free and merely LIVES
+        in the v1 tree, move that module out as markup-core was."
 done < <(python3 - "$SBT" <<'PYEOF'
 import re, sys, pathlib
 sbt = pathlib.Path(sys.argv[1]).read_text()
@@ -198,9 +203,13 @@ def closure(n):
             if k and k not in seen: seen.add(k); st.append(k)
     return seen
 ALLOWED: set[str] = set()                        # no exemptions — see §8.3
-BRIDGE  = "uniml/markdown/bridge"
+# There is no bridge skip any more. `uniml/markdown/bridge` used to be excluded here because it was
+# the one UniML module that reached v1; on 2026-08-05 it moved to `v1/lang/uniml-bridge`, where an
+# adapter producing v1's model belongs, and the exclusion became dead. A dead exemption is where the
+# next real violation hides, so it is deleted rather than left true-by-accident: EVERY `uniml/*`
+# module is checked, and none may reach v1.
 for n, d in sorted(dirs.items(), key=lambda kv: kv[1]):
-    if not d.startswith("uniml/") or d == BRIDGE:
+    if not d.startswith("uniml/"):
         continue
     v1 = sorted({dirs[c] for c in closure(n) if dirs[c].startswith("v1/")} - ALLOWED)
     if v1:
