@@ -41,10 +41,10 @@ gate before believing the measurement, not after.
 
 ## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
+     fixed-in: c04de5df12518209a5ea3ce7260bbf86675c02cf
      gate: none -->
 
 **FIXED.** A method body is evaluated with the instance's FIELDS as its environment, which is why
