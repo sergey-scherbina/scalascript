@@ -103,6 +103,27 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
 
+      # Dependency cache only — NOT compiled classes. ci.yml caches those too and
+      # keys them by commit SHA, which is right for a CI run that wants the
+      # nearest previous build. A release must not: the artifact people download
+      # has to come from a compile of THIS tag, not from whatever zinc happened
+      # to consider unchanged. Resolution is different — a jar is identified by
+      # its coordinates, so reusing it changes nothing about what is built.
+      #
+      # Worth more since pipelining was turned off build-wide (that fix is what
+      # made the release buildable at all): compilation got slower, so not
+      # re-downloading the world on three runners is a real saving.
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-release-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-release-sbt-
+
       # SPLIT INTO TWO sbt INVOCATIONS ON PURPOSE. These used to be one command,
       # which meant the sbt JVM — measured at 2306 MB peak RSS after compiling —
       # was still resident while native-image asked for its own multiple GB. On
