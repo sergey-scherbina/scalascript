@@ -107,8 +107,39 @@ the fourteen `Cons` ones were hiding:
 
 **Pre-existing, and checked rather than assumed:** three emitted-source dumps taken BEFORE this fix
 all show `__jsonCoreEncodeValue` with 0 definitions and 1 use, exactly as now, while `case Cons(`
-went 9 → 0. `jsonCoreRender` is defined seven times and still "not found", which points at scoping
-rather than absence. That is the next question, and it is not this one.
+went 9 → 0.
+
+**THOSE TEN ARE TWO DIFFERENT THINGS, 2026-08-05.** Reading the emitted source rather than the error
+list separates them cleanly:
+
+```
+object std {              10266
+  object json {           10269
+    object core {         10270 … closes at 10747
+      def jsonCoreRender          10719   (inside core)
+    }
+    def jsonStringify(v: Any): String = jsonCoreRender(__jsonCoreEncodeValue(v))   10755
+```
+
+1. **An emitter defect — a cross-object call is emitted unqualified.** `jsonStringify` lives in
+   `std.json`; `jsonCoreRender`, `jsonCoreParseStrict` and `jsonCoreParseTolerant` live in
+   `std.json.core`, because an imported module becomes a NESTED OBJECT. The call is written bare, and
+   Scala will not resolve it from the enclosing scope — it needs `core.jsonCoreRender`. That is 6 of
+   the 10 errors. Not a forward-reference problem: inside an `object`, forward references between
+   `def`s are legal, and these definitions are inside objects, not blocks — which is what the
+   "defined seven times and still not found" reading above got wrong.
+
+2. **A missing implementation, not a defect — the jvm lane has no json externs.** The other 4 are
+   `__jsonCoreWrap`, `__jsonCoreWrapStrict` and `__jsonCoreEncodeValue`, which `json.ssc` declares as
+   `extern def`: host hooks with no `.ssc` body by design. They are implemented on **js**
+   (`core-collections.mjs`) and on **native** (`JsonNativePlugin.scala`, `native(context,
+   "__jsonCoreWrap")`). There is no jvm implementation anywhere under `v1/runtime/backend/jvm`. That
+   makes it a FEATURE — the jvm lane needs those three hooks — and not something to patch in the
+   emitter.
+
+**So the remaining work splits**: fix (1) in the emitter — qualify a call that crosses into a nested
+module object — and decide (2) separately, since it is a plugin the lane does not have. Neither is
+the `Cons` defect this entry was opened for, and (1) is the one that belongs to this module.
 
 **A lead, not a claim:** the sibling pass `rewriteActorAstCallsInSource` parses the same way —
 `Source` then `Term`, no script dialect — so its `case None()` → `case None` rewrite is probably
