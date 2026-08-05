@@ -1,7 +1,8 @@
-# generation: 961
+# generation: 962
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore file:build.sbt mod:v1/lang/uniml-bridge
 release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md
 int-object-var-find-the-site	claude-code	2026-08-05T09:13:02Z	int-object-var-mutation-does-not-persist	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/FastTier.scala file:v1/runtime/backend/interpreter/BUGS.md
 jvm-json-bridge-emit	claude-code	2026-08-05T09:14:28Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
+int-sibling-method-resolution	claude-code	2026-08-05T09:16:08Z	int-case-class-method-cannot-call-a-sibling-method	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:tests/e2e/sibling-method-gate.sh
