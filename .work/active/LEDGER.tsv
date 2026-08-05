@@ -5,4 +5,3 @@ release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-bl
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml file:bench/history.tsv file:.gitignore
 jvm-nested-module-qualification	claude-code	2026-08-05T07:03:05Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 js-package-import-double-const	claude-code	2026-08-05T07:15:51Z	js-package-import-emits-a-second-self-referential-const	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md
-my-misplaced-closure-block	claude-code	2026-08-05T07:21:36Z	self-correction-duplicated-closure-in-v2-bugs	file:v2/BUGS.md
