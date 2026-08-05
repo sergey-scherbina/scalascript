@@ -9,10 +9,11 @@ Newest first.
 
 ## build-ram-guard-gate-fails-under-ambient-load — same tree, two verdicts, minutes apart
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: none -->
+     gate: tests/e2e/build-ram-guard-gate.sh
+     fixed-in: PENDING-SHA -->
 
 Found 2026-08-04 by a smoke run that went red on a change (Set operators) that cannot touch a JVM
 memory guard. The failing assertion is load-dependent:
@@ -41,6 +42,36 @@ green, which is exactly how a real red gets waved through. Related in kind to
 
 Fix direction (owner's call): have the assertion count only the builders the gate itself spawned,
 or make it a floor derived from what it observed rather than a fixed `>=5`.
+
+
+**FIXED 2026-08-05 — the assertion now names its subjects instead of counting the host.**
+
+It sampled `ps ax | grep -c 'sbt-launch|bloop|sbt/standalone'` before and after the dry run and
+required `after >= before`. That counts every builder on the machine, other agents' included, so a
+sibling's compile finishing NORMALLY between the two samples dropped the count and this cell blamed
+the dry run — which is exactly the three-run table above: one tree, two verdicts.
+
+The guard already answers the real question in its own log:
+
+```
+[ts] DRY T2-idle would-kill pid=54466 (rss=6978MB no-cpu-in-1s cwd=…)
+```
+
+So the check is now: **every process the guard said it WOULD kill must still be alive.** Stronger
+than the count — it verifies the specific processes rather than the population — and independent of
+what else the host is doing.
+
+Two details that make it honest rather than merely green:
+
+- With NO named target the cell prints `note: dry-run named no would-kill target — this check had
+  nothing to verify` instead of passing. A vacuous pass reads as evidence and is not.
+- The failure branch was exercised rather than assumed: fed a log naming a PID that had already
+  exited, the same logic reports `bad`. Testing it by killing a real builder was not an option —
+  the processes on this host belong to other agents, which is the whole point of the entry.
+
+The fix direction the entry offered as an alternative — deriving the floor from what was observed —
+was rejected on purpose: a threshold that adapts to the ambient state would mask a real regression
+in the guard, which is the one thing this gate exists to catch.
 
 ## bugs-index-gate-allows-a-detached-header — an unterminated header passes the gate and is invisible to every query
 <!-- status: fixed

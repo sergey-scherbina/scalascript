@@ -68,15 +68,37 @@ grep -q 'available=.*pageouts_rate=' "$SSC_GUARD_LOG" \
   || bad "action lines do not record available/pageout_rate — an unexplained kill is unreviewable"
 
 # ── 4. dry-run must never actually kill ──────────────────────────────────────
-before="$(ps ax -o command= | grep -cE 'sbt-launch|bloop|sbt/standalone' || true)"
-SSC_GUARD_REAP_FLOOR_MB=99999999 SSC_GUARD_SHED_FLOOR_MB=99999999 SSC_GUARD_THRASH_PAGES=0 \
-  SSC_GUARD_IDLE_SAMPLE=1 "$GUARD" --dry-run >/dev/null 2>&1
-after="$(ps ax -o command= | grep -cE 'sbt-launch|bloop|sbt/standalone' || true)"
-if [ "$after" -ge "$before" ]; then
-  ok "dry-run at maximum forced pressure killed nothing (builders before=$before after=$after)"
+# Asserted on the PIDs the guard NAMED, not on the host's builder COUNT.
+#
+# It used to sample `ps ax | grep -c` before and after and require `after >= before`. That counts
+# every builder on the machine, including other agents', so a sibling's compile finishing normally
+# between the two samples made the count drop and this cell blamed the dry run. Measured 2026-08-04:
+# the same commit FAILED here inside smoke ("expected>=5 got=4") and PASSED minutes later, in the
+# shared checkout and in the same worktree — three runs, one tree, two verdicts.
+# BUGS `build-ram-guard-gate-fails-under-ambient-load`.
+#
+# The guard's own dry-run lines name their targets — `DRY T2-idle would-kill pid=54466 (...)` — so
+# the exact question is answerable: every process the guard said it WOULD kill must still be alive.
+# That is stronger than the count (it checks the specific processes, not the population) and it does
+# not depend on what else the host happens to be doing.
+DRYLOG="$(mktemp "${TMPDIR:-/tmp}/ssc-ramguard-dry.XXXXXX")"
+SSC_GUARD_LOG="$DRYLOG" SSC_GUARD_REAP_FLOOR_MB=99999999 SSC_GUARD_SHED_FLOOR_MB=99999999 \
+  SSC_GUARD_THRASH_PAGES=0 SSC_GUARD_IDLE_SAMPLE=1 "$GUARD" --dry-run >/dev/null 2>&1
+targets="$(grep -oE 'would-kill pid=[0-9]+' "$DRYLOG" 2>/dev/null | grep -oE '[0-9]+$' | sort -u)"
+if [ -z "$targets" ]; then
+  # Vacuous rather than green: with no named target there is nothing to verify, and saying so beats
+  # a pass that looks like evidence.
+  printf '  note: dry-run named no would-kill target — this check had nothing to verify\n'
 else
-  bad "dry-run KILLED builders: expected>=$before got=$after"
+  dead=""
+  for pid in $targets; do kill -0 "$pid" 2>/dev/null || dead="$dead $pid"; done
+  if [ -z "$dead" ]; then
+    ok "dry-run killed none of the $(printf '%s\n' "$targets" | wc -l | tr -d ' ') process(es) it named"
+  else
+    bad "dry-run KILLED a process it only claimed it WOULD kill:$dead"
+  fi
 fi
+rm -f "$DRYLOG"
 
 # ── 5. the ladder is ordered, and T3 is reachable only in a real emergency ───
 # The tier that can kill an agent's running compile must require BOTH low memory and active
