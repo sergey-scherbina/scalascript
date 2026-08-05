@@ -131,36 +131,40 @@ jobs:
       # swapping. Letting sbt exit first costs a few seconds of reloading the
       # build definition and buys back a third of that machine.
       - name: Build jars and staged layout
+        env:
+          # MUST be here, not on the image step: the heap flag is baked into the
+          # argv when `cli/nativeImageArgv` generates it, and that happens now.
+          SSC_NATIVE_IMAGE_XMX: ${{ matrix.native_image_xmx }}
         run: |
+          # nativeImageArgv writes the exact command the next step runs, so sbt is
+          # not alive during the image build. See that step for why.
           sbt \
             "cli/installBin" \
-            "pluginHost/assembly"
+            "pluginHost/assembly" \
+            "cli/nativeImageArgv"
 
       - name: Build native binary
-        env:
-          SSC_NATIVE_IMAGE_XMX: ${{ matrix.native_image_xmx }}
-          # sbt is CAPPED here because it does not go away: it is the process that
-          # forks native-image, so it stays resident for the whole image build.
-          # Splitting the steps (previous commit) did NOT remove it, contrary to
-          # what that commit claimed -- the arm64 log shows sbt's own GC warnings
-          # DURING the image build, "[Heap: 0.51GB free of 1.69GB, max 4.00GB]",
-          # i.e. ~1.7 GB alongside native-image's 4.44 GB on a 7 GB machine.
-          #
-          # This invocation compiles nothing (step 1 built the jars); it loads the
-          # build definition and forks. 1500m is enough for that and leaves the
-          # image builder the room it has been starved of. If sbt OOMs here the
-          # answer is to invoke native-image WITHOUT sbt, which needs build.sbt to
-          # emit its own argv -- currently held by another claim.
         run: |
-          # -J-Xmx, NOT JAVA_OPTS. This checkout has a .jvmopts pinning -Xmx4G (it exists so a
-          # dozen parallel worktrees' sbt servers cannot OOM the dev host), and sbt reads that
-          # file INSTEAD of JAVA_OPTS -- a first attempt set JAVA_OPTS and the arm64 log came back
-          # with an unchanged "max 4.00GB", i.e. the cap was silently ignored.
+          # native-image is invoked DIRECTLY, with sbt already exited.
           #
-          # -J flags are appended AFTER .jvmopts and the last -Xmx wins. Verified by reading the
-          # launched process rather than assumed:
-          #   java ... -Xmx4G -XX:+UseG1GC -Xmx1500m ...
-          sbt -J-Xmx1500m "cli/graalvm-native-image:packageBin"
+          # sbt never stepped aside for this: it is the process that forks
+          # native-image and stays resident for the whole build, measured at
+          # ~1.7 GB. On the 7 GB arm64 runner that is decisive -- the image
+          # builder needs 4.5+ GB and every heap value between 4g and 6g failed,
+          # either starving (watchdog "no activity") or exceeding the machine.
+          # Splitting the sbt commands into two steps did NOT fix that, and
+          # capping sbt's heap did not either. Removing sbt from the step does.
+          #
+          # The argv comes from `cli/nativeImageArgv` in build.sbt, built out of
+          # the same settings the sbt plugin uses, so the command has ONE source
+          # and cannot drift from what a local `packageBin` runs.
+          #
+          # python3 rather than bash: the file is NUL-separated (a classpath is
+          # one enormous argument) and macOS runners ship bash 3.2, where
+          # `mapfile -d ''` does not exist.
+          # A single python3 -c rather than a heredoc. Both work here (the manifest
+          # step below uses a heredoc), this one just has no terminator to align.
+          python3 -c 'import os,sys; f="v1/tools/cli/target/native-image-argv"; a=open(f,"rb").read().decode("utf-8").split(chr(0)); d=os.path.join(os.path.dirname(f),"graalvm-native-image"); os.makedirs(d,exist_ok=True); os.chdir(d); print("exec %s (%d args) in %s" % (a[0],len(a),d), flush=True); os.execvp(a[0],a)'
 
       - name: Assemble release payload
         env:

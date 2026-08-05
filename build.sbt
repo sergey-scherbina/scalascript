@@ -1565,6 +1565,16 @@ lazy val compilerDriver = project
 // we bypass its runner (hardcoded -Xmx256M) and fork java with -Xmx1G.
 val shrinkJar     = taskKey[File]("Shrink the assembled ssc.jar with ProGuard 7.5 (1 G heap)")
 val installBin           = taskKey[Unit]("Stage lib/ssc.jar + lib/jars/ + lib/compiler/ for classpath-based launch")
+// Writes the EXACT `native-image` command line that `graalvm-native-image:packageBin` would run, so
+// CI can run it with sbt already exited. Why that matters: sbt does not step aside for the image
+// build — it is the process that forks native-image and stays resident throughout, measured at
+// ~1.7 GB, on a runner that has 7 GB in total and an image builder that needs 4.5+ GB.
+// tests/BUGS.md native-release-native-image-three-defects.
+//
+// Emitted FROM the same settings the plugin uses (fullClasspath, graalVMNativeImageOptions,
+// mainClass) rather than retyped into the workflow, so there is one source for the command. NUL
+// separated because a classpath is one enormous argument and paths may contain spaces.
+val nativeImageArgv = taskKey[File]("Write the native-image argv (NUL-separated) for out-of-sbt invocation")
 val packagePlugin        = taskKey[File]("Package this plugin as a .sscpkg ZIP archive (manifest.yaml + intrinsics/<name>.jar)")
 val checkPluginBoundary  = taskKey[Unit]("CI: assert no interpreter JAR is on the plugin Compile classpath")
 
@@ -2382,6 +2392,18 @@ lazy val cli = project
     //   java -agentlib:native-image-agent=config-output-dir=native-image-configs \
     //     -jar ssc.jar run examples/hello.ssc [other CLI paths …]
     GraalVMNativeImage / mainClass  := Some("scalascript.cli.ssc"),
+    nativeImageArgv := {
+      val outDir = target.value / "graalvm-native-image"
+      IO.createDirectory(outDir)
+      val cp   = (Compile / fullClasspath).value.files.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+      val main = (GraalVMNativeImage / mainClass).value.getOrElse(sys.error("nativeImageArgv: no mainClass"))
+      val argv = Seq("native-image", "--class-path", cp, "-H:Name=" + name.value) ++
+        graalVMNativeImageOptions.value ++ Seq(main)
+      val f = target.value / "native-image-argv"
+      IO.write(f, argv.mkString("\u0000"))
+      streams.value.log.info(s"nativeImageArgv: ${argv.size} args -> $f (run with cwd=$outDir)")
+      f
+    },
     graalVMNativeImageOptions ++= Seq(
       "--no-fallback",
       "--initialize-at-build-time=scala",

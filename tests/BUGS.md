@@ -271,6 +271,25 @@ needs `build.sbt` to emit its own argv so the command has one source. `build.sbt
 claim (`uniml-ssc3-frontend-readiness`, heartbeat 14 h stale, no commits, does not touch the file) —
 that is a release/claim decision for the owner, not something to take unilaterally twice.
 
+**9 (the fix): native-image is invoked WITHOUT sbt.** Every attempt to make arm64 fit by tuning
+memory failed, and the reason is that one of the two consumers was never negotiable:
+
+| attempt | result |
+| --- | --- |
+| heap 4g / 5g / 6g | all fail — starve (watchdog) or exceed the 7 GB machine |
+| split into two sbt steps | sbt is the process that FORKS native-image; it stays resident |
+| cap sbt via `JAVA_OPTS` | silently ignored — `.jvmopts` pins `-Xmx4G` and sbt reads it INSTEAD |
+| cap sbt via `-J-Xmx1500m` | applied (log shows `max 1.47GB`), still not enough |
+| `-H:NumberOfThreads` 3→2 | 1.4% on peak, and 2 threads OOMed where 3 succeeded |
+
+`build.sbt` now has a `nativeImageArgv` task that writes the exact command `packageBin` would run —
+built from the same `fullClasspath` / `graalVMNativeImageOptions` / `mainClass`, so the command keeps
+ONE source and cannot drift from a local build. CI generates it in the jar step and executes it in
+the next, with sbt already exited.
+
+Verified locally end to end: the emitted argv is 12 arguments, and running it with no sbt present
+produced the image in 8m30s (200 MB binary).
+
 **Status of the other two targets: both green.** `ssc-linux-x86_64` has passed end to end twice, and
 `ssc-macos-x86_64` passed once the GraalVM pin moved to 21.0.9.
 
