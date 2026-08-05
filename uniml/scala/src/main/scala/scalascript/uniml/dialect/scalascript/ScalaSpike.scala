@@ -546,6 +546,21 @@ object SpikeParse:
     // (it cannot be multiplication there), and without it the param clause failed at the `*`
     // and took the rest of the def with it.
     if c.peekKind == "spike.op" && c.peekLexeme == "*" then c.advance()
+    // `A throws E` — an INFIX TYPE operator, not a keyword: `throws` lexes as a plain identifier.
+    // It appears in both return and parameter position throughout `v1/runtime/std/error-handling.ssc`
+    // — `def raise[A, E](e: E): A throws E` — and the whole type was rejected without it, taking
+    // the `=` and the body with it. Erased like every other type here.
+    // `A | E` and `A & B` — union and intersection types, infix operators in TYPE position where
+    // they cannot be the boolean/bitwise operators of the same spelling. `def unbox(…): A | E` in
+    // error-handling.ssc lost its body to the `|`.
+    if c.peekKind == "spike.op" && (c.peekLexeme == "|" || c.peekLexeme == "&") then
+      c.advance()
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+      else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then { c.advance(); skipTypeTail(c) }
+    if c.peekKind == "spike.id" && c.peekLexeme == "throws" then
+      c.advance()
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+      else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then { c.advance(); skipTypeTail(c) }
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
       c.advance()
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)

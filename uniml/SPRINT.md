@@ -194,9 +194,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           literal of FIXED WIDTH, so `'x)` lexed as the char `'x)` and `'{ ` as `'{ `, both
           `spike.int`. A char literal is now one only when the quote CLOSES; `$` became a token
           instead of `spike.junk`. **tagged 52 → 42.**
-          **tagged 172 → 42 across seven slices, untagged 96 → 52, clean files 94.8% → 97.6%.**
-          Of the 42 left, 16 are the `@side` example that is invalid by measurement — so roughly
-          26 are real.
+          An eighth: **infix operators in TYPE position** — `A throws E`, `A | B`, `A & B`. All
+          three are in `v1/runtime/std/error-handling.ssc`, which is STANDARD LIBRARY and therefore
+          parses for the reference front by definition; a diagnostic there could only ever be a gap
+          here. Rejecting the type took the `=` and the body with it, so one unhandled operator cost
+          14 diagnostics in one file — 14 → 2 → 0. `throws` is not a keyword, it lexes as an
+          identifier, so the rule matches the lexeme. **tagged 42 → 28.**
+          **tagged 172 → 28 across eight slices, untagged 96 → 52, clean files 94.8% → 97.7%.**
+          Of the 28 left, 16 are the `@side` example that is invalid by measurement — so roughly
+          **12 are real**, and the histogram's tail is flat at 2-3 each.
           **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
           candidate by size — 16 diagnostics, `@side = server` in
           `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
