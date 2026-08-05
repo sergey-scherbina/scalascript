@@ -16,6 +16,39 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## an-example-uses-a-syntax-the-language-does-not-have-and-no-gate-runs-it
+
+<!-- status: open
+     lane: multi
+     area: corpus
+     fixed-in: -
+     gate: - -->
+
+`examples/frontend/data-table/data-table.ssc` writes `@side = server` three times. The language
+has no such construct: it appears in `specs/electron-jvm-rest-backend.md` §288 as something
+"later phases **can** introduce", and the reference front rejects it —
+
+    $ bin/ssc-tools run --v1 <the same three lines>
+    error: failed to parse scalascript block: expected start of definition
+      @side = server
+            ^
+
+so the file has never been valid ScalaScript. It is the only file in the repository using the
+syntax, it is not in `tests/conformance/contract-roster.tsv`, and nothing under `tests/`,
+`scripts/` or `.github/` names it. An example nobody runs, written in a syntax nobody implemented.
+
+**Why this is filed rather than fixed here.** What the example SHOULD say is the author's call —
+delete the directive, implement `@side`, or move the file out of `examples/` — and each answer
+means something different about whether the partitioning idea is alive.
+
+**The general shape is the more valuable half.** It was found by UniML's breadth probe, which
+counted these three as parse gaps in the ScalaScript dialect. Teaching the dialect to accept
+`@side = server` would have "improved" breadth by making it accept what the language rejects.
+That is the third time in two days a corpus number has rewarded the wrong thing — first markdown
+prose in untagged fences, then English sentences beginning with `class`, now invalid code — and
+the lesson each time is the same: a corpus is only an oracle for constructs the language actually
+has. `uniml/BACKLOG.md` carries the first two.
+
 ## multipart-upload-three-lanes-three-answers — only js parses a file part correctly
 <!-- status: fixed
      lane: multi

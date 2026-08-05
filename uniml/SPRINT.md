@@ -96,6 +96,17 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           lambda, and the argument backtracks if it does not parse as one. The spec's controls are
           the ascriptions, not the new forms.
           **tagged 172 → 71 across three slices, untagged 96 → 94.**
+          **⚠️ The tagged column has its own floor above zero, and it is not only prose.** The next
+          candidate by size — 16 diagnostics, `@side = server` in
+          `examples/frontend/data-table/data-table.ssc` — turned out NOT to be a language gap: the
+          construct exists only in a spec's "later phases can introduce" paragraph, the reference
+          front rejects it identically, and no gate runs that file. Implementing it would have
+          "improved" breadth by teaching the dialect to accept what the language refuses. Filed in
+          the root `BUGS.md`; the dialect is right and the example is wrong.
+          That is the third disguise of one trap in two days — markdown prose, then English
+          sentences starting with `class`, now invalid code. **A corpus is an oracle only for
+          constructs the language actually has**, and chasing the number without asking that
+          question is how a parser gets taught someone's typo.
           Earlier slices, each measured: `case object`, `extern`+qualified def names (which only
           work TOGETHER), escaped identifiers, varargs, type ascription.
       (5) **measurement — DONE, and it removes the risk §4 opened with.** JMH both arms, alternated
