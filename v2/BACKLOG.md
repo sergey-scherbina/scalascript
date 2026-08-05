@@ -7,31 +7,6 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## `package:` binds a namespace on the native lane — spec'd, ready to start
-
-Spec: [`../specs/native-package-namespace.md`](../specs/native-package-namespace.md).
-Entry: [`BUGS.md`](BUGS.md) `native-front-has-no-package-namespace`.
-Gate: `tests/e2e/package-keyword-smoke.sh` — RED today, and it is the acceptance test.
-
-`package: org` binds nothing here: `ssc run` answers `unbound global: org` where the interpreter
-prints `ui-card-hi`. Both lanes splice a module's defs FLAT; v1 additionally binds the package as a
-namespace and the native lane does not.
-
-**Ready to start rather than merely filed.** The reason it sat unstarted was a semantic choice — a
-namespace must come IN ADDITION to the flat splice, so the same definitions become reachable by two
-paths, which for state is a question about identity. That is now ANSWERED by measurement on this
-lane: `object org: def ui(s) = ui(s)` resolves OUTWARD to the top-level `ui` rather than recursing,
-and this lane keeps object-level mutable state correctly. One definition, two names, no copy — see
-the spec for the three probes.
-
-Shape: keep the splice, emit `object <pkg>: def <name>(<params>) = <name>(<params>)` beside it, in
-`sscLoadMod` (`v2/bin/ssc1-run.ssc0:474`). The package name comes from `collectFrontmatter`
-(`v2/lib/mira-md.ssc0:168`).
-
-Estimated a session, most of it in the tower's `.ssc0` dialect. The spec carries a build hazard note
-worth reading first: that file is self-hosting, and it is READ AT RUN TIME from
-`bin/lib/native-front/tower/`, so iterations cost seconds instead of a ~7-minute rebuild.
-
 ## v2 wide JIT — queued as `J-0`…`J-9` in [`SPRINT.md`](SPRINT.md)
 
 A run-time JIT for the VM lane (the DEFAULT lane, which has had **no JIT at all** since `f5c-4`

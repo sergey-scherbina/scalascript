@@ -100,11 +100,54 @@ every request pays a JSON parse — but it is no longer a defect.
 
 ## native-front-has-no-package-namespace — `package: org` binds nothing on the native lane
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
+     fixed-in: e137a4994
      gate: tests/e2e/package-keyword-smoke.sh -->
+
+**FIXED 2026-08-05.** The entry's own two-file repro prints `ui-card-hi` on `ssc run`, matching
+`ssc-tools run --v1`, and the flat name keeps working. The gate's NATIVE row is green with the real
+fixture — a THREE-segment `package: org.example.ui` reaching `org.example.ui.Card.render("hi")`, not
+just the single segment the repro uses. Reverting the tower change turns that row red again with the
+original `unbound global: org`, which is how the gate was checked rather than trusted.
+
+**What it took, and none of it was the design this entry proposed.** Three properties of the lane,
+each measured:
+
+1. `object O: def f` lowers to the GLOBAL `O_f` (`ssc1-lower.ssc0` `prefixDefs`), and a dotted
+   selection joins segments with `_` and requires EVERY prefix to be a registered object. `object
+   org_example` alone answers `unbound global: org`. So a package is a CHAIN of flat objects
+   (`org`, `org_example`, `org_example_ui`), never nested ones — an `object` nested inside an object
+   body is silently DROPPED by that same function, which is also why `a.b.f()` does not work at all
+   on this lane.
+2. **`object ns: def ui = ui` aliases under F and is `unbound global: ns_ui` under the reference
+   front; the parameterful form `def ui(s) = ui(s)` HANGS there.** So the design below, which this
+   entry and the spec both proposed, was measured on ONE front and would have shipped a feature that
+   works until a file is big enough for F to decline it. Every alias now goes through a top-level
+   `__pkgref_…` whose right-hand side is not a member of the enclosing object — the one form both
+   fronts agree on.
+3. **F does not go through `sscLoadMod` at all.** It assembles its closure from SOURCE
+   (`sscConcatSources` in `v2/bin/ssc1-run-fsub.ssc0`), so the shared loader alone gave the feature
+   to one front only — observed directly: `SSC_FRONT=legacy` printed the right answer while F
+   declined the file and fell back. Both runners carry it now.
+
+Design, limits and the two rejected shapes: [`specs/native-package-namespace.md`](../specs/native-package-namespace.md).
+
+**Named limits, carried forward rather than left to be found:** a `var` is NOT aliased (the alias is
+a parameterless property and therefore eager, so it would publish a stale snapshot under a live-
+looking name); `exports:` is not consulted, so every top-level `def`/`val`/`object` becomes a member;
+a registration object carries a `__pkg` stub because it must be non-empty. F still declines a file
+carrying a THREE-segment selection and the reference front runs it — correct output, slower path,
+and a separate F-coverage item.
+
+**Found while fixing this:** `jvm-package-import-qualifies-the-link-name`
+(`v1/runtime/backend/jvm/BUGS.md`) — no module declaring `package:` can be imported on the jvm lane.
+It was invisible because the gate's JVM row invoked `bin/sscc`, the COMPILER, which never compiles
+the generated Scala. That row now runs the program and is a declared known-red that fails if it
+starts passing.
+
+### Original report (superseded 2026-08-05)
 
 Ten lines, measured 2026-08-04:
 
@@ -156,31 +199,17 @@ println(org.ui("x"))                     -- native: ui-x   (not infinite recursi
    `int` gives 1, 1, 0 (`int-object-var-mutation-does-not-persist`). So the identity question is not
    merely answerable here, it is already answered in the direction a namespace needs.
 
-**So the shape is: keep the flat splice unchanged, and emit alongside it**
+**The shape this proposed was: keep the flat splice unchanged, and emit alongside it**
 
 ```
 object <pkg>:
   def <name>(<params>) = <name>(<params>)   -- one per exported def
 ```
 
-One definition, two names, no copy, and nothing that works today stops working. `sscLoadMod`
-(`v2/bin/ssc1-run.ssc0:474`) is where it goes: it already returns the module's def list and appends
-it to the caller's, so the synthetic object is one more entry in that list.
-
-**Named limits, so the next person does not discover them:**
-- The alias is per DEF. A `var` member exposed as `def hits = hits` reads the live cell but
-  `org.hits = 5` would not write it. Whether package-qualified assignment must work is a smaller,
-  separate decision than the one this entry was blocked on.
-- The def list must be filtered to what is actually exported, and the parameter lists reproduced —
-  the tower has the def nodes, so this is mechanical rather than novel.
-
-**Not implemented.** The design is proven with the language's own constructs rather than argued, and
-the remaining work is emitting it inside the tower loader, which is a session of its own.
-
-**Spec'd 2026-08-05:** [`specs/native-package-namespace.md`](../specs/native-package-namespace.md)
-carries the design, the three probes that closed the identity question, the implementation steps in
-`sscLoadMod`, the named limits, the acceptance criteria and a build hazard note for the tower file.
-Queued in [`v2/BACKLOG.md`](BACKLOG.md).
+That was WRONG, and the reason is point 2 above: the probe behind it — a same-named member resolving
+outward — was run on one front. On the reference front the same line is unbound, and its
+parameterful form recurses forever. The correction is a top-level indirection, and the conclusion
+"one definition, two names, no copy" survived it unchanged.
 
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: open
