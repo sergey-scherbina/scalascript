@@ -7,6 +7,30 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## the operator lexer munches at most TWO characters, by a hand-written table
+
+`ScalaSpike`'s operator lexer is a chain of hand-written cases — `if c1 == '+' then ("++", 2) else
+if c1 == '=' then ("+=", 2) …` — so an operator of three or more characters is split. Scala's rule
+is a MAXIMAL run of operator characters. Two symptoms, one cause:
+
+    def <~>(b: Int): Int = a * 100 + b     `<~>` lexes as `<~` then `>`
+    3 <~> 4                                 "missing right operand after '<~'"
+    s ++= "x"                               `++=` lexes as `++` then `=`
+
+The first is `tests/conformance/js-symbolic-infix-operator.ssc`, which passes on int — so the gap is
+here, not in the source. The second is pinned as a failing assertion in `SpikeForBodySpec`, so
+closing this breaks that test and whoever fixes it reads the note.
+
+**Why it was not just changed.** Maximal munch is one line to write and a wide blast radius to
+trust: every existing two-character case (`<-`, `=>`, `::`, `++`, `+=`, `->`) is currently produced
+by a rule that stops at two, and a maximal run would also merge sequences the grammar relies on
+being separate. It needs the corpus and the losslessness gate on either side of the change, not a
+quick edit at the end of a session. `def` names are a second half: `expectName` accepts
+`spike.id`/`spike.uid` only, so even a correctly-lexed `<~>` would not be accepted as a method name.
+
+Measured cost of leaving it: 3 of the ~12 remaining tagged breadth diagnostics.
+
+
 ## UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics, and what they are
 
 Queued here rather than left `[~]` on the sprint: nothing has held this since the claim was

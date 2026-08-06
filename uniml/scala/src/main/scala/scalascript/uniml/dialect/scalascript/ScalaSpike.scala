@@ -2042,6 +2042,12 @@ object SpikeParse:
   // a for-body may be an assignment (imperative `for … do s = …`) or a plain expression.
   private def parseForBody(c: Cur): Node =
     if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c)
+    // `for k <- 1 to 3 do g += k` — the same compound assignment the statement parser accepts at
+    // :1359, with the same condition rather than a second spelling of it. The body had only the
+    // plain-assignment case, so `g += k` reached parseExpr, which reads `g` and stops at the `+=`.
+    // `tests/conformance/js-compound-assign.ssc:53` is this, and it passes on int.
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.op" && isCompoundAssign(c.peek2Lexeme) then
+      parseCompoundAssign(c)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   /** Scala's rule: ANY identifier immediately abutting a string literal is an
