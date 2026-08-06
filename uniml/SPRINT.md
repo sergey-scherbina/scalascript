@@ -10,6 +10,32 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] SSC3-B/nested-comments-and-bare-mode — **the last two of the eight the differential found.**
+      Claim `uniml-nested-comments-and-bare-mode`. Items 7 and 8 of the hand-over in
+      `uniml/BACKLOG.md`; the other six landed under `uniml-front-diff-debt` and
+      `uniml-if-branch-index-assign`.
+      **7 — a block comment NESTS, as it does in Scala.** It stopped at the FIRST closing delimiter,
+      so the remainder of the outer comment was lexed as CODE and the failure surfaced as
+      `missing.right` — a complaint about an operator several tokens past the construct that broke.
+      This makes the dialect **more permissive than the reference front, deliberately**:
+      ssc1-front's `skipBlockComment` does not nest either, and this lexer's comment used to say it
+      was matching that. v3 nests because Scala does, so ssc1-front's gap is shared rather than
+      authoritative, and the divergence runs in the only safe direction — strictly more input
+      parses, so nothing that parses today can stop. Corpus counts checked rather than assumed.
+      6/6, including a control that `a / b` is not a comment.
+      *The first version of the test did not compile: its docstring spelled the closing delimiter
+      literally, the inner one closed the docstring — the bug being fixed, committed by the test
+      that documents it. The docstring now spells no delimiter at all and says why.*
+      **8 — the composer has no BARE mode.** A `.ssc` with no fence yields ZERO ScalaScript
+      subtrees, so a whole program reads as prose with no diagnostic. Fences have been optional
+      since 2026-07-09 and a bare `.ssc` is the program in its entirety.
+      **Measured before designing**: 89 of 1,189 corpus files are fenceless, and exactly ONE of them
+      is genuinely doc-only (`v1/runtime/std/mapreduce/index.ssc` — front matter, headings,
+      link-imports, no code). So the discriminator has to separate those two populations, and
+      "no fence ⇒ all code" would parse that one file's markdown as ScalaScript — the exact mistake
+      the coverage spec's own header warns about, which once reported 33,487 phantom parse errors.
+      `tests/conformance/fenceless-bare-code.ssc` is the dedicated case for the wanted behaviour.
+
 - [x] SSC3-B/if-branch-index-assign — **`if c then a(i) = v`, the last breadth gap in SSC3 core.**
       Claim `uniml-if-branch-index-assign`. `40-front-on-uniml.md` §5b item 1, and one v3 already
       supports with a green fixture on both lanes — so a front swap without it would lose a working
