@@ -223,8 +223,45 @@ poses is narrower and different: **may a MIDDLEWARE see a streaming response?**
 - **If yes**, the contract in `std/http.ssc` is wrong rather than the host, and widening belongs
   there — but then it must name a concept the other three lanes can honour, not a jvm type.
 
-That is the decision, and it belongs to whoever owns the http/MCP transport path. It is one question
-with two defensible answers, not a defect with a fix.
+**ATTEMPTED 2026-08-06 — and the contract answer is right, but it is BLOCKED by something else.**
+
+The stream worry turned out not to exist: `std/http.ssc` declares `sse(req)(block): Response`, so a
+stream already IS a `Response` at the contract level and `StreamResponse` is only the host's second
+representation of it. Nothing needs draining or bypassing — the two representations just had no
+common type. So I gave them one (`sealed trait HttpResponse` in `HttpModel.scala`, both extending
+it) and typed all THREE middleware chains — `HttpDispatchLoop`, `RestRuntime`, `ProxyRuntime` —
+plus the preamble's own. It compiles.
+
+**The coercion equality was checked, not assumed:** the old `case other` arm wrote
+`Response(200, text/plain, String.valueOf(other))`, and coercing at the handler boundary with the
+same rule makes the dispatcher take its `case resp: Response` arm and emit byte-identical output.
+That is why moving the conversion earlier is safe.
+
+**What blocks it is a SECOND `Response` type.** `middleware-smoke` went 44 → 42 errors and the shape
+changed to:
+
+```
+10974 |  req => Response.json("echo " + req.path)
+      |     Found:    Response                  (class in the preamble)
+      |     Required: std.http.Response²        (class in object http)
+```
+
+The jvm lane has **two `Response` classes in scope**: the one inlined from
+`runtime-server-common/HttpModel.scala`, and the one `std/http.ssc` declares and the emitter puts in
+`object std.http`. `Response.json(...)` is an *extension on the preamble companion*
+(`JvmGenPreamble` says so in its own comment, because "the case class lives in a different
+compilation unit and Scala doesn't let two modules merge a companion object"), so it yields the
+preamble's type where the module's is required. **While every chain was `Any`, the two could never
+meet in one constraint.** Typing it makes them meet.
+
+**It does not break output today** — measured: a module `Response(201, …, "body-here")` reaches the
+wire as `body-here|201` on the jvm lane. So this is a latent duplication, not a live defect, and it
+is the same family as the two `jsonParse`/`JsonValue` implementations recorded above.
+
+**Reverted rather than half-landed.** The typing is correct and ready to re-apply the moment there
+is ONE `Response` on this lane; landing it now would trade a compile error nobody sees for 42 that
+everybody does. The remaining work is not the middleware signature — it is the duplicate type, and
+that is the third instance of preamble-and-module defining the same name.
 
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
 problem either — this one is a module declaring a narrower world than its host implements, and the
