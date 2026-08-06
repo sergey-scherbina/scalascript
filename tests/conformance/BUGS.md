@@ -27,17 +27,56 @@ the one case, which is now green on INT, JS and JVM.
 
 **What this needs, and none of it is the case itself:**
 
-- why the nightly is red — the failing runs report jobs with no conclusion, which in this workflow
-  has previously meant a job TIMEOUT surfacing as `cancelled` rather than `failure`
-  (`project_corpus_contract_gate_0727`), so the run status may not be describing a corpus problem
-  at all;
-- whether any OTHER rostered case is in the same position — rostered, non-PASS, no baseline row.
-  One was found by accident while it was being used as a control for an unrelated change. Nobody
-  has asked the corpus that question directly;
+- ~~why the nightly is red~~ — **ANSWERED 2026-08-06, and my own hypothesis above was wrong.**
+- ~~whether any OTHER rostered case is in the same position~~ — **ANSWERED: no.**
 - a smaller signal than a 27-minute nightly, since the cost of the current one is what makes a red
-  cheap to leave.
+  cheap to leave. **STILL OPEN — this is what remains of this entry.**
 
 Found while fixing the case, not by the gate reporting it.
+
+### Why the nightly was red — measured, not inferred
+
+The guess above was that the failing runs report jobs with no conclusion, i.e. a job TIMEOUT
+surfacing as `cancelled` (`project_corpus_contract_gate_0727`), so the run status might not be
+describing a corpus problem at all. **It does not describe any run in this window.** Every nightly
+from 08-02 to 08-06 has four jobs with real conclusions, and not one `cancelled`:
+
+    date        run       jobs (shard 0..3, order as reported)
+    2026-08-06  failure   failure  success  success  failure
+    2026-08-05  failure   success  failure  failure  failure
+    2026-08-04  failure   failure  failure  success  failure
+    2026-08-03  failure   failure  success  success  success
+    2026-08-02  failure   success  success  failure  success
+    2026-08-01  success   success  success  success  success
+
+So the five reds are corpus CONTENT, every one of them, and the July timeout pattern is not what
+has been happening. The content was the four stacked causes already named in `v2/BUGS.md`: a new
+case absent from the roster, this `fewer-braces-colon` regression, a second regression, and an
+improvement. Carrying a July explanation into an August window without re-measuring it is the
+error worth naming here — it is the same shape as reading a regression row off a later run and
+attributing it to an earlier break window, which happened to me on the same gate the same day.
+
+### Is any OTHER rostered case rostered, non-PASS and unbaselined — no
+
+The 08-06 nightly ran the WHOLE corpus across its four shards: two shards `✓ contract GREEN`, one
+reporting exactly one REGRESSION row (`fewer-braces-colon v2 FAIL`) and one reporting exactly one
+IMPROVEMENT (`rozum-agent-schema-derived js`). A case that is rostered, non-PASS and absent from
+the baseline is precisely what `contract.sc` prints as a REGRESSION, so a full four-shard sweep
+reporting one such row is the direct answer the entry says nobody had asked for. Both rows are now
+closed — the regression in `8abe91b6a`, the stale baseline row in `0f1f01111`.
+
+This answer has a shelf life of one corpus change and is not a gate; it says the queue was empty on
+2026-08-06, not that it stays empty.
+
+### A cancelled run is still not a verdict, and it happened while answering this
+
+Two manual `workflow_dispatch` runs on 2026-08-06 19:21 and 19:38 could not produce a verdict: the
+first reported all four shards `cancelled` at exactly 15:00 elapsed with ZERO steps recorded, the
+second sat `queued` for over half an hour without starting, while Smoke and Lint Markdown ran
+normally in the same window. That is the phenomenon the guess above describes — it just was not
+what the nightlies were doing. It is recorded here because it is the trap this entry exists for: a
+`cancelled` run reads like a verdict and is not one, so the fixes landed today still have no CI
+confirmation, and the 04:00 UTC nightly is where it will come from.
 
 ## corpus-contract-freeze-pairing-unchecked — editing the baseline without the roster header bricks the whole gate, and the freeze gate does not notice
 <!-- status: fixed
