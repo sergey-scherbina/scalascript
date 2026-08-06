@@ -2,6 +2,28 @@ ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
 ThisBuild / version      := "0.2.0-SNAPSHOT"
 
+// Publishing metadata, so a released artifact says what it is and where it came from. Until
+// 2026-08-06 this build declared NONE of it and `uniml/build.sbt` declared all of it, which meant
+// the standalone build was the only one that could publish a well-formed artifact — a strange
+// property for the build that owns the release.
+//
+// ⚠️ THESE VALUES EXIST TWICE AND THAT IS THE HAZARD, not the duplication itself. This repository
+// has now paid for the same shape three times in one day: `24581733e` moved the root version and
+// left uniml's behind, reddening the nightly UniML job for everyone; `Main.scala` carried a third
+// coordinate; and `v1/tools/sbt-plugin/build.sbt` still carries a fourth
+// (`sbt-plugin-version-and-the-coordinate-templates-emit-disagree` in tests/BUGS.md). A value
+// written down twice and agreeing only by memory is a defect waiting for the next edit.
+//
+// So the copies are not left to memory: `UnimlCoordinatesSpec` compares organization, version AND
+// every field below against `uniml/build.sbt` and fails on any drift. The gate is what makes two
+// declarations one fact. Change a value here and you must change it there — the test will say so.
+ThisBuild / licenses     := Seq("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / homepage     := Some(url("https://github.com/sergey-scherbina/scalascript"))
+ThisBuild / scmInfo      := Some(ScmInfo(
+  url("https://github.com/sergey-scherbina/scalascript"),
+  "scm:git:https://github.com/sergey-scherbina/scalascript.git",
+))
+
 // Scala.js cross-compile plumbing (specs/wallet-spi-scalajs.md).
 // `crossProject(JVMPlatform, JSPlatform).in(file("..."))` lays out
 // `shared/` + `jvm/` + `js/`; `.jvm` / `.js` give us the per-platform
