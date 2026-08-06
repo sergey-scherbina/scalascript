@@ -78,6 +78,7 @@ object Lower:
     case Expr.Not(x, _)           => freeVars(x, bound)
     case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ freeVars(v, bound)
     case Expr.Update(a, i, v, _)  => freeVars(a, bound) ++ freeVars(i, bound) ++ freeVars(v, bound)
+    case Expr.Apply(f, as, _)     => freeVars(f, bound) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
@@ -517,6 +518,20 @@ object Lower:
     // A named argument that survived the resolution pass means the callee's signature was not
     // known — a call through a value, or a method this front cannot see. A positioned refusal, not
     // a MatchError: the compiler's own exhaustiveness warning is what found this.
+    // Applying a VALUE: evaluate the callee, then `CallV`. The same instruction a call through a
+    // local closure already uses — a curried call is not a new mechanism, only a new spelling.
+    case Expr.Apply(fnE, argEs, _) =>
+      val (fi, fr, st1) = lower(fnE, fns, classes, zeroArity, st0)
+      var acc = fi
+      var regs: List[Int] = Nil
+      var st = st1
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (d, stF) = st.fresh
+      (acc :+ Instr.CallV(d, fr, regs), d, stF)
+
     case Expr.NamedArg(n, _, p) =>
       throw LowerFail(p, "a named argument '" + n + "' in a call whose signature is not known")
 
@@ -699,6 +714,7 @@ object Lower:
       case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
       case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
       case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
+      case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
       case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)

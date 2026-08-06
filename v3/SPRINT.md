@@ -685,3 +685,19 @@ is what prompted the sweep.
 **30 of 32 agree; the other 2 (`3.max(5)`, `3.min(5)`) are implemented by neither lane**, which the
 gate reports as `neither` rather than counting as agreement — a gate that scored those as passes
 would be scoring its own blind spot.
+
+## SSC3-18 — curried application, and the parity gap it immediately exposed
+
+- [x] **18a — `f(a)(b)`.** A `(` DIRECTLY after an expression applies it. No newline may intervene
+      and none can: a newline is its own token, so a `(` opening the next line is a new statement
+      and is never reached. New AST node `Apply` — `Call` names a function, and a curried call has
+      an EXPRESSION in that slot.
+- [x] **18b — `foldLeft` / `foldRight`, and a way for a built-in to be applied in TWO argument
+      lists.** `xs.foldLeft(z)(f)` means the first invoke gets one argument and must return
+      something the second can apply. v3 has no general partial application — a `VClos` needs a
+      lifted function index and a built-in has none — so `VPartial(recv, name, got)` is the shape
+      that makes a curried BUILT-IN call expressible. `CallV` on one finishes the invoke.
+
+      **It was invisible until 18a landed.** The construct existed on the bridge the whole time and
+      the executor had no way to reach it, so no probe could have been written for it: a parity
+      sweep can only probe what the front can PARSE.

@@ -248,6 +248,13 @@ object Parser:
       if isId(peek(ts), "match") then
         val (arms, t) = parseMatchArms(ts.tail)
         e = Expr.Match(e, arms, Expr.posOf(e)); ts = t
+      // A `(` DIRECTLY after an expression applies it: `f(a)(b)`, and with it `foldLeft(z)(f)`,
+      // which is the shape that made this worth doing — a fold is daily work and it could not be
+      // written. No newline may intervene, and none can: a newline is its own token, so a `(`
+      // opening the next line is a new statement and is not reached here.
+      else if isPunct(peek(ts), "(") then
+        val (as, t) = parseArgs(ts.tail)
+        e = Expr.Apply(e, as, Expr.posOf(e)); ts = t
       else if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
         peek(ts.tail) match
           case Tok.TId(nm, p) =>

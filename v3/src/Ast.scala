@@ -52,6 +52,9 @@ enum Expr:
   /** `f(width = 3)`. Only ever appears INSIDE an argument list, and is resolved to a position
     * before lowering — the IR has no notion of an argument's name. */
   case NamedArg(name: String, value: Expr, pos: Pos)
+  /** `f(a)(b)` — applying the RESULT of an expression. `Call` names a function; this one has an
+    * expression in that slot, which is what a curried call and `foldLeft(z)(f)` need. */
+  case Apply(fn: Expr, args: List[Expr], pos: Pos)
   case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
   case Lambda(params: List[Param], body: Expr, pos: Pos)
   case Try(body: Expr, exn: String, handler: Expr, pos: Pos)
@@ -136,6 +139,7 @@ object Expr:
     case Assign(_, _, p)  => p
     case Update(_, _, _, p) => p
     case NamedArg(_, _, p) => p
+    case Apply(_, _, p)   => p
     case Match(_, _, p)   => p
     case Lambda(_, _, p)  => p
     case Try(_, _, _, p)  => p

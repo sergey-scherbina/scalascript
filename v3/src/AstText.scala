@@ -112,6 +112,7 @@ object AstText:
     case Expr.Call(fn, as, _)  => sx("call", q(fn) :: as.map(expr))
     case Expr.MethodCall(r, n, as, _) => sx("send", expr(r) :: q(n) :: as.map(expr))
     case Expr.NamedArg(n, v, _)  => sx("named", List(q(n), expr(v)))
+    case Expr.Apply(f, as, _)    => sx("apply", expr(f) :: as.map(expr))
     case Expr.If(c, t, el, _)  =>
       sx("if", expr(c) :: expr(t) :: el.map(x => List(expr(x))).getOrElse(Nil))
     case Expr.While(c, b, _)   => sx("while", List(expr(c), expr(b)))

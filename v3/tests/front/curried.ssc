@@ -1,0 +1,5 @@
+def add(a: Int): Int => Int = (b) => a + b
+println(add(2)(3))
+println(List(1,2,3).foldLeft(0)((a, b) => a + b))
+val f = (x: Int) => (y: Int) => x * y
+println(f(3)(4))

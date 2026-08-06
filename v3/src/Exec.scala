@@ -27,6 +27,11 @@ enum Value:
   case VData(tag: Int, fields: Array[Value])
   case VClos(f: Int, captured: List[Value])
   case VArr(items: Array[Value])
+  /** A BUILT-IN method applied to only some of its arguments — `xs.foldLeft(0)` waiting for its
+    * function. v3 has no partial application in general; a `VClos` needs a lifted function index
+    * and a built-in has none, so this is the shape that lets a curried BUILT-IN call work at all.
+    * `CallV` on one of these finishes the invoke. */
+  case VPartial(recv: Value, name: String, got: List[Value])
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -56,6 +61,7 @@ object Exec:
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
     case Value.VClos(f, _) => "<closure " + f + ">"
+    case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case Value.VArr(xs)    => "Array(" + xs.toList.map(show).mkString(", ") + ")"
 
   /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
@@ -110,6 +116,7 @@ object Exec:
     // v3 lanes disagree on every program that prints an array, which invariant I-3 forbids. The
     // executor's own diagnostics still use `show`, which does print the contents.
     case Value.VArr(_) => "<foreign>"
+    case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case other          => show(other)
 
   private def a0(as: List[Int]): Int = as.head
@@ -235,6 +242,8 @@ object Exec:
     case Instr.CallV(d, c, as) =>
       regs(c) match
         case Value.VClos(f, cap) => regs(d) = callFunc(m, f, cap ++ as.map(r => regs(r))); Signal.Done
+        case Value.VPartial(recv, nm, got) =>
+          regs(d) = invoke(m, nm, recv, got ++ as.map(r => regs(r))); Signal.Done
         // `a(i)` on an ARRAY is an index, not a call. That is not a v3 invention: the bridge has
         // relied on it from the start — a frame read is `(app frame idx)` — so this is the executor
         // catching up with the semantics both lanes were already built on.
@@ -516,6 +525,16 @@ object Exec:
             case "max" =>
               if xs.isEmpty then throw ExecError("max of an empty list")
               else xs.reduce((a, b) => if cmp(a, b) >= 0 then a else b)
+            // `xs.foldLeft(z)(f)` — two argument lists, so the first invoke gets one argument and
+            // must return something the second can apply. Revealed the moment curried application
+            // became parseable: the construct existed on the bridge and the executor had no way to
+            // express it.
+            case "foldLeft" if args.length == 1  => Value.VPartial(recv, "foldLeft", args)
+            case "foldRight" if args.length == 1 => Value.VPartial(recv, "foldRight", args)
+            case "foldLeft" =>
+              xs.foldLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x))
+            case "foldRight" =>
+              xs.foldRight(args.head)((x, acc) => apply2(m, args.tail.head, x, acc))
             case "reduce" =>
               if xs.isEmpty then throw ExecError("reduce of an empty list")
               else xs.reduce((a, b) => apply2(m, args.head, a, b))

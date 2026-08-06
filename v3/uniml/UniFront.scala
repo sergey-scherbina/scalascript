@@ -166,10 +166,10 @@ object UniFront:
     // where collapsing them is the lowering's job rather than a premature decision.
     case U.Apply(U.Ident(f, _), as, s)          => Expr.Call(f, as.toList.map(expr), pos(s))
     case U.Apply(U.Select(r, m, _), as, s)      => Expr.MethodCall(expr(r), m, as.toList.map(expr), pos(s))
-    case U.Apply(f, as, s)                      => Expr.MethodCall(expr(f), "apply", as.toList.map(expr), pos(s))
+    case U.Apply(f, as, s)                      => Expr.Apply(expr(f), as.toList.map(expr), pos(s))
     case U.BlockApply(U.Ident(f, _), a, s)      => Expr.Call(f, List(expr(a)), pos(s))
     case U.BlockApply(U.Select(r, m, _), a, s)  => Expr.MethodCall(expr(r), m, List(expr(a)), pos(s))
-    case U.BlockApply(f, a, s)                  => Expr.MethodCall(expr(f), "apply", List(expr(a)), pos(s))
+    case U.BlockApply(f, a, s)                  => Expr.Apply(expr(f), List(expr(a)), pos(s))
     case U.Select(r, m, s)                      => Expr.MethodCall(expr(r), m, Nil, pos(s))
 
     case U.NamedArg(n, v, s) => Expr.NamedArg(n, expr(v), pos(s))
