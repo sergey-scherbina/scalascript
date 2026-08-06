@@ -8,6 +8,47 @@ grepping for status.
 Newest first.
 
 
+## swift-macos-build-broken-by-forJsonView — a UI primitive landed on one lane only
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-06 while triaging the `unknown` entries.** The command two entries document as
+"verified end-to-end" fails:
+
+```
+$ ssc-tools build --v2 --target macos examples/frontend/ios-hello/ios-hello.ssc
+Building v2 Swift macOS package → target/build/macos
+java.lang.IllegalArgumentException: swift backend: unsupported global 'forJsonView'
+```
+
+**Dated: `221c940f2`, 2026-07-20** — *feat(ui): forJson — render a JSON-array-string signal as a
+keyed reactive list*. It added `extern def forJsonView` to `std/ui/primitives.ssc`, which every UI
+program imports, and implemented it for the DOM lane only. Three native integration points, and it
+is in none of them:
+
+| | `forKeyedView` (its sibling) | `forJsonView` |
+|---|---|---|
+| `NativeUiSites.scala` — arity | present | **absent** |
+| `UiNativePlugin.scala` — behaviour | present | **absent** |
+| `SwiftBackend.scala` — permitted globals | present | **absent** |
+
+**So it is not a missing name in a list.** Adding it to `SwiftBackend`'s set alone would be exactly
+the "latent no-op" that file's own comment refuses to emit — the backend fails loudly *by design*,
+and that design is why this is a hard error rather than an app that silently renders nothing.
+
+**Two entries assert the opposite and are corrected in the same commit.**
+`v2-swift-xcode-contract-gaps` and `v2-swift-swiftui-native` both carry
+"Verified end-to-end (opus, 07-13, real Xcode 26.5)". That verification was real; it was invalidated
+seven days later by a commit to a different subsystem, and nothing noticed for two and a half weeks
+because **no gate builds the Swift target**. Re-checked here on Xcode 26.6.
+
+**Fix is the primitive on native, three sites, not a one-liner** — and it belongs to whoever owns
+`forJsonView`, since the DOM semantics (a `Signal[String]` holding JSON, keyed by a field) have to be
+mirrored, not guessed.
+
 ## f-declines-every-non-top-level-def — and a bare import is enough on its own
 
 <!-- status: open
@@ -7053,11 +7094,13 @@ new user-facing Swift AppCore example, waiting for Sergiy confirmation before
   confirms ordinary top-level values in the Swift workflow.
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
-<!-- status: unknown
+<!-- status: open
      lane: native
      area: front -->
 
 **Status:** CLI/BUILD LAYER FIXED by swift-sibling work since the report; the SwiftUI
+
+**RE-CHECKED 2026-08-06 and the verification below no longer holds.** The documented `build --v2 --target macos` now fails with `swift backend: unsupported global 'forJsonView'` — a UI primitive added on 2026-07-20 (`221c940f2`) to the shared `.ssc` primitives and implemented for the DOM lane only. Filed as `v2/BUGS.md swift-macos-build-broken-by-forJsonView`. Status moved `unknown` → `open`: the remaining slice this entry names is still real, and now so is a regression in the part it called done. Nothing noticed for two and a half weeks because no gate builds the Swift target.
 run/simulator/device/signing half remains (feature-scale). Verified (opus, 07-13, Swift
 6.3.2/Xcode 26.5): the CLI is now TIERED — `build`/`package`/`publish` are under `bin/ssc-tools`
 (`bin/ssc` correctly rejects them). `bin/ssc-tools build --v2 --target macos <ios-hello.ssc>`

@@ -1141,11 +1141,13 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   combined CLI matrix 53/53, assembled e2e passes, and `tkv2-*` is 12/12.
 
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
-<!-- status: unknown
+<!-- status: open
      lane: jvm
      area: front -->
 
 **Status:** CORE FIXED by swift-sibling work since the report; only the signed
+
+**RE-CHECKED 2026-08-06 and the verification below no longer holds.** The documented `build --v2 --target macos` now fails with `swift backend: unsupported global 'forJsonView'` — a UI primitive added on 2026-07-20 (`221c940f2`) to the shared `.ssc` primitives and implemented for the DOM lane only. Filed as `v2/BUGS.md swift-macos-build-broken-by-forJsonView`. Status moved `unknown` → `open`: the remaining slice this entry names is still real, and now so is a regression in the part it called done. Nothing noticed for two and a half weeks because no gate builds the Swift target.
 distribution-adapter slice remains (feature-scale). Verified end-to-end (opus, 07-13,
 real Xcode 26.5): `ssc-tools build --v2 --target macos examples/frontend/ios-hello/ios-hello.ssc`
 writes a real Swift package + `ios_hello.xcodeproj` + scheme; `xcodebuild -showBuildSettings`
