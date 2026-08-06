@@ -811,7 +811,14 @@ object SpikeParse:
       if isNameKind(c.peekKind) then kids += Node.Leaf(c.peek.get, Some("cc.parent"))
       skipTypeRef(c)
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
-      while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
+      // Scala 3 separates further parents with COMMAS — `extends Functor[T], Foldable[T]` — where
+      // Scala 2 wrote `with`. Only the first nominal parent is registered (the subtype registry
+      // models one), the rest are erased like every other type here; without this the comma ended
+      // the declaration and `v1/runtime/std/foldable-traversable.ssc` lost its trait.
+      while c.peekKind == "spike.comma" && isNameKind(c.peek2Kind) do { c.advance(); skipTypeRef(c) }
+      while isWord(c, "with") do
+        c.advance(); skipTypeRef(c)
+        while c.peekKind == "spike.comma" && isNameKind(c.peek2Kind) do { c.advance(); skipTypeRef(c) }
     captureDerives(c, kids)
     // an EXPLICIT body `{ def m … }` / `: def m …` carries BODY METHODS. ssc1-front registers them in a
     // parser cell the spike bypasses; instead we capture them (cc.method) and project a companion
@@ -1108,7 +1115,15 @@ object SpikeParse:
       c.advance()
       skipTypeRef(c)
       if c.peekKind == "spike.lparen" then skipBalancedParens(c) // parent constructor args
-      while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
+      // Scala 3 separates further parents with COMMAS where Scala 2 wrote `with`:
+      // `trait Traversable[T[_]] extends Functor[T], Foldable[T]`. Without this the comma ended the
+      // declaration and `v1/runtime/std/foldable-traversable.ssc` lost its trait — the reference
+      // front parses that file, so it was a gap here and not bad source.
+      def moreParents(): Unit =
+        while c.peekKind == "spike.comma" && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") do
+          c.advance(); skipTypeRef(c)
+      moreParents()
+      while isWord(c, "with") do { c.advance(); skipTypeRef(c); moreParents() }
     if isWord(c, "derives") then
       c.advance(); skipTypeRef(c)
       while c.peekKind == "spike.comma" do { c.advance(); skipTypeRef(c) }

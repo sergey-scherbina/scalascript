@@ -219,9 +219,14 @@ walk the AST, count the Unsupported nodes.
 
     1,182 files   171,119 nodes   2,943 gaps   98.3% of what the dialect parses
 
-Real gaps, largest first: `spike.narg` 772 (named arguments), `spike.interp` 583 (string
-interpolation), `spike.blockapp` 509 (a block passed as an argument), `decl:spike.sealed` 382,
-`spike.listlit` 239, then a tail under 60 each.
+⚠️ **CORRECTED 2026-08-06. The gap list this entry first carried was almost entirely PROSE.**
+It read `spike.narg` 772, `spike.interp` 583, `spike.blockapp` 509, `decl:spike.sealed` 382,
+`spike.listlit` 239 — and those were not unmodelled constructs, they were English text reaching the
+projection because the composer treated UNTAGGED fences as ScalaScript and the reference front does
+not. Once the composer's fence rule was made to match the reference, gaps went **2,943 → 3** and
+coverage to **100.0%**, with node count RISING 171,119 → 221,619, so nothing collapsed.
+
+The three that remain: `missing.right` ×2, `spike.sealed` ×1.
 
 ### The thing that matters most, and it is not the number
 
@@ -240,7 +245,8 @@ present and its children were syntax. The floor said 96.5% and passed, because a
 ### What to do first
 
 1. **Re-measure.** `cd uniml && sbt "unimlScala/testOnly *SpikeTypedCoverageSpec"`. Do not inherit
-   the numbers above.
+   the numbers above — the first version of this entry was wrong by three orders of magnitude, and
+   it was wrong because it trusted a corpus number without asking what the corpus contained.
 2. **Audit the projection against the CST's ROLES, construct by construct.** The `if` bug is a class,
    not an incident: `SpikeTyped` picks children by role name, and a role that names a keyword reads
    as plausibly as one that names a subtree. Dump a CST (`sbt "unimlBench/runMain

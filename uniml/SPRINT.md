@@ -351,6 +351,103 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           for `case class`. The diagnostic named `case`, three lines below the real cause.
           **tagged 24 → 18.**
           **tagged 172 → 18 across ten slices, untagged 96 → 52, clean files 94.8% → 98.1%.**
+          **THE FENCE RULE WAS THE REAL DEFECT, and it dwarfed the ten slices.** The composer
+          treated an UNTAGGED fence as ScalaScript; the reference front does not treat it as code at
+          all. Measured against the reference rather than assumed:
+              no fences in the file   the whole file is code (bare `.ssc`)
+              ``` with no info        NOT code, even when it parses
+              scala/scalascript/ssc   code
+              any of those with @doc  NOT code
+          `Lang.isParseable` knows only the three names and `isProgramCode` is
+          `isParseable(lang) && !isDocOnly`. Fixing the composer to match:
+          **diagnostics 75 → 17, clean files 98.1% → 99.3%, the untagged column 33 fences/52
+          diagnostics → 0/0**, and typed AST **gaps 2,943 → 3, coverage 98.3% → 100.0%** with node
+          count RISING 171,119 → 221,619 — nothing collapsed, the prose simply stopped arriving.
+          Three `scala`-tagged fences in `v1/runtime/std/` hold examples the reference REJECTS when
+          extracted into a program; each is now marked `@doc`, the language's own mechanism, and the
+          modules still import. A census found exactly 8 module fences that do not parse out of 266;
+          7 were documentation and 1 was a real gap (`extends A, B`), now fixed.
+
+      (2) **typed projection — 98.3%, after a real bug the floor was hiding.** `SpikeAst`/
+          `SpikeTyped`. Every `if` in the corpus projected BOTH branches as
+          `Unsupported("spike.kw")`: the CST names the keyword tokens `if.then`/`if.else` and the
+          branches `if.thenE`/`if.elseE`, and the projection read the keyword roles. The `If` node
+          was present, its children were the syntax that separates them.
+          It hid behind a COUNT: 2,120 of 4,851 gaps, under a floor that only asked for >95%. A
+          count cannot tell "unmodelled construct" from "modelled wrongly", so `SpikeTypedIfSpec`
+          asserts on the SHAPE instead. Fixing it moved nodes 139,787 → 171,119 — the branches'
+          whole subtrees were never reaching the projection — gaps 4,851 → 2,943, coverage
+          96.5% → **98.3%**.
+          Still true and still the point: **nothing consumes this AST**, so its coverage number is
+          a self-report. Real gaps now, in order: `spike.narg` 772, `spike.interp` 583,
+          `spike.blockapp` 509, `decl:spike.sealed` 382, `spike.listlit` 239.
+      (3) **breadth — the probe was fixed first, then the biggest gap closed.** The headline could
+          not tell a language fix from a permissiveness win: an untagged fence defaults to
+          ScalaScript, so PROSE counts as broken code, and twice on 2026-08-04 a correct change was
+          credited for making a protocol diagram parse. `SscBreadthSpec` now attributes per FENCE —
+          1,650 tagged fences at 0.10 diagnostics each against 38 untagged ones at 2.53, **25x the
+          density in 2.3% of the fences** — and the TAGGED column has its own floor.
+          Then the first slice measured in the honest column: **a `def`'s result type is optional**,
+          as in Scala. The dialect demanded `: T`, and that one omission was 76 of 172 tagged
+          diagnostics. **tagged 172 → 94 (−45%), untagged 96 → 96 (UNCHANGED), clean files
+          94.8% → 96.5%.** The untagged column not moving is the point: this fix is a language fix,
+          and the split probe proves it rather than asserting it.
+          Two more slices on the same evidence, each measured in the honest column:
+          a **dotted name in a pattern refers** (`case scala.util.Failure(e) =>` — Scala binds only
+          a SIMPLE identifier, so the first segment's case stops mattering once a `.` follows):
+          tagged 94 → 86, untagged unchanged, and the file carrying the top three shapes went to
+          ZERO diagnostics. Then **Scala 3 fewer-braces** (`xs.foreach: x =>`, `handle(x):` + case
+          arms): tagged 86 → **71**, untagged 96 → 94, clean 96.9%.
+          Fewer-braces is guarded three ways because `:` is the most overloaded token in the
+          language — the receiver must be a call or a selection, the colon must open a block or a
+          lambda, and the argument backtracks if it does not parse as one. The spec's controls are
+          the ascriptions, not the new forms.
+          A fourth slice came from checking a candidate instead of implementing it. `apiClients:` +
+          indented block looked like invalid content in a fence tagged `scala @side=client`; the
+          reference front PARSES it and fails at runtime with "Undefined: apiClients" — a type
+          error, not a syntax one. **My fewer-braces guard was stricter than the reference**,
+          requiring a call or a selection as the receiver. Relaxed to any expression, with
+          `colonOpensBlockArg` alone holding the line against ascription:
+          **tagged 71 → 69, untagged 87 → 76.**
+          The standard this settles is worth more than the number: *the dialect matches the
+          reference front's PARSE, and does not judge meaning.*
+          A fifth: **an indented block inside parentheses ends at the closing paren.**
+          `f(x =>` + indented body has its last line end with the `)` that closes the CALL, and a
+          column-bounded block tries to start a statement there. `parseBlock` already had a
+          `stopAtParen` flag — a lambda body passed it, an `if`/`then` branch did not, so ONE level
+          of nesting lost it. Found in `scripts/smoke-ci.ssc`, a script that runs in CI and
+          therefore parses fine for the reference front, which is what made it obviously a gap on
+          our side rather than bad source. **tagged 69 → 65.**
+          A sixth: **type ascription in EXPRESSION position** — `compute(1): Int`. The reference
+          front accepts it (`val n = compute(1): Int` prints 1 on the interpreter); this dialect
+          left the colon for the statement parser. It sits AFTER the fewer-braces branch, so the
+          two cannot compete: a colon that opens a block or a lambda is an argument, anything else
+          after an expression is an ascription. **tagged 65 → 52, untagged 76 → 52.**
+          `SpikeFewerBracesSpec` had pinned this as an OPEN gap with an assertion that it still
+          failed, and a note to whoever closed it. Closing it broke that test, exactly as designed —
+          a control that quietly starts testing a different defect is worse than no control.
+          A seventh: **Scala 3 quote and splice** — `'x`, `'{ … }`, `${ … }`, `$x`. The real defect
+          was in the LEXER and had nothing to do with macros: every `'` was assumed to open a char
+          literal of FIXED WIDTH, so `'x)` lexed as the char `'x)` and `'{ ` as `'{ `, both
+          `spike.int`. A char literal is now one only when the quote CLOSES; `$` became a token
+          instead of `spike.junk`. **tagged 52 → 42.**
+          An eighth: **infix operators in TYPE position** — `A throws E`, `A | B`, `A & B`. All
+          three are in `v1/runtime/std/error-handling.ssc`, which is STANDARD LIBRARY and therefore
+          parses for the reference front by definition; a diagnostic there could only ever be a gap
+          here. Rejecting the type took the `=` and the body with it, so one unhandled operator cost
+          14 diagnostics in one file — 14 → 2 → 0. `throws` is not a keyword, it lexes as an
+          identifier, so the rule matches the lexeme. **tagged 42 → 28.**
+          A ninth: **declarations that carry no value** — a by-name parameter `(block: => Unit)`
+          and an abstract `val id: String`. Both from `v1/runtime/std/`. The abstract val is the
+          instructive one: demanding `=` did not fail at the val, it consumed the REST OF THE FILE
+          looking for one and reported `expected '=', found '<eof>'`. A diagnostic pointing at
+          end-of-file usually means something earlier decided to keep going. **tagged 28 → 24.**
+          A tenth: **`try` with an INDENTED BLOCK body.** `catch` was already handled, braceless
+          arms included; the body was not, so a single expression was taken and the rest — plus the
+          `catch` — fell out to the enclosing block, which met `case` at statement level and asked
+          for `case class`. The diagnostic named `case`, three lines below the real cause.
+          **tagged 24 → 18.**
+          **tagged 172 → 18 across ten slices, untagged 96 → 52, clean files 94.8% → 98.1%.**
           ⚠️ And a finding that limits what the rest of this column means: **the composer parses
           fences the reference front does not.** `std/ui/form.ssc` holds `[...]` — invalid, the
           reference rejects it in isolation — inside a ```` ```scala ```` fence, yet the reference

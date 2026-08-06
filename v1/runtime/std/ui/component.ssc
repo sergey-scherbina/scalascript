@@ -22,7 +22,7 @@ registers `"<kind>__<key>__<name>"` instead of a bare global name, so two
 instances with distinct keys get independent state, and a reusable widget
 function stops being a signal-name collision hazard.
 
-```scala
+```scala @doc
 def counterCard(key: String, label: String): TkNode =
   component("counterCard", key)(ctx => {
     val count = ctxSignal(ctx, "count", 0)

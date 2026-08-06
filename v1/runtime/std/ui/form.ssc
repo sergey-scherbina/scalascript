@@ -25,7 +25,7 @@ tests). `form(ctx, specs)` creates one draft signal per field (scoped via
 the component `Ctx`, so two form instances never collide); `fieldError` /
 `formValid` are computed signals that re-validate as the user types.
 
-```scala
+```scala @doc
 val f = form(ctx, [
   field("name",  label = "Name", required = true, minLength = 2),
   field("email", label = "Email", pattern = "[^@]+@[^@]+", patternMsg = "must be an email")

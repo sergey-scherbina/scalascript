@@ -82,6 +82,15 @@ object SscCompose:
   /** drop the single fence-artifact line terminator that closes a fence body. */
   private def stripTrailingEol(s: String): String = s.stripSuffix("\n").stripSuffix("\r")
 
+  /** Does the fence's info string carry `@doc` — the marker that makes a block documentation
+    * rather than program code? Mirrors v1's `Content.CodeBlock.isDocOnly`, which reads the same
+    * `@key=value` attributes and treats any value other than `"false"` as set. */
+  private def docAttr(b: UniNode.Branch): Boolean =
+    val info = b.edges
+      .collectFirst { case UniEdge(Some("info"), UniNode.Token(t)) => t.lexeme }
+      .getOrElse("")
+    "@doc(?:=(\\S+))?".r.findFirstMatchIn(info).exists(m => Option(m.group(1)).forall(_ != "false"))
+
   /** the fence language: first whitespace-delimited word of the info string. */
   private def infoOf(b: UniNode.Branch): String =
     b.edges
@@ -180,8 +189,19 @@ object SscCompose:
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>
         val lang = infoOf(b)
         val code = textOfRole(b, "code") // raw, lossless fence body — trailing EOL included
-        // an untyped fence (```) defaults to ScalaScript; otherwise resolve via the registry.
-        registry.get(if lang.isEmpty then "scalascript" else lang) match
+        // WHICH FENCES ARE CODE — measured against the reference front on 2026-08-06, not assumed:
+        //
+        //   no fences in the file at all   the whole file is code   (bare `.ssc`)
+        //   ``` with no info string        NOT code, even when it parses
+        //   scala / scalascript / ssc      code
+        //   any of those with `@doc`       NOT code
+        //
+        // This used to default an untyped fence to ScalaScript, which is where the whole `untagged`
+        // column of the breadth probe came from: 33 fences, 52 diagnostics, none of them ever
+        // compiled by any lane. `Lang.isParseable` in v1 knows only the three names, and
+        // `isProgramCode` is `isParseable(lang) && !isDocOnly`.
+        if lang.isEmpty || docAttr(b) then b
+        else registry.get(lang) match
           case Some(adapter) =>
             fences = fences :+ Fence(lang, code, Some(adapter.id))
             inject(b, "code", code, adapter, "ssc:fence") // trailing EOL is tolerated

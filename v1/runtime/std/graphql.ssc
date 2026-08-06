@@ -17,7 +17,7 @@ exports:
 Schema-first GraphQL server backed by `graphql-java` (JVM) and `graphql-js` (Node target).
 Companion to [`specs/graphql.md`](../../specs/graphql.md).
 
-```scala
+```scala @doc
 // ── Opaque type aliases (erased at runtime) ─────────────────────────────────
 
 opaque type GraphQLSchema   = Any   // Value.Foreign("GraphQLSchema",   sdl: String)
