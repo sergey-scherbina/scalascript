@@ -218,7 +218,68 @@ object SscCompose:
         b.copy(edges = b.edges.map(e => e.copy(child = transform(e.child))))
       case t => t
 
-    val roots = md.roots.map(transform)
+    var roots = md.roots.map(transform)
+
+    // ── BARE mode ────────────────────────────────────────────────────────────────────────────
+    // Fences have been OPTIONAL in this project since 2026-07-09: a `.ssc` with no fence is the
+    // program in its entirety. Without this the composer yielded zero ScalaScript subtrees for such
+    // a file, so a whole program read as prose and nothing said so — a silent wrong answer rather
+    // than a diagnostic.
+    //
+    // THE TRIGGER IS TWO CONDITIONS, and the second is not caution but measurement. Of 1,189 corpus
+    // files 89 carry no fence, and exactly ONE of those is genuinely doc-only —
+    // `v1/runtime/std/mapreduce/index.ssc`, which is front matter, headings and link-imports with
+    // no code at all. "No fence implies all code" would hand that file's markdown to the
+    // ScalaScript dialect, which is the mistake `SpikeTypedCoverageSpec`'s header exists to record:
+    // done corpus-wide once, it reported 33,487 phantom parse errors, 18,782 of them backticks.
+    // A HEADING separates the two populations, verified in both directions by `SscBareModeSpec`.
+    //
+    // Splicing is done at the ROOT, replacing everything after the front matter with one subtree,
+    // rather than by rewriting paragraph nodes in place. That matters for losslessness: an injected
+    // subtree replacing a body that INTERLEAVES with other tokens cannot preserve order, which is
+    // how six corpus files once round-tripped with their indents behind the code. Here the region
+    // being replaced is one contiguous run of source and the dialect is lossless over it, so the
+    // token sequence is unchanged by construction — and asserted anyway.
+    // NO FENCE OF ANY KIND — not merely no ScalaScript fence, and the difference is the whole rule.
+    // The first version tested `no scalascript fence`, which also fires on a file whose fences are
+    // all JSON, or on prose that happens to carry no heading. Measured: corpus diagnostics went
+    // 75 -> 7,188 and a `json` fence started being read as ScalaScript. The census I took said
+    // 89 files have no ``` AT ALL; the predicate I then wrote said something much wider, and the
+    // corpus is what caught the gap between them.
+    def hasHeading(n: UniNode): Boolean = n match
+      case b: UniNode.Branch => b.kind.contains("heading") || b.edges.exists(e => hasHeading(e.child))
+      case _                 => false
+
+    if fences.isEmpty && !roots.exists(hasHeading) then
+      registry.get("scalascript").foreach { adapter =>
+        // everything after the front matter, which stays as it is
+        val frontEnd = roots.collectFirst {
+          case b: UniNode.Branch if b.kind == "markdown.front-matter" => b.span.end
+        }
+        val startPos = frontEnd.getOrElse(SourcePosition.Start)
+        val body = source.substring(math.min(startPos.offset, source.length))
+        if body.nonEmpty then
+          val sub = UniML.parse(SourceInput.fromString(SourceId("ssc:bare"), body), adapter)
+          val index = positionIndex(body, startPos)
+          def at(p: SourcePosition): SourcePosition =
+            index(math.min(math.max(p.offset, 0), body.length))
+          def remapSpan(sp: SourceSpan): SourceSpan =
+            SourceSpan(SourceId("ssc:file"), at(sp.start), at(sp.end))
+          def remap(n: UniNode): UniNode = n match
+            case UniNode.Token(t)  => UniNode.Token(t.copy(span = remapSpan(t.span)))
+            case b: UniNode.Branch =>
+              b.copy(edges = b.edges.map(e => e.copy(child = remap(e.child))), span = remapSpan(b.span))
+          sub.roots.headOption.foreach { r =>
+            val kept = roots.filter {
+              case b: UniNode.Branch => b.kind == "markdown.front-matter"
+              case _                 => false
+            }
+            roots = kept :+ remap(r)
+            fences = fences :+ Fence("", body, Some(adapter.id))
+            diags = diags ++ sub.diagnostics
+            worsen(sub.status)
+          }
+      }
     val span = roots.headOption match
       case Some(b: UniNode.Branch) => b.span
       case Some(UniNode.Token(t))  => t.span
