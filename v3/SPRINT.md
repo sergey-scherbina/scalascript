@@ -652,3 +652,36 @@ so — it now compares two fronts and reports what differs, which is what it was
 | append-ops | `+:` is normalised to `::` |
 | assign-body | the dialect gap `if c then a(i) = v` |
 | block-comments | a NESTED block comment |
+
+## SSC3-17 — LANE PARITY, measured by probe rather than by reading
+
+Sergiy's call: close the parity hole before making the executor the default lane, because otherwise
+the flip is how the hole gets discovered — on his programs.
+
+**Measured: 23 of 32 method probes ran on the BRIDGE and refused on the EXECUTOR.** That is a hole
+no amount of reading either implementation had suggested, and the reason is worth keeping: reading
+tells you what IS there, a probe tells you what a program can REACH. The first four —
+`substring`, `indexOf`, `replace`, `contains` — were found by accident while writing a spec, which
+is what prompted the sweep.
+
+- [x] **17a — the probe set**, one program per method, derived from what the CORPUS actually calls
+      rather than from either implementation's source.
+- [x] **17b — 23 methods implemented on the executor**: `exists` `forall` `find` `sorted` `sortBy`
+      `zip` `take` `drop` `distinct` `count` `min` `max` `last` `init` `indexOf` `contains`
+      `reduce` on lists; `isDefined` `map` `foreach` on `Option`; `reverse` `count` on `String`;
+      `abs` on numbers.
+- [x] **17c — the runtime's TYPES are pre-registered.** `xs.find(…)` returns a `Some` and
+      `xs.zip(ys)` returns tuples, and a module that never wrote `Some` or `(a, b)` had no entry
+      for them — so the executor could not build the value it was asked for. The bridge never
+      noticed because v2 has its own constructors. That asymmetry is the divergence, and declaring
+      the five types the runtime can produce removes it.
+- [x] **17d — `mkString` printed through `show`, not `showV`.** A zipped list came out as
+      `#4(1, a)` instead of `(1, a)` — the last probe to fall, and the only one whose cause was in
+      the PRINTER rather than in a missing method.
+- [x] **17e — `v3/parity-gate.sh`,** so it cannot decay. Three outcomes, one of them a failure:
+      agree, NEITHER lane has it (not this gate's business), or diverge. Observed failing: removing
+      `sorted` from the executor gives `FAIL list-sorted — bridge [1,2,3/] executor []`.
+
+**30 of 32 agree; the other 2 (`3.max(5)`, `3.min(5)`) are implemented by neither lane**, which the
+gate reports as `neither` rather than counting as agreement — a gate that scored those as passes
+would be scoring its own blind spot.

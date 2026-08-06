@@ -1046,7 +1046,15 @@ object Lower:
 
     var consts: List[Lit] = Nil
     var prims: List[String] = Nil
-    var types: List[TypeDef] = Nil
+    // The types the RUNTIME can produce, declared whether or not the source mentions them.
+    //
+    // `xs.find(…)` returns a `Some`, `xs.zip(ys)` returns tuples — and a module that never writes
+    // `Some` or `(a, b)` had no entry for them, so the executor could not build the value it was
+    // asked for. The bridge never noticed because v2 has its own constructors; that asymmetry is
+    // exactly the lane divergence this pre-registration removes.
+    var types: List[TypeDef] =
+      List(TypeDef("Cons", 2), TypeDef("Nil", 0), TypeDef("Some", 1), TypeDef("None", 0),
+           TypeDef("Tuple2", 2))
     var lifted: List[Func] = Nil
     // Collected BEFORE anything is lowered: a `def` may reference a top-level `val` declared
     // further down the file, and the other lanes allow that.

@@ -114,6 +114,21 @@ object Exec:
 
   private def a0(as: List[Int]): Int = as.head
 
+  private def intArg(v: Value, what: String): Int = v match
+    case Value.VInt(n) => n.toInt
+    case other         => throw ExecError(what + " expects an integer, got " + show(other))
+
+  /** `distinct` by VALUE equality, not by reference — `eq` is the same comparison `==` uses, so a
+    * list of equal data values collapses the way a reader expects. */
+  private def dedup(xs: List[Value]): List[Value] =
+    var out: List[Value] = Nil
+    xs.foreach { x => if !out.exists(y => eq(y, x)) then out = out :+ x }
+    out
+
+  private def apply2(m: Module, f: Value, a: Value, b: Value): Value = f match
+    case Value.VClos(fi, cap) => callFunc(m, fi, cap ++ List(a, b))
+    case other                => throw ExecError("not a two-argument function: " + show(other))
+
   private def truthy(v: Value): Boolean = v match
     case Value.VBool(b) => b
     case Value.VInt(n)  => n != 0L
@@ -337,6 +352,41 @@ object Exec:
         case _ => go = false
     out.reverse
 
+  /** A total order over values, for `sorted`/`sortBy`/`min`/`max`. Numbers compare numerically,
+    * strings lexicographically, and everything else by its printed form — which is what keeps the
+    * result DEFINED rather than dependent on iteration order. The reference lane has its own
+    * `valueOrdering`; the differential is what says whether these two agree, so any disagreement
+    * shows up as a failing probe rather than as an argument. */
+  private def cmp(a: Value, b: Value): Int = (a, b) match
+    case (Value.VInt(x), Value.VInt(y))     => x.compareTo(y)
+    case (Value.VFloat(x), Value.VFloat(y)) => x.compareTo(y)
+    case (Value.VInt(x), Value.VFloat(y))   => x.toDouble.compareTo(y)
+    case (Value.VFloat(x), Value.VInt(y))   => x.compareTo(y.toDouble)
+    case (Value.VChar(x), Value.VChar(y))   => x.compareTo(y)
+    case (Value.VStr(x), Value.VStr(y))     => x.compareTo(y)
+    case (Value.VBool(x), Value.VBool(y))   => x.compareTo(y)
+    case (x, y)                             => show(x).compareTo(show(y))
+
+  private def someOf(m: Module, v: Value): Value =
+    val t = tagOf(m, "Some")
+    if t < 0 then throw ExecError("this module declares no `Some`")
+    val f = new Array[Value](1)
+    f(0) = v
+    Value.VData(t, f)
+
+  private def noneOf(m: Module): Value =
+    val t = tagOf(m, "None")
+    if t < 0 then throw ExecError("this module declares no `None`")
+    Value.VData(t, new Array[Value](0))
+
+  private def tup2(m: Module, a: Value, b: Value): Value =
+    val t = tagOf(m, "Tuple2")
+    if t < 0 then throw ExecError("this module declares no `Tuple2`")
+    val f = new Array[Value](2)
+    f(0) = a
+    f(1) = b
+    Value.VData(t, f)
+
   private def listIn(m: Module, xs: List[Value]): Value =
     val consT = tagOf(m, "Cons")
     val nilT = tagOf(m, "Nil")
@@ -391,6 +441,11 @@ object Exec:
           case Value.VStr(x) => Value.VBool(s.endsWith(x))
           case v             => throw ExecError("endsWith " + show(v))
       case (Value.VStr(s), "nonEmpty") => Value.VBool(s.nonEmpty)
+      case (Value.VStr(s), "reverse")  => Value.VStr(s.reverse)
+      case (Value.VStr(s), "count") =>
+        Value.VInt(s.count(c => truthy(apply1(m, args.head, Value.VInt(c.toLong)))).toLong)
+      case (Value.VInt(n), "abs")      => Value.VInt(if n < 0 then -n else n)
+      case (Value.VFloat(d), "abs")    => Value.VFloat(if d < 0.0 then -d else d)
       // `charAt` returns an INT on the reference lane — "abc".charAt(1) is 98, not 'b'. Char
       // LITERALS are chars there and charAt is not; matching that is the point.
       case (Value.VStr(s), "charAt") =>
@@ -431,6 +486,39 @@ object Exec:
             case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
             case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
             case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x))))
+            // Every one of these ran on the BRIDGE and refused here. Found by probing the two
+            // lanes with one program per method rather than by reading either implementation:
+            // 23 of 32 probes were bridge-only, which no amount of code reading had suggested.
+            case "exists"  => Value.VBool(xs.exists(x => truthy(apply1(m, args.head, x))))
+            case "forall"  => Value.VBool(xs.forall(x => truthy(apply1(m, args.head, x))))
+            case "count"   => Value.VInt(xs.count(x => truthy(apply1(m, args.head, x))).toLong)
+            case "find" =>
+              xs.find(x => truthy(apply1(m, args.head, x))) match
+                case Some(v) => someOf(m, v)
+                case None    => noneOf(m)
+            case "sorted"  => listIn(m, xs.sortWith((a, b) => cmp(a, b) < 0))
+            case "sortBy" =>
+              listIn(m, xs.sortWith((a, b) => cmp(apply1(m, args.head, a), apply1(m, args.head, b)) < 0))
+            case "zip" =>
+              listIn(m, xs.zip(listOut(m, args.head)).map((a, b) => tup2(m, a, b)))
+            case "take"     => listIn(m, xs.take(intArg(args.head, "take")))
+            case "drop"     => listIn(m, xs.drop(intArg(args.head, "drop")))
+            case "distinct" => listIn(m, dedup(xs))
+            case "contains" => Value.VBool(xs.exists(x => eq(x, args.head)))
+            case "indexOf"  => Value.VInt(xs.indexWhere(x => eq(x, args.head)).toLong)
+            case "last" =>
+              if xs.isEmpty then throw ExecError("last of an empty list") else xs.last
+            case "init" =>
+              if xs.isEmpty then throw ExecError("init of an empty list") else listIn(m, xs.init)
+            case "min" =>
+              if xs.isEmpty then throw ExecError("min of an empty list")
+              else xs.reduce((a, b) => if cmp(a, b) <= 0 then a else b)
+            case "max" =>
+              if xs.isEmpty then throw ExecError("max of an empty list")
+              else xs.reduce((a, b) => if cmp(a, b) >= 0 then a else b)
+            case "reduce" =>
+              if xs.isEmpty then throw ExecError("reduce of an empty list")
+              else xs.reduce((a, b) => apply2(m, args.head, a, b))
             case "reverse" => listIn(m, xs.reverse)
             // A LANE DIVERGENCE, not a missing feature: the bridge ran `foreach` all along and the
             // executor did not. Invisible because no fixture used it.
@@ -444,7 +532,10 @@ object Exec:
               val sep = args.headOption match
                 case Some(Value.VStr(x)) => x
                 case _                   => ""
-              Value.VStr(xs.map(show).mkString(sep))
+              // `showV`, not `show`: this is OUTPUT, and `show` names raw tags. A zipped list
+              // printed as #4(1, a) instead of (1, a) — the last of 32 parity probes to fall, and
+              // the only one whose cause was in the PRINTER rather than in a missing method.
+              Value.VStr(xs.map(x => showV(m, x)).mkString(sep))
             case other => throw ExecError("list method '" + other + "' is not implemented on this lane")
         else
           recv match
@@ -453,6 +544,14 @@ object Exec:
             case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "getOrElse" => f(0)
+            case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isDefined" => Value.VBool(true)
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "isDefined" => Value.VBool(false)
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "map" =>
+              someOf(m, apply1(m, args.head, f(0)))
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "map" => noneOf(m)
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "foreach" =>
+              apply1(m, args.head, f(0)); Value.VUnit
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "foreach" => Value.VUnit
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
             // Numeric conversions. `toInt` is IDENTITY on an integer because ScalaScript's `Int` is
             // 64-bit — it is not a narrowing here, and treating it as one would silently change
