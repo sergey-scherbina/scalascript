@@ -33,7 +33,23 @@ every lambda arrow into an infix operator. Excluding the arrows by name took it 
 SHAPE rather than on absence of diagnostics: a lambda that became an infix application still parses
 cleanly and means something else.
 
-## UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics, and what they are
+## UNIML-SSC3 criterion (3) — the last breadth diagnostics — CLOSED 2026-08-06 at the floor
+
+**Closed at 4 diagnostics over 1642 tagged fences, and all four are the `@side = server` shape
+below** — i.e. every remaining diagnostic is source the REFERENCE front rejects too ("expected
+start of definition"), so there is no dialect gap left in this corpus. The last two slices were
+`uniml-operator-maximal-munch` (12 → 6) and `uniml-block-stops-at-comma` (6 → 4). The gate's
+ceiling moved 250 → 12 in the same commit; at 4-vs-250 it could not fail, which is why the number
+had stopped being evidence of anything.
+
+The `@side` count reads 4 here and 6 below because the entry below counted before the fence rule
+changed which blocks are compiled — the construct and the verdict are the same.
+
+**What this does NOT close:** the corpus is the measure, so a construct no example uses stays
+invisible. One was found while closing this and is filed as its own entry (multi-name `val`,
+below). The method paragraph at the end of this entry is what makes the next one cheap; keep it.
+
+### History (the entry as queued)
 
 Queued here rather than left `[~]` on the sprint: nothing has held this since the claim was
 released, and a board that says "in progress" with no live claim misdirects whoever reads it.
@@ -62,6 +78,23 @@ beside each diagnostic, so a construct names itself instead of being guessed fro
 "expected type, found '='". A histogram message can point at the wrong construct entirely — the
 indented-`try` gap reported `case`, three lines below its cause.
 
+
+## multi-name `val a, b = 1` does not parse — found 2026-08-06, NOT in the corpus
+
+`val a, b = 1` — one `val` binding several names — is unparsed by the dialect, both at the top
+level of a `def` body and inside an offside block. The diagnostic is `expected statement, found
+','` at the comma.
+
+**Not a regression, and not corpus-visible.** Found while writing a control for
+`uniml-block-stops-at-comma`: the control asserted a comma at paren-depth 0 does not truncate a
+block, and it used this construct to produce one. It fails with BOTH of that commit's stops
+reverted, so it predates them, and breadth is at its floor without it — no example in the corpus
+uses the form. The control was rewritten to assert something the parser can actually reach (a call
+with two block-valued arguments still has two arguments).
+
+**Before implementing it, ask the reference front** — extract it into a PROGRAM file, not a module
+(see the oracle entry below). Scala has the form, so the likely answer is that it should parse;
+"likely" is exactly the assumption that made a candidate get rejected during the breadth slices.
 
 ## the reference front is NOT an oracle for a module's fences — three method corrections
 

@@ -10,6 +10,20 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-block-stops-at-comma — **breadth reaches its floor: 6 → 4 diagnostics over 1642 tagged
+      fences, and all four are source the reference front rejects too.** Two stops of one class.
+      `enclClose` now includes `spike.comma`, so an offside block used as a group ELEMENT ends at
+      the comma that ends the element (`vstack([ …, if c then a else b, … ])`) instead of trying to
+      parse a statement there. And `captureExtendsClause` grew the Scala 3 comma loop — the SECOND
+      copy of the inheritance clause, and the only one `parseTraitOrClassNoop` calls, so
+      `trait Traversable[T[_]] extends Functor[T], Foldable[T]` still ended at the comma after the
+      fix had landed in the erasing copy. The breadth ceiling moves 250 → 12: at 4-vs-250 that
+      assertion could not fail. Two of the three new tests are behavioural rather than count-based
+      on purpose — a stop that fires too eagerly gives zero diagnostics just like a correct one, so
+      the control asserts the call still has TWO arguments and the parents test asserts
+      `List("B", "C")`. Found and filed rather than fixed: multi-name `val a, b = 1` does not
+      parse, predates both stops, absent from the corpus (`uniml/BACKLOG.md`).
+
 - [x] SSC3-B/nested-comments-and-bare-mode — **the last two of the eight the differential found.**
       Claim `uniml-nested-comments-and-bare-mode`. Items 7 and 8 of the hand-over in
       `uniml/BACKLOG.md`; the other six landed under `uniml-front-diff-debt` and
