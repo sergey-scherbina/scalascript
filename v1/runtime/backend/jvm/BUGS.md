@@ -201,11 +201,30 @@ Narrowing `next()` to `Response` means coercing at the handler boundary — and 
 one. Silently, and only where a middleware is installed. So the declared contract
 (`() => Response`) cannot express what the host actually supports.
 
-**The shape that resolves it, offered rather than taken:** give `Response` and `_StreamResponse` a
-common supertype carrying `withHeader` — `withHeader` is already an ordinary member of `Response`
-(`std/http.ssc:215`) — and type the chain as that supertype. Then `next().withHeader(...)` compiles,
-nothing is drained early, and the host signature stops being wider than the contract because the
-contract finally names both things the host returns.
+**CORRECTION 2026-08-06 — I suggested widening the shared contract, and that was the wrong shape.**
+`_StreamResponse` does **not** appear in `std/http.ssc` at all (grep: 0 hits). It is a jvm-host
+construct. The shared contract already says what middleware is — `Response` in, `Response` out — and
+it is the HOST that invented a wider signature to accommodate its own type. Nothing needs to be
+added to the contract.
+
+**What the host says about why, in its own comment** (`RestRuntime.scala:671`):
+
+> Route handler returns Any (Response | _StreamResponse | primitive auto-wrapped) … The wider Any
+> return type is what lets MCP transports use `route("GET", path) { req => sse(req) { … } }`:
+> `sse()` returns `_StreamResponse`, not `Response`.
+
+So the `Any` is deliberate and load-bearing for **route handlers**. The question this entry actually
+poses is narrower and different: **may a MIDDLEWARE see a streaming response?**
+
+- **If no** — which is what the declared contract says — then a `_StreamResponse` should bypass the
+  middleware chain, the chain becomes `Response`-typed, `next().withHeader(...)` compiles, and
+  nothing is drained. The cost is a behaviour change for anyone whose middleware currently wraps an
+  SSE route.
+- **If yes**, the contract in `std/http.ssc` is wrong rather than the host, and widening belongs
+  there — but then it must name a concept the other three lanes can honour, not a jvm type.
+
+That is the decision, and it belongs to whoever owns the http/MCP transport path. It is one question
+with two defensible answers, not a defect with a fix.
 
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
 problem either — this one is a module declaring a narrower world than its host implements, and the
