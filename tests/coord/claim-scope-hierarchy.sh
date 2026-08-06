@@ -121,5 +121,39 @@ check "a NON-bookkeeping file is still exclusive" refused "$(verdict 'file:v2/li
 setup 'file:scripts/BACKLOG.md' no
 check "same-name file elsewhere is not confused for a real path" admitted "$(verdict 'file:tests/BACKLOG.md')"
 
+# ── the vocabulary is CLOSED, and coord-claim is where a typo has to die ──────────────────────────
+# An entry outside the vocabulary cannot be distinguished from a real scope once it reaches the
+# guards, and it fails in BOTH directions depending on the typo. Measured 2026-08-06 against
+# scope_level/scope_path above:
+#
+#   dir:a/b  flie:a/b   level=mod, path "dir:a/b" — a path no file matches, so the scope is EMPTY:
+#                       it reads as a claim to a human and protects nothing.
+#   mod:  file:  mod:/  path EMPTY — and containment is `case $p_path in "$q_path"*`, so it matches
+#                       EVERYTHING and conflicts with every other claim. Blocks the queue.
+#   repo:x              level repo, path ignored — a typo claims the whole repository.
+#
+# So the assertion is on coord-claim's refusal, not on the guards' reading of a malformed scope:
+# by the time the guards see it the information is already gone. Both directions, because a
+# validator that refuses everything would pass a one-sided test.
+# (scripts/BUGS.md coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing.)
+scope_accepted() { # scope_accepted <scope> -> admitted|refused (by the VOCABULARY, not by anything else)
+  # Matched on the MESSAGE, not the exit code. `mod:` and `repo:` scopes also exit 2, from the
+  # --broad requirement, and the first version of this helper read that as a vocabulary refusal and
+  # failed two legal forms. Two different refusals sharing one exit code is exactly the ambiguity
+  # this gate is here to catch, so it must not be reintroduced by the test itself.
+  local err
+  err="$("$ROOT/scripts/coord-claim" _vocab_probe --items x --paths "$1" 2>&1 >/dev/null)" || true
+  case "$err" in
+    *"not scopes the guards understand"*) printf 'refused' ;;
+    *)                                    printf 'admitted' ;;
+  esac
+}
+for bad in 'dir:a/b' 'flie:a/b' 'mod:' 'file:' 'repo:x'; do
+  check "malformed scope '$bad' is refused at claim time" refused "$(scope_accepted "$bad")"
+done
+for good in 'file:a/b' 'mod:a/b' 'repo:' 'a/b'; do
+  check "legal scope '$good' still admitted" admitted "$(scope_accepted "$good")"
+done
+
 if [ "$fail" -ne 0 ]; then printf '\nclaim-scope-hierarchy: FAIL\n' >&2; exit 1; fi
 printf 'claim-scope-hierarchy: PASS\n'

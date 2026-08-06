@@ -42,6 +42,57 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# THE VOCABULARY IS CLOSED, and an entry outside it is refused HERE rather than being carried into
+# the guards, which cannot tell it from a real scope. Measured 2026-08-06 against pre-push's own
+# `scope_level`/`scope_path`, three shapes, each one plausible typo away and each SILENT:
+#
+#   dir:a/b   flie:a/b   -> level=mod, path "dir:a/b" — a path no file can ever match, so the scope
+#                           is EMPTY: it reads as a claim to a human and protects nothing, and a
+#                           second agent can take the same files with no word from the overlap
+#                           guard. That is the failure specs/claim-mutex.md exists to prevent.
+#   mod:   file:   mod:/ -> path EMPTY. The containment test is `case $p_path in "$q_path"*`, so an
+#                           empty path matches EVERYTHING: such a claim conflicts with every other
+#                           claim and blocks the queue. The opposite failure, equally quiet.
+#   repo:x               -> level repo, path ignored — a typo claims the whole repository.
+#
+# Refusing costs one line of the agent's time. Accepting costs a mutex.
+# (scripts/BUGS.md coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing.)
+bad_scopes=""
+for sc in $paths; do
+  case "$sc" in
+    repo)          ;;                                   # bare `repo` — the whole repository
+    repo:)         ;;                                   # same, written with the colon
+    repo:*)        bad_scopes="$bad_scopes $sc" ;;      # `repo:` takes no path; a typo would be silent
+    mod:|file:)    bad_scopes="$bad_scopes $sc" ;;      # prefix with no path ⇒ matches everything
+    mod:*|file:*)  ;;                                   # the two ordinary forms
+    -*|*:*)        bad_scopes="$bad_scopes $sc" ;;      # any other prefix is not in the vocabulary
+    *)             ;;                                   # unprefixed: legacy subtree, unchanged
+  esac
+done
+if [ -n "$bad_scopes" ]; then
+  printf 'refusing: these --paths entries are not scopes the guards understand:
+' >&2
+  for sc in $bad_scopes; do printf '  %s
+' "$sc" >&2; done
+  printf '
+The vocabulary is exactly:
+' >&2
+  printf '  file:<path>   exactly one file      — the default, and what lets others work nearby
+' >&2
+  printf '  mod:<path>    a module subtree      — needs --broad "<reason>"
+' >&2
+  printf '  repo:         the whole repository  — needs --broad, and is almost never right
+' >&2
+  printf '  <path>        unprefixed = mod:<path>
+' >&2
+  printf '
+An unrecognised prefix is not a narrower claim, it is NO claim: the overlap guard
+' >&2
+  printf 'compares it literally, nothing matches, and a second agent can take the same files.
+' >&2
+  exit 2
+fi
+
 # A subtree reservation must justify itself. Unprefixed paths are grandfathered so nothing that
 # exists today breaks, but anything written as mod:/repo: from now on states why.
 needs_broad=""

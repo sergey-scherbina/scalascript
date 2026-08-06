@@ -283,11 +283,44 @@ one pass, with a self-test that actually RUNS `coord-claim` (P-6.2): checking th
 covers neither this nor that one.
 
 ## coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing
-<!-- status: open
+<!-- status: fixed
      lane: n/a
      area: build
-     fixed-in: -
-     gate: none -->
+     fixed-in: PENDING
+     gate: tests/coord/claim-scope-hierarchy.sh -->
+
+**FIXED 2026-08-06 — and it is THREE shapes, not one.** `coord-claim` now refuses any `--paths`
+entry outside the vocabulary, at claim time, where the message can name the right one. Measured
+against pre-push's own `scope_level`/`scope_path`, every shape one plausible typo away and all
+silent:
+
+| written | the guards see | consequence |
+|---|---|---|
+| `dir:a/b`, `flie:a/b` | `level=mod`, path `dir:a/b` | a path no file can match — an **EMPTY scope**. Reads as a claim to a human, protects nothing. *(the filed shape)* |
+| `mod:`, `file:`, `mod:/` | path **empty** | containment is `case $p_path in "$q_path"*`, so it matches **everything** and conflicts with every other claim — the queue stops. The opposite failure |
+| `repo:x` | `level=repo`, path ignored | a typo claims the **whole repository** |
+
+So the filed direction was the harmless one, as the entry suspected, and the other two were not
+listed. The second is worth naming: a claim that silently blocks every other claim looks like the
+mutex working.
+
+**Gate:** the cases went into the EXISTING `tests/coord/claim-scope-hierarchy.sh` rather than a new
+file — a second gate would have been a second vocabulary, which is the defect this entry is about.
+Both directions: five malformed forms refused, four legal ones (`file:a/b`, `mod:a/b`, `repo:`,
+`a/b`) still admitted. Reverted, exactly those five fail and nothing else does.
+
+**The gate caught a defect in its own test first**, which is worth recording: the helper read ANY
+exit 2 as a vocabulary refusal, and `mod:`/`repo:` also exit 2 from the `--broad` requirement — two
+different refusals sharing one code. It now matches on the message. That is the same ambiguity this
+gate exists to catch, arriving inside the test.
+
+**Still open, and the entry named it:** the vocabulary lives in `coord-claim`, `.githooks/pre-commit`
+and `.githooks/pre-push` separately. This closes the hole at the entry point, where a typo is cheap
+to reject; it does not merge the three definitions, so they can still drift. Same shape as the
+`--no-gate` predicate written twice in `bugs-report`, where fixing one copy left the other printing
+the old number.
+
+### Original report (superseded 2026-08-06)
 
 `scripts/coord-claim … --paths "dir:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter"`
 is accepted without a word. The supported vocabulary is `repo:` / `mod:<path>` / `file:<path>` —
