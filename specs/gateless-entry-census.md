@@ -3,6 +3,11 @@
 **Measured 2026-08-06** with `scripts/bugs-report`'s own parser, imported rather than reimplemented,
 so this census and the tool can never be reading different sets.
 
+**The counts are a SNAPSHOT and go stale by the hour** — this repo lands entries continuously, and
+the total moved 97 → 100 while the census was being written. Do not repair the numbers below; re-run
+`scripts/bugs-report --status open --no-gate` for the current set. What does not go stale is the
+SHAPE: almost nothing says why it has no gate, and most of what has no gate has no repro either.
+
 ## The number was wrong, and the query was why
 
 `scripts/bugs-report --no-gate` reported **92**. It selected `gate in (None, "none")`, and five open
