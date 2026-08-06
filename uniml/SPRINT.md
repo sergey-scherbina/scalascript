@@ -10,7 +10,7 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] SSC3-B/if-branch-index-assign — **`if c then a(i) = v`, the last breadth gap in SSC3 core.**
+- [x] SSC3-B/if-branch-index-assign — **`if c then a(i) = v`, the last breadth gap in SSC3 core.**
       Claim `uniml-if-branch-index-assign`. `40-front-on-uniml.md` §5b item 1, and one v3 already
       supports with a green fixture on both lanes — so a front swap without it would lose a working
       feature rather than merely fail to gain one.
