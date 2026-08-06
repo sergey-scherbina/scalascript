@@ -321,10 +321,55 @@ surfaced it, and it deserves its own measurement rather than a patch bolted onto
 
 ## int-object-var-mutation-does-not-persist — a `var` inside an `object` never changes
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
+     fixed-in: b8f52cac6
      gate: tests/e2e/object-var-mutation-gate.sh -->
+
+**FIXED 2026-08-06. It was TWO defects that each masked the other, which is why both obvious fixes
+had been tried and both looked refuted.**
+
+The live assignment path is neither of the sites anyone instrumented. `Term.Assign` never reaches
+`EvalRuntime.eval` at all — `BlockRuntime.evalBlock` destructures a block's statements and handles
+the assignment inline, evaluating only the RHS. An `[eval]` trace on the interpreter entry shows it
+plainly: for `var k = 0; k = k + 1; println(k)` the nodes are `TermBlockImpl`, `LitIntImpl`,
+`TermApplyInfixImpl`, `TermApplyImpl` — no `Assign`. That site did
+
+    local(x) = v; interp.globals(x) = v
+
+writing straight to globals and never consulting `objectVarStores`, which is exactly the "the write
+LEAKS OUT of the object" fact recorded above.
+
+Routing it through `ObjectVarEnvView.assign` alone changes NOTHING, and that is the trap. `evalBlock`
+does not chain to its caller's env: it copies the entries that differ from `interp.globals` into a
+fresh HashMap and wraps that in a `MutableEnvView`. `ObjectVarEnvView` answers `MarkerKey` from
+`get`/`getOrElse`/`contains` but not from `iterator`/`foreachEntry`, so the copy drops the marker and
+the router cannot tell it is inside an object. Equally, carrying the marker alone changes nothing
+while the assignment still writes globals directly — which is precisely refuted-fix #5 above.
+
+Both together fix it. `carryObjectVarMarker` copies the marker onto the new map on both copy
+branches, and the nine assignment writes in that function route through the documented decision
+point instead of `interp.globals`.
+
+    object, plain `hits = hits + 1`      1 1 0  ->  1 2 2
+    object, compound `hits += 1`         1 1 0  ->  1 2 2
+    plain local var (control)                6  ->      6
+
+The compound form is a SEPARATE path (`x += n` parses as `Term.ApplyInfix`, not `Term.Assign`) and
+carried the identical defect; fixing only the plain form would have read as fixing both. Both are in
+the gate now, which was written to fail once the gap closed and did exactly that — it now holds int
+to the same answer as every other lane, and was re-run against the pre-fix interpreter to confirm it
+still goes red (2 failures, controls green).
+
+Correction to fact 3 above, found on the way: `SSC_FASTTIER=0` disables nothing. The flag is read as
+`!sys.env.get("SSC_FASTTIER").contains("off")`, so only the literal `off` turns it off — a value the
+tier ignores looks exactly like a ruled-out hypothesis. Re-measured with `off`: same `1 1 0`, so the
+conclusion held while the evidence for it did not.
+
+Smoke 68/69 at 292.3s of 600s, all four corpus lanes green; the one red is `launchers-not-dead` on a
+fresh worktree's empty `bin/`.
+
 
 **Ten lines, no imports, no front matter** (measured 2026-08-05):
 
