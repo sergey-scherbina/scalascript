@@ -136,6 +136,13 @@ object Exec:
 
   private def a0(as: List[Int]): Int = as.head
 
+  private def regs0(m: Module, xs: List[Value], idx: Value): Value = idx match
+    case Value.VInt(i) =>
+      if i < 0 || i >= xs.length then
+        throw ExecError("index " + i + " out of bounds for a list of " + xs.length)
+      xs(i.toInt)
+    case v => throw ExecError("list index " + show(v))
+
   private def intArg(v: Value, what: String): Int = v match
     case Value.VInt(n) => n.toInt
     case other         => throw ExecError(what + " expects an integer, got " + show(other))
@@ -265,6 +272,16 @@ object Exec:
         // `m(k)` on a MAP is a lookup that yields the VALUE, not an Option — v1's `m("a")` is `1`.
         // A missing key is an error rather than a unit, because a silent unit is a wrong answer
         // that flows on and surfaces somewhere else.
+        // `xs(i)` on a LIST. The corpus case that found it says so in its own description: `xs(i)`
+        // and `xs.apply(i)` are the same operation and must agree on every lane.
+        case Value.VData(_, _) if as.length == 1 && isList(m, regs(c)) =>
+          val xs = listOut(m, regs(c))
+          regs(a0(as)) match
+            case Value.VInt(i) =>
+              if i < 0 || i >= xs.length then
+                throw ExecError("index " + i + " out of bounds for a list of " + xs.length)
+              regs(d) = xs(i.toInt); Signal.Done
+            case v => throw ExecError("list index " + show(v))
         case Value.VMap(es) if as.length == 1 =>
           val k = regs(a0(as))
           es.find((kk, _) => eq(kk, k)) match
@@ -448,14 +465,29 @@ object Exec:
       // executor. Not silence — the executor names the method — but a program that works on one
       // lane and not the other is exactly what invariant I-3 exists to prevent.
       case (Value.VStr(s), "substring") =>
+        // The bounds are checked HERE rather than left to the host. A raw
+        // `StringIndexOutOfBoundsException` is a CRASH to the corpus report — the bucket that says
+        // "v3 neither ran it nor refused it cleanly" — while a named error is a refusal a reader
+        // can act on. The reference lane throws too, so this is about the QUALITY of the failure.
         args match
-          case Value.VInt(a) :: Nil               => Value.VStr(s.substring(a.toInt))
-          case Value.VInt(a) :: Value.VInt(b) :: Nil => Value.VStr(s.substring(a.toInt, b.toInt))
+          case Value.VInt(a) :: Nil =>
+            if a < 0 || a > s.length then
+              throw ExecError("substring(" + a + ") of a string of length " + s.length)
+            Value.VStr(s.substring(a.toInt))
+          case Value.VInt(a) :: Value.VInt(b) :: Nil =>
+            if a < 0 || b > s.length || a > b then
+              throw ExecError("substring(" + a + ", " + b + ") of a string of length " + s.length)
+            Value.VStr(s.substring(a.toInt, b.toInt))
           case _ => throw ExecError("substring takes one or two integers")
+      // ONE arm, all argument shapes. The first version split it in two and put the string case
+      // first, so a CHARACTER argument hit the general throw before the arm meant for it was ever
+      // reached — the arms were ordered by when they were written rather than by specificity.
       case (Value.VStr(s), "indexOf") =>
         args.head match
-          case Value.VStr(x) => Value.VInt(s.indexOf(x).toLong)
-          case v             => throw ExecError("indexOf " + show(v))
+          case Value.VStr(x)  => Value.VInt(s.indexOf(x).toLong)
+          case Value.VChar(c) => Value.VInt(s.indexOf(c.toInt).toLong)
+          case Value.VInt(n)  => Value.VInt(s.indexOf(n.toInt).toLong)
+          case v              => throw ExecError("indexOf " + show(v))
       case (Value.VStr(s), "replace") =>
         (args.head, args.tail.head) match
           case (Value.VStr(a), Value.VStr(b)) => Value.VStr(s.replace(a, b))
@@ -474,6 +506,17 @@ object Exec:
           case v             => throw ExecError("endsWith " + show(v))
       case (Value.VStr(s), "nonEmpty") => Value.VBool(s.nonEmpty)
       case (Value.VStr(s), "reverse")  => Value.VStr(s.reverse)
+      case (Value.VStr(s), "take")     => Value.VStr(s.take(intArg(args.head, "take")))
+      case (Value.VStr(s), "drop")     => Value.VStr(s.drop(intArg(args.head, "drop")))
+      case (Value.VStr(s), "toList")   => listIn(m, s.toList.map(c => Value.VChar(c)))
+      case (Value.VStr(s), "lastIndexOf") =>
+        args.head match
+          case Value.VStr(x)  => Value.VInt(s.lastIndexOf(x).toLong)
+          // A CHARACTER argument, which in this language is an integer that prints differently —
+          // so both spellings arrive here and both must work.
+          case Value.VChar(c) => Value.VInt(s.lastIndexOf(c.toInt).toLong)
+          case Value.VInt(n)  => Value.VInt(s.lastIndexOf(n.toInt).toLong)
+          case v              => throw ExecError("lastIndexOf " + show(v))
       case (Value.VStr(s), "count") =>
         Value.VInt(s.count(c => truthy(apply1(m, args.head, Value.VInt(c.toLong)))).toLong)
       case (Value.VInt(n), "abs")      => Value.VInt(if n < 0 then -n else n)
@@ -504,6 +547,52 @@ object Exec:
       case (Value.VSet(xs), "nonEmpty") => Value.VBool(xs.nonEmpty)
       case (Value.VSet(xs), "contains") => Value.VBool(xs.exists(y => eq(y, args.head)))
       case (Value.VSet(xs), "toList")   => listIn(m, xs)
+      case (Value.VSet(xs), "mkString") =>
+        val (pre, sep, post) = args match
+          case Value.VStr(a) :: Value.VStr(b) :: Value.VStr(c) :: Nil => (a, b, c)
+          case Value.VStr(a) :: Nil                                   => ("", a, "")
+          case Nil                                                    => ("", "", "")
+          case _ => throw ExecError("mkString takes no arguments, one, or three strings")
+        Value.VStr(pre + xs.map(x => showV(m, x)).mkString(sep) + post)
+      case (Value.VSet(xs), "subsetOf") =>
+        args.head match
+          case Value.VSet(ys) => Value.VBool(xs.forall(x => ys.exists(y => eq(y, x))))
+          case v              => throw ExecError("subsetOf " + show(v))
+      case (Value.VSet(xs), "++") =>
+        args.head match
+          case Value.VSet(ys) =>
+            var out = xs
+            ys.foreach { y => if !out.exists(z => eq(z, y)) then out = out :+ y }
+            Value.VSet(out)
+          case v => throw ExecError("++ with " + show(v))
+      case (Value.VSet(xs), "map") =>
+        var out: List[Value] = Nil
+        xs.foreach { x =>
+          val y = apply1(m, args.head, x)
+          if !out.exists(z => eq(z, y)) then out = out :+ y
+        }
+        Value.VSet(out)
+      case (Value.VSet(xs), "filter") =>
+        Value.VSet(xs.filter(x => truthy(apply1(m, args.head, x))))
+      case (Value.VSet(xs), "exists") =>
+        Value.VBool(xs.exists(x => truthy(apply1(m, args.head, x))))
+      case (Value.VSet(xs), "foreach") =>
+        xs.foreach(x => apply1(m, args.head, x)); Value.VUnit
+      case (Value.VSet(xs), "union") =>
+        args.head match
+          case Value.VSet(ys) =>
+            var out = xs
+            ys.foreach { y => if !out.exists(z => eq(z, y)) then out = out :+ y }
+            Value.VSet(out)
+          case v => throw ExecError("union with " + show(v))
+      case (Value.VSet(xs), "intersect") =>
+        args.head match
+          case Value.VSet(ys) => Value.VSet(xs.filter(x => ys.exists(y => eq(y, x))))
+          case v              => throw ExecError("intersect with " + show(v))
+      case (Value.VSet(xs), "diff") =>
+        args.head match
+          case Value.VSet(ys) => Value.VSet(xs.filter(x => !ys.exists(y => eq(y, x))))
+          case v              => throw ExecError("diff with " + show(v))
       case (Value.VMap(es), "size")     => Value.VInt(es.length.toLong)
       case (Value.VMap(es), "isEmpty")  => Value.VBool(es.isEmpty)
       case (Value.VMap(es), "nonEmpty") => Value.VBool(es.nonEmpty)
@@ -569,6 +658,29 @@ object Exec:
             // must return something the second can apply. Revealed the moment curried application
             // became parseable: the construct existed on the bridge and the executor had no way to
             // express it.
+            // Found by running the CORPUS through this lane rather than a hand-picked probe set.
+            // The probes were the top ~30 method names by frequency and they all passed; the corpus
+            // reaches the tail, and the tail is where the lane was still behind.
+            case "toList"   => recv
+            case "toSet" =>
+              var out: List[Value] = Nil
+              xs.foreach { x => if !out.exists(y => eq(y, x)) then out = out :+ x }
+              Value.VSet(out)
+            case "apply"    => 
+              regs0(m, xs, args.head)
+            case "filterNot" => listIn(m, xs.filterNot(x => truthy(apply1(m, args.head, x))))
+            case "takeWhile" => listIn(m, xs.takeWhile(x => truthy(apply1(m, args.head, x))))
+            case "zipWithIndex" =>
+              listIn(m, xs.zipWithIndex.map((x, i) => tup2(m, x, Value.VInt(i.toLong))))
+            case "dropWhile" => listIn(m, xs.dropWhile(x => truthy(apply1(m, args.head, x))))
+            case "headOption" =>
+              if xs.isEmpty then noneOf(m) else someOf(m, xs.head)
+            case "lastOption" =>
+              if xs.isEmpty then noneOf(m) else someOf(m, xs.last)
+            case "slice"    => listIn(m, xs.slice(intArg(args.head, "slice"), intArg(args.tail.head, "slice")))
+            case "scanLeft" if args.length == 1 => Value.VPartial(recv, "scanLeft", args)
+            case "scanLeft" =>
+              listIn(m, xs.scanLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x)))
             case "foldLeft" if args.length == 1  => Value.VPartial(recv, "foldLeft", args)
             case "foldRight" if args.length == 1 => Value.VPartial(recv, "foldRight", args)
             case "foldLeft" =>
@@ -588,13 +700,19 @@ object Exec:
             case ":+"      => listIn(m, xs :+ args.head)
             case "+:"      => listIn(m, args.head :: xs)
             case "mkString" =>
-              val sep = args.headOption match
-                case Some(Value.VStr(x)) => x
-                case _                   => ""
+              // THREE forms, not one: `mkString`, `mkString(sep)` and `mkString(start, sep, end)`.
+              // Only the middle one was implemented, and the three-argument call silently used its
+              // FIRST argument as the separator — `mkString("[", ", ", "]")` printed
+              // `5[3[8[1[9[2`. A wrong answer, not a refusal, because the arity was never checked.
+              val (pre, sep, post) = args match
+                case Value.VStr(a) :: Value.VStr(b) :: Value.VStr(c) :: Nil => (a, b, c)
+                case Value.VStr(a) :: Nil                                   => ("", a, "")
+                case Nil                                                    => ("", "", "")
+                case other => throw ExecError("mkString takes no arguments, one, or three strings")
               // `showV`, not `show`: this is OUTPUT, and `show` names raw tags. A zipped list
               // printed as #4(1, a) instead of (1, a) — the last of 32 parity probes to fall, and
               // the only one whose cause was in the PRINTER rather than in a missing method.
-              Value.VStr(xs.map(x => showV(m, x)).mkString(sep))
+              Value.VStr(pre + xs.map(x => showV(m, x)).mkString(sep) + post)
             case other => throw ExecError("list method '" + other + "' is not implemented on this lane")
         else
           recv match
@@ -611,6 +729,14 @@ object Exec:
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "foreach" =>
               apply1(m, args.head, f(0)); Value.VUnit
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "foreach" => Value.VUnit
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "exists" =>
+              Value.VBool(truthy(apply1(m, args.head, f(0))))
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "exists" => Value.VBool(false)
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "filter" =>
+              if truthy(apply1(m, args.head, f(0))) then recv else noneOf(m)
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "filter" => recv
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "toList" => listIn(m, List(f(0)))
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "toList" => listIn(m, Nil)
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
             // Numeric conversions. `toInt` is IDENTITY on an integer because ScalaScript's `Int` is
             // 64-bit — it is not a narrowing here, and treating it as one would silently change
@@ -638,6 +764,12 @@ object Exec:
   // Takes the module for ONE arm: `"x = " + P(1, 2)` has to name the constructor the same way
   // `println` does, or a value prints one way on its own and another inside a string.
   private def binOp(m: Module, op: BinOp, a: Value, b: Value): Value = (op, a, b) match
+    // `s + x` on a SET adds an element, and `s - x` removes one. The reference lane treats a set as
+    // a value with these operators; without them `Set(1,2) + 3` reported an arithmetic error on a
+    // program that is not arithmetic.
+    case (BinOp.Add, Value.VSet(xs), y) =>
+      if xs.exists(z => eq(z, y)) then Value.VSet(xs) else Value.VSet(xs :+ y)
+    case (BinOp.Sub, Value.VSet(xs), y) => Value.VSet(xs.filter(z => !eq(z, y)))
     case (BinOp.Add, Value.VStr(x), y)               => Value.VStr(x + showV(m, y))
     // …and the OTHER way round. `1 + "x"` is a string on the reference lane; the executor handled
     // only a string on the LEFT and threw on the right, so `p._1 + p._2` over a mixed tuple failed

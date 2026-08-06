@@ -833,3 +833,44 @@ ahead — and ahead of the self-hosted front on all six.
 command you actually ran. "A census answers only its own question" was written here about corpus
 buckets; it applies to the runner just as hard, and I proved it by getting the runner wrong for a
 whole session while quoting its output as fact.
+
+## SSC3-24 — the parity gate was measuring its own probe set, not the corpus
+
+Sergiy's ordering put lane parity before making the executor the default. Measuring whether that
+precondition was MET turned the answer around: the parity gate said 40 of 42, and the corpus said
+something else entirely.
+
+| | bridge lane | executor lane |
+|---|---|---|
+| before this entry | PASS 48 | **PASS 34, CRASH 14** |
+| after | PASS 48 | **PASS 45, CRASH 3** |
+
+**Flipping the default would have dropped `N` from 48 to 34.**
+
+The probe set was derived from the corpus's method names **by frequency, top ~30**, and every one
+passed. The corpus reaches the tail: `toList` `slice` `scanLeft` `filterNot` `takeWhile` `dropWhile`
+`zipWithIndex` `headOption` `lastOption` `toSet` on lists; `take` `drop` `toList` `lastIndexOf` and
+a CHARACTER argument to `indexOf` on strings; `exists` `filter` `toList` on `Option`; `union`
+`intersect` `diff` `subsetOf` `map` `filter` `exists` `foreach` `mkString` `++` and the `+`/`-`
+operators on `Set`; and `xs(i)` applied to a LIST.
+
+**A probe set is a census, and a census answers only its own question.** This one asked "do the
+common methods agree?" and the answer was yes. The question that mattered was "does the corpus
+run?", and only the corpus could answer it.
+
+Two of the finds were WRONG ANSWERS rather than refusals, which is the worse kind:
+
+- [x] **`mkString` has THREE forms**, and only the middle one was implemented. `mkString("[", ", ",
+      "]")` silently used its FIRST argument as the separator and printed `5[3[8[1[9[2`. The arity
+      was never checked, so nothing refused.
+- [x] **`indexOf`'s arms were ordered by when they were written**, not by specificity: the general
+      string case threw before the CHARACTER case was reached.
+
+And one improvement to a failure rather than a fix to a bug: **`substring` checks its own bounds**.
+The host's `StringIndexOutOfBoundsException` is a CRASH to the corpus report — "neither ran it nor
+refused it cleanly" — while a named error is a refusal a reader can act on. The reference lane
+throws too; this is about the quality of the failure.
+
+**Still open, and now the whole of it:** `matches` (regex, and a portability question rather than a
+missing arm), and `markdown-html`, where the executor reaches a backwards `substring(4, 2)` that the
+bridge never does — a genuine divergence with the cause upstream of the call.
