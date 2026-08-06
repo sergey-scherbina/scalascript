@@ -209,6 +209,30 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 
+- [~] UNIML-SSC3-ALPHABET/tail — **the last host calls, and one of them was a real defect.**
+      Claim `uniml-alphabet-tail`. **Re-measured rather than inherited, and the entry below was
+      right where my first sweep was wrong**: grepping for `.isDigit`-style calls without excluding
+      TEST sources and comments reported `core` 6, `markdown` 12, `yaml` 2 — every one of them a
+      parity gate calling `Character.*` as its ORACLE, which is that gate's job, or a comment
+      naming the generator. Main sources on the front's path (`core`, `json`, `yaml`, `markdown`,
+      `scala`, `xml`): **0**, exactly as claimed. Remaining: `markup` 4, `address` 1, bridge 1.
+      **`address` was not merely host-dependent — it was wrong.** `JsonAddress.index` guarded with
+      `segment.forall(_.isDigit)`, and `Char.isDigit` answers from Unicode tables: it says yes to
+      every digit in every script. `toIntOption` accepts them too, because `Integer.parseInt` goes
+      through `Character.digit`. So `read("[10,11,12,13]", "٣")` RESOLVED to 13 on the JVM and would
+      not on a host with an ASCII-only `isDigit` — same document, same path, two answers. RFC 6901
+      says an array index is `0` or `[1-9][0-9]*`. Now `UniAlphabet.isDigit`.
+      A/B, not assertion: reverting the one line turns the new test red with
+      `read(arr, "٣").isLeft was false`, restoring it returns 9/9.
+      **`markup`'s four are NOT a rename and are left.** `PureMarkupCodec` is an XML codec;
+      `isNameStart`/`isNameChar` implement XML's Name production, so `UniAlphabet.isIdStart` — which
+      accepts every code point ≥ U+0080 — would CHANGE what parses. That needs XML's own ranges and
+      a parity test against the spec, which is its own piece of work rather than a substitution.
+      **Note for whoever picks that up:** `address` and `markup` exist only in the ROOT build, not
+      in `uniml/build.sbt`, so they are tested with `sbt unimlAddress/test` from the repo root and
+      the standalone job never sees them. That is also why the entry below calls them "off the
+      path".
+
 - [~] UNIML-SSC3-ALPHABET — **one character classifier, no host `Char` calls.** v3 handed this
       over as a requirement on UniML (`v3/specs/40-front-on-uniml.md` §4: "the lexer may not use
       host `Char` classification"), and `20-core-language.md` §3 decides the alphabet: whitespace
