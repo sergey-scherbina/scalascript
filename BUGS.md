@@ -3729,3 +3729,129 @@ read-only Apple store/renderer review in Rozum.
   clause** would make `msg :: resume(())` work (the spec types `resume` as returning the
   *handler body's* type, which requires bridging the pure/base case). Large feature
   (parser + typer + interp + 4 backends) — out of scope; noted in BACKLOG.
+
+## v1-trailing-operator-continuation-prints-Stub
+
+<!-- status: open
+     lane: int
+     area: front
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-06 by building v3's front against v1 as an ORACLE. v1 accepts the syntax and then
+gives a wrong answer at exit 0 — it does not refuse.
+
+```scalascript
+val xs = List(1) ++ List(2) ++
+  List(3)
+println(xs.mkString(","))
+```
+
+| lane | output | exit |
+|---|---|---|
+| v1 | `Stub` | 0 |
+| v3 (both lanes) | `1,2,3` | 0 |
+
+An expression continued after a TRAILING binary operator is Scala's rule and ordinary in this
+corpus. v1 prints the `Stub` sentinel, which is the failure mode this repository compares OUTPUT
+rather than exit codes to catch — and here even the output is plausible enough to read as a value.
+
+Narrowed: `List(1) ++ List(2)` on ONE line is fine. Only the continuation fails.
+
+## v1-while-with-an-assignment-body-runs-nothing
+
+<!-- status: open
+     lane: int
+     area: front
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-06, same session and same method as the entry above.
+
+```scalascript
+var i = 0
+while i < 3 do i = i + 1
+println(i)
+println("after")
+```
+
+| lane | output | exit |
+|---|---|---|
+| v1 | *(nothing at all)* | 0 |
+| v3 (both lanes) | `3` then `after` | 0 |
+
+**v1 prints NOTHING and exits 0.** Not a diagnostic, not a partial answer — the whole program
+disappears. This is the same family as the recorded interpreter defect where `if cond then <assign>`
+with no `else` is silently skipped: a single-line body that is an ASSIGNMENT rather than an
+expression.
+
+The silence is what makes it expensive. A program that prints nothing at exit 0 reads as a program
+that had nothing to say.
+
+## v1-alternative-pattern-matches-only-its-first-branch
+
+<!-- status: open
+     lane: int
+     area: front
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-06 by the same oracle comparison.
+
+```scalascript
+trait K
+case object A extends K
+case object B extends K
+def f(k: K): String =
+  k match
+    case A | B => "ab"
+println(f(A))
+println(f(B))
+```
+
+| lane | output | exit |
+|---|---|---|
+| v1 | `ab` then `ssc: match: no arm for B/0` | 0 |
+| v3 (both lanes) | `ab` then `ab` | 0 |
+
+v1 accepts `case A | B =>` and then matches **only the first alternative**; the rest are dropped.
+Better than the two entries above in that it says something when it goes wrong, and worse in that
+the arm looked exhaustive to whoever wrote it.
+
+## v1-qualified-assignment-to-an-object-member-is-ignored
+
+<!-- status: open
+     lane: int
+     area: runtime
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-06 while giving v3 `object` members that are not `def`s.
+
+```scalascript
+object Cfg:
+  var n = 0
+Cfg.n = 7
+println(Cfg.n)
+```
+
+| lane | output | exit |
+|---|---|---|
+| v1 | `0` | 0 |
+| v3 (both lanes) | `7` | 0 |
+
+The assignment is accepted and silently discarded. Mutation through a METHOD works on both lanes —
+`def bump(): Unit = n = n + 1` is what `tests/conformance/object-var-member-scope.ssc` exercises, and
+that case passes — so this is specifically the qualified form from outside the object.
+
+---
+
+**All four share one shape and it is worth naming.** v1 ACCEPTS the syntax, so nothing refuses;
+runs; and produces a wrong answer at exit 0. None was found by a test, because a test asserts what
+someone thought to assert. They were found by running a SECOND implementation on the same source and
+diffing the output — which is the argument for keeping v3's front comparable to v1 rather than only
+to itself.
