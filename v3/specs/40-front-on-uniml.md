@@ -253,7 +253,16 @@ today it is none of those.
 2. **A BARE mode for the composer.** A `.ssc` with no code fence yields zero ScalaScript subtrees;
    fences have been optional here since 2026-07-09. v3 can fence the text itself, so this is a
    request — but the failure it prevents is a whole program read as prose with no diagnostic.
-3. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
+3. **`ValDef` does not record MUTABILITY.** `ValDef(name, rhs, span)` has no `isVar`, so `var x = 0`
+   and `val x = 0` project identically. Found 2026-08-06 by the front differential, not by reading:
+   v3's front printed `(var "counter" …)` and UniML's printed `(val "counter" …)` for the same
+   source. It is a WRONG ANSWER rather than a smaller tree — a `var` projected as a `val` makes
+   every later assignment to it a refusal.
+4. **A CHARACTER literal is projected as `IntLit`.** `'x'` arrives as `IntLit("120")`, so it is
+   indistinguishable from the integer `120`. Also a wrong answer rather than a loss: `println('x')`
+   prints `x` and `println(120)` prints `120`, and the language's `Char` is exactly an integer that
+   prints differently — which is why the distinction has to survive the projection.
+5. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
    [`20-core-language.md`](20-core-language.md) §3. Still open, and the only item on this list with a
    consequence for the LANGUAGE rather than for a file: route classification through the host and
    the same source lexes differently on JVM, JS and the v2 VM.

@@ -545,3 +545,41 @@ Sergiy asked whether the AST should be built straight from UniML during parsing.
       behaviour, verified rather than assumed, and it means the projection does NOT build the module
       graph: `Loader` keeps doing it from the raw text. The opposite assumption would have produced
       a front that resolved no imports while looking correct.
+
+## SSC3-14 — the UniML front EXISTS, and the differential has a number
+
+`v3/uniml/UniFront.scala` + `UniMain.scala`: source → UniML CST → typed projection → v3's `Ast`,
+implementing `50-uniml-projection.md`. It lives OUTSIDE `v3/src` on purpose — the kernel has zero
+dependencies and must keep building when UniML is not built at all, which every gate relies on.
+
+**First measurement, 40 fixtures: 17 identical / 19 different / 4 refused.** Then three fixes, each
+found by reading a diff rather than by guessing:
+
+| | identical |
+|---|---|
+| first run | 17 |
+| + `Block(Nil, Some(e))` printed as `e` — a canonicalisation, since the two ARE the same expression | 20 |
+| + the destructuring temp named after what it BINDS instead of where it is | 22 |
+| + v3's enum cases emitted in SOURCE order | 22 |
+
+**Two defects in v3 that only the differential could find**, because both are invisible to a lane
+comparison — the two lanes share the front:
+
+- [x] **v3 emitted an enum's cases in REVERSE source order.** `parseEnum` prepends and returned
+      without reversing. Nothing observable depended on it — tags are assigned on first use — which
+      is exactly why it survived. The other front had them in source order, and that is what made it
+      visible.
+- [x] **The destructuring temporary was named after a POSITION.** Two fronts may attribute a node to
+      different columns, so the name differed for a variable nobody writes and nobody reads. Now
+      derived from the bound names.
+
+**Two gaps in UniML that only the differential could find**, both WRONG ANSWERS rather than losses,
+now filed in `40-front-on-uniml.md` §5b:
+
+- `ValDef` has no mutability flag — `var x = 0` and `val x = 0` project identically.
+- a character literal projects as `IntLit`, so `'x'` is indistinguishable from `120`.
+
+Remaining: 14 differences and 4 refusals, each with a named cause. Two of the refusals are
+`case object` (v3 needs a nullary class; UniML gives an `ObjectDecl`), one is the known dialect gap
+`if c then a(i) = v`, and one is a NESTED block comment, which v3 supports and the dialect
+diagnoses.

@@ -473,6 +473,12 @@ object Parser:
     * The holes are parsed by RE-LEXING the substring, which is why the lexer handed over the raw
     * content: `${…}` may contain anything an expression may contain, including nested braces and
     * strings, and a lexer that tried to tokenize it inline would need the expression grammar. */
+  /** The interpolation splitter, PUBLIC so a second front can reuse it. UniML's dialect keeps
+    * `s"…"` as raw text with the holes still inside — deliberately, since `spike.interp` holds two
+    * tokens and nothing is lost — so its projection has to split them. Two implementations of
+    * `${…}` nesting is two implementations that will disagree about a brace inside a string. */
+  def interpFor(raw: String, p: Pos): Expr = interp(raw, p)
+
   private def interp(raw: String, p: Pos): Expr =
     var parts: List[String] = Nil
     var exprs: List[Expr] = Nil
@@ -850,10 +856,16 @@ object Parser:
       val (pat, t1) = parsePat(ts.tail)
       val t2 = expectOp(skipTypeAnn(t1), "=")
       val (e, t3) = parseBody(t2)
-      val tmp = "$tup" + p.line + "_" + p.col
       val names = pat match
         case Pat.PCtor(cn, args, _) if cn.startsWith("Tuple") => args
         case other => throw ParseFail(Pat.posOf(other), "a destructuring `val` binds a tuple at Tier 0")
+      // Named after what it BINDS, not where it is. A position-derived name made the two fronts
+      // disagree on a temporary nobody writes and nobody reads — a difference with no meaning that
+      // the gate would report forever.
+      val tmp = "$tup_" + names.flatMap { a => a match
+        case Pat.PBind(n, _) => List(n)
+        case _               => Nil
+      }.mkString("_")
       var out: List[Stmt] = List(Stmt.Val(tmp, e, false, p))
       names.zipWithIndex.foreach { (ap, i) =>
         ap match
@@ -976,7 +988,12 @@ object Parser:
           out = ClassDef(n, fields.reverse, Nil, Nil, np) :: out
           ts = t2
           if isPunct(peek(ts), ",") then ts = ts.tail else more = false
-    (out, ts)
+    // REVERSED before this. The list is built by prepending and was returned unreversed, so an
+    // enum's cases reached the AST back to front. Nothing observable depended on it — tags are
+    // assigned on first use, not by declaration order — which is exactly why it survived: the
+    // front-to-front differential is what noticed, because the OTHER front had them in source
+    // order and the two trees could then be compared.
+    (out.reverse, ts)
 
   /** `object Name:` / `object Name { … }` holding `def` members.
     *

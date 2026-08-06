@@ -111,5 +111,11 @@ object AstText:
     case Expr.Match(sc, arms, _) => sx("match", expr(sc) :: arms.map(arm))
     case Expr.Lambda(ps, b, _) => sx("lam", List(sx("params", ps.map(param)), expr(b)))
     case Expr.Try(b, x, h, _)  => sx("try", List(expr(b), q(x), expr(h)))
+    // A block with NO statements and a result IS that result — `Block(Nil, Some(e))` and `e` mean
+    // the same thing to every later phase. Printing them identically is a CANONICALISATION, not a
+    // fudge: two fronts may legitimately differ on whether a one-expression body is wrapped, and a
+    // gate that reported it would report a difference nobody can act on. Measured: it was the
+    // single largest source of front-to-front difference on the first comparison.
+    case Expr.Block(Nil, Some(r), _) => expr(r)
     case Expr.Block(sts, res, _) =>
       sx("block", sts.map(stmt) ++ res.map(x => List(sx("=>", List(expr(x))))).getOrElse(Nil))
