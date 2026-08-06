@@ -14,7 +14,7 @@ Newest first.
      area: codegen
      kind: bug
      gate: tests/e2e/package-keyword-smoke.sh
-     fixed-in: f78192d3a -->
+     fixed-in: f708bf9f9 -->
 
 **FIXED 2026-08-06.** `[org as o]` prints `ui-card-hi`, and the gate's `alias/root` row is green —
 the last red cell of a four-lane × four-form alias matrix.
