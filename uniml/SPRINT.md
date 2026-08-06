@@ -10,7 +10,7 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] SSC3-B/nested-comments-and-bare-mode — **the last two of the eight the differential found.**
+- [x] SSC3-B/nested-comments-and-bare-mode — **the last two of the eight the differential found.**
       Claim `uniml-nested-comments-and-bare-mode`. Items 7 and 8 of the hand-over in
       `uniml/BACKLOG.md`; the other six landed under `uniml-front-diff-debt` and
       `uniml-if-branch-index-assign`.
