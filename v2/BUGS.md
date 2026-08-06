@@ -291,11 +291,55 @@ parameterful form recurses forever. The correction is a top-level indirection, a
 "one definition, two names, no copy" survived it unchanged.
 
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: bug
-     gate: tests/e2e/fm-routes-smoke.sh -->
+     gate: tests/e2e/fm-routes-smoke.sh
+     fixed-in: e40670d11 -->
+
+**FIXED 2026-08-06 — both halves.** The built-ins landed earlier the same day; front-matter
+`routes:` now register too, and the gate's NATIVE known-red declaration is DELETED, which was forced
+rather than chosen: the gate failed the moment NATIVE started passing and printed the instruction to
+delete it.
+
+```
+[PASS] NATIVE   [PASS] INT   [PASS] JVM   [PASS] JS
+All four lanes register front-matter routes correctly.
+```
+
+**The DECLARATION never needed a new channel, and that is what unblocked this.** The entry sized it
+as "a design choice about where that boundary sits". `databases:` already crosses exactly that
+boundary — `NativeV2Structural.runtimeConfig` reads it out of `structural.manifests`,
+`NativeRuntimeConfig` carries it, `NativePluginHost` exposes it — so `routes:` is ~15 lines beside
+it, plus a registration next to `registerHealthDefaults()`, which already ran before serve and only
+when the route was absent.
+
+**The RESOLUTION did, and the spec was wrong about it twice.** Both corrections came from
+measurement, and each was cheap because the failure named its own step:
+
+| measurement | what it ruled out |
+|---|---|
+| `404` became `500 route handler 'listTodos' is not defined` | the channel works end to end — front matter reaches the plugin, the route registers; only resolution fails |
+| instrumented: 449 globals live at request time, all prelude, no user `def` | `resolveGlobal` reads the PLUGIN registry's map, not the program's — its own doc comment says so |
+| collected every VM map: 8 of them, still no `listTodos` | `bin/ssc` runs the BYTECODE tier, which owns `Emit.globalsRef` and fills it from the generated `install()` |
+
+`resolveGlobal` now consults plugin registrations, then `Emit.globalsRef`, then the VM maps — a
+widening, not a change: every name that resolved before resolves to the same value. `Jit.scala` says
+the same thing about the same pair, *"so both tiers share one namespace"*.
+
+**Where the lookup lives was decided by the module graph.** Putting it in `v2/src/Runtime.scala`
+does not compile — the kernel may not depend on `v2/jvm-runtime` — and that refusal is the boundary
+working. It sits in `NativePluginHost`, which may.
+
+**Resolution is LAZY, at request time**, and that is verified by a probe the gate cannot be: the
+gate's fixture declares its handlers before `serve(...)`, so an eager implementation would pass it.
+A handler defined AFTER the `serve(...)` call answers `["defined after serve"]`, and `/_health` is
+still 200.
+
+Design, precedents and limits: [`specs/native-frontmatter-routes.md`](../specs/native-frontmatter-routes.md).
+
+### Original report (superseded 2026-08-06)
 
 **Sizing carried over from `native-lane-ignores-front-matter-routes`, now marked duplicate of this.**
 The registration itself is ten lines — `Interpreter.scala:1193` registers a lazy handler per manifest
