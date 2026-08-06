@@ -1,0 +1,11 @@
+slug: revert-proactive-doc-marks
+branch: feature/revert-proactive-doc-marks
+agent: claude-code
+started: 2026-08-06T10:41:13Z
+heartbeat: 2026-08-06T10:41:13Z
+status: claimed-before-planning
+items: std cluster and mcp aggregators broken by a proactive @doc mark
+paths: file:v1/runtime/std/cluster/index.ssc file:v1/runtime/std/mcp/index.ssc file:scljet/address.ssc file:tests/conformance/std-os-readline.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
