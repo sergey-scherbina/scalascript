@@ -159,5 +159,11 @@ final class SscBreadthSpec extends AnyFunSuite:
     // `v3/tests/front/unclosed-brace.ssc` (1), which is a fixture that SHOULD report. The other 84
     // parse clean, which is why the diagnostic total above is one file rather than a population.
     assert(bareWorst.size <= 5, s"${bareWorst.size} bare files now fail to parse: ${bareWorst.keys.mkString(", ")}")
-    assert(taggedDiags < 250, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
+    // 250 was the ceiling while this number was falling in large steps; at 4 it stopped measuring
+    // anything. The remaining four are `@side = server` in two examples, which the REFERENCE front
+    // rejects too ("expected start of definition") — i.e. invalid source, not a dialect gap, so the
+    // floor is 0 gaps and the ceiling can sit just above the known-bad set. Headroom of 8 is for a
+    // sibling adding an example with a construct nobody has taught the dialect yet; a real
+    // regression in this parser moves this number by tens.
+    assert(taggedDiags <= 12, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
   }

@@ -1059,7 +1059,13 @@ object SpikeParse:
     // a block ends at a dedent (col < blockCol), the next `case` (an arm-body block), or a `}` (a braced
     // match). A nested `def` at col >= blockCol is a LOCAL def (→ letrec via parseStmt), part of the
     // block — NOT a terminator; a sibling `def` is dedented and already stopped by the col guard.
-    def enclClose = stopAtParen && (c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket")
+    // A COMMA ends the enclosing group's element just as its closer ends the group. `vstack([ … ,
+    // if c then a else b, … ])` — the else branch is an offside block bounded by column, and the
+    // `,` that ends the list element sits at a column the block still accepts, so it tried to parse
+    // a statement there: "expected statement, found ','" in examples/graph-fullstack.ssc:155, which
+    // the reference front parses (it fails at RUNTIME on an undefined name, not at parse).
+    def enclClose = stopAtParen &&
+      (c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket" || c.peekKind == "spike.comma")
     while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" && !enclClose do
       stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
@@ -1242,15 +1248,22 @@ object SpikeParse:
   // `extends A with B` for a declaration that KEEPS its parents. The head token of each type ref is
   // the parent tag, which is what `cc.parent` keeps for a case class and all dispatch needs.
   private def captureExtendsClause(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
-    if isWord(c, "extends") then
-      c.advance()
+    def parent(): Unit =
       if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.parent")))
       skipTypeTail(c)
+    // Scala 3 separates further parents with COMMAS where Scala 2 wrote `with`. This is the SECOND
+    // copy of the inheritance clause — `skipExtendsClause` (erasing, for `extern`) already grew the
+    // comma loop; this one CAPTURES parents as `td.parent`, and `parseTraitOrClassNoop` calls only
+    // this one. So `trait Traversable[T[_]] extends Functor[T], Foldable[T]` still ended at the
+    // comma (v1/runtime/std/foldable-traversable.ssc:48) after the other copy was fixed.
+    def moreParents(): Unit =
+      while c.peekKind == "spike.comma" && isNameKind(c.peek2Kind) do { c.advance(); parent() }
+    if isWord(c, "extends") then
+      c.advance()
+      parent()
       if c.peekKind == "spike.lparen" then skipBalancedParens(c) // parent constructor args
-      while isWord(c, "with") do
-        c.advance()
-        if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.parent")))
-        skipTypeTail(c)
+      moreParents()
+      while isWord(c, "with") do { c.advance(); parent(); moreParents() }
     if isWord(c, "derives") then
       c.advance(); skipTypeRef(c)
       while c.peekKind == "spike.comma" do { c.advance(); skipTypeRef(c) }
