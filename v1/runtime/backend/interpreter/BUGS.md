@@ -7,6 +7,100 @@ grepping for status.
 
 Newest first.
 
+## int-no-paren-sibling-method-is-undefined — `Undefined: twice` for a sibling declared without parens
+
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 0a4da7284
+     gate: tests/e2e/no-paren-sibling-gate.sh -->
+
+**FIXED.** The sibling-call fix (c04de5df1, b70a1e92c) keyed on `bareAppliedNames`, which collects
+`Term.Apply` heads — so `twice()` was found and `twice`, the no-paren form, was not. One construct,
+three lanes, before the fix:
+
+    case class Box(n: Int):
+      def twice: Int = n * 2
+      def quad(): Int = twice * 2      v1: Undefined: twice   native: 12   jvm: 12
+
+The interpreter is the corpus golden, so the disagreement quietly made the golden the wrong lane.
+
+Binding the name the way applied siblings are bound does not work: the body uses it as a VALUE, so
+a `NativeFnV` makes `twice * 2` multiply a function. Binding the RESULT would evaluate it eagerly
+on every dispatch — running the side effects of a branch never taken, and recursing forever on
+`def a: Int = if p then 0 else a`. So `bindSiblings` binds the RECEIVER when a body mentions a name
+that is a parameterless method of the type, and the name-lookup miss path in `EvalRuntime` resolves
+it through the ordinary dispatch. That path runs only where the answer was already `Undefined`, so
+no working program can change behaviour, and each mention invokes, as Scala specifies.
+
+Routed through `DispatchRuntime.dispatch`, not `callTypeMethod`: a StatRuntime-built instance keeps
+its values in the positional `fieldsArr` and leaves the map empty, so calling the method directly
+resolved `twice` and then died on `n` inside it. `zeroArgMethodNames` is keyed on the method map's
+IDENTITY rather than the type name — `typeMethods` fills as definitions evaluate, and a name-keyed
+cache consulted mid-registration would pin an empty set forever.
+
+Gate run against the pre-fix binary to prove it can go red: 2 of 5 cases fail there (no-paren,
+mixed), the other 3 pass. It also pins the two sides that keep the fix honest — a local `val` still
+shadows a same-named method, and a genuine typo is still `Undefined`. Smoke 67/68, 319.8s of 600s;
+the one red is `launchers-not-dead` refusing to pass on the empty `bin/` of a fresh worktree.
+
+PARTIAL by construction: a no-paren method read from ANOTHER no-paren method is still wrong, and
+not because of sibling binding — see `int-no-paren-def-leaks-into-globals`, which resolves such a
+name from globals before the miss path is reached.
+
+
+## int-no-paren-def-leaks-into-globals — a parameterless method is visible, and callable, from anywhere
+
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none -->
+
+A `def` with NO parameter clause, declared inside a class or an object body, is registered as a
+GLOBAL bound to a `NativeFnV`. Nothing scopes it to its type, so a bare mention of that name
+anywhere in the program resolves to the function object.
+
+Measured on 0a4da7284, one shape per line, v1 lane:
+
+    case class T(n: Int):
+      def plus(k: Int): Int = n + k
+    def main() = println(plus)                  Undefined: plus          correct
+
+    case class T(n: Int):
+      def a: Int = n + 1
+    def main() = println(a)                     prints  <native:a>       WRONG, and exit 0
+
+    object O:
+      def a: Int = 7
+    def main() = println(a)                     prints  <native:a>       WRONG, and exit 0
+
+So the leak is specific to the parameterless form, and it happens for class and object bodies
+alike. The severity is in the third column: a name that should be undefined instead prints a
+function at exit 0, which is the silent-wrong-answer class — no diagnostic, and the program keeps
+running. `T(1).a` through the receiver answers 2 correctly, so only the bare mention is affected.
+
+This also blocks the remainder of `int-no-paren-sibling-method-is-undefined`. That fix resolves a
+no-paren sibling on the name-lookup MISS path, and the miss never happens here: env is checked,
+then globals, and the leaked `NativeFnV` is found in globals first. Hence
+
+    case class T(n: Int):
+      def a: Int = n + 1
+      def b: Int = a * 10
+    def main() = println(T(1).b)      No method '*' on NativeFnV(<native:a>)    native/jvm: 20
+
+    def b: Int = a                    prints <native:a>                          native/jvm: 2
+
+both still wrong after that fix, and both are the same defect as the table above rather than a
+second gap in sibling binding. Fixing the leak is expected to close them without further work on
+the miss path; `tests/e2e/no-paren-sibling-gate.sh` says so in its header and is the place to add
+the cases once it lands.
+
+Not yet located: the registration site. `StatRuntime` collects class-body `Defn.Def`s into
+`typeMethods` only (around the `methodDefs.nonEmpty` line) and does not write globals there, so the
+binding comes from somewhere else — worth finding before choosing between "stop registering it" and
+"scope it to the type", because something may rely on the current behaviour.
+
+
 ## int-sibling-call-missed-the-single-arg-dispatch-site — `Undefined: withHeader` from a one-argument method
 
 <!-- status: fixed
