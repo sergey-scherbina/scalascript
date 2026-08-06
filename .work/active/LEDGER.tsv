@@ -1,4 +1,4 @@
-# generation: 1068
+# generation: 1069
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-1	claude-code	2026-08-06T04:10:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:tests/BUGS.md file:uniml/build.sbt file:tests/e2e/emitted-coordinate-is-published.sh
@@ -8,3 +8,4 @@ f-bare-member-call	claude-code	2026-08-06T10:34:26Z	f-declines-every-non-top-lev
 gateless-entry-census	claude-code	2026-08-06T10:35:10Z	92-open-entries-have-no-gate	file:specs/gateless-entry-census.md file:tests/BUGS.md file:scripts/bugs-report
 unknown-status-triage	claude-code	2026-08-06T10:35:40Z	v2-swift-xcode-contract-gaps v2-swift-swiftui-native v2-optin-provider-cases v2-swiftui-fake-native-fallbacks	file:BUGS.md file:v2/BUGS.md file:v1/runtime/backend/jvm/BUGS.md
 revert-proactive-doc-marks	claude-code	2026-08-06T10:41:13Z	std cluster and mcp aggregators broken by a proactive @doc mark	file:v1/runtime/std/cluster/index.ssc file:v1/runtime/std/mcp/index.ssc file:scljet/address.ssc file:tests/conformance/std-os-readline.ssc
+v1-bridge-slug-locale	claude-code	2026-08-06T10:41:53Z	UNIML-SSC3-ALPHABET	file:v1/lang/uniml-bridge/src/main/scala/scalascript/markdown/bridge/MarkdownDocContent.scala
