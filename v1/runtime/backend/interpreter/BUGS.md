@@ -220,8 +220,56 @@ stable.
 **Not caused by the sibling-call work**, checked rather than assumed: the commit before `b70a1e92c`
 gives 100/100 on the small file too, so nothing here regressed when siblings started binding.
 
-`sibling-method-gate.sh` deliberately does not assert this row. Pinning either number would freeze
-whichever front happens to run today.
+**MECHANISM FOUND 2026-08-06, and it is not "unrelated to the names".** F resolves a bare applied
+name against top-level defs and @-cells only. A sibling method call whose name has NO top-level twin
+is therefore an unbound global to F, and F declines the WHOLE FILE over it. So:
+
+    def size(): Int = 100
+    case class Shadowed(n: Int):
+      def size(): Int = n
+      def viaGlobal(): Int = size()
+    def main() = println(Shadowed(7).viaGlobal())
+
+F lowers this — `size` HAS a top-level twin — and answers 100. Add a class that is never called:
+
+    case class Box(n: Int):
+      def twice(): Int = n * 2
+      def quad(): Int = twice() * 2        // `twice` has no top-level twin
+
+and F declines with `unbound global: (global twice)`, the reference front lowers it instead, and the
+answer to the UNCHANGED first question becomes 7. Two files differing only by an uncalled class,
+and the reported value of a different class flips. That is the whole instability, stated as a rule.
+
+**AND THE ORACLE SAYS WHICH IS RIGHT, so the "cannot pin it" caveat below is now retired.** Real
+Scala 3.8.4, same source, `scala-cli run`:
+
+    def size(): Int = 100
+    case class Shadowed(n: Int):
+      def size(): Int = n
+      def viaGlobal(): Int = size()
+    @main def run(): Unit = println(Shadowed(7).viaGlobal())     =>  7
+
+The member wins over a same-named top-level def. So:
+
+    reference front   7     CORRECT
+    F               100     wrong
+    v1 interpreter  100     wrong  — and v1 is the corpus golden
+
+Two separate defects, then, not one disagreement:
+
+1. **F declines any file containing a sibling call with no top-level twin.** That is the coverage
+   gap, and it is what makes the answer depend on unrelated file content. Same reason F declines the
+   `Box`/`twice` shape at all, so it shares a cause with the F decline census.
+2. **F and v1 both resolve the bare call to the GLOBAL where Scala resolves it to the MEMBER.**
+   Independent of (1) and observable without it — `withglobal.ssc` above needs no second class.
+
+Fixing (1) alone would make the answer STABLE and still WRONG (100 everywhere). Worth saying
+explicitly, because "the fronts now agree" would read like the bug is closed.
+
+`sibling-method-gate.sh` still does not assert this row — but the reason has changed. It is no
+longer that either number might be the contract; it is that 7 is the contract and two of the three
+producers do not meet it yet, so pinning it would be filing the same defect a second time as a red
+gate. Pin it with the fix, not before.
 
 ## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
 
