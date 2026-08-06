@@ -309,9 +309,29 @@ Two further things surfaced, both name collisions rather than type-system proble
    `hoistSscImportsIntoObjectStd` re-imports names inside `object std`, the line reads
    `import http.{…}` with the `std.` prefix dropped, and the filter's pattern requires it.
 
-**So the remaining work is one regex, not a design.** Extend the filter to the hoisted form. The
-typing itself is written and compiles; it was reverted only because it is not landable while
-`Request` is ambiguous, and this entry now says exactly which line makes it so.
+**DONE 2026-08-06 — `middleware-smoke` is green on INT, JVM and JS**, and with it the last red in
+`tests/BUGS.md orphaned-e2e-gates-52`.
+
+It was one regex, as predicted. `hoistSscImportsIntoObjectStd` re-imports names INSIDE `object std`
+and drops the prefix while doing it, so the same import appears TWICE in the output —
+`import std.http.{…}` at file level and `import http.{…}` two spaces in. The filter was anchored on
+`std.`, caught only the first, and that is precisely why `Request` stayed ambiguous after `Response`
+stopped being: one copy was filtered, the other was not. `java.`/`javax.`/`scala.`/`_root_.` are now
+excluded explicitly rather than left to the predicate — the predicate alone is safe today only
+because no top-level class shares those names, and that is a property someone can change.
+
+The chain is typed `RouteResult` in all five places that build one: `HttpDispatchLoop`,
+`RestRuntime`, `ProxyRuntime`, the preamble's own, and the trait itself. Coercion happens ONCE, at
+the handler boundary, with the rule copied verbatim from the `case other` arm each site used to end
+with — so a `Response` built that way takes the dispatcher's `case resp: Response` arm and writes
+byte-identically. Nothing is drained: a `StreamResponse` is a `RouteResult` and passes through.
+
+| | before | after |
+|---|---|---|
+| `middleware-smoke` jvm | 44 errors, all `not a member of Any` | **PASS** |
+| smoke-ci | — | 69/69 |
+| `components` · `validation` · `upload` · `url-import` | — | all rc=0 |
+| `std/json.ssc`, `std/http.ssc` on jvm | — | compile and run |
 
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
 problem either — this one is a module declaring a narrower world than its host implements, and the

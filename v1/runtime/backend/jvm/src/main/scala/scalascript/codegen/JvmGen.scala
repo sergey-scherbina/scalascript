@@ -802,7 +802,18 @@ class JvmGen(
       .findAllMatchIn(src).map(_.group(1)).toSet
     if hostTypes.isEmpty then src
     else
-      val importLine = raw"(?m)^(\s*)import (std\.[A-Za-z0-9_.]+)\.\{([^}]*)\}$$".r
+      // BOTH import shapes. `hoistSscImportsIntoObjectStd` re-imports names INSIDE `object std` and
+      // drops the prefix while doing it, so the same import appears twice in the output —
+      // `import std.http.{…}` at file level and `import http.{…}` two spaces in. A pattern anchored
+      // on `std.` catches only the first, which is why `Request` stayed ambiguous after `Response`
+      // stopped being: one copy was filtered and the other was not.
+      //
+      // Java/Scala paths are excluded explicitly rather than trusted to the predicate. The predicate
+      // alone would already be safe — those names are not top-level classes of the emitted file —
+      // but "safe because nothing currently matches" is a property that changes when someone adds a
+      // class, and this pass would then silently start editing `import java.…` lines.
+      val importLine =
+        raw"(?m)^(\s*)import ((?!java\.|javax\.|scala\.|_root_\.)[A-Za-z_][A-Za-z0-9_.]*)\.\{([^}]*)\}$$".r
       importLine.replaceAllIn(src, m =>
         val indent = m.group(1)
         val path   = m.group(2)

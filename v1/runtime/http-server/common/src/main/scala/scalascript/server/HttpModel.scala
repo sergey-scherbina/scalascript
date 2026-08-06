@@ -44,12 +44,28 @@ case class Request(
  *  `setSession` opts into HMAC-signed session-cookie management — the
  *  dispatch loop reads it and writes the appropriate `Set-Cookie`
  *  header. */
+/** What a route handler produced, in both shapes this host has for it.
+ *
+ *  `std/http.ssc` declares ONE concept — `sse(req)(block)` is typed `: Response` there — and the
+ *  split into `Response` (buffered body) and `StreamResponse` (chunked writer) is this host's
+ *  implementation detail. They shared no type, so every middleware chain was typed `Any` to hold
+ *  both, and on a lane with type inference that made `next().withHeader(...)` unreachable: `Any`
+ *  has no members. Nothing is coerced or drained by naming what they already shared.
+ *
+ *  NOT called `HttpResponse`: that is `java.net.http.HttpResponse` in the preamble's imports, and
+ *  the collision produced 41 `Reference to HttpResponse is ambiguous` the moment this trait
+ *  appeared. `RouteResult` says what it is and cannot clash. */
+sealed trait RouteResult:
+  def status: Int
+  def headers: Map[String, String]
+  def withHeader(name: String, value: String): RouteResult
+
 case class Response(
     status:     Int                         = 200,
     headers:    Map[String, String]         = Map.empty,
     body:       String                      = "",
     setSession: Option[Map[String, String]] = None
-):
+) extends RouteResult:
   /** Attach a session payload — HMAC-signed and packed into Set-Cookie. */
   def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
 
@@ -68,4 +84,6 @@ case class StreamResponse(
     status:  Int,
     headers: Map[String, String],
     writer:  (String => Unit) => Any
-)
+) extends RouteResult:
+  def withHeader(name: String, value: String): StreamResponse =
+    copy(headers = headers + (name -> value))

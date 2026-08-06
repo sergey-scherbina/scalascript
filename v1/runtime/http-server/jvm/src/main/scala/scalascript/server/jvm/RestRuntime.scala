@@ -682,7 +682,7 @@ private case class _Route(
     metadata:     _OpenApiMetadata = _OpenApiMetadata()
 )
 private val _routes      = scala.collection.mutable.ArrayBuffer.empty[_Route]
-private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => Any) => Any]
+private val _middlewares = scala.collection.mutable.ArrayBuffer.empty[(Request, () => RouteResult) => RouteResult]
 private var _ssc_openapi_pending: Option[_OpenApiMetadata] = None
 private val _ssc_openapi_security = scala.collection.mutable.ArrayBuffer.empty[_OpenApiSecurityScheme]
 
@@ -718,7 +718,10 @@ def _ssc_route_response(method: String, path: String, responseType: String)(hand
   val rt = Option(responseType).map(_.trim).filter(t => t.nonEmpty && t != "Any")
   _routes += _Route(method.toUpperCase, path, _parsePath(path), handler, responseType = rt, metadata = _consumeOpenApiMetadata())
 
-def use(fn: (Request, () => Any) => Any): Unit = _middlewares += fn
+// `RouteResult`, not `Any` — this IS the declared contract: std/http.ssc says
+// `use(fn: (Request, () => Response) => Response)`. A host signature wider than the declaration is
+// invisible on a dynamic lane and makes `next().withHeader(...)` unreachable on a static one.
+def use(fn: (Request, () => RouteResult) => RouteResult): Unit = _middlewares += fn
 
 private object _OpenApiGenerator:
   def generate(routes: Iterable[_Route]): String =

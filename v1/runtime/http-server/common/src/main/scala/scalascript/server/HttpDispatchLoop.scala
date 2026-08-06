@@ -51,7 +51,7 @@ object HttpDispatchLoop:
       path:         String,
       pathParams:   Map[String, String],
       handler:      Request => Any,
-      middlewares:  Seq[(Request, () => Any) => Any],
+      middlewares:  Seq[(Request, () => RouteResult) => RouteResult],
       cfg:          Config,
       onError:      Throwable => Unit = _ => ()
   ): Unit =
@@ -65,13 +65,22 @@ object HttpDispatchLoop:
     parsed match
       case None => ()
       case Some((req, rawCookieSession, spooledTmps)) =>
-        def baseHandler(): Any =
-          try handler(req)
+        // Coerce ONCE, here, so the chain can be typed. The rule is the `case other` arm this
+        // match used to end with — String.valueOf, 200, text/plain — and a Response built that way
+        // then takes the `case resp: Response` arm below and writes byte-identically. That equality
+        // is the whole safety argument for moving the conversion earlier; it was checked against
+        // both arms, not assumed.
+        def asResult(v: Any): RouteResult = v match
+          case r: RouteResult => r
+          case other =>
+            Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), String.valueOf(other))
+        def baseHandler(): RouteResult =
+          try asResult(handler(req))
           catch case ve: RestValidationError =>
             Response(400,
               Map("Content-Type" -> "text/plain; charset=utf-8"),
               ve.getMessage)
-        var chain: () => Any = () => baseHandler()
+        var chain: () => RouteResult = () => baseHandler()
         middlewares.reverseIterator.foreach { mw =>
           val inner = chain
           chain = () => mw(req, inner)
@@ -84,12 +93,7 @@ object HttpDispatchLoop:
                 write => { sr.writer(write); () })
             case resp: Response =>
               ResponseWriter.write(ex, resp, rawCookieSession, cfg.respWriter)
-            case other =>
-              ResponseWriter.write(ex,
-                Response(200,
-                  Map("Content-Type" -> "text/plain; charset=utf-8"),
-                  String.valueOf(other)),
-                rawCookieSession, cfg.respWriter)
+
         catch case e: Exception =>
           onError(e)
           cfg.fiveXxCounter.incrementAndGet()

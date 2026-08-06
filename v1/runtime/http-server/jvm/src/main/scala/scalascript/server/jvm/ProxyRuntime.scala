@@ -380,13 +380,19 @@ private object _CodegenHttpHandler extends HttpHandler:
       // leading `use {}` can short-circuit an unrouted path (parity with the
       // interpreter dispatch).
       val reqWithParams = req.copy(params = matched.map(_._2).getOrElse(Map.empty))
-      def baseHandler(): Any = matched match
+      // Third chain in this runtime, same coercion rule as the other two — they agree because they
+      // were made to, not because they happened to.
+      def asResult(v: Any): RouteResult = v match
+        case r: RouteResult => r
+        case other =>
+          Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), _show(other))
+      def baseHandler(): RouteResult = matched match
         case Some((r, _)) =>
-          try r.handler(reqWithParams)
+          try asResult(r.handler(reqWithParams))
           catch case ve: RestValidationError =>
             Response(400, Map("Content-Type" -> "text/plain; charset=utf-8"), ve.getMessage)
-        case None => staticOr404()
-      var chain: () => Any = () => baseHandler()
+        case None => asResult(staticOr404())
+      var chain: () => RouteResult = () => baseHandler()
       _middlewares.reverseIterator.foreach { mw =>
         val inner = chain
         chain = () => mw(reqWithParams, inner)
@@ -396,10 +402,7 @@ private object _CodegenHttpHandler extends HttpHandler:
           HttpResult.StreamResp(sr)
         case r2: Response =>
           HttpResult.PlainResp(r2)
-        case other =>
-          HttpResult.PlainResp(Response(200,
-            Map("Content-Type" -> "text/plain; charset=utf-8"),
-            _show(other)))
+
       catch case e: Throwable =>
         _proxyLog.error(s"route error: ${e.getMessage}", e)
         _Metrics.http5xx.incrementAndGet()

@@ -508,8 +508,11 @@ private[codegen] trait JvmGenPreamble:
          |            case Some((r, params)) =>
          |              val req = Request(method, path, params, query, loweredHeaders, body)
          |              try
-         |                def runHandler(): Any = r.handler(req)
-         |                val chain = _middlewares.reverseIterator.foldLeft(() => runHandler()) { (next, mw) =>
+         |                def asResult(v: Any): RouteResult = v match
+         |                  case r: RouteResult => r
+         |                  case other => Response(200, Map("Content-Type" -> "text/plain; charset=utf-8"), _show(other))
+         |                def runHandler(): RouteResult = asResult(r.handler(req))
+         |                val chain: () => RouteResult = _middlewares.reverseIterator.foldLeft(() => runHandler()) { (next, mw) =>
          |                  () => mw(req, next)
          |                }
          |                _ssc_ui_backend_response(chain())
