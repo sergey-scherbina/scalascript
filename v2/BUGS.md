@@ -11,7 +11,7 @@ Newest first.
 ## fewer-braces-colon regressed on v2 and hid for five days behind an already-red gate
 
 <!-- status: open
-     lane: v2
+     lane: native
      area: front
      fixed-in: -
      gate: tests/conformance/contract.sc (corpus-contract nightly) -->
