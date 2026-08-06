@@ -1,0 +1,11 @@
+slug: coord-claim-unknown-prefix
+branch: feature/coord-claim-unknown-prefix
+agent: claude-code
+started: 2026-08-06T18:40:19Z
+heartbeat: 2026-08-06T18:40:19Z
+status: claimed-before-planning
+items: coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing
+paths: file:scripts/coord-claim file:.githooks/pre-push file:.githooks/pre-commit file:scripts/BUGS.md file:tests/e2e/claim-path-prefix-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
