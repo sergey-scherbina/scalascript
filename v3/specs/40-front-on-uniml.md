@@ -259,13 +259,22 @@ today it is none of those.
    the same source lexes differently on JVM, JS and the v2 VM.
 
 Everything else is v3's own work: `SpikeAst` → v3's `Ast`, which is §5a's subject and where v3's
-desugaring lives.
+desugaring lives. Its contract — node by node, with the refusals and the four open questions to be
+measured before any of it is written — is [`50-uniml-projection.md`](50-uniml-projection.md).
 
-And one fact recorded so nobody sequences behind it: **an import's PATH is absent from the CST.**
-`parseImportStmt` consumes the dotted path without attaching it, so `import a.b.c` and `import x.y`
-are indistinguishable. UniML filed this itself and modelled it as the contentless `NoOpDecl` it
-really is. It does not block v3: v3's imports are markdown links (`[names](path.ssc)`) read from the
-source TEXT by `Loader`, never from the tree.
+**A correction to an earlier note in this file.** It said an import's PATH was absent from the CST.
+That was true when written and is no longer: `ImportDecl(path, selectors, wildcard)` is real, and
+measured 2026-08-06 it yields `ImportDecl(a.b.c, [], false)` and `ImportDecl(a.b, [x, y], false)`.
+I had repeated a sprint note instead of reading the code — the second time in this file, which is
+why the correction is kept rather than edited away.
+
+What IS true, and verified rather than assumed: **the markdown link-import yields nothing.**
+`[Node, Cluster](std/mapreduce/cluster.ssc)` produces only a `TopExpr`, because the link sits
+OUTSIDE the code fence and belongs to the markdown layer, which the ScalaScript dialect never sees.
+That is correct behaviour rather than a gap — `Loader.importsOf` scans the raw source TEXT and
+always has — and it means the projection does not build the module graph. Recorded because the
+opposite assumption is the natural one and would have produced a front that resolved no imports
+while looking correct. Detail in [`50-uniml-projection.md`](50-uniml-projection.md) §6.
 
 ## 6 · What v3 does on its own side, before any of that lands
 

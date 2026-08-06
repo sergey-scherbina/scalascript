@@ -531,3 +531,17 @@ Sergiy asked whether the AST should be built straight from UniML during parsing.
       construct**: `if c then a(i) = v`, an index assignment as a single-line branch body. Narrowed
       by probe, and the narrowing is not what the file name suggests — `a(1) = 4` alone parses and
       `if c then n = 5` parses; only the combination fails.
+
+- [x] **13f — `50-uniml-projection.md`,** the projection's CONTRACT. §5a says why the projection
+      reads the typed AST; nothing said WHAT maps to what. Now it does: declarations, the three
+      call shapes collapsing into two v3 nodes, the five desugarings that must reproduce exactly
+      what `Parser` already produces (`for`, `PartialFn`, `TupleVal`, `IndexAssign`, interpolation),
+      the pattern table, and every construct that must REFUSE rather than be quietly erased —
+      `PatTyped` above all, since erasing its type makes `case x: Int` match everything.
+      Four OPEN QUESTIONS are left open on purpose, each a probe rather than a guess.
+- [x] **13g — the import note in §5 corrected, again by reading code instead of prose.**
+      `ImportDecl` carries its path now (`ImportDecl(a.b.c, [], false)`). But the MARKDOWN link
+      yields nothing — it sits outside the fence, so the ScalaScript dialect never sees it. Correct
+      behaviour, verified rather than assumed, and it means the projection does NOT build the module
+      graph: `Loader` keeps doing it from the raw text. The opposite assumption would have produced
+      a front that resolved no imports while looking correct.
