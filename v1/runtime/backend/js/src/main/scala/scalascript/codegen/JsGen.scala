@@ -2540,8 +2540,20 @@ class JsGen(
         val fullName  = s"$pkgPrefix${b.name}"
         val localName = b.alias.getOrElse(b.name)
         val localJsName = emittedName(localName)
+        // A binding naming the package ROOT is the namespace OBJECT itself, not a member of it.
+        // Qualifying it produced `const o = org.example.ui.org;` for `[org as o]` — `undefined`,
+        // so the first `o.example` threw `Method not found` out of the generated `_dispatch`, a
+        // RUNTIME error with nothing in it pointing at the import. Read off the emitted js:
+        // line 3070 is `const org = (() => …)()` and 3071 was that selection.
+        //
+        // The UNALIASED form was already correct, by the `!topLevelConsts` guard below — its local
+        // name IS `org`, so it matched. The aliased form slipped past because the local name is `o`.
+        // Same shape as the jvm fix, which emits `val o = org`
+        // (v1/runtime/backend/jvm/BUGS.md `jvm-package-import-qualifies-the-link-name`).
+        val isPkgRoot = childPkg.headOption.contains(b.name)
         val targetJsName =
-          if childPkg.isEmpty then importedJsNames.get(key).flatMap(_.get(b.name)).getOrElse(b.name)
+          if isPkgRoot then emittedName(b.name)
+          else if childPkg.isEmpty then importedJsNames.get(key).flatMap(_.get(b.name)).getOrElse(b.name)
           else fullName
         // If the child module declares an exports list and this name is absent,
         // skip — don't block a later import from the correct module.

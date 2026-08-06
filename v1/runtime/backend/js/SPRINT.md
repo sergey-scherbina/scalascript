@@ -10,6 +10,28 @@ Anything not being worked on belongs in `v1/runtime/backend/js/BACKLOG.md`, not 
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+## js-aliased-package-root (claim `js-aliased-package-root`)
+
+Entry: [`BUGS.md`](BUGS.md) `js-aliased-package-root-import-is-unbound`.
+Gate: `tests/e2e/package-keyword-smoke.sh` — its `alias/root` row, which passes on int, native and
+jvm today and is the last red cell of a four-lane × four-form alias matrix.
+
+- [x] **JS-A1 — `[org as o]` must bind the namespace OBJECT, not a selection out of it.**
+      `JsGen.scala:~2545` computes `targetJsName = fullName` = `org.example.ui.org` for a binding
+      that names the package ROOT, so the emitted `const o = org.example.ui.org;` is `undefined` and
+      the later `o.example.ui.Card.render(…)` throws `Method not found` from the generated
+      `_dispatch` — a RUNTIME error, which is why this looked unlike the native failure. The
+      unaliased form is already handled two lines below, by `!topLevelConsts.contains(localJsName)`,
+      with a comment describing this same shape; the aliased form slips past it because the local
+      name is `o` and the const is `org`. Fix: when `b.name` is `childPkg.head`, the target is the
+      top-level namespace const itself. Same shape as the jvm fix, which emits `val o = org`
+      (`jvm-package-import-qualifies-the-link-name`).
+- [x] **JS-A2 — read the GENERATED js before and after**, not just the exit code. The bug is one
+      identifier in one emitted line, and the previous two claims in this area were both diagnosed
+      by reading the generated output rather than the error.
+- [x] **JS-A3 — the gate's `alias/root` row must go green while every other row stays green**, and
+      the js rows of the corpus must not move. The absent-state control is already in the gate.
+
 - [x] **js-no-tail-call-elimination-overflows-scljet-large-page** — self-TCO exists in JsGen and is
   applied ONLY on the top-level `function` path. A `def` inside an `object`/package module takes the
   arrow-function path (`const f = (a, b) => …`, JsGen.scala:3276), which has no such branch, so a
