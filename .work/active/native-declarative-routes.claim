@@ -5,7 +5,7 @@ started: 2026-08-06T00:36:21Z
 heartbeat: 2026-08-06T00:36:21Z
 status: claimed-before-planning
 items: native-lane-ignores-declarative-route-registration
-paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/BUGS.md file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/fm-routes-smoke.sh
+paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/BUGS.md file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/fm-routes-smoke.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
