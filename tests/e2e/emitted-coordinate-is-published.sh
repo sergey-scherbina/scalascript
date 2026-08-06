@@ -64,6 +64,20 @@ case "$build_version" in
     ;;
 esac
 
+# uniml/ is a SECOND standalone sbt build compiling the same sources under the same coordinates, so
+# its version must equal the root's. Its own build.sbt says why: if they differ, `publishLocal` from
+# the two builds produces two different artifacts and a consumer resolves whichever it happens to
+# see. Nothing enforced it until now — bumping the root to 0.1.1 for the release left uniml on
+# 0.2.0-SNAPSHOT, which is exactly the drift that comment warns about, and Sergiy spotted it rather
+# than this gate.
+uniml_version=$(grep -m1 '^ThisBuild / version' "$ROOT/uniml/build.sbt" | sed 's/.*:= *"\(.*\)".*/\1/')
+if [[ $uniml_version != "$build_version" ]]; then
+  echo "emitted-coordinate: FAILED — uniml/build.sbt is '$uniml_version', root build.sbt is '$build_version'." >&2
+  echo "    Both builds compile the same sources under the same coordinates; a mismatch means" >&2
+  echo "    publishLocal from each produces a different artifact for the same name." >&2
+  failed=1
+fi
+
 if [[ $failed -ne 0 ]]; then
   echo "emitted-coordinate-is-published: FAILED" >&2
   exit 1
