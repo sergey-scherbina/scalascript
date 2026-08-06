@@ -67,6 +67,30 @@ Three things worth doing, smallest first:
    It also now prints a breadcrumb before the slow `scala-cli` step, which is the only thing that
    survives when the runner's guard kills a check.
 
+**Residual, and it is a real one: the skip d0df30a89 introduced cannot be seen.** The runner prints
+output only for a check that FAILS, so a passing `freeze-consistency` produces no lines at all —
+and "I5 ran and the roster is clean" is therefore indistinguishable from "I5 skipped because
+`contract.sc --list` produced nothing". The fix turned a silent RED into a silent SKIP, which is
+strictly better (main is green, and the other five invariants still run) but not yet honest.
+
+What the logs can and cannot settle, so nobody re-derives it:
+
+    run 31060671890  toolchain cache HIT   freeze-consistency 94.5s  died silently (the set -e bug)
+    run 31082837072  toolchain cache MISS  freeze-consistency 11.1s  passed, branch UNKNOWN
+
+The obvious reading — cache hit skips the coursier step, so scala-cli has to fetch Bloop — is
+WRONG here: `Cache Coursier/sbt` in smoke.yml carries no `if:`, it was made unconditional by
+5d397bd26 precisely because of `corpus-breadth-slice-crashes-scala-cli-on-ci`, and that is still
+the case. The 8.5x timing difference is unexplained, and the intermittent scala-cli download
+failure documented in that entry ("three of the last fifteen runs") is enough to produce it without
+any cache story.
+
+To settle it, the gate has to report the branch through the only channel a passing check has —
+which is none. So either I5's outcome moves into the check NAME the runner prints, or the gate
+fails when I5 cannot run under `CI`. The second is defensible (the workflow installs scala-cli
+deliberately, so an inability to list is a real defect there and a legitimate skip on a dev host
+without it) but it puts main red for an environment flake, so it is a decision, not a cleanup.
+
 Items 1 and 2 NOT DONE HERE because `scripts/smoke-ci.ssc` is inside the `release-graalvm-pin`
 claim. They remain worth doing: `run-lane-flags-are-flags` is still a genuine guard failure (24 s
 local, 60.1 s against a 60 000 ms guard), and a killed check still reports a bare `exit code -1`.
