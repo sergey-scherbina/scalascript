@@ -122,7 +122,13 @@ object MarkdownDocContent:
         else List(ContentBlock.BulletList(itemBlocks))
 
       case MarkdownBlock.CodeBlock(info, literal, _) =>
-        val lang = info.getOrElse("").takeWhile(!_.isWhitespace).toLowerCase
+        // The fence INFO STRING's language tag. Two host dependencies used to live on this line:
+        // `isWhitespace` (the host's Unicode notion, where CommonMark's is space/tab/newline/VT/FF/CR)
+        // and `toLowerCase` (no argument, so the JVM's DEFAULT LOCALE — in Turkish `"I"` folds to a
+        // dotless `ı`, so a fence tagged `SQLITE` would not match `sqlite`). A language tag is an
+        // ASCII token; both are now decided as ASCII.
+        val raw = info.getOrElse("").takeWhile(c => !(c == ' ' || c == '\t' || c == '\n' || c == '\r'))
+        val lang = raw.map(c => if c >= 'A' && c <= 'Z' then (c + 32).toChar else c)
         List(ContentBlock.Embedded(lang, literal, embeddedKind(lang)))
 
       case MarkdownBlock.HtmlBlock(_) =>

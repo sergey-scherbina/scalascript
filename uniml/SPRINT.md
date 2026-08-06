@@ -209,6 +209,36 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 
+- [~] UNIML-SSC3-ALPHABET/locale — **the half of the same bug I missed: `toLowerCase`.**
+      Claim `uniml-locale-independence`. The item removed the host's `Char` CLASSIFICATION and I
+      declared the front's path clean. It was not: `String.toLowerCase()` takes NO argument and uses
+      the JVM's **default locale**, so its result is not a property of the string at all.
+      **Strictly worse than the `isLetter` case**, which at least needed a different RUNTIME to
+      diverge. This one diverges on the same runtime started with `-Duser.language=tr`: Turkish
+      folds `I` to a dotless `ı`, so every HTML tag name containing an `I` was mis-folded —
+      `<LI>`, `<TITLE>`, `<IFRAME>`, `<DIALOG>`, `<FIGCAPTION>`.
+      **Proved before fixing, in the locale rather than by inspection.** `MdLocaleIndependenceSpec`
+      parses the same document twice, once under `tr`, and compares the block shapes: `<LI>` and
+      `[TITLE]` came out DIFFERENT. Two of its own tests are controls — one asserts the fixture
+      restores the default locale (a leak would make every later test's result a lie), one asserts
+      the JVM really does fold Turkish `I` differently, without which the comparison would pass by
+      being vacuous.
+      **Five sites in `uniml/markdown`, and they are NOT all the same question.** Four decide an
+      ASCII matter — HTML tag name, close marker, `www.`/scheme — and get `MdChars.asciiLower`.
+      The fifth is the CommonMark LINK LABEL, which the spec folds with **Unicode** case folding:
+      `[ΑΒΓ]` must find `[αβγ]`.
+      ⚠️ **A blanket regex replaced all five and the official corpus caught it: 607 → 606.** I had
+      already written that labels needed a decision and then let the script overrule me. The right
+      distinction is that `String.toLowerCase()` is locale-SENSITIVE while
+      `Character.toLowerCase(char)` is not — it is defined by the Unicode data alone. So
+      `MdChars.foldCase` folds ASCII by range and everything else through the character fold, and
+      both properties hold at once. Corpus back to 607.
+      *The same regex also mangled `t.substring(start, i).toLowerCase` into
+      `t.substring(start, asciiLower(i))` — caught by reading the diff, not by the compiler yet.*
+      **v1 too**, since the user asked: `MarkdownDocContent:125` had BOTH host calls on one line —
+      `isWhitespace` and `toLowerCase` — deciding a fence's language tag. A tag is an ASCII token;
+      a fence marked `SQLITE` would not have matched `sqlite` in Turkish.
+
 - [~] UNIML-SSC3-ALPHABET/markup — **the XML codec's alphabet, spelled from the grammar.**
       Claim `uniml-markup-xml-alphabet`. The last four host `Char` calls, and the reason they were
       left out of the tail commit: `PureMarkupCodec` is an **XML 1.0 parser**, so the right alphabet

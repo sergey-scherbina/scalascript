@@ -530,7 +530,7 @@ private[markdown] final class MarkdownBlocks(
             else { emitHtmlLine(l, first); first = false; i += 1 }
           case Some(markers) =>
             emitHtmlLine(l, first); first = false; i += 1
-            val lc = l.content.toLowerCase
+            val lc = MdChars.asciiLower(l.content)
             if markers.exists(lc.contains) then done = true
       pendingClose = pendingClose :+ MdBranch.HtmlBlock
       i
@@ -1061,7 +1061,7 @@ private[markdown] final class MarkdownBlocks(
   private def htmlBlockType(trimmed: String, paragraphOpen: Boolean): Option[Int] =
     if !trimmed.startsWith("<") then None
     else
-      val lower = trimmed.toLowerCase
+      val lower = MdChars.asciiLower(trimmed)
       if htmlType1Start(lower) then Some(1)
       else if trimmed.startsWith("<!--") then Some(2)
       else if trimmed.startsWith("<?") then Some(3)
@@ -1084,7 +1084,7 @@ private[markdown] final class MarkdownBlocks(
     if i < t.length && t.charAt(i) == '/' then i += 1
     val start = i
     while i < t.length && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') do i += 1
-    (t.substring(start, i).toLowerCase, i)
+    (MdChars.asciiLower(t.substring(start, i)), i)
 
   private def htmlType6Start(t: String): Boolean =
     val (name, after) = htmlTagName(t)

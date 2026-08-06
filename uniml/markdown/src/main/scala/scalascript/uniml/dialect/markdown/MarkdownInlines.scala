@@ -40,7 +40,7 @@ private[markdown] object MarkdownInlines:
         inSpace = false
         builder = builder :+ trimmed.substring(li, li + 1)
       li += 1
-    builder.mkString.toLowerCase
+    MdChars.foldCase(builder.mkString)
 
   def parse(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[InlinePiece] =
     val atoms = tokenize(content, refs, profile)

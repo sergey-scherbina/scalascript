@@ -314,7 +314,7 @@ object MarkdownProjection:
     * Derived here rather than carried on the token, so the token stream holds
     * nothing the source does not. */
   private def autolinkDestination(text: String): String =
-    val lower = text.toLowerCase
+    val lower = MdChars.asciiLower(text)
     if lower.startsWith("www.") then "http://" + text
     else if !lower.contains(":") && text.contains("@") then "mailto:" + text
     else text

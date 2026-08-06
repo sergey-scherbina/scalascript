@@ -115,6 +115,60 @@ private[markdown] object MdChars:
   private val VerticalTab = '\u000B'
   private val FormFeed = '\u000C'
 
+  /** ASCII lowercase — the fold CommonMark actually asks for, and locale-independent.
+    *
+    * `String.toLowerCase()` takes no argument and uses the JVM's DEFAULT LOCALE, so its result is
+    * not a property of the string. In Turkish `"I".toLowerCase` is `"\u0131"` — a dotless i — so
+    * every HTML tag name containing an `I` was mis-folded: `<LI>`, `<TITLE>`, `<IFRAME>`,
+    * `<DIALOG>`, `<FIGCAPTION>`. The document did not change; the environment variable did.
+    *
+    * That is the same defect UNIML-SSC3-ALPHABET removed from `isLetter` and worse in one respect:
+    * `isLetter` needed a different RUNTIME to diverge, this needs only `-Duser.language=tr` on the
+    * same one.
+    *
+    * Every site that used the host fold here decides an ASCII question — an HTML tag name, a
+    * scheme, `www.`, a link label — so ASCII folding is not an approximation, it is the rule.
+    * Anything above `z` is left exactly as it was rather than guessed at. */
+  def asciiLower(s: String): String =
+    var i = 0
+    var needs = false
+    while i < s.length && !needs do
+      val c = s.charAt(i)
+      if c >= 'A' && c <= 'Z' then needs = true
+      i += 1
+    if !needs then s
+    else
+      val out = new StringBuilder(s.length)
+      var k = 0
+      while k < s.length do
+        val c = s.charAt(k)
+        out.append(if c >= 'A' && c <= 'Z' then (c + 32).toChar else c)
+        k += 1
+      out.toString
+
+  /** CommonMark's link-label fold: Unicode, but NOT locale-dependent.
+    *
+    * A label matches its definition after a UNICODE case fold — `[ΑΒΓ]` finds `[αβγ]` — so ASCII
+    * folding is wrong here and the official corpus says so: folding this site as ASCII took the
+    * suite from 607 passing cases to 606.
+    *
+    * The distinction that makes both properties reachable at once: `String.toLowerCase()` is
+    * LOCALE-SENSITIVE and `Character.toLowerCase(char)` is not — the second is defined by the
+    * Unicode data alone. So ASCII is folded by range (which also side-steps the Turkish dotless
+    * i for the one letter where the two disagree) and everything else goes through the
+    * locale-independent character fold. */
+  def foldCase(s: String): String =
+    val out = new StringBuilder(s.length)
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      out.append(
+        if c >= 'A' && c <= 'Z' then (c + 32).toChar
+        else if c < 128 then c
+        else Character.toLowerCase(c))
+      i += 1
+    out.toString
+
   def isAsciiWhitespace(c: Char): Boolean =
     c == ' ' || c == '\t' || c == '\n' || c == VerticalTab || c == FormFeed || c == '\r'
 
