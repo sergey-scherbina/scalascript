@@ -1345,7 +1345,7 @@ def parseBlockLamParen(ts, env, cx) = parseBlockLamP(parseParams(tl(ts), env), e
 def parseBlockLamP(pr, env, cx) = pr match { case (env2, r) => parseBlockLamBody(dlen(env2) - dlen(env), env2, tl(r), cx) }
 def parseBlockLamId(ts, env, cx) = parseBlockLamBody(1, snd(hd(ts)) :: env, tl(tl(ts)), cx)
 def parseBlockLamBody(ar, env2, ts, cx) = parseBlock(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseBlockIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx)))))))
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 1) then parseBlockDef(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseBlockIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))))
 def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts, env, cx) else parseBlockExpr(ts, env, cx)
 // A `{ case .. }` case-lambda is a match on the lambda's single param, so it must route through the
 // SAME dispatch as `x match { .. }` (parseMatchArms): a bare-variable / typed / guarded / int / nested
@@ -1373,6 +1373,24 @@ def parseCaseLamGen(ts, env, cx) = parseGenMatch("(local 0)", ts, "" :: env, cx)
 // `var` is deliberately NOT typed: a var is a mutable CELL, so its reads emit `(prim cell.get ..)`
 // rather than a bare `(local N)`, and localTyOf (isBareLocal) can never fire on one. Typing it would
 // be dead weight that still has to survive every env lookup.
+// A `def` NESTED in a function body. `parseBlock0` had no arm for it, so it fell through to
+// parseBlockExpr and every later reference lowered to a top-level `(global helper)` that does not
+// exist — F then declined the whole file (`f-declines-every-non-top-level-def`). A `val`-bound
+// lambda already worked, which is what showed the machinery for non-global callables was there and
+// only the `def` FORM was missing.
+//
+// Emitted as `(letrec ((lam ar <body>)) <rest>)`: the letrec binding is visible BOTH inside the
+// lambda and in the rest of the block, so a recursive `loop` resolves to itself rather than to a
+// global. That is the whole reason this is a letrec and not a `let` — `loop` calling `loop` is the
+// shape the parser corpus is built out of.
+//
+// Env discipline mirrors parseBlockVal exactly: params are pushed onto `nm :: env`, so slot order
+// inside the lambda is [params.., nm, outer..] and the arity is the number of params alone.
+def parseBlockDef(ts, env, cx) = parseBlockDef1(snd(hd(tl(ts))), skipGen(tl(tl(ts))), env, cx)
+def parseBlockDef1(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockDefP(nm, parseParams(tl(ts), Cons(nm, env)), env, cx) else parseBlockDefB(nm, Cons(nm, env), 0, skipToEq(ts), env, cx)
+def parseBlockDefP(nm, pr, env, cx) = pr match { case (penv, r) => parseBlockDefB(nm, penv, dlen(penv) - dlen(env) - 1, skipToEq(r), env, cx) }
+def parseBlockDefB(nm, penv, ar, ts, env, cx) = parseExpr(ts, 0, penv, cx) match { case (b, r) => parseBlockDefR(nm, ar, erase(b, cx), r, env, cx) }
+def parseBlockDefR(nm, ar, b, ts, env, cx) = parseBlock(ts, Cons(nm, env), cx) match { case (rest, r) => ("(letrec ((lam " ++ ar ++ " " ++ b ++ ")) " ++ rest ++ ")", r) }
 def parseBlockVal(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockValTup(ts, env, cx) else parseBlockVal1(pushVal(snd(hd(ts)), tl(ts)), skipToEq(tl(ts)), env, cx)
 def pushVal(nm, rest) = if isColonTok(hd(rest)) then pushValTy(nm, tl(rest)) else nm
 def pushValTy(nm, tts) = if simpleValTy(tts) then nm ++ ":" ++ snd(hd(tts)) else nm

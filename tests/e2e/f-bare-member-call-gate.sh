@@ -28,6 +28,11 @@
 # being absent from env is exactly what tells an object body from a class body, so one test covers
 # both and no separate "am I in a class" flag exists to drift.
 #
+# ── a `def` nested in a FUNCTION body ────────────────────────────────────────────────────────────
+# Lowered as `(letrec ((lam ar body)) rest)`, so the binding is visible inside the lambda AND in the
+# rest of the block. letrec rather than let because `loop` calling `loop` is the shape this exists
+# for — the recursive case is the one the parser corpus is built out of.
+#
 # STILL OPEN and NOT asserted here, each measured on this build: `this.m()` inside a class still
 # declines on `(global this)` — F has no `this` — and a trait DEFAULT method reading an abstract
 # sibling lowers but dies at runtime with `__method__: no dispatch for .describe`, identically
@@ -124,6 +129,25 @@ lowered_and_correct class-global-still-reachable 100 'def scale(k: Int): Int = 1
 case class B(n: Int):
   def go(): Int = scale(5)
 def main() = println(B(3).go())'
+
+lowered_and_correct nested-def 6 'def outer(k: Int): Int =
+  def helper(i: Int): Int = i * 2
+  helper(k)
+def main() = println(outer(3))'
+
+# The recursive one. A `let` instead of a `letrec` passes `nested-def` above and fails here, which
+# is the whole reason both are present.
+lowered_and_correct nested-def-recursive 5 'def outer(k: Int): Int =
+  def loop(i: Int): Int = if i == 0 then 0 else loop(i - 1) + 1
+  loop(k)
+def main() = println(outer(5))'
+
+# Captures a parameter of the ENCLOSING function. This is what checks the env discipline: params are
+# pushed onto `nm :: env`, so a slot miscount answers with the wrong value rather than failing.
+lowered_and_correct nested-def-captures 13 'def outer(k: Int): Int =
+  def add(i: Int): Int = i + k
+  add(10)
+def main() = println(outer(3))'
 
 echo
 if [[ $fails -eq 0 ]]; then
