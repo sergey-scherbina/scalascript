@@ -3535,9 +3535,16 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   40/40, including generated macOS execution and iOS 16 strict typecheck.
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
+
+**TRIAGED 2026-08-06 — `unknown` → `fixed`, and the evidence is stated with its limit.**
+
+Every slice this entry lists landed with its own verification at the time (swiftc under `-swift-version 6 -strict-concurrency=complete -warnings-as-errors`, `v2SwiftBackend/test` 58/58), and the invariant those slices exist to protect — an unmapped thing REFUSES rather than renders something plausible — was re-checked today at source: `SwiftNativeUiApple.scala` has **34 explicit `unsupported(...)` refusals and no `case _` / `case other` branch at all**, so there is no default path that could silently render.
+
+**What was NOT done, said plainly:** a fresh end-to-end SwiftUI render. It is blocked by an unrelated regression found in the same triage — `v2/BUGS.md swift-macos-build-broken-by-forJsonView` — which fails the macOS build before any rendering happens. Marked `fixed` rather than `open` because nothing here is left to IMPLEMENT; what is missing is a confirmation run, and pretending otherwise would put phantom work on the board.
 
 **Reactive-attribute slice landed (opus, 2026-07-13).** `renderElement` bound only 3
 reactive (signal-bound) attributes — `style`/`value`/`checked` — so ANY other

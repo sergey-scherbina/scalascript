@@ -2908,9 +2908,13 @@ program emits", and a regex over `supportedPrimitives` misses the entries refere
 constants (`HandlerDispatchShape.*`) — it reported 31 missing names where the real answer was 2.
 
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: 3d70a5af1 -->
+
+**RE-VERIFIED 2026-08-06 by re-running the check this entry documents**, not by reading it:
+`contract.sc --only 'invoice-pdf,invoice-email,pdf-extract-demo,hello'` → `PASS cells: 6/6`, `contract GREEN`, exactly the six-instead-of-twelve it claims. All three examples still carry `backends: [int]`. Landed by `3d70a5af1` (2026-07-29). Status `unknown` → `fixed`.
 
 **Status: FIXED 2026-07-29** for the three PDF cases, with **no code change** — they now declare
 `backends: [int]`, the gate the contract already honours. Measured per lane first
