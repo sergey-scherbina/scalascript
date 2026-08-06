@@ -209,7 +209,7 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 
-- [~] UNIML-SSC3-ALPHABET/locale — **the half of the same bug I missed: `toLowerCase`.**
+- [x] UNIML-SSC3-ALPHABET/locale — **the half of the same bug I missed: `toLowerCase`.**
       Claim `uniml-locale-independence`. The item removed the host's `Char` CLASSIFICATION and I
       declared the front's path clean. It was not: `String.toLowerCase()` takes NO argument and uses
       the JVM's **default locale**, so its result is not a property of the string at all.
@@ -238,8 +238,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       **v1 too**, since the user asked: `MarkdownDocContent:125` had BOTH host calls on one line —
       `isWhitespace` and `toLowerCase` — deciding a fence's language tag. A tag is an ASCII token;
       a fence marked `SQLITE` would not have matched `sqlite` in Turkish.
+      **[x] 2026-08-06 — verified by MEASUREMENT, not by reading the entry.** Host `Char`
+      classification calls under `uniml/*/src/main`: core 0, json 0, yaml 0, markup 0, xml 0,
+      scala 0, address 0, markdown 1 — and that one is DELIBERATE:
+      `Character.toLowerCase(c)` inside `MdChars.foldCase`, which the entry itself argues for
+      (locale-INsensitive, defined by Unicode data alone) and which the official corpus proved
+      necessary — folding that site as ASCII took 607 passing cases to 606. Locale-SENSITIVE
+      `String.toLowerCase()`: **zero**, every remaining textual match is a comment.
 
-- [~] UNIML-SSC3-ALPHABET/markup — **the XML codec's alphabet, spelled from the grammar.**
+
+- [x] UNIML-SSC3-ALPHABET/markup — **the XML codec's alphabet, spelled from the grammar.**
       Claim `uniml-markup-xml-alphabet`. The last four host `Char` calls, and the reason they were
       left out of the tail commit: `PureMarkupCodec` is an **XML 1.0 parser**, so the right alphabet
       is XML's own productions — not ScalaScript's, not Java's. `UniAlphabet.isIdStart` accepts
@@ -261,8 +269,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       a level up. `namespaced element and attribute` went red and is the reason this is right.
       markupCore 22/22 including 5 new grammar tests; `unimlXml` checked because it depends on this
       codec.
+      **[x] 2026-08-06 — verified by MEASUREMENT, not by reading the entry.** Host `Char`
+      classification calls under `uniml/*/src/main`: core 0, json 0, yaml 0, markup 0, xml 0,
+      scala 0, address 0, markdown 1 — and that one is DELIBERATE:
+      `Character.toLowerCase(c)` inside `MdChars.foldCase`, which the entry itself argues for
+      (locale-INsensitive, defined by Unicode data alone) and which the official corpus proved
+      necessary — folding that site as ASCII took 607 passing cases to 606. Locale-SENSITIVE
+      `String.toLowerCase()`: **zero**, every remaining textual match is a comment.
 
-- [~] UNIML-SSC3-ALPHABET/tail — **the last host calls, and one of them was a real defect.**
+
+- [x] UNIML-SSC3-ALPHABET/tail — **the last host calls, and one of them was a real defect.**
       Claim `uniml-alphabet-tail`. **Re-measured rather than inherited, and the entry below was
       right where my first sweep was wrong**: grepping for `.isDigit`-style calls without excluding
       TEST sources and comments reported `core` 6, `markdown` 12, `yaml` 2 — every one of them a
@@ -285,8 +301,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       in `uniml/build.sbt`, so they are tested with `sbt unimlAddress/test` from the repo root and
       the standalone job never sees them. That is also why the entry below calls them "off the
       path".
+      **[x] 2026-08-06 — verified by MEASUREMENT, not by reading the entry.** Host `Char`
+      classification calls under `uniml/*/src/main`: core 0, json 0, yaml 0, markup 0, xml 0,
+      scala 0, address 0, markdown 1 — and that one is DELIBERATE:
+      `Character.toLowerCase(c)` inside `MdChars.foldCase`, which the entry itself argues for
+      (locale-INsensitive, defined by Unicode data alone) and which the official corpus proved
+      necessary — folding that site as ASCII took 607 passing cases to 606. Locale-SENSITIVE
+      `String.toLowerCase()`: **zero**, every remaining textual match is a comment.
 
-- [~] UNIML-SSC3-ALPHABET — **one character classifier, no host `Char` calls.** v3 handed this
+
+- [x] UNIML-SSC3-ALPHABET — **one character classifier, no host `Char` calls.** v3 handed this
       over as a requirement on UniML (`v3/specs/40-front-on-uniml.md` §4: "the lexer may not use
       host `Char` classification"), and `20-core-language.md` §3 decides the alphabet: whitespace
       = space/tab/CR/LF/FF; digit = `0`-`9`; ident-start = `a-zA-Z_$` **or any code point ≥
@@ -340,8 +364,16 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       carries its own copy of the alphabet in `Chars`.** §3 needs amending and ssc3-core needs to
       decide whether to adopt the shared module. Raised with them; not edited unilaterally, since
       `paths: v3` is theirs.
+      **[x] 2026-08-06 — verified by MEASUREMENT, not by reading the entry.** Host `Char`
+      classification calls under `uniml/*/src/main`: core 0, json 0, yaml 0, markup 0, xml 0,
+      scala 0, address 0, markdown 1 — and that one is DELIBERATE:
+      `Character.toLowerCase(c)` inside `MdChars.foldCase`, which the entry itself argues for
+      (locale-INsensitive, defined by Unicode data alone) and which the official corpus proved
+      necessary — folding that site as ASCII took 607 passing cases to 606. Locale-SENSITIVE
+      `String.toLowerCase()`: **zero**, every remaining textual match is a comment.
 
-- [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
+
+- [x] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
       is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
       **Progress 2026-08-01/02, by criterion:**
@@ -600,6 +632,13 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       function and tuple types in a parameter, and an interpolator prefix the lexer does not
       know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans
       through the wrong coordinate space — fix it before trusting its line numbers.
+      **[x] 2026-08-06 — closed on five of six criteria; the sixth's residue is in BACKLOG.**
+      (1) publishable, (2) typed projection, (4) losslessness, (5) measurement and
+      (6) independence are each done and gated above. (3) breadth stands at ~12 diagnostics
+      from tagged fences, every one of them explained, and it is not 'in progress' — nothing
+      has held it since the claim was released, so leaving it `[~]` said something false.
+      The residue is queued in `uniml/BACKLOG.md` where unstarted work belongs (P-2.7).
+
 
 - [x] UNIML-SSC3-CI — the dialect's tests must be run by CI. **Route (ii) taken and verified.**
       `ci.yml` job `UniML — standalone build`, run 30937360765: `UniML: 10 project(s) reported

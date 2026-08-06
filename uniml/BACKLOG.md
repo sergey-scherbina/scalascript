@@ -7,6 +7,36 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics, and what they are
+
+Queued here rather than left `[~]` on the sprint: nothing has held this since the claim was
+released, and a board that says "in progress" with no live claim misdirects whoever reads it.
+
+**Where it stands.** Diagnostics from TAGGED fences went 172 → ~12 across ten measured slices
+(inferred `def` result type, dotted patterns, fewer-braces, expression-position ascription, quote
+and splice with the char-literal lexer bug underneath, infix type operators, by-name params and
+abstract vals, indented `try`, comma-separated parents, and the fence rule itself). Clean files
+94.8% → 99.3%.
+
+**The remainder is explained, which is the point — the target is not zero.**
+
+- 6 are `@side = server` in `examples/frontend/data-table/data-table.ssc`, a construct the language
+  does not have: it appears in a spec's "later phases can introduce" paragraph and the reference
+  front rejects it. Filed at the root `BUGS.md`. Implementing it would "improve" breadth by teaching
+  the dialect to accept what the language refuses.
+- The rest is a flat tail of 1-3 per shape, each needing the same question asked one at a time:
+  extract the construct into a PROGRAM file — not a module, see the oracle entry above — and ask the
+  reference front. Three of today's slices came from that question and one candidate was rejected by
+  it.
+
+**The method, because it is what made the ten slices cheap.** `sbt "unimlScala/testOnly
+*SscBreadthSpec"` prints a TAGGED-only histogram with one example location per shape;
+`sbt "unimlBench/runMain scalascript.uniml.bench.Diagnose <file>"` prints the offending SOURCE LINE
+beside each diagnostic, so a construct names itself instead of being guessed from a message like
+"expected type, found '='". A histogram message can point at the wrong construct entirely — the
+indented-`try` gap reported `case`, three lines below its cause.
+
+
 ## the reference front is NOT an oracle for a module's fences — three method corrections
 
 Measured 2026-08-05/06. The conclusion matters less than how many times the route to it was wrong,
