@@ -2,10 +2,10 @@ slug: int-object-var-write-through
 branch: feature/int-object-var-write-through
 agent: claude-code
 started: 2026-08-06T09:32:26Z
-heartbeat: 2026-08-06T09:32:26Z
+heartbeat: 2026-08-06T09:40:10Z
 status: claimed-before-planning
 items: int-object-var-mutation-does-not-persist
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
