@@ -23,21 +23,32 @@ last PUBLISHED release, and 0.1.1 is not published yet. Bump it *after* this shi
 
 ## Verified here, locally
 
+Rebased onto `main` at `99c89a9ad` first, so this carries everything that landed after v0.1.0 — 27
+commits, including the locale-dependent heading slug, the Turkish-locale parsing divergence, and the
+v3 Set/exponent literals.
+
 | check | result |
 | --- | --- |
 | `install.sh --dev` | clean, 0 errors |
 | `ssc-tools --version` | `ssc 0.1.1` |
-| native image | built, 2m59s |
-| **`compile-jvm` on the native binary** | **writes the artifact** (this is the fix) |
+| root and `uniml/` versions agree | both `0.1.1`, and the gate now compares them |
+| emitted coordinate | still `0.1.0` — the last PUBLISHED release, by design |
+| native image | built, 2m14s, 145 MB |
+| **`compile-jvm` on the native binary** | **writes the artifact** — this is the fix |
 | `run --v2` / `run --v1` | 84 / 84 |
 | `--bytecode` on the native binary | refuses, rc=2, empty stdout |
 | qualifier self-test | 64 compare-first cases, green |
 | smoke | 69/69 green |
+| `bugs-index` | 774 entries, 0 problems |
 
-One smoke run failed first at `response-transforms` ("server never listened"). It passes twice
-standalone and the full suite is green on a re-run; the failing run took 697s against a 600s budget
-on a host running several agents' builds. Contention, not this change — recorded rather than
-silently retried.
+Two earlier red runs, both resolved and neither caused by this branch:
+
+- `response-transforms` failed once with "server never listened". It passes twice standalone and the
+  suite is green on re-run; the failing run took 697s against a 600s budget on a host building for
+  several agents. Contention.
+- `bugs-index` was red on `main` itself for two sibling entries (an orphaned `fixed-in`, a `lane` not
+  in the enum). Both fixed upstream while this branch was being prepared; recorded here rather than
+  patched by guessing at somebody else's sha.
 
 ## To publish (Sergiy's call — pushing the tag is what publishes)
 
