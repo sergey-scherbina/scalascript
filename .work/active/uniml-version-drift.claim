@@ -1,0 +1,11 @@
+slug: uniml-version-drift
+branch: feature/uniml-version-drift
+agent: claude-code
+started: 2026-08-06T09:07:20Z
+heartbeat: 2026-08-06T09:07:20Z
+status: claimed-before-planning
+items: uniml-version-drifted-from-root
+paths: file:uniml/build.sbt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
