@@ -1,0 +1,6 @@
+val s = Set(1, 2, 2, 3)
+println(s)
+println(s.size)
+println(s.contains(2))
+println(s.isEmpty)
+println(s.toList)

@@ -191,6 +191,25 @@ object Lexer:
         s = adv(s)
         while !done(s) && Chars.isDigit(at(s)) do
           text = text + at(s); s = adv(s)
+      // An EXPONENT: `1.0e10`, `2.5E3`, `1e-3`. It makes the literal a FLOAT even without a dot,
+      // which is why the flag is set here rather than only by the fraction above — `1e-3` has no
+      // `.` and is 0.001. Measured on v1, which accepts all three forms.
+      //
+      // The digit after `e`/`E` (or after its sign) is REQUIRED, so `1.toEngine` still lexes as a
+      // number followed by a method call: the character after the `e` is what tells them apart, the
+      // same rule the fraction uses for the dot.
+      if !done(s) && (at(s) == 'e' || at(s) == 'E') then
+        val signAt = s.pos + 1
+        val hasSign = signAt < s.src.length &&
+                      (s.src.charAt(signAt) == '+' || s.src.charAt(signAt) == '-')
+        val digitAt = if hasSign then signAt + 1 else signAt
+        if digitAt < s.src.length && Chars.isDigit(s.src.charAt(digitAt)) then
+          isFloat = true
+          text = text + at(s); s = adv(s)
+          if hasSign then
+            text = text + at(s); s = adv(s)
+          while !done(s) && Chars.isDigit(at(s)) do
+            text = text + at(s); s = adv(s)
       // Width suffixes. `Int` is already 64-bit here, so `L` carries no information and is simply
       // consumed — but it must be consumed, or it lexes as an identifier and every `123L` in the
       // corpus becomes a syntax error. It was 87 of them.

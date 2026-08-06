@@ -580,6 +580,20 @@ object Lower:
     // `map.put`) rather than from a new IR form, for the same reason `Array` was: the instruction
     // set is not where a library type belongs. Each argument is a `Pair`, so its halves are read
     // with the field accessor the type table already knows.
+    // `Set(…)` — one prim, because v2 exposes exactly one (`set.of`) and it takes every element.
+    // Simpler than `Map`, which needs a put per pair.
+    case Expr.Call("Set", argEs, p) if !classes.exists(c => c.name == "Set") =>
+      var acc: List[Instr] = Nil
+      var regs: List[Int] = Nil
+      var st = st0
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (pi, st1) = st.primIdx("set.of")
+      val (d, st2) = st1.fresh
+      (acc :+ Instr.Prim(d, pi, regs), d, st2)
+
     case Expr.Call("Map", argEs, p) if !classes.exists(c => c.name == "Map") =>
       var acc: List[Instr] = Nil
       var st = st0

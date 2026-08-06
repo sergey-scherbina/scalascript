@@ -30,7 +30,7 @@ expectation. 46 fixtures at the time of writing.
 
 | group | constructs |
 |---|---|
-| literals | `Unit` `Boolean` `Int` (i64, incl. the `L` suffix) `Double` `String` `Char` |
+| literals | `Unit` `Boolean` `Int` (i64, incl. the `L` suffix) `Double` (incl. exponents `1e-3`) `String` `Char` |
 | interpolation | `s"… $name … ${expr} … $$"`, holes may contain anything |
 | definitions | `def` (recursive, mutually recursive, parameterless), `val`, `var`, local and top-level |
 | arguments | DEFAULTS on `def` and on `case class` fields; NAMED arguments in any order |
@@ -49,6 +49,9 @@ expectation. 46 fixtures at the time of writing.
 | strings | `length` `isEmpty` `nonEmpty` `toUpperCase` `toLowerCase` `trim` `split` `charAt` `substring` `indexOf` `replace` `contains` `startsWith` `endsWith` |
 | arrays | `Array(…)`, `a(i)`, `a(i) = v`, `a.length` |
 | copy | `x.copy(field = v)` on any `case class` |
+| maps and sets | `Map(k -> v, …)` with `m(k)` `size` `contains` `get` `getOrElse` `keys` `values`; `Set(…)` with `size` `contains` `toList`; `k -> v` builds a `Pair` |
+| application | curried — `f(a)(b)`, and with it `foldLeft(z)(f)`; a function held in a FIELD is callable |
+| local functions | a `def` inside a `def`, recursive and capturing — lifted with captures as leading parameters |
 | comprehensions | `for x <- xs do e` / `yield e`, several generators, `if` filters — desugared to `foreach`/`map`/`filter`/`flatMap` |
 | generics | type parameters and type arguments are PARSED AND ERASED, everywhere they may appear |
 | errors | `try`/`catch` binding one name, `throw` |
@@ -63,14 +66,9 @@ with a wrong answer:
 |---|---|
 | `given` / `using` | needs type-directed resolution. This is the one item on the list that Tier 0 cannot reach by adding syntax. |
 | `extension` | |
-| `lazy val` | |
-| varargs (`xs: Int*`) | |
-| curried application `f(a)(b)` | and therefore `foldLeft(z)(f)` |
-| `Map`, `Set`, and the `->` pair operator | |
+| `lazy val`, varargs (`xs: Int*`) | **NOT IN THE LANGUAGE AT ALL** — measured 2026-08-06: v1 answers `unbound global: lazy` and `arity: 1 expected, 3 given`. They were on this list as v3 gaps, which was wrong: implementing them would have made v3 accept programs no other lane runs, for no compatibility gain. The measurement that saved the work took one minute. |
 | an `object` member that is not a `def` | |
 | qualified enum access (`C.Red`) | the case is reachable unqualified |
-| exponent float literals (`1.0e10`) | |
-| a `def` nested inside a `def` | |
 | a `catch` with several typed arms | a single-name `catch` works and catches everything |
 
 ## 3 · The lexical alphabet — decided here so it needs no tables

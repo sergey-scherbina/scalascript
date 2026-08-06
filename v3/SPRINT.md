@@ -746,3 +746,29 @@ would be scoring its own blind spot.
       dropping a whole function quietly is worse than an internal error with a name.
 
 N = 45/360, DIFF 0, CRASH 0. Gates: front 50 cases, executor 52, parity 37 of 39, bridge, selftest.
+
+## SSC3-21 — `Set`, exponent literals, and two constructs that do not exist
+
+**The measurement saved more work than it cost.** Four constructs were on the list; probing the
+reference lane first showed that **two of them are not in the language at all**:
+
+| construct | v1 answers |
+|---|---|
+| `lazy val x = 5` | `unbound global: lazy` |
+| `def f(xs: Int*)` | `arity: 1 expected, 3 given` |
+
+Implementing them would have made v3 accept programs no other lane runs, for no compatibility gain,
+and the spec would have carried them as v3 gaps forever. The probe took a minute.
+
+- [x] **21a — exponent float literals.** `1.0e10`, `2.5E3`, `1e-3`. The exponent makes the literal a
+      FLOAT even without a dot — `1e-3` is 0.001 — so the flag is set there and not only by the
+      fraction. A digit after `e`/`E` (or after its sign) is REQUIRED, which is what keeps
+      `1.toEngine` lexing as a number and a method call: the character after the `e` decides, the
+      same rule the fraction uses for the dot.
+- [x] **21b — `Set(…)`,** one prim (`set.of`), because v2 exposes exactly one and it takes every
+      element — simpler than `Map`, which needs a put per pair. Insertion-ordered and de-duplicated
+      on construction, matching the reference: `Set(1, 2, 2, 3)` prints `Set(1, 2, 3)`.
+- [x] **21c — the spec table re-measured** and `lazy val`/varargs moved from "not implemented in v3"
+      to "NOT IN THE LANGUAGE", with what v1 answers written next to each.
+
+N = 45 → 47. Gates: front 52 cases, executor 54, parity 40 of 42.

@@ -1,0 +1,5 @@
+Set(1, 2, 3)
+3
+true
+false
+List(1, 2, 3)

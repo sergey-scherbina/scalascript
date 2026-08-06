@@ -37,6 +37,9 @@ enum Value:
     * rather than a hash map — v3's maps are small and written by hand, and preserving the order is
     * worth more here than a lookup that never gets long enough to matter. */
   case VMap(entries: scala.collection.mutable.ArrayBuffer[(Value, Value)])
+  /** A `Set`, INSERTION-ORDERED and de-duplicated on construction — `Set(1, 2, 2, 3)` prints
+    * `Set(1, 2, 3)` on the reference lane, in the order written. */
+  case VSet(elems: List[Value])
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -65,6 +68,7 @@ object Exec:
     case Value.VStr(s)    => s
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
+    case Value.VSet(xs)    => "Set(" + xs.length + " elements)"
     case Value.VMap(es)    => "Map(" + es.length + " entries)"
     case Value.VClos(f, _) => "<closure " + f + ">"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
@@ -123,6 +127,7 @@ object Exec:
     // executor's own diagnostics still use `show`, which does print the contents.
     // `Map(a -> 1, b -> 2)`, in INSERTION order and with the arrow — measured off v1, which is what
     // the corpus expectations encode.
+    case Value.VSet(xs) => "Set(" + xs.map(x => showV(m, x)).mkString(", ") + ")"
     case Value.VMap(es) =>
       "Map(" + es.toList.map((k, v) => showV(m, k) + " -> " + showV(m, v)).mkString(", ") + ")"
     case Value.VArr(_) => "<foreign>"
@@ -494,6 +499,11 @@ object Exec:
         args.head match
           case Value.VStr(sep) => listIn(m, s.split(java.util.regex.Pattern.quote(sep), -1).toList.map(x => Value.VStr(x)))
           case v               => throw ExecError("split by " + show(v))
+      case (Value.VSet(xs), "size")     => Value.VInt(xs.length.toLong)
+      case (Value.VSet(xs), "isEmpty")  => Value.VBool(xs.isEmpty)
+      case (Value.VSet(xs), "nonEmpty") => Value.VBool(xs.nonEmpty)
+      case (Value.VSet(xs), "contains") => Value.VBool(xs.exists(y => eq(y, args.head)))
+      case (Value.VSet(xs), "toList")   => listIn(m, xs)
       case (Value.VMap(es), "size")     => Value.VInt(es.length.toLong)
       case (Value.VMap(es), "isEmpty")  => Value.VBool(es.isEmpty)
       case (Value.VMap(es), "nonEmpty") => Value.VBool(es.nonEmpty)
@@ -692,6 +702,10 @@ object Exec:
     // The reference lane's `char`: an Int in, a character out.
     // The map primitives, the same names v2 exposes — so the BRIDGE emits `(prim map.put …)` and
     // this lane implements the identical vocabulary rather than a parallel one.
+    case "set.of" =>
+      var out: List[Value] = Nil
+      args.foreach { x => if !out.exists(y => eq(y, x)) then out = out :+ x }
+      Value.VSet(out)
     case "map.new" => Value.VMap(scala.collection.mutable.ArrayBuffer.empty)
     case "map.put" =>
       args.head match
