@@ -760,7 +760,7 @@ reproduces the incident rather than merely describing it.
      lane: apparatus
      area: build
      gate: tests/e2e/install-sh-reports-failure-gate.sh
-     fixed-in: 12e92e859 -->
+     fixed-in: bdc665aa6 -->
 
 **FIXED 2026-08-06 — and it was still LIVE, which took three measurements to establish.**
 
