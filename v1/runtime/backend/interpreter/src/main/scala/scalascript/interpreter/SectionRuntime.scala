@@ -508,11 +508,30 @@ private[interpreter] object SectionRuntime:
           // cross-module mutable module state was incoherent. (Pure/effectful modules with no
           // top-level var keep the snapshot binding: running them in the child would change their
           // effect/plugin context.) See bug interp-module-var-home.
+          // An imported OBJECT needs the same treatment one level down, and did not get it: it fell
+          // into the `case _` snapshot below, so `Reg.add(x)` from the importer mutated a COPY and
+          // `Reg.count()` read the copy back. Measured 2026-08-06, twelve lines and two files:
+          //
+          //   reached through the object binding  [Reg]      int 0   native 1
+          //   reached through a top-level fn      [addVia]   int 1   native 1
+          //
+          // — the same module, the same `var`, differing only in how the importer reaches it. The
+          // methods are rebound one by one rather than the object being run in the child wholesale,
+          // so the object's SHAPE (its tag, its non-function fields) is unchanged for every consumer
+          // that only reads it. See BUGS.md `int-imported-module-mutable-registry-not-shared`, whose
+          // stated root cause — `int-object-var-mutation-does-not-persist` — was fixed in 6683a457f
+          // while this survived, which is what showed the two are different defects.
+          def runInChild(fv: Value.FunV, name: String): Value =
+            Value.NativeFnV(name,
+              (args: List[Value]) => CallRuntime.callValue(fv, args, Map.empty[String, Value], child))
           val enriched =
             if childHasVars then v match
-              case fv: Value.FunV =>
-                Value.NativeFnV(targetName,
-                  (args: List[Value]) => CallRuntime.callValue(fv, args, Map.empty[String, Value], child))
+              case fv: Value.FunV => runInChild(fv, targetName)
+              case Value.InstanceV(tag, fields) =>
+                Value.InstanceV(tag, fields.map {
+                  case (fname, fv: Value.FunV) => fname -> runInChild(fv, s"$targetName.$fname")
+                  case other                   => other
+                })
               case _ => enrichFnClosures(v, childCtx)
             else enrichFnClosures(v, childCtx)
           val rebound = rebindPluginNative(sourceName, targetName, enriched, interp)

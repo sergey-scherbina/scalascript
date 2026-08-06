@@ -126,15 +126,59 @@ The workaround in `std/http.ssc` — `withSession` building its Response inline 
 comment now describes the resolved cause rather than the third guess.
 
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
-<!-- status: open
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     gate: tests/e2e/int-imported-registry-gate.sh
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-06.** The entry's own four-line repro prints `1` on int, matching native and js, and
+the int conformance lane is 358/358 across eight shards.
+
+**The stated root cause was WRONG, and measuring it is what found the real one.** This entry said
+"Same root cause as `int-object-var-mutation-does-not-persist`". That one was fixed earlier the same
+day (`6683a457f`, "an object's var now persists") and this SURVIVED it — on the same build:
+
+```
+object … var hits, no import      int 1 2   native 1 2     <- fixed by 6683a457f
+this entry's imported registry    int 0     native 1       <- still broken
+```
+
+Two different defects. Three probes then located the real boundary, and `package:` is not part of it:
+
+| how the importer reaches the state | int | native |
+|---|---|---|
+| imported module WITHOUT `package:` | 0 | 1 |
+| imported module WITH `package:` | 0 | 1 |
+| through the OBJECT binding `[Reg]` | **0** | 1 |
+| through a top-level FUNCTION `[addVia]` | **1** | 1 |
+
+The same module, the same `var`, differing only in how the importer reaches it. So the boundary is
+the IMPORT, and the wrapper that already existed for it covered FUNCTION exports only:
+`SectionRuntime.scala` bound `case fv: Value.FunV` to run in the child interpreter and dropped
+everything else into `enrichFnClosures`, the import-time SNAPSHOT. An imported object's method
+therefore mutated a copy, and a read through the same object read the copy back.
+
+Fix: when the child declares mutable state, an imported `InstanceV`'s FUNCTION FIELDS are rebound
+the same way, one by one. The object's shape — its tag, its non-function fields — is untouched, so
+every consumer that only reads it is unaffected.
+
+**A better repro than the one below**: two files, twelve lines, no `std/` module, no plugin, no
+package. It is the gate's `object` row.
+
+**The gate has four rows and three of them exist to make the fourth meaningful** — the function row
+and the no-package row were the probes that located the boundary, and the `pure` row is a module
+with NO mutable state whose exports must KEEP the snapshot binding, so a fix that widens the
+rebinding too far fails it. Checked in both directions: reverted, exactly the two defect rows fail
+and both controls stay green.
+
+### Original report (superseded 2026-08-06)
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while re-measuring
 `v2-native-scala-import-parse-only-noop`; the native lane is the correct one here).
 
-**Symptom.** Registering into a mutable registry defined by an imported module has no effect on the
-v1 INTERPRETER, while the native and JS lanes both see the registration.
+**Symptom.** Registering into a mutable registry defined by an imported module had no effect on the
+v1 INTERPRETER, while the native and JS lanes both saw the registration.
 
 **Reproduce** — four lines, no plugin, no Scala-style import:
 
@@ -164,7 +208,7 @@ same reason: `HandlerRegistry: no handler registered for 'emit'` after registeri
 which interpreter instance owns it. Not taken by `v2-native-import-graph`: that claim's paths are
 `v2/bin/`, and this is the v1 interpreter.
 
-**Same root cause as `int-object-var-mutation-does-not-persist`** (linked 2026-08-05, and moved here
+**Believed to be the same root cause as `int-object-var-mutation-does-not-persist`** — REFUTED above: (linked 2026-08-05, and moved here
 from `v1/runtime/backend/js/BUGS.md` at the same time — it carried `lane: js` while every symptom and
 the fix are the interpreter's, which is what the layout rule routes on).
 
@@ -178,8 +222,8 @@ org.bump(); org.bump()      int: 1 1     native: 1 2
 ```
 
 A `var` inside an `object` does not keep its value on this lane, and `std/mapreduce/handlers.ssc`'s
-registry is exactly that: object-level mutable state reached through an import. Re-measured
-2026-08-05, this entry's own four-line repro still gives `0` on int and `1` on native.
+registry is exactly that: object-level mutable state reached through an import. Re-measured 2026-08-06 after that entry was fixed: this one still gave `0` on int, which is what
+showed the two are different defects.
 
 Keep both: this one carries the field report and the reason it matters — INT is the conformance
 suite's reference lane, so a case built on this pattern is graded against the lane that gets it
