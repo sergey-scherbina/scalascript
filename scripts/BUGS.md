@@ -286,7 +286,7 @@ covers neither this nor that one.
 <!-- status: fixed
      lane: n/a
      area: build
-     fixed-in: e3a8e7dca
+     fixed-in: 7c8b3eda8
      gate: tests/coord/claim-scope-hierarchy.sh -->
 
 **FIXED 2026-08-06 — and it is THREE shapes, not one.** `coord-claim` now refuses any `--paths`
