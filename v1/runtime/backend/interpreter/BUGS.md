@@ -418,6 +418,42 @@ stopped rather than where I started.**
    member `FunV` at an `ObjectVarEnvView` over the live map. The registration happens; the write
    does not reach it.
 
+**2026-08-06 — three sites ruled out with an instrument PROVEN live, and the proof method.**
+
+How to know a probe is really running, because two attempts here have now turned on this and both
+`strings` and `grep` on the jar answer wrongly (a jar is compressed, so the marker is not there as
+text even when the code is):
+
+    unzip -p bin/lib/jars/scalascript-backend-interpreter_3-<ver>.jar \
+      'scalascript/interpreter/EvalRuntime$.class' | grep -ac '<your marker>'
+
+Also check the VERSION in the filename first. I spent one round grepping
+`...interpreter_3-0.1.0.jar`, which does not exist in this tree — it is `0.2.0-SNAPSHOT` — and a
+missing file greps as zero, which reads exactly like "my probe never landed".
+
+With that check passing (6 and 3 marker hits in the shipped `EvalRuntime$` and `BlockRuntime$`),
+NONE of these three fires — not for the object var, and not for a plain local `var k = 0; k = k + 1`:
+
+    EvalRuntime  case Term.Assign(Term.Name(name), rhs)   ~4437   the general case, and it is the
+                                                                  one that DOES call
+                                                                  ObjectVarEnvView.assign
+    BlockRuntime case Term.Assign(...) :: rest if varNames.contains(x)     the guarded step branch
+    BlockRuntime case Term.Assign(...) :: rest                             the unguarded one
+
+and none fires under any tier setting either: default, `SSC_FASTTIER=0`, `SSC_JIT=0`,
+`SSC_JIT_BYTECODE=0`, and `SSC_JIT_THRESHOLD=999999999`. The full list of flags the interpreter
+actually reads is `SSC_JIT`, `SSC_JIT_BACKEND`, `SSC_JIT_BYTECODE`, `SSC_JIT_FOLDLEFT`,
+`SSC_JIT_FOLDTC`, `SSC_JIT_THRESHOLD`, `SSC_FASTTIER`, `SSC_FUSED_RANGE`, `SSC_INSTANCEV_ARRAY` —
+worth having, since a flag that does not exist silently changes nothing and looks like a ruled-out
+hypothesis.
+
+So the question is now narrower and does not depend on the object at all: **what executes
+`k = k + 1` for an ordinary local var?** It is none of the three, which is why fact 2 above holds
+even though its reasoning does not — `ObjectVarEnvView.assign` is genuinely not reached, but not
+because the docstring names the wrong sites; the site it names is right and simply never runs. Find
+the live path with a probe validated the way above, and the object case follows: the write is
+already known to land in `interp.globals` while the read comes from the object's var store.
+
 **Sharpened 2026-08-05, with the instrument itself verified.**
 
 `ObjectVarEnvView.assign` is **never called — for any assignment**, not just the object one. A probe
