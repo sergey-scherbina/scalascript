@@ -117,8 +117,18 @@ object JsonAddress:
       lexeme.substring(1, lexeme.length - 1)
     else lexeme
 
+  /** An array index segment. ASCII digits ONLY.
+    *
+    * It used to ask `Char.isDigit`, which answers from Unicode tables and says YES to every digit
+    * in every script — so `"\u0663"` (Arabic-Indic three) passed the guard, and `toIntOption`
+    * accepts it too because `Integer.parseInt` goes through `Character.digit`. A JSON Pointer array
+    * index is `0` or `[1-9][0-9]*` (RFC 6901); nothing else is an index.
+    *
+    * It is also the shape UNIML-SSC3-ALPHABET exists to remove: host classification makes the
+    * answer depend on which runtime is asking. `UniAlphabet.isDigit` is a range comparison, so
+    * every lane agrees and the RFC is honoured at the same time. */
   private def index(segment: String): Option[Int] =
-    if segment.nonEmpty && segment.forall(_.isDigit) then segment.toIntOption else None
+    if segment.nonEmpty && segment.forall(UniAlphabet.isDigit) then segment.toIntOption else None
 
   /** The format's own type where we know it; `Raw(n)` where we do not. Knowing the extent is
    *  knowing something true, and UniML's span means we always know it. */

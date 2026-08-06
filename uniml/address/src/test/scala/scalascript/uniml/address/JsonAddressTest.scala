@@ -95,3 +95,16 @@ class JsonAddressTest extends AnyFunSuite:
     assert(pretty.substring(b.offset, b.offset + b.length) == "7")
     assert(b.line == 3, s"line must be the real source line, got ${b.line}")
   }
+
+  test("an array index is ASCII digits only — a Unicode digit is a KEY, not an index") {
+    // `Char.isDigit` answers from Unicode tables and says yes to every digit in every script, so
+    // "٣" (Arabic-Indic three) passed the guard — and `toIntOption` accepts it too, because
+    // `Integer.parseInt` goes through `Character.digit`. Addressing `[1,2,3,4]` at that segment
+    // therefore returned element 3 on the JVM, and would not on a host with an ASCII-only isDigit:
+    // the same document, the same path, two answers. RFC 6901 says an index is `0` or
+    // `[1-9][0-9]*`, and nothing else is one.
+    val arr = "[10,11,12,13]"
+    assert(JsonAddress.read(arr, "3").exists(_.toString.contains("13")), "an ASCII index must still work")
+    assert(JsonAddress.read(arr, "٣").isLeft,
+           "an Arabic-Indic digit was accepted as an array index — host Char classification decided it")
+  }
