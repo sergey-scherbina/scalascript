@@ -2395,7 +2395,39 @@ lazy val cli = project
     nativeImageArgv := {
       val outDir = target.value / "graalvm-native-image"
       IO.createDirectory(outDir)
-      val cp   = (Compile / fullClasspath).value.files.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+      // The image classpath is NARROWER than installBin's. cli depends on every std plugin
+      // directly because installBin stages bin/lib/jars from this same fullClasspath — that list
+      // exists for STAGING. Building the image from it compiles in everything that is meant to be
+      // LOADED at run time, and JVM plugins do not even run in-image: the native binary spawns
+      // lib/ssc-plugin-host.jar for those (v1.50-native-p3). Measured: dropping these 11 takes the
+      // binary from 192 MB to 145 MB with no behavioural difference across --version, run --v2,
+      // run --v1, compile-jvm and the --bytecode refusal.
+      //
+      // NOT derived from `allPlugins`, and that is deliberate: cli depends on the plugin projects,
+      // so every dependency walk includes them and "jars only plugins bring" cannot be computed
+      // that way without also naming the core set by hand. A hand-written list that rots silently
+      // would be worse than one that fails loudly, so every entry must MATCH something — see the
+      // check below.
+      //
+      // scalameta and scala3-compiler are deliberately NOT here. Removing them also builds, and
+      // produces an 85 MB binary that passes every check the release qualifier makes and is broken:
+      // `run --v1` and `compile-jvm` die with NoClassDefFoundError on scalascript.parser.Parser.
+      val pluginRuntimeOnly = Seq(
+        "sqlite-jdbc", "h2-", "postgresql-", "HikariCP",              // JDBC drivers  (sqlPlugin)
+        "pdfbox", "fontbox", "xmpbox", "openhtmltopdf", "graphics2d", // PDF stack     (pdfPlugin)
+        "jsoup"                                                       // HTML parsing  (pdfPlugin)
+      )
+      val allEntries = (Compile / fullClasspath).value.files
+      val unmatched  = pluginRuntimeOnly.filterNot(pat => allEntries.exists(_.getName.contains(pat)))
+      if (unmatched.nonEmpty)
+        sys.error(
+          "nativeImageArgv: these exclusions match nothing on the classpath, so the list has gone " +
+          "stale and the image may be carrying weight nobody meant to ship: " + unmatched.mkString(", "))
+      val imageEntries = allEntries.filterNot(f => pluginRuntimeOnly.exists(f.getName.contains))
+      streams.value.log.info(
+        s"nativeImageArgv: image classpath ${imageEntries.size} of ${allEntries.size} entries " +
+        s"(${allEntries.size - imageEntries.size} plugin runtime jars excluded)")
+      val cp   = imageEntries.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
       val main = (GraalVMNativeImage / mainClass).value.getOrElse(sys.error("nativeImageArgv: no mainClass"))
       val argv = Seq("native-image", "--class-path", cp, "-H:Name=" + name.value) ++
         graalVMNativeImageOptions.value ++ Seq(main)
