@@ -7,6 +7,66 @@ grepping for status.
 
 Newest first.
 
+
+## f-declines-every-non-top-level-def — and a bare import is enough on its own
+
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: - -->
+
+Two F decline reasons, bounded 2026-08-06 with minimal repros and, for each, the control that shows
+what F CAN do. Both surface as `unbound global: (global X)` from `RunNativeV2.validateNoReader`,
+which is a validator and therefore innocent: it rejects a `Term.Global` naming nothing at top level,
+and the wrong lowering happened upstream.
+
+**1. Any `def` that is not top-level is lowered as a top-level `Global`.** Where it sits does not
+matter:
+
+    def outer(k: Int): Int =                        unbound global: (global loop)
+      def loop(i: Int): Int = …loop(i - 1)…
+    def outer(k: Int): Int =                        unbound global: (global helper)
+      def helper(i: Int): Int = i * 2               ← not even recursive
+    case class B(n: Int):                           unbound global: (global t)
+      def t(): Int = n * 2
+      def q(): Int = t() * 2
+    case class B(n: Int):                           unbound global: (global down)
+      def down(k: Int): Int = …down(k - 1)…
+    object M:                                       unbound global: (global t)
+      def t(): Int = 2
+      def q(): Int = t() * 2
+    this.t()                                        unbound global: (global this)
+
+CONTROLS — these lower fine, so the gap is the nested `def` and not "class bodies" or "bare names":
+
+    case class B(n: Int): def t(): Int = n * 2      field read: OK
+    case class B(a: Int, b: Int): def s() = a + b   two fields: OK
+    case class C(m: Int): def u() = B(m).t()        qualified call on another instance: OK
+    def outer(k: Int) = { val f = (i: Int) => i*2; f(k) }   lambda bound to a val: OK
+
+The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
+machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
+
+**2. Importing a type or companion from a std module declines the file, used or not.**
+
+    [Parser](std/parsing/core.ssc)                  unbound global: (global Parser)
+    def main() = println("ok")                      ← Parser is never mentioned again
+
+CONTROL: a locally declared `object P` with `P.succeed(1)` lowers fine. So it is the IMPORT binding
+that is emitted as a top-level `Global`, not qualified access as such.
+
+**This is the current top corpus reason, and it is NOT the `loop` from
+[[f-unbound-loop-is-the-new-top-gap]].** Re-measured today, `examples/dsl-json-parser.ssc`,
+`examples/dsl-calc-parser.ssc` and `tests/conformance/parsing-parse-all.ssc` all report
+`(global Parser)`, and none of them contains a nested `def loop` at all. I nearly filed the two as
+one defect on the strength of my repro producing the string `(global loop)` — the corpus says
+otherwise, and the reason moved exactly the way that entry predicted it would.
+
+Fixing (1) is the larger win by construct count and closes the class-member half of
+`two-fronts-disagree-on-name-resolution` (v1 half fixed in f33751ace). Fixing (2) is what unblocks
+the parser corpus today. They are independent.
+
 ## native-import-link-alias-is-ignored — `[greet as g]` binds nothing, package or not
 
 <!-- status: fixed
