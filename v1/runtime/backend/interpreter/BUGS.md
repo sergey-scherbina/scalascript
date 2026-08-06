@@ -44,62 +44,52 @@ mixed), the other 3 pass. It also pins the two sides that keep the fix honest �
 shadows a same-named method, and a genuine typo is still `Undefined`. Smoke 67/68, 319.8s of 600s;
 the one red is `launchers-not-dead` refusing to pass on the empty `bin/` of a fresh worktree.
 
-PARTIAL by construction: a no-paren method read from ANOTHER no-paren method is still wrong, and
-not because of sibling binding — see `int-no-paren-def-leaks-into-globals`, which resolves such a
-name from globals before the miss path is reached.
+Complete for this family, verified after a rebuild: the caller x callee paren matrix passes in all
+four combinations, as does a no-paren method reading a no-paren method that itself reads a third.
+An earlier note here called the fix partial; that was measured on a stale `bin/` and is retracted
+in `int-no-paren-def-leaks-into-globals`.
 
 
-## int-no-paren-def-leaks-into-globals — a parameterless method is visible, and callable, from anywhere
+## int-no-paren-def-leaks-into-globals — NOT A BUG, kept so the same wrong reading is not filed twice
 
-<!-- status: open
+<!-- status: wontfix
      lane: int
      area: runtime
-     gate: none -->
+     gate: tests/e2e/no-paren-sibling-gate.sh -->
 
-A `def` with NO parameter clause, declared inside a class or an object body, is registered as a
-GLOBAL bound to a `NativeFnV`. Nothing scopes it to its type, so a bare mention of that name
-anywhere in the program resolves to the function object.
-
-Measured on 0a4da7284, one shape per line, v1 lane:
-
-    case class T(n: Int):
-      def plus(k: Int): Int = n + k
-    def main() = println(plus)                  Undefined: plus          correct
+**REFUTED — there is no leak.** This entry claimed that a parameterless `def` inside a class or
+object body was registered as a global, on the evidence that
 
     case class T(n: Int):
       def a: Int = n + 1
-    def main() = println(a)                     prints  <native:a>       WRONG, and exit 0
+    def main() = println(a)          prints <native:a> at exit 0
 
-    object O:
-      def a: Int = 7
-    def main() = println(a)                     prints  <native:a>       WRONG, and exit 0
+The probe named the method `a`, and `a` is a BUILT-IN — the HTML anchor element, beside
+`"div", "span", "p", "em", ...` in `BuiltinsRuntime.scala`. The control that settles it was never
+run when the entry was written:
 
-So the leak is specific to the parameterless form, and it happens for class and object bodies
-alike. The severity is in the third column: a name that should be undefined instead prints a
-function at exit 0, which is the silent-wrong-answer class — no diagnostic, and the program keeps
-running. `T(1).a` through the receiver answers 2 correctly, so only the bare mention is affected.
+    def main() = println(a)          with no class in the file at all → still <native:a>
+    def zzqqwx …                     a name that is not a builtin     → Undefined: zzqqwx  correct
 
-This also blocks the remainder of `int-no-paren-sibling-method-is-undefined`. That fix resolves a
-no-paren sibling on the name-lookup MISS path, and the miss never happens here: env is checked,
-then globals, and the leaked `NativeFnV` is found in globals first. Hence
+So the value came from the builtin table, not from the class body, and nothing about parameterless
+defs was involved. A def WITH parameters looked "correctly invisible" only because no builtin is
+named `plus`.
 
-    case class T(n: Int):
-      def a: Int = n + 1
-      def b: Int = a * 10
-    def main() = println(T(1).b)      No method '*' on NativeFnV(<native:a>)    native/jvm: 20
+The second half of the entry — that a no-paren method read from another no-paren method stays
+broken — was measured against a STALE `bin/`: the checkout had been fast-forwarded to a commit
+containing the fix but never rebuilt. After `scripts/sbtc installBin` the full caller x callee
+matrix passes:
 
-    def b: Int = a                    prints <native:a>                          native/jvm: 2
+    caller ()   callee ()     20        caller ()   callee bare  20
+    caller bare callee ()     20        caller bare callee bare  20
 
-both still wrong after that fix, and both are the same defect as the table above rather than a
-second gap in sibling binding. Fixing the leak is expected to close them without further work on
-the miss path; `tests/e2e/no-paren-sibling-gate.sh` says so in its header and is the place to add
-the cases once it lands.
+so `int-no-paren-sibling-method-is-undefined` is complete, not partial. Those four shapes plus the
+chained case are now IN that gate, together with an absent-state control that fails if any probe
+name resolves without a class to define it — verified to go red by feeding it `a`.
 
-Not yet located: the registration site. `StatRuntime` collects class-body `Defn.Def`s into
-`typeMethods` only (around the `methodDefs.nonEmpty` line) and does not write globals there, so the
-binding comes from somewhere else — worth finding before choosing between "stop registering it" and
-"scope it to the type", because something may rely on the current behaviour.
-
+Two working rules this cost, both already written down and both skipped: run the ABSENT-state
+control, because a probe subject reachable WITHOUT the thing tested measures nothing; and rebuild
+before measuring in a checkout you have only fast-forwarded.
 
 ## int-sibling-call-missed-the-single-arg-dispatch-site — `Undefined: withHeader` from a one-argument method
 

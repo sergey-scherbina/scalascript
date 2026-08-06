@@ -14,12 +14,12 @@
 # The interpreter is the corpus golden, so a disagreement here silently makes the golden the wrong
 # lane — the reason this is a gate and not a unit test.
 #
-# WHAT THIS GATE CANNOT SEE, deliberately recorded so nobody reads a green as "the family works":
-# a no-paren method that is ITSELF referenced from another no-paren method (`def b: Int = a * 10`)
-# is still broken, for an unrelated reason — a parameterless def leaks into `globals` as a
-# NativeFnV, so the name resolves to a FUNCTION before the miss path is ever reached. That is
-# `int-no-paren-def-leaks-into-globals`, and it is the one to fix next; the shapes below are the
-# ones that route through instance dispatch and are fixed here.
+# THE PROBE NAMES MATTER HERE. An earlier version of this gate was written alongside a filed bug
+# claiming a parameterless def leaks into `globals`, on a probe that named the method `a` — and `a`
+# is the built-in HTML anchor element, so `println(a)` answers from the builtin table whether or not
+# any class is in the file. Every name below is one no builtin uses; the control that would have
+# caught it is `def main() = println(<name>)` with no class present, which must be `Undefined`.
+#
 set -uo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -74,6 +74,31 @@ case class Sq(s: Int) extends Sh:
   def area(): Int = s * s
 def main() = println(Sq(3).describe())'
 
+# The caller x callee paren matrix. The fix is on the CALLEE side, so the caller's own form must
+# not matter — asserting only one combination would have hidden that, and did: the pair below was
+# once reported broken, on a checkout fast-forwarded past the fix but never rebuilt.
+run_case caller_paren_callee_bare 20 'case class T(n: Int):
+  def inc: Int = n + 1
+  def outer(): Int = inc * 10
+def main() = println(T(1).outer())'
+
+run_case caller_bare_callee_paren 20 'case class T(n: Int):
+  def inc(): Int = n + 1
+  def outer: Int = inc() * 10
+def main() = println(T(1).outer)'
+
+run_case caller_bare_callee_bare 20 'case class T(n: Int):
+  def inc: Int = n + 1
+  def outer: Int = inc * 10
+def main() = println(T(1).outer)'
+
+# Chained: a no-paren method reading a no-paren method that itself reads a third.
+run_case chained 22 'case class T(n: Int):
+  def inc: Int = n + 1
+  def scaled: Int = inc * 10
+  def go(): Int = scaled + inc
+def main() = println(T(1).go())'
+
 # ── the two sides that keep the fix honest ───────────────────────────────────────────────────────
 # A local binding SHADOWS a same-named method, as in Scala. Without this, a fix that resolved the
 # method first would pass every case above and silently change what `v` means.
@@ -97,6 +122,23 @@ if grep -qF 'Undefined: nosuch' <<<"$typo_out"; then
 else
   echo "  ✗ typo: 'Undefined: nosuch' was not reported — the miss path swallows unknown names"
   fails=$((fails + 1))
+fi
+
+# The ABSENT-state control this gate exists to remember: every probe name above must be undefined
+# when no class defines it. A name that answers from the builtin table would make every case above
+# pass without testing anything.
+control_bad=0
+for probe_name in inc outer scaled twice quad doubled; do
+  printf '%s\n' "def main() = println($probe_name)" > "$sandbox/control.ssc"
+  ctl_out=$(timeout 120 "$tools" run --v1 "$sandbox/control.ssc" 2>&1)
+  if ! grep -qF "Undefined: $probe_name" <<<"$ctl_out"; then
+    echo "  ✗ control: '$probe_name' resolves with no class in the file — it is a builtin, so every"
+    echo "            case using it proves nothing. Rename the probe."
+    fails=$((fails + 1)); control_bad=$((control_bad + 1))
+  fi
+done
+if [[ $control_bad -eq 0 ]]; then
+  echo "  ✓ control: all probe names are undefined without a class to define them"
 fi
 
 echo
