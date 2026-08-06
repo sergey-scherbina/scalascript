@@ -583,3 +583,36 @@ Remaining: 14 differences and 4 refusals, each with a named cause. Two of the re
 `case object` (v3 needs a nullary class; UniML gives an `ObjectDecl`), one is the known dialect gap
 `if c then a(i) = v`, and one is a NESTED block comment, which v3 supports and the dialect
 diagnoses.
+
+## SSC3-15 — the front-diff gate is REAL, and it found the biggest UniML gap
+
+`v3/ssc3 fronts` reports which fronts can run, `v3/ssc3 ast <f> uniml` routes to the second one, and
+`front-diff.sh` ASKS the driver instead of grepping a source file. The classpath is cached on a
+digest of both source trees, for the same reason the jars are: without it the gate recompiles once
+per fixture.
+
+Availability is an explicit cached fact — `v3/.jars/uniml.cp` exists or it does not — refreshed by
+`v3/uniml-classpath.sh`. The driver never runs sbt: a build of something the caller is not using has
+no business blocking `ssc3 run`.
+
+**Agreement: 25 of 40 fixtures, up from 17 at the first measurement.** The gate is RED and correctly
+so — it now compares two fronts and reports what differs, which is what it was built for.
+
+- [x] **15a — a negated literal is a literal.** v3's lexer folds the sign in; UniML keeps the written
+      `Prefix("-", IntLit(1))`, which is right for a CST-faithful tree and wrong for this one. Three
+      fixtures.
+- [ ] **15b — `trait` VANISHES on the UniML side, and none of UniML's own gates can see it.**
+      Measured: the CST for `trait Shape:` is `spike.sealed` — the kind the dialect also gives
+      imports and anonymous `given`s — and the projection maps it to `NoOpDecl`, "parsed, and
+      genuinely carrying nothing". The trait's METHODS never reach the CST.
+
+      So the `spike.error` count does not see it (nothing failed to parse), the silent-drop census
+      does not see it (`NoOpDecl` is modelled, and there is no subtree beneath it to drop), and the
+      coverage figure counts it as typed. **A construct consumed into a contentless node is
+      invisible to all three measurements at once** — the same shape as the coverage metric that
+      rewarded dropping, and a reminder that a measurement can only see what the representation
+      admits exists.
+
+      Filed as item 3 of `40-front-on-uniml.md` §5b, and it is the most consequential item there:
+      `trait` gates 137 corpus cases, and v3's traits carry the dispatch that makes them worth
+      having.

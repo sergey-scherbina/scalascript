@@ -253,16 +253,33 @@ today it is none of those.
 2. **A BARE mode for the composer.** A `.ssc` with no code fence yields zero ScalaScript subtrees;
    fences have been optional here since 2026-07-09. v3 can fence the text itself, so this is a
    request — but the failure it prevents is a whole program read as prose with no diagnostic.
-3. **`ValDef` does not record MUTABILITY.** `ValDef(name, rhs, span)` has no `isVar`, so `var x = 0`
+3. **A `trait` VANISHES, and nothing in UniML's own gates can see it.** Measured 2026-08-06 by the
+   front differential. The CST for `trait Shape:` with a body is `spike.sealed` — the same kind the
+   dialect gives imports and anonymous `given`s — and the projection maps it to `NoOpDecl`, which is
+   documented as "parsed, and genuinely carrying nothing". **The trait's METHODS are not in the CST
+   at all**, so:
+
+   - the `spike.error` count does not see it: nothing failed to parse;
+   - the silent-drop census does not see it: `NoOpDecl` is a modelled node, and there is no subtree
+     under it to drop;
+   - the coverage figure does not see it: it is `typed`, not a gap.
+
+   A construct that is consumed into a contentless node is invisible to all three measurements at
+   once. This is the same shape as the coverage metric that REWARDED dropping — a measurement can
+   only see what the representation admits exists.
+
+   It matters most of anything on this list: `trait` gates 137 corpus cases for v3, and v3's traits
+   carry the dispatch that makes them worth having (`20-core-language.md` §2).
+4. **`ValDef` does not record MUTABILITY.** `ValDef(name, rhs, span)` has no `isVar`, so `var x = 0`
    and `val x = 0` project identically. Found 2026-08-06 by the front differential, not by reading:
    v3's front printed `(var "counter" …)` and UniML's printed `(val "counter" …)` for the same
    source. It is a WRONG ANSWER rather than a smaller tree — a `var` projected as a `val` makes
    every later assignment to it a refusal.
-4. **A CHARACTER literal is projected as `IntLit`.** `'x'` arrives as `IntLit("120")`, so it is
+5. **A CHARACTER literal is projected as `IntLit`.** `'x'` arrives as `IntLit("120")`, so it is
    indistinguishable from the integer `120`. Also a wrong answer rather than a loss: `println('x')`
    prints `x` and `println(120)` prints `120`, and the language's `Char` is exactly an integer that
    prints differently — which is why the distinction has to survive the projection.
-5. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
+6. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
    [`20-core-language.md`](20-core-language.md) §3. Still open, and the only item on this list with a
    consequence for the LANGUAGE rather than for a file: route classification through the host and
    the same source lexes differently on JVM, JS and the v2 VM.

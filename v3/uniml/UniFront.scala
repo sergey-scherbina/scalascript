@@ -151,6 +151,12 @@ object UniFront:
       Parser.interpFor(raw, pos(s))
 
     case U.Infix(op, l, r, s) => Expr.Bin(op, expr(l), expr(r), pos(s))
+    // `-1` is a LITERAL in v3, not a negation of one — its lexer folds the sign in. UniML keeps the
+    // written form, which is right for a CST-faithful tree and wrong for this one, so the fold
+    // happens here. Without it every negative number in every fixture is a difference.
+    case U.Prefix("-", U.IntLit(v, _), s) =>
+      Expr.IntLit(-java.lang.Long.parseLong(v.replace("L", "").replace("l", "")), pos(s))
+    case U.Prefix("-", U.FloatLit(v, _), s) => Expr.DoubleLit(-v.toDouble, pos(s))
     case U.Prefix(op, x, s) =>
       if op == "-" then Expr.Neg(expr(x), pos(s))
       else if op == "!" then Expr.Not(expr(x), pos(s))

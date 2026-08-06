@@ -28,10 +28,10 @@ SSC3="$ROOT/v3/ssc3"
 fail=0
 ran=0
 
-# The fronts the kernel says it can run. Parsed from the source rather than duplicated here: a list
-# in two places is a list that disagrees with itself.
-fronts="$(sed -n 's/.*val available: List\[String\] = List(\(.*\))/\1/p' v3/src/Front.scala \
-          | tr -d ' ' | tr ',' '\n' | sed 's/^v3$/v3/;s/^uniml$/uniml/')"
+# The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
+# a list that disagrees with itself. The kernel knows one front; the driver knows whether the second
+# one's classpath is present, which is a fact about the working tree rather than about the code.
+fronts="$("$SSC3" fronts)"
 nfronts="$(printf '%s\n' "$fronts" | grep -c .)"
 
 echo "── fronts declared runnable: $(printf '%s' "$fronts" | tr '\n' ' ') ──"

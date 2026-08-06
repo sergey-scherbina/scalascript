@@ -57,6 +57,30 @@ V3JAR="$(jar_for "$ROOT/v3/src" ssc3)" || exit 2
 SSC3=(java -jar "$V3JAR")
 V2=(java -Xss512m -jar "$(jar_for "$ROOT/v2/src" ssc2)")
 
+# The SECOND front, if it is available. Availability is an explicit cached fact — the classpath file
+# exists or it does not — rather than something the driver discovers by running sbt, because a
+# build of something the caller is not using has no business blocking `ssc3 run`.
+# Refresh it with `v3/uniml-classpath.sh`.
+UNIML_CP_FILE="$JARS/uniml.cp"
+uniml_available() { [ -s "$UNIML_CP_FILE" ]; }
+
+# The uniml front is compiled, not packaged: its classpath is directories that an assembly does not
+# embed — measured, and the assembly ran with a NoClassDefFoundError on every fixture.
+# CACHED on a digest of both source trees, for the same reason the jars are: without it every
+# invocation recompiles, and the front-diff gate runs one per fixture.
+uniml_classpath() {
+  local ucp dg cache full
+  ucp="$(cat "$UNIML_CP_FILE")"
+  dg="$(cat "$ROOT/v3/src"/*.scala "$ROOT/v3/uniml"/*.scala "$UNIML_CP_FILE" | shasum | cut -c1-16)"
+  cache="$JARS/uniml-full-$dg.cp"
+  if [ -s "$cache" ]; then cat "$cache"; return 0; fi
+  full="$(scala-cli compile "$ROOT/v3/src" "$ROOT/v3/uniml" --classpath "$ucp" \
+            --server=false --print-class-path 2>/dev/null | tail -1)"
+  [ -n "$full" ] || return 1
+  printf '%s' "$full" > "$cache"
+  printf '%s' "$full"
+}
+
 cmd="${1:-}"
 case "$cmd" in
   run)
@@ -74,6 +98,23 @@ case "$cmd" in
   v2)
     shift
     exec "${V2[@]}" "$@"
+    ;;
+  # Which fronts can actually run, one per line. Asked by `front-diff.sh` rather than duplicated
+  # there: a list in two places is a list that disagrees with itself.
+  fronts)
+    echo "v3"
+    uniml_available && echo "uniml"
+    exit 0
+    ;;
+  # `ast <file> [front]` routes to the second front when it is the one asked for. Everything else
+  # goes to the kernel, which does not know UniML exists.
+  ast)
+    if [ "${3:-v3}" = "uniml" ]; then
+      uniml_available || { echo "ssc3: the uniml front is not available — run v3/uniml-classpath.sh" >&2; exit 2; }
+      cp="$(uniml_classpath)" || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
+      exec java -cp "$cp" ssc3.ssc3uniml ast "$2"
+    fi
+    exec "${SSC3[@]}" ast "$2"
     ;;
   *)
     exec "${SSC3[@]}" "$@"
