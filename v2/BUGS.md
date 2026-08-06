@@ -126,9 +126,41 @@ and that design is why this is a hard error rather than an app that silently ren
 seven days later by a commit to a different subsystem, and nothing noticed for two and a half weeks
 because **no gate builds the Swift target**. Re-checked here on Xcode 26.6.
 
-**Fix is the primitive on native, three sites, not a one-liner** — and it belongs to whoever owns
-`forJsonView`, since the DOM semantics (a `Signal[String]` holding JSON, keyed by a field) have to be
-mirrored, not guessed.
+**SCOPED 2026-08-06, and it is bigger than this entry first said — but the design is already
+settled, not open.**
+
+Corrections to my own filing first: it is **two** primitives, not one. `221c940f2` added
+`forJsonView` AND `itemField`, and both are absent from all three native integration points. And it
+is **five** places, not three, because the plugin only emits a DESCRIPTOR — the SwiftUI renderer is
+what consumes it:
+
+| | needed |
+|---|---|
+| `NativeUiSites` | arity entry — trivial |
+| `UiNativePlugin` | a `NativeUiForJson` descriptor, mirroring `forKeyedView` |
+| `SwiftBackend` | permit the names — **must come LAST**; permitting without a renderer is exactly the latent no-op that file refuses |
+| `SwiftNativeUiApple` | `NativeUiForJsonView` + model: parse the signal's JSON array, key rows by a FIELD name with index fallback, reuse the keyed diff |
+| `itemField` | VM-side only, once rows are `SscValue` maps |
+
+**The one thing that looked like a design decision is not one.** How a parsed row reaches the
+`render` closure could have been invented several ways; it cannot, because the Swift runtime already
+**encodes** the other direction — `jsonObject(.map(row))` turns an `SscValue` map into a JSON object,
+via `JSONSerialization`, which the emitted runtime already imports and uses in eight places. The
+decode is that function's mirror, and `invoke(_ closure: SscClosure, _ arguments: [SscValue])` is
+already the bridge that hands values to a VM closure. So rows are `SscValue.map`, which also makes
+`itemField` pure VM-side — no Swift involvement at all.
+
+**DOM semantics to mirror, quoted rather than paraphrased** (`signals.mjs`): parse the string at
+render and on every change; key each row by the item's `key` FIELD, falling back to the row index
+when absent; call `render` with the parsed item. `itemField(item, name)` returns `""` when the item
+is not an object or the field is missing/null, otherwise `String(v)`.
+
+**What this needs that I do not have:** a machine that can RUN it. The macOS build is broken by this
+very bug, so nothing renders end-to-end until the renderer exists, and the `swiftc` loop is minutes
+per iteration under Xcode. Writing a SwiftUI view with JSON parsing and keyed reconciliation blind,
+into generated-Swift strings, is precisely the shape of change that should not be pushed unverified
+— which is why this entry now carries the full scope and the settled design instead of a partial
+landing.
 
 ## f-declines-every-non-top-level-def — and a bare import is enough on its own
 
