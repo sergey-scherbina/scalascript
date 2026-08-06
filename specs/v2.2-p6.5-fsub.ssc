@@ -551,7 +551,11 @@ def curObjOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(s
 def curriedOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))))
 // True when `nm` is a `var` member of the object being lowered right now. Locals are checked BEFORE
 // this at every call site, so a parameter or a nested val still shadows the member, as in Scala.
-def isCurObjVar(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(curObjOf(cx)))
+// OBJ-SCOPE payload is `(name, (varMemberNames, defMemberNames))`. It carried only the var list
+// until the def list was needed for bare sibling calls; both halves are read here rather than
+// from `objReg`, which holds `object` declarations ONLY (see :1033) and cannot answer for a
+// case class without breaking the constructor path that depends on that.
+def isCurObjVar(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, fst(snd(curObjOf(cx))))
 def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
 // A bare call to a SIBLING member from inside the same object/class body. `isCurObjVar` above
 // covers the object's `var`s; its method twin was missing, so `def q() = twice()` lowered `twice`
@@ -560,7 +564,7 @@ def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
 // uses (`postSel`/`emitMethodCall` emit `(global Obj_m)`), so this only teaches the BARE form the
 // name the qualified form already produces. The member list comes from the object registry, which
 // `isObjMember` reads for the qualified case, so no new bookkeeping is introduced.
-def isCurObjMethod(nm, cx) = if fst(curObjOf(cx)) == "" then false else isObjMember(fst(curObjOf(cx)), nm, cx)
+def isCurObjMethod(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(snd(curObjOf(cx))))
 def curObjMethod(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm
 def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), (o, curriedOf(cx)))))))))
 def ccNamesOf(cx) = fst(snd(cx))
@@ -1160,7 +1164,14 @@ def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm
 def parseCall(nm, ts, env, cx) = parseCallS(nm, scanArgs(ts), ts, env, cx)
 def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallN(nm, slices, ts, rest, env, cx) }
 def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
-def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
+// A class method's global takes the receiver as its FIRST parameter (ccMParams seeds the body
+// env with `Cons("__self", Nil)`), while an object method has no such slot. `calleeOf` returns
+// only the callee and the caller appends the source arguments, so the self slot has to be
+// prepended HERE — there is nowhere in calleeOf to put it. `__self` being absent from env is
+// exactly what distinguishes an object body from a class body, so one test covers both.
+def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), selfArgFor(nm, env, cx) ++ args, cx), r) }
+def selfArgFor(nm, env, cx) = if isCurObjMethod(nm, cx) then selfArg1(lookup("__self", env)) else ""
+def selfArg1(i) = if i >= 0 then " (local " ++ i ++ ")" else ""
 // G4: a using-sig call collects args as a LIST so the count + first-arg type are recoverable. An explicit
 // `(using x)` second clause merges positionally (no injection); otherwise inject one given per using TC.
 def parseCallU(nm, ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => callU2(nm, es, r, env, cx) }
@@ -1842,7 +1853,9 @@ def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), c
 // `n` inside them resolves to `O_n__cell` instead of the top-level `n__cell` (OBJ-SCOPE, see
 // curObjOf). Only the bodies: the surrounding program keeps the outer cx.
 def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then objectItem2(name, collectObjMembers(tl(ts)), ts, cx) else (("", ""), ts)
-def objectItem2(name, ms, ts, cx) = ((objDefsStr(name, ms, withCurObj((name, objVarMemberNames(ms)), cx)), ""), skipBrace(tl(ts), 1))
+def objectItem2(name, ms, ts, cx) = ((objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), ""), skipBrace(tl(ts), 1))
+def objDefMemberNames(ms) = ms match { case Nil => Nil case h :: t => objDefMemName(h, objDefMemberNames(t)) }
+def objDefMemName(m, rest) = m match { case (kind, nt) => if kind == "def" then Cons(fst(nt), rest) else rest }
 // One match per function, mirroring objMemName: a match nested inside a match ARM does not lower
 // here (`match: no arm for Tuple2/2` — measured, this file compiles itself).
 def objVarMemberNames(ms) = ms match { case Nil => Nil case h :: t => objVarMemName(h, objVarMemberNames(t)) }
@@ -2607,7 +2620,12 @@ def isCloseNest(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 29) then 
 // a bare field ref in the body resolves to its let-local. The body parses with the full cx (so a field
 // SELECTION `o.f` still lowers to `(app (global _sel_f) <o>)`). ALL fields get a let (even unreferenced).
 def caseMethodDefsStr(cms, cx) = cms match { case Nil => "" case h :: t => ccMDefsCls(h, cx) ++ caseMethodDefsStr(t, cx) }
-def ccMDefsCls(reg, cx) = reg match { case (cname, fd) => fd match { case (flds, ms) => ccMDefsMs(cname, flds, ms, cx) } }
+// The bodies are lowered under a cx naming THIS class and its method members, the same way
+// objectItem2 does for an object, so a bare `twice()` inside `def quad()` resolves to the
+// sibling instead of falling through to a top-level `(global twice)` that does not exist.
+// Var members are Nil here: a case class has fields, not object `var` cells.
+def ccMDefsCls(reg, cx) = reg match { case (cname, fd) => fd match { case (flds, ms) => ccMDefsMs(cname, flds, ms, withCurObj((cname, (Nil, ccMethodNames(ms))), cx)) } }
+def ccMethodNames(ms) = ms match { case Nil => Nil case h :: t => Cons(fst(h), ccMethodNames(t)) }
 def ccMDefsMs(cname, flds, ms, cx) = ms match { case Nil => "" case h :: t => ccMDef(cname, flds, h, cx) ++ " " ++ ccMDefsMs(cname, flds, t, cx) }
 def ccMDef(cname, flds, m, cx) = m match { case (mname, defToks) => ccMDefP(cname, mname, flds, ccMParams(defToks), cx) }
 // params: `(p1, ..)` after the name -> parseParams (pushed onto [__self]); param-less `def m: T =` -> just __self.
