@@ -346,7 +346,14 @@ private[markdown] final class MarkdownBlocks(
         var i = 0
         var breakCount = 0
         while i < n do
-          val piece = pieces(i)
+          // A code span can SWALLOW the break it crosses: the newline sits INSIDE its single
+          // content lexeme, so `isBreakPiece` is false and the prefix that follows that break has
+          // no position between pieces. It was then never consumed and `finishParagraph` flushed it
+          // after the whole block — every character present, in the wrong ORDER, which is why a
+          // length check passes and only comparing the string catches it. Splice it back where the
+          // source had it: immediately after the embedded newline.
+          val piece = spliceSwallowedBreaks(pieces(i), segs, breakCount) match
+            case (rewritten, consumed) => breakCount = consumed; rewritten
           if n == 1 then emitFirstLast(MdBranch.Paragraph, piece, Some("content"))
           else if i == 0 then emitFirst(MdBranch.Paragraph, piece, Some("content"))
           else if i == n - 1 then emitLast(MdBranch.Paragraph, piece)
@@ -1007,6 +1014,45 @@ private[markdown] final class MarkdownBlocks(
       col += (if content.charAt(i) == '\t' then 4 - (col % 4) else 1)
       i += 1
     content.substring(0, i)
+
+  /** Put back the continuation prefixes that belong INSIDE a piece whose lexeme swallowed the line
+    * break — a code span crossing the break is the case that occurs; any inline construct whose
+    * lexeme carries a raw newline has the same shape.
+    *
+    * Returns the rewritten piece and the number of breaks consumed so far, so the caller's counter
+    * stays the index into `segs` that the between-pieces path also uses. BREAK PIECES ARE LEFT
+    * ALONE: a `SoftBreak` lexeme IS the newline, and rewriting it here would insert the prefix
+    * twice — once inside the lexeme and once by the caller's `isBreakPiece` branch.
+    */
+  private def spliceSwallowedBreaks(
+      piece: InlinePiece,
+      segs: Vector[ParaSeg],
+      breaksSoFar: Int
+  ): (InlinePiece, Int) =
+    val lexeme = pieceLexeme(piece)
+    if isBreakPiece(piece) || lexeme.indexOf('\n') < 0 then (piece, breaksSoFar)
+    else
+      val out = new StringBuilder
+      var k = breaksSoFar
+      var i = 0
+      while i < lexeme.length do
+        val c = lexeme.charAt(i)
+        out.append(c)
+        if c == '\n' then
+          k += 1
+          if k < segs.size then out.append(segs(k).prefix)
+        i += 1
+      (withLexeme(piece, out.toString), k)
+
+  private def pieceLexeme(piece: InlinePiece): String = piece match
+    case InlinePiece.Tok(_, lexeme, _, _)      => lexeme
+    case InlinePiece.Open(_, _, lexeme, _)     => lexeme
+    case InlinePiece.Close(_, _, lexeme, _)    => lexeme
+
+  private def withLexeme(piece: InlinePiece, lexeme: String): InlinePiece = piece match
+    case p: InlinePiece.Tok   => p.copy(lexeme = lexeme)
+    case p: InlinePiece.Open  => p.copy(lexeme = lexeme)
+    case p: InlinePiece.Close => p.copy(lexeme = lexeme)
 
   private def isBreakPiece(piece: InlinePiece): Boolean = piece match
     case InlinePiece.Tok(kind, _, _, _) => kind == MdKind.SoftBreak || kind == MdKind.HardBreak

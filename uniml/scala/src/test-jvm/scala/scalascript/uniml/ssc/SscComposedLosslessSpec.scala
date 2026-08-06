@@ -59,11 +59,20 @@ final class SscComposedLosslessSpec extends AnyFunSuite:
     // string, so it fell through to the untyped-fence default, and its body is interleaved with a
     // per-line indent token, so replacing the body with one subtree cannot preserve order.
     //
-    // The three that remain are a THIRD site, in markdown rather than the composer: a paragraph's
+    // The remaining ones are a THIRD site, in markdown rather than the composer: a paragraph's
     // continuation line loses its leading whitespace, `+\n   second` coming back as `+\nsecond`
     // with the spaces moved to the end. Same shape — order, not loss. Filed in uniml/BACKLOG.md.
+    //
+    // One of the three, `dep-cps-ping.ssc`, was the CODE-SPAN case of that site and is fixed
+    // (`md-continuation-prefix-inside-code-span`): a span crossing the break swallowed the newline
+    // into its own lexeme, so the prefix had no break piece to follow.
+    //
+    // THE TWO BELOW ARE NOT THAT SITE, and the sentence above used to claim all three were. Their
+    // first divergence is inside a FENCED BLOCK's body, not a paragraph continuation:
+    // `nodes.ssc:67` at the newline ending the last body line before the closing fence, and
+    // `streams.ssc:211` at a body line beginning `//   ↑`. Attributing them to the paragraph rule
+    // is what made them look like one fix; they want their own tracing.
     val known = Set(
-      "v1/runtime/std/dep-cps-ping.ssc",
       "v1/runtime/std/nodes.ssc",
       "v1/runtime/std/streams.ssc",
     )

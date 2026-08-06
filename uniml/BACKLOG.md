@@ -428,7 +428,24 @@ projection end to end, even one file, and compare the result against the referen
 checked.
 
 
-## a list item's continuation prefix is lost when a code span crosses the break
+## a list item's continuation prefix is lost when a code span crosses the break — FIXED 2026-08-07
+
+**FIXED** in `md-continuation-prefix-inside-code-span`. `emitParagraphWithSegments` now splices the
+prefix INTO a lexeme that swallowed its break, immediately after the embedded newline, instead of
+looking for a break piece that is not there. Break pieces are deliberately left alone — a
+`SoftBreak` lexeme IS the newline, and rewriting it there would insert the prefix twice. Composed
+round-trip 1235 -> 1236 of 1238, and the control that a swallowed break with NO container prefix
+comes back byte-identical is in the spec, because a splice driven by the wrong table would invent
+indentation rather than restore it.
+
+**The two files that remain are NOT this defect, and this entry used to imply they were.** Their
+first divergence is inside a FENCED BLOCK's body: `v1/runtime/std/nodes.ssc:67` at the newline
+ending the last body line before the closing fence, and `v1/runtime/std/streams.ssc:211` at a body
+line beginning `//   ↑`. Neither is a paragraph continuation. Grouping all three under one
+mechanism is what made them look like one fix; whoever takes them should trace from the fence body,
+not from here.
+
+### The report, as filed (the reproduction and the isolation are still the useful part)
 
 Three files still fail composed round-trip. Minimal reproduction, and the isolation is the
 interesting part:
