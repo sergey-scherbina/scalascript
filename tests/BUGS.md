@@ -10,10 +10,17 @@ Newest first.
 
 ## uniml-version-drifted-from-root — the standalone build would publish two versions of one artifact
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: uniml/scala/.../UnimlCoordinatesSpec.scala -->
+     gate: uniml/scala/.../UnimlCoordinatesSpec.scala
+     fixed-in: f060e9b9fd9f2ac40598fc029fd4bf45e8e72af0 -->
+
+**FIXED 2026-08-06.** `uniml/build.sbt` now carries `0.2.0-SNAPSHOT`, matching the root. Sergiy's
+call, which is why it was filed rather than guessed: the bumping commit said the emitted coordinate
+deliberately stays at the release, so the version UniML carries was a policy decision and not
+something for whoever tripped over the red to pick. Asked, answered, applied.
+
 
 `cd uniml && sbt -batch test` is RED on `origin/main`, and it is the check that exists for exactly
 this:
