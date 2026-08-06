@@ -1,6 +1,5 @@
-# generation: 1052
+# generation: 1053
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 jvm-drop-host-shadowed-type-imports	claude-code	2026-08-06T09:10:29Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
-uniml-alphabet-tail	claude-code	2026-08-06T09:17:36Z	UNIML-SSC3-ALPHABET	file:uniml/address/src/test/scala/scalascript/uniml/address/JsonAddressTest.scala file:uniml/markup/src/main/scala/scalascript/markup/PureMarkupCodec.scala file:uniml/address/src/main/scala/scalascript/uniml/address/JsonAddress.scala
 release-v0-1-1	claude-code	2026-08-06T04:10:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:tests/BUGS.md
