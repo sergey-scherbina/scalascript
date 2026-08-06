@@ -63,6 +63,39 @@ that is emitted as a top-level `Global`, not qualified access as such.
 one defect on the strength of my repro producing the string `(global loop)` — the corpus says
 otherwise, and the reason moved exactly the way that entry predicted it would.
 
+**BISECTED to a block, NOT minimised — and the failed minimisations are the useful part.**
+Cutting `v1/runtime/std/parsing/core.ssc` down by fenced block, with the importer unchanged
+(`[Parser](…)` and a `main` that only prints):
+
+    blocks 1..1   F lowers it        Position / Span / ParseError / ParseResult
+    blocks 1..2   F lowers it        + sealed trait Parser[A] and its seven case classes
+    blocks 1..3   F lowers it        + ParserContext
+    blocks 1..4   DECLINES           + object Parser with its companion constructors
+    blocks 1..5   DECLINES
+
+So adding the `object Parser` block to the first three flips it. Cutting that block down further is
+not informative: with all seven methods removed the object body is empty, which is degenerate, and
+every count from one to seven declines.
+
+**Six synthetic reproductions of that shape do NOT decline.** Each was built to differ from the
+previous one in exactly one way, and all six lower fine, so none of the following is the trigger:
+
+    trait Par[A] + object Par + one method, imported          lowers
+    the same with `sealed trait`                              lowers
+    the same non-generic (`trait Shape`)                      lowers
+    the same declared LOCALLY instead of imported             lowers
+    an imported module whose own code calls its object        lowers
+    the type and the companion split across two fenced blocks lowers
+
+Also ruled out on the way in: a module of functions only, a module with a plain case class, and an
+imported case class with a NON-sibling method — all lower. The one synthetic shape that DOES
+decline is the sibling call of reason (1), which is why the two looked like one defect.
+
+What that leaves: the trigger is something `core.ssc` block 4 has in combination with blocks 1-3
+that none of the six captures. Anyone picking this up should start from the bisect above rather
+than from a fresh guess — the harness is six lines of python over the fenced blocks, and it lands on
+the block in about a minute per variant.
+
 Fixing (1) is the larger win by construct count and closes the class-member half of
 `two-fronts-disagree-on-name-resolution` (v1 half fixed in f33751ace). Fixing (2) is what unblocks
 the parser corpus today. They are independent.
