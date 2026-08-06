@@ -8,6 +8,34 @@ grepping for status.
 Newest first.
 
 
+## uniml-version-drifted-from-root — the standalone build would publish two versions of one artifact
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: uniml/scala/.../UnimlCoordinatesSpec.scala -->
+
+`cd uniml && sbt -batch test` is RED on `origin/main`, and it is the check that exists for exactly
+this:
+
+    version drifted: standalone '0.1.0' vs root '0.2.0-SNAPSHOT'.
+    The same sources would publish as two versions of one artifact.
+
+`24581733e` ("build: main to 0.2.0-SNAPSHOT, and the emitted coordinate stays at the release")
+bumped `ThisBuild / version` in the ROOT `build.sbt` and left `uniml/build.sbt` at `0.1.0`. UniML is
+built standalone by the nightly `UniML — standalone build` job, which runs that exact command, so
+this fails the whole job for everyone until it is reconciled.
+
+**Isolated rather than assumed.** Found while landing an unrelated parser fix; stashing that change
+and re-running `uniml/testOnly *UnimlCoordinatesSpec` fails identically, so it is inherited and
+nothing in the ScalaScript dialect is involved.
+
+**NOT fixed here on purpose, and the one-line fix is the trap.** Setting `uniml/build.sbt` to
+`0.2.0-SNAPSHOT` makes the check green in one move — but that commit's own message says the emitted
+coordinate deliberately STAYS at the release, so which version UniML should carry is a decision
+belonging to the release work, not a guess to be made by whoever trips over the red. Reconcile it
+where the version policy lives.
+
 ## smoke-check-guards-sized-by-local-time — two checks killed by their own guard, and the runner will not say so
 
 <!-- status: open

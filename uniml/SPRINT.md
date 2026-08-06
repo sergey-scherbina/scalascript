@@ -10,6 +10,24 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] SSC3-B/if-branch-index-assign — **`if c then a(i) = v`, the last breadth gap in SSC3 core.**
+      Claim `uniml-if-branch-index-assign`. `40-front-on-uniml.md` §5b item 1, and one v3 already
+      supports with a green fixture on both lanes — so a front swap without it would lose a working
+      feature rather than merely fail to gain one.
+      **`branchExpr` decided the `then r = n` case by a two-token lookahead, and an INDEXED target
+      cannot be decided that way**: `a(i)` is only known to be an assignment target once it has been
+      parsed as a call. `parseStmt` (:1331) already asks the same question AFTER parsing rather than
+      before, and the branch position needed the same treatment — not a wider lookahead.
+      **It failed silently in the way that costs most.** `a(i)` parsed cleanly as the branch body and
+      the `= v` was left to the enclosing block, so the diagnostic — `expected statement, found '='`
+      — landed on whatever followed instead of on the construct that broke.
+      Before/after measured rather than assumed: both indexed cases RED with that exact diagnostic,
+      three controls green throughout; after the fix 5/5. The controls are the point — a rule that
+      fired on any call would turn `if c then f(x)` into an assignment with no right-hand side and
+      change every one-line call branch in the corpus, so one control asserts a plain call stays a
+      call and another that `==` is not read as a store. The ELSE arm is asserted separately,
+      because a fix applied to one arm and not its twin is a shape this repo has shipped before.
+
 - [x] SSC3-P/front-diff-debt — **the differences v3's front differential found, all of them UniML's.**
       Claim `uniml-front-diff-debt`. `ssc3-core` got its uniml front to 29/40 agreement and reported
       that every REMAINING difference is on this side, each filed in `40-front-on-uniml.md` §5b with
