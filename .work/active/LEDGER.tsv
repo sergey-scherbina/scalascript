@@ -1,9 +1,8 @@
-# generation: 1084
+# generation: 1085
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-1	claude-code	2026-08-06T04:10:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:tests/BUGS.md file:uniml/build.sbt file:tests/e2e/emitted-coordinate-is-published.sh
 corpus-contract-gate-red	claude-code	2026-08-06T10:26:05Z	a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too	file:.github/workflows/corpus-contract.yml
-native-forjsonview	claude-code	2026-08-06T15:16:37Z	swift-macos-build-broken-by-forJsonView	file:tests/e2e/v2-swift-cli.sh file:v2/nativeui/src/main/scala/ssc/NativeUiSites.scala file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala file:v2/BUGS.md
 uniml-breadth-tail	claude-code	2026-08-06T15:18:28Z	UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
 f-nested-def-in-function-body	claude-code	2026-08-06T15:19:08Z	f-declines-every-non-top-level-def	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bare-member-call-gate.sh
 install-sh-reports-failure	claude-code	2026-08-06T15:23:12Z	install-sh-exits-0-when-sbt-project-load-fails	file:install.sh file:scripts/BUGS.md file:tests/e2e/install-sh-reports-failure-gate.sh
