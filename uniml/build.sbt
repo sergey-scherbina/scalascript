@@ -155,6 +155,72 @@ lazy val unimlScalaCross =
 
 lazy val unimlScala = unimlScalaCross.jvm
 
+// ── markup / xml / address — the three the standalone build did not have ─────────────────────
+//
+// Added 2026-08-06. Until then this build covered SIX of UniML's NINE source modules, so the
+// property it exists to prove — "UniML stands alone, zero dependency on the ScalaScript trees" —
+// held only for two thirds of it. `markup`, `xml` and `address` were reachable ONLY through the
+// root build, which meant the one build that could contradict the claim was also the one that
+// never looked at them.
+//
+// That partiality was invisible from either side: the standalone build passed because it did not
+// compile them, and the root build passed because it has the whole repository on hand. A gate can
+// only see what it is pointed at, and this one was pointed at six ninths.
+//
+// `address` is JVM-only in the root build too — it walks documents with `java.nio` — so it stays a
+// plain `project` rather than a cross build. That is not a portability gap being hidden; it is the
+// same shape the root declares, mirrored rather than reinvented.
+lazy val markupCoreCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("markup"))
+    .settings(
+      name := "scalascript-markup-core",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .settings(standaloneTargetSettings)
+    .jvmConfigure(_.withId("markupCore"))
+    .jsConfigure(_.withId("markupCoreJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlXmlCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("xml"))
+    .dependsOn(unimlCross, markupCoreCross)
+    .settings(
+      name := "scalascript-uniml-xml",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .settings(standaloneTargetSettings)
+    .jvmConfigure(_.withId("unimlXml"))
+    .jsConfigure(_.withId("unimlXmlJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlAddress = project
+  .in(file("address"))
+  .dependsOn(unimlJsonCross.jvm)
+  .settings(
+    name := "scalascript-uniml-address",
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalatestV % Test,
+    // MIRRORS THE ROOT EXACTLY — `Seq("-deprecation", "-feature")`, not the strict set every other
+    // module here uses. That is deliberate and it was learned by getting it wrong: the first
+    // version applied `sharedScalacOptionsStrict`, and `-Wunused:all -Werror` immediately failed on
+    // a pre-existing unused parameter in `JsonAddress.raw`.
+    //
+    // Making it strict HERE and not in the root would leave the two builds disagreeing about the
+    // same sources — the exact class of problem this file's coordinates comment is about, and the
+    // one the whole point of adding these three modules is to close. So the options are mirrored,
+    // and the strictness gap is recorded rather than fixed on one side: `address` is the only
+    // UniML module not compiled with `-Werror`, in EITHER build.
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+  .settings(standaloneTargetSettings)
+
 // SSC3-M measurement arm. NOT aggregated on purpose: a benchmark has no tests to contribute to
 // `sbt test`, and the standalone isolation gate below enumerates exactly ten projects. Run with
 //   sbt "unimlBench/Jmh/run -i 5 -wi 3 -f 1 .*SpikeParserBench.*"
@@ -179,6 +245,9 @@ lazy val root = project
     unimlYamlCross.jvm, unimlYamlCross.js,
     unimlMarkdownCross.jvm, unimlMarkdownCross.js,
     unimlScalaCross.jvm, unimlScalaCross.js,
+    markupCoreCross.jvm, markupCoreCross.js,
+    unimlXmlCross.jvm, unimlXmlCross.js,
+    unimlAddress,
   )
   .settings(
     name := "uniml",
@@ -195,6 +264,11 @@ lazy val root = project
         "unimlMarkdownJs" -> (unimlMarkdownCross.js / target).value,
         "unimlScala"      -> (unimlScalaCross.jvm / target).value,
         "unimlScalaJs"    -> (unimlScalaCross.js / target).value,
+        "markupCore"      -> (markupCoreCross.jvm / target).value,
+        "markupCoreJs"    -> (markupCoreCross.js / target).value,
+        "unimlXml"        -> (unimlXmlCross.jvm / target).value,
+        "unimlXmlJs"      -> (unimlXmlCross.js / target).value,
+        "unimlAddress"    -> (unimlAddress / target).value,
       ).map { case (id, path) => id -> path.getAbsoluteFile.toPath.normalize }
       val invalidSuffix = resolved.filterNot { case (_, path) =>
         val count = path.getNameCount
@@ -205,8 +279,8 @@ lazy val root = project
       val collisions =
         resolved.groupBy(_._2).toVector.filter(_._2.size > 1).sortBy(_._1.toString)
       if (
-        resolved.size != 10 ||
-        resolved.map(_._2).distinct.size != 10 ||
+        resolved.size != 15 ||
+        resolved.map(_._2).distinct.size != 15 ||
         invalidSuffix.nonEmpty ||
         collisions.nonEmpty
       ) {
@@ -216,12 +290,12 @@ lazy val root = project
         }.mkString("\n")
         sys.error(
           "Standalone UniML target isolation failed.\n" +
-            s"Expected 10 distinct paths ending in target/standalone; resolved:\n$paths\n" +
+            s"Expected 15 distinct paths ending in target/standalone; resolved:\n$paths\n" +
             (if (duplicatePaths.isEmpty) "" else s"Collisions:\n$duplicatePaths\n")
         )
       }
       streams.value.log.info(
-        "Standalone UniML target isolation: 10 distinct target/standalone namespaces",
+        "Standalone UniML target isolation: 15 distinct target/standalone namespaces",
       )
     },
     Test / test := ((Test / test) dependsOn verifyStandaloneTargetIsolation).value,
