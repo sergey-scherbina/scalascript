@@ -3,4 +3,3 @@
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 jvm-drop-host-shadowed-type-imports	claude-code	2026-08-06T09:10:29Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 release-v0-1-1	claude-code	2026-08-06T04:10:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:tests/BUGS.md
-int-object-var-write-through	claude-code	2026-08-06T09:32:26Z	int-object-var-mutation-does-not-persist	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md
