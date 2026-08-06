@@ -35,7 +35,7 @@ exports:
 Aggregates `std/mcp/types`, `std/mcp/server`, and `std/mcp/client`.
 Import whichever subset you need, or import this file for everything.
 
-```scalascript @doc
+```scalascript
 [ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
  Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](./types.ssc)
 

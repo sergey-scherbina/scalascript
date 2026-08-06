@@ -25,7 +25,7 @@ exports:
 
 One-stop import for cluster-shaped applications.
 
-```scalascript @doc
+```scalascript
 [CodeIdentity, SeedResolver, ClusterCapability, clusterOf, resolveSeeds, codeIdentity, assertCodeIdentity, NodeJoined, NodeLeft, LeaderElected, LeaderLost, ConfigChanged, DrainStateChanged, MetricChanged](./types.ssc)
 [Cluster](./membership.ssc)
 ```

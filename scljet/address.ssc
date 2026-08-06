@@ -24,7 +24,7 @@ whole class of bug this module exists to prevent (`BUGS.md` →
 
 Spec: `specs/scljet-address.md`. Slices landed: **read** and **write**.
 
-```scalascript @doc
+```scalascript
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, RecordField, StorageRecord, ReadonlyDatabase](index.ssc)
 [tableContext, seekRowidRecord, SeekHit, SeekMiss, SeekFallback, tableIpkIndex, columnIndex, joinTableRows](sql.ssc)
 [UpdateStmt, Assignment, Condition, executeUpdate](sql.ssc)
