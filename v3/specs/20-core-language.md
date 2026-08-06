@@ -46,7 +46,7 @@ expectation. 46 fixtures at the time of writing.
 | tuples | `(a, b)` to arity 8, `._1`…, `case (a, b) =>`, `val (x, y) = e`, tuple types in signatures |
 | matching | constructor, literal, binding and wildcard patterns; `h :: t`; NESTED to any depth; guards (`case n if …`); alternatives (`case A \| B`); `{ case … }` as a lambda |
 | lists | `List(…)` `::` `Nil` `Some`/`None`; `size` `head` `tail` `map` `filter` `flatMap` `foreach` `sum` `mkString` `reverse` `sorted` `zip` `++` `:+` `+:` |
-| strings | `length` `isEmpty` `nonEmpty` `toUpperCase` `toLowerCase` `trim` `split` `charAt` `substring` `indexOf` `replace` `contains` `startsWith` `endsWith` |
+| strings | `length` `isEmpty` `nonEmpty` `toUpperCase`† `toLowerCase`† `trim` `split` `charAt` `substring` `indexOf` `replace` `contains` `startsWith` `endsWith` |
 | arrays | `Array(…)`, `a(i)`, `a(i) = v`, `a.length` |
 | copy | `x.copy(field = v)` on any `case class` |
 | maps and sets | `Map(k -> v, …)` with `m(k)` `size` `contains` `get` `getOrElse` `keys` `values`; `Set(…)` with `size` `contains` `toList`; `k -> v` builds a `Pair` |
@@ -58,6 +58,34 @@ expectation. 46 fixtures at the time of writing.
 | files | literate `.ssc` (```` ```scalascript ```` / ```` ```scala ```` fences, line numbers preserved); `//` and `/* … */` comments, the latter NESTED |
 | scripts | top-level statements ARE the program; `main()` runs after them if defined |
 | output | `println`, per-block auto-output of a non-Unit tail, and one printing convention shared by both lanes |
+
+**† `toUpperCase` / `toLowerCase` — SUPPORTED BUT NOT YET DEFINED, and the gap is the same one §3
+exists to close.** They are listed because programs call them and both lanes answer. What is not
+settled is WHAT they answer.
+
+`String.toLowerCase()` on the JVM takes no argument and uses the **default locale**, so its result
+is a property of the environment rather than of the string: in Turkish `"I"` folds to a dotless
+`"ı"`, not `"i"`. The js lane's `toLowerCase` is locale-independent. So `"TITLE".toLowerCase` is
+`"tıtle"` on one lane and `"title"` on the other, decided by `-Duser.language` — **exactly the
+host-dependent semantics §3 refuses for the lexer, arriving instead through the standard library.**
+
+This is measured, not anticipated. UniML carried the same defect until 2026-08-06 and it was proved
+in the locale, not by inspection: the same Markdown document parsed differently under `tr`, because
+HTML tag names containing an `I` (`<LI>`, `<TITLE>`, `<IFRAME>`, `<DIALOG>`) mis-folded, and a
+heading `TITLE` produced the anchor `t-tle`. `MdLocaleIndependenceSpec` is the regression.
+
+**Two ways to settle it, and Tier 0 must pick one:**
+
+1. **ASCII fold.** `A`–`Z` ↔ `a`–`z`, everything else unchanged. One range comparison, every lane
+   agrees, and it is the same shape §3's table already uses. Narrower than Scala.
+2. **Locale-independent Unicode fold.** `Character.toLowerCase(char)` is defined by the Unicode data
+   alone — unlike `String.toLowerCase()` it is NOT locale-sensitive — so it folds every script and
+   still agrees across lanes. Costs the table §3 discusses above.
+
+What is not available is leaving them listed with no definition: the table would then promise a
+portability this operation does not have. UniML took (2) for CommonMark link labels, where the spec
+demands Unicode folding, and (1) everywhere the decision is ASCII by construction — tag names,
+schemes, slugs.
 
 **Not implemented, measured 2026-08-05** — each fails with a positioned diagnostic naming it, never
 with a wrong answer:
@@ -108,9 +136,37 @@ object. That is the duplicated-helper shape this repository keeps paying for. Th
 single shared module in the portable subset, and it is *less* code than the copies it replaces.
 
 **Not a `Prim`.** Routing classification through the host boundary is the abstraction that looks
-cleanest and is disqualifying: the same source would then lex differently on the JVM, on JS and on
-the v2 VM, making the language's syntax host-dependent. `Prim` is the right door for I/O and the
-wrong one for language semantics.
+cleanest and is disqualifying. `Prim` is the right door for I/O and the wrong one for language
+semantics.
+
+**⚠️ The reason this section used to give for that was MEASURED AND IS FALSE.** It said "the same
+source would then lex differently on the JVM, on JS and on the v2 VM". As a claim about the two
+COMPILE hosts that is simply untrue: JVM and Scala.js agree exactly — 1,169 uppercase code points,
+identical hash, checked character by character and now frozen on both lanes as a canary
+(`HostCaseAgreementSpec`). Keeping a correct conclusion propped up by a wrong reason is how the
+conclusion gets overturned later by someone who checks the reason.
+
+The real divergence is **between ScalaScript's own RUNTIMES**, which is a different and worse
+problem: the interpreter delegates to `Character.isUpperCase`, the js backend tests `/\p{Lu}/u`, and
+**42 BMP characters differ** — Java counts `Other_Uppercase`, `\p{Lu}` does not. Roman numerals are
+the readable case: `case Ⅷ =>` MATCHES on the interpreter and BINDS a variable on js. Same source,
+different meaning, silently.
+
+**So the alphabet and CASE are two questions, and only the first is tableless.** The table above
+stands: every line a range comparison, no table, on any host. Case cannot be done that way — making
+every lane agree requires a baked table, which is what UniML now carries (1,143 code points in 606
+ranges, consulted only after an ASCII fast path and once per identifier TOKEN rather than per
+character). **That is Sergiy's decision of 2026-08-05**, taken after the tableless answer was
+implemented, measured and rejected on the measurement. This section's title — "so it needs no
+tables" — is therefore true of the identifier alphabet and not of case, and saying so here is the
+point of this paragraph.
+
+**Open, and deliberately not decided here:** v3 carries its own copy of the alphabet in `Chars`
+while UniML has the shared module this section asks for. Either adopt the shared one or record that
+the two copies are intentional and state what they are obliged to agree on — a value written down
+twice and agreeing only by memory is the shape this repository paid for three times on 2026-08-06
+alone (the uniml version, the `Main.scala` coordinate, and the sbt-plugin's fourth version, still
+open in `tests/BUGS.md`).
 
 ## 3a · Printing, and why it is v1's convention rather than Scala's
 
