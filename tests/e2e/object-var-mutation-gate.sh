@@ -78,18 +78,33 @@ for lane in "int:run --v1" "js:run-js" "jvm:run-jvm"; do
   fi
 done
 
+# int used to be a declared gap here and this block used to assert that it FAILED, with an
+# instruction to delete itself once the gap closed. It closed (int-object-var-mutation-does-not-persist,
+# fixed in this commit), so int is now held to the same answer as every other lane.
 got_int="$(SSC_NO_BUILD_CHECK=1 timeout 180 "$ROOT/bin/ssc-tools" run --v1 "$TMP/ov.ssc" </dev/null 2>/dev/null || true)"
 if [ "$got_int" = "$want" ]; then
-  echo "FAIL int now PASSES — the gap closed. Delete this block, let int count with native,"
-  echo "     and close BUGS.md int-object-var-mutation-does-not-persist."
-  fails=$((fails + 1))
+  echo "ok   int keeps object state across calls"
 else
-  echo "KNOWN GAP  int — int-object-var-mutation-does-not-persist (declared, got [$(printf '%s' "$got_int" | tr '\n' ' ')])"
+  echo "FAIL int — wanted [$want], got [$(printf '%s' "$got_int" | tr '\n' ' ')]"
+  fails=$((fails + 1))
+fi
+
+# The COMPOUND form is a separate code path in BlockRuntime (`x += n` is a Term.ApplyInfix, not a
+# Term.Assign) and it carried the identical defect. Without this case a fix to one form reads as a
+# fix to both — the shape this repo keeps meeting, where a feature lands on one path and its twin
+# is left behind with no gate able to tell.
+sed 's/hits = hits + 1/hits += 1/' "$TMP/ov.ssc" > "$TMP/ov_compound.ssc"
+got_comp="$(SSC_NO_BUILD_CHECK=1 timeout 180 "$ROOT/bin/ssc-tools" run --v1 "$TMP/ov_compound.ssc" </dev/null 2>/dev/null || true)"
+if [ "$got_comp" = "$want" ]; then
+  echo "ok   int keeps object state with compound assignment (+=)"
+else
+  echo "FAIL int compound — wanted [$want], got [$(printf '%s' "$got_comp" | tr '\n' ' ')]"
+  fails=$((fails + 1))
 fi
 
 echo
 if [ "$fails" -eq 0 ]; then
-  echo "object-var-mutation-gate: OK (native correct; the flat control passes on every lane; int is a declared gap)"
+  echo "object-var-mutation-gate: OK (native correct; the flat control passes on every lane; int now matches)"
   exit 0
 fi
 echo "object-var-mutation-gate: FAIL ($fails)"

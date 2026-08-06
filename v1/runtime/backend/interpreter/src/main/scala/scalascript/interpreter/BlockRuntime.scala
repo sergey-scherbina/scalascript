@@ -12,6 +12,25 @@ import DirectMonadTag.*
  */
 private[interpreter] object BlockRuntime:
 
+  /** Copy the `<object-vars>` marker onto a COPIED env.
+   *
+   *  `evalBlock` does not chain to its caller's env — it builds a fresh HashMap holding only the
+   *  entries that differ from `interp.globals`, and wraps that in a `MutableEnvView`. An
+   *  `ObjectVarEnvView` answers the marker from `get`/`getOrElse`/`contains` but does NOT yield it
+   *  from `iterator`/`foreachEntry`, so the copy silently loses it and every assignment inside an
+   *  object method then looks like a plain global write.
+   *
+   *  This is one half of `int-object-var-mutation-does-not-persist` and it is why the two obvious
+   *  fixes each looked REFUTED when tried alone: making the iterator yield the marker changes
+   *  nothing while the assignment still writes `interp.globals` directly, and routing the
+   *  assignment through `ObjectVarEnvView.assign` changes nothing while the marker is dropped
+   *  before the router can see it. Both are necessary; neither is sufficient. */
+  private def carryObjectVarMarker(env: Env, into: mutable.Map[String, Value]): Unit =
+    env.getOrElse(ObjectVarEnvView.MarkerKey, null) match
+      case s: Value.StringV => into(ObjectVarEnvView.MarkerKey) = s
+      case _                => ()
+
+
   def extractDirectMonadTag(typeArgs: List[scala.meta.Type]): DirectMonadTag =
     val name = typeArgs.headOption.flatMap(DirectTypeUtils.extractPrimaryMonad).getOrElse("?")
     name match
@@ -191,10 +210,12 @@ private[interpreter] object BlockRuntime:
           cur.foreachEntry { (k, v) =>
             if !b.contains(k) && interp.globals.getOrElse(k, null) != v then b(k) = v
           }
+        carryObjectVarMarker(env, b)
         localVar = b; localViewVar = new MutableEnvView(b)
       case _ =>
         val b2 = mutable.HashMap.empty[String, Value]
         env.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b2(k) = v }
+        carryObjectVarMarker(env, b2)
         localVar = b2; localViewVar = new MutableEnvView(b2)
     // Effectively-final aliases: `step` (and its FlatMap continuations) close over
     // these. As `val`s they are captured by reference without `ObjectRef` boxing —
@@ -288,8 +309,8 @@ private[interpreter] object BlockRuntime:
           case assign: Term.Assign if assign.lhs.isInstanceOf[Term.Name] =>
             val x = assign.lhs.asInstanceOf[Term.Name].value
             interp.eval(assign.rhs, localView) match
-              case Pure(v) => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV)
-              case c       => FlatMap(c, { v => local(x) = v; interp.globals(x) = v; step(rest, Value.UnitV) })
+              case Pure(v) => local(x) = v; ObjectVarEnvView.assign(x, v, localView, interp); step(rest, Value.UnitV)
+              case c       => FlatMap(c, { v => local(x) = v; ObjectVarEnvView.assign(x, v, localView, interp); step(rest, Value.UnitV) })
           // Compound assignment inside a block (x += n, x -= n, etc.).
           case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
               if op.value.lengthIs > 1 && op.value.last == '=' &&
@@ -302,31 +323,31 @@ private[interpreter] object BlockRuntime:
                   rhsC match
                     case Pure(rv) =>
                       interp.infix2(lhsV, baseOp, rv, localView) match
-                        case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
-                        case c          => FlatMap(c, { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) })
+                        case Pure(newV) => local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV)
+                        case c          => FlatMap(c, { newV => local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV) })
                     case _ =>
                       FlatMap(rhsC, { rv =>
                         FlatMap(interp.infix2(lhsV, baseOp, rv, localView), { newV =>
-                          local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }) })
+                          local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV) }) })
                 case lhsC =>
                   FlatMap(lhsC, { lhsV =>
                     FlatMap(rhsC, { rv =>
                       FlatMap(interp.infix2(lhsV, baseOp, rv, localView), { newV =>
-                        local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) }) }) })
+                        local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV) }) }) })
             else
               val argComps   = argClause.values.map(interp.eval(_, localView))
               val argVsBlock = EvalRuntime.extractPureValues(argComps)
               interp.eval(lhs, localView) match
                 case Pure(lhsV) if argVsBlock != null =>
                   interp.infix(lhsV, baseOp, argVsBlock, localView) match
-                    case Pure(newV) => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV)
-                    case c          => FlatMap(c, { newV => local(lhs.value) = newV; interp.globals(lhs.value) = newV; step(rest, Value.UnitV) })
+                    case Pure(newV) => local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV)
+                    case c          => FlatMap(c, { newV => local(lhs.value) = newV; ObjectVarEnvView.assign(lhs.value, newV, localView, interp); step(rest, Value.UnitV) })
                 case lhsC =>
                   FlatMap(lhsC, { lhsV =>
                     interp.threadValues(argComps) { argVs =>
                       FlatMap(interp.infix(lhsV, baseOp, argVs, localView), { newV =>
                         local(lhs.value)          = newV
-                        interp.globals(lhs.value) = newV
+                        ObjectVarEnvView.assign(lhs.value, newV, localView, interp)
                         step(rest, Value.UnitV)
                       })
                     }
