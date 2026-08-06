@@ -616,3 +616,10 @@ so — it now compares two fronts and reports what differs, which is what it was
       Filed as item 3 of `40-front-on-uniml.md` §5b, and it is the most consequential item there:
       `trait` gates 137 corpus cases, and v3's traits carry the dispatch that makes them worth
       having.
+
+- [x] **15c — the gate carries an agreement FLOOR, not a pass/fail on completeness.** 25 of 40,
+      may rise in any commit and fall in none — the same non-regression rule the corpus number
+      carries. Without it the gate would be permanently red while the second front is built, and a
+      permanently red gate stops being read. A refusal by the SECOND front is counted, not failed;
+      a failure by v3'''s own front is still a hard FAIL, because that one must always print.
+      Observed failing: floor 26 against 25 agreeing goes RED.

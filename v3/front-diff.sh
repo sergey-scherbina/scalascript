@@ -27,6 +27,13 @@ SSC3="$ROOT/v3/ssc3"
 
 fail=0
 ran=0
+agree=0
+disagree=0
+
+# The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
+# corpus number carries, and for the same reason: a gate that is permanently red stops being read,
+# and a gate with no floor lets the number slide back without anyone noticing.
+FLOOR="${SSC3_FRONT_AGREE_FLOOR:-25}"
 
 # The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
 # a list that disagrees with itself. The kernel knows one front; the driver knows whether the second
@@ -48,8 +55,15 @@ for f in v3/tests/front/*.ssc; do
   for fr in $fronts; do
     out="$work/$name.$fr"
     if ! "$SSC3" ast "$f" "$fr" > "$out" 2>"$work/err"; then
-      echo "  FAIL $name — front '$fr' could not print an Ast: $(head -1 "$work/err")"
-      fail=1
+      # The FIRST front is v3's own and must always print — a failure there is a real defect. A
+      # second front refusing is expected work-in-progress and is counted, not failed.
+      if [ "$fr" = "v3" ]; then
+        echo "  FAIL $name — the v3 front could not print an Ast: $(head -1 "$work/err")"
+        fail=1
+      else
+        echo "  refused $name — $(head -1 "$work/err" | sed 's/^ssc3: //' | cut -c1-70)"
+        disagree=$((disagree + 1))
+      fi
       continue
     fi
     if [ ! -s "$out" ]; then
@@ -60,9 +74,11 @@ for f in v3/tests/front/*.ssc; do
     if [ -z "$first" ]; then
       first="$out"
     elif ! diff -q "$first" "$out" >/dev/null; then
-      echo "  FAIL $name — fronts disagree:"
-      diff "$first" "$out" | head -6 | sed 's/^/         /'
-      fail=1
+      echo "  diff $name"
+      diff "$first" "$out" | head -4 | sed 's/^/         /'
+      disagree=$((disagree + 1))
+    else
+      agree=$((agree + 1))
     fi
   done
 done
@@ -93,6 +109,14 @@ if [ "$nfronts" -lt 2 ]; then
   echo "       total over $ran fixture(s) and that the comparator can see a difference — not that"
   echo "       two fronts agree. It starts comparing with no edit when Front.available grows."
 fi
-[ "$fail" = 0 ] && echo "== v3 SSC3-11 gate: GREEN ($ran fixture(s), $nfronts front(s)) ==" \
+if [ "$nfronts" -ge 2 ]; then
+  echo
+  echo "  fronts AGREE on $agree of $ran fixture(s); $disagree still differ or are refused (floor $FLOOR)"
+  if [ "$agree" -lt "$FLOOR" ]; then
+    echo "  FAIL agreement REGRESSED below the floor — raise it only after a measurement, never before"
+    fail=1
+  fi
+fi
+[ "$fail" = 0 ] && echo "== v3 SSC3-11 gate: GREEN ($ran fixture(s), $nfronts front(s), agree $agree) ==" \
                 || echo "== v3 SSC3-11 gate: RED =="
 [ "$fail" = 0 ]
