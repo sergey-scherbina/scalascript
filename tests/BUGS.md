@@ -824,13 +824,13 @@ same mistake lives in `BundleCommand` and is filed separately as
 landing in between, not by an error. A census of failure messages has a shelf life measured in
 commits; re-run it before acting on it.
 
-**RE-CENSUS 2026-08-06 — thirteen red became ONE.** Re-ran every gate this entry has ever listed as
+**RE-CENSUS 2026-08-06 — thirteen red became ZERO.** Re-ran every gate this entry has ever listed as
 red, against HEAD with a fresh build:
 
 | gate | now |
 |---|---|
 | `build`, `bundle`, `components`, `import-alias`, `std-ui-forms`, `upload`, `url-import`, `validation` | **green** |
-| `middleware` | red — jvm, 44 errors, all `not a member of Any` |
+| `middleware` | **green 2026-08-06** — the signature mismatch is fixed; see `v1/runtime/backend/jvm/BUGS.md` |
 
 Everything except `middleware` was closed by the causes this entry chased down rather than by the
 gates being changed: the jvm `Cons` lowering and its scope/`__extern__` siblings, the json and
