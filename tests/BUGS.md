@@ -26,6 +26,16 @@ so the second commit inherited them). `66/68 green`, and the two reds are not lo
 firing, and `exit -1` is what the runner reports for it — a value its own legend does not cover
 ("124 is the timeout guard firing, 127 a command that could not start, 137 a kill").
 
+**CORRECTION, after fixing it (d0df30a89): `freeze-consistency` was NOT a guard-sizing failure.**
+It exited 1 at 94.5 s against a 120 000 ms guard — inside its budget. The cause was `set -euo
+pipefail` plus an assignment ending in `grep -v '^$'`, which exits 1 when nothing survives the
+filter. `set -e` then killed the gate at that line, and the statement immediately after it is the
+`if [ -z "$listed" ]` branch that exists to report exactly this case — unreachable code. Repro:
+`set -euo pipefail; x="$(printf '' | grep -v '^$')"; echo unreachable` prints nothing, exits 1.
+Emulating a `scala-cli` that exits 1 reproduced the CI signature down to which stdout line is last.
+Fixed with `|| true` inside the substitution. The timing below still stands and still matters — it
+is WHY scala-cli fails on a runner and never here — but it was the trigger, not the defect.
+
 `freeze-consistency` is the sharper number: **2 s locally, 94.5 s on CI, a 47x ratio.** The
 previous worst known in this repo was 19x (`launchers-not-dead`, 5.5 s → 104.5 s). Cause is not
 mysterious — the gate shells out to `scala-cli tests/conformance/contract.sc -- --list`, which is
@@ -52,11 +62,14 @@ Three things worth doing, smallest first:
    self-explaining ones.
 2. Size the two guards off CI numbers, not local ones. A guard at 2.5x the CI observation, not 2.5x
    the local one.
-3. `freeze-consistency` should print findings as it makes them rather than only at the end, so a
-   kill still leaves the reason behind.
+3. ~~`freeze-consistency` should print findings as it makes them.~~ **DONE, d0df30a89** — and it
+   turned out to be the actual defect rather than a diagnosability nicety, see the correction above.
+   It also now prints a breadcrumb before the slow `scala-cli` step, which is the only thing that
+   survives when the runner's guard kills a check.
 
-NOT DONE HERE because `scripts/smoke-ci.ssc` is inside the `release-graalvm-pin` claim and items 1
-and 2 both live in it. Item 3 is in `tests/e2e/freeze-consistency-gate.sh` and is unclaimed.
+Items 1 and 2 NOT DONE HERE because `scripts/smoke-ci.ssc` is inside the `release-graalvm-pin`
+claim. They remain worth doing: `run-lane-flags-are-flags` is still a genuine guard failure (24 s
+local, 60.1 s against a 60 000 ms guard), and a killed check still reports a bare `exit code -1`.
 
 Note this is NOT the same defect as `smoke-suite-over-its-own-budget`, though both runs are also
 over budget (627.6 s and 629.1 s of 600 s). That one is about total wall time with every check
