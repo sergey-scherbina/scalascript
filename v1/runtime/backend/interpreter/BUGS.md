@@ -130,7 +130,7 @@ comment now describes the resolved cause rather than the third guess.
      lane: int
      area: runtime
      gate: tests/e2e/int-imported-registry-gate.sh
-     fixed-in: 79e52a817 -->
+     fixed-in: 0009b24f4 -->
 
 **FIXED 2026-08-06.** The entry's own four-line repro prints `1` on int, matching native and js, and
 the int conformance lane is 358/358 across eight shards.
