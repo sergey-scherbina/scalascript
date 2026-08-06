@@ -182,8 +182,15 @@ receiver is prepended in `parseCallPlain` because a class method's global takes 
 first parameter while an object method has no such slot. Gate
 `tests/e2e/f-bare-member-call-gate.sh`, 9 cases.
 
-STILL OPEN in this reason: a `def` nested inside a FUNCTION body (`def outer() = { def loop(..) }`
-→ `unbound global: (global loop)`), and `this.m()` → `(global this)`, F having no `this` at all.
+**Reason (1) is now CLOSED except for `this`** (59dcabf82 added the nested-in-a-function-body
+shape as a `letrec`; `this.m()` still lowers to `(global this)`, F having no `this` at all).
+
+CORPUS IMPACT OF THE NESTED-DEF HALF: none in the sample measured, and the control was run
+rather than skipped — 60 files from examples/ and tests/conformance/, F lowered 12 before and
+12 after. Those files decline for other reasons first. What DID change is the reason ranking:
+`loop` is gone from it entirely, and the top two are now `(global Response)` and
+`(global fragment)`, 10 each. That is reason (2), the import one, and it is what any further
+corpus movement depends on — not on more of reason (1).
 The shapes that used to fail and now do not:
 
     case class B(n: Int):        def q() = twice() * 2         DECLINED -> 12
