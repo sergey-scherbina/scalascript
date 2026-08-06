@@ -216,5 +216,15 @@ object MarkdownDocContent:
       inlines.foreach(walk)
       sb.result()
 
+  /** A heading's anchor slug. ASCII lowercase, and the reason is one line below it.
+    *
+    * `String.toLowerCase()` takes no argument and uses the JVM's DEFAULT LOCALE. In Turkish `I`
+    * folds to a dotless `\u0131`, which the very next `[^a-z0-9]+` then deletes — so a heading
+    * `TITLE` produced the anchor `t-tle` on a `tr` JVM and `title` everywhere else. Every link to
+    * that anchor breaks, and nothing reports it: the document is the same, the environment is not.
+    *
+    * The filter is already ASCII by construction, so folding as ASCII is not a narrowing — it is
+    * the same alphabet the next expression uses, applied consistently. */
   private def slugify(text: String): String =
-    text.toLowerCase.replaceAll("[^a-z0-9]+", "-").stripPrefix("-").stripSuffix("-")
+    text.map(c => if c >= 'A' && c <= 'Z' then (c + 32).toChar else c)
+      .replaceAll("[^a-z0-9]+", "-").stripPrefix("-").stripSuffix("-")
