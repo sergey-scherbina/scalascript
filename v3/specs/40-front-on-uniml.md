@@ -275,11 +275,18 @@ today it is none of those.
    v3's front printed `(var "counter" …)` and UniML's printed `(val "counter" …)` for the same
    source. It is a WRONG ANSWER rather than a smaller tree — a `var` projected as a `val` makes
    every later assignment to it a refusal.
-5. **A CHARACTER literal is projected as `IntLit`.** `'x'` arrives as `IntLit("120")`, so it is
+5. **`ObjectDecl` carries no `case` marker**, so `case object A extends K` and an empty
+   `object A` are indistinguishable. v3 needs the first as a NULLARY CONSTRUCTOR — it is a value,
+   and it was 116 corpus cases. The projection cannot guess: an empty object is useless but legal,
+   and mapping it to a constructor would invent a value the author did not write.
+6. **`0 +: xs` projects as `Infix("::")`.** The dialect normalises `+:` to `::`. For a `List` they
+   agree, which is why it survives; they are different methods on anything else, and v3 lowers them
+   differently — `::` builds a `Cons`, `+:` is a method call with the operands SWAPPED.
+7. **A CHARACTER literal is projected as `IntLit`.** `'x'` arrives as `IntLit("120")`, so it is
    indistinguishable from the integer `120`. Also a wrong answer rather than a loss: `println('x')`
    prints `x` and `println(120)` prints `120`, and the language's `Char` is exactly an integer that
    prints differently — which is why the distinction has to survive the projection.
-6. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
+8. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
    [`20-core-language.md`](20-core-language.md) §3. Still open, and the only item on this list with a
    consequence for the LANGUAGE rather than for a file: route classification through the host and
    the same source lexes differently on JVM, JS and the v2 VM.

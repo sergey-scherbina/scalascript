@@ -98,6 +98,15 @@ object AstText:
     case Expr.Interp(parts, xs, _) =>
       sx("interp", sx("parts", parts.map(q)) :: xs.map(expr))
     case Expr.Bin(o, l, r, _)  => sx("bin", List(q(o), expr(l), expr(r)))
+    // A NEGATED literal is the negative literal. v3's lexer folds the sign into an integer but not
+    // into a float, so the two fronts disagreed in OPPOSITE directions on `-1` and `-3.0`. Folding
+    // in the printer settles both without either front changing what it builds.
+    //
+    // These MUST precede the general `Neg` arm. The first attempt put them near the end of the
+    // match, where `Neg(x, _)` had already matched — the arms were dead and the gate said so by not
+    // moving, which is the cheapest possible way to find out.
+    case Expr.Neg(Expr.IntLit(v, _), _)    => sx("int", List((-v).toString))
+    case Expr.Neg(Expr.DoubleLit(v, _), _) => sx("float", List(Text.floatText(-v)))
     case Expr.Neg(x, _)        => sx("neg", List(expr(x)))
     case Expr.Not(x, _)        => sx("not", List(expr(x)))
     case Expr.Call(fn, as, _)  => sx("call", q(fn) :: as.map(expr))
@@ -117,5 +126,8 @@ object AstText:
     // gate that reported it would report a difference nobody can act on. Measured: it was the
     // single largest source of front-to-front difference on the first comparison.
     case Expr.Block(Nil, Some(r), _) => expr(r)
+    // …and a block whose only content is ONE expression statement. `for x <- xs do println(x)`
+    // produces that on one front and the bare call on the other, and they mean the same thing.
+    case Expr.Block(List(Stmt.Exp(only)), None, _) => expr(only)
     case Expr.Block(sts, res, _) =>
       sx("block", sts.map(stmt) ++ res.map(x => List(sx("=>", List(expr(x))))).getOrElse(Nil))

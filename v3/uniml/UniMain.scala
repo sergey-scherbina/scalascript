@@ -13,10 +13,15 @@ package ssc3
     else
       val path = args(if args.head == "ast" then 1 else 0)
       try
-        val text = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-        print(AstText.render(UniFront.parse(text)))
+        // Through `Loader`, not `UniFront.parse` alone: a `.ssc` may import other files, and the
+        // module graph is built from the source TEXT rather than from the tree
+        // (`50-uniml-projection.md` §6). The first version of this parsed ONE file and every
+        // cross-file import vanished without a diagnostic — caught by the front differential,
+        // which is the only thing that could have caught it.
+        print(AstText.render(Loader.merge(Loader.closureWith(path, UniFront.parse))))
         0
       catch
+        case e: LoadError => Console.err.println("ssc3: " + e.message); 1
         case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
         case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
         case e: java.io.IOException =>

@@ -623,3 +623,32 @@ so — it now compares two fronts and reports what differs, which is what it was
       permanently red gate stops being read. A refusal by the SECOND front is counted, not failed;
       a failure by v3'''s own front is still a hard FAIL, because that one must always print.
       Observed failing: floor 26 against 25 agreeing goes RED.
+
+## SSC3-16 — 29 of 40, and every remaining difference is on UniML's side
+
+| | agree |
+|---|---|
+| first measurement | 17 |
+| block canonicalisation, temp naming, enum order | 22 |
+| negated integer folded | 25 |
+| **the uniml front goes through `Loader`** | 27 |
+| negated FLOAT folded, and the arms moved BEFORE the general `Neg` | 29 |
+
+- [x] **16a — the uniml front had NO IMPORTS.** It called `UniFront.parse` on one file, so every
+      cross-file import vanished with no diagnostic. `Loader.closureWith` now takes the parse step as
+      a PARAMETER — the kernel cannot name a front that lives outside it, so passing the function is
+      what lets the second front reuse the module graph instead of reimplementing it.
+- [x] **16b — the negated-literal arms were DEAD.** Placed after the general `Neg` arm, which had
+      already matched. The gate said so by not moving, which is the cheapest way to find out.
+
+**The remaining 11 are all UniML's**, each filed in `40-front-on-uniml.md` §5b:
+
+| fixtures | gap |
+|---|---|
+| demo, globals, val-block, arrays | `ValDef` has no mutability flag — `var` reads as `val` |
+| traits-methods | a `trait` VANISHES into `NoOpDecl` |
+| case-object, alt-pattern | `ObjectDecl` has no `case` marker |
+| char-literals | a character literal projects as `IntLit` |
+| append-ops | `+:` is normalised to `::` |
+| assign-body | the dialect gap `if c then a(i) = v` |
+| block-comments | a NESTED block comment |

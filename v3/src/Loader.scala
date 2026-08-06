@@ -110,9 +110,16 @@ object Loader:
     * is ordinary, and loading the shared module twice would declare every one of its names twice. */
   def closure(rootPath: String): List[Unit3] = closure(rootPath, Front.v3)
 
-  /** `front` is threaded rather than read from a global so that two fronts can run in the SAME
-    * process on the same file — which is what the differential that decides the UniML swap does. */
   def closure(rootPath: String, front: String): List[Unit3] =
+    closureWith(rootPath, t => Front.parse(t, front))
+
+  /** The parse step is a PARAMETER, not a name looked up in a table.
+    *
+    * A second front lives outside the kernel — `v3/uniml` is a separate artifact so that `v3/src`
+    * keeps its zero dependencies — so the kernel cannot name it. Passing the function lets that
+    * front reuse the module graph instead of reimplementing it, which it briefly did NOT: the first
+    * version of the uniml front parsed one file and every cross-file import silently vanished. */
+  def closureWith(rootPath: String, parseWith: String => Program): List[Unit3] =
     var seen: List[String] = Nil
     var out: List[Unit3] = Nil
 
@@ -127,7 +134,7 @@ object Loader:
         // that has nothing to do with the error, in a file the reader did not write. Measured on
         // `std-index.ssc`: it reported `trait` at a line holding a `println`.
         val prog =
-          try Front.parse(text, front)
+          try parseWith(text)
           catch
             case e: ParseFail => throw LoadError(path + ":" + e.getMessage)
             case e: LexError  => throw LoadError(path + ":" + e.getMessage)
