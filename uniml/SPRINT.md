@@ -10,6 +10,40 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] SSC3-P/front-diff-debt — **the differences v3's front differential found, all of them UniML's.**
+      Claim `uniml-front-diff-debt`. `ssc3-core` got its uniml front to 29/40 agreement and reported
+      that every REMAINING difference is on this side, each filed in `40-front-on-uniml.md` §5b with
+      the fixture that shows it. This is that list.
+      **The lesson is worth more than the fixes, and it is about MY apparatus.** A projection can be
+      audited against its own CST until the drop census reads 0 and coverage reads 100.0% — both of
+      which I landed yesterday — and a construct consumed into a MODELLED BUT CONTENTLESS node is
+      still invisible to all of it: the parse-error count sees nothing failed, the drop census sees
+      a modelled node with no subtree to drop, and the coverage figure counts it as typed. `trait`
+      sat in exactly that hole. It took comparing against a SECOND IMPLEMENTATION, which asks a
+      question self-measurement structurally cannot.
+      1. **`trait` vanished into `NoOpDecl`** — name, parents and METHODS all gone; gates 137 corpus
+         cases for v3. Now `TraitDecl(keyword, name, parents, members)`; the dialect keeps the body
+         instead of parsing-then-discarding it. Frame kind stays `spike.sealed` so `SpikeProject`
+         and the v2 lane see nothing — same trade as the import path.
+      2. **`ValDef` had no mutability** — `var x = 0` and `val x = 0` projected identically, which
+         makes every later assignment to the var a refusal. 4 fixtures.
+      3. **`case object` was indistinguishable from an empty object** — the `case` token was advanced
+         past and dropped. TWO decision sites had to be fixed, top level and member level.
+      4. **A char literal projected as `IntLit`** — `'x'` arrived as `IntLit("120")`. The lexeme
+         keeps its quotes, so the distinction was recoverable here and nowhere later.
+      5. **`+:` was normalised to `::`** — `SpikeOp.meaning` is a v2 truth (every Seq is a Cons-list)
+         and the typed AST must say what was WRITTEN. Reads the raw lexeme now; `meaning` is left
+         alone because the v2 serialiser still needs it.
+      **Fixing the trait immediately surfaced one more, and only because it was fixed**:
+      `decl:spike.valdecl`, an abstract `val id: String` with no `=`, legal in a trait body. Nothing
+      else in the corpus put one where the projection could see it — a construct hidden behind
+      another construct. Now `AbstractVal`.
+      **Measured after**: 1,188 files, nodes 223,182 → **224,142** (the trait bodies arriving),
+      coverage **100.0%**, silent drops **0**, gaps 28 — all parse-recovery holes, no unmodelled
+      construct. 52 typed-AST tests green.
+      Still open on this list: the dialect gap `if c then a(i) = v`, a nested block comment, a BARE
+      mode for the composer, and `UNIML-SSC3-ALPHABET`.
+
 - [x] SSC3-P/contract-gate — **the assumptions v3's projection rests on, held against the corpus.**
       Claim `uniml-ssc3-contract-gate`. `v3/specs/50-uniml-projection.md` §7 names four questions to
       be MEASURED before the projection is written. Measured 2026-08-06 and handed to `ssc3-core`,
