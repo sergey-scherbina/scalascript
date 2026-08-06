@@ -629,6 +629,16 @@ expect_exit vm 0
 expect_exact_line vm-stdout 84 "$LAST_STDOUT"
 expect_empty vm-stderr "$LAST_STDERR"
 
+# The v1 front, and it is here because its ABSENCE was invisible. While shrinking the image, a
+# candidate binary that dropped scalameta and scala3-compiler passed EVERY check this script made --
+# and `run --v1` and `compile-jvm` were dead in it, with
+#   NoClassDefFoundError: Could not initialize class scalascript.parser.Parser
+# A qualifier that only exercises the default lane certifies a binary that is broken for anyone who
+# passes --v1. The lane is user-facing and shipped, so it is qualified.
+run_process v1 runtime "$RUN_DIR" "$SSC_EXE" run --v1 release-probe.ssc
+expect_exit v1 0
+expect_exact_line v1-stdout 84 "$LAST_STDOUT"
+
 # `--bytecode` on a NATIVE binary must be REFUSED, clearly and before doing any work.
 #
 # This check used to demand a real bytecode run — fallback marker ABSENT, stderr empty. That contract

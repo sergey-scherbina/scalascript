@@ -185,6 +185,20 @@ if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
   exit 0
 fi
 
+# `run --v1 <probe>` — 3 args, no lane flag. Added when the qualifier started certifying the v1
+# front: a candidate binary that had dropped scalameta passed every other check while --v1 was dead.
+if [ "$#" -eq 3 ] && [ "$1" = "run" ] && [ "$2" = "--v1" ]; then
+  case "$3" in
+    /*) fail_fixture "probe path is not relative: $3" ;;
+  esac
+  [ -f "$actual_cwd/$3" ] || fail_fixture "probe does not resolve below isolated cwd: $3"
+  case "$fixture_mode" in
+    v1-exit)   exit 11 ;;
+    v1-output) printf '86\\n'; exit 0 ;;
+    *)         printf '84\\n'; exit 0 ;;
+  esac
+fi
+
 if [ "$#" -eq 4 ] && [ "$1" = "run" ] && [ "$2" = "--v2" ]; then
   [ "$4" = "release-probe.ssc" ] ||
     fail_fixture "probe path is not relative: $4"
@@ -537,6 +551,8 @@ expect_fail vm-exit vm-exit
 expect_fail vm-output vm-stdout
 expect_fail vm-extra-newline vm-stdout
 expect_fail vm-stderr vm-stderr
+expect_fail v1-exit             v1-exit
+expect_fail v1-output           v1-stdout
 expect_fail asm-succeeds        asm-bytecode-refused
 expect_fail asm-refuses-but-prints asm-stdout
 expect_fail asm-refusal-silent  asm-refusal-names-flag
