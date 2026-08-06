@@ -857,7 +857,27 @@ same mistake lives in `BundleCommand` and is filed separately as
 landing in between, not by an error. A census of failure messages has a shelf life measured in
 commits; re-run it before acting on it.
 
-**WHAT THE 13 RED ONES SAY NOW.** Recorded as leads, not as diagnoses — only the first is reduced:
+**RE-CENSUS 2026-08-06 — thirteen red became ONE.** Re-ran every gate this entry has ever listed as
+red, against HEAD with a fresh build:
+
+| gate | now |
+|---|---|
+| `build`, `bundle`, `components`, `import-alias`, `std-ui-forms`, `upload`, `url-import`, `validation` | **green** |
+| `middleware` | red — jvm, 44 errors, all `not a member of Any` |
+
+Everything except `middleware` was closed by the causes this entry chased down rather than by the
+gates being changed: the jvm `Cons` lowering and its scope/`__extern__` siblings, the json and
+session host bridges, the extern-import filter, the triple-quoted-literal lexer fix, and native
+multipart. `middleware` is the one filed cause still open —
+`v1/runtime/backend/jvm/BUGS.md`'s middleware section: `std/http.ssc` declares
+`use(fn: (Request, () => Response) => Response)` while the jvm host defines
+`(Request, () => Any) => Any`, so `next()` infers `Any` and `.withHeader` is unreachable.
+
+**The shelf-life warning this entry already carried proved itself twice.** The table below is the
+2026-08-02 snapshot; it was wrong by 2026-08-04 and is wrong again now. Read it as history, not as
+state — the row that matters is the one above.
+
+**WHAT THE 13 RED ONES SAID ON 2026-08-02** — kept for the record:
 
 | gate | first failure |
 |---|---|
