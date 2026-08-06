@@ -2067,7 +2067,24 @@ object SpikeParse:
     // and scripts/smoke-ci.ssc spends four diagnostics on it.
     if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol, stopAtParen = c.parenDepth > 0)
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `then r = n` (Scala 3)
-    else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    else
+      val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+      // `if c then a(i) = v` — an INDEXED assignment as a single-line branch body.
+      //
+      // The `then r = n` case above is decided by a two-token lookahead, and an indexed target
+      // CANNOT be: `a(i)` is only known to be an assignment target once it has been parsed as a
+      // call. That is exactly why `parseStmt` (:1331) asks the same question AFTER parsing rather
+      // than before, and the branch position needed the same treatment — not a wider lookahead.
+      //
+      // It failed silently in the way that costs most: `a(i)` parsed cleanly as the branch body
+      // and the `= v` was left to the enclosing block, so the diagnostic landed on whatever came
+      // next rather than on the construct that broke.
+      e match
+        case Node.Frame("spike.call", _, _) if c.peekKind == "spike.eq" =>
+          c.advance() // `=`
+          val rhs = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+          Node.Frame("spike.idxassign", None, Vector(e.withRole("idxassign.lhs"), rhs.withRole("idxassign.rhs")))
+        case _ => e
 
   private def parseIf(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
