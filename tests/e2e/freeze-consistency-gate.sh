@@ -220,12 +220,25 @@ done
 # DERIVED, not frozen: this compares two sets. A frozen COUNT would go stale on the next case added,
 # which is how the roster drifted in the first place.
 if command -v scala-cli >/dev/null 2>&1; then
+  # The breadcrumb is not decoration. This is the only step that can take minutes: `scala-cli` is
+  # ~0 s here against a warm cache and a cold resolve-and-compile on a runner — measured 2 s local
+  # against 94.5 s on CI for this whole gate, a 47x ratio. When the smoke runner's guard kills a
+  # check it reports `exit code -1` and no output at all, so a line printed BEFORE the slow step is
+  # the only thing that survives to say where it died.
+  printf '  asking contract.sc for the case list (cold scala-cli dominates this gate on CI)\n'
+  # `|| true` INSIDE the substitution, and it is load-bearing: `set -e` is on, and under `pipefail`
+  # this pipeline exits non-zero whenever `grep -v` matches nothing — which is exactly the
+  # produced-nothing case the very next `if` exists to report. Without it the script died here with
+  # no message and no summary, so the handler below was unreachable code and a CI red showed four
+  # stdout lines, `exit code 1`, and no reason. Reproduced with:
+  #     set -euo pipefail; x="$(printf '' | grep -v '^$')"; echo unreachable
   listed="$(cd "$ROOT" && timeout 120 scala-cli tests/conformance/contract.sc -- --list 2>/dev/null \
-            | sed 's/[[:space:]]*$//' | grep -v '^$' | LC_ALL=C sort)"
+            | sed 's/[[:space:]]*$//' | grep -v '^$' | LC_ALL=C sort || true)"
   if [ -z "$listed" ]; then
     printf '  note: contract.sc --list produced nothing — roster drift NOT checked this run\n'
   else
-    rostered="$(tail -n +2 "$ROOT/tests/conformance/contract-roster.tsv" | grep -v '^$' | LC_ALL=C sort)"
+    # Same hazard, same guard: an empty roster body would otherwise abort here instead of reporting.
+    rostered="$(tail -n +2 "$ROOT/tests/conformance/contract-roster.tsv" | grep -v '^$' | LC_ALL=C sort || true)"
     missing="$(comm -23 <(printf '%s\n' "$listed") <(printf '%s\n' "$rostered"))"
     orphan="$(comm -13 <(printf '%s\n' "$listed") <(printf '%s\n' "$rostered"))"
     if [ -n "$missing" ]; then
