@@ -115,6 +115,24 @@ what F CAN do. Both surface as `unbound global: (global X)` from `RunNativeV2.va
 which is a validator and therefore innocent: it rejects a `Term.Global` naming nothing at top level,
 and the wrong lowering happened upstream.
 
+**1. FIXED 2026-08-06 for object and class bodies (03887cefb, 122e63e03).** A bare call to a
+sibling member now lowers, in an `object` body and a `case class` body alike, including a
+self-recursive method. `isCurObjMethod` is the twin `calleeOf` was missing, and for a class the
+receiver is prepended in `parseCallPlain` because a class method's global takes `__self` as its
+first parameter while an object method has no such slot. Gate
+`tests/e2e/f-bare-member-call-gate.sh`, 9 cases.
+
+STILL OPEN in this reason: a `def` nested inside a FUNCTION body (`def outer() = { def loop(..) }`
+→ `unbound global: (global loop)`), and `this.m()` → `(global this)`, F having no `this` at all.
+The shapes that used to fail and now do not:
+
+    case class B(n: Int):        def q() = twice() * 2         DECLINED -> 12
+    case class B(n: Int):        def go() = scale(5)           DECLINED -> 15
+    case class B(n: Int):        def down(k) = .. down(k-1)    DECLINED ->  7
+    object M:                    def q() = twice() * 2         DECLINED ->  4
+
+The original statement of this reason, kept because the remaining shapes still match it:
+
 **1. Any `def` that is not top-level is lowered as a top-level `Global`.** Where it sits does not
 matter:
 
