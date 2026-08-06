@@ -20,6 +20,21 @@ import argparse, pathlib, re, sys
 FIELD = re.compile(r"([a-z-]+)\s*:\s*([^\n]+)")
 
 
+def names_no_gate(row):
+    """Does this entry name no regression gate at all?
+
+    `-` counts, and that is the whole reason this is a function. It was written twice — once for
+    `--no-gate`, once for the summary line — and BOTH read `gate in (None, "none")`, so five open
+    entries carrying `gate: -` were invisible to the query that answers "what is unprotected".
+    Under-reporting, in the direction that flatters. A dash is how this repo writes "nothing here"
+    (`fixed-in: -` does the same), and two copies of a predicate drift by construction.
+
+    The empty-ish values are spelled out rather than tested by truthiness: `0` and `false` would be
+    legal gate paths.
+    """
+    return (row.get("gate") or "").strip() in ("", "none", "-")
+
+
 # The bug files, in module order. Discovered rather than listed: a module gets a file when it has
 # something to record, so a hard-coded list would silently miss the next one.
 SEARCH = ["BUGS.md", "*/BUGS.md", "*/*/BUGS.md", "*/*/*/BUGS.md", "*/*/*/*/BUGS.md"]
@@ -216,10 +231,7 @@ def main():
     # out `front` because the word is common). The default is stated, not inferred.
     if a.kind:   sel = [r for r in sel if r.get("kind", "bug") == a.kind]
     if a.v2:     sel = [r for r in sel if r.get("lane") in ("native", "v2-jvm", "v2-rust")]
-    # `-` names nothing either, and 5 open entries used it while this predicate counted only
-    # None/"none" — so the answer to "what is unprotected" was LOW BY 5. The empty-ish set is
-    # spelled out rather than tested by truthiness, because "0" and "false" are legal gate paths.
-    if a.no_gate: sel = [r for r in sel if (r.get("gate") or "").strip() in ("", "none", "-")]
+    if a.no_gate: sel = [r for r in sel if names_no_gate(r)]
 
     if a.kind and a.source == "bugs":
         cov = index_coverage(root)
@@ -254,7 +266,7 @@ def main():
             if not rs: continue
             o = sum(1 for r in rs if r.get("status") == "open")
             print(f"    {o:4} / {len(rs):4}   {mod}/BUGS.md")
-        nog = [r for r in opens if r.get("gate") in (None, "none")]
+        nog = [r for r in opens if names_no_gate(r)]
         print(f"\n  open with NO gate named: {len(nog)} of {len(opens)}")
         cov = index_coverage(root)
         pct = 100 * cov["unindexed"] / cov["total"] if cov["total"] else 0

@@ -7,7 +7,12 @@ so this census and the tool can never be reading different sets.
 
 `scripts/bugs-report --no-gate` reported **92**. It selected `gate in (None, "none")`, and five open
 entries carry `gate: -`, which names nothing but is neither. **The real count is 97**, and the
-predicate is fixed in this commit to treat `""`, `none` and `-` alike.
+predicate now treats `""`, `none` and `-` alike.
+
+**It was written TWICE** — once for `--no-gate`, once for the summary line — and both copies read
+`gate in (None, "none")`. Fixing one left the summary printing 92 while the listing returned 97, in
+the same run, which is how the duplication announced itself. There is now one `names_no_gate(row)`
+and two call sites.
 
 Worth stating plainly: the query that answers *"what is unprotected"* was itself under-reporting by
 five. Same shape as `fixed-in: -` — a dash is how this repo writes "nothing here", and a predicate
