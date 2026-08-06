@@ -400,6 +400,14 @@ object Parser:
     case Tok.TId("true", p)  => (Pat.PLit(Expr.BoolLit(true, p), p), ts.tail)
     case Tok.TId("false", p) => (Pat.PLit(Expr.BoolLit(false, p), p), ts.tail)
     case Tok.TId(n, p) if !keywords.contains(n) =>
+      // `case C.Red =>` — a QUALIFIED constructor. The qualifier is dropped: v3 flattens an enum
+      // into one class per case, so `C.Red` and `Red` name the same constructor and keeping the
+      // prefix would mean two spellings of one thing for the lowering to reconcile.
+      if isPunct(peek(ts.tail), ".") && ts.tail.tail.nonEmpty then
+        peek(ts.tail.tail) match
+          case Tok.TId(inner, ip) if !keywords.contains(inner) =>
+            return parsePatAtom(Tok.TId(inner, ip) :: ts.tail.tail.tail)
+          case _ => ()
       if isPunct(peek(ts.tail), "(") then
         var t = ts.tail.tail
         var args: List[Pat] = Nil
@@ -682,6 +690,12 @@ object Parser:
 
   /** Is an ASSIGNMENT statement starting here — `x = e` or `a(i) = e`? A lone `=`, never `==`,
     * which the operator lexer keeps as one token so there is nothing to disambiguate. */
+  /** `.name =` with a LONE `=`, never `==`. Checked as a shape rather than by backtracking, for the
+    * reason every other lookahead in this file gives. */
+  private def isQualifiedAssign(ts: List[Tok]): Boolean = peek(ts) match
+    case Tok.TId(n, _) if !keywords.contains(n) => ts.tail.nonEmpty && isOp(peek(ts.tail), "=")
+    case _                                      => false
+
   private def assignAhead(ts: List[Tok]): Boolean = peek(ts) match
     case Tok.TId(n, _) if !keywords.contains(n) =>
       if isOp(peek(ts.tail), "=") then true
@@ -911,6 +925,15 @@ object Parser:
       val t3 = expectOp(t2, "=")
       val (v, t4) = parseExpr(t3)
       (List(Stmt.Exp(Expr.Update(Expr.Name(n, p), idx, v, p))), t4)
+    // `Cfg.count = 5` — assignment to an object MEMBER. The dotted name is one name here, which is
+    // how the member was stored in the first place.
+    case Tok.TId(n, p) if !keywords.contains(n) && isPunct(peek(ts.tail), ".") &&
+                          ts.tail.tail.nonEmpty && isQualifiedAssign(ts.tail.tail) =>
+      val m = ts.tail.tail.head match
+        case Tok.TId(x, _) => x
+        case other         => throw ParseFail(Lexer.posOf(other), "expected a member name")
+      val (e, t) = parseBody(ts.tail.tail.tail.tail)
+      (List(Stmt.Exp(Expr.Assign(n + "." + m, e, p))), t)
     case Tok.TId(n, p) if !keywords.contains(n) && isOp(peek(ts.tail), "=") =>
       val (e, t) = parseBody(ts.tail.tail)
       (List(Stmt.Exp(Expr.Assign(n, e, p))), t)
@@ -942,7 +965,8 @@ object Parser:
     // A BODY. It used to be refused by name, which was the honest thing while methods could not be
     // lowered; they can now, so the refusal would be the dishonest one.
     if isPunct(peek(ts), ":") then
-      val (members, t2) = parseMembers(ts.tail, "class")
+      val (members, vs, t2) = parseMembers(ts.tail, "class")
+      if vs.nonEmpty then throw ParseFail(p, "a `case class` member that is not a `def` is outside SSC3 core Tier 0")
       (ClassDef(name, fields.reverse, members, parents, p), t2)
     else (ClassDef(name, fields.reverse, Nil, parents, p), ts)
 
@@ -1036,7 +1060,8 @@ object Parser:
 
   /** The `def` members of a `class`/`trait`/`object` body, indented or braced. One reader for all
     * three, because they differ in what the members MEAN, not in how they are written. */
-  private def parseMembers(ts0: List[Tok], what: String): (List[Def], List[Tok]) =
+  private def parseMembers(ts0: List[Tok], what: String): (List[Def], List[Stmt.Val], List[Tok]) =
+    var vals: List[Stmt.Val] = Nil
     var ts = ts0
     var braced = false
     if isPunct(peek(skipNewlines(ts)), "{") then
@@ -1060,10 +1085,19 @@ object Parser:
         val (d, t) = parseDef(ts)
         members = d :: members
         ts = t
+      // A `val`/`var` member — collected here and sorted out by the caller, since only an `object`
+      // can hold one: a `trait`'s abstract state and a `case class`'s fields are different things.
+      else if isId(peek(ts), "val") || isId(peek(ts), "var") then
+        val (sts, t) = parseStmt(ts)
+        sts.foreach { st => st match
+          case v: Stmt.Val => vals = vals :+ v
+          case _           => throw ParseFail(posOf(ts), "a member of a " + what + " must be a definition")
+        }
+        ts = t
       else
         throw ParseFail(posOf(ts), "only `def` members are supported in a " + what +
           " at Tier 0, found " + Lexer.show(peek(ts)))
-    (members.reverse, ts)
+    (members.reverse, vals, ts)
 
   /** `trait T:` — the members it declares. An ABSTRACT member (`def f(x: Int): Int` with no `=`)
     * is a declaration and contributes nothing to run time; a CONCRETE one is inherited by every
@@ -1079,41 +1113,18 @@ object Parser:
       (TraitDef(name, Nil, parents, p), ts)
     else
       if isPunct(peek(ts), ":") then ts = ts.tail
-      val (members, t2) = parseMembers(ts, "trait")
+      val (members, vs, t2) = parseMembers(ts, "trait")
+      if vs.nonEmpty then throw ParseFail(p, "a `trait` member that is not a `def` is outside SSC3 core Tier 0")
       (TraitDef(name, members, parents, p), t2)
 
   private def parseObject(ts0: List[Tok], p: Pos): (ObjectDef, List[Tok]) =
     val (name, _, t0) = expectName(ts0)
     var ts = skipBrackets(t0)
-    var braced = false
+    val (_, tp) = parseParents(ts)
+    ts = tp
     if isPunct(peek(ts), ":") then ts = ts.tail
-    if isPunct(peek(skipNewlines(ts)), "{") then
-      braced = true
-      ts = skipNewlines(ts).tail
-    else
-      val t = skipNewlines(ts)
-      if t.head.isInstanceOf[Tok.TIndent] then ts = t.tail
-      else throw ParseFail(posOf(t), "expected the object's members, indented or in braces")
-    var members: List[Def] = Nil
-    var go = true
-    while go do
-      // Inside braces the layout tokens mean nothing — the braces already say where the block ends
-      // — so they are skipped wholesale. Outside them the DEDENT IS the end, so only newlines go.
-      ts = if braced then skipLayout(ts) else skipNewlines(ts)
-      if braced && isPunct(peek(ts), "}") then
-        ts = ts.tail
-        go = false
-      else if !braced && ts.head.isInstanceOf[Tok.TDedent] then
-        ts = ts.tail
-        go = false
-      else if ts.head.isInstanceOf[Tok.TEof] then go = false
-      else if isId(peek(ts), "def") then
-        val (d, t) = parseDef(ts)
-        members = d :: members
-        ts = t
-      else
-        throw ParseFail(posOf(ts), "only `def` members are supported in an `object` at Tier 0, found " + Lexer.show(peek(ts)))
-    (ObjectDef(name, members.reverse, p), ts)
+    val (members, vals, t2) = parseMembers(ts, "object")
+    (ObjectDef(name, members, vals, p), t2)
 
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
@@ -1182,7 +1193,8 @@ object Parser:
         val (parents, tParents) = parseParents(t)
         t = tParents
         if isPunct(peek(t), ":") then
-          val (members, t2) = parseMembers(t.tail, "class")
+          val (members, vs2, t2) = parseMembers(t.tail, "class")
+          if vs2.nonEmpty then throw ParseFail(cp, "a `case object` member that is not a `def` is outside SSC3 core Tier 0")
           classes = ClassDef(cn, Nil, members, parents, cp) :: classes
           ts = t2
         else

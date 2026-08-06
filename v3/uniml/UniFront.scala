@@ -87,7 +87,7 @@ object UniFront:
         case dd: U.Def => Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
         case other     => no("a non-`def` member of an `object`", other.span)
       }
-      Sorted.O(ObjectDef(n, defsOnly, pos(s)))
+      Sorted.O(ObjectDef(n, defsOnly, Nil, pos(s)))
     case U.TopExpr(e, s) => Sorted.S(stmtsOf(e, s))
     // An enum has no v3 node: each case IS a constructor with a tag, which is what the v3 parser
     // already produces. The cases are emitted one at a time by the caller's fold.

@@ -772,3 +772,29 @@ and the spec would have carried them as v3 gaps forever. The probe took a minute
       to "NOT IN THE LANGUAGE", with what v1 answers written next to each.
 
 N = 45 → 47. Gates: front 52 cases, executor 54, parity 40 of 42.
+
+## SSC3-22 — object members and qualified enum cases: the daily-use list is closed
+
+- [x] **22a — `C.Red`.** v3 flattens an enum into one class per case, so the qualifier carries no
+      information by the time the lowering sees it: it is DROPPED rather than resolved, in both
+      expression and pattern position. Keeping it would mean two spellings of one constructor for
+      every later phase to reconcile.
+- [x] **22b — an `object` member that is not a `def`.** A `val`/`var` member becomes a module GLOBAL
+      named `Object.member` — a namespace is not a value in this language, so there is nowhere else
+      for a `var` to live, and the dot puts it in the same namespace the qualified read looks in.
+      Members initialise BEFORE any top-level statement, since a script may read one.
+- [x] **22c — an object's methods see its members UNQUALIFIED.** `def bump(): Unit = n = n + 1`
+      means the object's own `n`. Rewritten while the methods are flattened, with a parameter or
+      local of the same name SHADOWING — which is why it cannot be a plain `mapDeep`, the same
+      scope care `selfCalls` needs. Without it the method reported `unknown name 'n'` while the
+      global sat beside it under another name.
+
+      `tests/conformance/object-var-member-scope.ssc` now MATCHES, and it was the case that said
+      what the semantics had to be.
+
+**v3 differs from v1 on one point here, and it is the sixth such.** Direct qualified assignment —
+`Cfg.count = 7` from outside the object — takes effect in v3 (`x/0/7`) and is silently ignored by
+v1 (`x/0/0`). Mutation through a METHOD works on both, which is what the corpus tests. v3's answer
+is Scala's.
+
+N = 47 → 48. Gates: front 54 cases, executor 56, parity 40 of 42.

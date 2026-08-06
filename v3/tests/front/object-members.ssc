@@ -1,0 +1,8 @@
+object Cfg:
+  val name = "x"
+  var count = 0
+  def bump(): Int = count + 1
+println(Cfg.name)
+println(Cfg.count)
+Cfg.count = 7
+println(Cfg.count)

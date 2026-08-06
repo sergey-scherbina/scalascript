@@ -1,0 +1,9 @@
+enum C:
+  case Red
+  case Green
+println(C.Red)
+def f(c: C): String =
+  c match
+    case C.Red => "r"
+    case C.Green => "g"
+println(f(C.Green))

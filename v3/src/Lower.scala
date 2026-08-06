@@ -411,6 +411,18 @@ object Lower:
       (acc :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))),
        d, stF)
 
+    // `Cfg.name` where `name` is an object MEMBER, not a method. Rewritten to the dotted global it
+    // is, so the ordinary name path resolves it — no second lookup rule for qualified reads.
+    case Expr.MethodCall(Expr.Name(obj, _), nm, Nil, p) if st0.globalIdx(obj + "." + nm) >= 0 =>
+      lower(Expr.Name(obj + "." + nm, p), fns, classes, zeroArity, st0)
+
+    // `C.Red` — an enum case reached through its enum's name. v3 flattens an enum into one class
+    // per case, so the qualifier carries no information by the time we are here; it is dropped
+    // rather than resolved, and the case is the nullary constructor it already was.
+    case Expr.MethodCall(Expr.Name(_, _), nm, Nil, p)
+        if classes.exists(c => c.name == nm && c.fields.isEmpty) =>
+      lower(Expr.Name(nm, p), fns, classes, zeroArity, st0)
+
     // `v.step(1, 2)` where `step` is a FIELD holding a function — a field READ followed by an
     // application, not a method call. Rewritten into the two nodes that already do exactly that, so
     // neither mechanism needs to learn about the other.
@@ -968,6 +980,44 @@ object Lower:
           Expr.Call(to, captured.map(c => Expr.Name(c, p)), p)
         case other => other)
 
+  /** Rewrite an object method's references to its OWN members into the dotted globals they are.
+    * A parameter or local of the same name shadows, so the rewrite skips a lambda whose parameter
+    * takes the name — the same scope care `selfCalls` needs, and the reason neither can be a plain
+    * `mapDeep`. */
+  private def qualifyMembers(e: Expr, obj: String, own: List[String]): Expr =
+    def go(x: Expr): Expr = qualifyMembers(x, obj, own)
+    e match
+      case Expr.Name(n, p) if own.contains(n)     => Expr.Name(obj + "." + n, p)
+      case Expr.Assign(n, v, p) if own.contains(n) => Expr.Assign(obj + "." + n, go(v), p)
+      case Expr.Lambda(ps, b, p) =>
+        Expr.Lambda(ps, qualifyMembers(b, obj, own.filter(n => !ps.exists(q => q.name == n))), p)
+      case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
+      case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+      case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
+      case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
+      case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
+      case Expr.Not(x, p)               => Expr.Not(go(x), p)
+      case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
+      case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
+      case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
+      case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
+      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
+      case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
+      case Expr.Match(sc, arms, p) =>
+        Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
+      case Expr.Block(sts, res, p) =>
+        var live = own
+        val out = sts.map { st => st match
+          case Stmt.Val(n, v, mu, q) =>
+            val r = Stmt.Val(n, qualifyMembers(v, obj, live), mu, q)
+            live = live.filter(x => x != n)
+            r
+          case Stmt.Exp(x)      => Stmt.Exp(qualifyMembers(x, obj, live))
+          case Stmt.LocalDef(d) => Stmt.LocalDef(d.copy(body = qualifyMembers(d.body, obj, live)))
+        }
+        Expr.Block(out, res.map(x => qualifyMembers(x, obj, live)), p)
+      case other => other
+
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true
     case _                            => false
@@ -1150,12 +1200,23 @@ object Lower:
       case Stmt.Val(n, v, _, q) => Stmt.Exp(Expr.Assign(n, v, q))
       case other                => other
     }
+    // Object members initialise FIRST. A top-level statement may read one, and a namespace's
+    // members are conceptually there before the script starts — which is also what v1 does.
+    val objectInit: List[Stmt] = p.objects.flatMap(o =>
+      o.vals.map(v => Stmt.Exp(Expr.Assign(o.name + "." + v.name, v.value, v.pos))))
     val entryBody =
-      Expr.Block(hoisted, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
+      Expr.Block(objectInit ++ hoisted, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
     val entryDef = Def(entryName, Nil, entryBody, Pos.none)
     // Object members are flattened into `Object.member` top-level functions before anything else
     // looks at the name list, so a qualified call resolves by ordinary lookup.
-    val objectDefs = p.objects.flatMap(o => o.defs.map(d => d.copy(name = o.name + "." + d.name)))
+    // An object's methods see its members UNQUALIFIED — `def bump(): Unit = n = n + 1` refers to the
+    // object's own `n`. The members are stored as dotted globals, so the body is rewritten to name
+    // them that way; without it the method reported `unknown name 'n'` while the global sat beside
+    // it under another name.
+    val objectDefs = p.objects.flatMap { o =>
+      val own = o.vals.map(_.name)
+      o.defs.map(d => d.copy(name = o.name + "." + d.name, body = qualifyMembers(d.body, o.name, own)))
+    }
     // Every class's FULL method set: its own, plus the concrete members of the traits it extends,
     // transitively. A member the subclass defines itself WINS — that is what overriding means, and
     // it falls out of putting the class's own methods first and de-duplicating by name.
@@ -1220,10 +1281,14 @@ object Lower:
     var lifted: List[Func] = Nil
     // Collected BEFORE anything is lowered: a `def` may reference a top-level `val` declared
     // further down the file, and the other lanes allow that.
-    val globalNames = p.topLevel.flatMap { st => st match
+    // An object's `val`/`var` members are module GLOBALS named `Object.member`. A namespace is not
+    // a value in this language, so there is nowhere else for a `var` to live — and naming them with
+    // the dot keeps them in the SAME namespace the qualified read already looks in.
+    val objectGlobals = p.objects.flatMap(o => o.vals.map(v => o.name + "." + v.name))
+    val globalNames = (p.topLevel.flatMap { st => st match
       case Stmt.Val(n, _, _, _) => List(n)
       case _                    => Nil
-    }.distinct
+    } ++ objectGlobals).distinct
     var funcs: List[Func] = Nil
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))

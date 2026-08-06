@@ -116,7 +116,9 @@ final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
 /** An `object`'s members, flattened. The object itself carries no runtime value at Tier 0 — it is
   * a NAMESPACE — so `object Foo: def bar(…)` becomes a top-level `Foo.bar`, which is also how the
   * other lanes lower it. */
-final case class ObjectDef(name: String, defs: List[Def], pos: Pos)
+/** `vals` are the object's `val`/`var` members. They become module GLOBALS named `Object.member`,
+  * because a `var` needs somewhere to live and a namespace is not a value in this language. */
+final case class ObjectDef(name: String, defs: List[Def], vals: List[Stmt.Val], pos: Pos)
 
 final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef],
                          objects: List[ObjectDef], traits: List[TraitDef] = Nil)
