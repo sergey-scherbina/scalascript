@@ -8,6 +8,47 @@ grepping for status.
 Newest first.
 
 
+## fewer-braces-colon regressed on v2 and hid for five days behind an already-red gate
+
+<!-- status: open
+     lane: v2
+     area: front
+     fixed-in: -
+     gate: tests/conformance/contract.sc (corpus-contract nightly) -->
+
+`tests/conformance/fewer-braces-colon.ssc` fails on the v2 lane:
+
+    ssc: arity: 2 expected, 1 given
+
+Reproduce: `scripts/conformance --lanes v2 --only fewer-braces-colon --no-memo`. The case expects
+`6 6 6 5 8 b n1 8`; v2 exits 1 at the first line. It PASSES on int.
+
+**It is a genuine regression, not an unrecorded gap.** The case is in
+`tests/conformance/contract-roster.tsv:142` and has NEVER had a row in `corpus-baseline.tsv` — and
+the corpus-contract nightly was GREEN on 2026-07-30, 07-31 and 08-01, so v2 was passing it then. It
+was added 2026-07-28 as a deliberate fail-first gate (`c6f35c87b`) and was made to pass within two
+days.
+
+**Break window: after the 08-01 06:20 nightly, before the 08-04 06:19 one.** v2 commits in that
+window, newest first:
+
+    34319ba4e  fix(v2): the legacy front also makes `O(7)` reach an object's `apply`
+    0c424e5d9  feat(v2): J-9 — compile off the critical path
+    55307a9e6  fix(v2): v2-rust and v2-js generators implement __autoOutput__
+    aaa89b211  fix(v2): new Array[T](n) allocates n slots on the legacy front
+
+`34319ba4e` is the one to look at first: an arity error on a trailing-lambda call is the shape a
+change to how a call reaches `apply` would produce.
+
+**Why it went unnoticed for five days, which is the more useful half.** The corpus-contract nightly
+has been red every night since 08-02 for FOUR different causes that arrived one on top of another —
+a NEW CASE absent from the roster, this regression, a second regression, and an IMPROVEMENT (a case
+that started passing, which the contract reds on purpose to force a baseline update). Nobody could
+tell them apart, so nobody acted, and each new cause landed in an already-red gate. `contract.sc`'s
+own comment names this failure mode: *"that is how a gate teaches people to ignore it, which is
+exactly how this one died the first time."*
+
+
 ## swift-macos-build-broken-by-forJsonView — a UI primitive landed on one lane only
 <!-- status: open
      lane: native
