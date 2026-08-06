@@ -1,0 +1,11 @@
+slug: claim-lifetime-policy
+branch: feature/claim-lifetime-policy
+agent: claude-code
+started: 2026-08-06T09:38:02Z
+heartbeat: 2026-08-06T09:38:02Z
+status: claimed-before-planning
+items: P-2.6 P-2.7 cli-reporter-silent-on-module-blocks
+paths: file:POLICY.md file:AGENTS.md file:.agents/plugins
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
