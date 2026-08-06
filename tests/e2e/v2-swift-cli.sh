@@ -28,6 +28,27 @@ test -f "$TMP/build-a/macos/Sources/AppCore/SscRuntime.swift"
 test -f "$TMP/build-b/macos/Sources/AppCore/SscRuntime.swift"
 grep -Fq 'platforms: [.iOS(.v16)]' "$TMP/build-ios/ios/Package.swift"
 
+# A UI PROGRAM, not just the money fixture. Everything above builds
+# tests/conformance/money-portable-v2.ssc, which imports no UI primitives — so this gate ran the
+# right command on a subject that could not exhibit the failure it exists to catch. A primitive that
+# lands on the DOM lane only breaks every UI program on the Swift target and nothing here noticed:
+# `forJsonView` did exactly that on 2026-07-20 and went unseen for two and a half weeks
+# (v2/BUGS.md swift-macos-build-broken-by-forJsonView).
+#
+# No Xcode and no macOS runner needed: the failure is `unsupported global` raised by SwiftBackend's
+# validation, on the JVM, before any swiftc runs. That is why this belongs here rather than in a
+# mac-only job.
+UI_FIXTURE="$ROOT/examples/frontend/ios-hello/ios-hello.ssc"
+# KNOWN RED against the entry above, declared rather than left failing: the build IS broken today.
+# It flips this gate red the moment it starts working, which is the signal to delete this block.
+if "$SSC" build --v2 --target macos --out "$TMP/build-ui" "$UI_FIXTURE" >/dev/null 2>&1; then
+  echo "v2-swift-cli: the UI target now BUILDS — delete this known-red block, let the check count," >&2
+  echo "  and close v2/BUGS.md swift-macos-build-broken-by-forJsonView" >&2
+  exit 1
+else
+  echo "  KNOWN GAP  UI target — swift-macos-build-broken-by-forJsonView (declared, not counted)"
+fi
+
 "$SSC" run-swift "$FIXTURE" >"$TMP/run-swift.out"
 diff -u "$EXPECTED" "$TMP/run-swift.out"
 "$SSC" run --target macos "$FIXTURE" --v2 >"$TMP/run-target.out"
