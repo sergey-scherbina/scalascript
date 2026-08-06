@@ -7,6 +7,47 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## cli-reporter-silent-on-module-blocks — the main-file half of a lane divergence, still open
+
+<!-- status: open
+     lane: multi
+     area: cli
+     owner: unassigned -->
+
+`reportCodeBlockParseErrors` (`v1/tools/cli/.../RenderHelpers.scala:64`) does not report a code
+block that failed to parse when the file's front matter carries `package:`. Its condition is
+`cb.tree.isEmpty && cb.parseError.isDefined`, and a `package:` module re-parses each block wrapped
+in `object pkg:` and CLEARS the stored error when that retry also fails (`Parser.scala:120`) — so a
+failing module block has an empty tree and NO recorded position, and nothing prints.
+
+Measured with `val broken = (((`, which no parser accepts: every path stayed silent.
+
+**The change, which is two edits:**
+
+    case cb: Content.CodeBlock if cb.isProgramCode && cb.tree.isEmpty =>
+
+drop `parseError.isDefined`, add `isProgramCode`, and make the message say the position is missing
+rather than inventing one. `isProgramCode` is `isParseable(lang) && !isDocOnly` and is NOT optional
+here: without it the reporter starts flagging `@doc` examples, which is most of the standard
+library's documentation.
+
+**The risk is already paid down.** The same fix landed on the IMPORT path in `1c84683fa`, which is
+where the lane divergence actually bit — the interpreter ran programs `v2` and the native front
+reject. Turning it on found five conformance failures at once, all one cause (an import example
+inside a code fence in `examples/std-ui/index.ssc`); four more of the same shape were found by
+census and all are now marked `@doc`. Conformance on int, `--no-memo`: 358/358.
+`tests/e2e/import-parse-error-gate.sh` covers both directions on all three lanes and would cover
+this half too.
+
+**Why it is here and not done.** `RenderHelpers.scala` is held by `release-graalvm-pin`, which is
+live by commit activity and visibly working on CLI diagnostics. The overlap guard refused the
+widening and that refusal was correct. Offered to that claim in the room on 2026-08-06; this entry
+is so the work survives whether or not they take it.
+
+**Why the root board.** `v1/tools/cli` has no `BACKLOG.md`; creating one for a single entry is
+heavier than the entry.
+
+
 ## smoke-budget-has-no-owner — the per-push cap is a shared resource nobody is responsible for
 <!-- status: open
      lane: multi

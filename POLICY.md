@@ -68,6 +68,23 @@ Detail and proofs: [`specs/claim-mutex.md`](specs/claim-mutex.md).
 - **P-2.5 · A refusal you believe is wrong is a conflict of interest.** Take it to the room (P-5).
   Never `git push --no-verify`, never release someone else's claim. A stale heartbeat is not
   liveness: a claim once read 638 minutes stale while its last commit was 56 seconds old.
+- **P-2.6 · One claim is one TASK, released when that task is done.** P-2.1 bounds a claim's
+  paths; this bounds its lifetime and its scope of work. A claim covering several tasks — "make
+  module X ready", a list of criteria, a milestone — holds its paths for as long as the slowest of
+  them, and every hour of that is an hour nobody else can touch the module. Measured 2026-08-05/06:
+  one claim held all of `uniml/` for two days across six acceptance criteria; it was reaped twice
+  for a stale heartbeat while its author was committing continuously, and a sibling who wanted the
+  same module had to wait for a claim whose remaining work was in one corner of it.
+  Prefer: claim, do the one thing, land it, RELEASE, claim the next. The cost of a second
+  `coord-claim` is seconds; the cost of a two-day claim is everyone else's queue.
+  A claim that has been open long enough to be reaped is a claim that should have been several.
+- **P-2.7 · Work you find but will not do goes on a board before you move on.** AGENTS.md already
+  requires queueing what you are *about to do*; this is its other half — the follow-up you are
+  NOT doing, because it belongs to another module, because a live claim holds it, or because you
+  decided it is not worth it now. In this repository that means the module's `BACKLOG.md`: a
+  module `SPRINT.md` has exactly two states, `[~]` in progress and `[x]` done, so a task nobody is
+  working on cannot honestly go there. Write it with the measurement that found it and what would
+  settle it, not just its name — an entry a reader cannot act on is a reminder, not a task.
 
 ## P-3 · Where work is recorded
 

@@ -171,9 +171,13 @@ question has no address.
 
 Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md).
 
-## Claim scope: [`POLICY.md`](POLICY.md) §P-2
+## Claim scope and LIFETIME: [`POLICY.md`](POLICY.md) §P-2
 
-Narrowest scope that covers the work, `mod:` is an edit lock rather than stewardship, bookkeeping
+One claim is one TASK, released when it lands (P-2.6) — a claim covering a milestone holds its
+paths for as long as its slowest part, and a claim open long enough to be reaped should have been
+several. Work you find but will NOT do goes on the module's `BACKLOG.md` before you move on (P-2.7);
+a module `SPRINT.md` has two states, `[~]` and `[x]`, so a task nobody is working on cannot go
+there. Narrowest scope that covers the work, `mod:` is an edit lock rather than stewardship, bookkeeping
 files are never claimed, and widening is a normal move — **P-2.1 … P-2.5**. Not restated here.
 
 **The syntax, which is this file's half:**
