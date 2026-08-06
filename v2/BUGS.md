@@ -13,7 +13,7 @@ Newest first.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: PENDING-SHA
+     fixed-in: 8abe91b6a05e2ff9165f986f005654c0877dc220
      gate: tests/conformance/curried-def-clauses.ssc -->
 
 **FIXED 2026-08-06.** `blockArgApp` takes `cx` and flattens onto a curried callee exactly as
