@@ -1,6 +1,6 @@
 # generation: 1078
 #slug	agent	started	items	paths
-ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
+ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-1	claude-code	2026-08-06T04:10:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:tests/BUGS.md file:uniml/build.sbt file:tests/e2e/emitted-coordinate-is-published.sh
 corpus-contract-gate-red	claude-code	2026-08-06T10:26:05Z	a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too	file:.github/workflows/corpus-contract.yml
 f-bare-member-call-classes	claude-code	2026-08-06T14:53:51Z	f-declines-every-non-top-level-def	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bare-member-call-gate.sh file:v2/BUGS.md
