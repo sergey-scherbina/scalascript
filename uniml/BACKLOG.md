@@ -92,9 +92,18 @@ reverted, so it predates them, and breadth is at its floor without it — no exa
 uses the form. The control was rewritten to assert something the parser can actually reach (a call
 with two block-valued arguments still has two arguments).
 
-**Before implementing it, ask the reference front** — extract it into a PROGRAM file, not a module
-(see the oracle entry below). Scala has the form, so the likely answer is that it should parse;
-"likely" is exactly the assumption that made a candidate get rejected during the breadth slices.
+**ASKED, 2026-08-06, and the answer was not the expected one — do not implement this yet.** I wrote
+that the reference front should be asked and that "Scala has the form, so the likely answer is that
+it should parse". It does parse, and it binds GARBAGE: `int` prints `<native:a>` for `a` and calls
+`b` undefined, `js` prints `<function>`, `v2/F` gets `a` right and rejects the file once `b` is
+used, and only `jvm` binds both names. Four lanes, four answers, two of them silently wrong with
+exit 0. Filed at the root as `multi-name-val-binds-garbage-and-says-nothing` (lane `multi` — no
+single module owns it).
+
+So the dialect's diagnostic is currently the most honest behaviour of the five implementations, and
+teaching it to parse the form would make it agree with an oracle that disagrees with itself.
+Implement it here only after the language decides what the form means; the root entry is where that
+decision belongs.
 
 ## the reference front is NOT an oracle for a module's fences — three method corrections
 

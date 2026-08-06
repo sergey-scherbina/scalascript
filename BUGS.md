@@ -16,6 +16,54 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## multi-name-val-binds-garbage-and-says-nothing — `val a, b = 1` on four lanes, four answers
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: divergence
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-06 while writing a control for `uniml-block-stops-at-comma`: the control needed a
+comma at paren-depth 0 inside a block, `val a, b = 1` was the obvious way to produce one, and it
+did not parse. Asking the reference front — the step the UniML backlog entry prescribes before
+implementing any construct — produced this instead.
+
+    def main(): Unit =
+      val a, b = 1
+      println(a)      // and, separately, println(b)
+
+    lane      println(a)      println(b)
+    int       <native:a>      ERROR Undefined: b
+    js        <function>      crashes Node
+    v2 / F    1               rejects the file: "structural CoreIR contains parser sentinel _err"
+    jvm       1               1
+
+**Only jvm is right.** Two lanes print a VALUE that is not the value — `<native:a>` and
+`<function>` are internal placeholders leaking into user output, with no error and exit 0, so a
+program carries them forward until something else breaks somewhere unrelated. That is the whole
+defect: not that the form is unimplemented, but that two lanes answer confidently and wrongly.
+
+The second name is a separate axis from the first, which is why the table has two columns: `int`
+and `js` bind SOMETHING to `a` and nothing to `b`, `v2/F` binds `a` correctly and declines only
+once `b` is used, and jvm binds both. Three names is worse — on int, `val x, y, z = 7` leaves
+`x` undefined too, so the count of names changes which of them exist.
+
+**F's behaviour is the only defensible one of the three wrong ones** and worth keeping in mind if
+this is fixed by removing rather than implementing the form: it refuses the file instead of
+inventing a binding. UniML's ScalaScript dialect refuses too, with a diagnostic pointing at the
+comma — that is what surfaced this.
+
+**The prescribed next step was refuted, and that is the point.** `uniml/BACKLOG.md` said "Scala has
+the form, so the likely answer is that it should parse". The oracle disagrees with itself across
+lanes, so "what the reference front does" was not an answer here; the measurement was.
+
+**No gate names this.** Neither the conformance corpus nor the examples corpus uses a multi-name
+`val`, which is why a construct that silently mis-binds on two lanes has never been noticed. A fix
+should land the four-lane row above as a conformance case, since an output comparison is exactly
+what catches `<native:a>`.
+
 ## package-root-import-needs-an-exports-entry-on-int — and needs nothing on native
 
 <!-- status: open
