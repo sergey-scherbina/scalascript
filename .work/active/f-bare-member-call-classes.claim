@@ -2,10 +2,10 @@ slug: f-bare-member-call-classes
 branch: feature/f-bare-member-call-classes
 agent: claude-code
 started: 2026-08-06T14:53:51Z
-heartbeat: 2026-08-06T14:53:51Z
+heartbeat: 2026-08-06T15:07:36Z
 status: claimed-before-planning
 items: f-declines-every-non-top-level-def
-paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bare-member-call-gate.sh
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bare-member-call-gate.sh file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
