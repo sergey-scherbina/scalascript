@@ -324,7 +324,7 @@ surfaced it, and it deserves its own measurement rather than a patch bolted onto
 <!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: b8f52cac6
+     fixed-in: 6683a457f
      gate: tests/e2e/object-var-mutation-gate.sh -->
 
 **FIXED 2026-08-06. It was TWO defects that each masked the other, which is why both obvious fixes

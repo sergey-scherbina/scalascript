@@ -553,6 +553,15 @@ def curriedOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(
 // this at every call site, so a parameter or a nested val still shadows the member, as in Scala.
 def isCurObjVar(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(curObjOf(cx)))
 def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
+// A bare call to a SIBLING member from inside the same object/class body. `isCurObjVar` above
+// covers the object's `var`s; its method twin was missing, so `def q() = twice()` lowered `twice`
+// to a top-level `(global twice)`, which `validateNoReader` then rejects — F declined the whole
+// file with `unbound global: (global twice)`. Same naming convention the QUALIFIED path already
+// uses (`postSel`/`emitMethodCall` emit `(global Obj_m)`), so this only teaches the BARE form the
+// name the qualified form already produces. The member list comes from the object registry, which
+// `isObjMember` reads for the qualified case, so no new bookkeeping is introduced.
+def isCurObjMethod(nm, cx) = if fst(curObjOf(cx)) == "" then false else isObjMember(fst(curObjOf(cx)), nm, cx)
+def curObjMethod(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm
 def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), (o, curriedOf(cx)))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
@@ -1134,7 +1143,7 @@ def tupleCtor(es) = "(ctor Tuple" ++ dlen(es) ++ joinArgs(es) ++ ")"
 // Read resolution mirrors lowerE :2464-2483: plain name in scope -> `(local i)`; else a block-local var
 // bound `@@name`(long cell) -> `(prim lcell.get (local i))` or `@name`(cell) -> `(prim cell.get (local i))`;
 // else a top-level var/val -> `(prim cell.get (global name__cell))`; else a bare global.
-def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")")))))))
+def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isCurObjMethod(nm, cx) then "(global " ++ curObjMethod(nm, cx) ++ ")" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")"))))))))
 // A lowercase call may carry explicit type args before its `(args)` or block arg — `foo[T](x)`,
 // `coroutineCreate[Int, Unit, String] { .. }`. Type args are erased, so skip the `[..]` (skipGen) and
 // dispatch on the following `(` (or fall to a bare ref, letting postfix pick up a trailing block arg).
