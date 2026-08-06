@@ -701,3 +701,27 @@ would be scoring its own blind spot.
       **It was invisible until 18a landed.** The construct existed on the bridge the whole time and
       the executor had no way to reach it, so no probe could have been written for it: a parity
       sweep can only probe what the front can PARSE.
+
+## SSC3-19 — `->`, `Map`, and a defect that only became reachable
+
+- [x] **19a — `k -> v` is a `Pair`.** Measured against v1, which prints `Pair(a, 1)` and NOT
+      `(a, 1)`. The first attempt built a `Tuple2` and both v3 lanes agreed with each other while
+      disagreeing with the reference — I-3 satisfied and compatibility broken, which is exactly the
+      pair of facts a lane differential cannot separate. `Pair` is registered as a synthetic class
+      alongside the tuples, so `._1` and patterns work through the machinery that already exists.
+- [x] **19b — `Map(k -> v, …)`,** built from the prims v2 ALREADY has (`map.new`, `map.put`) rather
+      than from a new IR form — the instruction set is not where a library type belongs. On the
+      executor a `VMap` is an INSERTION-ORDERED buffer of pairs, because that is what the reference
+      prints: `Map(a -> 1, b -> 2)` in the order written. `size` `isEmpty` `nonEmpty` `contains`
+      `get` `getOrElse` `keys` `values`, and `m(k)` yielding the VALUE rather than an Option, with a
+      missing key an error rather than a unit — a silent unit is a wrong answer that surfaces
+      somewhere else.
+- [x] **19c — calling a function held in a FIELD.** `v.step(1, 2)` where `step` is a field, not a
+      method. It reached the corpus as `Stub` — v2's silent sentinel at exit 0 — the moment
+      `foldLeft` became parseable and the case stopped being UNSUPPORTED.
+
+      **The defect was always there; making one construct work is what let the program get far
+      enough to show it.** That is the argument for re-running the WHOLE corpus after every front
+      change rather than the bucket that moved.
+
+**N = 39 → 45.** Six gates green; front-diff agreement 32 of 43, floor raised.

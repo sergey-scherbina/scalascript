@@ -1,0 +1,8 @@
+Map(a -> 1, b -> 2)
+1
+2
+true
+Some(1)
+List(a, b)
+false
+Map()

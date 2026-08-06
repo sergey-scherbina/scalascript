@@ -32,6 +32,11 @@ enum Value:
     * and a built-in has none, so this is the shape that lets a curried BUILT-IN call work at all.
     * `CallV` on one of these finishes the invoke. */
   case VPartial(recv: Value, name: String, got: List[Value])
+  /** A `Map`. INSERTION-ORDERED, because that is what the reference lane prints:
+    * `Map(a -> 1, b -> 2)` in the order written, not sorted and not hashed. A `Vector` of pairs
+    * rather than a hash map — v3's maps are small and written by hand, and preserving the order is
+    * worth more here than a lookup that never gets long enough to matter. */
+  case VMap(entries: scala.collection.mutable.ArrayBuffer[(Value, Value)])
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -60,6 +65,7 @@ object Exec:
     case Value.VStr(s)    => s
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
+    case Value.VMap(es)    => "Map(" + es.length + " entries)"
     case Value.VClos(f, _) => "<closure " + f + ">"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case Value.VArr(xs)    => "Array(" + xs.toList.map(show).mkString(", ") + ")"
@@ -115,6 +121,10 @@ object Exec:
     // v1 and v2, and they say so. Printing the contents would read better and would make the two
     // v3 lanes disagree on every program that prints an array, which invariant I-3 forbids. The
     // executor's own diagnostics still use `show`, which does print the contents.
+    // `Map(a -> 1, b -> 2)`, in INSERTION order and with the arrow — measured off v1, which is what
+    // the corpus expectations encode.
+    case Value.VMap(es) =>
+      "Map(" + es.toList.map((k, v) => showV(m, k) + " -> " + showV(m, v)).mkString(", ") + ")"
     case Value.VArr(_) => "<foreign>"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case other          => show(other)
@@ -247,6 +257,14 @@ object Exec:
         // `a(i)` on an ARRAY is an index, not a call. That is not a v3 invention: the bridge has
         // relied on it from the start — a frame read is `(app frame idx)` — so this is the executor
         // catching up with the semantics both lanes were already built on.
+        // `m(k)` on a MAP is a lookup that yields the VALUE, not an Option — v1's `m("a")` is `1`.
+        // A missing key is an error rather than a unit, because a silent unit is a wrong answer
+        // that flows on and surfaces somewhere else.
+        case Value.VMap(es) if as.length == 1 =>
+          val k = regs(a0(as))
+          es.find((kk, _) => eq(kk, k)) match
+            case Some((_, v)) => regs(d) = v; Signal.Done
+            case None         => throw ExecError("key not found: " + show(k))
         case Value.VArr(xs) if as.length == 1 =>
           regs(a0(as)) match
             case Value.VInt(i) =>
@@ -476,6 +494,18 @@ object Exec:
         args.head match
           case Value.VStr(sep) => listIn(m, s.split(java.util.regex.Pattern.quote(sep), -1).toList.map(x => Value.VStr(x)))
           case v               => throw ExecError("split by " + show(v))
+      case (Value.VMap(es), "size")     => Value.VInt(es.length.toLong)
+      case (Value.VMap(es), "isEmpty")  => Value.VBool(es.isEmpty)
+      case (Value.VMap(es), "nonEmpty") => Value.VBool(es.nonEmpty)
+      case (Value.VMap(es), "contains") => Value.VBool(es.exists((k, _) => eq(k, args.head)))
+      case (Value.VMap(es), "keys")     => listIn(m, es.toList.map(_._1))
+      case (Value.VMap(es), "values")   => listIn(m, es.toList.map(_._2))
+      case (Value.VMap(es), "get") =>
+        es.find((k, _) => eq(k, args.head)) match
+          case Some((_, v)) => someOf(m, v)
+          case None         => noneOf(m)
+      case (Value.VMap(es), "getOrElse") =>
+        es.find((k, _) => eq(k, args.head)).map(_._2).getOrElse(args.tail.head)
       case (Value.VArr(xs), "length") => Value.VInt(xs.length.toLong)
       case (Value.VArr(xs), "size")   => Value.VInt(xs.length.toLong)
       case (_, "toString")            => Value.VStr(showV(m, recv))
@@ -660,6 +690,21 @@ object Exec:
       if args.nonEmpty && args.head != Value.VUnit then println(showV(m, args.head))
       Value.VUnit
     // The reference lane's `char`: an Int in, a character out.
+    // The map primitives, the same names v2 exposes — so the BRIDGE emits `(prim map.put …)` and
+    // this lane implements the identical vocabulary rather than a parallel one.
+    case "map.new" => Value.VMap(scala.collection.mutable.ArrayBuffer.empty)
+    case "map.put" =>
+      args.head match
+        case Value.VMap(es) =>
+          val k = args.tail.head
+          val i = es.indexWhere((kk, _) => eq(kk, k))
+          if i < 0 then es.append((k, args.tail.tail.head)) else es(i) = (k, args.tail.tail.head)
+          Value.VUnit
+        case v => throw ExecError("map.put on " + show(v))
+    case "map.get" =>
+      args.head match
+        case Value.VMap(es) => es.find((k, _) => eq(k, args.tail.head)).map(_._2).getOrElse(Value.VUnit)
+        case v              => throw ExecError("map.get on " + show(v))
     case "char" =>
       args.head match
         case Value.VInt(n) => Value.VChar(n.toChar)

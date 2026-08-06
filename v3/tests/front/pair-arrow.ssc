@@ -1,0 +1,5 @@
+val p = "a" -> 1
+println(p)
+println(p._1)
+println(p._2)
+println(List("a" -> 1, "b" -> 2).mkString(", "))

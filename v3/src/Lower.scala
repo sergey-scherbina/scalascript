@@ -38,7 +38,7 @@ object Lower:
   val tupleClasses: List[ClassDef] =
     (2 to 8).toList.map { n =>
       ClassDef("Tuple" + n, (1 to n).toList.map(i => Param("_" + i, Pos.none)), Nil, Nil, Pos.none)
-    }
+    } :+ ClassDef("Pair", List(Param("_1", Pos.none), Param("_2", Pos.none)), Nil, Nil, Pos.none)
 
   private final case class St(
       next: Int,            // next free register
@@ -214,6 +214,13 @@ object Lower:
     // here would need a type checker; `Invoke` asks the value.
     // `:+` appends and `+:` prepends. Same argument as `++`: which collection it is, is a property
     // of the receiver at run time, and deciding it here would need a type checker.
+    // `k -> v` is a PAIR, which in this language is a `Tuple2` — the same node a `(k, v)` literal
+    // builds. Making it a tuple rather than its own thing is what lets `Map(a -> 1, b -> 2)` be an
+    // ordinary constructor call over ordinary values, and it is what v2 expects: its Map factory
+    // reads `DataV("Tuple2", [k, v])` arguments.
+    case Expr.Bin("->", l, r, p) =>
+      lower(Expr.Call("Pair", List(l, r), p), fns, classes, zeroArity, st0)
+
     case Expr.Bin(":+", l, r, _) =>
       val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
       val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
@@ -394,6 +401,19 @@ object Lower:
       (acc :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))),
        d, stF)
 
+    // `v.step(1, 2)` where `step` is a FIELD holding a function — a field READ followed by an
+    // application, not a method call. Rewritten into the two nodes that already do exactly that, so
+    // neither mechanism needs to learn about the other.
+    //
+    // It reached the corpus as a `Stub` — v2's silent sentinel at exit 0 — the moment `foldLeft`
+    // became parseable and the case stopped being UNSUPPORTED. The defect was always there; making
+    // one construct work is what let the program get far enough to show it, which is the argument
+    // for re-running the whole corpus after every front change rather than the affected bucket.
+    case Expr.MethodCall(recv, nm, argEs, p)
+        if argEs.nonEmpty && classes.exists(c => c.fields.exists(f => f.name == nm)) &&
+           !classes.exists(c => c.methods.exists(mm => mm.name == nm)) =>
+      lower(Expr.Apply(Expr.MethodCall(recv, nm, Nil, p), argEs, p), fns, classes, zeroArity, st0)
+
     // A call whose name is a METHOD of some declared class. Same shape as the field read below —
     // a `Switch` with an arm per declaring class and a DEFAULT that dispatches dynamically — and
     // for the same reason: without a type checker, only the receiver knows which class it is.
@@ -546,6 +566,33 @@ object Lower:
     // `Array(a, b, c)` — allocate, then fill. The IR has had arrays from the start (the frame the
     // bridge builds IS one); only the front had no syntax for them, which is why this is six lines
     // rather than a feature.
+    // `Map(k -> v, …)` — allocate, then put. Built from the prims v2 ALREADY has (`map.new`,
+    // `map.put`) rather than from a new IR form, for the same reason `Array` was: the instruction
+    // set is not where a library type belongs. Each argument is a `Pair`, so its halves are read
+    // with the field accessor the type table already knows.
+    case Expr.Call("Map", argEs, p) if !classes.exists(c => c.name == "Map") =>
+      var acc: List[Instr] = Nil
+      var st = st0
+      val (newP, stN) = st.primIdx("map.new")
+      st = stN
+      val (d, stD) = st.fresh
+      st = stD
+      acc = acc :+ Instr.Prim(d, newP, Nil)
+      val (pairT, stT) = st.typeIdx("Pair", 2)
+      st = stT
+      val (putP, stP) = st.primIdx("map.put")
+      st = stP
+      argEs.foreach { a =>
+        val (ai, ar, s1) = lower(a, fns, classes, zeroArity, st)
+        val (kr, s2) = s1.fresh
+        val (vr, s3) = s2.fresh
+        val (ig, s4) = s3.fresh
+        st = s4
+        acc = acc ++ ai ++ List(Instr.Field(kr, ar, pairT, 0), Instr.Field(vr, ar, pairT, 1),
+                                Instr.Prim(ig, putP, List(d, kr, vr)))
+      }
+      (acc, d, st)
+
     case Expr.Call("Array", argEs, p) if !classes.exists(c => c.name == "Array") =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -1070,7 +1117,7 @@ object Lower:
     // exactly the lane divergence this pre-registration removes.
     var types: List[TypeDef] =
       List(TypeDef("Cons", 2), TypeDef("Nil", 0), TypeDef("Some", 1), TypeDef("None", 0),
-           TypeDef("Tuple2", 2))
+           TypeDef("Tuple2", 2), TypeDef("Pair", 2))
     var lifted: List[Func] = Nil
     // Collected BEFORE anything is lowered: a `def` may reference a top-level `val` declared
     // further down the file, and the other lanes allow that.
