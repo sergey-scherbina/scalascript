@@ -171,12 +171,32 @@ object SpikeLex:
         while i < n && text.charAt(i) != '\n' do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
       else if c == '/' && i + 1 < n && text.charAt(i + 1) == '*' then
-        // block comment → trivia (non-nested, matches ssc1-front skipBlockComment)
+        // block comment → trivia, and it NESTS, as it does in Scala.
+        //
+        // It used to stop at the FIRST `*/`, matching ssc1-front's skipBlockComment. For
+        // `/* a /* b */ c */` that left ` c */` to be lexed as code, and the failure surfaced as
+        // `missing.right` — a complaint about an operator, several tokens past the construct that
+        // actually broke.
+        //
+        // This makes the dialect MORE PERMISSIVE than the reference front, deliberately: v3
+        // supports nesting because Scala does, and ssc1-front's gap is shared rather than
+        // authoritative here. The divergence is in the only safe direction — strictly more input
+        // parses — so no file that parses today can stop parsing, and the corpus counts are checked
+        // rather than assumed.
+        //
+        // Losslessness is untouched: the comment remains ONE trivia token holding its text
+        // verbatim; only where that token ends has changed.
         val sb = new StringBuilder
         sb.append('/'); advance('/'); sb.append('*'); advance('*')
-        while i < n && !(text.charAt(i) == '*' && i + 1 < n && text.charAt(i + 1) == '/') do
-          { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        if i + 1 < n then { sb.append('*'); advance('*'); sb.append('/'); advance('/') }
+        var depth = 1
+        while i < n && depth > 0 do
+          if text.charAt(i) == '/' && i + 1 < n && text.charAt(i + 1) == '*' then
+            depth += 1
+            sb.append('/'); advance('/'); sb.append('*'); advance('*')
+          else if text.charAt(i) == '*' && i + 1 < n && text.charAt(i + 1) == '/' then
+            depth -= 1
+            sb.append('*'); advance('*'); sb.append('/'); advance('/')
+          else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
       else if isOpChar(c) then
         val opStart = i
