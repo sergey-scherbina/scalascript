@@ -216,7 +216,10 @@ def main():
     # out `front` because the word is common). The default is stated, not inferred.
     if a.kind:   sel = [r for r in sel if r.get("kind", "bug") == a.kind]
     if a.v2:     sel = [r for r in sel if r.get("lane") in ("native", "v2-jvm", "v2-rust")]
-    if a.no_gate: sel = [r for r in sel if r.get("gate") in (None, "none")]
+    # `-` names nothing either, and 5 open entries used it while this predicate counted only
+    # None/"none" — so the answer to "what is unprotected" was LOW BY 5. The empty-ish set is
+    # spelled out rather than tested by truthiness, because "0" and "false" are legal gate paths.
+    if a.no_gate: sel = [r for r in sel if (r.get("gate") or "").strip() in ("", "none", "-")]
 
     if a.kind and a.source == "bugs":
         cov = index_coverage(root)
