@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## launcher-digest-includes-nested-specs-so-a-doc-commit-forces-a-rebuild
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: friction
+     gate: none
+     fixed-in: - -->
+
+`scripts/smoke-ci` refuses to run against a launcher built from different sources than the tree, and
+that refusal is right — a verdict from a stale toolchain is a verdict about the wrong code. What is
+wrong is WHAT counts as a source. Measured 2026-08-06 by rebasing onto `e4cc9f706`, a commit that
+changes three markdown files and nothing else, all under `v3/`:
+
+```
+digest before the rebase : 1cf3378a3a295ca1…
+digest after             : dae666de72ac3aac…
+launcher-input-digest --explain | grep -c v3/specs/50-uniml-projection.md  ->  1
+```
+
+`--explain` prints its exclusions as `.work .github .agents TASK docs site specs bench releases
+scratch bin examples tests + root *.md`, and every one of those is matched as a TOP-LEVEL path. So
+`specs/` is excluded and `v3/specs/` is not; `docs/` is excluded and a module's `docs/` would not
+be. **A sibling agent landing a spec or a design note in any module costs the next agent who rebases
+a ~7-minute `./install.sh --dev` before smoke-ci will say anything at all.**
+
+Worth stating plainly because the failure is confusing rather than loud: the message names two
+digests and tells you to rebuild, and nothing in it suggests the cause was somebody else's markdown.
+On 2026-08-05 I hit this, guessed that module `BUGS.md`/`SPRINT.md` under `v1/` were the cause,
+checked before filing, found they are NOT in the digest, and released the claim saying the cause was
+unknown (`jvm-package-import-link-name`). The guess was wrong about which file; the shape was right.
+
+Not fixed here because the fix is a decision about the exclusion rule, not a patch: matching those
+names at ANY depth would also exclude a module's `tests/` and `bin/`, which may be load-bearing for
+some module's build. A narrower rule — exclude `**/specs/**` and `**/docs/**` only — is probably
+right and wants whoever owns the digest to say so.
+
 ## build-ram-guard-gate-fails-under-ambient-load — same tree, two verdicts, minutes apart
 
 <!-- status: fixed

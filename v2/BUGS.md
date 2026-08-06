@@ -14,7 +14,7 @@ Newest first.
      area: front
      kind: bug
      gate: tests/e2e/package-keyword-smoke.sh
-     fixed-in: a2d2127c3 -->
+     fixed-in: 80df50e96 -->
 
 **FIXED 2026-08-06.** All four alias forms bind on this lane, checked on BOTH fronts explicitly
 (`SSC_FRONT=F` and `SSC_FRONT=legacy`), and the gate grew three rows for it — each paired with the
