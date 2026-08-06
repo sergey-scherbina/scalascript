@@ -260,8 +260,36 @@ is the same family as the two `jsonParse`/`JsonValue` implementations recorded a
 
 **Reverted rather than half-landed.** The typing is correct and ready to re-apply the moment there
 is ONE `Response` on this lane; landing it now would trade a compile error nobody sees for 42 that
-everybody does. The remaining work is not the middleware signature — it is the duplicate type, and
-that is the third instance of preamble-and-module defining the same name.
+everybody does.
+
+**THE TWO `Response`s ARE DELIBERATE, NOT SLOPPY — read before removing either.** They differ in
+shape, and `std/http.ssc` explains why in its own comment:
+
+| | fields |
+|---|---|
+| `std/http.ssc` (portable) | `Response(status, headers, body)` — three, all required |
+| preamble (`HttpModel.scala`) | `Response(status = 200, headers = Map.empty, body = "", setSession = None)` |
+
+The portable one is three fields because that IS the native lane's wire format (`the native Response
+is a three-field DataV and stays one`), and `withHeader` moved into ScalaScript precisely because
+native had none and served the not-implemented sentinel as a 200 body. The preamble's fourth field
+exists because the jvm lane also runs a server-side session store with SSID rotation, which the
+native lane does not have — so v1 defers session handling to the dispatch loop while the portable
+module computes it at the Response.
+
+**Which one actually runs, measured rather than assumed.** Both are emitted — the preamble's at the
+top level, the module's inside `object std.http` — and the emitted handler is unqualified
+`Response(200, Map(), "hi")` with both in scope. The PREAMBLE's wins: a module-shaped
+`Response(201, …, "body-here")` reaches the wire as `body-here|201`, which only the dispatcher's
+`case resp: Response` arm produces. So the module's class is emitted and, for construction,
+effectively dead — it binds only where a type is named explicitly, which is exactly what typing the
+middleware chain started doing.
+
+**Concrete next step, consistent with what this lane already does:** do not emit the module's
+`Response` on the jvm lane at all, the same way `extern def` names are dropped from the module
+object because the host provides them (`importedExternNames`). A type the host already defines is
+the same situation as a function the host already defines, and the machinery for it exists. That
+would leave ONE `Response`, and the middleware typing above re-applies unchanged.
 
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
 problem either — this one is a module declaring a narrower world than its host implements, and the
