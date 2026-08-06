@@ -798,3 +798,38 @@ v1 (`x/0/0`). Mutation through a METHOD works on both, which is what the corpus 
 is Scala's.
 
 N = 47 → 48. Gates: front 54 cases, executor 56, parity 40 of 42.
+
+## SSC3-23 — the lane I was comparing against was not the one I named
+
+Sergiy asked whether v2 was fine on the four defects I had just filed against v1. Measuring the
+question properly showed something worse than the answer: **I had been running the wrong lane all
+session.**
+
+`bin/ssc run` is the NATIVE lane — the self-hosted front on the v2 VM. The tree-walking interpreter
+is `ssc-tools run --v1`. This repository's lane map already says so and I had it recorded. I ran
+`bin/ssc run`, called it v1 in every comparison, and wrote six "v3 is ahead of v1" claims into two
+specs, a sprint file and several commit messages.
+
+Re-measured on `--v1`, all six:
+
+| construct | `--v1` | native / `--v2` |
+|---|---|---|
+| inherited trait method | correct | RuntimeException |
+| `case A \| B` | correct | first alternative only |
+| nested block comment | correct | native-front exception |
+| trailing-operator continuation | correct | `Stub` at exit 0 |
+| `while … do <assign>` | correct | nothing at all, exit 0 |
+| `Cfg.n = 7` | refuses WITH A POSITION | `0`, silently |
+
+**The interpreter is correct on five and honestly refuses the sixth.** v3 is level with it, not
+ahead — and ahead of the self-hosted front on all six.
+
+- [x] **23a — the four `BUGS.md` entries re-filed** as `selfhost-front-*`, lane `multi`, with a
+      three-lane table each and the correction stated inside the entry rather than edited away.
+- [x] **23b — `20-core-language.md` §4a rewritten.** It claimed v3 accepted five things v1 rejects.
+      It accepts them; so does v1.
+
+**The lesson is one this file already carries in another form:** a measurement is evidence about the
+command you actually ran. "A census answers only its own question" was written here about corpus
+buckets; it applies to the runner just as hard, and I proved it by getting the runner wrong for a
+whole session while quoting its output as fact.

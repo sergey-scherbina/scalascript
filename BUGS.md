@@ -3730,17 +3730,21 @@ read-only Apple store/renderer review in Rozum.
   *handler body's* type, which requires bridging the pure/base case). Large feature
   (parser + typer + interp + 4 backends) — out of scope; noted in BACKLOG.
 
-## v1-trailing-operator-continuation-prints-Stub
+## selfhost-front-trailing-operator-continuation-prints-Stub
 
 <!-- status: open
-     lane: int
+     lane: multi
      area: front
      kind: bug
      gate: none
      fixed-in: - -->
 
-Found 2026-08-06 by building v3's front against v1 as an ORACLE. v1 accepts the syntax and then
-gives a wrong answer at exit 0 — it does not refuse.
+Found 2026-08-06 by building v3's front and comparing lanes. **CORRECTED the same day: these four
+entries first named v1, and v1 is CORRECT on all of them.** The defects are in the SELF-HOSTED
+front, which `bin/ssc run` and `ssc-tools run --v2` both use; `ssc-tools run --v1` is the
+tree-walking interpreter and answers correctly. The mislabelling was mine: I ran `bin/ssc run`
+throughout and reported its answers as v1's, which is the lane map this repository already
+documents — a measurement is evidence about the command you actually ran, and nothing else.
 
 ```scalascript
 val xs = List(1) ++ List(2) ++
@@ -3750,25 +3754,25 @@ println(xs.mkString(","))
 
 | lane | output | exit |
 |---|---|---|
-| v1 | `Stub` | 0 |
+| `--v1` (interpreter) | `1,2,3` | 0 |
+| `bin/ssc run` (native) | `Stub` | 0 |
+| `--v2` | `Stub` | 0 |
 | v3 (both lanes) | `1,2,3` | 0 |
 
 An expression continued after a TRAILING binary operator is Scala's rule and ordinary in this
-corpus. v1 prints the `Stub` sentinel, which is the failure mode this repository compares OUTPUT
-rather than exit codes to catch — and here even the output is plausible enough to read as a value.
+corpus. The self-hosted front prints the `Stub` sentinel — the failure mode this repository compares
+OUTPUT rather than exit codes to catch, and here the output is plausible enough to read as a value.
 
 Narrowed: `List(1) ++ List(2)` on ONE line is fine. Only the continuation fails.
 
-## v1-while-with-an-assignment-body-runs-nothing
+## selfhost-front-while-with-an-assignment-body-runs-nothing
 
 <!-- status: open
-     lane: int
+     lane: multi
      area: front
      kind: bug
      gate: none
      fixed-in: - -->
-
-Found 2026-08-06, same session and same method as the entry above.
 
 ```scalascript
 var i = 0
@@ -3779,27 +3783,25 @@ println("after")
 
 | lane | output | exit |
 |---|---|---|
-| v1 | *(nothing at all)* | 0 |
+| `--v1` (interpreter) | `3` then `after` | 0 |
+| `bin/ssc run` (native) | *(nothing at all)* | 0 |
+| `--v2` | *(nothing at all)* | 0 |
 | v3 (both lanes) | `3` then `after` | 0 |
 
-**v1 prints NOTHING and exits 0.** Not a diagnostic, not a partial answer — the whole program
-disappears. This is the same family as the recorded interpreter defect where `if cond then <assign>`
-with no `else` is silently skipped: a single-line body that is an ASSIGNMENT rather than an
-expression.
+**The self-hosted front prints NOTHING and exits 0** — not a diagnostic, not a partial answer; the
+whole program disappears. A single-line body that is an ASSIGNMENT rather than an expression.
 
-The silence is what makes it expensive. A program that prints nothing at exit 0 reads as a program
+The silence is what makes it expensive: a program that prints nothing at exit 0 reads as a program
 that had nothing to say.
 
-## v1-alternative-pattern-matches-only-its-first-branch
+## selfhost-front-alternative-pattern-matches-only-its-first-branch
 
 <!-- status: open
-     lane: int
+     lane: multi
      area: front
      kind: bug
      gate: none
      fixed-in: - -->
-
-Found 2026-08-06 by the same oracle comparison.
 
 ```scalascript
 trait K
@@ -3814,23 +3816,22 @@ println(f(B))
 
 | lane | output | exit |
 |---|---|---|
-| v1 | `ab` then `ssc: match: no arm for B/0` | 0 |
-| v3 (both lanes) | `ab` then `ab` | 0 |
+| `--v1` (interpreter) | `ab` then `ab` | 0 |
+| `bin/ssc run` (native) | `ab` then `match: no arm for B/0` | 0 |
+| `--v2` | `ab` then a RuntimeException | 0 |
 
-v1 accepts `case A | B =>` and then matches **only the first alternative**; the rest are dropped.
-Better than the two entries above in that it says something when it goes wrong, and worse in that
-the arm looked exhaustive to whoever wrote it.
+`case A | B =>` is accepted and then matches **only the first alternative**. Better than the two
+above in that it says something when it goes wrong; worse in that the arm looked exhaustive to
+whoever wrote it.
 
-## v1-qualified-assignment-to-an-object-member-is-ignored
+## selfhost-front-qualified-assignment-to-an-object-member-is-ignored
 
 <!-- status: open
-     lane: int
+     lane: multi
      area: runtime
      kind: bug
      gate: none
      fixed-in: - -->
-
-Found 2026-08-06 while giving v3 `object` members that are not `def`s.
 
 ```scalascript
 object Cfg:
@@ -3841,17 +3842,24 @@ println(Cfg.n)
 
 | lane | output | exit |
 |---|---|---|
-| v1 | `0` | 0 |
+| `--v1` (interpreter) | `[ERROR] Cannot eval: Term.Assign` — REFUSES, with a position | non-zero |
+| `bin/ssc run` (native) | `0` | 0 |
+| `--v2` | `0` | 0 |
 | v3 (both lanes) | `7` | 0 |
 
-The assignment is accepted and silently discarded. Mutation through a METHOD works on both lanes —
-`def bump(): Unit = n = n + 1` is what `tests/conformance/object-var-member-scope.ssc` exercises, and
-that case passes — so this is specifically the qualified form from outside the object.
+The assignment is accepted and silently discarded on the self-hosted front. v1 refuses it outright,
+which is the honest answer for a construct it does not implement. Mutation through a METHOD works on
+every lane — `def bump(): Unit = n = n + 1`, which
+`tests/conformance/object-var-member-scope.ssc` exercises — so this is specifically the qualified
+form from outside the object.
 
 ---
 
-**All four share one shape and it is worth naming.** v1 ACCEPTS the syntax, so nothing refuses;
-runs; and produces a wrong answer at exit 0. None was found by a test, because a test asserts what
-someone thought to assert. They were found by running a SECOND implementation on the same source and
-diffing the output — which is the argument for keeping v3's front comparable to v1 rather than only
-to itself.
+**All four share one shape.** The self-hosted front ACCEPTS the syntax, runs, and produces a wrong
+answer at exit 0. None was found by a test, because a test asserts what someone thought to assert;
+they were found by running another implementation on the same source and diffing the output.
+
+**And the correction is part of the finding.** The first version of these entries blamed v1, because
+I ran `bin/ssc run` and called it v1 for a whole session. `bin/ssc run` is the NATIVE lane. The
+interpreter is `ssc-tools run --v1`, and it is correct on every one of these. A differential is only
+as good as knowing which two things it compared.

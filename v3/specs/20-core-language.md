@@ -154,24 +154,36 @@ a v3-specific one. Each case lands in exactly one bucket:
 `UNSUPPORTED` must name the construct. A refusal that says only "cannot compile" is a `CRASH` for
 reporting purposes, because a bucket you cannot act on is a bucket that hides work.
 
-## 4a · Where v3 accepts MORE than the reference lane
+## 4a · Where v3 differs from the other lanes — CORRECTED 2026-08-06
 
-Four constructs run on both v3 lanes and fail on the v1 interpreter. Recorded because a reader who
-finds them will otherwise think v3 is broken:
+**The first version of this section was wrong about WHICH LANE, and the error is worth keeping.** It
+said v3 accepted five constructs that "v1 rejects". It does accept them — but v1 accepts them too.
+What rejects them is the SELF-HOSTED front, which `bin/ssc run` and `ssc-tools run --v2` both use.
 
-| construct | what v1 does |
-|---|---|
-| a trait's concrete member inherited by a subclass | `__method__: no dispatch for .describe on Sq(3)` |
-| `case A \| B =>` | `match: no arm for IndexLeafPage/0` — it takes only the FIRST alternative |
-| a NESTED block comment | `structural CoreIR contains parser sentinel _err` |
-| `xs ++ ys ++` continued on the next line | prints the `Stub` SENTINEL at exit 0 — a wrong answer, not a refusal |
-| `while i < 3 do i = i + 1` | prints 2 of 6 lines and exits 0 with no diagnostic |
+I ran `bin/ssc run` for a whole session and reported its answers as v1's. The lane map is already
+written down in this repository — `bin/ssc run` is NATIVE, `ssc-tools run --v1` is the tree-walking
+interpreter — and I had it. **A measurement is evidence about the command you actually ran.**
 
-This is the SAFE direction and it does not weaken invariant I-5. Accepting a program the reference
-rejects cannot change the meaning of a program the reference accepts, so `N` is unaffected; the
-reverse — matching a reference that gives a WRONG ANSWER — is what would be a defect. The last two
-rows are v1 defects rather than v1 limitations, and they are the shape this repository compares
-OUTPUT rather than exit codes to catch.
+Re-measured, all six on `ssc-tools run --v1`:
+
+| construct | interpreter (`--v1`) | self-hosted front (native / `--v2`) | v3 |
+|---|---|---|---|
+| a trait's concrete member inherited by a subclass | `area 9` ✓ | `RuntimeException: __method__` | `area 9` |
+| `case A \| B =>` | `ab` / `ab` ✓ | first alternative only | `ab` / `ab` |
+| a NESTED block comment | `3` ✓ | a native-front exception | `3` |
+| `xs ++ ys ++` continued on the next line | `1,2,3` ✓ | `Stub` at exit 0 | `1,2,3` |
+| `while i < 3 do i = i + 1` | `3` / `after` ✓ | nothing at all, exit 0 | `3` / `after` |
+| `Cfg.n = 7` on an object member | refuses, with a position | `0`, silently | `7` |
+
+So v3 is **level with the interpreter**, not ahead of it, on five of the six — and ahead of the
+self-hosted front on all six. On the last, v3 implements what the interpreter honestly refuses.
+
+The four defects on the self-hosted front are filed in `BUGS.md` as `selfhost-front-*`.
+
+**What this changes about `N`.** Nothing. `N` is measured through `ssc3 run`, which is v3's front on
+the v2 VM, against expectations every lane is held to. But it does change what "compatibility" means
+in this document: v3's target is the LANGUAGE as the interpreter defines it, and the self-hosted
+front is a peer implementation with its own defects — not the definition.
 
 ## 4b · What the number does not measure
 
