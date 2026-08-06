@@ -5,7 +5,7 @@ started: 2026-08-06T08:34:50Z
 heartbeat: 2026-08-06T08:34:50Z
 status: claimed-before-planning
 items: v1 import path ignores a module's code-block parse errors
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala file:tests/e2e/import-parse-error-gate.sh
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala file:tests/e2e/import-parse-error-gate.sh file:examples/std-ui/index.ssc file:scljet/address.ssc file:tests/conformance/std-os-readline.ssc file:v1/runtime/std/cluster/index.ssc file:v1/runtime/std/mcp/index.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
