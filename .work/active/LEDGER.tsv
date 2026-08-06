@@ -1,7 +1,8 @@
-# generation: 1007
+# generation: 1008
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
 js-aliased-package-root	claude-code	2026-08-06T00:34:36Z	js-aliased-package-root-import-is-unbound	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/js/SPRINT.md file:tests/e2e/package-keyword-smoke.sh
 int-no-paren-retraction	claude-code	2026-08-06T00:35:26Z	int-no-paren-def-leaks-into-globals	file:v1/runtime/backend/interpreter/BUGS.md file:tests/e2e/no-paren-sibling-gate.sh
 native-declarative-routes	claude-code	2026-08-06T00:36:21Z	native-lane-ignores-declarative-route-registration	file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/BUGS.md file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/fm-routes-smoke.sh
+uniml-ssc3-contract-gate	claude-code	2026-08-06T00:40:27Z	SSC3-P UNIML-SSC3	file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionContractSpec.scala
