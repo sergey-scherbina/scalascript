@@ -275,7 +275,12 @@ object SscCompose:
               case _                 => false
             }
             roots = kept :+ remap(r)
-            fences = fences :+ Fence("", body, Some(adapter.id))
+            // Tagged `<bare>`, NOT "" — an empty info string means an UNTAGGED FENCE, and the
+            // breadth gate keeps tagged and untagged apart precisely so a change cannot be
+            // credited to the wrong population. A bare file is a third thing: a whole file of
+            // declared code, not a fence at all. Filing it under "" would have hidden it inside
+            // the bucket that exists to hold prose.
+            fences = fences :+ Fence("<bare>", body, Some(adapter.id))
             diags = diags ++ sub.diagnostics
             worsen(sub.status)
           }

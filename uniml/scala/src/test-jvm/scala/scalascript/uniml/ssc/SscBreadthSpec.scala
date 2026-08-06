@@ -47,6 +47,12 @@ final class SscBreadthSpec extends AnyFunSuite:
     var untaggedDiags = 0L
     var taggedFences = 0
     var untaggedFences = 0
+    // BARE files are a THIRD population and get their own counters for the same reason tagged and
+    // untagged have theirs: a whole fenceless file is neither a declared fence nor a prose bucket,
+    // and averaging it into either hides which one moved.
+    var bareDiags = 0L
+    var bareFiles = 0
+    val bareWorst = scala.collection.mutable.Map.empty[String, Int]
     val shapes = scala.collection.mutable.Map.empty[String, Int]
     val taggedShapes = scala.collection.mutable.Map.empty[String, Int]
     val taggedExample = scala.collection.mutable.Map.empty[String, String]
@@ -58,8 +64,18 @@ final class SscBreadthSpec extends AnyFunSuite:
       else worst += ((root.relativize(p).toString, composed.diagnostics.size))
       total += composed.diagnostics.size
       composed.fences.filter(_.isScala).foreach { f =>
-        val ds = SscCompose.parse("```" + (if f.lang.isEmpty then "scalascript" else f.lang) + "\n" + f.code + "```\n").diagnostics
-        if f.lang.isEmpty then { untaggedFences += 1; untaggedDiags += ds.size }
+        // A BARE region is re-parsed AS ITSELF. Wrapping it in a fence the way a fence body is
+        // wrapped emits ```<bare>, which names no registered dialect, so the fence stays inert and
+        // the measurement reads zero — a column reporting 0 because it asked the wrong question,
+        // which is worse than no column. Caught by the number being implausibly clean.
+        val ds =
+          if f.lang == "<bare>" then SscCompose.parse(f.code).diagnostics
+          else SscCompose.parse("```" + (if f.lang.isEmpty then "scalascript" else f.lang) + "\n" + f.code + "```\n").diagnostics
+        if f.lang == "<bare>" then
+          bareFiles += 1
+          bareDiags += ds.size
+          if ds.nonEmpty then bareWorst(root.relativize(p).toString) = ds.size
+        else if f.lang.isEmpty then { untaggedFences += 1; untaggedDiags += ds.size }
         else
           taggedFences += 1
           taggedDiags += ds.size
@@ -88,6 +104,8 @@ final class SscBreadthSpec extends AnyFunSuite:
     // untagged fence — a protocol diagram, an English sentence starting with the word `class`. The
     // TAGGED column is the one that measures the language.
     info(f"  by fence: tagged $taggedFences%4d fences / $taggedDiags%4d diags    untagged $untaggedFences%4d fences / $untaggedDiags%4d diags")
+    info(f"  by file:  bare   $bareFiles%4d files  / $bareDiags%4d diags")
+    bareWorst.toVector.sortBy(-_._2).take(5).foreach((f, c) => info(f"    bare worst $c%5d  $f"))
     info("  TAGGED-only shapes — the language gaps, with one example each:")
     taggedShapes.toVector.sortBy(-_._2).take(8).foreach((s, c) => info(f"    $c%4d  $s%-52s ${taggedExample.getOrElse(s, "")}"))
     shapes.toVector.sortBy(-_._2).take(8).foreach((s, c) => info(f"  $c%5d  $s"))
@@ -111,7 +129,35 @@ final class SscBreadthSpec extends AnyFunSuite:
     //
     // tagged + untagged is slightly under `total` (268 vs 273): a handful of diagnostics come
     // from the markdown and front-matter layers, which belong to no ScalaScript fence.
+    // ── the BARE column, added 2026-08-06 with the composer's bare mode ──────────────────────
+    //
+    // A `.ssc` with no fence is the program in its entirety (fences optional since 2026-07-09).
+    // Until bare mode the composer handed such a file to NO dialect, so it contributed zero
+    // diagnostics — not because it parsed, but because nobody looked. Switching it on moved the
+    // headline to 7,131 — and 7,110 of that is ONE FILE. 84 of the 87 bare files parse CLEAN, and
+    // the clean-file rate actually ROSE, 1,166 -> 1,176 (98.1% -> 99.0%).
+    //
+    // THE HEADLINE ROSE BECAUSE THE MEASUREMENT BECAME HONEST, which is the same shape as the
+    // typed AST's gaps rising 2,943 -> 2,964 the day its silent drops were fixed. What was
+    // previously "clean" for 3 files was clean the way an unopened box is empty.
+    //
+    // `specs/v2.2-p6.5-fsub.ssc` is 2,687 lines of **ssc0** — the P6.5 F compiler written in the
+    // subset — in a file named `.ssc`. It is real code and bare mode is right to hand it over; the
+    // ScalaScript dialect simply does not parse ssc0. Whether that file should be `.ssc0` or the
+    // dialect owes ssc0 support is filed, not guessed: `uniml/BACKLOG.md`.
+    //
+    // So `total` is raised to admit a population that was never measured, and the bare column gets
+    // its OWN floor so the concession is bounded and a regression inside it is still visible.
+    // TAGGED is unchanged and must stay so: bare mode is not a language change, and if this commit
+    // had moved that column it would have been a different claim entirely.
     assert(pct > 90.0, f"clean-parse rate fell to $pct%.1f%%")
-    assert(total < 500, s"diagnostics grew to $total")
+    assert(total < 7400, s"diagnostics grew to $total")
+    assert(bareDiags < 7300, s"diagnostics from BARE files grew to $bareDiags")
+    // The floor that actually bounds this population, and it needs no filename: at most a handful
+    // of bare files may fail to parse. Measured THREE — `specs/v2.2-p6.5-fsub.ssc` (the ssc0
+    // program, 7,110 on its own), `v1/tools/scripts/launchers/http.ssc` (2), and
+    // `v3/tests/front/unclosed-brace.ssc` (1), which is a fixture that SHOULD report. The other 84
+    // parse clean, which is why the diagnostic total above is one file rather than a population.
+    assert(bareWorst.size <= 5, s"${bareWorst.size} bare files now fail to parse: ${bareWorst.keys.mkString(", ")}")
     assert(taggedDiags < 250, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
   }

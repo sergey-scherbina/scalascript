@@ -175,6 +175,35 @@ is a request rather than a blocker. It is on the list because the failure it pre
   spec said otherwise and was wrong. The markdown link-import yields nothing, which is CORRECT —
   it sits outside the code fence, and `Loader` reads it from the source text.
 
+## a 2,687-line ssc0 program lives in a `.ssc` file, and nothing had ever parsed it
+
+Found 2026-08-06 by switching on the composer's BARE mode, and it is the finding that mode exists
+to produce.
+
+`specs/v2.2-p6.5-fsub.ssc` is the P6.5 **F** compiler — 2,687 lines of **ssc0**, the older subset
+syntax (`def atEnd(i, n) = i >= n`: no parameter types, no result type). It carries no code fence,
+so before bare mode the composer handed it to no dialect at all. It contributed zero diagnostics and
+counted as a CLEAN file, which it was in the way an unopened box is empty.
+
+With bare mode it is handed to the ScalaScript dialect, which does not parse ssc0, and reports
+**7,110 diagnostics — 7,110 of the corpus's 7,188**. Every other bare file is under 12.
+
+**This is not a bare-mode defect.** A fenceless `.ssc` IS the program (fences optional since
+2026-07-09), so handing it over is correct; the file really is code and the dialect really cannot
+read it.
+
+**Two ways to be right, and choosing between them is not this claim's call:**
+
+1. **The file is misnamed.** ssc0 sources live at `v2/bin/*.ssc0`. If this one is ssc0, `.ssc0` is
+   its extension and the corpus sweep stops seeing it — one rename, no parser work.
+2. **The dialect owes ssc0.** If a `.ssc` may legitimately hold subset syntax, that is a breadth
+   item with a 2,687-line fixture attached and it is much bigger than one rename.
+
+Recorded rather than resolved because the two answers differ by two orders of magnitude of work and
+the question is about what `.ssc` MEANS, which belongs to whoever owns the v2.2 tower. Until then
+`SscBreadthSpec` carries a `bare` column with its own floor, so the number is visible and bounded
+instead of averaged into the population that measures the language.
+
 ## HAND-OVER: the typed AST (UNIML-SSC3 criterion 2)
 
 Written 2026-08-05 for whoever picks this up. Numbers measured the same day; re-measure before
