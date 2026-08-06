@@ -1,0 +1,11 @@
+slug: f-parser-decline-minimisation
+branch: feature/f-parser-decline-minimisation
+agent: claude-code
+started: 2026-08-06T09:16:53Z
+heartbeat: 2026-08-06T09:16:53Z
+status: claimed-before-planning
+items: f-declines-every-non-top-level-def
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
