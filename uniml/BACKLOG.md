@@ -80,6 +80,101 @@ breadth baselines and deserves its own before/after. It got one: the change land
 losslessness suite run against it, and the baselines did not move because the token SEQUENCE never
 changed — only which node owns each token. The caution was right and the cost was one build.
 
+## HAND-OVER: eight things the v3 FRONT DIFFERENTIAL found — 2026-08-06
+
+Written by the `ssc3-core` claim. Everything here was measured by running the two fronts over the
+same file and diffing the resulting v3 `Ast`, not by reading code. The apparatus is
+`v3/front-diff.sh`; run it after any change here and the number moves or it does not.
+
+**State when this was written: the two fronts agree on 29 of v3's 40 fixtures, and all 11 remaining
+differences are on this side.** v3's half is done for that fixture set.
+
+The full argument for each is `v3/specs/40-front-on-uniml.md` §5b; this is the actionable list.
+
+### 1 — a `trait` VANISHES, and none of UniML's own gates can see it
+
+The most consequential item. `trait Shape:` with a body gives CST kinds `spike.program,
+spike.sealed` — the same `spike.sealed` the dialect gives imports and anonymous `given`s — and
+`SpikeTyped` maps it to `NoOpDecl`, "parsed, and genuinely carrying nothing". **The trait's methods
+never reach the CST at all.**
+
+So it is invisible to all three measurements at once:
+
+- the `spike.error` count does not see it — nothing failed to parse;
+- the silent-drop census does not see it — `NoOpDecl` is modelled, and there is no subtree beneath
+  it to drop;
+- coverage counts it as typed rather than as a gap.
+
+This is the same shape as the coverage metric that used to REWARD dropping: a measurement can only
+see what the representation admits exists. Worth a census question of its own — *which CST kinds
+project to a contentless node, and is that right for each?* — because `spike.sealed` currently
+covers three unrelated constructs.
+
+It matters more than the rest combined for v3: `trait` gates **137 corpus cases**, and v3's traits
+carry dispatch (`v3/specs/20-core-language.md` §2). Fixture: `v3/tests/front/traits-methods.ssc`.
+
+### 2 — `ValDef` does not record MUTABILITY
+
+`ValDef(name, rhs, span)` has no `isVar`, so `var x = 0` and `val x = 0` project identically. A
+WRONG ANSWER rather than a smaller tree: a `var` read as a `val` makes every later assignment to it
+a refusal. Four fixtures show it — `demo`, `globals`, `val-block`, `arrays`.
+
+### 3 — `ObjectDecl` carries no `case` marker
+
+`case object A extends K` and an empty `object A` are indistinguishable. v3 needs the first as a
+NULLARY CONSTRUCTOR — it is a value, and it was **116 corpus cases** for v3. The projection cannot
+guess: an empty object is useless but legal, and turning it into a constructor would invent a value
+nobody wrote. Fixtures: `case-object`, `alt-pattern`.
+
+### 4 — a CHARACTER literal projects as `IntLit`
+
+`'x'` arrives as `IntLit("120")`, indistinguishable from the integer `120`. Also a wrong answer
+rather than a loss, and the reason is specific to this language: ScalaScript's `Char` IS an integer
+that prints differently (v2 stores `CharV extends IntV`), so `println('x')` prints `x` and
+`println(120)` prints `120`. The distinction has to survive the projection. Fixture:
+`char-literals`.
+
+### 5 — `0 +: xs` projects as `Infix("::")`
+
+The dialect normalises `+:` to `::`. For a `List` they agree, which is why it survived; they are
+different methods on anything else, and v3 lowers them differently — `::` builds a `Cons`, `+:` is a
+method call with the operands SWAPPED. Fixture: `append-ops`.
+
+### 6 — `if c then a(i) = v` does not parse
+
+The ONLY breadth gap in SSC3 core. Measured over every file: `v3/tests/front/` 46 files, 1 with a
+parse error; `tests/conformance/` 390 files, 2 with a parse error and 4 `spike.error` nodes in
+total. The other two constructs in that count — `x += 1` and `def <~>(b: Int)` — are outside v3's
+core, so this is the whole debt.
+
+The narrowing is not what the fixture name suggests, and took four probes: `a(1) = 4` on its own
+line parses, and `if c then n = 5` parses. Only the COMBINATION fails. Fixture: `assign-body`.
+
+### 7 — a NESTED block comment is diagnosed
+
+`/* a /* b */ c */` yields `missing.right`. v3 supports nesting, because Scala does. The v1
+interpreter does NOT — it answers `structural CoreIR contains parser sentinel _err` on the same
+input — so this is a gap the reference front shares, and v3 is the outlier for supporting it.
+Lowest priority of the eight for exactly that reason. Fixture: `block-comments`.
+
+### 8 — the composer has no BARE mode
+
+A `.ssc` with NO code fence yields **zero** ScalaScript subtrees; measured: bare → 0,
+```` ```scalascript ```` → 1, ```` ```scala ```` → 1. Fences have been optional in this project
+since 2026-07-09 — a bare `.ssc` is the program in its entirety — so a whole program reads as prose
+with no diagnostic.
+
+v3 works around it by fencing the text before handing it over (`v3/uniml/UniFront.scala`), so this
+is a request rather than a blocker. It is on the list because the failure it prevents is silent.
+
+### Two things this list is NOT
+
+- **`given`/`using` is not on it.** v3 refuses it on its own grounds — it needs type-directed
+  resolution, which Tier 0 does not have — so UniML modelling it changes nothing for v3.
+- **The import PATH is not on it.** `ImportDecl(a.b.c, [], false)` works; an earlier note in v3's
+  spec said otherwise and was wrong. The markdown link-import yields nothing, which is CORRECT —
+  it sits outside the code fence, and `Loader` reads it from the source text.
+
 ## HAND-OVER: the typed AST (UNIML-SSC3 criterion 2)
 
 Written 2026-08-05 for whoever picks this up. Numbers measured the same day; re-measure before
