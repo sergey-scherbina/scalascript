@@ -657,7 +657,8 @@ class JvmGen(
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
     val assembled = fixedHead + merged + mainInvocation(blocks, merged, mainEntry.isDefined) + "\n"
-    assembled + jsonHostBridge(assembled) + httpHostBridge(assembled)
+    val bridged   = assembled + jsonHostBridge(assembled) + httpHostBridge(assembled)
+    dropHostShadowedTypeImports(bridged)
 
 
   /** The jvm host bridge for the portable json module (`std/json.ssc`), appended when — and only
@@ -775,6 +776,44 @@ class JvmGen(
         |// ── jvm host bridge for std/http.ssc (emitted by JvmGen.httpHostBridge) ─────────────
         |def sessionSetCookie(payload: Map[String, String]): String = _buildSetCookie(payload)
         |""".stripMargin
+
+  /** Drop from `import std.X.{…}` any name the PREAMBLE already defines as a top-level class.
+   *
+   *  Same reasoning as the `extern def` filter in [[aliasBlock]], one step further: a name the host
+   *  defines resolves without an import, and naming it in the import binds the module's copy
+   *  instead. For functions that copy does not exist (the stub is stripped) and the import simply
+   *  fails; for TYPES the module's copy is emitted, so the import binds a second, different class.
+   *
+   *  `std/http.ssc` and `runtime-server-common/HttpModel.scala` both declare `Response`, and
+   *  DELIBERATELY differ: the portable one is three required fields because that is the native
+   *  lane's wire format, the preamble's has a fourth (`setSession`) because this lane also runs a
+   *  server-side session store. Measured before changing anything: the preamble's already wins for
+   *  construction — a module-shaped `Response(201, …, "body-here")` reaches the wire as
+   *  `body-here|201`, which only the dispatcher's `case resp: Response` arm produces. So this pass
+   *  makes the emitted source SAY what already happens, rather than changing behaviour.
+   *
+   *  Derived, not listed: the set comes from the emitted preamble itself, so it cannot go stale the
+   *  way a hardcoded name list would. Only top-level `class`/`case class` count — a nested one is
+   *  not what an unqualified reference would reach.
+   *  (BUGS.md jvm-lane-cannot-compile-a-json-import.)
+   */
+  private def dropHostShadowedTypeImports(src: String): String =
+    val hostTypes = raw"(?m)^(?:final )?(?:case )?class ([A-Z][A-Za-z0-9_]*)".r
+      .findAllMatchIn(src).map(_.group(1)).toSet
+    if hostTypes.isEmpty then src
+    else
+      val importLine = raw"(?m)^(\s*)import (std\.[A-Za-z0-9_.]+)\.\{([^}]*)\}$$".r
+      importLine.replaceAllIn(src, m =>
+        val indent = m.group(1)
+        val path   = m.group(2)
+        val specs  = m.group(3).split(",").map(_.trim).filter(_.nonEmpty).toList
+        val kept   = specs.filterNot { sp =>
+          // `a as b` still needs a real member to alias, so those are left alone.
+          !sp.contains(" as ") && hostTypes.contains(sp)
+        }
+        java.util.regex.Matcher.quoteReplacement(
+          if kept.isEmpty then s"$indent// (all specs host-provided) $path"
+          else s"$indent" + "import " + path + ".{" + kept.mkString(", ") + "}"))
 
   /** The trailing `main()` call, or `""`.
    *

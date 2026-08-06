@@ -285,11 +285,33 @@ top level, the module's inside `object std.http` — and the emitted handler is 
 effectively dead — it binds only where a type is named explicitly, which is exactly what typing the
 middleware chain started doing.
 
-**Concrete next step, consistent with what this lane already does:** do not emit the module's
-`Response` on the jvm lane at all, the same way `extern def` names are dropped from the module
-object because the host provides them (`importedExternNames`). A type the host already defines is
-the same situation as a function the host already defines, and the machinery for it exists. That
-would leave ONE `Response`, and the middleware typing above re-applies unchanged.
+**DONE 2026-08-06 — `JvmGen.dropHostShadowedTypeImports`.** An `import std.X.{…}` no longer names a
+type the preamble already defines at top level, on the same reasoning as the `extern def` filter:
+the host's definition resolves without an import, and naming it binds the module's second copy
+instead. The set is **derived from the emitted preamble**, not listed, so it cannot go stale.
+smoke-ci 69/69; `std/json.ssc` and `std/http.ssc` both still compile and run on the lane.
+
+**AND THE MIDDLEWARE TYPING WAS RE-APPLIED ON TOP, to find out whether that was the whole blocker.
+It is not — but it is no longer the `Any` problem.** With the supertype in place:
+
+```
+before   44 errors, all `not a member of Any`
+after     1 × E007 + 40 × E049  — `not a member of Any` is GONE
+```
+
+Two further things surfaced, both name collisions rather than type-system problems:
+
+1. Naming the trait `HttpResponse` collided with `java.net.http.HttpResponse`, which the preamble
+   imports — 41 `Reference to HttpResponse is ambiguous`. Renamed to `RouteResult`, which is what it
+   is and cannot clash.
+2. What remains is **`Reference to Request is ambiguous`** — `Request`, like `Response`, is defined
+   by the preamble AND imported from `std.http`. The new filter misses that copy: after
+   `hoistSscImportsIntoObjectStd` re-imports names inside `object std`, the line reads
+   `import http.{…}` with the `std.` prefix dropped, and the filter's pattern requires it.
+
+**So the remaining work is one regex, not a design.** Extend the filter to the hoisted form. The
+typing itself is written and compiles; it was reverted only because it is not landable while
+`Request` is ambiguous, and this entry now says exactly which line makes it so.
 
 That is the next step. It is neither an extern nor an import question, and it is not the opaque-type
 problem either — this one is a module declaring a narrower world than its host implements, and the
