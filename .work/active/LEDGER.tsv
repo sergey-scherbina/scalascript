@@ -1,4 +1,4 @@
 # generation: 1012
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
-release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
+release-graalvm-pin	claude-code	2026-08-05T12:40:00Z	release-v0-1-0 native-release-native-image-three-defects	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:tests/e2e/emitted-coordinate-is-published.sh file:scripts/smoke-ci.ssc
