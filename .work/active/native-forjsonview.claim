@@ -1,0 +1,11 @@
+slug: native-forjsonview
+branch: feature/native-forjsonview
+agent: claude-code
+started: 2026-08-06T15:16:37Z
+heartbeat: 2026-08-06T15:16:37Z
+status: claimed-before-planning
+items: swift-macos-build-broken-by-forJsonView
+paths: file:tests/e2e/v2-swift-cli.sh file:v2/nativeui/src/main/scala/ssc/NativeUiSites.scala file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
