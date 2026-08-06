@@ -1,6 +1,6 @@
 ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
-ThisBuild / version      := "0.2.0-SNAPSHOT"
+ThisBuild / version      := "0.1.1"
 
 // Publishing metadata, so a released artifact says what it is and where it came from. Until
 // 2026-08-06 this build declared NONE of it and `uniml/build.sbt` declared all of it, which meant
