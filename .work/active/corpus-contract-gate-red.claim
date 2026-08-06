@@ -2,10 +2,10 @@ slug: corpus-contract-gate-red
 branch: feature/corpus-contract-gate-red
 agent: claude-code
 started: 2026-08-06T10:26:05Z
-heartbeat: 2026-08-06T10:26:05Z
+heartbeat: 2026-08-06T19:19:22Z
 status: claimed-before-planning
 items: a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too
-paths: file:.github/workflows/corpus-contract.yml
+paths: file:.github/workflows/corpus-contract.yml file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: the last regression row is fixed; retiring the one stale baseline row that remains
