@@ -1,0 +1,13 @@
+slug: release-v0-1-1
+branch: release/0.1.1
+agent: claude-code
+started: 2026-08-06T04:10:00Z
+heartbeat: 2026-08-06T04:10:00Z
+status: implementing
+items: release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary
+paths: file:build.sbt file:tests/BUGS.md
+scope: |
+  Prepare v0.1.1 ON A BRANCH: compile-jvm is broken in every published v0.1.0 native binary. Set the
+  version, verify locally (native image + probes + qualifier self-test + smoke), push the BRANCH.
+  No tag and no main: pushing a tag is what publishes, and that is Sergiy's call, not mine.
+next: branch release/0.1.1, set version, full local verification
