@@ -50,6 +50,49 @@ def sh(x: Int)(x2: Int): Int = x2 - x
 println(sh(10)(3))
 ```
 
+## The TRAILING forms of that second clause
+
+Half 2 above flattened the parenthesised call site and only that one. Both TRAILING spellings of
+the same second clause — `f(a) { … }` and Scala 3's `f(a): p => …` — go through `blockArgApp`,
+which nested unconditionally, so a curried callee was applied with one argument of two and died
+with the very `arity: 2 expected, 1 given` half 2 exists to prevent. It reached the nightly:
+`fewer-braces-colon` went red on the 2026-08-05 corpus contract and stayed the last regression row
+in it. That case covers the COLON spelling on a non-curried callee, so neither it nor this gate
+could see the pair — the rows below are the missing intersection, curried × each trailing form.
+
+```scalascript
+def apT(n: Int)(f: Int => Int): Int = f(n)
+
+// `apT`, not `ap`: the jvm backend puts every fence of a file in ONE class, and a second
+// `ap(n: Int)(f: Int => Int)` erases to the same signature — "Conflicting definitions … have the
+// same type after erasure". The int and v2 lanes accept it, so this only surfaces on jvm.
+// the trailing BRACE on a curried callee
+def useBrace(): Int = apT(3) { (i) =>
+  i * 2
+}
+println(useBrace())
+
+// the trailing COLON on a curried callee — Scala 3 fewer-braces
+def useColon(): Int =
+  apT(3): (i) =>
+    i * 2
+println(useColon())
+
+// THE DISCRIMINATOR AGAIN, for the trailing forms. `mkg` returns a function that takes a lambda,
+// so `mkg(3) { … }` must stay NESTED. If the trailing-form flattening keyed on the call shape
+// instead of the curried-name table, this row would die with an arity error — which is how the
+// first version of half 2 was wrong, and the reason it is repeated here rather than assumed.
+def mkg(n: Int): (Int => Int) => Int = (g) => g(n)
+def viaBrace(): Int = mkg(3) { (i) =>
+  i * 2
+}
+def viaColon(): Int =
+  mkg(3): (i) =>
+    i + 1
+println(viaBrace())
+println(viaColon())
+```
+
 **Three clauses are deliberately absent.** `def tri(a: Int)(b: Int)(c: Int)` dies with
 `TYPEERR: cannot unify Tuple with non-Tuple` — and it does so on the *unmodified* toolchain too, so
 it is a pre-existing type-checker defect rather than a front gap. Filed separately as

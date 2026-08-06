@@ -10,11 +10,37 @@ Newest first.
 
 ## fewer-braces-colon regressed on v2 and hid for five days behind an already-red gate
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
-     gate: tests/conformance/contract.sc (corpus-contract nightly) -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/curried-def-clauses.ssc -->
+
+**FIXED 2026-08-06.** `blockArgApp` takes `cx` and flattens onto a curried callee exactly as
+`emitAppCur` does, so both trailing forms produce the same shape a second parenthesised list does.
+`fewer-braces-colon` and `curried-def-clauses` both pass on int/js/jvm/v2, and both are compiled by
+F rather than a fallback (`ssc info --front-report` reports `F` for each — an output comparison
+cannot tell those apart, which is how the curried-def bug this one sits on top of survived).
+
+The gate moves from the nightly to `curried-def-clauses`, which now carries the missing
+intersection: curried callee × each trailing form, plus the returns-a-function discriminator for
+BOTH forms. `fewer-braces-colon` covers the colon on a NON-curried callee and `curried-def-clauses`
+covered the parenthesised list on a curried one, so the pair fell between two gates that each
+looked complete. With the front reverted and the gates kept, both cases fail on v2 and stay green
+on int.
+
+**TWO CORRECTIONS to what is written below, both mine.**
+
+*The break window and its suspects were wrong.* The text below narrows to "after the 08-01 06:20
+nightly, before the 08-04 06:19 one" and names `34319ba4e` / `de5760462`. The regression row
+`fewer-braces-colon v2 FAIL` first appears on the **08-05** nightly, not the 08-04 one — the 08-04
+red had two other rows — so the true window is 08-04 06:19 → 08-05 06:19, and the cause is
+`ca8bb823e` at 08-04 16:16, INSIDE it. Reading a row off a later run and attributing it to the
+window I had already written down is the error; the run that first shows a row is the one that
+dates it.
+
+*"The colon spelling only" was wrong* and is already corrected further down: the braced trailing
+form `f(a) { … }` fails identically. Both are fixed here and both are in the gate.
 
 `tests/conformance/fewer-braces-colon.ssc` fails on the v2 lane:
 
@@ -62,8 +88,10 @@ Note the leading space: `appendArgsTo` strips the closing paren and concatenates
 returns args WITH their leading space (`emitApp` relies on it), so the trailing form must supply
 one too.
 
-**Not applied here:** `specs/v2.2-p6.5-fsub.ssc` is held by `f-bare-member-call-classes`, live and
-committing to that file today. Offered to that claim in the room.
+**Not applied when this was written:** `specs/v2.2-p6.5-fsub.ssc` was held by
+`f-bare-member-call-classes`, live and committing to that file. Applied 2026-08-06 once that claim
+was released, under `f-trailing-arg-curried-flatten` — exactly the proposed diff, which is the one
+thing this entry got right first time.
 
 So this is not the curried-def lowering in general. `v2-front-curried-def-second-clause` was fixed
 in `ca8bb823e` — "curried defs lower at total arity AND their call sites flatten" — and its own

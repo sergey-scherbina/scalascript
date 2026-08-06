@@ -702,7 +702,7 @@ def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) th
 // -> `(app (app f args) (lam 0 <block>))` (measured — actors runActors{..}, httpClient(url){..}). The
 // block is a by-name thunk (lam 0); its env is unchanged (arity 0 adds no binders). Reuses parseBlock,
 // so a multi-statement block body lowers via the L2c let-chain. `.match {..}` is handled BEFORE this.
-def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => (blockArgApp(c, b), r) }
+def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => (blockArgApp(c, b, cx), r) }
 // fewer-braces trailing lambda: `f(args): p => body` == `f(args) { p => body }` (Scala 3). The `:`
 // was never consumed by postfix, so the call, the parameter list and the body lowered as THREE
 // statements with `(global _err)` where the argument belonged, and the file was rejected
@@ -718,10 +718,20 @@ def isLamAhead(ts) = if isTok(hd(ts), 2, 21) then isArrowAfterParen(tl(ts), 0) e
 def isColonLamArg(ts) = if isTok(hd(ts), 2, 34) then isLamAhead(tl(ts)) else false
 // The argument is an ordinary expression by this point; blockArgApp already knows to pass a `(lam …)`
 // straight through rather than wrapping it in a by-name thunk, which is exactly what is wanted here.
-def postColonArg(c, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => (blockArgApp(c, erase(e, cx)), r) }
+def postColonArg(c, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => (blockArgApp(c, erase(e, cx), cx), r) }
 // When the block IS a lambda (`f { x => body }`), the lambda is the argument directly — NOT wrapped in
 // a `(lam 0 ..)` thunk (measured). A plain block (`run { stmts }`) becomes the by-name thunk `(lam 0 ..)`.
-def blockArgApp(c, b) = if startsW(b, "(lam ") then "(app " ++ c ++ " " ++ b ++ ")" else "(app " ++ c ++ " (lam 0 " ++ b ++ "))"
+// A TRAILING argument — `f(a) { b }` or `f(a): p => b` — must flatten onto a curried callee exactly
+// as a second parenthesised list does. `ca8bb823e` gave `postApp` that flattening via `emitAppCur`
+// and both trailing forms bypassed it, so `ap(3) { … }` and `ap(3): … ` nested as
+// `(app (app (global ap) 3) lam)` while `ap` lowers at TOTAL arity 2 — `arity: 2 expected, 1 given`,
+// the shape that half-fix was written to remove. The braced form is the twin: my first reading said
+// "the colon spelling only" and was wrong, so both are fixed here and both are in the gate.
+// `appendArgsTo` strips the closing paren and concatenates, and `parseArgs` returns args WITH the
+// leading space `emitApp` relies on, so the trailing form supplies one too.
+// BUGS `v2-fewer-braces-colon-curried`.
+def argOfBlock(b) = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
+def blockArgApp(c, b, cx) = if isCurriedApp(c, cx) then appendArgsTo(c, " " ++ argOfBlock(b)) else "(app " ++ c ++ " " ++ argOfBlock(b) ++ ")"
 // Chained application `f(a)(b)` -> (app (app (global f) a) b).
 // `f(a)(b)` on a curried def must FLATTEN to `(app (global f) a b)`, not nest as
 // `(app (app (global f) a) b)`: this runtime has no partial application, so the nested shape dies
