@@ -7,6 +7,61 @@ grepping for status.
 
 Newest first.
 
+
+## smoke-check-guards-sized-by-local-time — two checks killed by their own guard, and the runner will not say so
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+Main has been red since 6f8e3a98f (runs 31060534903, 31060671890 — the same two failures on both,
+so the second commit inherited them). `66/68 green`, and the two reds are not logic failures:
+
+    check                      local   CI      guard        what CI shows
+    freeze-consistency           2.0s   94.5s  120000 ms    exit 1, 4 stdout lines, NO stderr
+    run-lane-flags-are-flags    24.0s   60.1s   60000 ms    exit -1, no stdout, no stderr
+
+`run-lane-flags-are-flags` is unambiguous: 60.1 s measured against a 60 000 ms guard is the guard
+firing, and `exit -1` is what the runner reports for it — a value its own legend does not cover
+("124 is the timeout guard firing, 127 a command that could not start, 137 a kill").
+
+`freeze-consistency` is the sharper number: **2 s locally, 94.5 s on CI, a 47x ratio.** The
+previous worst known in this repo was 19x (`launchers-not-dead`, 5.5 s → 104.5 s). Cause is not
+mysterious — the gate shells out to `scala-cli tests/conformance/contract.sc -- --list`, which is
+0 s here against a warm cache and a cold resolve-and-compile on a runner. Both its internal
+`timeout 120` and the runner's 120 000 ms guard were sized as if local timing were indicative of
+anything.
+
+**The part that costs the most is neither: the runner cannot tell you why a check failed.** For
+both reds the reason is absent from the FULL log, not just `--log-failed`. `exec` is not at fault —
+probed directly, it captures stdout and stderr separately and correctly:
+
+    exitCode = 1
+    stdout   = [on stdout: line one]
+    stderr   = [on stderr: THE REASON \n on stderr: second reason line]
+
+So a check that is KILLED loses its stderr entirely, and `freeze-consistency` writes every one of
+its failure messages to stderr — including its own summary line. A red that says only `exit code -1`
+sends the next person to reproduce locally, where both checks pass in 2 s and 24 s.
+
+Three things worth doing, smallest first:
+
+1. Name the timeout. When the elapsed time reaches `timeoutMs`, or the exit code is negative, print
+   `TIMED OUT after Ns (guard Ms)` instead of a bare number. This alone turns both reds into
+   self-explaining ones.
+2. Size the two guards off CI numbers, not local ones. A guard at 2.5x the CI observation, not 2.5x
+   the local one.
+3. `freeze-consistency` should print findings as it makes them rather than only at the end, so a
+   kill still leaves the reason behind.
+
+NOT DONE HERE because `scripts/smoke-ci.ssc` is inside the `release-graalvm-pin` claim and items 1
+and 2 both live in it. Item 3 is in `tests/e2e/freeze-consistency-gate.sh` and is unclaimed.
+
+Note this is NOT the same defect as `smoke-suite-over-its-own-budget`, though both runs are also
+over budget (627.6 s and 629.1 s of 600 s). That one is about total wall time with every check
+green; this is two checks going red for being sized against the wrong host.
+
 ## launcher-digest-gate-is-225s-of-a-500s-budget — two processes per line, 7272 lines
 
 <!-- status: fixed
