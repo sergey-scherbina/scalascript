@@ -6,8 +6,8 @@
         "pattern": "META-INF/services/.*"
       },
       {
-        "comment": "Logger source — JvmGen inlines Logger.scala into generated scripts",
-        "pattern": "logger-sources/.*"
+        "comment": "JVM runtime source fragments \u2014 compile-jvm inlines these into the emitted Scala. Missing here, `ssc compile-jvm` FAILED in the native binary with 'JVM runtime resource not found on classpath: /scalascript/jvm-runtime/stubServeRuntime' while working on the JVM launcher. Nothing tested compile-jvm on the native lane, so it shipped broken in v0.1.0.",
+        "pattern": "scalascript/jvm-runtime/.*"
       },
       {
         "comment": "JAR manifest",
@@ -24,6 +24,10 @@
       {
         "comment": "commonmark extension resources",
         "pattern": "META-INF/commonmark/.*"
+      },
+      {
+        "comment": "Every generated *-sources root in one pattern, deliberately. These hold Scala source fragments that compile-jvm inlines into the script it emits, they are produced by resourceGenerators so they never appear under src/main/resources, and each missing one surfaces only as the NEXT failure of the same command: jvm-runtime, then http-server-spi-sources, then http-server-common-sources, one per 2.5-minute image build. build.sbt currently generates four (logger, http-server-{common,jvm,spi}); the wildcard covers the fifth nobody has written yet.",
+        "pattern": "[A-Za-z0-9-]+-sources/.*"
       }
     ]
   },

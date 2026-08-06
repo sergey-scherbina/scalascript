@@ -249,6 +249,41 @@ gate. It cost me roughly half an hour on `std/credential.ssc` before the lane ma
 Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
 comment pointing here.
 
+## compile-jvm-shipped-broken-in-the-native-binary — resources a native image never carried
+
+<!-- status: fixed
+     lane: native
+     area: build
+     gate: scripts/native-release-qualify -->
+
+`ssc compile-jvm` worked on the JVM launcher and failed in the **native binary on all three
+platforms**, including the published v0.1.0:
+
+```
+compile-jvm error: JVM runtime resource not found on classpath:
+  /scalascript/jvm-runtime/stubServeRuntime
+```
+
+The command inlines Scala source fragments that live as classpath RESOURCES. A native image carries
+only the resources named in `resource-config.json`, and none of these were named.
+
+**Three families were missing, and each surfaced only as the next failure of the same command** —
+one per 2.5-minute image build: `scalascript/jvm-runtime`, then `http-server-spi-sources`, then
+`http-server-common-sources`. They are produced by `resourceGenerators`, so they never appear under
+`src/main/resources` and a scan of the tree does not find them. Registered as one pattern,
+`[A-Za-z0-9-]+-sources/.*`, rather than three entries: build.sbt generates four such roots today and
+the wildcard covers the fifth nobody has written yet.
+
+**How it stayed invisible.** Nothing exercised `compile-jvm` on the native lane. I nearly filed it as
+noise myself: seeing the identical failure on two differently-built binaries, I concluded it was my
+probe environment. That inference was wrong in a specific way worth remembering — the failure was
+identical because **neither** image had the resource, not because my setup was at fault. A control
+answers the question it was asked (did my change break this?) and not the wider one (does this work
+at all?).
+
+Now qualified: `compile-jvm` runs in the release qualifier and must leave a non-empty `.scjvm`
+artifact, with two self-test mutations (`cjvm-exit`, `cjvm-artifact`). Self-test 64 cases.
+
 ## native-release-native-image-three-defects — the stage nothing had ever reached
 
 <!-- status: open

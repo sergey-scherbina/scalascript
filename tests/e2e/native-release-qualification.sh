@@ -185,6 +185,15 @@ if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
   exit 0
 fi
 
+# `compile-jvm <probe> -o <out>` — 4 args, and it must leave a non-empty artifact behind.
+if [ "$#" -eq 4 ] && [ "$1" = "compile-jvm" ]; then
+  case "$fixture_mode" in
+    cjvm-exit)     exit 12 ;;
+    cjvm-artifact) printf 'JVM artifact written\\n'; exit 0 ;;
+    *)             printf 'stub-artifact\\n' > "$4"; printf 'JVM artifact written\\n'; exit 0 ;;
+  esac
+fi
+
 # `run --v1 <probe>` — 3 args, no lane flag. Added when the qualifier started certifying the v1
 # front: a candidate binary that had dropped scalameta passed every other check while --v1 was dead.
 if [ "$#" -eq 3 ] && [ "$1" = "run" ] && [ "$2" = "--v1" ]; then
@@ -551,6 +560,8 @@ expect_fail vm-exit vm-exit
 expect_fail vm-output vm-stdout
 expect_fail vm-extra-newline vm-stdout
 expect_fail vm-stderr vm-stderr
+expect_fail cjvm-exit           cjvm-exit
+expect_fail cjvm-artifact       cjvm-artifact
 expect_fail v1-exit             v1-exit
 expect_fail v1-output           v1-stdout
 expect_fail asm-succeeds        asm-bytecode-refused

@@ -639,6 +639,17 @@ run_process v1 runtime "$RUN_DIR" "$SSC_EXE" run --v1 release-probe.ssc
 expect_exit v1 0
 expect_exact_line v1-stdout 84 "$LAST_STDOUT"
 
+# compile-jvm, and it is here because it shipped BROKEN in v0.1.0 on all three platforms. The
+# command inlines Scala source fragments loaded as classpath RESOURCES, and a native image only
+# carries resources listed in resource-config.json. Nothing listed them, so the binary failed with
+#   JVM runtime resource not found on classpath: /scalascript/jvm-runtime/stubServeRuntime
+# while the JVM launcher did it fine. Three families were missing and each one only surfaced as the
+# NEXT failure of this same command, one per image build.
+run_process cjvm runtime "$RUN_DIR" "$SSC_EXE" compile-jvm release-probe.ssc -o release-probe.scjvm
+expect_exit cjvm 0
+[ -s "$RUN_DIR/release-probe.scjvm" ] ||
+  fail_check cjvm-artifact 'a non-empty .scjvm artifact' 'missing or empty'
+
 # `--bytecode` on a NATIVE binary must be REFUSED, clearly and before doing any work.
 #
 # This check used to demand a real bytecode run — fallback marker ABSENT, stderr empty. That contract
