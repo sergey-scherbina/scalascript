@@ -71,7 +71,7 @@ exports:
 Single entry point for the v0.9 standard component pack.  With the
 v0.9.1 directory-as-index resolver this lets consumers write:
 
-```ssc
+```ssc @doc
 [Button, Card, FormInput as Input](./std-ui)
 ```
 

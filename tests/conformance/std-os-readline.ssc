@@ -23,7 +23,7 @@ object std.os` respectively. That is a gap in the whole `std/os` surface rather 
 primitive, filed separately; gating `readLine` on lanes where `env` does not work either would be
 testing the wrong thing.
 
-```scalascript
+```scalascript @doc
 [readLine](std/os.ssc)
 ```
 

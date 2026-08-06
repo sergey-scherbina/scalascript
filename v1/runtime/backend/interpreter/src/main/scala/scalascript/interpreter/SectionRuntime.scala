@@ -403,6 +403,34 @@ private[interpreter] object SectionRuntime:
       throw InterpretError(s"Import not found: ${imp.path}")
     val childDir = resolvedPath / os.up
     val childModule = Parser.parse(os.read(resolvedPath))
+    // A module's PROGRAM-CODE blocks must parse, even the ones this import does not reach.
+    //
+    // The parser stores a per-block failure in `parseError` rather than throwing, and only a block
+    // that gets EXECUTED ever surfaced it — so a module whose unexecuted fence was broken imported
+    // in silence here while `v2` and the native front rejected the same program outright
+    // ("native frontend rejected incomplete parse … parser sentinel _err"). Same source, one lane
+    // running it and two refusing: the lane divergence this repository keeps paying for.
+    //
+    // `isProgramCode` is the right question and not merely `parseError.isDefined`: it is
+    // `Lang.isParseable(lang) && !isDocOnly`, so an untagged fence and a `@doc` example — content
+    // no lane compiles — stay exempt by the same rule the other lanes use.
+    childModule.sections.foreach { section =>
+      def check(s: Section): Unit =
+        s.content.foreach {
+          case cb: Content.CodeBlock if cb.isProgramCode && cb.tree.isEmpty =>
+            // `parseError` is NOT required, and requiring it is why the first version of this check
+            // was a no-op. A `package:` module re-parses each block wrapped in `object pkg:` and
+            // clears the stored error when that retry also fails, so a failing block in a module
+            // ends up with an empty tree AND no recorded position — measured with `val broken = (((`,
+            // which no parser accepts and which stayed silent on every path.
+            val where = cb.parseError.map(e => s":${e.line}:${e.column}: ${e.message}").getOrElse(
+              " — the block did not parse (no position recorded; a `package:` module clears it)")
+            throw InterpretError(s"failed to parse scalascript block in ${imp.path}$where")
+          case _ => ()
+        }
+        s.subsections.foreach(check)
+      check(section)
+    }
     // Evaluate the imported module at most once per import-graph run.  Keyed by the
     // resolved absolute path and shared via `interp.moduleCache` (threaded into the
     // child below), so a module reachable through a diamond — busi `dispatch.ssc`
