@@ -725,3 +725,24 @@ would be scoring its own blind spot.
       change rather than the bucket that moved.
 
 **N = 39 → 45.** Six gates green; front-diff agreement 32 of 43, floor raised.
+
+## SSC3-20 — a `def` inside a `def`
+
+- [x] **20a — local functions are LIFTED, with captures as leading parameters.** Not rewritten into
+      a `val` holding a lambda, because a local function may RECURSE and a `val`-bound lambda has no
+      name to call itself by. Lifting keeps the name, so the recursive call is an ordinary call.
+
+      Captures become parameters rather than a closure because the call sites are all visible: a
+      local def is called from the body that declares it and from itself, and one pass rewrites
+      both. Iterated to a fixed point, so a local def inside a local def lifts too.
+
+      Verified on four shapes — plain, capturing, recursive, and parameterless. **v1 answers
+      `<closure>1` on the parameterless one**, so it does not auto-apply it; v3 does, which is
+      Scala's rule and the fifth place v3 is ahead of the reference.
+- [x] **20b — the three sites the compiler named.** Adding `Stmt.LocalDef` produced six
+      exhaustiveness warnings, which is the check doing its job. Two were printers. The third is the
+      block lowering, and it does NOT silently ignore a local def that reaches it: lifting runs
+      before any lowering and removes every one, so arriving there means the pass missed one, and
+      dropping a whole function quietly is worse than an internal error with a name.
+
+N = 45/360, DIFF 0, CRASH 0. Gates: front 50 cases, executor 52, parity 37 of 39, bridge, selftest.

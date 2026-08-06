@@ -88,6 +88,9 @@ final case class MatchArm(pat: Pat, guard: Option[Expr], body: Expr)
 enum Stmt:
   case Val(name: String, value: Expr, mutable: Boolean, pos: Pos)
   case Exp(e: Expr)
+  /** A `def` inside a block — a LOCAL function. It stays a `Def` rather than becoming a `val` of a
+    * lambda because it may be RECURSIVE, and a `val`-bound lambda has no name to call itself by. */
+  case LocalDef(d: Def)
 
 /** `default` is the `= expr` after the type: `def f(x: Int = 5)` and `case class C(x: Int = 5)`.
   * Held as the unevaluated EXPRESSION, so a call site that omits the argument gets the expression

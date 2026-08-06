@@ -71,6 +71,7 @@ object AstText:
     case Stmt.Val(n, v, mutable, _) =>
       sx(if mutable then "var" else "val", List(q(n), expr(v)))
     case Stmt.Exp(e) => sx("do", List(expr(e)))
+    case Stmt.LocalDef(d) => sx("localdef", List(dfn(d)))
 
   private def pat(p: Pat): String = p match
     case Pat.PWild(_)          => "(_)"

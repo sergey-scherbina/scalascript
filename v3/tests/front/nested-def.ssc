@@ -1,0 +1,21 @@
+def outer(n: Int): Int =
+  def double(x: Int): Int = x * 2
+  double(n) + double(n)
+
+def withCapture(base: Int, n: Int): Int =
+  def addBase(x: Int): Int = x + base
+  addBase(n)
+
+def recursive(n: Int): Int =
+  def go(k: Int, acc: Int): Int =
+    if k == 0 then acc else go(k - 1, acc + k)
+  go(n, 0)
+
+def parenless(n: Int): Int =
+  def base: Int = 10
+  base + n
+
+println(outer(3))
+println(withCapture(5, 1))
+println(recursive(4))
+println(parenless(1))

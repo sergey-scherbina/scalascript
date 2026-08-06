@@ -855,6 +855,9 @@ object Parser:
     ts
 
   private def parseStmt(ts: List[Tok]): (List[Stmt], List[Tok]) = peek(ts) match
+    case Tok.TId("def", _) =>
+      val (d, t) = parseDef(ts)
+      (List(Stmt.LocalDef(d)), t)
     // `val (x, y) = e` — bind the tuple ONCE to a temporary, then read its fields. Binding once is
     // the point: expanding to `e._1` and `e._2` would evaluate `e` twice, and `e` may print, read a
     // file or advance a counter. The temporary's name is derived from the SOURCE POSITION, which

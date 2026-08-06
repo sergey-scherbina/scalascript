@@ -96,6 +96,11 @@ object Lower:
         st match
           case Stmt.Val(n, v, _, _) => acc = acc ++ freeVars(v, b); b = n :: b
           case Stmt.Exp(x)          => acc = acc ++ freeVars(x, b)
+          // A local `def` binds its own name for everything after it — and for ITSELF, since it
+          // may recurse.
+          case Stmt.LocalDef(d) =>
+            b = d.name :: b
+            acc = acc ++ freeVars(d.body, b ++ d.params.map(_.name))
       }
       acc ++ res.toList.flatMap(x => freeVars(x, b))
     case _ => Nil
@@ -310,6 +315,11 @@ object Lower:
       var st = st0
       stmts.foreach { s =>
         s match
+          // `liftLocals` runs before any lowering and removes every one of these. Reaching here
+          // means the pass missed one, and a silent skip would drop a whole function — so it is an
+          // internal error with a name rather than a no-op.
+          case Stmt.LocalDef(d) =>
+            throw LowerFail(d.pos, "internal: the local `def` '" + d.name + "' was not lifted")
           case Stmt.Val(n, v, _, _) =>
             val (vi, vr, st1) = lower(v, fns, classes, zeroArity, st)
             // Always a LOCAL here. Whether a `val` initialises a module global is decided in
@@ -742,6 +752,7 @@ object Lower:
         Expr.Block(sts.map { st => st match
           case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
           case Stmt.Exp(x)           => Stmt.Exp(go(x))
+          case Stmt.LocalDef(d)      => Stmt.LocalDef(d.copy(body = go(d.body)))
         }, res.map(go), p)
       case other => other
 
@@ -771,6 +782,7 @@ object Lower:
         Expr.Block(sts.map { st => st match
           case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
           case Stmt.Exp(x)           => Stmt.Exp(go(x))
+          case Stmt.LocalDef(d)      => Stmt.LocalDef(d.copy(body = go(d.body)))
         }, res.map(go), p)
       case other => other
     f(rebuilt)
@@ -870,6 +882,77 @@ object Lower:
       case Expr.NamedArg(n, _, _) => c.fields.exists(f => f.name == n)
       case _                      => false
     }
+
+  /** Local `def`s become TOP-LEVEL functions, with whatever they capture as LEADING parameters.
+    *
+    * A local function may RECURSE, which is why it is not rewritten into a `val` holding a lambda —
+    * a `val`-bound lambda has no name to call itself by. Lifting keeps the name, so the recursive
+    * call is an ordinary call to the lifted function.
+    *
+    * Captures become parameters rather than a closure because that is the cheaper of the two and
+    * the call sites are all visible: a local def is called from the body that declares it and from
+    * itself, both of which this pass rewrites in the same motion.
+    *
+    * Iterated to a fixed point, so a local def inside a local def lifts too — the lifted function
+    * goes back on the queue and its own locals are found on the next pass. */
+  private def liftLocals(defs: List[Def], topNames: List[String]): List[Def] =
+    var out: List[Def] = Nil
+    var queue = defs
+    var guard = 0
+    while queue.nonEmpty && guard < 4096 do
+      guard = guard + 1
+      val d = queue.head
+      queue = queue.tail
+      val locals = collectLocals(d.body)
+      if locals.isEmpty then out = out :+ d
+      else
+        var body = d.body
+        var lifted: List[Def] = Nil
+        locals.foreach { ld =>
+          val bound = ld.params.map(_.name) ++ List(ld.name) ++ topNames
+          val captured = freeVars(ld.body, bound).distinct.filter(n => !topNames.contains(n))
+          val mangled = d.name + "$" + ld.name
+          val ps = captured.map(c => Param(c, ld.pos)) ++ ld.params
+          lifted = lifted :+ Def(mangled, ps, callsTo(ld.body, ld.name, mangled, captured), ld.pos)
+          body = callsTo(body, ld.name, mangled, captured)
+        }
+        queue = (Def(d.name, d.params, dropLocals(body), d.pos) :: lifted) ++ queue
+    if queue.nonEmpty then throw LowerFail(Pos.none, "local `def` lifting did not settle")
+    out
+
+  private def collectLocals(e: Expr): List[Def] =
+    var found: List[Def] = Nil
+    mapDeep(e, x =>
+      x match
+        case Expr.Block(sts, _, _) =>
+          sts.foreach { st => st match
+            case Stmt.LocalDef(d) => found = found :+ d
+            case _                => ()
+          }
+          x
+        case other => other)
+    found
+
+  private def dropLocals(e: Expr): Expr =
+    mapDeep(e, x =>
+      x match
+        case Expr.Block(sts, res, p) =>
+          Expr.Block(sts.filter { st => st match
+            case Stmt.LocalDef(_) => false
+            case _                => true
+          }, res, p)
+        case other => other)
+
+  /** Point every call to a lifted local at its new name, passing the captures first. A BARE name
+    * counts: a parameterless local def is referenced without parentheses. */
+  private def callsTo(e: Expr, from: String, to: String, captured: List[String]): Expr =
+    mapDeep(e, x =>
+      x match
+        case Expr.Call(fn, as, p) if fn == from =>
+          Expr.Call(to, captured.map(c => Expr.Name(c, p)) ++ as, p)
+        case Expr.Name(n, p) if n == from =>
+          Expr.Call(to, captured.map(c => Expr.Name(c, p)), p)
+        case other => other)
 
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true
@@ -1002,8 +1085,9 @@ object Lower:
         var i = 0
         stmts.foreach { st =>
           val ln = st match
-            case Stmt.Exp(x)        => Expr.posOf(x).line
+            case Stmt.Exp(x)          => Expr.posOf(x).line
             case Stmt.Val(_, _, _, q) => q.line
+            case Stmt.LocalDef(d)     => d.pos.line
           if ln <= e && ln > 0 then best = i
           i = i + 1
         }
@@ -1100,7 +1184,8 @@ object Lower:
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
     val sigs: List[(String, List[Param])] =
       allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
-    val allDefs = allDefs0.map(d => d.copy(body = fillDefaults(d.body, sigs)))
+    val allDefs = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
+      .map(d => d.copy(body = fillDefaults(d.body, sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
