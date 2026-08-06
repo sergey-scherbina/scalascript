@@ -22,7 +22,7 @@ ThisBuild / scalaVersion := "3.8.3"
 // consumer's build. Measured 2026-08-05 by publishing from both and listing ~/.ivy2/local.
 // Kept in step with `build.sbt` lines 2-3 by `UnimlCoordinatesSpec`, which reads them.
 ThisBuild / organization := "io.scalascript"
-ThisBuild / version      := "0.1.0"
+ThisBuild / version      := "0.2.0-SNAPSHOT"
 
 // Publishing metadata, so a released artifact says what it is and where it came from. The root
 // build declares none of this; when it publishes for real it should read from the same source.
