@@ -616,7 +616,9 @@ object SpikeParse:
         skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
         if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
         else if isDefStart(c) then defs += parseDef(c)
-        else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
+        // `case object`. The `case` used to be advanced past and dropped, so the object frame had
+        // no way to know, and `case object O` projected identically to `object O`.
+        else if isKw(c, "case") && c.peek2Lexeme == "object" then defs += parseObject(c, c.advance())
         else if isKw(c, "case") then defs += parseCaseClass(c)
         else if isKw(c, "given") then defs += parseGiven(c)
         else if isKw(c, "enum") then defs += parseEnum(c)
@@ -1139,8 +1141,9 @@ object SpikeParse:
 
   // `object X [extends …]: members` / `object X { members }` → Pair("object", Pair(name, [member-stmts]))
   // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
-  private def parseObject(c: Cur): Node =
+  private def parseObject(c: Cur, caseTok: Option[SourceToken] = None): Node =
     val kids = Vector.newBuilder[Node]
+    caseTok.foreach(t => kids += Node.Leaf(t, Some("obj.case"))) // `case object` — the marker, kept
     c.advance() // `object`
     expectName(c, "obj.name", "object name").foreach(kids += _)
     skipExtendsClause(c)
@@ -1168,7 +1171,7 @@ object SpikeParse:
     // one) has always handled it and this one did not, so a `case object` anywhere other
     // than the top level reported "expected class name, found 'object'". 94 diagnostics
     // across the corpus came from that one missing branch.
-    else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); parseObject(c) }
+    else if isKw(c, "case") && c.peek2Lexeme == "object" then parseObject(c, c.advance())
     else if isKw(c, "case") then parseCaseClass(c)
     else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)
@@ -1188,25 +1191,60 @@ object SpikeParse:
     while !c.eof && c.peekLine == typeLine do c.advance()
     sealedNoop(t0)
 
+  // `extends A with B` for a declaration that KEEPS its parents. The head token of each type ref is
+  // the parent tag, which is what `cc.parent` keeps for a case class and all dispatch needs.
+  private def captureExtendsClause(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
+    if isWord(c, "extends") then
+      c.advance()
+      if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.parent")))
+      skipTypeTail(c)
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c) // parent constructor args
+      while isWord(c, "with") do
+        c.advance()
+        if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.parent")))
+        skipTypeTail(c)
+    if isWord(c, "derives") then
+      c.advance(); skipTypeRef(c)
+      while c.peekKind == "spike.comma" do { c.advance(); skipTypeRef(c) }
+
+  // A `trait` (and a plain `class`) KEEPS ITS NAME, PARENTS AND MEMBERS. It used to be consumed
+  // whole into `sealedNoop` — parsed, then thrown away — and that made it invisible to every
+  // measurement UniML has at once, which is why it survived a sprint spent counting things:
+  //
+  //   - the `spike.error` count could not see it: nothing failed to parse;
+  //   - the silent-drop census could not see it: the frame is a MODELLED node with no subtree
+  //     under it to drop;
+  //   - the coverage figure could not see it: it counted as `typed`, not as a gap.
+  //
+  // A construct consumed into a contentless node is invisible to all three, and no amount of
+  // counting finds it — the same shape as a coverage metric that rewarded dropping. It took v3's
+  // FRONT DIFFERENTIAL, which compares against another implementation rather than against itself.
+  // `trait` gates 137 corpus cases for v3.
+  //
+  // The frame KIND stays `spike.sealed` deliberately: `SpikeProject` matches on it and returns a
+  // constant, so the v2 lane sees no change and no kind census moves. Consumers that want the
+  // trait read the roles. Same trade as the import path, for the same reason.
   private def parseTraitOrClassNoop(c: Cur): Node =
-    val t0 = c.peek // carrier for the no-op frame (see sealedNoop)
-    c.advance() // `trait` / `class`
-    if c.peekKind == "spike.uid" then c.advance()
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("td.kw"))) // `trait` / `class`
+    if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.name")))
     skipTypeParams(c)
     if c.peekKind == "spike.lparen" then skipBalancedParens(c) // class constructor params
-    skipExtendsClause(c)
-    // erase an optional body (`{ … }` or offside `: …`) without emitting its members
-    if c.peekKind == "spike.lbrace" then skipBalancedBraces(c)
-    else if c.peekKind == "spike.colon" then
-      c.advance(); c.skipSemis()
+    captureExtendsClause(c, kids)
+    val braced = c.peekKind == "spike.lbrace"
+    if braced then c.advance()
+    else if c.peekKind == "spike.colon" then c.advance()
+    if braced || c.peekKind != "spike.lbrace" then
+      c.skipSemis()
       val bodyCol = c.peekCol
-      while !c.eof && c.peekCol >= bodyCol && isMemberStart(c) do
+      while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
         skipDeclModifiers(c)
         val before = c.mark
-        parseMember(c) // parsed then discarded (no-op)
+        kids += parseMember(c).withRole("obj.member")
         if c.mark == before then c.advance()
         c.skipSemis()
-    sealedNoop(t0)
+      if braced && c.peekKind == "spike.rbrace" then c.advance()
+    Node.Frame("spike.sealed", None, kids.result())
 
   // `@name` / `@name(args)` annotation (e.g. `@main`, `@tailrec`, `@nowarn(…)`) — fully erased, matching
   // ssc1-front skipAnn (ssc1-front.ssc0:2483). Consumes ONE annotation; callers loop for stacked annotations.

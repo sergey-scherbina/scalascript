@@ -361,6 +361,66 @@ final class SpikeTypedRolesSpec extends AnyFunSuite:
     assert(g.members.nonEmpty, "the instance's methods were dropped")
   }
 
+  // ── 9. what only ANOTHER IMPLEMENTATION could find ────────────────────────────────────────
+  // Every defect below was found by v3's front differential on 2026-08-06 — not by any measurement
+  // UniML takes of itself. That is the lesson worth more than the fixes: a projection can be
+  // audited against its own CST until the drop census reads 0 and the coverage reads 100%, and a
+  // construct consumed into a MODELLED BUT CONTENTLESS node is still invisible to all of it. The
+  // parse-error count sees nothing wrong, the drop census sees a modelled node with no subtree
+  // beneath it, and the coverage figure counts it as typed. Comparing against a second
+  // implementation asks a question self-measurement cannot.
+
+  test("a trait keeps its name, its parents and its METHODS") {
+    // The worst of them: `trait Shape:` with a body was consumed whole into `NoOpDecl` — the node
+    // documented as "parsed, and genuinely carrying nothing". It gates 137 corpus cases for v3.
+    val t = decls("trait Shape extends Base with Drawable:\n  def area(): Int = 1\ndef main(): Int = 0")
+      .collect { case t: SpikeAst.TraitDecl => t }
+    assert(t.sizeIs == 1, s"expected one TraitDecl, got ${decls("trait Shape:\n  def area(): Int = 1\ndef main(): Int = 0").map(_.getClass.getSimpleName)}")
+    assert(t.head.keyword == "trait", s"keyword is ${t.head.keyword}")
+    assert(t.head.name == "Shape", s"name is ${t.head.name}")
+    assert(t.head.parents == Vector("Base", "Drawable"), s"parents are ${t.head.parents}")
+    assert(t.head.members.collect { case d: SpikeAst.Def => d.name } == Vector("area"),
+           s"the trait's methods were dropped: ${t.head.members}")
+  }
+
+  test("a trait's body is WALKED, so it can never be invisible to a count again") {
+    val n = SpikeAst.walk(project("trait S:\n  def f(): Int = 1 + 2\ndef main(): Int = 0"))
+      .count(_.isInstanceOf[SpikeAst.Infix])
+    assert(n == 1, s"the trait's `1 + 2` should appear once in the walk, appeared $n times")
+  }
+
+  test("a var is not a val — projecting one as the other is a wrong answer, not a smaller tree") {
+    val vs = SpikeAst.walk(project("var counter = 0\nval fixed = 1\ndef main(): Int = 0"))
+      .collect { case v: SpikeAst.ValDef => v }
+    assert(vs.map(_.name) == Vector("counter", "fixed"), s"got ${vs.map(_.name)}")
+    assert(vs.head.isVar, "`var counter` projected as a val, which makes every later assignment a refusal")
+    assert(!vs(1).isVar, "`val fixed` projected as a var")
+  }
+
+  test("a character literal is not the integer with the same code") {
+    // `'x'` lexes as spike.int; the QUOTES in the lexeme are the only thing that distinguishes it.
+    val body = bodyOf("def f(): Int =\n  'x'\n")
+    body match
+      case SpikeAst.CharLit(code, _) => assert(code == "120", s"code is $code")
+      case other                     => fail(s"`'x'` projected as $other — indistinguishable from 120")
+    assert(bodyOf("def f(): Int =\n  120\n").isInstanceOf[SpikeAst.IntLit], "120 should still be an IntLit")
+  }
+
+  test("an infix operator keeps the SPELLING that was written") {
+    // `SpikeOp.meaning` rewrites `+:` to `::` and `:::` to `++`, which is true for v2 where every
+    // Seq is a Cons-list and false in general. The typed AST says what was written.
+    val ops = SpikeAst.walk(project("def f(x: Int, xs: List): List =\n  x +: xs\n"))
+      .collect { case i: SpikeAst.Infix => i.op }
+    assert(ops.contains("+:"), s"`+:` was normalised away, ops seen: $ops")
+  }
+
+  test("a case object is distinguishable from an empty object") {
+    val os = decls("case object Red\nobject Blue\ndef main(): Int = 0").collect { case o: SpikeAst.ObjectDecl => o }
+    assert(os.map(_.name) == Vector("Red", "Blue"), s"objects are ${os.map(_.name)}")
+    assert(os.head.isCase, "`case object Red` projected as a plain object")
+    assert(!os(1).isCase, "`object Blue` projected as a case object")
+  }
+
   // ── the general form, stated once over every construct above ──────────────────────────────
 
   test("no keyword or punctuation token projects as an expression") {

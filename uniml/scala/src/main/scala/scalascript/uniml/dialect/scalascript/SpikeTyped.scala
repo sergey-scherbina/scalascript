@@ -126,7 +126,9 @@ object SpikeTyped:
       Extension(slots(n, "ext.recv", Set("ext.recvType"), "ext.dflt").headOption,
                 kids(n).collect { case (_, c) if kind(c) == "spike.def" => defDecl(c) }, span(n))
     case "spike.exprStmt"  => TopExpr(byRole(n, "stmt.expr").map(expr).getOrElse(UnitLit(span(n))), span(n))
-    case "spike.object"    => ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "obj.member").map(decl), span(n))
+    case "spike.object"    =>
+      ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "obj.member").map(decl),
+                 flag(n, "obj.case"), span(n))
     case "spike.val"       => TopExpr(valOf(n, "val"), span(n))
     case "spike.var"       => TopExpr(valOf(n, "var"), span(n))
     // Statements that `.ssc` also allows at TOP LEVEL. `expr` already models each of them; only
@@ -141,6 +143,8 @@ object SpikeTyped:
     // `given n = body` with no ascribed type — a plain val in given's clothing.
     case "spike.givenval"  =>
       Given(byRole(n, "given.name").map(lex), None, byRole(n, "given.body").map(expr), span(n))
+    // Reachable only since traits kept their bodies — an abstract `val id: String`, no `=`.
+    case "spike.valdecl"   => AbstractVal(byRole(n, "val.name").map(lex).getOrElse("_"), span(n))
     case "spike.effectdecl" =>
       EffectDecl(byRole(n, "eff.name").map(lex).getOrElse("_"), flag(n, "eff.multi"),
                  allByRole(n, "eff.op").map(decl), span(n))
@@ -148,8 +152,16 @@ object SpikeTyped:
     // The first two now carry their path (`imp.seg` / `imp.tok`); the third genuinely carries
     // nothing, and telling them apart is what having the roles buys.
     case "spike.sealed" =>
+      // FOUR constructs share this kind now, and the roles are what tell them apart: a trait or
+      // class (`td.kw`), an import (`imp.seg`/`imp.tok`), and an anonymous `given`, which alone
+      // genuinely carries nothing.
       val segs = allByRole(n, "imp.seg").map(lex) ++ allByRole(n, "imp.tok").map(lex).filter(_.nonEmpty)
-      if segs.isEmpty then NoOpDecl(span(n))
+      if byRole(n, "td.kw").isDefined then
+        TraitDecl(byRole(n, "td.kw").map(lex).getOrElse("trait"),
+                  byRole(n, "td.name").map(lex).getOrElse("_"),
+                  allByRole(n, "td.parent").map(lex),
+                  allByRole(n, "obj.member").map(decl), span(n))
+      else if segs.isEmpty then NoOpDecl(span(n))
       else
         ImportDecl(allByRole(n, "imp.seg").map(lex).mkString("."),
                    allByRole(n, "imp.sel").map(lex),
@@ -158,7 +170,8 @@ object SpikeTyped:
 
   private def valOf(n: UniNode, kw: String): Expr =
     ValDef(byRole(n, s"$kw.name").map(lex).getOrElse("_"),
-           byRole(n, s"$kw.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(n))), span(n))
+           byRole(n, s"$kw.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(n))),
+           isVar = kw == "var", span(n))
 
   /** Group a run of sibling roles into `Param`s.
     *
@@ -246,6 +259,9 @@ object SpikeTyped:
   def expr(n: UniNode): Expr = n match
     case UniNode.Token(t) =>
       t.kind match
+        // A char lexes as `spike.int` with the QUOTES kept in the lexeme, so `'x'` and `120` are
+        // distinguishable here and nowhere later. Reading only the decoded value collapsed them.
+        case "spike.int" if t.lexeme.startsWith("'") => CharLit(SpikeNum.decode(t.lexeme), t.span)
         case "spike.int"   => IntLit(SpikeNum.decode(t.lexeme), t.span)
         case "spike.float" => FloatLit(SpikeNum.decode(t.lexeme), t.span)
         case "spike.str"   => StrLit(SpikeStr.decode(t.lexeme), t.span)
@@ -260,7 +276,12 @@ object SpikeTyped:
       b.kind match
         case "spike.infix" =>
           Infix(
-            byRole(b, "bin.op").map(c => SpikeOp.meaning(lex(c))).getOrElse("+"),
+            // The WRITTEN operator, not `SpikeOp.meaning`. That rewrite (`+:` -> `::`,
+            // `:::` -> `++`) is true for v2, where every Seq is a Cons-list, and its docstring
+            // says so. It is not true in general: `x +: xs` on anything that is not a List
+            // disagrees with `x :: xs`. A typed AST says what was WRITTEN and lets the consumer
+            // decide the meaning — the CST keeps the spelling precisely so this is possible.
+            byRole(b, "bin.op").map(lex).getOrElse("+"),
             byRole(b, "bin.left").map(expr).getOrElse(Unsupported("missing.left", span(b))),
             byRole(b, "bin.right").map(expr).getOrElse(Unsupported("missing.right", span(b))),
             span(b),

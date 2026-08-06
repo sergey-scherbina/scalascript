@@ -49,7 +49,9 @@ object SpikeAst:
   /** A top-level expression statement — `.ssc` allows them, and they are 96% of
     * the corpus's declaration slots, so modelling them is not an edge case. */
   final case class TopExpr(expr: Expr, span: SourceSpan) extends Decl
-  final case class ObjectDecl(name: String, members: Vector[Decl], span: SourceSpan) extends Decl
+  /** `object O` and `case object O`. `isCase` distinguishes them; without it a `case object` and
+    * an empty `object` project identically, which is a wrong answer wherever the tag matters. */
+  final case class ObjectDecl(name: String, members: Vector[Decl], isCase: Boolean, span: SourceSpan) extends Decl
   /** `given n: T with { defs }` — a typeclass instance. Distinct from `Given` because it has
     * MEMBERS rather than a right-hand side, which is the whole difference at the use site. */
   final case class GivenObject(name: Option[String], tpe: Option[TypeRef], members: Vector[Decl], span: SourceSpan)
@@ -70,6 +72,21 @@ object SpikeAst:
     * why a count could never have found it. */
   final case class ImportDecl(path: String, selectors: Vector[String], wildcard: Boolean, span: SourceSpan)
       extends Decl
+  /** `trait T extends A with B: members` — and a plain `class`, which the dialect parses the same
+    * way. `keyword` is which of the two was written, since v3 has a separate node for each.
+    *
+    * It used to VANISH into `NoOpDecl`, and that is the most instructive defect this projection has
+    * had: a construct consumed into a contentless node is invisible to the parse-error count, to
+    * the silent-drop census AND to the coverage figure, all at once. Nothing UniML measures about
+    * itself could see it. v3's front differential found it in one run, because comparing against a
+    * second implementation asks a question that self-measurement cannot. */
+  final case class TraitDecl(keyword: String, name: String, parents: Vector[String],
+                             members: Vector[Decl], span: SourceSpan) extends Decl
+  /** `val id: String` with no `=` — an ABSTRACT member, legal inside a trait or class body. It has
+    * no right-hand side, so it is a declaration rather than a `ValDef`, and modelling it as one
+    * would need an initialiser that was never written. It only became reachable once traits stopped
+    * vanishing: nothing else in the corpus puts one where the projection could see it. */
+  final case class AbstractVal(name: String, span: SourceSpan) extends Decl
   final case class UnsupportedDecl(kind: String, span: SourceSpan) extends Decl
 
   final case class Param(name: String, tpe: Option[TypeRef], default: Option[Expr], using_ : Boolean, span: SourceSpan)
@@ -77,6 +94,14 @@ object SpikeAst:
 
   sealed trait Expr extends Node
   final case class IntLit(value: String, span: SourceSpan) extends Expr
+  /** `'x'`. The dialect lexes a char as `spike.int` whose LEXEME keeps the quotes, so the code and
+    * the spelling are both recoverable — but only if the projection looks. It did not, and `'x'`
+    * arrived as `IntLit("120")`, indistinguishable from the integer 120. `println('x')` prints `x`
+    * and `println(120)` prints `120`; the language's Char IS an integer that prints differently,
+    * which is exactly why the distinction has to survive the projection rather than be recovered
+    * downstream. `code` is the decoded code point, matching `IntLit`'s convention of holding the
+    * decoded text. */
+  final case class CharLit(code: String, span: SourceSpan) extends Expr
   final case class FloatLit(value: String, span: SourceSpan) extends Expr
   final case class StrLit(value: String, span: SourceSpan) extends Expr
   final case class Ident(name: String, span: SourceSpan) extends Expr
@@ -88,7 +113,11 @@ object SpikeAst:
   final case class Block(stmts: Vector[Expr], span: SourceSpan) extends Expr
   final case class Match(scrutinee: Expr, arms: Vector[Arm], span: SourceSpan) extends Expr
   final case class Lambda(params: Vector[String], body: Expr, span: SourceSpan) extends Expr
-  final case class ValDef(name: String, rhs: Expr, span: SourceSpan) extends Expr
+  /** `val x = e` and `var x = e`. `isVar` is not decoration: without it the two project
+    * IDENTICALLY, and a `var` read as a `val` makes every later assignment to it a refusal. Found
+    * 2026-08-06 by v3's front differential — UniML printed `(val "counter" …)` where v3's own front
+    * printed `(var "counter" …)` for the same source. A wrong answer, not a smaller tree. */
+  final case class ValDef(name: String, rhs: Expr, isVar: Boolean, span: SourceSpan) extends Expr
   final case class Assign(name: String, rhs: Expr, span: SourceSpan) extends Expr
   final case class While(cond: Expr, body: Expr, span: SourceSpan) extends Expr
   final case class Tuple(elems: Vector[Expr], span: SourceSpan) extends Expr
@@ -172,13 +201,14 @@ object SpikeAst:
   def walk(n: Node): Vector[Node] = n +: (n match
     case Module(ds, _)            => ds.flatMap(walk)
     case TopExpr(e, _)            => walk(e)
-    case ObjectDecl(_, ms, _)     => ms.flatMap(walk)
+    case ObjectDecl(_, ms, _, _)  => ms.flatMap(walk)
     case While(c, b, _)           => walk(c) ++ walk(b)
     case Tuple(es, _)             => es.flatMap(walk)
     case Def(_, ps, rt, b, _)     => ps.flatMap(walk) ++ rt.toVector.flatMap(walk) ++ walk(b)
     case Param(_, t, d, _, _)     => t.toVector.flatMap(walk) ++ d.toVector.flatMap(walk)
     case CaseClass(_, fs, _, ms, _) => fs.flatMap(walk) ++ ms.flatMap(walk)
     case EnumDecl(_, cs, _)       => cs.flatMap(walk)
+    case TraitDecl(_, _, _, ms, _) => ms.flatMap(walk)
     case EnumCase(_, fs, _)       => fs.flatMap(walk)
     case Given(_, t, b, _)        => t.toVector.flatMap(walk) ++ b.toVector.flatMap(walk)
     case Extension(r, ds, _)      => r.toVector.flatMap(walk) ++ ds.flatMap(walk)
@@ -215,7 +245,7 @@ object SpikeAst:
     case PatAlt(as, _)            => as.flatMap(walk)
     case PatBind(_, i, _)         => walk(i)
     case Lambda(_, b, _)          => walk(b)
-    case ValDef(_, r, _)          => walk(r)
+    case ValDef(_, r, _, _)       => walk(r)
     case Assign(_, r, _)          => walk(r)
     case _                        => Vector.empty)
 
