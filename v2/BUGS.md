@@ -227,6 +227,38 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**2. MINIMISED 2026-08-06 — it is an `extern def` crossing a MODULE boundary.** Eight attempts at a
+bottom-up reproduction missed it; this one came from delta-debugging the real file downward with a
+predicate that required the SAME symbol in the decline, which is exactly what the earlier attempt
+lacked (it converged on an empty code fence, true for a trivially different reason). 60 lines of
+`examples/content-action-onsuccess.ssc` reduced to 3 in 37 probes:
+
+    [contentToolkitSection, contentToolkitOptionsWithActions, contentAction, contentComputed](std/ui/content.ssc)
+    ```scalascript
+    ```
+
+An import and an EMPTY body still declines on `(global fragment)`. From there the shape is three
+modules, and it reproduces from scratch:
+
+    module base:  extern def thing(n: Int): Int
+    module mid:   [thing](base.ssc)   def useIt(n: Int): Int = thing(n)
+    file  top:    [useIt](mods/mid.ssc)   def main() = println("ok")
+                                                    -> unbound global: (global thing)
+
+CONTROL that explains why seven earlier tries passed: an `extern def` used INSIDE ITS OWN MODULE
+lowers fine. It is the boundary that breaks, and every synthetic reproduction before this one kept
+the extern and its caller together.
+
+Cause is then plain: an extern has no body, so it contributes no entry to `p.defs`, and
+`validateNoReader`'s `globalOk` is `defNames.contains(g) || g.startsWith("@")`. The reference to it
+from another module lowers to a bare `(global thing)` with nothing to match. Two ways out — F emits
+a stub def for a declared extern, or the validator is told the closure's extern names — and which
+is right depends on what the DEFAULT front does with externs, which I did not measure.
+
+This is the reason that matters for corpus movement: after reason (1) closed, the top decline names
+are `(global Response)` and `(global fragment)`, 10 each in a 60-file sample, and both are externs
+reached across a module boundary.
+
 **2. Importing a type or companion from a std module declines the file, used or not.**
 
     [Parser](std/parsing/core.ssc)                  unbound global: (global Parser)
