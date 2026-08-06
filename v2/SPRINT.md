@@ -97,6 +97,31 @@ as "bookkeeping only" and then REOPENED because the fix had reached one front an
 - [x] **D-3 — record what the heuristic costs.** Five hits, one real. Worth stating in the entry that
       survives, so the next person running the same scan does not re-triage the same four.
 
+## front-matter `routes:` on the native lane (claim `native-fm-routes`)
+
+Spec: [`../specs/native-frontmatter-routes.md`](../specs/native-frontmatter-routes.md).
+Entry: [`BUGS.md`](BUGS.md) `native-lane-ignores-declarative-route-registration` — its second half.
+Gate: `tests/e2e/fm-routes-smoke.sh`, NATIVE declared a gap, five rows red today.
+
+The entry sized this as "a design choice about where that boundary sits". It is not: the crossing
+exists and `databases:` uses it (`NativeV2Structural.runtimeConfig` -> `NativeRuntimeConfig` ->
+`NativePluginHost.loadAll` -> `def databases = config.databases`), and `resolveGlobal` is already on
+the SPI. Four edits, each beside a working precedent.
+
+- [~] **R-1 — SPI:** `NativeRouteDecl`, a defaulted `routes` on `NativeRuntimeConfig`, and a
+      defaulted `declaredRoutes` on `NativePluginContext` (defaulted for the same reason
+      `resolveGlobal` is — mock and existing contexts stay source-compatible).
+- [~] **R-2 — host:** `def declaredRoutes = config.routes`, one line beside `databases`.
+- [~] **R-3 — CLI:** read `routes:` in `runtimeConfig` beside `databases:`. A SEQUENCE of mappings,
+      not a mapping of mappings; all three fields required, and a missing one raises naming the file
+      exactly as a database without a `url` does.
+- [~] **R-4 — plugin:** register beside `registerHealthDefaults()`, before serve and only when
+      absent, with a handler that resolves through `resolveGlobal` **at request time**. Lazy is the
+      point: it is what makes a handler defined AFTER the `serve(...)` call still resolve, which is
+      the interpreter's behaviour and the property an eager implementation passes the gate without.
+- [~] **R-5 — delete the gate's NATIVE declaration.** Forced, not optional: the gate fails a
+      declared row that starts passing.
+
 ## v2 source backend lanes (claim `v2-source-backend-lanes`)
 
 - [x] **B-1 — `v2-source-backends-miss-autoOutput`.** `v2-jvm` and `v2-rust` could not run ANY
