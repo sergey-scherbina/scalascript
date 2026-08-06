@@ -33,11 +33,11 @@ final class EmitJsCmd extends CliCommand:
       case "--stats"         => printStats  = true; false
       case _                 => true
     }
-    if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if files.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- files do
       val path    = os.Path(file, os.pwd)
       val baseDir = Some(path / os.up)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           val module   = Parser.parse(os.read(path))
@@ -71,10 +71,10 @@ final class EmitWasmCmd extends CliCommand:
   override def summary = "Compile scala/scalascript blocks to WebAssembly via Scala.js"
   override def category = "Emit & transpile"
   def run(args: List[String]): Unit =
-    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- args do
       val path = os.Path(file, os.pwd)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           val stem = path.last.stripSuffix(".ssc")
@@ -334,11 +334,11 @@ final class EmitSpaCmd extends CliCommand:
         case "--server-url" if it.hasNext =>
           serverUrl = Some(it.next())
         case f => files += f
-    if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if files.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     frontendBackend.foreach(applyFrontendBackend)
     for file <- files.toList do
       val path    = os.Path(file, os.pwd)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           println(renderSpaHtml(path, serverUrl))
@@ -457,11 +457,11 @@ final class EmitWcCmd extends CliCommand:
   override def category = "Emit & transpile"
   def run(args: List[String]): Unit =
     import scala.meta.Defn
-    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- args do
       val path    = os.Path(file, os.pwd)
       val baseDir = Some(path / os.up)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           val module     = Parser.parse(os.read(path))
@@ -538,10 +538,10 @@ final class EmitScalaCmd extends CliCommand:
   override def summary = "Print generated Scala 3 script to stdout"
   override def category = "Emit & transpile"
   def run(args: List[String]): Unit =
-    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- args do
       val path = os.Path(file, os.pwd)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try   println(expectText(compileViaBackend("jvm", path), "emit-scala"))
         catch case e: Exception =>

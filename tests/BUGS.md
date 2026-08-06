@@ -316,102 +316,26 @@ native binary's entry). The first draft tested only `bin/ssc` and passed against
 because that entry never had the bug: a probe whose subject is reachable without the thing under
 test measures nothing.
 
-**5 (open, filed not fixed): `run` prints its diagnostics to STDOUT.** Measured on the same command:
+**5 (FIXED 2026-08-06): `run` printed its diagnostics to STDOUT.** Measured before:
 
 ```
 ssc-tools run --no-such-flag-xyzzy p.ssc  2>&1 >/dev/null   ->  (empty)
-ssc-tools run --no-such-flag-xyzzy p.ssc  2>/dev/null       ->  Error: File not found: --no-such-flag-xyzzy
+ssc-tools run --no-such-flag-xyzzy p.ssc  2>/dev/null       ->  Error: File not found: …
 ```
 
-An error in the data stream: a caller capturing program output gets the message mixed into it, and
-one reading stderr for diagnostics sees nothing. Not fixed here because moving the stream could
-break consumers that match on stdout today — including gates. Note the release qualifier asserts
-`expect_empty vm-stderr`, which such an error would silently satisfy.
+An error on the data stream: a caller capturing program output got the message mixed into it, and a
+caller reading stderr saw nothing.
 
-**Progress 2026-08-05, run `30986892933`: `Qualify ssc-linux-x86_64` passed END TO END** — the first
-Qualify job that has ever completed in this repository. Image built, payload assembled, manifest
-written, `Qualify isolated shipped bytes` green under the new refusal contract, artifact uploaded.
+It was filed unfixed on the theory that moving the stream might break consumers matching on stdout.
+A survey found none — every hit was prose inside a gate, not an assertion — and the same file
+already contradicted itself: `EmitCommands.scala` printed this identical message to stdout at four
+sites and to **stderr** at a fifth. That is not a contract, it is an oversight, which made the fix
+safe rather than risky.
 
-**7 (self-inflicted, fixed): pinning GraalVM to 21.0.11 made macos-15-intel impossible.** Oracle
-ships no macOS x64 build after 21.0.9. Checked rather than assumed:
-
-| version | macos-x64 | macos-aarch64 | linux-x64 |
-| --- | --- | --- | --- |
-| 21.0.9 | 200 | 200 | 200 |
-| 21.0.11 | **404** | 200 | 200 |
-| 21.0.12 | **404** | 200 | 200 |
-
-The pin was set to 21.0.11 because that is what was installed on the arm64 machine it was tested on
-— the same shape of error as testing a gate against the launcher that never had the bug. Repinned to
-21.0.9, the newest version present on all three release targets.
-
-Worth keeping: this also shows why `java-version: '21'` was worse than it looked. It does not merely
-float over time, it resolves to the newest build available *per platform*, so a single run could
-build x64 with 21.0.9 and aarch64 with something newer.
-
-**8: arm64 is squeezed from both sides, and one of my numbers was wrong.**
-
-CORRECTION FIRST. An earlier version of this entry claimed `RSS ~= Xmx + 1.6 GB` from a local
-sampling of "sbt 2306 MB / native-image 7652 MB". That sampling matched processes whose command line
-contains `native-image` — which includes the **sbt** JVM, because its arguments carry the
-`…/graalvm-native-image/…` output path. The two figures are therefore mixed and the model built on
-them is withdrawn. What follows is only what the runner itself reports, plus like-for-like local
-comparisons.
-
-Measured on the 7 GB `macos-latest` runner:
-
-| arm64 heap | outcome |
-| --- | --- |
-| 4.44 GB (the old forced `5g`) | watchdog abort — but with a 2.3 GB sbt resident beside it |
-| **4g** | builder reports 3.56 GB usable (50.8% of 7 GB), 13–28% of wall time in GC, prints "Consider increasing the heap size", watchdog aborts after 52 min |
-| **6g** | does not fit the machine; crawled past 71 min |
-
-So the tool asks for *more* at 4g and the machine has no room at 6g.
-
-`-H:NumberOfThreads` is **not** a lever, measured rather than assumed: 3 → 2 moved peak by 1.4%, and
-at 5g the 2-thread build died with `OutOfMemoryError` where the 3-thread build finished in 5m58s.
-Fewer threads did not reduce the requirement; it made it worse.
-
-**`5g` was tried and failed too** (40 min, GC 16–29%), and the log corrected a claim I had made:
-splitting the sbt command into two steps does **not** remove sbt from the image build. It cannot —
-sbt is the process that *forks* native-image, so it stays resident throughout. The arm64 log carries
-sbt's own GC warnings during the build, `[Heap: 0.51GB free of 1.69GB, max 4.00GB]`, i.e. ~1.7 GB
-beside native-image's 4.44 GB on a 7 GB machine. The split is still worth having (the compile phase
-is no longer in the same JVM) but it did not buy what was claimed for it.
-
-So the numbers are: machine 7 GB, native-image needs ≥4.5 GB, sbt takes ~1.7 GB. Not more tuning of
-the first two — the third is the removable one.
-
-Next attempt, and the reasoning is stated so it can be checked rather than believed: cap sbt with
-`JAVA_OPTS: -Xmx1500m` for that step. It compiles nothing there (step 1 built the jars); it loads
-the build definition and forks.
-
-If sbt cannot work in 1500m, the real fix is to invoke native-image **without sbt at all**, which
-needs `build.sbt` to emit its own argv so the command has one source. `build.sbt` is held by another
-claim (`uniml-ssc3-frontend-readiness`, heartbeat 14 h stale, no commits, does not touch the file) —
-that is a release/claim decision for the owner, not something to take unilaterally twice.
-
-**9 (the fix): native-image is invoked WITHOUT sbt.** Every attempt to make arm64 fit by tuning
-memory failed, and the reason is that one of the two consumers was never negotiable:
-
-| attempt | result |
-| --- | --- |
-| heap 4g / 5g / 6g | all fail — starve (watchdog) or exceed the 7 GB machine |
-| split into two sbt steps | sbt is the process that FORKS native-image; it stays resident |
-| cap sbt via `JAVA_OPTS` | silently ignored — `.jvmopts` pins `-Xmx4G` and sbt reads it INSTEAD |
-| cap sbt via `-J-Xmx1500m` | applied (log shows `max 1.47GB`), still not enough |
-| `-H:NumberOfThreads` 3→2 | 1.4% on peak, and 2 threads OOMed where 3 succeeded |
-
-`build.sbt` now has a `nativeImageArgv` task that writes the exact command `packageBin` would run —
-built from the same `fullClasspath` / `graalVMNativeImageOptions` / `mainClass`, so the command keeps
-ONE source and cannot drift from a local build. CI generates it in the jar step and executes it in
-the next, with sbt already exited.
-
-Verified locally end to end: the emitted argv is 12 arguments, and running it with no sbt present
-produced the image in 8m30s (200 MB binary).
-
-**Status of the other two targets: both green.** `ssc-linux-x86_64` has passed end to end twice, and
-`ssc-macos-x86_64` passed once the GraalVM pin moved to 21.0.9.
+22 sites moved across `Main.scala` and `EmitCommands.scala`; zero `println("Error…")` remain in the
+CLI. Verified: stdout is now empty and the message is on stderr. `run-lane-flags-are-flags` asserts
+BOTH halves, so a regression fails rather than being noticed by someone's broken pipeline. smoke
+69/69.
 
 **Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
 is the substantive one; 1 and 2 are bookkeeping in front of it.

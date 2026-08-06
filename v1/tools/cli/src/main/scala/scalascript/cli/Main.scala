@@ -1506,10 +1506,10 @@ final class ParseCmd extends CliCommand:
   override def summary = "Parse .ssc files and print the AST"
   override def category = "Check & inspect"
   def run(args: List[String]): Unit =
-    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- args do
       val path = os.Path(file, os.pwd)
-      if !os.exists(path) then println(s"Error: File not found: $file")
+      if !os.exists(path) then System.err.println(s"Error: File not found: $file")
       else
         println(s"=== Parsing: $file ===")
         try   printModule(Parser.parse(os.read(path)))
@@ -1564,7 +1564,7 @@ final class RunCmd extends CliCommand:
   override def category = "Run & develop"
   override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --v2 / --compat-frontend  (self-hosted native front -> CoreIR -> v2 VM)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       -- separates source files from program args for v2 VM runners")
   def run(args: List[String]): Unit =
-    if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
     // BackendOptions.extra("sparkVersion") / ("sparkMaster") respectively,
     // consumed by SparkBackend.compile.  Stripped here before file dispatch
@@ -1660,7 +1660,7 @@ final class RunCmd extends CliCommand:
     }
 
     if nativeFlag then
-      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      if fileArgs.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
       try RunNativeV2.run(fileArgs.toList, programArgv, bytecodeFlag)
       catch
         case failure: _root_.ssc.ControlRunFailure =>
@@ -1676,7 +1676,7 @@ final class RunCmd extends CliCommand:
     // path `bin/ssc run --v2` uses). Plain default-lane runs reach it below too
     // unless `--v1` selects the tree-walking interpreter.
     if bytecodeFlag then
-      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      if fileArgs.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
       try RunNativeV2.run(fileArgs.toList, programArgv, bytecode = true)
       catch case failure: _root_.ssc.ControlRunFailure =>
         System.err.println(failure.rendered)
@@ -1684,7 +1684,7 @@ final class RunCmd extends CliCommand:
       return
 
     if (v2Flag || compatFrontendFlag) && !appleTarget then
-      if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
+      if fileArgs.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
       try RunNativeV2.run(fileArgs.toList, programArgv, bytecode = false)
       catch case failure: _root_.ssc.ControlRunFailure =>
         System.err.println(failure.rendered)
@@ -1840,7 +1840,7 @@ final class RunCmd extends CliCommand:
     val backendId = ActiveFlags.current.backend.getOrElse("int")
     for file <- fileArgs.toList do
       val path = os.Path(file, os.pwd)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           // Load config: frontmatter < sidecar files < fenced blocks < -Dscalascript.* < CLI flags.
@@ -2540,7 +2540,7 @@ final class WatchCmd extends CliCommand:
   def run(args: List[String]): Unit =
     import java.nio.file.{FileSystems, Paths, StandardWatchEventKinds}
     import scala.jdk.CollectionConverters.*
-    if args.isEmpty then { println("Error: No file specified"); System.exit(1) }
+    if args.isEmpty then { System.err.println("Error: No file specified"); System.exit(1) }
     // Parse --frontend flag (same as runCommand; flag overrides frontmatter)
     val it = args.iterator
     var fileArg:     Option[String] = None
@@ -2552,7 +2552,7 @@ final class WatchCmd extends CliCommand:
         if validFrontendNames(name) then frontendArg = Some(name)
         else { System.err.println(s"watch: unknown --frontend '$name'"); System.exit(1) }
       else if !a.startsWith("-") && fileArg.isEmpty then fileArg = Some(a)
-    val file    = fileArg.getOrElse { println("Error: No file specified"); System.exit(1); "" }
+    val file    = fileArg.getOrElse { System.err.println("Error: No file specified"); System.exit(1); "" }
     val absPath = Paths.get(file).toAbsolutePath.normalize
     val dir     = absPath.getParent
     val osPath  = os.Path(absPath)
@@ -2861,10 +2861,10 @@ final class EmitSparkCmd extends CliCommand:
         case "-o" if it.hasNext              => outputArg = Some(it.next())
         case "--spark-version" if it.hasNext => sparkVersionArg = Some(it.next())
         case f                               => files += f
-    if files.isEmpty then { println("Error: No files specified"); System.exit(1) }
+    if files.isEmpty then { System.err.println("Error: No files specified"); System.exit(1) }
     for file <- files do
       val path = os.Path(file, os.pwd)
-      if !os.exists(path) then { println(s"Error: File not found: $file"); System.exit(1) }
+      if !os.exists(path) then { System.err.println(s"Error: File not found: $file"); System.exit(1) }
       else
         try
           val module = Parser.parse(os.read(path))
@@ -7390,7 +7390,7 @@ final class CheckWithIfaceCmd extends CliCommand:
     for file <- files.toList do
       val path = os.Path(file, os.pwd)
       if !os.exists(path) then
-        println(s"Error: File not found: $file"); hasErrors = true
+        System.err.println(s"Error: File not found: $file"); hasErrors = true
       else
         println(s"=== Type checking (with interfaces): $file ===")
         try

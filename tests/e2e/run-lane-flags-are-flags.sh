@@ -77,16 +77,18 @@ done
 # as a file. Until the parser rejects unknown flags this is expected to report the file-shaped
 # error; the check pins the CURRENT behaviour so that improving it is a deliberate act.
 #
-# Streams are COMBINED deliberately. `run` prints this diagnostic to STDOUT, not stderr — measured:
-#   2>&1 >/dev/null  -> empty
-#   2>/dev/null      -> "Error: File not found: --no-such-flag-xyzzy"
-# That is its own defect (an error in the data stream; a caller capturing program output gets the
-# message mixed into it, and one reading stderr sees nothing) and it is filed rather than fixed
-# here, because moving the stream could break consumers that currently match on stdout. This gate
-# must not encode the wrong stream as correct, so it asserts on both and says why.
+# STDERR only, and stdout must stay clean. `run` used to print this to stdout -- an error in the
+# data stream, where a caller capturing program output got the message mixed into it and a caller
+# reading stderr saw nothing. Fixed since; asserting the stream here is what stops it coming back.
 set +e
-unknown_err=$("$TOOLS" run --no-such-flag-xyzzy "$probe" 2>&1); unknown_rc=$?
+unknown_err=$("$TOOLS" run --no-such-flag-xyzzy "$probe" 2>&1 >/dev/null); unknown_rc=$?
+unknown_out=$("$TOOLS" run --no-such-flag-xyzzy "$probe" 2>/dev/null)
 set -e
+if [[ -n $unknown_out ]]; then
+  echo "run-lane-flags-are-flags: FAILED 'unknown-flag-stdout' — diagnostics on the DATA stream" >&2
+  echo "--- stdout: $unknown_out" >&2
+  failed=1
+fi
 if [[ $unknown_rc -eq 0 ]]; then
   echo "run-lane-flags-are-flags: FAILED 'unknown-flag' — an unknown flag exited 0" >&2
   failed=1
