@@ -7,47 +7,42 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## the composer parses fences the reference front does not — a MODULE's blocks are not all code
+## the reference front is NOT an oracle for a module's fences — three method corrections
 
-Measured 2026-08-05/06 while working breadth. It limits what the breadth column means, and the
-route to it contains a method error worth more than the finding.
+Measured 2026-08-05/06. The conclusion matters less than how many times the route to it was wrong,
+so both are recorded.
 
-**The finding.** `v1/runtime/std/ui/form.ssc` contains `formBody([...])` inside a ```` ```scala ````
-fence. `...` is not valid ScalaScript — the reference front rejects `g([...])`, `g(1, ...)` and
-`val x = [...]` identically. The reference front nonetheless compiles that module: a consumer that
-imports it runs and prints. So the reference does NOT compile that fence, and `SscCompose` does —
-it hands every fence to the ScalaScript dialect and counts the diagnostics.
+**The question.** `v1/runtime/std/ui/form.ssc` contains `formBody([...])` in a ```` ```scala ````
+fence. `...` is not valid ScalaScript — the reference rejects `g([...])`, `g(1, ...)` and
+`val x = [...]` in a program. The breadth probe counts that fence's diagnostics. Is it a gap in the
+dialect or content the reference would never compile?
 
-**What triggers it, narrowed rather than guessed:** `package:` in the file's YAML front matter.
+**Three tests, two of them worthless, in the order they were run:**
 
-    front matter        block parsed by the reference front?
-    (none)              yes  — parse error on [...]
-    name:               yes  — parse error
-    name: + exports:    yes  — parse error
-    package:            NO   — clean
+1. RUN the module — `ssc-tools run --v1 form.ssc` — clean. Read as "the reference accepts it".
+   Worthless: a file whose front matter has `package:` is a MODULE, and running one parses nothing
+   at all. Narrowed afterwards: `name:` and `exports:` do not do this, `package:` does.
+2. IMPORT the module from a consumer — runs, prints. Read as "the module compiles, so the fence
+   must be fine". Also worthless, as the third test showed.
+3. Put a DELIBERATELY broken fence in a `package:` module and import it. **It still runs.** With the
+   break in a ```` ```scala ```` fence: prints. With it in a ```` ```scalascript ```` fence:
+   prints too.
 
-The tag is not the difference: the same body tagged ```` ```scala ````, ```` ```scalascript ```` and
-```` ```ssc ```` fails identically once the front matter is gone.
+**So the reference front does not report a module fence's parse errors on either path.** It compiles
+what an import asks for and nothing else. "Does the reference accept this construct?" therefore
+cannot be answered with a module at all — only by putting the construct in a PROGRAM, a file with
+no `package:`. Every earlier slice was tested that way and stands; this file could not have been.
 
-**The method error, which cost two wrong conclusions.** I first tested by RUNNING the module —
-`ssc-tools run --v1 v1/runtime/std/ui/form.ssc` — and it exited clean, which I read as "the
-reference accepts `[...]`". It does not: a file with `package:` is a MODULE, and running one
-directly parses nothing at all. The test proved only that modules are not programs. The right test
-is to IMPORT it from a consumer, which is what finally showed the module compiling while that one
-fence does not.
+**Which flips the original question.** The composer parsing every fence is not obviously wrong — a
+front end for ScalaScript 3 will have to compile module bodies, and the reference's silence here is
+leniency, not a specification. What is certain is only this: **the breadth column includes
+diagnostics from blocks no lane has ever compiled**, so it is stricter than any existing front, and
+a number that mixes the two answers neither question.
 
-Two conclusions were built on the bad test before it was caught, and both were wrong in the
-comfortable direction — they made a construct look supported when nothing had been established.
-
-**What is still open.** Which fences of a `package:` module the reference DOES compile.
-`Lang.isStandardScala("scala")` is true and `isProgramCode` is
-`isParseable(lang) && !isDocOnly`, so neither the tag nor a `doc` attribute explains it — form.ssc's
-fence carries no `doc`. Start there, from the import path rather than the run path, and do not add
-an attribute check to `SscCompose` until the cause is known: that is the same guess in the other
-direction.
-
-**Why it matters.** Every diagnostic the breadth probe reports from a fence the reference would not
-compile is a false gap, and the probe is what decides where parser work goes.
+**What would settle it**, for whoever takes it: decide what a `.ssc` MODULE's non-exported fences
+are — code that must compile, or examples — and make the probe ask that question explicitly, with
+tagged/untagged already split the same way. Do not add an attribute check to `SscCompose` on a
+guess; `form.ssc`'s fence carries no `@doc`, so the attribute is not the mechanism.
 
 ## the CST does not keep an import's PATH — FIXED 2026-08-05, same day it was filed
 
