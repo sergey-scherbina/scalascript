@@ -296,7 +296,7 @@ parameterful form recurses forever. The correction is a top-level indirection, a
      area: runtime
      kind: bug
      gate: tests/e2e/fm-routes-smoke.sh
-     fixed-in: e40670d11 -->
+     fixed-in: dec5cda49-->
 
 **FIXED 2026-08-06 — both halves.** The built-ins landed earlier the same day; front-matter
 `routes:` now register too, and the gate's NATIVE known-red declaration is DELETED, which was forced
