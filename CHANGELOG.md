@@ -1,5 +1,17 @@
 # Changelog
 
+## js-aliased-package-root — `[org as o]` binds on the js lane, closing the alias matrix
+Completed: 2026-08-06
+
+Four alias forms × four lanes now agree: `[org as o]`, `[Card as C]`, `[helper as h]` and
+`[greet as g]` all bind on int, native, js and jvm. This was the last red cell.
+
+The js defect was one identifier in one emitted line. A binding naming the package ROOT is the
+namespace OBJECT, not a member of it, so qualifying it produced `const o = org.example.ui.org;` —
+`undefined`, and the first `o.example` threw `Method not found` out of the generated `_dispatch`.
+Diagnosed by reading the generated js; the whole diff of the emitted file is that line becoming
+`const o = org;`. The unaliased form was already correct, by a guard whose local name matched.
+
 ## aliased-package-root — `as` in an import link binds on the native lane
 Completed: 2026-08-06
 

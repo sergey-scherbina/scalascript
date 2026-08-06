@@ -9,14 +9,37 @@ Newest first.
 
 ## js-aliased-package-root-import-is-unbound — `[org as o]` throws, while every other alias works
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/package-keyword-smoke.sh
+     fixed-in: f78192d3a -->
 
-Measured 2026-08-06, from a four-form alias matrix. This lane binds `as` aliases correctly in every
+**FIXED 2026-08-06.** `[org as o]` prints `ui-card-hi`, and the gate's `alias/root` row is green —
+the last red cell of a four-lane × four-form alias matrix.
+
+**Diagnosed by reading the GENERATED js, and the whole defect is one identifier:**
+
+```js
+3070: const org = (() => { … })();          // the namespace object, top level
+3071: const o = org.example.ui.org;         // selects `org` out of its own namespace -> undefined
+3072: _dispatch(o, 'example', [])           // -> Method not found
+```
+
+so the `Method not found` came from a `_dispatch` on `undefined`, with nothing in it pointing at an
+import. The whole change to the emitted file, diffed before/after, is that one line becoming
+`const o = org;`.
+
+A binding naming the package ROOT is the namespace OBJECT, not a member of it, so qualifying it with
+`pkgPrefix` cannot resolve. The UNALIASED form was already correct via the `!topLevelConsts.contains`
+guard below it — its local name IS `org`, so it matched — and the aliased form slipped past because
+the local name is `o`. Same shape as the jvm fix, which emits `val o = org`
+(`jvm-package-import-qualifies-the-link-name`, jvm/BUGS.md).
+
+### Original report (superseded 2026-08-06)
+
+Measured 2026-08-06, from a four-form alias matrix. This lane bound `as` aliases correctly in every
 form EXCEPT the package root:
 
 ```
@@ -26,16 +49,16 @@ form EXCEPT the package root:
 [greet as g]   a module with NO package  int OK   js OK    jvm OK
 ```
 
-So this is not "js ignores aliases" — three of four rows are green, and the same fixture without
-`as` is green too. The failure is a RUNTIME one, not an unbound name:
+So it was not "js ignores aliases" — three of four rows are green, and the same fixture without
+`as` is green too. The failure was a RUNTIME one, not an unbound name:
 
 ```
 [stdin]:1475   throw new Error('Method not found: ' + method + ' on ' + _show(obj));
 ```
 
-which is the generated `_dispatch`, so `o` is bound to something that is not the module namespace
-object. That is a different cause from the native lane's (`native-import-link-alias-is-ignored`,
-where the alias is discarded before it reaches any consumer), and it wants its own look.
+which is the generated `_dispatch`, so `o` was bound to something that was not the module namespace
+object. That was a different cause from the native lane's (`native-import-link-alias-is-ignored`,
+where the alias is discarded before it reaches any consumer), and it got its own look.
 
 The jvm fix for the same row is the shape worth reading first: `JvmGen.aliasBlock` now emits
 `val o = org` for an aliased root instead of `import org.example.ui.{org}`
