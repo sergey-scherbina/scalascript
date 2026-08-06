@@ -74,7 +74,6 @@ rest-api-fm	*	SKIP
 rest-jetty	*	SKIP
 rozum-agent	js	FAIL
 rozum-agent-pool	js	FAIL
-rozum-agent-schema-derived	js	TIMEOUT
 rozum-agent-streaming	js	FAIL
 seed-signal	*	SKIP
 spa-demo	*	SKIP
