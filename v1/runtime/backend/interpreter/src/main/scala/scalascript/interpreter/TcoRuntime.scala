@@ -104,7 +104,21 @@ private[interpreter] object TcoRuntime:
                   // (Bug repro: `map.getOrElse with fn-call default in match arm`).
                   if appearsAsCallInNonTailPos(curFun.body, name) then None
                   else
-                    (interp.globals.get(name) orElse curFun.closure.get(name)).collect {
+                    // CLOSURE FIRST, globals second — the opposite order silently changed what a
+                    // program means. A method body's frame carries its type's sibling methods
+                    // (DispatchRuntime.bindSiblings), so for `def go(): Int = size(5)` inside a class
+                    // that defines `size`, the closure holds the SIBLING while `globals` may hold an
+                    // unrelated top-level `size`. Resolving globals first built a mutual-tail stub
+                    // for the top-level one and overlaid it on the frame, shadowing the sibling —
+                    // and only in TAIL position, so `size(5)` answered 100 while `size(5) + 0`,
+                    // which cannot differ, answered 10. Scala answers 10: the member wins.
+                    // Safe for genuine mutual tail recursion between top-level defs: StatRuntime
+                    // gives those an EMPTY capturedEnv, so `closure.get` misses and this falls
+                    // through to globals exactly as before.
+                    // Note the `collect` below only stubs a `Value.FunV`; a sibling binding is a
+                    // NativeFnV, so the correct outcome here is no stub at all and the frame's own
+                    // binding surviving untouched.
+                    (curFun.closure.get(name) orElse interp.globals.get(name)).collect {
                       case fn: Value.FunV =>
                         name -> (Value.NativeFnV(name, a => {
                           interp.mutualTailCallSig.f    = fn
