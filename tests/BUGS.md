@@ -268,6 +268,36 @@ gate. It cost me roughly half an hour on `std/credential.ssc` before the lane ma
 Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
 comment pointing here.
 
+## sbt-plugin-version-and-the-coordinate-templates-emit-disagree
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+There are **three** independent version declarations in this repository, and only two of them agree:
+
+| file | version |
+| --- | --- |
+| `build.sbt` | the release version |
+| `uniml/build.sbt` | must equal the root — now checked by `emitted-coordinate-is-published` |
+| **`v1/tools/sbt-plugin/build.sbt`** | **`0.1.0-SNAPSHOT`** |
+
+Meanwhile the project templates emit
+
+```
+addSbtPlugin("org.scalascript" % "sbt-scalascript-interop" % "0.1.0")
+```
+
+into every generated project. `0.1.0` is not what that build produces — it produces
+`0.1.0-SNAPSHOT` — so unless a `0.1.0` was published from somewhere else, a generated project asks
+for a coordinate that build never made.
+
+Same family as the `Main.scala` coordinate (fixed) and the uniml drift (fixed): a version written
+down in more than one place, agreeing only by memory. This one is not on the release path, so it is
+recorded rather than folded into a release branch. Whoever takes it should decide first whether the
+plugin is meant to publish at all — the templates may be aspirational.
+
 ## compile-jvm-shipped-broken-in-the-native-binary — resources a native image never carried
 
 <!-- status: fixed
