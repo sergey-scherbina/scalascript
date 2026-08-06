@@ -145,6 +145,27 @@ that is emitted as a top-level `Global`, not qualified access as such.
 one defect on the strength of my repro producing the string `(global loop)` — the corpus says
 otherwise, and the reason moved exactly the way that entry predicted it would.
 
+**HALF FIXED 2026-08-06 (`object` bodies), and the remaining half is larger for a reason worth
+stating.** `calleeOf` had an arm for the current object's `var`s and none for its methods;
+`isCurObjMethod` is the missing twin and emits `(global Obj_m)`, the name the QUALIFIED path
+(`postSel`, `emitMethodCall`) already produced. Gate `tests/e2e/f-bare-member-call-gate.sh`, red on
+pre-fix F for 3 of 5 cases.
+
+The same construct inside a `case class` needs more than a name, and this is the part that is easy
+to underestimate: a class method's global takes the RECEIVER as its first parameter. `ccMParams`
+seeds the body env with `Cons("__self", Nil)`, so `def twice(): Int` lowers to
+`(def B_twice (lam N …))` with slot 0 bound to self, while an `object` method has no such slot.
+A bare `twice()` therefore cannot be fixed where the object one was — `calleeOf` returns a CALLEE
+and the caller appends the source arguments, so there is nowhere in it to thread `(local <selfIdx>)`
+in front of them. The change has to happen where the application is built, for a call whose
+receiver is implicit.
+
+`lookup("__self", env)` does give the index at that point, so the information is available; what is
+missing is a place to put it. Entry point for whoever takes it: `ccMDefsMs` / `ccMDef`
+(fsub ~:2611-2617) already holds the class name and the full member list, so the member scope can
+be carried without touching `objReg` — which is the thing that is NOT safe to reuse, since it holds
+`object` declarations only and the case-class constructor path depends on that (fsub :1033).
+
 **BISECTED to a block, NOT minimised — and the failed minimisations are the useful part.**
 Cutting `v1/runtime/std/parsing/core.ssc` down by fenced block, with the importer unchanged
 (`[Parser](…)` and a `main` that only prints):
