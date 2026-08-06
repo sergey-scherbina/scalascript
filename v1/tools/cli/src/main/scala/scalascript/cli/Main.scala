@@ -415,9 +415,13 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
   backend match
     case "jdk" => script
     case name @ ("jetty" | "netty") =>
-      // Must track ThisBuild / version: this string is the dependency COORDINATE for the
-// generated `//> using dep io.scalascript::scalascript-runtime-server-jvm-…` directive,
-// so a mismatch emits a script that resolves nothing.
+      // The last PUBLISHED release — NOT ThisBuild / version. This string is the dependency
+      // COORDINATE in the generated `//> using dep io.scalascript::scalascript-runtime-server-jvm-…`
+      // directive, so it has to name something a user can actually resolve. The comment here used to
+      // say "must track ThisBuild / version", which was true only while the two happened to be equal:
+      // now that main is 0.2.0-SNAPSHOT, following it would emit a coordinate that resolves nothing.
+      // Bump this when a release is PUBLISHED, not when the build version moves.
+      // Gate: tests/e2e/emitted-coordinate-is-published.sh
       val version  = "0.1.0"
       val libDirective =
         s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"

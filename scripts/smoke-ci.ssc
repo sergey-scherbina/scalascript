@@ -282,6 +282,12 @@ val suite = List(
   // qualifier — on the native binary, on a runner, in a workflow that had never reached that step.
   // Both launchers are asserted because they are two entries onto one flag vocabulary.
   Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 60000),
+  // Sub-second, and it guards a string that ends up in SOMEBODY ELSE's build file. The coordinate
+  // `ssc` emits into a generated project must name a published release; a -SNAPSHOT there resolves
+  // nowhere and fails at the user's first compile, in a file we wrote for them. Its only previous
+  // protection was a comment saying "must track ThisBuild / version" -- which became actively wrong
+  // the moment main moved to 0.2.0-SNAPSHOT after v0.1.0 shipped.
+  Check("tests", "emitted-coordinate-is-published", "tests/e2e/emitted-coordinate-is-published.sh", List(), 60000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at
   // a row count, the owner was maintained, and on 2026-07-31 they disagreed — the `sbt` job died at

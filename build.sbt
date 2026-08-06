@@ -1,6 +1,6 @@
 ThisBuild / scalaVersion := "3.8.3"
 ThisBuild / organization := "io.scalascript"
-ThisBuild / version      := "0.1.0"
+ThisBuild / version      := "0.2.0-SNAPSHOT"
 
 // Scala.js cross-compile plumbing (specs/wallet-spi-scalajs.md).
 // `crossProject(JVMPlatform, JSPlatform).in(file("..."))` lays out
