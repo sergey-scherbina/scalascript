@@ -29,16 +29,28 @@ the corpus-contract nightly was GREEN on 2026-07-30, 07-31 and 08-01, so v2 was 
 was added 2026-07-28 as a deliberate fail-first gate (`c6f35c87b`) and was made to pass within two
 days.
 
-**Break window: after the 08-01 06:20 nightly, before the 08-04 06:19 one.** v2 commits in that
-window, newest first:
+**LOCALISED 2026-08-06 — it is the F front, and it is the COLON spelling only.** Same file, same
+curried `def`, two spellings:
 
-    34319ba4e  fix(v2): the legacy front also makes `O(7)` reach an object's `apply`
-    0c424e5d9  feat(v2): J-9 — compile off the critical path
-    55307a9e6  fix(v2): v2-rust and v2-js generators implement __autoOutput__
-    aaa89b211  fix(v2): new Array[T](n) allocates n slots on the legacy front
+    def ap(n: Int)(f: Int => Int): Int = f(n)
+    ap(3)((i) => i * 2)     SSC_FRONT=F  ->  6        braced: fine
+    ap(3): (i) => i * 2     SSC_FRONT=F  ->  arity: 2 expected, 1 given
+    ap(3): (i) => i * 2     SSC_FRONT=legacy -> 6     legacy: fine
 
-`34319ba4e` is the one to look at first: an arity error on a trailing-lambda call is the shape a
-change to how a call reaches `apply` would produce.
+So this is not the curried-def lowering in general. `v2-front-curried-def-second-clause` was fixed
+in `ca8bb823e` — "curried defs lower at total arity AND their call sites flatten" — and its own
+gate `curried-def-clauses` PASSES on v2 today. The fix flattened the BRACED call site; the
+colon-introduced trailing lambda does not reach that flattening, so the two clauses stay unmerged
+and the callee is applied with one argument.
+
+**Where to look:** whatever consumes the fewer-braces `:` in F must produce the same shape the
+braced argument list produces, before `ca8bb823e`'s call-site flattening runs — or run the
+flattening after it. The two spellings diverge only in how the argument is introduced.
+
+Three commits were suspected and cleared before this, and the method is worth copying: the arity
+error looked like the object-apply work (`34319ba4e`, `de5760462`), but both touch the CTOR path
+for uppercase names and `ap` is lowercase, and swapping F's staged source per commit was the wrong
+bisect because the staged `fsub.ssc` is not the spec file — it is 2,687 lines to the spec's 2,696.
 
 **Why it went unnoticed for five days, which is the more useful half.** The corpus-contract nightly
 has been red every night since 08-02 for FOUR different causes that arrived one on top of another —
