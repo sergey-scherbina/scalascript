@@ -5,7 +5,7 @@ started: 2026-08-01T11:18:17Z
 heartbeat: 2026-08-01T11:18:17Z
 status: in-progress
 items: SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5
-paths: v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
+paths: v3 file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 scope: |
   ScalaScript 3 — a new module built around SSC IR: a linear, register-based instruction
   sequence with WebAssembly-style structured control flow, replacing v2's recursively-walked
