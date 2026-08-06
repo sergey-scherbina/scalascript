@@ -10,6 +10,40 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] SSC3-P/contract-gate — **the assumptions v3's projection rests on, held against the corpus.**
+      Claim `uniml-ssc3-contract-gate`. `v3/specs/50-uniml-projection.md` §7 names four questions to
+      be MEASURED before the projection is written. Measured 2026-08-06 and handed to `ssc3-core`,
+      who is writing the v3 half; this turns the same measurement into a GATE so the day an answer
+      changes is the day a test goes red, not the day a front projects the wrong tree.
+      It lives here because every one is a property of what the DIALECT produces.
+      **Q1 · 694 case classes, 147 with a parent, ZERO writing `extends A with B`.** So
+      `CaseClass.parent: Option[String]` is sufficient — no request to grow the node. ⚠️ Sufficient
+      is not safe: the dialect keeps only the FIRST parent (`cc.parent` is one leaf,
+      `skipExtendsClause` eats the rest), so a second one is lost with no node, no `Unsupported` and
+      nothing for the drop census to find.
+      **This check reads SOURCE TEXT, and that is the point of the whole entry.** An AST-side test
+      asking "has any class two parents?" interrogates an `Option` and answers no for every input
+      that could ever exist — green by construction, informative about nothing. A companion test
+      PLANTS `extends A with B` and asserts the reader sees it, so the corpus sweep has earned the
+      right to claim there are none.
+      **Q2** · lambda params must stay bare names (typed ones exist in source, ~120, but v3 drops
+      types too, so it is lossless for v3 — only while the strings are not `x: Int`).
+      **Q3** · an object's member kinds must stay within {Def, TopExpr, ObjectDecl, CaseClass}. 196
+      of 249 objects hold a non-`def`, and that is NOT a finding against the spec: v3's own
+      `Parser.parseObject` already refuses exactly this at Tier 0, so both fronts refuse alike.
+      A new KIND would be news, so that is what is asserted rather than the count.
+      **Q4** · no span may have line or column ≤ 0 — v3 RESERVES `Pos(0,0)` for "the file as a
+      whole", so a real node arriving there is indistinguishable from that sentinel. 223,182 of
+      223,182 nodes carry a usable `line:column`.
+      **Verified by A/B end to end, not by the control alone**: planted a real
+      `case class Planted(x: Int) extends Shape with Drawable` in the corpus, Q1 went RED naming the
+      file and the line, removed it, green returned 5/5. The control test proves the READER works;
+      this proves the sweep and the assertion are wired to it.
+      **SSC3-4 itself is NOT mine.** `ssc3-core` is writing it now — checked its worktree before
+      touching anything and found `v3/uniml/UniFront.scala` (14 KB) modified three minutes earlier,
+      plus uncommitted `AstText.scala`/`Parser.scala`. `coord-claim` refused on the overlap and the
+      refusal was right; nothing in `v3/` was touched. The §7 answers were handed over in the room.
+
 - [x] SSC3-P/typed-ast — **audit the projection against the CST's ROLES, then close real gaps.**
       Claim `uniml-typed-ast`. Picks up the 2026-08-05 hand-over in `uniml/BACKLOG.md`, whose
       instruction was: re-measure, audit role by role, only then model new constructs.
