@@ -26,15 +26,12 @@ final class SpikeForBodySpec extends AnyFunSuite:
     clean("def f(): Int =\n  var g = 1\n  for k <- 1 to 3 do g *= k\n  g\n")
   }
 
-  test("a THREE-character compound operator is a separate, LEXER-level gap — pinned open") {
-    // `s ++= "x"` still fails, and not in the for body: the lexer's operator table is hand-written
-    // and munches at most two characters, so `++=` lexes as `++` then `=`. Same root cause as
-    // `def <~>` in tests/conformance/js-symbolic-infix-operator.ssc — one gap, two symptoms.
-    // Asserted as still-failing rather than left out, so closing the lexer gap breaks this test and
-    // whoever does it reads this note.
-    val r = UniML.parse(SourceInput.fromString(src, "def f(): String =\n  var s = \"\"\n  for k <- 1 to 3 do s ++= \"x\"\n  s\n"), SpikeDialect)
-    assert(r.diagnostics.map(_.message).exists(_.contains("++")),
-      "`++=` now lexes as one token — delete this test and note the lexer gap closed")
+  test("a THREE-character compound operator — the lexer gap this spec pinned as open, now closed") {
+    // Written as an assertion that `++=` still FAILED, with a note telling whoever closed the lexer
+    // gap to come here. That happened: maximal munch lexes it as one token and it broke this test on
+    // the first run, which is the whole reason it was written that way rather than left out.
+    clean("def f(): String =\n  var s = \"\"\n  for k <- 1 to 3 do s ++= \"x\"\n  s\n")
+    clean("def f(): Int =\n  var g = 1\n  g **= 2\n  g\n")
   }
 
   test("the forms that already worked still do") {

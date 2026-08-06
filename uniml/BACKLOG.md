@@ -7,29 +7,31 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## the operator lexer munches at most TWO characters, by a hand-written table
+## the operator lexer munches at most TWO characters — FIXED, and the entry's premise was wrong
 
-`ScalaSpike`'s operator lexer is a chain of hand-written cases — `if c1 == '+' then ("++", 2) else
-if c1 == '=' then ("+=", 2) …` — so an operator of three or more characters is split. Scala's rule
-is a MAXIMAL run of operator characters. Two symptoms, one cause:
+**FIXED 2026-08-06.** Maximal munch over operator characters, which is Scala's rule; the two
+lex-time rewrites (`:::` means `++`, `+:` means `::`) are statements about MEANING and survive, and
+the token's lexeme stays the source slice so round-trip is untouched.
 
-    def <~>(b: Int): Int = a * 100 + b     `<~>` lexes as `<~` then `>`
-    3 <~> 4                                 "missing right operand after '<~'"
-    s ++= "x"                               `++=` lexes as `++` then `=`
+**The entry's own premise was wrong, and so was the comment in the code.** Both said the reference
+front splits `<~>` and that the corpus wants that reproduced bug-for-bug. Measured: the interpreter
+prints **304** for `extension (a: Int) def <~>(b: Int) = a * 100 + b`, and
+`js-symbolic-infix-operator` passes on int. Reproducing the split is what made this dialect diverge.
 
-The first is `tests/conformance/js-symbolic-infix-operator.ssc`, which passes on int — so the gap is
-here, not in the source. The second is pinned as a failing assertion in `SpikeForBodySpec`, so
-closing this breaks that test and whoever fixes it reads the note.
+**The half that cost the most was not the munch.** Widening it took tagged diagnostics 12 → 16,
+because a wider token exposed that `--`, `/:` and `<~>` were not in the precedence table at all and
+fell through to 0 — not infix. Adding Scala's precedence-by-first-character as a fallback then took
+it to **54 and breached the floor**, because precedence 0 did NOT mean "unknown" for every token
+that reached the table: for `=>` and `<-` it meant *deliberately not infix*, and the fallback turned
+every lambda arrow into an infix operator. Excluding the arrows by name took it to **6**.
 
-**Why it was not just changed.** Maximal munch is one line to write and a wide blast radius to
-trust: every existing two-character case (`<-`, `=>`, `::`, `++`, `+=`, `->`) is currently produced
-by a rule that stops at two, and a maximal run would also merge sequences the grammar relies on
-being separate. It needs the corpus and the losslessness gate on either side of the change, not a
-quick edit at the end of a session. `def` names are a second half: `expectName` accepts
-`spike.id`/`spike.uid` only, so even a correctly-lexed `<~>` would not be accepted as a method name.
+    12  ->  16   maximal munch alone
+        ->  54   plus a naive first-character fallback   (floor caught it)
+        ->   6   with `=>`, `<-`, `<:`, `>:`, `@` excluded
 
-Measured cost of leaving it: 3 of the ~12 remaining tagged breadth diagnostics.
-
+`SpikeOperatorMunchSpec` keeps the arrows test as the load-bearing one, and it asserts on the tree
+SHAPE rather than on absence of diagnostics: a lambda that became an infix application still parses
+cleanly and means something else.
 
 ## UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics, and what they are
 

@@ -51,42 +51,34 @@ object SpikeLex:
   // A char with NO table entry (`/`, `%`, `^`) falls through to ssc1-front's final `else` → a ONE-char op
   // token, so `/=` lexes as `/` then `=` and never as a single compound-assign token.
   private def opAt(text: String, i: Int): (String, Int) =
+    // MAXIMAL MUNCH over operator characters, which is Scala's rule and — measured, not assumed —
+    // the reference front's: `extension (a: Int) def <~>(b: Int): Int = a * 100 + b` then
+    // `println(3 <~> 4)` prints 304 on the interpreter, and
+    // `tests/conformance/js-symbolic-infix-operator.ssc` passes on int.
+    //
+    // ⚠️ The comment that stood here said the opposite — that ssc1-front lexes `<` + `~` and leaves
+    // `>`, truncating a symbolic def name to `def <~` with a unit body, "which the corpus expects
+    // us to reproduce bug-for-bug". That is false today: the oracle computes 304. Whether it was
+    // ever true, reproducing it now is what makes this dialect DIVERGE, and it cost three
+    // diagnostics — `<~>` and `~~` as def names, and `3 <~> 4` at the call site — plus `++=`, which
+    // split into `++` and `=` for the same reason.
+    //
+    // The lexeme is the SOURCE SLICE (see the caller), so widening the munch cannot lose a
+    // character; only the MEANING is decided here.
     val n = text.length
-    def ch(k: Int): Char = if i + k < n then text.charAt(i + k) else '\u0000'
-    val c = ch(0); val c1 = ch(1); val c2 = ch(2)
-    c match
-      case '=' => if c1 == '>' then ("=>", 2) else if c1 == '=' then ("==", 2) else ("=", 1)
-      // `:::` list concat and `+:` prepend lex to `++`/`::`: in v2 every Seq is a Cons-list, so `xs ::: ys`
-      // is exactly `xs ++ ys` and `x +: xs` exactly `x :: xs` (ssc1-front.ssc0:385/428 rewrite at lex time).
-      case ':' =>
-        if c1 == ':' then (if c2 == ':' then ("++", 3) else ("::", 2))
-        else if c1 == '+' then (":+", 2)
-        else if c1 == '=' then (":=", 2)
-        else (":", 1)
-      case '-' => if c1 == '>' then ("->", 2) else if c1 == '=' then ("-=", 2) else ("-", 1)
-      case '<' =>
-        if c1 == '~' then ("<~", 2)
-        else if c1 == '=' then ("<=", 2)
-        else if c1 == '-' then ("<-", 2)
-        else if c1 == '>' then ("<>", 2)
-        else if c1 == '<' then ("<<", 2)
-        else ("<", 1)
-      case '>' =>
-        if c1 == '=' then (">=", 2)
-        else if c1 == '>' then (if c2 == '>' then (">>>", 3) else (">>", 2))
-        else (">", 1)
-      case '!' => if c1 == '=' then ("!=", 2) else ("!", 1)
-      case '&' => if c1 == '&' then (if c2 == '=' then ("&&=", 3) else ("&&", 2)) else ("&", 1)
-      case '|' => if c1 == '|' then (if c2 == '=' then ("||=", 3) else ("||", 2)) else ("|", 1)
-      case '+' =>
-        if c1 == '+' then ("++", 2) else if c1 == '=' then ("+=", 2) else if c1 == ':' then ("::", 2) else ("+", 1)
-      case '*' => if c1 == '*' then ("**", 2) else if c1 == '=' then ("*=", 2) else ("*", 1)
-      case '~' => if c1 == '>' then ("~>", 2) else ("~", 1)
-      // `???` = Predef.notImplemented; only the triple form is meaningful. ssc1-front emits it as an `id`
-      // token, but the spike keeps its own op kind (parseAtom has an explicit `???` case) — the MUNCH WIDTH
-      // is what matters here, and it is the same 3 chars.
-      case '?' => if c1 == '?' && c2 == '?' then ("???", 3) else ("?", 1)
-      case _   => (c.toString, 1) // `/`, `%`, `^`, … — ssc1-front's final else: a one-char op
+    var k = i
+    while k < n && isOpChar(text.charAt(k)) do k += 1
+    val raw = text.substring(i, k)
+    // Two lex-time REWRITES survive, and they are statements about meaning rather than munching:
+    // in v2 every Seq is a Cons-list, so `xs ::: ys` IS `xs ++ ys` and `x +: xs` IS `x :: xs`
+    // (ssc1-front.ssc0:385/428). Everything else means itself, including an operator this dialect
+    // has never seen — a user-defined `<~>` is not the lexer's business to know.
+    val meaning = raw match
+      case ":::" => "++"
+      case "+:"  => "::"
+      case other => other
+    (meaning, raw.length)
+
   private def isHexDigit(c: Char): Boolean = UniAlphabet.isHexDigit(c)
   private def hexVal(c: Char): Long =
     if c >= '0' && c <= '9' then (c - '0').toLong
@@ -418,7 +410,28 @@ object SpikeParse:
     case "::"                               => 5 // cons, right-associative (see parseExpr)
     case "->"                               => 1 // pair
     case ":="                               => 1
+    // An operator the table does not name is USER-DEFINED, not a non-operator. Scala decides
+    // precedence by the operator's FIRST CHARACTER, and falling through to 0 meant `--` (Set
+    // difference, `tests/conformance/set-ops-infix.ssc`), `/:` and any `def <~>` were not infix at
+    // all — the parser stopped at them. The cases above still win, so no known operator moves.
+    // ⚠️ Precedence 0 did NOT mean "unknown" for every token that reached here — for the ARROWS it
+    // meant "deliberately not infix", and the first version of this fallback gave `=>` precedence 5
+    // and broke every lambda: 12 diagnostics became 54 and the floor caught it. They are excluded
+    // by name, ahead of the rule.
+    case "=>" | "<-" | "<:" | ">:" | "@"    => 0
+    case other if other.nonEmpty            => firstCharPrec(other.charAt(0))
     case _                                  => 0
+
+  /** Scala's precedence-by-first-character, for operators no table entry names. The numbers match
+    * the table above so a user operator sits where its spelling says it should. */
+  private def firstCharPrec(c: Char): Int = c match
+    case '~'             => 9
+    case '*' | '/' | '%' => 8
+    case '+' | '-'       => 7
+    case ':'             => 5
+    case '<' | '>' | '=' | '!' => 5
+    case '&' | '^' | '|' => 4
+    case _               => 0
 
   private final class Cur(val toks: Vector[SourceToken]):
     private var p = 0
