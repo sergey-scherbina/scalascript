@@ -222,15 +222,46 @@ With bare mode it is handed to the ScalaScript dialect, which does not parse ssc
 2026-07-09), so handing it over is correct; the file really is code and the dialect really cannot
 read it.
 
-**Two ways to be right, and choosing between them is not this claim's call:**
+### ⚠️ CORRECTED 2026-08-06 — the option this entry recommended FIRST would have broken the default front
 
-1. **The file is misnamed.** ssc0 sources live at `v2/bin/*.ssc0`. If this one is ssc0, `.ssc0` is
-   its extension and the corpus sweep stops seeing it — one rename, no parser work.
+The entry originally offered two resolutions and put "**the file is misnamed — rename it to `.ssc0`,
+one rename, no parser work**" first, as the cheap one. **That is wrong, and acting on it would have
+damaged a production path.** Corrected by reading who CONSUMES the file, which is what should have
+happened before writing any recommendation.
+
+`specs/v2.2-p6.5-fsub.ssc` is **F, the self-hosting subset compiler, and since 2026-07-23 (Sergiy's
+flip) the DEFAULT NATIVE LOWERER.** `RunNativeV2.scala:812` states the wiring: *"staged as
+`tower/bin/fsub.ssc`, run via `tower/bin/ssc1-run-fsub.ssc0`"*. The `.ssc` extension is load-bearing
+— the staging path names it — and the file has its own 24 KB gate, `specs/v2.2-p6.5-fsub.sh`, with a
+`--self` mode and an X1 fixpoint (stage1 == stage2).
+
+So there is no misnaming to fix:
+
+- the file is `.ssc` **by design**, because that is how the tower stages it;
+- it is written in the **ssc0 subset by necessity** — F must compile its OWN source, so that source
+  has to stay inside the subset F handles. That is what the X1 fixpoint means;
+- therefore the ScalaScript dialect legitimately cannot read it, and that is a gap in neither.
+
+**What bare mode revealed is a MEASUREMENT question, not a source one.** The breadth sweep now
+includes a file that is not ScalaScript-dialect source and never was. The honest resolutions are to
+classify it — the `bare` column already isolates it, and 7,110 of 7,113 bare diagnostics are this
+one file — or to exclude it with the reason stated. Neither touches the file, neither touches the
+dialect, and both are UniML-side.
+
+**The lesson, since I wrote the bad half myself: a recommendation is a claim about consequences and
+needs the same evidence as a measurement.** One `grep` for who references the path would have
+prevented it; I wrote it from the file's CONTENTS instead. An entry a reader can act on is worse
+than no entry when the action is destructive.
+
+Original text follows, with option 1 struck.
+
+~~1. The file is misnamed — `.ssc0` is its extension and the corpus sweep stops seeing it.~~ WRONG:
+see above.
 2. **The dialect owes ssc0.** If a `.ssc` may legitimately hold subset syntax, that is a breadth
-   item with a 2,687-line fixture attached and it is much bigger than one rename.
+   item with a 2,687-line fixture attached. Still open, still much bigger than a rename, and now
+   the only one of the two that was ever a real option.
 
-Recorded rather than resolved because the two answers differ by two orders of magnitude of work and
-the question is about what `.ssc` MEANS, which belongs to whoever owns the v2.2 tower. Until then
+Until it is classified,
 `SscBreadthSpec` carries a `bare` column with its own floor, so the number is visible and bounded
 instead of averaged into the population that measures the language.
 
