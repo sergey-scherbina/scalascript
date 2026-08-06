@@ -43,13 +43,24 @@ done
 # The build itself must NOT be at a plain release version between releases: that is how an
 # intermediate build calls itself the release. Its whole point is to differ from the emitted one.
 build_version=$(grep -m1 '^ThisBuild / version' "$ROOT/build.sbt" | sed 's/.*:= *"\(.*\)".*/\1/')
+# A plain version is allowed ONLY on the commit that is that release. The first draft demanded a
+# SNAPSHOT unconditionally, which is right about the steady state and wrong about the one legitimate
+# transition: a release commit sets `0.1.1` by definition, so this gate would have failed every
+# release — including the one it was written to protect. The rule that actually holds is "you may
+# call yourself 0.1.1 only if you ARE the v0.1.1 tag".
 case "$build_version" in
   *-SNAPSHOT) ;;
   *)
-    echo "emitted-coordinate: FAILED — ThisBuild / version is '$build_version', not a SNAPSHOT." >&2
-    echo "    Between releases the build version must be a SNAPSHOT, or every intermediate" >&2
-    echo "    build claims to be the release. Set it at release time, revert right after." >&2
-    failed=1
+    if git -C "$ROOT" rev-parse -q --verify "refs/tags/v$build_version^{commit}" >/dev/null 2>&1 &&
+       [ "$(git -C "$ROOT" rev-parse -q "refs/tags/v$build_version^{commit}")" = "$(git -C "$ROOT" rev-parse -q HEAD)" ]; then
+      : # this IS the release commit for v$build_version
+    else
+      echo "emitted-coordinate: FAILED — ThisBuild / version is '$build_version', not a SNAPSHOT," >&2
+      echo "    and HEAD is not the v$build_version tag." >&2
+      echo "    Between releases the build version must be a SNAPSHOT, or every intermediate build" >&2
+      echo "    claims to be the release. On the release commit itself, tag it and this passes." >&2
+      failed=1
+    fi
     ;;
 esac
 
