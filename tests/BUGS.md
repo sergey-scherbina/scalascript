@@ -253,6 +253,7 @@ comment pointing here.
 
 <!-- status: fixed
      lane: native
+     fixed-in: 0e2b307aeaa319d0fa0175f99e5fed72b74c939f
      area: build
      gate: scripts/native-release-qualify -->
 
