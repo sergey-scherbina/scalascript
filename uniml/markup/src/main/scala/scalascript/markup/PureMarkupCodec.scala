@@ -105,8 +105,16 @@ object PureMarkupCodec extends MarkupCodec:
       if !src.startsWith(expected, pos) then err(s"expected '$expected'")
       advance(expected.length)
 
+    // XML 1.0 §2.3: `S ::= (#x20 | #x9 | #xD | #xA)+`. FOUR characters, and the host's
+    // `Char.isWhitespace` is not that set: it also admits vertical tab, form feed, the file/group/
+    // record/unit separators and the Unicode space separators, none of which XML calls whitespace.
+    // Being stricter is the correct direction here — the grammar is the authority, not the host —
+    // and it is the same range-comparison form the rest of the alphabet work uses.
+    private def isXmlSpace(c: Char): Boolean =
+      c == ' ' || c == '\t' || c == '\r' || c == '\n'
+
     private def skipWhitespace(): Unit =
-      while pos < src.length && src.charAt(pos).isWhitespace do advance()
+      while pos < src.length && isXmlSpace(src.charAt(pos)) do advance()
 
     // Scan until we see `until` (exclusive) — returns the scanned text.
     private def scanUntil(until: String): String =
@@ -179,7 +187,7 @@ object PureMarkupCodec extends MarkupCodec:
       while pos < src.length do
         if src.startsWith("<!--", pos) then trailing += readComment()
         else if src.startsWith("<?", pos) then trailing += readPI()
-        else if src.charAt(pos).isWhitespace then skipWhitespace()
+        else if isXmlSpace(src.charAt(pos)) then skipWhitespace()
         else err(s"unexpected content after root element at position $pos")
 
       Markup.Doc(decl, docType, root, trailing.toList)
@@ -328,8 +336,51 @@ object PureMarkupCodec extends MarkupCodec:
       advance()  // closing quote
       v
 
+    // ── the XML 1.0 alphabet, spelled from the grammar rather than borrowed ──────────────
+    //
+    // These used to be `c.isLetter` / `c.isLetterOrDigit`, which answer from the HOST's Unicode
+    // tables. Two things were wrong with that, and only one of them is UNIML-SSC3-ALPHABET's:
+    //
+    //  1. host-dependence — the same document parses differently depending on which runtime is
+    //     asking, which is what that item exists to remove;
+    //  2. it is not the XML grammar. `isLetter` is neither a superset nor a subset of
+    //     NameStartChar: XML admits `:` and a `.`-free set of ranges Java calls non-letters, and
+    //     Java admits letters XML excludes. Borrowing the host's notion of "letter" for a
+    //     production that spells its own ranges was a guess that happened to mostly work.
+    //
+    // So these are XML 1.0 (5th ed.) §2.3 verbatim, every line a range comparison and no table:
+    //
+    // NOT `Name` but `NCName`, and the difference is one character. XML 1.0's NameStartChar
+    // includes ":", but this parser implements NAMESPACES: it splits `ns:root` into prefix and
+    // local name by letting the colon TERMINATE the name scan. Admitting ":" as a name character
+    // made `ns:root` one undivided name and `prefix` came back None — caught by the existing
+    // `namespaced element and attribute` test, which is the whole reason to run it before
+    // believing a grammar quotation. `NCName` (Namespaces in XML §3) is exactly Name minus ":",
+    // and QName ::= NCName ':' NCName is handled a level up.
+    //
+    //   NameStartChar ::= [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF]
+    //                   | [#x370-#x37D] | [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F]
+    //                   | [#x2C00-#x2FEF] | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD]
+    //                   | [#x10000-#xEFFFF]
+    //   NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F]
+    //                   | [#x203F-#x2040]
+    //
+    // THE SUPPLEMENTARY RANGE IS EXPRESSED IN SURROGATES, and the bound is not arbitrary. This
+    // parser is `Char`-based, so a code point above the BMP arrives as a pair. `[#x10000-#xEFFFF]`
+    // is planes 1-14; plane 15 begins at #xF0000, whose high surrogate is #xDB80. So high
+    // surrogates #xD800-#xDB7F are exactly the allowed planes and #xDB80-#xDBFF are the private-use
+    // ones XML excludes — the split falls on a surrogate boundary, which is why it can be written
+    // as a range at all. Low surrogates are admitted as continuation units.
     private def isNameStart(c: Char): Boolean =
-      c.isLetter || c == '_'
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' ||
+        (c >= '\u00C0' && c <= '\u00D6') || (c >= '\u00D8' && c <= '\u00F6') ||
+        (c >= '\u00F8' && c <= '\u02FF') || (c >= '\u0370' && c <= '\u037D') ||
+        (c >= '\u037F' && c <= '\u1FFF') || (c >= '\u200C' && c <= '\u200D') ||
+        (c >= '\u2070' && c <= '\u218F') || (c >= '\u2C00' && c <= '\u2FEF') ||
+        (c >= '\u3001' && c <= '\uD7FF') || (c >= '\uF900' && c <= '\uFDCF') ||
+        (c >= '\uFDF0' && c <= '\uFFFD') ||
+        (c >= '\uD800' && c <= '\uDB7F') || (c >= '\uDC00' && c <= '\uDFFF')
 
     private def isNameChar(c: Char): Boolean =
-      c.isLetterOrDigit || c == '_' || c == '-' || c == '.'
+      isNameStart(c) || c == '-' || c == '.' || (c >= '0' && c <= '9') || c == '\u00B7' ||
+        (c >= '\u0300' && c <= '\u036F') || (c >= '\u203F' && c <= '\u2040')

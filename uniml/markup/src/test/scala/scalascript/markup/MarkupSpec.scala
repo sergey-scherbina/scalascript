@@ -100,6 +100,53 @@ class MarkupSpec extends AnyFunSuite:
     )
   }
 
+  // ── the XML alphabet: the GRAMMAR is the oracle, not the host ────────────────────────────
+  //
+  // These predicates used to be `c.isLetter` / `c.isLetterOrDigit` / `Char.isWhitespace`, which
+  // answer from the host's Unicode tables — so the same document could parse differently on a
+  // different runtime (UNIML-SSC3-ALPHABET), AND the borrowed notion of "letter" was not the
+  // production this parser implements. XML 1.0 5th ed. section 2.3 spells its own ranges.
+
+  test("a colon SPLITS a name — these are NCNames, not Names") {
+    // XML 1.0's NameStartChar does include ":", and spelling it that way here was WRONG: this
+    // parser implements namespaces by letting the colon terminate the name scan, so admitting it
+    // made `ns:root` one undivided name and the prefix came back None. Namespaces in XML defines
+    // NCName as Name minus ":", and that is the production this parser wants. The existing
+    // `namespaced element and attribute` test is what caught it.
+    val doc = codec.parse("<a:b/>").toOption.get
+    assert(doc.root.name.prefix == Some("a"), "the colon stopped splitting the name")
+    assert(doc.root.name.localName == "b")
+  }
+
+  test("a name may contain a middle dot and a combining mark") {
+    // NameChar adds #xB7 and [#x0300-#x036F]; `isLetterOrDigit` says no to both.
+    assert(codec.parse("<a" + 0x00B7.toChar + "b/>").isRight, "#xB7 was refused in a name")
+    assert(codec.parse("<a" + 0x0301.toChar + "b/>").isRight, "a combining acute was refused in a name")
+  }
+
+  test("form feed is NOT XML whitespace — the host says it is") {
+    // XML's S is exactly #x20, #x9, #xD, #xA. `Char.isWhitespace` also admits VT, FF and the
+    // separators, so a form feed between attributes used to be accepted silently. Stricter is the
+    // correct direction: the grammar is the authority, not the runtime.
+    assert(codec.parse("<a" + 0x000C.toChar + "b='1'/>").isLeft,
+           "a form feed was accepted as attribute whitespace")
+    assert(codec.parse("<a b='1'/>").isRight, "a real space stopped working")
+    assert(codec.parse("<a" + 0x0009.toChar + "b='1'/>").isRight, "a tab stopped working")
+    assert(codec.parse("<a" + 0x000A.toChar + "b='1'/>").isRight, "a newline stopped working")
+  }
+
+  test("a name may not start with a digit, a dot or a hyphen") {
+    // The controls: these are NameChar but not NameStartChar, and a rule admitting them would
+    // make `<1a/>` well-formed.
+    assert(codec.parse("<1a/>").isLeft, "a digit was accepted as a name start")
+    assert(codec.parse("<.a/>").isLeft, "a dot was accepted as a name start")
+    assert(codec.parse("<-a/>").isLeft, "a hyphen was accepted as a name start")
+  }
+
+  test("an ordinary ASCII document is unaffected") {
+    assert(codec.parse("<root attr='v'><child>text</child></root>").isRight, "the ordinary path regressed")
+  }
+
 class XmlInterpolatorSpec extends AnyFunSuite:
 
   import scalascript.markup.*

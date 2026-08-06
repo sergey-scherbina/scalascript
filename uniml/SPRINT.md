@@ -209,6 +209,29 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       **Boundary (`v3/specs/40-front-on-uniml.md` §4):** improving the projection is UniML's side;
       the lowering to SSC IR is `SSC3-4` under the live `ssc3-core` claim. Not started here.
 
+- [~] UNIML-SSC3-ALPHABET/markup — **the XML codec's alphabet, spelled from the grammar.**
+      Claim `uniml-markup-xml-alphabet`. The last four host `Char` calls, and the reason they were
+      left out of the tail commit: `PureMarkupCodec` is an **XML 1.0 parser**, so the right alphabet
+      is XML's own productions — not ScalaScript's, not Java's. `UniAlphabet.isIdStart` accepts
+      every code point ≥ U+0080 and would have CHANGED what parses.
+      Two things were wrong with `c.isLetter` / `c.isLetterOrDigit` / `Char.isWhitespace`, and only
+      one of them is this item's: host-dependence, AND that the borrowed notion of "letter" is not
+      the production the parser implements. `isLetter` is neither a superset nor a subset of
+      NameStartChar. Now XML 1.0 5th ed. §2.3 verbatim, every line a range comparison, no table.
+      `S` is exactly `#x20 | #x9 | #xD | #xA` — the host also admits VT, FF and the separators, so
+      a form feed between attributes used to be accepted silently. Stricter is correct here: the
+      grammar is the authority, not the runtime.
+      **The supplementary range is a surrogate range, and the bound is not arbitrary.** The parser
+      is `Char`-based; `[#x10000-#xEFFFF]` is planes 1-14, plane 15 starts at `#xF0000` whose high
+      surrogate is `#xDB80`. So `#xD800-#xDB7F` is exactly the allowed planes.
+      ⚠️ **I took the grammar too literally and an existing test caught it.** XML's NameStartChar
+      includes `":"`, so I put it in — and `<ns:root>` became one undivided name with `prefix` =
+      `None`, because this parser splits namespaces by letting the colon TERMINATE the scan. The
+      production it wants is **NCName** (Namespaces in XML §3) = Name minus `":"`; QName is handled
+      a level up. `namespaced element and attribute` went red and is the reason this is right.
+      markupCore 22/22 including 5 new grammar tests; `unimlXml` checked because it depends on this
+      codec.
+
 - [~] UNIML-SSC3-ALPHABET/tail — **the last host calls, and one of them was a real defect.**
       Claim `uniml-alphabet-tail`. **Re-measured rather than inherited, and the entry below was
       right where my first sweep was wrong**: grepping for `.isDigit`-style calls without excluding
