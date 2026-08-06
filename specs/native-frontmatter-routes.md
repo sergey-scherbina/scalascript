@@ -42,12 +42,32 @@ The entry sized it as a design question:
 | carry | `RunNativeV2.scala:52` | `NativePluginHost.loadAll(compilation.config)` |
 | expose | `NativePluginHost.scala:37-38` | `def databases = config.databases`, `def contentModules = config.contentModules` |
 
-and the piece a *lazy* handler needs is on the SPI already:
-`NativePluginContext.resolveGlobal(name): Option[Value]`, added for cross-plugin construction and
-defaulted to `None` so existing and mock contexts stay source-compatible.
+So there is no boundary to design for the DECLARATION. `routes:` is the same shape as `databases:`
+— a front-matter key that a plugin consumes — and the work is to add it beside, not to invent a
+channel.
 
-So there is no boundary to design. `routes:` is the same shape as `databases:` — a front-matter key
-that a plugin consumes — and the work is to add it beside, not to invent a channel.
+### The half this spec got wrong, twice, and what it cost
+
+The first draft said the piece a *lazy* handler needs was on the SPI already —
+`NativePluginContext.resolveGlobal(name)`. **It was not, and the correction took two measurements:**
+
+1. `resolveGlobal` reads `V2PluginRegistry.lookupGlobal`, the PLUGIN registry's own map. Its own doc
+   comment says so ("another plugin's native, for cross-plugin construction"); the draft cited that
+   line and still assumed it covered program globals. Symptom: `404` became
+   `500 route handler 'listTodos' is not defined` — the channel worked, only the resolution failed.
+2. Reaching the program's globals is not one map either. `Runtime.compileWithGlobals` hands its map
+   to `Jit.onProgram`, so that looked like the hook — but **`bin/ssc` runs the BYTECODE tier by
+   default**, which owns `Emit.globalsRef` and fills it from the generated `install()`. Instrumented
+   rather than read: the map live at request time held 449 prelude names and none of the user's, and
+   collecting every VM map gave eight of them and still no `listTodos`.
+
+`Jit.scala` says the same thing about the same pair — *"so both tiers share one namespace"*. The
+lookup therefore consults, in order: plugin registrations, `Emit.globalsRef`, then the VM maps.
+
+**Where it lives is decided by the module graph, not by taste.** Putting the two-tier lookup in
+`v2/src/Runtime.scala` does not compile — the kernel may not depend on `v2/jvm-runtime` — and that
+refusal is the boundary working. `v2NativePluginSpi` depends on `v2JvmRuntime`, so
+`NativePluginHost` is where it belongs.
 
 ## Design
 

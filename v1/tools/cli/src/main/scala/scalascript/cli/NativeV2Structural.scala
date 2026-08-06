@@ -2,7 +2,7 @@ package scalascript.cli
 
 import _root_.ssc.{IrDecode, Program, Prims, Value}
 import _root_.ssc.Value.*
-import _root_.ssc.plugin.{NativeContentModule, NativeDatabaseConfig, NativeRuntimeConfig}
+import _root_.ssc.plugin.{NativeContentModule, NativeDatabaseConfig, NativeRouteDecl, NativeRuntimeConfig}
 
 /** Target-independent manifest product decoded from the frozen frontend ABI.
  *  This is a structural mapping from `ssc.Value`; it does not parse YAML. */
@@ -199,22 +199,44 @@ private[cli] object NativeV2Structural:
   private def runtimeConfig(manifests: List[NativeSourceManifest]): NativeRuntimeConfig =
     val databases = collection.mutable.LinkedHashMap.empty[String, NativeDatabaseConfig]
     val owners = collection.mutable.HashMap.empty[String, String]
+    val routes = collection.mutable.ListBuffer.empty[NativeRouteDecl]
     manifests.foreach { manifest =>
       manifest.value.foreach { rootValue =>
         val root = mapping(rootValue, s"front-matter in ${manifest.source.getPath}")
+        // `routes:` travels the SAME path `databases:` already travels — front matter, to
+        // NativeRuntimeConfig, to the plugin. It is a SEQUENCE of mappings rather than a mapping of
+        // mappings, hence the shape difference below; the three fields are required and a missing
+        // one raises naming the file, exactly as a database without a `url` does.
+        // (specs/native-frontmatter-routes.md; v2/BUGS.md
+        // native-lane-ignores-declarative-route-registration.)
+        field(root, "routes").foreach { routesValue =>
+          val entries = routesValue match
+            case NativeManifestArray(items) => items
+            case _ => throw new IllegalArgumentException(
+              s"routes in ${manifest.source.getPath} must be a sequence")
+          entries.zipWithIndex.foreach { case (rawRoute, i) =>
+            val values = mapping(rawRoute, s"routes[$i] in ${manifest.source.getPath}")
+            def required(key: String): String =
+              text(values, key, s"routes[$i]", manifest.source).filter(_.nonEmpty).getOrElse {
+                throw new IllegalArgumentException(
+                  s"native route routes[$i] in ${manifest.source.getPath} requires a non-empty $key")
+              }
+            routes += NativeRouteDecl(required("method"), required("path"), required("handler"))
+          }
+        }
         field(root, "databases").foreach { databaseValue =>
           val entries = mapping(databaseValue, s"databases in ${manifest.source.getPath}")
           entries.foreach { case (name, rawConfig) =>
             val values = mapping(rawConfig, s"databases.$name in ${manifest.source.getPath}")
-            val url = text(values, "url", name, manifest.source).filter(_.nonEmpty).getOrElse {
+            val url = text(values, "url", s"database '$name'", manifest.source).filter(_.nonEmpty).getOrElse {
               throw new IllegalArgumentException(
                 s"native database '$name' in ${manifest.source.getPath} requires a non-empty url")
             }
             val config = NativeDatabaseConfig(
               url = url,
-              user = text(values, "user", name, manifest.source),
-              password = text(values, "password", name, manifest.source),
-              driver = text(values, "driver", name, manifest.source))
+              user = text(values, "user", s"database '$name'", manifest.source),
+              password = text(values, "password", s"database '$name'", manifest.source),
+              driver = text(values, "driver", s"database '$name'", manifest.source))
             databases.get(name) match
               case Some(previous) if previous != config =>
                 throw new IllegalArgumentException(
@@ -227,7 +249,7 @@ private[cli] object NativeV2Structural:
         }
       }
     }
-    NativeRuntimeConfig(databases.toMap)
+    NativeRuntimeConfig(databases.toMap, routes = routes.toList)
 
   private def mapping(
       value: NativeManifestValue,
@@ -242,11 +264,11 @@ private[cli] object NativeV2Structural:
   private def text(
       fields: List[(String, NativeManifestValue)],
       key: String,
-      database: String,
+      owner: String,
       source: java.io.File): Option[String] = field(fields, key).map {
     case NativeManifestString(value) => value
     case _ => throw new IllegalArgumentException(
-      s"native database '$database' $key in ${source.getPath} must be a String")
+      s"native $owner $key in ${source.getPath} must be a String")
   }
 
   private def list(value: Value): List[Value] = Prims.unlistPub(value)

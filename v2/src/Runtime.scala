@@ -677,6 +677,7 @@ object Compiler:
     // (perf-neutral for the const-captured hot path) while making concurrent first-touch safe.
     val globals = scala.collection.concurrent.TrieMap[String, Value]()
     Jit.onProgram(globals)   // one globals namespace across both tiers; no-op unless armed (§3.6)
+    V2PluginRegistry.onProgram(globals)  // so a plugin can resolve a user function BY NAME (routes:)
     val c = new C(globals, topDefs)
     // pass 0: register case-class field names BEFORE any eager value def evaluates.
     // `__regfields__` prims live in the entry, which runs AFTER value defs (pass 2);
@@ -1240,6 +1241,32 @@ object V2PluginRegistry:
   def hasGlobal(name: String): Boolean = globalValues.contains(name)
   def allGlobalNames(): Iterable[String] = globalValues.keys
 
+  // The PROGRAM's globals, which are a different map from the one above: `globalValues` holds what
+  // plugins register, and a user's `def listTodos` is never in it. Handed over the same way the JIT
+  // gets it (`Jit.onProgram` on the line below its creation in `compile`), and read only through
+  // `lookupProgramGlobal` — a plugin that needs to call a user function BY NAME at request time has
+  // no other route to it. That is what front-matter `routes:` needs on this lane
+  // (specs/native-frontmatter-routes.md).
+  //
+  // A reference, not a copy, and read LATE: the map is populated as the program's top-level defs
+  // evaluate, so a handler defined after the `serve(...)` call is present by the time a request
+  // arrives. Copying here would freeze it half-built.
+  // EVERY program map handed over, not just the latest: `compileWithGlobals` runs more than once in
+  // one process (measured — the map live at request time held 449 prelude names and none of the
+  // user's), so keeping only the last reference resolves against the wrong program.
+  private val programGlobalMaps =
+    collection.mutable.ArrayBuffer.empty[collection.mutable.Map[String, Value]]
+  private[ssc] def onProgram(globals: collection.mutable.Map[String, Value]): Unit =
+    synchronized { if !programGlobalMaps.exists(_ eq globals) then programGlobalMaps += globals }
+  // TEMPORARY diagnostics for native-fm-routes — removed before the claim is released.
+
+  /** The VM tier's program globals. The BYTECODE tier keeps its own map (`Emit.globalsRef`) and is
+   *  what `bin/ssc` runs by default, so a caller that wants "the program's globals" must consult
+   *  both — done in `NativePluginHost`, which may depend on the jvm runtime. The kernel may not:
+   *  referencing `Emit` from here does not compile, and that refusal is the module boundary working. */
+  def lookupProgramGlobal(name: String): Option[Value] =
+    programGlobalMaps.iterator.map(_.get(name)).collectFirst { case Some(v) => v }
+
   /** Batch isolation: snapshot the registry right after plugin loading and
    *  restore it before each file, so one program's registrations/mutations
    *  (databases, cells, namespaces) cannot leak into the next — batch PASS
@@ -1283,6 +1310,7 @@ object V2PluginRegistry:
     globalValues.clear()
     taggedApply.clear()
     taggedMethods.clear()
+    programGlobalMaps.clear()   // per-file isolation: last file's maps are not this file's globals
     fieldNames.clear()
     fieldNamesByArity.clear()
 

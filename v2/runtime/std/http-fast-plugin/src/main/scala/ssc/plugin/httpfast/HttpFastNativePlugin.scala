@@ -328,14 +328,41 @@ final class HttpFastNativePlugin extends NativePlugin:
       if !serverHost.hasRoute("GET", "/_health") then serverHost.register("GET", "/_health", ok)
       if !serverHost.hasRoute("GET", "/_ready")  then serverHost.register("GET", "/_ready",  ok)
 
+    // Front-matter `routes:` — the other half of the same entry. The declaration reaches here the
+    // way `databases:` does (front matter -> NativeV2Structural.runtimeConfig -> NativeRuntimeConfig
+    // -> NativePluginHost), so this is a consumer, not a new channel.
+    // (specs/native-frontmatter-routes.md.)
+    //
+    // The handler is resolved AT REQUEST TIME, not here. That is what makes handler ORDER IN THE
+    // FILE irrelevant — a `def listTodos` written after the `serve(...)` call still answers, which
+    // is the interpreter's behaviour (`registerFrontmatterRoutes` binds the same way). Resolving
+    // eagerly would pass a gate whose handlers happen to be declared first and fail real programs.
+    //
+    // A handler that never resolves is a 500 at request time rather than a refusal to start: a typo
+    // in `handler:` must not take the whole server down, and no other lane does that.
+    def registerDeclaredRoutes(): Unit =
+      context.declaredRoutes.foreach { decl =>
+        if !serverHost.hasRoute(decl.method, decl.path) then
+          val handler = closure(1) { case List(request) =>
+            context.resolveGlobal(decl.handler) match
+              case Some(fn) => context.invoke(fn, List(request))
+              case None =>
+                response(500, Map("Content-Type" -> "text/plain"),
+                  s"route handler '${decl.handler}' is not defined")
+          }
+          serverHost.register(decl.method, decl.path, handler)
+      }
+
     native(context, "serveAsync") { args =>
       if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      registerDeclaredRoutes()
       registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serveAsync").toInt, asynchronous = true)
       Value.UnitV
     }
     native(context, "serve") { args =>
       if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      registerDeclaredRoutes()
       registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serve").toInt, asynchronous = false)
       Value.UnitV

@@ -107,33 +107,18 @@ fail=0
 #   `$BIN/ssc` is `StandardMain`, the DEFAULT (native) lane, not the interpreter. Labelling it INT
 #   sent its failures to the wrong lane's owner.
 #
-# Measured per lane with the correct runners before this was rewritten; see the table in
-# tests/BUGS.md `native-lane-ignores-declarative-route-registration`.
-# NATIVE is a KNOWN GAP, declared rather than hidden.
-#
-# It is the only lane that does not honour route registration it did not see as an explicit
-# `route(...)` call in the program body — front-matter `routes:` and the built-in `/_health`
-# `/_ready` alike. Filed with the per-lane measurement as
-# `tests/BUGS.md native-lane-ignores-declarative-route-registration`.
-#
-# Declared, not skipped, and it CANNOT ROT: if NATIVE starts passing, this gate fails and says to
-# delete the declaration. A known-red that silently becomes a known-green is how a fixed bug keeps
-# a permanent exemption.
-if run_backend NATIVE "$BIN/ssc"; then
-    echo "[FAIL] NATIVE now PASSES — the gap closed."
-    echo "       Delete this known-red block and let NATIVE count with the rest,"
-    echo "       and close tests/BUGS.md native-lane-ignores-declarative-route-registration."
-    fail=1
-else
-    echo "[KNOWN GAP] NATIVE — native-lane-ignores-declarative-route-registration (declared, not counted)"
-fi
+# NATIVE was a declared KNOWN GAP here until 2026-08-06 and now counts with the rest
+# (v2/BUGS.md `native-lane-ignores-declarative-route-registration`, both halves closed). The
+# declaration was DELETED because this gate failed the moment NATIVE started passing and said so in
+# its own output — which is the whole point of declaring rather than skipping.
+run_backend NATIVE "$BIN/ssc"                    || fail=1
 run_backend INT    "$BIN/ssc-tools run --v1"     || fail=1
 run_backend JVM    "$BIN/ssc-tools run-jvm"      || fail=1
 run_backend JS     "$BIN/ssc-tools run-js"       || fail=1
 
 echo
 if [ $fail -eq 0 ]; then
-    echo "INT, JVM and JS register front-matter routes correctly. NATIVE is a declared gap."
+    echo "All four lanes register front-matter routes correctly."
     exit 0
 else
     echo "One or more backends FAILED — see logs in /tmp/fm-routes-smoke-*.log"

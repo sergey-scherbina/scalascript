@@ -20,10 +20,16 @@ final case class NativeContentModule(
     namespace: String,
     document: Value)
 
+/** One `routes:` entry from native root front-matter — a route declared without an inline
+ *  `route(...)` call. `handler` names a top-level global, resolved at REQUEST time so a handler
+ *  defined after the `serve(...)` call still works (the interpreter binds it the same way). */
+final case class NativeRouteDecl(method: String, path: String, handler: String)
+
 /** Immutable configuration visible to one native provider installation. */
 final case class NativeRuntimeConfig(
     databases: Map[String, NativeDatabaseConfig] = Map.empty,
-    contentModules: List[NativeContentModule] = Nil)
+    contentModules: List[NativeContentModule] = Nil,
+    routes: List[NativeRouteDecl] = Nil)
 
 /** Scalameta-free native intrinsic provider for the ScalaScript 2.1 runtime. */
 trait NativePlugin:
@@ -36,6 +42,9 @@ trait NativePluginContext:
   def argv: List[String]
   def databases: Map[String, NativeDatabaseConfig]
   def contentModules: List[NativeContentModule]
+  /** Routes declared in front-matter rather than by a `route(...)` call. Defaults to Nil so
+   *  existing and mock contexts stay source-compatible, exactly like `resolveGlobal` below. */
+  def declaredRoutes: List[NativeRouteDecl] = Nil
   def invoke(fn: Value, args: List[Value]): Value
   /** Resolve a registered global (e.g. another plugin's native) by name, for cross-plugin
    *  construction — e.g. the content plugin building a real `signal(name, default)` via the
