@@ -1,0 +1,11 @@
+slug: uniml-breadth-tail
+branch: feature/uniml-breadth-tail
+agent: claude-code
+started: 2026-08-06T15:18:28Z
+heartbeat: 2026-08-06T15:18:28Z
+status: claimed-before-planning
+items: UNIML-SSC3 criterion (3) — the last ~12 breadth diagnostics
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
