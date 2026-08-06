@@ -113,6 +113,18 @@ What the logs can and cannot settle, so nobody re-derives it:
     run 31060671890  toolchain cache HIT   freeze-consistency 94.5s  died silently (the set -e bug)
     run 31082837072  toolchain cache MISS  freeze-consistency 11.1s  passed, branch UNKNOWN
 
+**Third observation 2026-08-06, and it settles the SHAPE if not the cause.** `freeze-consistency`
+timed 94.5 s (run 31060671890), 11.1 s (run 31093483796), 94.8 s (run 31094926802) — it swings
+between roughly 11 s and 95 s from run to run, so this is not a monotonic cache story at all and the
+hit/miss correlation in the table below is coincidence on two samples. The 95 s runs are consistent
+with the intermittent Bloop download already documented in
+`corpus-breadth-slice-crashes-scala-cli-on-ci` ("three of the last fifteen runs").
+
+Worth noting for the budget question: that 84 s swing is most of the 482 s -> 634 s jump between
+those last two runs, so a suite that measures 634 s and blames the change in that push is usually
+blaming the wrong thing. And on the 94.8 s run `freeze-consistency` PASSED — before d0df30a89 the
+same condition killed it silently with no reason in the log.
+
 The obvious reading — cache hit skips the coursier step, so scala-cli has to fetch Bloop — is
 WRONG here: `Cache Coursier/sbt` in smoke.yml carries no `if:`, it was made unconditional by
 5d397bd26 precisely because of `corpus-breadth-slice-crashes-scala-cli-on-ci`, and that is still
