@@ -756,10 +756,50 @@ and the decisive one is `it did NOT create a claim named after the stray word` -
 reproduces the incident rather than merely describing it.
 
 ## install-sh-exits-0-when-sbt-project-load-fails — a build that produced nothing reported success
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: none -->
+     gate: tests/e2e/install-sh-reports-failure-gate.sh
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-06 — and it was still LIVE, which took three measurements to establish.**
+
+The original path stopped reproducing, and that nearly closed this as stale. Re-measured on this
+host (sbt runner 2.0.1, project sbt 1.10.7): **sbt now exits 1** on a project that will not load. It
+still prints `Project loading failed: (r)etry, (q)uit, (l)ast, or (i)gnore?` and still takes the
+default on EOF — only the status changed. `set -euo pipefail` then does the rest, so
+`./install.sh --dev` over a broken `build.sbt` exits 1 today. **Nothing in this repo earned that.**
+
+The first reproduction also passed for the WRONG reason and would have been a false all-clear: in a
+fresh worktree `bin/lib` does not exist, so the artifact-existence checks caught the failure. The
+entry's own text names the state that matters — "the next command runs whatever was in `bin/lib`
+before" — so the faithful setup is a broken build.sbt on top of a build that already SUCCEEDED. Built
+that, and it still exited 1.
+
+**What settled it was asking the question without sbt in the way.** With a stub `sbt` on PATH:
+
+```
+sbt fails loudly  (exit 1)   ->  install.sh exit 1     ok, via set -e
+sbt fails QUIETLY (exit 0)   ->  install.sh exit 0     REPORTED SUCCESS  <- the defect, alive
+```
+
+The hole was never sbt's exit code; it was that install.sh verified its output EXISTS and never that
+the build RAN. Stale artifacts from any previous build satisfy existence. So the defect was one sbt
+version away from returning, and nothing would have noticed.
+
+**Fix:** `cli/installBin` rewrites `bin/lib/.build-stamp`, so its mtime changing is evidence the task
+ran. install.sh now captures it before sbt and refuses to report success if it did not move. Only
+the mtime is used, never the CONTENT — and the control proves why: a real rebuild at an unmoved HEAD
+writes the SAME sha, so a content check would have failed a good build. (The stamp's sha was
+superseded by `scripts/launcher-input-digest` for the "is this stale" question; that decision is not
+reopened here.) `stat` is read through a helper because BSD spells it `-f %m` and GNU `-c %Y`, and
+CI is Linux while this host is macOS.
+
+**Gate:** `tests/e2e/install-sh-reports-failure-gate.sh`, both rows, 0.7 s — it uses the stub rather
+than a real build. The second row is the regression guard proper: it holds even when sbt lies,
+because that is exactly what sbt used to do.
+
+### Original report (superseded 2026-08-06)
 
 **Found 2026-07-30** while adding the stale-build stamp. I put Scala 3 syntax (`then`, braceless
 `catch case`) into `build.sbt`, which is **Scala 2.12**. sbt refused to load the project:
@@ -769,7 +809,8 @@ reproduces the incident rather than merely describing it.
 [warn] Project loading failed: (r)etry, (q)uit, (l)ast, or (i)gnore? (default: r)
 ```
 
-It got EOF on that prompt, and **`./install.sh --dev` exited 0**. No launchers were written, no
+It got EOF on that prompt, and **`./install.sh --dev` exited 0** — sbt returned 0 in that
+situation at the time; it returns 1 now. No launchers were written, no
 `bin/lib` at all — and the script said success.
 
 I noticed only because I grepped the produced artifact instead of trusting the exit code. Anyone who
@@ -778,7 +819,8 @@ launcher, `git status` stays clean, and the next command runs **whatever was in 
 i.e. a silent fall back to an older toolchain, which is precisely the class of failure the stamp was
 being added to close.
 
-**Where to look.** `install.sh --dev` invokes sbt and does not propagate its exit status; the
+**Where to look** (the diagnosis was right about the second half and wrong about the first):
+`install.sh --dev` invokes sbt and does not propagate its exit status; the
 interactive `Project loading failed:` prompt on EOF is the specific shape that escapes, because sbt
 exits 0 after choosing the default. Two things to fix, not one: pass `-batch` (or set
 `onLoadFailure`) so the prompt cannot appear, AND check the status. Better still, assert the artifact

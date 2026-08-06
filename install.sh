@@ -46,6 +46,10 @@ if ! command -v java &>/dev/null; then
     echo "Error: JDK not found. Run ./setup.sh first to install required tools." >&2
     exit 1
 fi
+# BSD `stat -f %m` and GNU `stat -c %Y` spell this differently, and CI is Linux while this host is
+# macOS — the shape that has made a gate green here and red there before.
+_stat_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+
 if ! command -v sbt &>/dev/null; then
     echo "Error: sbt not found. Run ./setup.sh first to install required tools." >&2
     exit 1
@@ -99,7 +103,29 @@ fi
 
 echo ""
 echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
+# WITNESS THAT THE BUILD RAN, not that its output exists. The checks below assert the staged files
+# are PRESENT, and they are present after any previous successful build — `bin/ssc` is tracked and
+# `bin/lib` survives — so a build that produced nothing passed them and install.sh said success.
+# The next command then ran the OLD toolchain with a zero exit code, which is the failure this whole
+# staleness apparatus exists to prevent (scripts/BUGS.md
+# install-sh-exits-0-when-sbt-project-load-fails).
+#
+# `cli/installBin` rewrites bin/lib/.build-stamp (build.sbt), so its mtime changing is evidence the
+# task actually ran. Only the mtime is used, never the CONTENT: the stamp's HEAD sha was superseded
+# by scripts/launcher-input-digest for the "is this stale" question, and that decision is not
+# reopened here.
+_stamp="$LIB/.build-stamp"
+_stamp_before=""
+[ -f "$_stamp" ] && _stamp_before="$(_stat_mtime "$_stamp")"
 (cd "$ROOT" && sbt -no-colors cli/installBin)
+_stamp_after=""
+[ -f "$_stamp" ] && _stamp_after="$(_stat_mtime "$_stamp")"
+if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
+    echo "install.sh: sbt reported success but cli/installBin did not run —" >&2
+    echo "  $_stamp was not rewritten, so nothing was staged and bin/lib is whatever it was before." >&2
+    echo "  Anything measured with this tree would be the OLD toolchain." >&2
+    exit 1
+fi
 [ -f "$LIB/standard/ssc.jar" ]  || { echo "Stage did not produce $LIB/standard/ssc.jar" >&2; exit 1; }
 [ -d "$LIB/standard/jars" ]     || { echo "Stage did not produce $LIB/standard/jars/" >&2; exit 1; }
 [ -f "$LIB/ssc.jar" ]           || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }
