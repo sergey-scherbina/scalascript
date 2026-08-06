@@ -29,13 +29,41 @@ the corpus-contract nightly was GREEN on 2026-07-30, 07-31 and 08-01, so v2 was 
 was added 2026-07-28 as a deliberate fail-first gate (`c6f35c87b`) and was made to pass within two
 days.
 
-**LOCALISED 2026-08-06 — it is the F front, and it is the COLON spelling only.** Same file, same
-curried `def`, two spellings:
+**LOCALISED 2026-08-06 — the F front, and EVERY trailing-argument form, not just the colon.**
+One curried `def`, three spellings:
 
     def ap(n: Int)(f: Int => Int): Int = f(n)
-    ap(3)((i) => i * 2)     SSC_FRONT=F  ->  6        braced: fine
-    ap(3): (i) => i * 2     SSC_FRONT=F  ->  arity: 2 expected, 1 given
-    ap(3): (i) => i * 2     SSC_FRONT=legacy -> 6     legacy: fine
+    ap(3)((i) => i * 2)      SSC_FRONT=F       ->  6                             argument LIST
+    ap(3) { (i) => i * 2 }   SSC_FRONT=F       ->  arity: 2 expected, 1 given    trailing brace
+    ap(3): (i) => i * 2      SSC_FRONT=F       ->  arity: 2 expected, 1 given    trailing colon
+    ap(3): (i) => i * 2      SSC_FRONT=legacy  ->  6
+
+My first reading — "the colon spelling only" — was wrong and is corrected here rather than left
+above: the braced TRAILING form fails too. What works is the parenthesised argument LIST, which is
+a different code path.
+
+**THE FIX, and it is four tokens.** `ca8bb823e` added call-site flattening for curried callees:
+
+    def postApp(c, ts, env, cx)   = parseArgs(…) => emitAppCur(c, args, cx)
+    def emitAppCur(c, args, cx)   = if isCurriedApp(c, cx) then appendArgsTo(c, args) else emitApp(c, args)
+
+Both trailing forms bypass it — they go through `blockArgApp`, which nests unconditionally:
+
+    def blockArgApp(c, b) = if startsW(b, "(lam ") then "(app " ++ c ++ " " ++ b ++ ")" else "(app " ++ c ++ " (lam 0 " ++ b ++ "))"
+
+`blockArgApp` has no `cx`, so it cannot ask `isCurriedApp`. Its two callers, `postBlockArg` (:705)
+and `postColonArg` (:721), both have one. Thread `cx` through and flatten the same way:
+
+    def argOfBlock(b)         = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
+    def blockArgApp(c, b, cx) = if isCurriedApp(c, cx) then appendArgsTo(c, " " ++ argOfBlock(b))
+                                else "(app " ++ c ++ " " ++ argOfBlock(b) ++ ")"
+
+Note the leading space: `appendArgsTo` strips the closing paren and concatenates, and `parseArgs`
+returns args WITH their leading space (`emitApp` relies on it), so the trailing form must supply
+one too.
+
+**Not applied here:** `specs/v2.2-p6.5-fsub.ssc` is held by `f-bare-member-call-classes`, live and
+committing to that file today. Offered to that claim in the room.
 
 So this is not the curried-def lowering in general. `v2-front-curried-def-second-clause` was fixed
 in `ca8bb823e` — "curried defs lower at total arity AND their call sites flatten" — and its own
