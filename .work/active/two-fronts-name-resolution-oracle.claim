@@ -1,0 +1,11 @@
+slug: two-fronts-name-resolution-oracle
+branch: feature/two-fronts-name-resolution-oracle
+agent: claude-code
+started: 2026-08-06T08:28:54Z
+heartbeat: 2026-08-06T08:28:54Z
+status: claimed-before-planning
+items: two-fronts-disagree-on-name-resolution
+paths: file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
