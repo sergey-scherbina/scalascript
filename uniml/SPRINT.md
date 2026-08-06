@@ -10,6 +10,22 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] md-continuation-prefix-inside-code-span — **composed round-trip 1235 -> 1236 of 1238.** A
+      container's continuation indent is put back after the k-th BREAK PIECE; a code span crossing
+      the break leaves no break piece, because the newline sits inside the span's own content
+      lexeme. The prefix then had nowhere to go and was flushed after the whole block — every
+      character present, wrong ORDER, so a length check passes and only comparing the string catches
+      it. `spliceSwallowedBreaks` inserts it after the embedded newline instead; break pieces are
+      excluded, since a `SoftBreak` lexeme IS the newline and would take the prefix twice.
+      The spec keeps the original isolation (list continuation alone, span crossing a break alone,
+      span in a paragraph alone — all three green, only the combination fails) and adds the control
+      that matters: a swallowed break with NO container prefix must come back byte-identical, since
+      a splice reading the wrong table invents indentation and still round-trips something.
+      **Two records corrected, both mine:** the frozen known-broken set and the backlog entry each
+      said all three remaining files were this mechanism. The two survivors first diverge inside a
+      FENCED BLOCK's body (`nodes.ssc:67`, `streams.ssc:211`), not at a paragraph continuation —
+      grouping them under one cause is what made them look like one fix.
+
 - [x] uniml-block-stops-at-comma — **breadth reaches its floor: 6 → 4 diagnostics over 1642 tagged
       fences, and all four are source the reference front rejects too.** Two stops of one class.
       `enclClose` now includes `spike.comma`, so an offside block used as a group ELEMENT ends at
