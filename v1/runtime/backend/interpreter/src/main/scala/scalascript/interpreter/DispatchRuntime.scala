@@ -3401,8 +3401,7 @@ private[interpreter] object DispatchRuntime:
    */
   private def bindSiblings(fn: Value.FunV, recv: Value, fields: Map[String, Value], interp: Interpreter): Map[String, Value] =
     val applied = interp.bareAppliedNames(fn.body)
-    if applied.isEmpty then fields
-    else recv match
+    recv match
       case inst: Value.InstanceV =>
         interp.typeMethods.get(inst.typeName) match
           case Some(methods) =>
@@ -3415,6 +3414,20 @@ private[interpreter] object DispatchRuntime:
                   out = out.updated(name, Value.NativeFnV(name, as => invokeTypeMethod(sib, recv, fields, as, interp)))
                 }
             }
+            // A PARAMETERLESS sibling (`def doubled: Int`, mentioned as `doubled`) cannot be bound
+            // the same way: the body uses it as a VALUE, so binding a NativeFnV would make
+            // `doubled + 1` add a function. Binding the RESULT instead would mean evaluating it
+            // eagerly on every dispatch — running side effects of a branch never taken, and
+            // recursing forever on `def a: Int = if p then 0 else a`. So bind the RECEIVER and let
+            // the name-lookup MISS path resolve it (EvalRuntime `Term.Name`), which fires only
+            // where the interpreter would otherwise have raised `Undefined` — no reachable
+            // program changes behaviour, and each mention invokes, as Scala specifies.
+            // `zeroArgMethodNames` is empty for almost every type, so this guard is one lookup.
+            val zeroArg = interp.zeroArgMethodNames(methods)
+            if zeroArg.nonEmpty && !out.contains("this") then
+              val mentioned = interp.bareValueNames(fn.body)
+              if mentioned.exists(n => zeroArg.contains(n) && !out.contains(n)) then
+                out = out.updated("this", recv)
             out
           case None => fields
       case _ => fields

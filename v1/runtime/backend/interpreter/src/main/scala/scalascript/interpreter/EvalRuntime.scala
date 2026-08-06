@@ -3418,10 +3418,30 @@ private[interpreter] object EvalRuntime:
       // is the hottest Pure-allocating eval path (JFR-2026-06-02 on
       // `recursiveEval` showed Pure as the top sampled allocator).
       if v != null then Computation.purify(v)
-      else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
       else
-        interp.ensurePluginsLoaded()
-        Computation.purify(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
+        // MISS path only — everything below runs where the answer was `Undefined: $name`, so it
+        // cannot change a program that already worked, and costs nothing on the hot path.
+        //
+        // A PARAMETERLESS sibling method mentioned as a value (`def doubled: Int` used as
+        // `doubled * 2`) is a bare `Term.Name`, so it never reached the sibling binding in
+        // `DispatchRuntime.bindSiblings` — that one sees `Term.Apply` heads. v1 answered
+        // `Undefined: doubled` where the native and jvm lanes both answered.
+        // `bindSiblings` binds `this` exactly when a body mentions such a name, which is the
+        // signal read here. Each mention invokes the method, as Scala specifies for no-paren defs.
+        // Routed through the ordinary dispatch rather than `callTypeMethod` on `inst.fields`: a
+        // StatRuntime-built instance carries its values in the positional `fieldsArr` and leaves
+        // the map EMPTY, so calling the method directly resolved `twice` and then failed on `n`
+        // inside it. `dispatch` is what materialises the fields, binds siblings and `this`.
+        val self =
+          env.getOrElse("this", null) match
+            case inst: Value.InstanceV
+              if interp.typeMethods.get(inst.typeName).flatMap(_.get(name)).exists(_.params.isEmpty) => inst
+            case _ => null
+        if self != null then DispatchRuntime.dispatch(self, name, Nil, env, interp)
+        else if interp._pluginsLoaded then interp.located(s"Undefined: $name")
+        else
+          interp.ensurePluginsLoaded()
+          Computation.purify(interp.globals.getOrElse(name, interp.located(s"Undefined: $name")))
 
     // Fast path: plain application `f(args)` where the head is a user-level
     // `Term.Name` that is NOT a reserved special form. Skips the ~40

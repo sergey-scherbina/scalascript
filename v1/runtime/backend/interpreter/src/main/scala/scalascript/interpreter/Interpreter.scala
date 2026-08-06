@@ -772,6 +772,47 @@ class Interpreter(
       bareAppliedNamesCache.put(body, out)
       out
 
+  /** Every bare name a method body MENTIONS, applied or not. Deliberately a SUPERSET of
+   *  `bareAppliedNames`: `x.twice` contributes `twice` here even though it is a member select.
+   *  Over-collecting is the safe direction — the only thing this list gates is whether a dispatch
+   *  binds `this`, and a needless `this` binding costs one map update and changes no semantics,
+   *  while a MISSING one resurfaces as `Undefined`. Cached by body identity, like its sibling.
+   *
+   *  Exists because `bareAppliedNames` sees `Term.Apply` only, so a parameterless method mentioned
+   *  as a value — `def twice: Int` used as `twice * 2` — is a `Term.Name` and was invisible to it.
+   *  That is `int-no-paren-sibling-method-is-undefined`: v1 raised `Undefined: twice` where both
+   *  the native and jvm lanes answered 12. */
+  private val bareValueNamesCache: java.util.IdentityHashMap[scala.meta.Tree, List[String]] =
+    java.util.IdentityHashMap()
+  private[interpreter] def bareValueNames(body: scala.meta.Tree): List[String] =
+    val cached = bareValueNamesCache.get(body)
+    if cached != null then cached
+    else
+      val acc = scala.collection.mutable.LinkedHashSet.empty[String]
+      body.traverse { case scala.meta.Term.Name(n) => acc += n }
+      val out = acc.toList
+      bareValueNamesCache.put(body, out)
+      out
+
+  /** Names of a type's PARAMETERLESS methods (`def doubled: Int`).
+   *  Almost always empty, and that is the point: it is the first guard on the dispatch path, so a
+   *  type without any no-paren method pays one lookup and nothing else.
+   *
+   *  Keyed on the METHOD MAP's identity, not on the type name. `typeMethods` is mutable and fills
+   *  as definitions evaluate, so a name-keyed cache consulted before a type finished registering
+   *  would pin an empty set forever; re-registering a type installs a fresh immutable map, which
+   *  misses this cache and recomputes. */
+  private val zeroArgMethodNamesCache:
+      java.util.IdentityHashMap[Map[String, Value.FunV], Set[String]] =
+    java.util.IdentityHashMap()
+  private[interpreter] def zeroArgMethodNames(methods: Map[String, Value.FunV]): Set[String] =
+    val cached = zeroArgMethodNamesCache.get(methods)
+    if cached != null then cached
+    else
+      val out = methods.collect { case (n, f) if f.params.isEmpty => n }.toSet
+      zeroArgMethodNamesCache.put(methods, out)
+      out
+
   /** Cache (paramNames, paramTypes) for each lambda parameter clause.
    *  A lambda evaluated in a tight loop recreates these Lists on every iteration;
    *  caching by ParamClause identity saves O(n_params) allocations per pass. */
