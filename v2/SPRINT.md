@@ -77,6 +77,26 @@ Control: the same link without `as` prints `hi-hi` on native.
       forms only. Add the four alias rows, and verify with the ABSENT-state control (the same links
       without `as`) so the gate cannot pass by accident.
 
+## open entries whose BODY claims done (claim `open-entries-that-claim-done`)
+
+`scripts/bugs-report --drift` reports 0, and it is right for what it asks: it reads HEADINGS. Five
+open entries make a bold done-claim in their BODY instead — the shape that had `v2-getorelse` closed
+as "bookkeeping only" and then REOPENED because the fix had reached one front and not the other.
+
+- [x] **D-1 — re-measure each, do not read it.** Triaged by reading first, which already collapses
+      the list: four of the five are CORRECTLY open and the heuristic false-positived, because the
+      bold claim scopes a PART, not the entry —
+      `v2-native-charAt-toString-yields-code` says "ENGINE SIDE FIXED" and then "STILL REPRODUCES,
+      re-verified 2026-08-02"; `native-lane-ignores-declarative-route-registration` says "HALF
+      FIXED"; `sbt-test-7-failures…` dates a cluster; `v2-getorelse` carries a REOPENED block above
+      its "ALREADY FIXED". Only `v2-infix-extension-operator-stringifies` claims completion
+      ("PART 3 DONE … F is now at PARITY") with an `open` header and no `fixed-in`.
+- [x] **D-2 — measure the infix table on the current build**, all three cells, on int, `SSC_FRONT=F`
+      and `SSC_FRONT=legacy`. Close with the numbers if it holds; if F has drifted back, the entry is
+      wrong for the second time and says so.
+- [x] **D-3 — record what the heuristic costs.** Five hits, one real. Worth stating in the entry that
+      survives, so the next person running the same scan does not re-triage the same four.
+
 ## v2 source backend lanes (claim `v2-source-backend-lanes`)
 
 - [x] **B-1 — `v2-source-backends-miss-autoOutput`.** `v2-jvm` and `v2-rust` could not run ANY

@@ -2666,9 +2666,37 @@ collapses into this one — it is 3 confirmed, up to 6 candidates.
 count drops by at least 3 more.
 
 ## v2-infix-extension-operator-stringifies — `a ++ b` on a user type silently becomes a STRING
-<!-- status: open
+<!-- status: fixed
      lane: native
-     area: codegen -->
+     area: codegen
+     gate: examples/dsl-ast-builder.ssc
+     fixed-in: 8f1e88c4a -->
+
+**CLOSED 2026-08-06 — the work was done on 2026-07-30 and the header was never moved.** Found by a
+scan for OPEN entries whose BODY claims completion; four other hits were false positives, where the
+bold claim scoped a PART rather than the entry. This one was the real one, and it was RE-MEASURED
+rather than read, because the sibling entry with the same shape (`v2-getorelse-two-arg-falls-into-
+option-helper`) was closed on its prose and had to be REOPENED.
+
+Re-measured on a clean build at `2026-08-06`:
+
+| | int | v2 F | v2 legacy |
+|---|---|---|---|
+| `text("AA") ++ text("BB")` | `DocBeside(DocText(AA), DocText(BB))` | same | same |
+| `"[" + mid + "]"` (the trap that reverted attempt 1) | `[mid]` | `[mid]` | `[mid]` |
+
+**And F itself lowered it, which is the part a stdout comparison cannot show:** `ssc info
+--front-report` says `F`, and `SSC_FRONT_STRICT=1` — which turns a decline into an error rather than
+a silent fallback to the reference front — still prints both lines. Without that check the row would
+have looked green while the reference front did the work.
+
+`examples/dsl-ast-builder.ssc`: F lowers it and int vs native are byte-identical.
+
+**One thing has improved beyond what the entry claimed.** It recorded `dsl-calc-parser` as still
+differing, "a rendering defect present on both v2 fronts", explicitly not this bug. That case is now
+byte-identical between int and native too, so whatever owned that residue has since been fixed. F
+still declines that file (`unbound global: (global Parser)`) and the reference front answers it —
+correct output, and a separate F-coverage item.
 
 **Status:** **PARTS 1+2 LANDED 2026-07-30** (`v2-backend-matrix-gaps`) — correct on
 `SSC_FRONT=legacy`. **Part 3 (F, the DEFAULT front) is still open — do not close.** Found
