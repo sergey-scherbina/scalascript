@@ -18,6 +18,23 @@ in its own worktree off `origin/main`.
 Spec: [`../specs/native-package-namespace.md`](../specs/native-package-namespace.md).
 Entry: [`BUGS.md`](BUGS.md) `native-front-has-no-package-namespace`.
 
+- [x] **both TRAILING argument forms flatten onto a curried callee** (`f-trailing-arg-curried-flatten`,
+      `8abe91b6a`). `ap(3) { … }` and `ap(3): p => …` died with `arity: 2 expected, 1 given`:
+      `ca8bb823e` made curried defs lower at TOTAL arity and taught the parenthesised call site to
+      flatten to match, but both trailing spellings reach `blockArgApp`, which nested
+      unconditionally. It takes `cx` now and flattens the same way. This was the LAST regression row
+      in the corpus-contract nightly.
+      **Two corrections to my own earlier BUGS entry**, both written into it: the break window and
+      its two suspects were wrong (the row first appears on the 08-05 nightly, not 08-04, so the
+      cause is `ca8bb823e` at 08-04 16:16), and "the colon spelling only" was wrong — the braced
+      form fails identically.
+      **Why the pair fell between two gates that each look complete:** `fewer-braces-colon` covers
+      the colon on a NON-curried callee, `curried-def-clauses` covered the parenthesised list on a
+      CURRIED one, and nobody covered the intersection. It is in `curried-def-clauses` now, with the
+      returns-a-function discriminator repeated for BOTH forms — a fix keying on call SHAPE instead
+      of the curried-name TABLE would pass the first rows and fail those. Revert the front with the
+      gates kept and both cases fail on v2 while int stays green.
+
 - [x] **N-1 — emit the namespace chain in `sscLoadMod`** (`v2/bin/ssc1-run.ssc0`). Read `package:`
       from the module's front matter, take member names from the ALREADY-PARSED `defs`, emit
       `def __pkgref_<prefix>__<n> = <n>` + `object <prefix>: def <n> = __pkgref_…` as text, parse it,
