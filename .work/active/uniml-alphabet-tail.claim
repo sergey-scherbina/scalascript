@@ -5,7 +5,7 @@ started: 2026-08-06T09:17:36Z
 heartbeat: 2026-08-06T09:17:36Z
 status: claimed-before-planning
 items: UNIML-SSC3-ALPHABET
-paths: file:uniml/markup/src/main/scala/scalascript/markup/PureMarkupCodec.scala file:uniml/address/src/main/scala/scalascript/uniml/address/JsonAddress.scala
+paths: file:uniml/address/src/test/scala/scalascript/uniml/address/JsonAddressTest.scala file:uniml/markup/src/main/scala/scalascript/markup/PureMarkupCodec.scala file:uniml/address/src/main/scala/scalascript/uniml/address/JsonAddress.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
