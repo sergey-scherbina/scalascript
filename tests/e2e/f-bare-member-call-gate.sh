@@ -33,10 +33,9 @@
 # rest of the block. letrec rather than let because `loop` calling `loop` is the shape this exists
 # for — the recursive case is the one the parser corpus is built out of.
 #
-# STILL OPEN and NOT asserted here, each measured on this build: `this.m()` inside a class still
-# declines on `(global this)` — F has no `this` — and a trait DEFAULT method reading an abstract
-# sibling lowers but dies at runtime with `__method__: no dispatch for .describe`, identically
-# before and after this change, so it is a separate pre-existing gap and not a regression.
+# STILL OPEN and NOT asserted here, measured on this build: a trait DEFAULT method reading an
+# abstract sibling lowers but dies at runtime with `__method__: no dispatch for .describe`,
+# identically before and after these changes, so it is a separate pre-existing gap, not a regression.
 set -uo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -148,6 +147,32 @@ lowered_and_correct nested-def-captures 13 'def outer(k: Int): Int =
   def add(i: Int): Int = i + k
   add(10)
 def main() = println(outer(3))'
+
+# ── `this` ───────────────────────────────────────────────────────────────────────────────────────
+# `this` is the receiver slot under its source name; F had no notion of it, so `this.t()` lowered to
+# `(global this)` and declined the file. Resolved to (local <__self>), guarded on __self being in
+# scope — see the control below, which is what stops `this` binding to whatever slot happens to be
+# there in a context that has no receiver.
+lowered_and_correct this-method-call 12 'case class B(n: Int):
+  def t(): Int = n * 2
+  def q(): Int = this.t() * 2
+def main() = println(B(3).q())'
+
+lowered_and_correct this-field-read 12 'case class B(n: Int):
+  def q(): Int = this.n * 3
+def main() = println(B(4).q())'
+
+# CONTROL: outside a class `this` has no meaning and must stay unbound. If this ever starts
+# lowering, `this` has been bound to an arbitrary local and every case above proves nothing.
+printf '%s\n' 'def main() =
+  println(this)' > "$sandbox/this-outside.ssc"
+this_out=$(SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/this-outside.ssc" 2>&1)
+if grep -qF 'refusing to fall back' <<<"$this_out"; then
+  echo "  ✓ this-outside-a-class: still unbound, as it must be"
+else
+  echo "  ✗ this-outside-a-class: F lowered it — `this` is binding to an arbitrary slot"
+  fails=$((fails + 1))
+fi
 
 echo
 if [[ $fails -eq 0 ]]; then
