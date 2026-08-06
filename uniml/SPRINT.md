@@ -10,7 +10,7 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] SSC3-P/front-diff-debt — **the differences v3's front differential found, all of them UniML's.**
+- [x] SSC3-P/front-diff-debt — **the differences v3's front differential found, all of them UniML's.**
       Claim `uniml-front-diff-debt`. `ssc3-core` got its uniml front to 29/40 agreement and reported
       that every REMAINING difference is on this side, each filed in `40-front-on-uniml.md` §5b with
       the fixture that shows it. This is that list.
