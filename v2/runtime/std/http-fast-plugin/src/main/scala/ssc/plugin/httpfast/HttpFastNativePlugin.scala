@@ -311,13 +311,32 @@ final class HttpFastNativePlugin extends NativePlugin:
           case _ => throw new RuntimeException("route(method, path)(handler)")
         }
     }
+    // `/_health` and `/_ready`, registered at serve time unless the program defined its own.
+    //
+    // Every other lane has had these: the interpreter in `ClusterRoutesRuntime`, and the jvm lane
+    // via its Tier 5 auto-registration. The native lane had none, so `serve(port)` with no user
+    // routes answered 404 `text/plain` where the other three answer 200 `{"status":"ok"}`
+    // `application/json` — and this is the lane `bin/ssc file.ssc` gives you by default, so an
+    // orchestrator polling `/_health` sees a dead service.
+    // (v2/BUGS.md native-lane-ignores-declarative-route-registration.)
+    //
+    // Body and content-type copied from the interpreter rather than chosen, so the four lanes agree
+    // byte for byte. Registered BEFORE `serverHost.serve`, because `register` refuses once the
+    // server is up, and only when absent, so a user's own `/_health` still wins.
+    def registerHealthDefaults(): Unit =
+      val ok = closure(1)(_ => response(200, Map("Content-Type" -> "application/json"), """{"status":"ok"}"""))
+      if !serverHost.hasRoute("GET", "/_health") then serverHost.register("GET", "/_health", ok)
+      if !serverHost.hasRoute("GET", "/_ready")  then serverHost.register("GET", "/_ready",  ok)
+
     native(context, "serveAsync") { args =>
       if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serveAsync").toInt, asynchronous = true)
       Value.UnitV
     }
     native(context, "serve") { args =>
       if args.length != 1 then throw new RuntimeException("native TLS server requires a future server-host extension")
+      registerHealthDefaults()
       serverHost.serve(integer(args, 0, "serve").toInt, asynchronous = false)
       Value.UnitV
     }

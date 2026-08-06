@@ -28,7 +28,11 @@ wait_for_server() {
     # 180s timeout, so it was filed as HANGING and left unwired -- the one diagnosis that stops
     # anyone reading the actual error. Polling a corpse is never worth the wall clock.
     local pid="${1:-}"
-    local deadline=$(( $(date +%s) + 60 ))
+    # A CEILING, not a target — the loop exits when the port answers. The native lane compiles the
+    # program on each run and on a loaded host that passes 60 s, which this gate then reported as
+    # `server did not start` for a process still in `lowerNative`. Same change as
+    # health-defaults-smoke.
+    local deadline=$(( $(date +%s) + 180 ))
     while [ "$(date +%s)" -lt $deadline ]; do
         if curl -sS -o /dev/null -m 1 "http://localhost:$PORT/api/todos" 2>/dev/null; then
             return 0

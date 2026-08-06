@@ -49,6 +49,10 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     synchronized { corsCfg = Some(CorsConfig(origin, methods, headers)) }
   def enableGzip(): Unit = synchronized { gzip = true }
 
+  /** Is a route already registered? Used to let a program's own `/_health` win over the built-in
+   *  default, the same precedence the interpreter applies in `ClusterRoutesRuntime`. */
+  def hasRoute(method: String, path: String): Boolean = synchronized { router.find(method, path).isDefined }
+
   def register(method: String, path: String, handler: Value): Unit = synchronized {
     if server != null then throw new RuntimeException("route registration after serve is not supported")
     router.add(method, path, handler)

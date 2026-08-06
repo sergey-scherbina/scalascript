@@ -332,10 +332,37 @@ explicit `route(m, p) { … }` whose block form handed the plugin a thunk. That 
 these two never register at all. Adjacent, and worth reading first, but a different question — three
 gates were mis-diagnosed once already by taking a family resemblance for an identity.
 
-**Declared in both gates rather than hidden.** `fm-routes-smoke` and `health-defaults-smoke` count
-INT/JVM/JS and print `[KNOWN GAP] NATIVE` against this slug. Both **fail if NATIVE starts passing**,
-with a message saying to delete the declaration and close this entry — a known-red that can quietly
-become a known-green is how a fixed bug keeps a permanent exemption.
+**HALF FIXED 2026-08-06 — the built-ins are in, front-matter routes are not.**
+
+`/_health` and `/_ready` are now registered by the native lane at serve time, and all four lanes
+agree byte for byte:
+
+```
+GET /_health   →  200  {"status":"ok"}  application/json      native · int · jvm · js
+```
+
+Registered in `HttpFastNativePlugin`'s `serve` / `serveAsync`, **before** `serverHost.serve` because
+`register` refuses once the server is up, and **only when absent** (`NioNativeHttpServerHost.hasRoute`)
+so a program's own `/_health` still wins — the same precedence the interpreter applies in
+`ClusterRoutesRuntime`. Body and content-type were copied from the interpreter rather than chosen.
+
+`health-defaults-smoke` counts all four lanes now; its declaration is gone, deleted because the gate
+failed the moment NATIVE started passing.
+
+**Front-matter `routes:` remain unimplemented on native, and the reason is structural rather than
+missing code.** The interpreter registers them in `registerFrontmatterRoutes`, binding a lazy
+handler that resolves the name from `globals` at request time — it has the module manifest.
+`HttpFastNativePlugin` has no manifest access at all (`RouteDecl` and `manifest` appear nowhere in
+it), so this half cannot live in the plugin: something in the v2 driver has to walk
+`manifest.routes` and call `register` with a handler that resolves the program's global. That is the
+remaining work, and `fm-routes-smoke` still declares NATIVE a gap against this entry.
+
+**A measurement note worth keeping.** Both gates' 60 s boot deadline now reads 180 s, as a CEILING —
+the loop still exits the moment the port answers. The native lane COMPILES the program on each run,
+and on a host running several builds that passed 60 s: the gate reported `server did not start`
+for a process a thread dump showed still inside `lowerNative`. A deadline tuned on an idle machine
+reports contention as a product failure — and it nearly had me diagnose a deadlock that did not
+exist.
 
 ## named-case-class-field-access-is-reversed-on-the-default-lane — `Point(3,4).x` returns 4
 <!-- status: wontfix

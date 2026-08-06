@@ -30,7 +30,12 @@ wait_for_server() {
     # 180s timeout, so it was filed as HANGING and left unwired -- the one diagnosis that stops
     # anyone reading the actual error. Polling a corpse is never worth the wall clock.
     local pid="${1:-}"
-    local deadline=$(( $(date +%s) + 60 ))
+    # 180, not 60, and it is a CEILING rather than a target: the fast path is unchanged because
+    # the loop exits the moment the port answers. The native lane COMPILES the program on each run,
+    # and on a host running several builds that took past 60 s — measured here as
+    # `server did not start before the deadline` for a server that was still in `lowerNative`,
+    # not stuck. A deadline tuned on an idle machine reports contention as a product failure.
+    local deadline=$(( $(date +%s) + 180 ))
     while [ "$(date +%s)" -lt $deadline ]; do
         if curl -sS -o /dev/null -m 1 "http://localhost:$PORT/_health" 2>/dev/null; then
             return 0
@@ -121,31 +126,14 @@ fail=0
 #
 # Measured per lane with the correct runners before this was rewritten; see the table in
 # tests/BUGS.md `native-lane-ignores-declarative-route-registration`.
-# NATIVE is a KNOWN GAP, declared rather than hidden.
-#
-# It is the only lane that does not honour route registration it did not see as an explicit
-# `route(...)` call in the program body — front-matter `routes:` and the built-in `/_health`
-# `/_ready` alike. Filed with the per-lane measurement as
-# `tests/BUGS.md native-lane-ignores-declarative-route-registration`.
-#
-# Declared, not skipped, and it CANNOT ROT: if NATIVE starts passing, this gate fails and says to
-# delete the declaration. A known-red that silently becomes a known-green is how a fixed bug keeps
-# a permanent exemption.
-if run_backend NATIVE "$BIN/ssc"; then
-    echo "[FAIL] NATIVE now PASSES — the gap closed."
-    echo "       Delete this known-red block and let NATIVE count with the rest,"
-    echo "       and close tests/BUGS.md native-lane-ignores-declarative-route-registration."
-    fail=1
-else
-    echo "[KNOWN GAP] NATIVE — native-lane-ignores-declarative-route-registration (declared, not counted)"
-fi
+run_backend NATIVE "$BIN/ssc"                    || fail=1
 run_backend INT    "$BIN/ssc-tools run --v1"     || fail=1
 run_backend JVM    "$BIN/ssc-tools run-jvm"      || fail=1
 run_backend JS     "$BIN/ssc-tools run-js"       || fail=1
 
 echo
 if [ $fail -eq 0 ]; then
-    echo "Built-in /_health and /_ready work on INT, JVM and JS. NATIVE is a declared gap."
+    echo "Built-in /_health and /_ready work on all four lanes."
     exit 0
 else
     echo "One or more backends FAILED — see logs in /tmp/health-smoke-*.log"
