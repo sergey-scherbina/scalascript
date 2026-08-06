@@ -1,0 +1,11 @@
+slug: freeze-gate-says-where-it-died
+branch: feature/freeze-gate-says-where-it-died
+agent: claude-code
+started: 2026-08-06T07:53:14Z
+heartbeat: 2026-08-06T07:53:14Z
+status: claimed-before-planning
+items: smoke-check-guards-sized-by-local-time
+paths: file:tests/e2e/freeze-consistency-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
