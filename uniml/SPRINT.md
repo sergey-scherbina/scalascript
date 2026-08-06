@@ -10,7 +10,7 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] SSC3-P/contract-gate — **the assumptions v3's projection rests on, held against the corpus.**
+- [x] SSC3-P/contract-gate — **the assumptions v3's projection rests on, held against the corpus.**
       Claim `uniml-ssc3-contract-gate`. `v3/specs/50-uniml-projection.md` §7 names four questions to
       be MEASURED before the projection is written. Measured 2026-08-06 and handed to `ssc3-core`,
       who is writing the v3 half; this turns the same measurement into a GATE so the day an answer
