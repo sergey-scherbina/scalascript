@@ -7,30 +7,11 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## the corpus sweep is copy-pasted into seven specs — one helper, one floor
-
-Found 2026-08-07 while auditing frozen thresholds after the CI count check turned out to have gone
-slack (`scripts/BUGS.md` `uniml-ci-count-floor-went-slack-by-five`). Seven test specs each carry
-their own copy of the same walk:
-
-    Ssc3ProjectionContractSpec  SpikeTypedCoverageSpec  SscComposedSpansSpec
-    SscComposedLosslessSpec     SscBreadthSpec          Ssc3ProjectionCensusSpec
-    SpikeLosslessSpec
-
-Same root, same `.ssc` filter, same four exclusions (`/target/`, `/.git/`, `/.worktrees/`,
-`/bin/lib/`), same `assert(files.sizeIs > 500, "the sweep silently shrank")`.
-
-**Checked before filing, and the honest answer is that it has NOT bitten yet**: all seven exclusion
-sets are still identical. This is a latent hazard, not an observed defect — a new build directory
-added to six of seven leaves the specs measuring different corpora while all stay green, and
-nothing would say so.
-
-One `SscCorpus.files` helper, called by all seven.
-
 ## the `> 500` corpus floors guard a number that has more than doubled
 
-Same seven specs. The corpus is **1,238 files** and the floor is 500, so it could lose more than
-half and every one of them stays green.
+Now one decision, not eleven: since `SscCorpus` landed, the floor lives at a single call site.
+The corpus is **1,238 files** and the floor is 500, so it could lose more than half and every
+spec stays green.
 
 **Deliberately NOT filed as "raise it to 1238".** Two reasons, and the second is why this needs a
 decision rather than an edit:

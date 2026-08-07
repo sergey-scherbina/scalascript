@@ -3,8 +3,7 @@ package scalascript.uniml.ssc
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.UniNode
 import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.{Files, Path}
 
 /** The assumptions `v3/specs/50-uniml-projection.md` rests on, held against the corpus.
   *
@@ -26,20 +25,9 @@ import scala.jdk.CollectionConverters.*
   * allowed to claim there are none. This repository has paid for the other order more than once. */
 final class Ssc3ProjectionContractSpec extends AnyFunSuite:
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
-  private def corpusFiles(root: Path): Vector[Path] =
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p =>
-        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
-    files
+  private def corpusFiles(root: Path): Vector[Path] = SscCorpus.files(root)
 
   private def scalaSubtrees(n: UniNode): Vector[UniNode] = n match
     case b: UniNode.Branch =>

@@ -3,8 +3,7 @@ package scalascript.uniml.ssc
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.{SourceSpan, UniNode}
 import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.{Files, Path}
 
 /** Coverage of the typed AST over every `.ssc` in the repository.
   *
@@ -57,10 +56,7 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
   private def isSyntaxRole(role: String): Boolean =
     SyntaxRoleSuffixes.exists(s => role == s || role.endsWith("." + s))
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
   /** the ScalaScript subtrees the composer spliced under the code fences */
   private def scalaSubtrees(n: UniNode): Vector[UniNode] = n match
@@ -69,18 +65,7 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
       else b.edges.flatMap(e => scalaSubtrees(e.child))
     case _ => Vector.empty
 
-  private def corpusFiles(root: Path): Vector[Path] =
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p =>
-        // `bin/` is INSTALLED OUTPUT — `install.sh --dev` copies the whole runtime there,
-        // so leaving it in made the corpus grow from 1,145 files to 1,406 the moment
-        // somebody ran the installer, and every count moved with it.
-        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
-    files
+  private def corpusFiles(root: Path): Vector[Path] = SscCorpus.files(root)
 
   test("the typed AST covers what the dialect parses, and says what it does not") {
     val root = repoRoot

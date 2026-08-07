@@ -1,7 +1,6 @@
 package scalascript.uniml.ssc
 
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.{Files, Path}
 import org.scalatest.funsuite.AnyFunSuite
 
 /** How much real ScalaScript the composed front parses — SSC3-B's measure.
@@ -18,23 +17,11 @@ import org.scalatest.funsuite.AnyFunSuite
   * markdown as broken ScalaScript. */
 final class SscBreadthSpec extends AnyFunSuite:
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
   test("the composed front parses the repository's ScalaScript") {
     val root = repoRoot
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p =>
-        // `bin/` is INSTALLED OUTPUT — `install.sh --dev` copies the whole runtime there,
-        // so leaving it in made the corpus grow from 1,145 files to 1,406 the moment
-        // somebody ran the installer, and every count moved with it.
-        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
+    val files = SscCorpus.files(root)
 
     var clean = 0
     var total = 0L

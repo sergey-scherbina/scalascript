@@ -76,16 +76,9 @@ final class SscBareModeSpec extends AnyFunSuite:
   }
 
   test("PROBE: which fenceless corpus files does bare mode fail to parse") {
-    import java.nio.file.{Files, Paths}
-    import scala.jdk.CollectionConverters.*
-    val root = Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md"))).get
-    val bad = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-      .map(p => (p, SscCompose.parse(new String(Files.readAllBytes(p), "UTF-8"))))
+    val root = SscCorpus.repoRoot
+    val bad = SscCorpus.paths(root)
+      .map(p => (p, SscCompose.parse(SscCorpus.read(p))))
       .filter((_, c) => c.diagnostics.nonEmpty)
       .map((p, c) => (root.relativize(p).toString, c.diagnostics.size))
       .sortBy(-_._2)

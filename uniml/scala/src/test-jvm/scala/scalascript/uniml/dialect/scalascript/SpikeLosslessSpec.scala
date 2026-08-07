@@ -2,8 +2,8 @@ package scalascript.uniml.dialect.scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
+import scalascript.uniml.ssc.SscCorpus
 import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
 
 /** The ScalaScript dialect's losslessness gate.
   *
@@ -68,10 +68,7 @@ final class SpikeLosslessSpec extends AnyFunSuite:
       .find(Files.exists(_))
       .map(p => new String(Files.readAllBytes(p), "UTF-8"))
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
   /** EVERY `.ssc` in the repository, not a hand-picked pair.
     *
@@ -79,18 +76,11 @@ final class SpikeLosslessSpec extends AnyFunSuite:
     * character — the sweep is what found it, in one file out of 1,140. A gate
     * over examples somebody chose only ever proves the examples somebody chose. */
   private val fromRepo: Vector[(String, String)] =
+    // `paths`, not `files`: this spec asserts its own floor below, over `fromRepo` — which is the
+    // sweep PLUS the extra file appended here, so the two counts are not the same number.
     val root = repoRoot
-    Files.walk(root).iterator.asScala
-      .filter(p => p.toString.endsWith(".ssc"))
-      .filterNot(p =>
-        // `bin/` is INSTALLED OUTPUT — `install.sh --dev` copies the whole runtime there,
-        // so leaving it in made the corpus grow from 1,145 files to 1,406 the moment
-        // somebody ran the installer, and every count moved with it.
-        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector
-      .sortBy(_.toString)
-      .map(p => root.relativize(p).toString -> new String(Files.readAllBytes(p), "UTF-8"))
+    SscCorpus.paths(root)
+      .map(p => root.relativize(p).toString -> SscCorpus.read(p))
       ++ Vector("specs/v2.2-p6.6-cmin.L").flatMap(rel => repoFile(rel).map(text => rel -> text))
 
   test("every lexeme is a source slice — the CST reconstructs the source exactly") {

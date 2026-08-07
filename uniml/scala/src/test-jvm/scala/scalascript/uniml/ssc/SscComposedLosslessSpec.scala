@@ -1,7 +1,6 @@
 package scalascript.uniml.ssc
 
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.{Files, Path}
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 
@@ -19,10 +18,7 @@ import scalascript.uniml.*
   */
 final class SscComposedLosslessSpec extends AnyFunSuite:
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
   private def text(n: UniNode): String = n match
     case b: UniNode.Branch => b.edges.map(e => text(e.child)).mkString
@@ -30,12 +26,7 @@ final class SscComposedLosslessSpec extends AnyFunSuite:
 
   test("every .ssc reconstructs exactly from the composed tree") {
     val root = repoRoot
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
+    val files = SscCorpus.files(root)
 
     val broken = files.flatMap { p =>
       val src = new String(Files.readAllBytes(p), "UTF-8")

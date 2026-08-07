@@ -1,8 +1,7 @@
 package scalascript.uniml.ssc
 
 import scalascript.uniml.*
-import java.nio.file.{Files, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.Files
 import org.scalatest.funsuite.AnyFunSuite
 
 /** An injected subtree must live in the FILE's coordinates, not its fence's.
@@ -56,16 +55,8 @@ final class SscComposedSpansSpec extends AnyFunSuite:
 
   /** The property, over real files rather than one fixture. */
   test("no injected span escapes the file, across the repository") {
-    val root = Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p =>
-        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
+    val root  = SscCorpus.repoRoot
+    val files = SscCorpus.files(root)
     val bad = files.flatMap { p =>
       val text = new String(Files.readAllBytes(p), "UTF-8")
       val composed = SscCompose.parse(text)

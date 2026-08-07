@@ -10,6 +10,32 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-corpus-sweep-one-helper — **the corpus sweep was in ELEVEN places; now it is in one.**
+      `SscCorpus` holds the walk, the exclusions, the sort, the floor and the UTF-8 read; eight
+      spec files call it.
+      **The count in my own backlog entry was wrong twice, and each correction came from the
+      compiler rather than from re-reading.** Filed as "seven specs"; converting them surfaced an
+      eighth copy inside `Ssc3ProjectionCensusSpec` (a second walk in the same file), then a ninth
+      in its Q2 test, then a tenth at its line 206 and an eleventh in `SscBareModeSpec` — the last
+      two only visible after `-Werror` complained about imports that had become unused. A grep for
+      the assertion text found seven; a grep for `Files.walk` found eleven. **The census I ran
+      answered the question I asked, which was about the floor, not about the sweep.**
+      **It had already drifted, in the direction hardest to see.** Three of the eleven carried no
+      floor assertion and one carried no sort. Nobody chose that — it is what a copy becomes. The
+      exclusion SETS were still identical, which is what my entry checked and why it read "not
+      bitten yet"; that was true about exclusions and false about the guard.
+      **One merge was REFUSED and the reason is recorded in the helper.** `ScalaSpikeSpec` finds the
+      root by `build.sbt` + `specs/` markers rather than `AGENTS.md`, deliberately, after a CI
+      defect on fixture paths (`newfront-scala-spike-fixture-paths-linux`). In the standalone build
+      the working directory is `uniml/`, which HAS a `build.sbt` — so folding it into `SscCorpus`
+      could change which directory is found. `SpikeLosslessSpec.repoFile` is likewise left alone:
+      it searches up to six levels for a RELATIVE file, which is a different question.
+      `UnimlCoordinatesSpec` keeps its own copy because it lives in a different sbt project and
+      cannot see this one's test sources.
+      The floor stays `> 500` — unchanged on purpose, so this is a pure de-duplication with no
+      behavioural argument smuggled in. Choosing the right instrument is its own entry in
+      `uniml/BACKLOG.md`, and it is now ONE decision instead of eleven.
+
 - [x] ssc3-handover-gate + ssc3-projection-questions — **UniML's side of ssc3 is discharged, and
       v3's four open questions are answered.**
       `Ssc3HandoverSpec` asserts all EIGHT things `40-front-on-uniml.md` §5b says UniML owes v3;

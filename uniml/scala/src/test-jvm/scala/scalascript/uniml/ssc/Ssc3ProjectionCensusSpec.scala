@@ -1,7 +1,6 @@
 package scalascript.uniml.ssc
 
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.Path
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
@@ -17,21 +16,13 @@ import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
   */
 final class Ssc3ProjectionCensusSpec extends AnyFunSuite:
 
-  private def repoRoot: Path =
-    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
-      .find(p => Files.exists(p.resolve("AGENTS.md")))
-      .getOrElse(throw new IllegalStateException("repository root not found"))
+  private def repoRoot: Path = SscCorpus.repoRoot
 
   private lazy val corpus: Vector[(String, Vector[SpikeAst.Node])] =
     val root = repoRoot
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
-    assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
+    val files = SscCorpus.files(root)
     files.map { p =>
-      val src = new String(Files.readAllBytes(p), "UTF-8")
+      val src = SscCorpus.read(p)
       val subtrees = spikeSubtrees(SscCompose.parse(src).root)
       root.relativize(p).toString -> subtrees.flatMap(sr => SpikeAst.walk(SpikeTyped.module(sr)))
     }
@@ -105,14 +96,12 @@ final class Ssc3ProjectionCensusSpec extends AnyFunSuite:
     withParent.take(5).foreach((f, c) => info(s"  $f — case class ${c.name} extends ${c.parent.get}"))
 
     // The SOURCE-level check, because the node cannot show a loss it cannot hold.
+    // `paths`, not `files`: `corpus` above already asserted the floor for this suite, and asserting
+    // the same thing twice in one test reports one failure as two.
     val root = repoRoot
-    val multi = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector
+    val multi = SscCorpus.paths(root)
       .flatMap { p =>
-        val lines = new String(Files.readAllBytes(p), "UTF-8").linesIterator.toVector
+        val lines = SscCorpus.read(p).linesIterator.toVector
         lines.zipWithIndex.collect {
           case (l, i) if !l.trim.startsWith("//") && l.contains("case class") &&
                          l.contains(" extends ") && hasSecondParent(l.substring(l.indexOf(" extends ") + 9)) =>
@@ -134,13 +123,9 @@ final class Ssc3ProjectionCensusSpec extends AnyFunSuite:
     info(s"lambdas projected: ${lambdas.size}")
 
     val root = repoRoot
-    val typed = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector
+    val typed = SscCorpus.paths(root)
       .flatMap { p =>
-        val lines = new String(Files.readAllBytes(p), "UTF-8").linesIterator.toVector
+        val lines = SscCorpus.read(p).linesIterator.toVector
         lines.zipWithIndex.collect {
           case (l, i) if !l.trim.startsWith("//") && typedLambdaParam(l) =>
             s"${root.relativize(p)}:${i + 1}  ${l.trim.take(90)}"
@@ -217,13 +202,9 @@ final class Ssc3ProjectionCensusSpec extends AnyFunSuite:
     var checked = 0L
     var bad = Vector.empty[String]
     val root = repoRoot
-    val files = Files.walk(root).iterator.asScala
-      .filter(_.toString.endsWith(".ssc"))
-      .filterNot(p => p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-        p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
-      .toVector.sortBy(_.toString)
+    val files = SscCorpus.paths(root)
     files.foreach { p =>
-      val src = new String(Files.readAllBytes(p), "UTF-8")
+      val src = SscCorpus.read(p)
       val toks = UniNode.sourceTokens(SscCompose.parse(src).root)
       // OFFSETS ARE CODE POINTS, not UTF-16 code units — which is the answer to Q4 and the reason
       // it needed its own check. The first version of this probe used `src.substring(0, offset)`
