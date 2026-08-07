@@ -207,17 +207,13 @@ lazy val unimlAddress = project
   .settings(
     name := "scalascript-uniml-address",
     libraryDependencies += "org.scalatest" %% "scalatest" % scalatestV % Test,
-    // MIRRORS THE ROOT EXACTLY — `Seq("-deprecation", "-feature")`, not the strict set every other
-    // module here uses. That is deliberate and it was learned by getting it wrong: the first
-    // version applied `sharedScalacOptionsStrict`, and `-Wunused:all -Werror` immediately failed on
-    // a pre-existing unused parameter in `JsonAddress.raw`.
-    //
-    // Making it strict HERE and not in the root would leave the two builds disagreeing about the
-    // same sources — the exact class of problem this file's coordinates comment is about, and the
-    // one the whole point of adding these three modules is to close. So the options are mirrored,
-    // and the strictness gap is recorded rather than fixed on one side: `address` is the only
-    // UniML module not compiled with `-Werror`, in EITHER build.
-    scalacOptions ++= Seq("-deprecation", "-feature"),
+    // Strict, like every other UniML module, and mirrored in the ROOT build in the same commit —
+    // the two must not disagree about the same sources. It could not be strict until 2026-08-07:
+    // `-Wunused:all -Werror` failed on an unused parameter in `JsonAddress.raw`, so this module
+    // alone was compiled loosely. Removing that parameter is what let the exception go, which is
+    // the right order — the exception existed because of a defect, not the other way round.
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
   )
   .settings(standaloneTargetSettings)
 

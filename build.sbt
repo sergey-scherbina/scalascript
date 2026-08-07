@@ -713,7 +713,12 @@ lazy val unimlAddress = project
   .settings(
     name := "scalascript-uniml-address",
     libraryDependencies += scalatestTest,
-    scalacOptions ++= Seq("-deprecation", "-feature"),
+    // Strict, like every other UniML module, and mirrored in `uniml/build.sbt` in the same commit.
+    // It could not be until 2026-08-07: `-Wunused:all -Werror` failed on an unused parameter in
+    // `JsonAddress.raw`, so this module alone was compiled loosely. The parameter is gone, so the
+    // exception goes with it — the exception existed because of a defect, not the reverse.
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
   )
 
 lazy val unimlJsonJvm = unimlJsonCross.jvm

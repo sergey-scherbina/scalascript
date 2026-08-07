@@ -137,7 +137,7 @@ object JsonAddress:
       val name = kind match
         case "json.object" => "object"
         case "json.array"  => "array"
-        case other         => raw(span, other)
+        case _             => raw(span)
       value(name, text(span), span, stable)
     case UniNode.Token(token) =>
       val name = token.kind match
@@ -145,11 +145,18 @@ object JsonAddress:
         case "json.number" => "number"
         case "json.true" | "json.false" => "boolean"
         case "json.null"   => "null"
-        case _             => raw(token.span, token.kind)
+        case _             => raw(token.span)
       value(name, token.lexeme, token.span, stable)
 
-  /** The floor: we do not know what this is, but we know exactly how much of it there is. */
-  private def raw(span: SourceSpan, unknownKind: String): String =
+  /** The floor: we do not know what this is, but we know exactly how much of it there is.
+    *
+    * It took an `unknownKind` argument that it never read. Both call sites passed a real kind —
+    * the branch's or the token's — and the value was dropped on the floor, which is why
+    * `-Wunused:all` had to stay off for this module alone. Removed rather than USED, deliberately:
+    * the docstring above states the contract, and it is that this floor reports the EXTENT and
+    * declines to name the type. Folding the kind into the string would have made a size-only
+    * answer into a half-typed one, which is a behaviour change dressed as a lint fix. */
+  private def raw(span: SourceSpan): String =
     "Raw(" + ((span.end.offset - span.start.offset) * 8) + ")"
 
   private def value(typeName: String, lexeme: String, span: SourceSpan, stable: Boolean): DocAddressedValue =
