@@ -1,3 +1,9 @@
-# Tier-5 identity artifact: facade generation succeeds but emits no files.
+# Tier-5 identity artifact: facade generation RUNS and emits no files.
+# The second assertion is the load-bearing one. Asserting only the ABSENCE of math.scala made this
+# test pass while the plugin was SKIPPING generation entirely -- sscArtifactDir did not exist,
+# because no scenario here shipped one -- so the output was absent for a completely different reason
+# than the one under test. The task creates the output directory before running the binary, so its
+# presence separates "ran, wrote nothing" from "never ran".
 > sscGenerateFacade
+$ exists target/scala-3.5.2/src_managed/main/ssc-facade
 -$ exists target/scala-3.5.2/src_managed/main/ssc-facade/demo/math.scala

@@ -10,8 +10,13 @@
 !.githooks/**
 
 .ssc-artifacts/
-# Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data)
-!tools/sbt-plugin/src/sbt-test/**/.ssc-artifacts/
+# Allow .ssc-artifacts/ inside scripted test fixtures (they are checked-in test data).
+# Matched anywhere rather than from the repo root: the previous pattern began `tools/`, and when
+# `tools/` moved under `v1/` in b433a41e4 it silently stopped matching. The fixtures survived that
+# move; what killed them was 1fea89a79 (a JS commit) deleting them, and this stale rule is why they
+# could not simply be added back. A path-anchored negation rots the next time a tree is reorganised.
+!**/src/sbt-test/**/.ssc-artifacts/
+!**/src/sbt-test/**/.ssc-artifacts/**
 !tools/sbt-plugin/src/sbt-test/**/.ssc-artifacts/**
 
 # Build outputs
