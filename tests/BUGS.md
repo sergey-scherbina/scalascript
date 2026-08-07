@@ -696,6 +696,24 @@ named workflow step AFTER the cache restore — where a dependency resolve is vi
 than 84 unlabelled seconds inside a check being timed against a 600 s budget. `|| true`, so a
 warm-up that cannot run degrades to today's behaviour instead of failing the push.
 
+**CONFIRMED ON CI (run 31154784901, `25607a5d2`), and on the hard case:**
+
+```
+Cache Coursier/sbt                    1 s   <- a MISS, nothing restored
+Warm the conformance contract build 131 s   <- the cold resolve, paid as visible SETUP
+  ok  freeze-consistency             12.1 s <- was 95-96 s on exactly this kind of run
+checks: 69/69 green    470.1 s of 600 s budget
+```
+
+That run's cache missed, which is precisely the condition that used to produce ~96 s and a ~625 s
+suite. It came in at 470.1 s. The 84 s did not vanish — it moved out of the budget and acquired a
+name.
+
+**Honest limits of this measurement.** One completed run carries the new step so far, so the
+mechanism is demonstrated and the DURABILITY is not. And the warm-up itself varies 40–131 s across
+runs, because caching `.scala-build` does not help when the coursier cache is the thing that missed;
+that variance is now in setup, where it belongs, rather than in a budgeted check.
+
 **What this does NOT settle:** whether 600 s is the right cap for 69 checks. That question is real
 and is what the entry below is about — but it was never what turned main red, and the entry stays
 open for it rather than being closed on this.
