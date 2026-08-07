@@ -2,6 +2,4 @@
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionCensusSpec.scala
 cds-archive-shared-across-checkouts	claude-code	2026-08-07T07:29:31Z	SSC3-CDS	file:build.sbt file:BUGS.md file:tests/e2e/cds-archive-per-build.sh file:scripts/smoke-ci.ssc file:bin/ssc file:bin/ssc-standard
-f-jsoncore-seventh	claude-code	2026-08-07T09:44:25Z	f-declines-every-non-top-level-def	file:v2/BUGS.md
 bench-v3-columns	claude-code	2026-08-07T09:52:06Z	bench-v3-columns	file:v3/src/Main.scala file:v3/ssc3 file:bench/run.sc file:bench/README.md
-f-blames-downstream-ctor	claude-code	2026-08-07T09:54:47Z	f-malformed-import-blamed-on-downstream-constructor	file:v2/BUGS.md
