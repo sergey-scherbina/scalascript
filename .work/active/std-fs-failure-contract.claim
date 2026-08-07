@@ -5,7 +5,7 @@ started: 2026-08-07T03:49:42Z
 heartbeat: 2026-08-07T03:49:42Z
 status: claimed-before-planning
 items: std.fs failure behaviour is unstated and differs per backend — nadia ask 1
-paths: file:specs/std-fs-os.md
+paths: file:specs/std-fs-os.md file:INBOX.md file:v1/runtime/backend/jvm/BUGS.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
