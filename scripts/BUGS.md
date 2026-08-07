@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## coord-release-does-not-check-the-work-landed — a claim can be released, and its record written, over a branch that was never pushed
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: none
+     fixed-in: - -->
+
+`scripts/coord-release` fetches origin and fast-forwards main, then removes the claim file and
+writes the release record. **It never checks that the claim's own work is reachable from
+`origin/main`.** So a release can announce "Landed" for a branch whose push was rejected, and the
+board — the thing agents read to know what is done — records the opposite of what happened.
+
+**Observed 2026-08-07, by me, on `uniml-corpus-floor-independent-oracle`.** The push was rejected
+non-fast-forward because main had moved during the test run. The release ran anyway, the claim came
+off the board, and the worktree and branch were deleted, leaving the commit reachable only as a
+dangling object. Recovered from `git fsck --lost-found` and landed as `2fedc4c07`; the false record
+is `5e84d0dfe`, and commit messages cannot be edited, which is why this entry exists.
+
+**The proximate cause was mine and is worth naming separately from the tooling gap**: I chained
+`push`, `release` and `worktree remove` on separate lines instead of with `&&`, so a non-zero exit
+did not stop the sequence. That is the same shape as `piping-a-gate-masks-its-exit-code` — a failing
+step whose status nothing acts on. `set -e` or `&&` is the fix on the caller's side, and I have
+started using it.
+
+**But the tooling should not depend on the caller getting that right**, because the failure is
+silent and the damage is to a shared board. A cheap guard, in `coord-release` before it removes
+anything:
+
+    # the claim names a branch; refuse if that branch has commits origin/main does not have
+    ahead="$(git rev-list --count "origin/main..$branch" 2>/dev/null || echo 0)"
+    [ "$ahead" = 0 ] || die "branch $branch has $ahead commit(s) not on origin/main — push before releasing"
+
+The claim file already carries `branch:`, so nothing new has to be recorded for this. A release of a
+branch that was deliberately abandoned is still possible with an explicit flag; what must stop is
+doing it by accident and writing "Landed" about it.
+
+**Worth checking while fixing:** `git worktree remove --force` on an unmerged branch, and
+`git branch -D`, are the two steps that turn "not pushed" into "not reachable". Refusing there — or
+just printing the sha before deleting — would have made this recoverable without `git fsck`.
+
 ## uniml-ci-count-floor-went-slack-by-five — the check that guards the aggregate had stopped guarding it
 
 <!-- status: fixed
