@@ -26,6 +26,15 @@ function compilerOptions(outDir) {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    // `prepare` symlinks @scalascript/control into the FIXTURE's node_modules, which serves the
+    // fixture's own imports. It does not serve this package's index.d.ts, whose `import type … from
+    // "@scalascript/control"` resolves by walking up from the package root — so it found nothing and
+    // every fixture that pulls in a marker type reported `TS2307` plus a cascade of implicit-any.
+    // Supplying it through TypeScript paths is the mechanism README §"exact published manifest"
+    // names, and the one tsconfig.json already uses for `npm run typecheck`; a dependency entry is
+    // forbidden here by test/package.test.js, which freezes this package at zero local deps.
+    baseUrl: packageRoot,
+    paths: { "@scalascript/control": [join(packageRoot, "..", "control", "index.d.ts")] },
     strict: true,
     exactOptionalPropertyTypes: true,
     noUncheckedIndexedAccess: true,
@@ -1009,6 +1018,9 @@ test("external marker import-equals is fail-closed except when explicitly type-o
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.Node10,
     paths: {
+      // `paths` REPLACES rather than merges under the spread in `prepare`, so the control mapping
+      // from compilerOptions() has to be restated here or index.d.ts loses it again.
+      "@scalascript/control": [join(packageRoot, "..", "control", "index.d.ts")],
       "@scalascript/control-direct": [join(packageRoot, "index.d.ts")]
     },
     sourceMap: false

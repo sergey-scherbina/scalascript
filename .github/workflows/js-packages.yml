@@ -1,0 +1,59 @@
+# Standalone npm packages under v2/host/js — their own suites, run by somebody.
+#
+# WHY THIS FILE EXISTS AND IS NOT A JOB IN ci.yml. On 2026-07-15 c19d42401 landed the
+# @scalascript/control-direct direct-transform repair together with 496 lines of tests. Nothing ever
+# invoked them: `control-direct` appeared in no workflow, not in scripts/smoke-ci.ssc, and in no
+# script under scripts/ or tests/e2e/. Eleven js-control-direct-* entries in
+# v1/runtime/backend/js/BUGS.md then sat `open` for three weeks with no signal either way — the work
+# to close them was in fact done, and nobody could tell. A suite nobody runs is worse than a red
+# one: a red suite at least says something.
+#
+# It gets its own file so the push-path budget is not the reason a package suite stays unwired.
+# scripts/smoke-ci.ssc has breached its own cap three times as checks were added, and
+# tests/BUGS.md smoke-suite-over-its-own-budget is still OPEN; adding a 19 s node suite there would
+# be pushing on the known-weak spot for a check that needs none of that suite's setup.
+#
+# Adding another package here should be one `run:` line. If it needs anything else, that is worth
+# knowing before it is merged.
+name: JS packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v2/host/js/**'
+      - 'tests/e2e/js-control-direct-gate.sh'
+      - '.github/workflows/js-packages.yml'
+  pull_request:
+    paths:
+      - 'v2/host/js/**'
+      - 'tests/e2e/js-control-direct-gate.sh'
+      - '.github/workflows/js-packages.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: js-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  control-direct:
+    name: '@scalascript/control-direct'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        # engines.node is >=20 and the suite uses node:test; the package pins typescript 5.9.3
+        # itself, so nothing here should pick a version on its behalf.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: control-direct suite
+        # The gate does the clean install itself, asserts zero failures, AND asserts a floor on the
+        # number of tests that ran — `node --test` over a glob that matches nothing exits 0, so
+        # "the suite disappeared" and "the suite passed" are otherwise the same green.
+        run: tests/e2e/js-control-direct-gate.sh

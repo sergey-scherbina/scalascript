@@ -32,6 +32,12 @@ function withProject(source, run) {
         target: "ES2022",
         module: "NodeNext",
         moduleResolution: "NodeNext",
+        // The symlink above serves input.ts's own import. It does not serve this package's
+        // index.d.ts, which imports @scalascript/control and resolves from the package root — the
+        // same gap transform.test.js documents. Paths, not a dependency entry: package.test.js
+        // freezes this package at zero local dependencies.
+        baseUrl: ".",
+        paths: { "@scalascript/control": [join(packageRoot, "..", "control", "index.d.ts")] },
         strict: true,
         rootDir: ".",
         outDir: "out",
