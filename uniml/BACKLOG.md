@@ -7,27 +7,6 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## the `> 500` corpus floors guard a number that has more than doubled
-
-Now one decision, not eleven: since `SscCorpus` landed, the floor lives at a single call site.
-The corpus is **1,238 files** and the floor is 500, so it could lose more than half and every
-spec stays green.
-
-**Deliberately NOT filed as "raise it to 1238".** Two reasons, and the second is why this needs a
-decision rather than an edit:
-
-- The corpus GROWS — 1,189 to 1,238 in two days. The cure applied to the CI count check (freeze an
-  exact number, adding one goes red until bumped) is right there because the aggregate is a closed
-  set that changes deliberately; here it would redden on every added `.ssc` file. **The remedy does
-  not transfer, and copying it by analogy would be the mistake.**
-- What the assertion says it guards is ambiguous: "the sweep silently shrank" reads as either
-  *collapsed* (wrong root, walk threw — which 500 does catch) or *lost some* (a filter bug — which
-  it does not). Settle which, then pick the instrument. If it is the second, the honest check
-  compares the walk against an INDEPENDENT enumeration of the same set rather than against any
-  frozen literal.
-
-Fold into the helper above — one call site makes this one decision instead of seven.
-
 ## the version is declared twice — remove the COPY, not the standalone build
 
 Blocked until `release/0.1.1` lands: `build.sbt` and `uniml/build.sbt` are both held by the live

@@ -10,6 +10,27 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-corpus-floor-independent-oracle — **the floor was one check doing two jobs, and only
+      doing one of them.** "The sweep silently shrank" covered COLLAPSE (wrong root, walk threw —
+      the number falls off a cliff) and EROSION (an exclusion widened by a character — ten files
+      vanish). `> 500` against 1,240 caught the first and could never catch the second.
+      Erosion is now checked against an INDEPENDENT enumeration rather than a bigger frozen number,
+      because a frozen number is precisely what went stale: `git ls-files` answers "which `.ssc`
+      files are in this repository" without walking the filesystem or knowing this filter exists.
+      Measured before adopting — the walk finds 1,240 and git tracks 1,240 exactly, with nothing
+      tracked under `bin/lib/` or `target/` for the exclusions to disagree about.
+      **PROVED BY PLANTING THE DEFECT, and the number is the argument**: widening the exclusion by
+      one directory dropped the sweep to 1,133 files. That is still **633 above the old floor**, so
+      the previous check would have stayed green while a twelfth of the corpus went missing; the new
+      one names the count, the expectation and where to look.
+      One-sided (`found >= tracked`) on purpose: an uncommitted new file makes the walk find MORE,
+      which is normal and must not fail. A gate that reddens on an uncommitted file is one people
+      learn to ignore.
+      Inside `SscCorpus` rather than a shell gate, and the code says why — a script would have to
+      re-implement the walk to compare it, and would then be checking its own copy. `git` is a hard
+      requirement with a named error, not a skip: a check that quietly passes when it could not run
+      is the failure this whole object exists because of.
+
 - [x] uniml-corpus-sweep-one-helper — **the corpus sweep was in ELEVEN places; now it is in one.**
       `SscCorpus` holds the walk, the exclusions, the sort, the floor and the UTF-8 read; eight
       spec files call it.
