@@ -1308,6 +1308,49 @@ shared main while another agent claims something.
 I deliberately did not change the mutex on an unproven reading. Weakening it to gain convenience is how two
 agents end up doing the same work, which is what `specs/claim-mutex.md` exists to prevent.
 
+**CONFIRMED 2026-08-07 — the "unproven" reading above is exactly right, observed three times in one
+day, twice with the whole queue stopped.** No instrumentation was needed in the end; the refusal
+names the foreign claim itself:
+
+```
+✋ pre-push: this claim overlaps a live claim on origin/main.
+  file 'tests/e2e/f-bare-member-call-gate.sh' is already claimed by 'f-name-the-failing-module'
+```
+
+— raised against a claim of mine whose paths were `tests/conformance/run.sc` and a BUGS file, which
+touch neither that file nor that agent. `git log origin/main..HEAD` in the shared checkout then
+showed two commits belonging to other agents, and the named file was in ONE OF THEIRS.
+
+**The three occurrences, because the shape differs each time and the cause does not:**
+
+| what was parked | why it could not be pushed |
+|---|---|
+| a claim file widened, its LEDGER row not yet updated | the guard refuses when the two copies disagree — the owner was mid-operation |
+| a claim widened onto a file another live claim holds | a real overlap; the owner has to drop the path |
+| a release for a claim ALREADY released on origin under a different sha | a pure duplicate: the owner had re-landed it from a worktree, and the local copy was left behind |
+
+Every one of them blocked EVERY agent's next claim, because `coord-claim` pushes the whole branch
+from the shared checkout and the hook validates every claim in `remote_tip..local_tip`.
+
+**The workaround, and it is already in use.** Build the coordination commit on a branch off
+`origin/main` in a worktree and `git push origin HEAD:main`. That carries only your commit, so a
+stranger's parked one cannot refuse it. A sibling landed `442e8e308` that way while the queue was
+stuck, and I took `batch-lane-keeps-stderr` the same way. The ledger's generation bump has to be
+replicated by hand, which is the part that makes this a workaround and not a fix.
+
+**What NOT to do, stated because it is the tempting one.** `git reset --hard origin/main` in the
+shared checkout clears it instantly, and twice today I could PROVE the parked commits were dead —
+one duplicated something already on origin, one contradicted its own owner's state of record. I did
+not, because the newest was eleven minutes old with its owner active, and "I proved it is dead" is
+what people think immediately before destroying someone's work. Report it, name the fix, and let the
+owner act.
+
+**The rule this produces, for the owner rather than the bystander:** a coordination commit that is
+committed and not pushed is a landmine for everyone. If your `coord-claim` or `coord-release` push
+is refused, either fix it and push, or reset your own commit — do not leave it parked. `coord-claim`
+already rolls its own commit back on refusal; `coord-release` and hand-made claim-updates do not, and
+all three of today's landmines were of the second kind.
+
 ## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
 <!-- status: open
      lane: apparatus
