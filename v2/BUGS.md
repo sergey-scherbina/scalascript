@@ -16,6 +16,12 @@ Newest first.
      fixed-in: 8abe91b6a05e2ff9165f986f005654c0877dc220
      gate: tests/conformance/curried-def-clauses.ssc -->
 
+**CONFIRMED BY CI 2026-08-07** — corpus contract run 31132402054 on `c5c3d7d27`, all four shards
+`success`, the first green since 2026-08-01. Shard 0 is the one that carried this row. The release
+note for `f-trailing-arg-curried-flatten` said the verdict would have to come from the nightly
+because no run that evening could produce one; it came from a manual dispatch instead, and this is
+it.
+
 **FIXED 2026-08-06.** `blockArgApp` takes `cx` and flattens onto a curried callee exactly as
 `emitAppCur` does, so both trailing forms produce the same shape a second parenthesised list does.
 `fewer-braces-colon` and `curried-def-clauses` both pass on int/js/jvm/v2, and both are compiled by

@@ -15,6 +15,17 @@ Newest first.
      fixed-in: -
      gate: - -->
 
+**THE GATE IS GREEN AGAIN — 2026-08-07, run 31132402054 on `c5c3d7d27`, all four shards `success`.**
+First green since 2026-08-01, so it was red for five consecutive nights. That sha carries both
+fixes, verified by ancestry rather than by assuming: `8abe91b6a` (the `fewer-braces-colon`
+regression) and `0f1f01111` (the stale baseline row). This is the level-1 evidence the two claims
+that landed them could not obtain at the time, because every run attempted that evening came back
+with shards `cancelled` and no verdict.
+
+The entry STAYS OPEN. Green today does not discharge the third item below — the nightly still costs
+27 minutes, and that cost is what made five red nights cheap to leave. What is closed is the
+backlog of causes, not the property the entry is about.
+
 `content-linked-namespaces` failed on every lane from 2026-06-05, the day it was added, until
 2026-08-05. It is in `contract-roster.tsv` and has NO row in `corpus-baseline.tsv`, which is the
 exact shape `contract.sc` calls a REGRESSION — so the gate that owns this corpus should have been
