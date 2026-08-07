@@ -1,0 +1,12 @@
+slug: ssc3-7q-type-alias
+branch: feature/ssc3-7q-type-alias
+agent: claude-code
+started: 2026-08-07T15:19:59Z
+heartbeat: 2026-08-07T15:19:59Z
+status: in-progress
+items: SSC3-7q
+paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/src/Ast.scala
+scope: |
+  type-lambda-placeholder.ssc:15:1 unknown name type — a plain type alias. Distinct
+  from SSC3-7i (the type LAMBDA), which is gated on the generics decision.
+next: measure what the file actually needs, then implement
