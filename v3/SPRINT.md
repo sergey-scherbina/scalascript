@@ -219,6 +219,32 @@ one symptom bucket turned out to be a different construct than the obvious readi
 
       Sequencing: front first (this entry), then the tail-resumptive executor, then the refusal for
       everything outside it. `effect-multishot` (7b) stays open behind all three.
+
+      **AND THERE IS A BLOCKING DESIGN QUESTION AHEAD OF ALL OF IT, measured 2026-08-07.** The IR
+      reserves the three instructions but does NOT define the protocol between them:
+
+      - `Perform d, opId, args` carries argument registers. `HandlerArm(op, body)` has no parameter
+        list, so **nothing says which registers of the handler's frame those arguments land in.**
+      - `Resume d, k, v` reads `k` as "continuation". **Nothing puts a continuation in a register.**
+
+      `v3/tests/sample.ssir` does not settle it either — it is a coverage module, and its arm is
+      `(on 0 (const 7 1))`, an arbitrary write with no binding. `specs/10-ssc-ir.md` §3 describes the
+      dispatcher in prose ("hands `(opId, args)` plus the captured frame to the nearest enclosing
+      `Handle`") and stops before saying HOW.
+
+      So an implementer has to invent the convention, and inventing it silently is how the IR
+      acquires an unwritten rule that the verifier cannot check and the bridge will disagree with.
+      The two candidate shapes, with what each costs:
+
+      | shape | cost |
+      |---|---|
+      | `HandlerArm(op, params: List[Int], k: Int, body)` — explicit registers | changes the canonical text form, `Verify`, the frozen `sample.ssir`, `TailCalls` shifting, and the spec |
+      | fixed positions — args in `0..n-1`, `k` in `n`, of a fresh arm frame | no IR change, but an unwritten rule the verifier cannot state and a second frame convention alongside `Func`'s |
+
+      **This decision is the actual next step for 7a/7b/7c**, and it belongs in `10-ssc-ir.md`
+      rather than in whichever implementation task reaches it first. It is written here rather than
+      chosen because a spec that says "reserved" and an implementation that quietly fills in the
+      blank produce exactly the kind of divergence `BridgeV2` will then be measured against.
 - [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
       same message, different keyword. Separate from 7a because multi-shot resumption is a different
       executor obligation, and closing 7a must not silently claim this.
