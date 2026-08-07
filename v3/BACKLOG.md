@@ -4,6 +4,25 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## v3 carries its own copy of the character alphabet — decide, do not drift
+
+Left open deliberately when `specs/20-core-language.md` §3 was corrected (`41534ad3c`,
+`c42173618`). §3 bans baked tables; Sergiy adopted a Unicode CASE table on 2026-08-05 after the
+tableless answer was implemented, measured and rejected on the measurement, and UniML now ships it
+as a shared module. **v3 keeps a separate copy in `Chars`.**
+
+Two acceptable outcomes, and "leave it" is not one of them:
+
+- adopt the shared module, or
+- record that two copies are intentional, and state **what they must agree on** and what checks it.
+
+Two copies agreeing only by memory is the shape that has cost this repository repeatedly — the
+version coordinate is on its fourth declaration
+(`sbt-plugin-version-and-the-coordinate-templates-emit-disagree`, `tests/BUGS.md`).
+
+An identifier alphabet that disagrees between the front and the language it compiles does not
+produce a build error; it produces two parses of one file.
+
 ## Parked design alternatives
 
 - **Flat basic blocks + SSA instead of structured regions.** Rejected for

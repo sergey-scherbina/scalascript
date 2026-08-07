@@ -7,6 +7,34 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## pin the three-lane divergence on an undefined name in a pattern — known-red
+
+For `an-undefined-name-in-a-pattern-means-three-different-things` (root `BUGS.md`, open, `gate:
+none`). Measured 2026-08-07 — one program, three meanings:
+
+    def main() =
+      val x = 1
+      x match
+        case Nope => println("BOUND, value=" + Nope)
+        case _ => println("NO MATCH")
+
+    int     NO MATCH                             silent, exit 0
+    native  NO MATCH                             silent, exit 0
+    js      ReferenceError: Nope is not defined  throws, exit 1
+
+Scala 3 rejects it at compile time (`not found: value Nope`), so the case must assert the COMPILE
+ERROR and land `known-red` on all three lanes — not the current behaviour of any of them. Pinning
+what the lanes do today would freeze the defect.
+
+**Do this before attempting the fix, and the reason is not ceremony.** The obvious fix — the front
+refuses an unresolved stable-id pattern — may break code that relies on the lenient path (a pattern
+naming a constructor registered at run time would start failing to compile). Nobody knows how much
+of that exists. The case gives the number: run the corpus with the strict rule and count what stops
+compiling. A front change made without it is a guess.
+
+Touching `contract-roster.tsv` means reproducing its `baseline-sha256` / `roster-sha256` FIRST and
+asserting they match before hand-editing — the freeze is checksummed.
+
 ## 89 open bugs name no gate — MEASURED: 71 % of them carry no reproduction at all
 
 `scripts/bugs-report --no-gate` on 2026-07-31: **87 of 104 open entries name no regression gate.**
