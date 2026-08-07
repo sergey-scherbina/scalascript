@@ -178,7 +178,26 @@ breadth baselines and deserves its own before/after. It got one: the change land
 losslessness suite run against it, and the baselines did not move because the token SEQUENCE never
 changed — only which node owns each token. The caution was right and the cost was one build.
 
-## HAND-OVER: eight things the v3 FRONT DIFFERENTIAL found — 2026-08-06
+## HAND-OVER: eight things the v3 FRONT DIFFERENTIAL found — 2026-08-06 — ALL EIGHT HOLD
+
+**Re-measured 2026-08-07, all eight green, and there is now a gate: `Ssc3HandoverSpec`.** The
+section below says "run `v3/front-diff.sh` after any change here and the number moves or it does
+not" — that is no longer true and is the reason the gate was written. The differential reports
+`GREEN (48 fixtures, 1 front, agree 0)`: `v3/src/Front.scala` lists one runnable front, so it
+compares nothing. It is honest about that in its output, but it means no change on this side moves
+its number, and eight items fixed under eight claims had nothing asking them the same question
+together afterwards.
+
+One of the eight assertions was wrong on its first run and the CODE was right: I asserted that a
+fenceless `.ssc` leaves `fences` empty, and the composer in fact records a synthetic `<bare>` fence
+naming the dialect it used. That is the better design — the bare path names itself, so a consumer
+can tell "no fence, taken whole" from "no fence, nothing happened" — and the assertion now checks
+that instead.
+
+**Nothing on this list is waiting on UniML.** The remaining work for the swap is v3's: the
+`SpikeAst` → `Ast` projection (`v3/specs/50-uniml-projection.md`) and the wiring in `Front.parse`.
+
+### The hand-over, as written
 
 Written by the `ssc3-core` claim. Everything here was measured by running the two fronts over the
 same file and diffing the resulting v3 `Ast`, not by reading code. The apparatus is

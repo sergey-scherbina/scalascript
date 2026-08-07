@@ -246,7 +246,27 @@ against a different tree in the same step as the parser swap is precisely the ri
 shaped to avoid. Once §7's differential is green, that question is small, cheap and reversible;
 today it is none of those.
 
-## 5b · So: the complete list, and it is short
+## 5b · So: the complete list, and it is short — ALL EIGHT DISCHARGED, measured 2026-08-07
+
+**Every item below now holds, asserted by `uniml/scala/src/test-jvm/…/ssc/Ssc3HandoverSpec.scala`.**
+That spec exists because this section says of its own list that it is "stale by construction —
+re-measure, do not inherit", and that instruction had no apparatus: each item was fixed under its own
+claim, each claim recorded its own verdict, and nothing afterwards asked all eight the same question
+at once. The drift is visible in item 8 below, which still reads "still open" while
+`uniml/SPRINT.md` has had it `[x]` since 2026-08-05. The list is left as written, with this note
+above it, because the ARGUMENT for each item is why the gate asserts what it asserts.
+
+**The differential could not have caught the drift.** `v3/front-diff.sh` reports
+`GREEN (48 fixtures, 1 front, agree 0)` — `v3/src/Front.scala` lists `v3` as the only runnable
+front, so the gate that "will decide the UniML front swap" currently compares nothing. It says so
+in its own output, which is the right behaviour; the point is that a green run there is not
+evidence about UniML today, and `Ssc3HandoverSpec` is what replaces it until the second front runs.
+
+**So the remaining blocker is on v3's side, not UniML's**: the `SpikeAst` → v3 `Ast` projection
+(§5a, contract in `50-uniml-projection.md`, four open questions to measure first) and the wiring in
+`Front.parse`. Nothing on the list below is waiting on UniML.
+
+### The list, as originally written
 
 1. **`if c then a(i) = v`.** One construct, one line of one fixture, and the only breadth gap in
    SSC3 core. Everything else the dialect already parses.
@@ -287,7 +307,8 @@ today it is none of those.
    prints `x` and `println(120)` prints `120`, and the language's `Char` is exactly an integer that
    prints differently — which is why the distinction has to survive the projection.
 8. **`UNIML-SSC3-ALPHABET`** — one character classifier, no host `Char` calls, the table in
-   [`20-core-language.md`](20-core-language.md) §3. Still open, and the only item on this list with a
+   [`20-core-language.md`](20-core-language.md) §3. ~~Still open~~ **— landed 2026-08-05; this line
+   is the stale one the note above is about.** The only item on this list with a
    consequence for the LANGUAGE rather than for a file: route classification through the host and
    the same source lexes differently on JVM, JS and the v2 VM.
 
