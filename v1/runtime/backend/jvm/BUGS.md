@@ -14,7 +14,7 @@ Newest first.
      area: runtime
      kind: divergence
      gate: tests/conformance/std-fs-failure-raises.ssc
-     fixed-in: PENDING-SHA
+     fixed-in: ad918e80b401828d0f066c525158fb10f0abe268
      reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
      reported-at: 2026-08-04
      confirmed: no -->
