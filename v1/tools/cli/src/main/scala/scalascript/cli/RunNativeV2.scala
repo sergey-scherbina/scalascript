@@ -209,6 +209,12 @@ object RunNativeV2:
           val fResult =
             try
               val s = lowerWith(layout.runner, layout.fsubSrc)
+              // SSC_DUMP_DEFS: the def names each front emits, so the two can be diffed. F
+              // omitting a def the reference front emits is the shape of
+              // f-declines-every-non-top-level-def, and no reduction could isolate it — the
+              // module is too interconnected to cut down while staying self-contained.
+              if System.getenv("SSC_DUMP_DEFS") != null then
+                s.program.defs.foreach(d => System.err.println("F-DEF " + d.name))
               validateNoReader(s.program, closureExterns) // throws on any unbound global (F coverage gap)
               Some(s)
             catch
@@ -242,6 +248,8 @@ object RunNativeV2:
             // global, not a sentinel, so every typo still printed the coverage-gap line.
             val userErrorNotGap =
               try
+                if System.getenv("SSC_DUMP_DEFS") != null then
+                  viaDefault.program.defs.foreach(d => System.err.println("REF-DEF " + d.name))
                 validateNoReader(viaDefault.program, closureExterns)
                 false
               catch case _: Throwable => true

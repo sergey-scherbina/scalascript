@@ -303,6 +303,60 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**ROOT CAUSE FOUND 2026-08-07. Seven lines, and F silently drops every declaration after it.**
+
+    case class Ok(v: Int, n: Int)
+    def f(x: Any): Any =
+      x match {
+        case Ok(v, n) => v
+        case error => error        <- a NAME-BINDING arm after a CONSTRUCTOR pattern
+      }
+    def afterIt(x: Int): Int = x * 2      <- lost, and so is everything below it
+    def main() = println(afterIt(21))
+
+    F           unbound global: (global afterIt)
+    reference   42
+
+The split is clean and both controls lower: constructor pattern + `case _ =>` is fine, and a
+literal pattern + `case error =>` is fine. It takes a constructor pattern FOLLOWED BY an arm that
+binds a bare name.
+
+**It is a parse STOP, not a mis-lowering of one def.** Dumping the def names each front emits for
+`std/json-core.ssc` (SSC_DUMP_DEFS, added to RunNativeV2 for this): F emits 96 defs, the reference
+219. Ordering F's by source line, the last it emits is `jsonCoreParseStrict` at line 335 and the
+first it does not is `jsonCoreParseTolerant` at 344 — and after that line, **24 missing and 0
+present**. `jsonCoreParseStrict` ends with exactly the arm above.
+
+That explains every earlier observation at once: the export-list line mattered because the export is
+the only reference to the first lost name; the prefix bisect flipped between declarations 22 and 28
+because that is where the offending def sits; no reduction could isolate it because removing lines
+around a parse stop changes where the stop lands; and `Response` was three import levels of
+misattribution on top.
+
+The def-name diff is what found it, after eight construct guesses and nine reduction runs did not.
+It needs no reduction at all: lower with both fronts, sort the emitted names by source line, find
+where F stops. That is the tool to reach for first next time.
+
+**Reduction is EXHAUSTED here, and the floor is the reason.** The last method — remove a
+declaration only when nothing remaining references its name, and regenerate `exports:` to match, so
+every candidate is self-contained BY CONSTRUCTION rather than by a predicate — got from 56
+declarations to **43** in 14 probes and stopped. Only 13 are removable: json-core is densely
+interconnected, so self-containment pins almost everything. That closes the last predicate hole and
+also closes the technique: no line-level or declaration-level reduction can isolate this file.
+
+Eight construct guesses were closed by MEASUREMENT on standalone programs rather than by argument,
+and none reproduces: a `match` whose scrutinee is a call to another def; `case Ok(v, _)`, a wildcard
+inside a constructor pattern; `case _` as the final arm; constructing a zero-parameter case class in
+an arm; module size (100 filler defs); case-class count (nine); a `def` whose parameter list spans
+several lines — the shape sitting exactly at the prefix-bisect transition; and three mutually
+recursive top-level defs, which is what the reduction's own tail looked like.
+
+So the remaining approach is the one that needs no reduction at all: lower this module with F and
+with the reference front and diff the emitted `(def …)` names. F omits exactly one that the
+reference emits, and the export-list line is a one-character switch for turning the symptom on and
+off while comparing. That is a tooling task — neither front exposes its IR on the CLI today — and it
+is where the next hour should go rather than into a ninth guess.
+
 **AND THE ROOT NARROWS TO THE EXPORT LIST.** In `json-core.ssc` the name
 `jsonCoreParseTolerant` appears exactly twice — line 17, its entry in the front-matter `exports:`,
 and line 344, its own ordinary top-level `def`. Nothing else in the file references it. Deleting
