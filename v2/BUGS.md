@@ -8,6 +8,48 @@ grepping for status.
 Newest first.
 
 
+
+## f-malformed-import-blamed-on-downstream-constructor — F names an innocent class in another file
+
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: - -->
+
+When an imported module is MALFORMED, F declines and reports an unbound global naming a
+well-formed construct in a DIFFERENT file. Two modules and a main, measured 2026-08-07:
+
+    mods/broken.ssc     def f(v: Any): String =
+                          v match {                 <- unclosed, this is the actual fault
+
+    mods/user.ssc       [f](broken.ssc)
+                        case class Widget(a: Int, b: Int, c: Int):
+                          def bump(): Widget = Widget(a + 1, b, c)
+
+    t.ssc               [Widget](mods/user.ssc)
+                        def main() = println("ok")
+
+    F, strict     unbound global: (global Widget)
+    reference     ok
+
+So the name F blames is `Widget`, the file it points at is `mods/user.ssc`, and neither is at fault:
+`Widget` is well-formed and the reference front runs the whole thing. The one broken file is never
+mentioned. `ssc info --front-report` on `broken.ssc` alone does say something usable —
+`(global __sscBlockEnd__)`, an internal sentinel — so the information exists at the point of failure
+and is lost by the time the decline is reported.
+
+**Found while minimising something else, and it is why that failed six times.** Every ddmin run over
+`std/json-core.ssc` converged on a reduction that was merely BROKEN rather than on the real
+construct, because a broken module satisfies "F declines naming the same symbol" just as well and
+breaking one is always the smaller change. The predicate that finally excludes it checks the reduced
+module through `front-report` — a well-formed module yields a TAB-separated decision row, a
+malformed one yields prose with `__sscBlockEnd__`. See `f-declines-every-non-top-level-def` for the
+full list of predicate holes.
+
+Worth fixing on its own terms: a decline that names an innocent symbol in an innocent file sends
+whoever reads it to the wrong place, and this repo has now spent six measurement runs there.
+
 ## fewer-braces-colon regressed on v2 and hid for five days behind an already-red gate
 
 <!-- status: fixed
