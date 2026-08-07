@@ -1201,3 +1201,38 @@ having done it as its own commit.
 both, DIFF 0 and CRASH 0 everywhere — so invariant I-3 holds under either front. Seven v3 gates
 green, front agreement 48/48 fixtures and 102/102 corpus (floors raised), `install.sh --dev` clean,
 smoke-ci 70/70.
+
+## 29 · The classpath cache was unsound, and my first fix was for the wrong branch
+
+`jar_for` and `uniml_classpath` sit six lines apart in `v3/ssc3` and look like the same idea. They
+are not, and the difference is the whole bug.
+
+`jar_for` caches an ARTIFACT FILE keyed on the source digest. The file holds the bytes, so
+returning to an earlier source state hits a jar built from exactly that source. Sound.
+
+`uniml_classpath` caches a PATH — and `scala-cli` rewrites that directory on every compile of the
+same inputs. Measured: two compiles of one tree in two different states print the SAME directory.
+So a digest-keyed cache of it fails in one specific way:
+
+    state A -> compile -> cache[A] = P, P holds A
+    state B -> compile -> cache[B] = P, P now holds B     <- shared, and overwritten
+    back to A -> HIT on cache[A] = P -> serves P, holding B
+
+Which is exactly an A/B measurement, and exactly the plant-and-revert a gate self-test does. It bit
+me on the second: after restoring the constant-pool fix, three gates reported the defect I had just
+removed. **A wrong answer that points at working code is the expensive kind** — the natural response
+is to go and re-break the thing you fixed.
+
+**§28g's fix was for the wrong branch.** It discarded the incremental build directory on a cache
+MISS; the failing case is a HIT. Corrected here with a STAMP — one file recording which digest the
+shared directory currently holds, and a hit requires it to match. Returning to an earlier state now
+recompiles, which is the right cost: an A/B between two states must compile twice.
+
+Verified by replaying the exact cycle — fixed → planted → reverted gives `inf -inf` / `-inf inf` /
+`inf -inf`, where before the third step repeated the second.
+
+**The census, since the question is where else this hides:** `--print-class-path` appears in exactly
+one live place in the repository, and it is this one. Everything else either caches an artifact FILE
+keyed on a digest (`jar_for`, sound by construction) or does not cache at all and pays a full
+`scala-cli run` per invocation (most gates — slow, never stale). So the blast radius is one function,
+now closed.

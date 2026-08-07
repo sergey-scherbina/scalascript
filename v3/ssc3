@@ -69,26 +69,41 @@ uniml_available() { [ -s "$UNIML_CP_FILE" ]; }
 # embed — measured, and the assembly ran with a NoClassDefFoundError on every fixture.
 # CACHED on a digest of both source trees, for the same reason the jars are: without it every
 # invocation recompiles, and the front-diff gate runs one per fixture.
+# CACHING A CLASS DIRECTORY IS NOT LIKE CACHING A JAR, and the difference cost an hour.
+#
+# `jar_for` above is sound: it caches an ARTIFACT FILE keyed on the source digest, and the file
+# holds the bytes. Reverting to an earlier source state hits a jar built from exactly that source.
+# Content-addressed storage of an immutable thing.
+#
+# This caches a PATH, and the path is a directory `scala-cli` REWRITES on every compile of the same
+# inputs — measured: two compiles of the same tree in different states print the SAME directory. So
+# a digest-keyed cache of it is unsound in one specific way:
+#
+#     state A -> compile -> cache[A] = P, P holds A
+#     state B -> compile -> cache[B] = P, P now holds B      <- P is shared, and was overwritten
+#     back to A -> cache HIT on cache[A] = P -> serves P, which holds B
+#
+# That is exactly an A/B measurement, and exactly a gate self-test that plants a defect and reverts
+# it. It bit me on the second: three gates reported a defect I had already restored, which is the
+# worst kind of wrong answer because it points at working code. My first fix — discard the
+# incremental build directory on a MISS — did not touch this, because the failing case is a HIT.
+#
+# The fix is a STAMP: one file recording which digest the shared directory currently holds. A hit
+# requires the stamp to match, so returning to an earlier state recompiles. That is the right cost:
+# an A/B between two states must compile twice, and the cache still does its real job — the
+# front-diff gate runs one invocation per fixture and must not recompile for each of them.
 uniml_classpath() {
-  local ucp dg cache full
+  local ucp dg cache stamp full
   ucp="$(cat "$UNIML_CP_FILE")"
   dg="$(cat "$ROOT/v3/src"/*.scala "$ROOT/v3/uniml"/*.scala "$UNIML_CP_FILE" | shasum | cut -c1-16)"
-  cache="$JARS/uniml-full-$dg.cp"
-  if [ -s "$cache" ]; then cat "$cache"; return 0; fi
-  # A CACHE MISS MEANS THE SOURCES CHANGED, so the incremental build directory is discarded before
-  # recompiling. Measured, and it cost an hour: after editing `Lower.scala`, `scala-cli compile`
-  # returned a classes directory that still held the PREVIOUS version — the digest was new, the
-  # cache entry was new, and the artifact behind it was stale. Three gates then reported a defect I
-  # had already fixed, which is the worst kind of wrong answer: it points at working code.
-  #
-  # One full compile per source change, which is what a source change costs anyway. The cache still
-  # does its real job — the front-diff gate runs one invocation per fixture and must not recompile
-  # for each of them.
-  rm -rf "$ROOT/v3/src/.scala-build" "$ROOT/v3/uniml/.scala-build"
+  cache="$JARS/uniml-full.cp"
+  stamp="$JARS/uniml-full.digest"
+  if [ -s "$cache" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$dg" ]; then cat "$cache"; return 0; fi
   full="$(scala-cli compile "$ROOT/v3/src" "$ROOT/v3/uniml" --classpath "$ucp" \
             --server=false --print-class-path 2>/dev/null | tail -1)"
   [ -n "$full" ] || return 1
   printf '%s' "$full" > "$cache"
+  printf '%s' "$dg" > "$stamp"
   printf '%s' "$full"
 }
 
