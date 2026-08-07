@@ -19,7 +19,7 @@ Newest first.
 ## rust-lane-produces-no-binary-for-hello-world — and rejects `try`/`catch` outright
 
 <!-- status: open
-     lane: rust
+     lane: v2-rust
      area: codegen
      kind: bug
      gate: none
