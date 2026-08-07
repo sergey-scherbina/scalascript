@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## js-control-direct-tests-never-run — the repair landed with 496 lines of tests and nothing runs them
+<!-- status: open
+     lane: js
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**Found 2026-08-07 while checking why eleven `js-control-direct-*` entries are open and ungated.**
+They are not ungated. Their fix landed, WITH tests, and the tests are dead.
+
+`c19d42401` (2026-07-15, *fix(js-control): close direct transform review blockers*) is **reachable
+from `origin/main`** — several of those entries still say it "awaits landing" — and it added:
+
+```
+ v2/host/js/control-direct/transform.js            +398
+ v2/host/js/control-direct/test/transform.test.js  +326
+ v2/host/js/control-direct/test/cli.test.js        +170
+ v2/host/js/control-direct/cli.js                  +68
+```
+
+**Nothing invokes them.** `control-direct` appears in no workflow, not in `scripts/smoke-ci.ssc`, and
+in no script under `scripts/` or `tests/e2e/`. The package declares
+`"test": "node --test --test-concurrency=1 test/*.test.js"` and that command is never issued by
+anything in this repository.
+
+**And they cannot run as checked out:** every test needs the `typescript` devDependency, so without
+an `npm install` in that directory the suite dies at import —
+`Cannot find package 'typescript'` for `transform.test.js`, and
+`compatible TypeScript compiler API not found` for the four CLI cases. A gate that requires an
+uninstalled dependency is a gate nobody will accidentally discover.
+
+**Consequence.** Eleven entries have sat `open` for three weeks with **no signal either way**: the
+work to close them may be entirely done, and nobody can tell without running a command no CI job
+knows about. That is worse than a red test — a red test at least says something.
+
+**Smallest useful fix:** run `npm install && npm test` for this package in the tier that already
+handles npm work, and record the result. Until then, no `js-control-direct-*` entry can honestly be
+moved to `fixed`, and this entry is the reason.
+
 ## js-aliased-package-root-import-is-unbound — `[org as o]` throws, while every other alias works
 
 <!-- status: fixed
