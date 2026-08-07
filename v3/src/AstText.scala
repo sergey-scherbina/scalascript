@@ -111,6 +111,7 @@ object AstText:
     case Expr.Neg(x, _)        => sx("neg", List(expr(x)))
     case Expr.Not(x, _)        => sx("not", List(expr(x)))
     case Expr.Call(fn, as, _)  => sx("call", q(fn) :: as.map(expr))
+    case Expr.Prim(n, as, _)   => sx("prim", q(n) :: as.map(expr))
     case Expr.MethodCall(r, n, as, _) => sx("send", expr(r) :: q(n) :: as.map(expr))
     case Expr.NamedArg(n, v, _)  => sx("named", List(q(n), expr(v)))
     case Expr.Apply(f, as, _)    => sx("apply", expr(f) :: as.map(expr))

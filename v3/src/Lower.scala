@@ -102,6 +102,7 @@ object Lower:
     case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ freeVars(v, bound)
     case Expr.Update(a, i, v, _)  => freeVars(a, bound) ++ freeVars(i, bound) ++ freeVars(v, bound)
     case Expr.Apply(f, as, _)     => freeVars(f, bound) ++ as.flatMap(a => freeVars(a, bound))
+    case Expr.Prim(_, as, _)      => as.flatMap(a => freeVars(a, bound))
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
@@ -585,6 +586,22 @@ object Lower:
     // a MatchError: the compiler's own exhaustiveness warning is what found this.
     // Applying a VALUE: evaluate the callee, then `CallV`. The same instruction a call through a
     // local closure already uses — a curried call is not a new mechanism, only a new spelling.
+    // A HOST PRIMITIVE. The arguments are ordinary expressions; the name is not looked up in the
+    // function table, because a prim is not a function this module defines — it is what the LANE
+    // provides. The executor answers with `unknown primitive '…'` when it has none, and the bridge
+    // hands the name to v2, which has its whole plugin fleet. Two lanes, two honest answers.
+    case Expr.Prim(name, argEs, _) =>
+      var acc: List[Instr] = Nil
+      var regs: List[Int] = Nil
+      var st = st0
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (pi, st2) = st.primIdx(name)
+      val (d, stF) = st2.fresh
+      (acc :+ Instr.Prim(d, pi, regs), d, stF)
+
     case Expr.Apply(fnE, argEs, _) =>
       val (fi, fr, st1) = lower(fnE, fns, classes, zeroArity, st0)
       var acc = fi
@@ -822,6 +839,7 @@ object Lower:
       case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
       case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
+      case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
       case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
@@ -1041,6 +1059,7 @@ object Lower:
       case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
       case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
+      case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
       case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
       case Expr.Not(x, p)               => Expr.Not(go(x), p)
@@ -1300,7 +1319,24 @@ object Lower:
         Def(c.name + "." + mm.name, Param("this", mm.pos) :: mm.params, body, mm.pos)
       }
     }
-    val allDefs0 = (p.defs ++ objectDefs ++ methodDefs) :+ entryDef
+    // `extern def readFile(path: String): String` — a HOST function, declared with no body. v3
+    // implements it or it does not exist; there is no third state. So a declaration it cannot back
+    // is dropped rather than defined, and a call to it is refused AT THE CALL SITE by the ordinary
+    // unknown-name path — with a position, which is what makes a refusal actionable and what
+    // `corpus-report.sh` needs to count it as UNSUPPORTED rather than CRASH.
+    //
+    // DROPPING IT IS THE WHOLE POINT. The standard library declares host functions in blocks — 20
+    // in `fs.ssc`, 15 in `os.ssc` — and refusing the DECLARATION made every program importing such
+    // a module fail even when it called none of them. That was 144 corpus cases, the top blocker.
+    // Two intermediate designs were measured and rejected: handing the extern's name straight to
+    // the lane as a prim let v2's plugins answer on the bridge and nothing answer on the executor,
+    // so the two v3 lanes disagreed on 11 cases and 5 programs RAN AND PRINTED THE WRONG THING;
+    // throwing v3's own error kept the lanes together but arrives without a position.
+    // ONE MARKER, and the SITE says what it means. `isAbstract` is "no body was written"; in a
+    // trait or a class that means dispatch to a subclass, and HERE, at top level, it means an
+    // `extern` — a host function. The distinction is structural (`p.defs` versus a member list),
+    // not a second spelling kept in step by hand.
+    val allDefs0 = (p.defs.filterNot(isAbstract) ++ objectDefs ++ methodDefs) :+ entryDef
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
     // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.

@@ -1236,3 +1236,52 @@ one live place in the repository, and it is this one. Everything else either cac
 keyed on a digest (`jar_for`, sound by construction) or does not cache at all and pays a full
 `scala-cli run` per invocation (most gates — slow, never stale). So the blast radius is one function,
 now closed.
+
+## 30 · The top corpus blocker was mine, one day old — `extern`, 145 cases
+
+`??? is outside SSC3 core Tier 0` led the refusal list at **145 cases against ONE corpus file that
+actually writes `???`**. The other 144 were `extern def readFile(path: String): String` — a host
+function declaration, which §27's change to tell an abstract signature from `def f(): Unit = ()`
+turned into a parse error. The standard library declares these in blocks (20 in `fs.ssc`, 15 in
+`os.ssc`), so a program importing such a module refused outright even when it called none of them.
+
+**Three designs, measured, two rejected.** Writing this down because the first two were plausible
+and the numbers said otherwise:
+
+1. **The extern's own name as a prim.** N 57 → 59, and the exec lane went to **13 CRASH** while the
+   bridge went to **5 DIFF**: v2's plugin fleet answered eleven of those names and v3's executor
+   answered none, so the two v3 lanes stopped agreeing and five programs RAN AND PRINTED THE WRONG
+   THING. Worse than either lane refusing.
+2. **v3's own `__throw__` with the name in the message.** Lanes agree again, but a run-time throw
+   carries no source position, and `corpus-report.sh` classifies an unpositioned failure as CRASH —
+   rightly, since its rule is that an actionable refusal names a place. Still 13 CRASH.
+
+   The temptation here was to widen the classifier until my own failures looked better. That is the
+   move that should make any reviewer suspicious, and it was not taken.
+3. **An extern v3 cannot implement IS NOT A FUNCTION.** `Lower` drops it, so the declaration costs
+   nothing and a CALL is refused at the call site by the ordinary unknown-name path — positioned,
+   actionable, identical on both lanes. **N = 59 on both, DIFF 0, CRASH 0.**
+
+- [x] **30a — one marker, and the SITE says what it means.** The extern first got its own
+      `__extern__` marker, and the differential caught it within the hour: v3's own front has
+      spelled a body-less def `__abstract__` since long before, so the two fronts printed different
+      trees for three corpus cases. Now there is one marker meaning "no body was written", and
+      whether that is an abstract method or a host function is decided by the SITE — `p.defs`
+      versus a member list, a structural distinction rather than a second spelling kept in step by
+      hand.
+
+- [x] **30b — `extern` was a bare name in v3's own front,** exactly as `sealed` was in §27e: the
+      modifier fell through to the expression parser and `node-basic` printed `(do (name
+      "extern"))`. Same class, same fix, found the same way.
+
+- [x] **30c — `???` throws where it is REACHED,** as it does in Scala. Refusing the file at parse
+      time is stricter than the language and blocks programs whose `???` sits in a branch nobody
+      takes — a stub on a case the test never constructs is the ordinary use.
+
+**Measured:** N = 59 on both v3 lanes with the uniml front (was 57) and 50 with v3's own, DIFF 0 and
+CRASH 0 in all four combinations. Front agreement 48/48 fixtures and **105/105 corpus** — up from
+102, and total again after 30a and 30b. Seven gates green.
+
+**What leads the refusal list now:** `unknown name` (55) and `call to unknown function` (30) — which
+are no longer one construct but a long tail, then typed patterns (22), `given … with` (13) and
+`effect` (10). The single-cause blockers are gone.

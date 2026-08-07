@@ -38,6 +38,14 @@ enum Expr:
   case Neg(e: Expr, pos: Pos)
   case Not(e: Expr, pos: Pos)
   case Call(fn: String, args: List[Expr], pos: Pos)
+  /** A call to a HOST primitive, by name. The kernel's only door out (invariant I-1).
+    *
+    * No surface syntax builds one directly — `extern def readFile(path: String): String` declares
+    * it, and the declaration's body IS this node. Distinct from `Call` on purpose: `Call` names a
+    * function the module defines and an unknown one is a typo, while this names something the LANE
+    * provides and an unknown one is a capability the lane lacks. Collapsing them would have turned
+    * every misspelled function into a silent prim. */
+  case Prim(name: String, args: List[Expr], pos: Pos)
   /** `recv.name` and `recv.name(args)` alike — a getter is a call with no arguments, which is what
     * it is on every lane already. Keeping them one node means the lowering has one case, not two
     * that must agree. */
@@ -137,6 +145,7 @@ object Expr:
     case Neg(_, p)        => p
     case Not(_, p)        => p
     case Call(_, _, p)    => p
+    case Prim(_, _, p)    => p
     case MethodCall(_, _, _, p) => p
     case If(_, _, _, p)   => p
     case While(_, _, p)   => p

@@ -1186,6 +1186,14 @@ object Parser:
               (isId(peek(ts.tail), "trait") || isId(peek(ts.tail), "class") ||
                isId(peek(ts.tail), "sealed") || isId(peek(ts.tail), "abstract")) then
         ts = ts.tail
+      // `extern def readFile(path: String): String` — the modifier on a HOST function declaration.
+      // Same shape as `sealed` above and found the same way: the word fell through to the
+      // expression parser and became a top-level statement reading an unbound name, so
+      // `node-basic` printed `(do (name "extern"))` before its declaration. The body-less `def`
+      // that follows already becomes `__abstract__`, which `Lower` reads at top level as "a host
+      // function this lane does not implement" and drops.
+      else if isId(peek(ts), "extern") && ts.tail.nonEmpty && isId(peek(ts.tail), "def") then
+        ts = ts.tail
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         defs = d :: defs

@@ -98,8 +98,38 @@ object UniFront:
     case Skip
 
   private def decl(d: U.Decl): Sorted = d match
+    // A TOP-LEVEL DEF WITH NO BODY IS AN `extern` — a function the host implements, which is what
+    // `extern def readFile(path: String): String` declares. v3's only door to the host is `Prim`
+    // (invariant I-1), so it becomes a call to the prim of the same name.
+    //
+    // It was a refusal for one day, and that day it was the corpus's TOP BLOCKER at 145 cases
+    // against ONE file that actually writes `???`. The refusal came from making an abstract
+    // signature distinguishable from `def f(): Unit = ()` — right in itself, and it turned every
+    // `extern` in the standard library into a parse error, so a module declaring twenty host
+    // functions refused outright even for a program that calls none of them.
+    //
+    // THE DECLARATION IS FREE AND THE CALL FAILS. Which is not where I first put it: the body was
+    // `Prim(n, args)`, handing the name straight to the lane. Measured, and it was worse than the
+    // refusal it replaced — N rose by 2 while the exec lane went to 13 CRASH and the bridge to 5
+    // DIFF, because v2's plugin fleet answered eleven of those names and v3's executor answered
+    // none. The two v3 lanes stopped agreeing, and five programs RAN AND PRINTED THE WRONG THING,
+    // which is worse than either lane refusing. So the body throws v3's OWN error instead: both
+    // lanes behave identically, the message names the function, and reaching for a host capability
+    // v3 has not implemented is loud rather than plausible.
+    //
+    // AND THAT WAS STILL WRONG, one measurement later. A runtime throw carries no source position,
+    // and `corpus-report.sh` classifies an unpositioned failure as CRASH — rightly, since its rule
+    // is that a refusal a reader can act on names a place. So the exec lane read 13 CRASH where it
+    // had read 0. The answer is not to widen the classifier until my own failures look better; it
+    // is that an `extern` v3 cannot implement IS NOT A FUNCTION at Tier 0. `Lower` drops it from
+    // the table, so the declaration still costs nothing and a CALL to it is refused at the call
+    // site, with a position, exactly as a call to any name that does not exist.
+    case U.Def(n, ps, _, U.NotImplemented(bs), s) =>
+      Sorted.D(Def(n, ps.toList.map(param), hostGap(n, pos(bs)), pos(s)))
     case U.Def(n, ps, _, b, s)  => Sorted.D(Def(n, ps.toList.map(param), expr(b), pos(s)))
     case U.CaseClass(n, fs, parent, ms, s) =>
+      // A class method with no body is ABSTRACT, exactly as a trait's is — the same rule, applied
+      // at the other declaration site. Only a TOP-LEVEL bodyless def is an `extern`.
       Sorted.C(List(ClassDef(n, fs.toList.map(param), ms.toList.map(m =>
         Def(m.name, m.params.toList.map(param), expr(m.body), pos(m.span))),
         parent.toList, pos(s))))
@@ -167,6 +197,28 @@ object UniFront:
     try java.lang.Long.parseLong(digits)
     catch case _: NumberFormatException =>
       throw ParseFail(p, "the integer literal '" + v + "' does not fit in 64 bits")
+
+  /** The body of an `extern def` whose host function v3 does not implement.
+    *
+    * `__throw__` is v3's own primitive — both lanes have it — so this behaves the same through the
+    * executor and through the bridge, which is what invariant I-3 asks for. Handing the extern's
+    * own name to the lane instead let v2's plugins answer on one lane and nothing answer on the
+    * other, and the lanes disagreed on eleven corpus cases.
+    *
+    * Deliberately NOT a parse refusal: the whole point is that declaring a host function costs
+    * nothing until someone calls it. */
+  /** The body of a def written WITHOUT ONE — `def area(): Double` in a trait, `extern def
+    * readFile(path: String): String` at top level.
+    *
+    * ONE MARKER, and the SITE says what it means: a trait or class member with no body is abstract
+    * and dispatches to a subclass, a top-level one is a host function v3 does not implement. v3's
+    * own front has spelled it `__abstract__` since before any of this, and a second spelling here
+    * made the two fronts print different trees for the same source — three corpus cases, caught by
+    * the differential the same hour the marker was invented.
+    *
+    * Two names for one fact would also have been the shape this repository has paid for: the same
+    * information under different spellings, kept in step by hand. */
+  private def hostGap(name: String, p: Pos): Expr = Expr.Name("__abstract__", p)
 
   private def param(p: U.Param): Param =
     if p.using_ then no("a `using` parameter", p.span)
@@ -304,7 +356,10 @@ object UniFront:
     case U.Splice(_, s)            => no("a splice", s)
     case U.QuotedName(_, s)        => no("a quoted name", s)
     case U.Marker(n, _, _, s)      => no("the marker '" + n + "'", s)
-    case U.NotImplemented(s)       => no("`???`", s)
+    // Scala's `???` throws `NotImplementedError` WHEN EVALUATED. Refusing the whole file at parse
+    // time is stricter than the language and blocks programs whose `???` sits in a branch nobody
+    // takes — a stub method on a case the test never constructs is the ordinary use.
+    case U.NotImplemented(s)       => Expr.Prim("__throw__", List(Expr.StrLit("an implementation is missing (`???`)", pos(s))), pos(s))
     case U.Unsupported(k, s)       => no("the expression '" + k + "'", s)
 
   private def forOf(gens: List[U.ForGen], body: U.Expr, isYield: Boolean, p: Pos): Expr =
