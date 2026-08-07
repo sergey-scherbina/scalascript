@@ -1,0 +1,11 @@
+slug: v3-spec-case-divergence-correction
+branch: feature/v3-spec-case-divergence-correction
+agent: claude-code
+started: 2026-08-07T03:26:11Z
+heartbeat: 2026-08-07T03:26:11Z
+status: claimed-before-planning
+items: SSC3-2
+paths: file:v3/specs/20-core-language.md file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
