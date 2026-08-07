@@ -1,3 +1,47 @@
+## sbt-plugin-fixtures-deleted-by-an-unrelated-commit-and-unrestorable
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: 30113bf08e46c4818d3d443a838770588ab8ca6a
+     gate: v1/tools/sbt-plugin scripted -->
+
+The plugin is in no build — not aggregated, not in CI, not in smoke — so its ten `scripted`
+scenarios had never been run by anything. Running them: **two red, and a third green for the wrong
+reason.**
+
+**In order.**
+
+1. The `.ssc-artifacts/*.scim` fixtures existed and **survived** the `tools/ → v1/tools/` move in
+   `b433a41e4`.
+2. `1fea89a79` — *`fix(js): record leaderHistory on every accepted claim`* — **deleted all four**.
+   A JS change, nothing to do with sbt. Almost certainly a stray `git add -A`.
+3. Nothing runs these tests, so it went unnoticed for three weeks.
+4. They could not simply be restored: `.gitignore` ignores `.ssc-artifacts/`, and its exception
+   still read `!tools/sbt-plugin/…` — anchored at the repo root, so it stopped matching at step 1.
+   The rule meant to protect the fixtures had rotted in the very move they survived.
+
+**The symptom.** `sscGenerateFacade` skips with a warning when `sscArtifactDir` is absent:
+
+| scenario | was | why |
+| --- | --- | --- |
+| `basic` | FAIL | asserts the facade exists; generation was skipped |
+| `multi-module` | FAIL | same |
+| `identity` | **PASS, blind** | asserts the facade does NOT exist — true, because nothing ran |
+
+`identity` claimed "generation succeeds and emits no files" while observing "generation never
+happened". It now also asserts the output DIRECTORY exists — created by the task before it invokes
+the binary, which separates "ran, wrote nothing" from "never ran".
+
+**Fix:** the four original fixtures restored from `b433a41e4` — real artifacts (`"magic": "SSCART"`,
+`abiVersion 2.0`), not stand-ins that would satisfy the guard without testing the format — and the
+ignore exception made path-independent (`!**/src/sbt-test/**/.ssc-artifacts/`).
+
+10/10 green. Falsifiable: remove `basic`'s fixture → rc=1; restore → rc=0.
+
+**Still open, and the reason this was invisible: nothing builds or tests this plugin.** Wiring it
+into a suite is the follow-up — `scripts/smoke-ci.ssc` is held by another claim.
+
 # Test harness — bugs
 
 Scope: defects whose FIX goes in `tests/`. Layout and routing rules:
