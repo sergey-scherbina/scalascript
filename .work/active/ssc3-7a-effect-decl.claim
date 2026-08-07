@@ -1,0 +1,13 @@
+slug: ssc3-7a-effect-decl
+branch: feature/ssc3-7a-effect-decl
+agent: claude-code
+started: 2026-08-07T21:23:46Z
+heartbeat: 2026-08-07T21:23:46Z
+status: in-progress
+items: SSC3-7a SSC3-7c
+paths: file:v3/src/Parser.scala file:v3/src/Ast.scala file:v3/src/Lower.scala file:v3/src/Exec.scala
+scope: |
+  effect-oneshot.ssc:18:12 effect Bump: and effect-pure.ssc:6:35 the ! effect type.
+  The IR reserves Perform/Handle/Resume, so this is a FRONT gap. Measure what the two
+  fixtures actually need before deciding how much of the effect language to build.
+next: read both fixtures end to end, then decide scope
