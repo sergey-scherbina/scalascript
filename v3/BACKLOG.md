@@ -4,6 +4,40 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## v3's parser CONTINUES an expression onto a line starting with `(` — and UniML is the one that is right
+
+Found 2026-08-07 by `v3/front-diff.sh` while narrowing its 74 corpus disagreements, and the
+direction is the surprise: `40-front-on-uniml.md` §5b's hand-over said "all 11 remaining
+differences are on this side", meaning UniML's. This one is v3's.
+
+    def f(): List[Int] =
+      var r = 1 :: 2 :: Nil
+      var acc: List[Int] = Nil
+      while r.nonEmpty do
+        acc = r.head :: acc
+        r = r.tail
+      (0 :: Nil) ++ acc.reverse
+
+The last line starts with `(` at the SAME column as the `while`, so it is a sibling statement and
+the function's result. The reference front agrees — it prints `List(0, 1, 2)`.
+
+    uniml   (do (while …)) then (bin "++" …)          two statements — matches the reference
+    v3      (bin "++" (apply (while …) …) …)          applies the `while`'s result to `(0 :: Nil)`
+
+Applying the result of a `while` is not a thing the language has, which is the corroboration: v3 is
+continuing the expression across a newline because the next line opens a paren, where Scala's
+offside rule ends the statement at equal indentation.
+
+**Why it matters more than one construct.** It is the second of the two differences in
+`scljet/sql.ssc`, and that one file is imported by all 74 disagreeing corpus cases. The other was
+UniML's — an `else` binding to an `if` inside a block it closes, fixed in `16ef08948`, which took
+`scljet-jdbc-basic` from 8 differing lines to 2. `front-diff.sh` counts FILES, so **the corpus
+number cannot move from 145/74 until this one lands too**; the fix and the number are one construct
+apart.
+
+Filed here rather than fixed: `v3/src/Parser.scala` is v3's own, and the front differential's
+premise — that the remaining differences are UniML's — needs correcting along with it.
+
 ## v3 carries its own copy of the character alphabet — decide, do not drift
 
 Left open deliberately when `specs/20-core-language.md` §3 was corrected (`41534ad3c`,
