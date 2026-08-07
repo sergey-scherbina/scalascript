@@ -261,6 +261,40 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**`Response` is the top decline name once externs are accepted (4c01973bb), and here is the working
+METHOD plus what it did and did not settle.**
+
+Minimising a std module needs the SOURCE tree and a rebuild per probe. Four levers were tried and
+three are dead, each disproved by the same one-second control — break the candidate and see whether
+behaviour changes:
+
+    copy the module out and import the copy    does not reproduce: its own relative imports break
+    SSC_STD_PATH=<copy>                        NOT read — breaking the copy changed nothing
+    bin/lib/standard/native-front/runtime/std  NOT read — same control
+    bin/lib/native-front/runtime/std           NOT read — same control
+    edit v1/runtime/std/ + rebuild             WORKS
+
+The number that makes it practical: an incremental `scripts/sbtc installBin` after touching one
+`.ssc` is **4 s**, so a probe costs ~10 s and ddmin over a 244-line module finished in 127 probes /
+~15 min. Restore the source in a `finally`.
+
+Result, reduced IN PLACE from `v1/runtime/std/http.ssc` and still declining on `(global Response)`:
+
+    [jsonStringify](json.ssc)
+    ```scalascript
+    case class Response(
+    ):
+      def withHeader(name: String, value: String): Response =
+        Response(status, headers + (name -> value), body)
+    ```
+
+**It does not transplant, and that is the finding to act on rather than the seven lines.** Four
+reconstructions carrying every element above lower FINE: the shape as a plain top-level program,
+with `Map + (k -> v)`, with three constructor arguments, the same shape inside an imported module,
+and that module carrying its own import line. So the trigger involves something about
+`std/http.ssc` at its real path or the rest of the closure the importer pulls in — the same wall the
+`Parser` reduction hit. Next attempt should minimise the CLOSURE, not the module.
+
 **2. MINIMISED 2026-08-06 — it is an `extern def` crossing a MODULE boundary.** Eight attempts at a
 bottom-up reproduction missed it; this one came from delta-debugging the real file downward with a
 predicate that required the SAME symbol in the decline, which is exactly what the earlier attempt
