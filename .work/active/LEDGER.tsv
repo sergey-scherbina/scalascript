@@ -1,7 +1,6 @@
-# generation: 1121
+# generation: 1122
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 f-validator-rejects-host-externs	claude-code	2026-08-07T03:17:39Z	f-declines-every-non-top-level-def	file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/f-bare-member-call-gate.sh
 smoke-guard-sized-by-ci	claude-code	2026-08-07T03:29:26Z	smoke-check-guards-sized-by-local-time	file:scripts/smoke-ci.ssc file:tests/BUGS.md
-inbox-route-tool	claude-code	2026-08-07T03:44:33Z	routing a report out of the queue is hand work, and the hand loses the reporter fields	file:scripts/inbox-route file:INBOX.md file:specs/work-tracking-layout.md file:tests/e2e/inbox-gate.sh
 release-v0-1-1	claude-code	2026-08-07T03:47:00Z	release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary	file:build.sbt file:uniml/build.sbt file:tests/BUGS.md
