@@ -37,9 +37,20 @@
        |def mkdirs(path: String): Unit =
        |  java.nio.file.Files.createDirectories(java.nio.file.Paths.get(path))
        |  ()
+       |// `java.io.File.list()` returns NULL when the path is missing or is not a directory, and
+       |// mapping that to `Nil` made this lane answer `List()` where int, js and native all raise —
+       |// silently, exit 0. Reported by nadia via `std-fs-failure-contract`, whose own argument was
+       |// that `[]` for a missing directory hides a typo and destroys the difference between "empty"
+       |// and "not there". `Files.list` is also what `specs/std-fs-os.md` has always DOCUMENTED for
+       |// this lane and what the reference plugin (`FsIntrinsics`) actually does, so this makes the
+       |// implementation match both the majority and the spec rather than choosing a new contract.
        |def listDir(path: String): List[String] =
-       |  val _sscArr = new java.io.File(path).list()
-       |  if _sscArr == null then (Nil: List[String]) else _sscArr.toList
+       |  val _sscStream = java.nio.file.Files.list(java.nio.file.Paths.get(path))
+       |  try
+       |    val _sscB = List.newBuilder[String]
+       |    _sscStream.forEach(_sscP => _sscB += _sscP.getFileName.toString)
+       |    _sscB.result()
+       |  finally _sscStream.close()
        |def copyFile(src: String, dst: String): Unit =
        |  java.nio.file.Files.copy(java.nio.file.Paths.get(src), java.nio.file.Paths.get(dst))
        |  ()

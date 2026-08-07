@@ -109,20 +109,22 @@ existing directory) predict something the lanes do not do.
 |---|---|---|---|---|
 | `readFile` missing | raise `NoSuchFileException` | raise `ENOENT` | raise `NoSuchFileException` | raise `RuntimeException(path)` |
 | `readFile` on a DIR | raise `IOException(Is a directory)` | raise `EISDIR` | raise `IOException(Is a directory)` | raise `RuntimeException(Is a directory)` |
-| `listDir` missing | raise `NoSuchFileException` | raise `ENOENT` | **`List()` — silent** | raise `RuntimeException(path)` |
-| `listDir` on a FILE | raise `NotDirectoryException` | raise `ENOTDIR` | **`List()` — silent** | raise `RuntimeException(path)` |
+| `listDir` missing | raise `NoSuchFileException` | raise `ENOENT` | raise `NoSuchFileException` | raise `RuntimeException(path)` |
+| `listDir` on a FILE | raise `NotDirectoryException` | raise `ENOTDIR` | raise `NotDirectoryException` | raise `RuntimeException(path)` |
 | `readBytes` missing | raise `NoSuchFileException` | raise `ENOENT` | raise `NoSuchFileException` | raise `RuntimeException(path)` |
 | `copyFile` / `moveFile` missing | raise `NoSuchFileException` | raise `ENOENT` | raise `NoSuchFileException` | raise `RuntimeException(path)` |
 | `exists` / `isFile` / `isDir` missing | `false` | `false` | `false` | `false` |
 | `deleteFile` missing | no-op, no raise | no-op, no raise | no-op, no raise | no-op, no raise |
 | `mkdir` on an EXISTING dir | no-op, no raise | no-op, no raise | no-op, no raise | no-op, no raise |
 
-**Read the `listDir` rows first.** On **jvm** a missing directory and a file-where-a-directory-was-
-expected both answer `List()`, silently, exit 0 — while every other lane raises. That is precisely
-the behaviour the reporter argued AGAINST in the same message: *"a `listDir` that answers `[]` for a
-missing directory hides a typo, and the caller can no longer tell empty from not-there."* The
-library already does it, on one lane, undocumented. Anyone porting a program from `int` to `jvm`
-loses an error they were relying on.
+**The `listDir` rows agreed only from 2026-08-07.** As first measured, `jvm` answered `List()` for
+both a missing directory and a file-where-a-directory-was-expected — silently, exit 0 — while every
+other lane raised. That was precisely what the reporter argued AGAINST in the same message: *"a
+`listDir` that answers `[]` for a missing directory hides a typo, and the caller can no longer tell
+empty from not-there."* Fixed by making the lane call `Files.list`, which is what THIS DOCUMENT
+already claimed it called: the implementation used `java.io.File.list()`, whose NULL return was
+mapped to `Nil`. So the row above and the mapping in §2 now describe the same code, and jvm raises
+the same two exceptions int does.
 
 **`v2 / native` erases the exception TYPE.** Everything arrives as `RuntimeException` and the
 message is bare — `listDir` on a file yields the path, exactly as a missing path does — so on that
@@ -146,6 +148,31 @@ blocked it, both worth knowing:
 needs a mode-000 fixture, and a probe that runs as root silently measures nothing. The three
 situations the report asked about are missing path, wrong type, and permission denial; the first two
 are above.
+
+#### The gates
+
+Two conformance cases, and the split between them is the shape of the finding rather than a
+convenience — a case compares ONE expected output, so it cannot express a divergence. Weakening a
+single case until it passed everywhere would have hidden exactly what this section measured.
+
+| case | backends | what it holds |
+|---|---|---|
+| `std-fs-failure` | `int, jvm, js, v2` | the FLOOR — the rows all four lanes agree on: the total predicates (including `exists` being TRUE for a directory), and `deleteFile`/`mkdir` being no-ops where the documented mapping predicts a raise |
+| `std-fs-failure-raises` | `int, js, v2, jvm` | that the read-shaped operations RAISE — the fact only, never the message, which differs on every lane and is not a contract |
+
+**`jvm` was absent from the second line when the case was written, and putting it there was the
+fix's closure.** Excluded, the case failed on exactly two rows — `listDir(missing)` and
+`listDir(file)`, both `NO-RAISE(List())` — with every other row passing, which is how the
+divergence was narrowed to `listDir` alone rather than the lane broadly. The `backends:` line is
+the record of that.
+
+⚠ **The corpus contract does not run `jvm` at all.** `contract.sc`'s canonical lanes are
+`{int, js, v2}` and the nightly uses them, so the `jvm` column of the table above is exercised by
+`scripts/conformance` and never by CI. Found by sweeping every `listDir` case with `--lanes …,jvm`,
+which also surfaced `mcp-filesystem-server jvm FAIL` — unbaselined, PRE-EXISTING (it fails
+identically on the unpatched runtime, checked by A/B) and invisible to the nightly by construction.
+
+Still ungated: the native lane's erasure of the exception TYPE, and both blank columns above.
 
 #### What a caller should do today
 

@@ -9,14 +9,28 @@ Newest first.
 
 ## jvm-listdir-answers-empty-where-every-other-lane-raises
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      area: runtime
      kind: divergence
-     gate: none
-     fixed-in: -
+     gate: tests/conformance/std-fs-failure-raises.ssc
+     fixed-in: PENDING-SHA
      reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
-     reported-at: 2026-08-04 -->
+     reported-at: 2026-08-04
+     confirmed: no -->
+
+**FIXED 2026-08-07.** `java.io.File.list()` returns NULL when the path is missing or is not a
+directory, and this lane mapped that to `Nil`. It now uses `Files.list`, which is what
+`specs/std-fs-os.md` has always DOCUMENTED for this lane and what the reference plugin
+(`FsIntrinsics`) actually does — so the change makes the implementation match both the majority and
+the spec rather than picking a new contract. Parity checked against the reference rather than
+assumed: jvm now raises `NoSuchFileException` for a missing path and `NotDirectoryException` for a
+file, the same two the int lane raises.
+
+The gate is the `backends:` line of `std-fs-failure-raises`, which gained `jvm` in the same commit —
+that case was written with jvm excluded precisely so this edit would be the closure.
+
+`confirmed: no`: nadia has not confirmed it against their own build.
 
 `listDir` on a missing directory returns `List()` on the jvm lane, silently, exit 0. Every other
 lane raises: int `NoSuchFileException`, js `ENOENT`, native `RuntimeException`. The same holds for
