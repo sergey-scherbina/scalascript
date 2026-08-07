@@ -303,6 +303,34 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**THE BINDING HALF IS WRITTEN AND CORRECT, AND IS NOT LANDING — it exposes a different F bug.**
+Enabling it (bind the arm name to the `__m` scrutinee slot; `parseCaseLambda` names its own slot
+`__m` so the lookup finds it) flips three std modules from declining to `F`:
+
+    std/json-core.ssc       declines -> F
+    std/markdown-core.ssc   declines -> F
+    std/yaml-core.ssc       declines -> F
+    parsing/combinators, parsing/layout, scljet/sql, ui/lower   still decline, other reasons
+
+and with json-core lowering, `std/json.ssc` and `std/http.ssc` follow to `F`. That is the breadth
+movement the parse half could not produce.
+
+It also breaks `session-roundtrip` on the native lane with `native HTTP handler failed: arity: 2
+expected`. **That failure is not the binding.** Measured: registration through F works
+(`use((req, next) => next())` plus a `route` prints `registered` on both fronts), a plain
+`Response(200, Map(), "hi").status` answers 200 on both, and the break appears only when a REQUEST
+is served. So F now lowers http.ssc instead of delegating, and F's output for that path is wrong at
+request time — a pre-existing F bug that delegation was hiding, in the same shape as the extern fix
+revealing GAP files underneath.
+
+Held back deliberately: shipping it would trade a correct front for a broken session feature, and
+"F is more right" is not worth a user-visible regression. The order is: fix the request-time bug,
+then land the binding, then re-measure the corpus — where the three modules above are the ones
+gating the json/yaml/markdown files.
+
+The gate already pins today's behaviour (`binding-arm-used` asserts the honest decline), and it
+FAILED on the enabled build exactly as designed — that case is the signal to update, not to delete.
+
 **CORPUS IMPACT OF THE PARSE FIX: ZERO, measured with the control.** 140 files from examples/ and
 tests/conformance/, the same list both ways, the pre-fix binary built by reverting only
 `specs/v2.2-p6.5-fsub.ssc` and verified to still decline the repro before measuring:
