@@ -7,6 +7,126 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: specs/std-fs-os.md §2.1 (the measured table; no conformance case yet)
+     fixed-in: -
+     reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
+     reported-at: 2026-08-04
+     ssc-version: toolchain built from 4f45611c6 (bin/ssc), checkout at 143dba514+
+     repro: none
+     reporter-suspects: The failure semantics were never specified because each backend's primitive was mapped directly; std.json and resolveWithin already chose totality, so fs is the outlier rather than the rule.
+     impact: workaround -->
+
+Routed from `INBOX.md` on 2026-08-07. Everything below is the reporter's, in their words.
+
+### Ask 1 is DISCHARGED; ask 2 is why this stays open
+
+**Ask 1 — state the failure contract — done in `specs/std-fs-os.md` §2.1** (`54dd1d5db`), measured
+one probe per cell across int / js / jvm / v2-native for a missing path and a wrong type. Two cells
+are deliberately blank with their reason given: permission denial (needs a mode-000 fixture, and a
+probe running as root measures nothing) and the whole Rust column (`run-rust` emits no binary for a
+hello-world on this toolchain, and the backend rejects `try`/`catch`, so "does it raise" has no
+expressible answer there — filed at the root as `rust-lane-produces-no-binary-for-hello-world`).
+
+**The measurement contradicted the report's own premise, in the reporter's favour.** They expected
+JVM and Node to raise and Rust to return a `Result`. What is actually there: `listDir` on a missing
+directory answers `List()` on **jvm**, silently, exit 0, while int, js and native all raise — which
+is the behaviour this very report argues against ("a `listDir` that answers `[]` for a missing
+directory hides a typo"). Filed as `jvm-listdir-answers-empty-where-every-other-lane-raises`. And
+`v2/native` erases the exception TYPE, so *missing* and *wrong type* are indistinguishable there
+even with a `catch` — the reporter's "permission denial and missing give the same answer" is worse
+than they knew.
+
+**Ask 2 — total variants (`listDirOpt` / `readFileOpt`) — OPEN, and it is an API decision.** It adds
+surface to `std`, and the reporter is explicit that they would NOT make `fs` total by default,
+because a caller must be able to tell "empty" from "not there" — the exact distinction the jvm lane
+destroys today. Their argument for variants is that the vocabulary already exists in the library:
+`std.json` navigation is explicitly total and `resolveWithin` returns an `Option`, so `fs` is the
+outlier rather than the rule. Their own 40-line implementation and its 28-case contract are named
+below; a decision should read those first.
+
+Not started, and named so it is not lost: **there is no conformance case** for any row of §2.1. The
+divergences above are recorded in a spec and in two BUGS entries, none of which is a gate.
+
+### The reporter's note about the tooling, acted on
+
+Their closing note — `inbox-add --body-file` accepted a body whose headings began at `##`, and
+`inbox-gate` then read each as a new entry, turning one report into five malformed ones — is a real
+defect and is **not** fixed by this entry. It belongs with `scripts/inbox-add`, which now has a
+sibling, `scripts/inbox-route`; the demotion or refusal they suggest should live in one of the two.
+
+### What I ran into
+
+Building the coding agent `nadia` (a consumer of `std`, sibling repo), one call to `listDir` on a
+directory that had been deleted raised and took the run down. That is my bug and I fixed it. What
+I am reporting is what made it possible, because I do not think I am the last person it will get:
+
+**`specs/std-fs-os.md` does not state what any `std.fs` function does when the path is missing.**
+The table maps each name to its backend implementation —
+
+| | JVM | Node | Rust |
+|---|---|---|---|
+| `listDir` | `Files.list` | `fs.readdirSync` | `fs::read_dir` |
+
+— and those three do not agree: the first two raise, the third returns a `Result`. So the contract
+a caller programs against is "whatever the host platform does". A program that behaves on one
+backend can behave differently on another, and nothing in the spec says so.
+
+### Why it lands where it does
+
+In my repository the convention "guard with `exists`/`isDir` before every read" held at 12 of 13
+call sites. The miss was not random: it was in a DIAGNOSTIC, code that runs only after something
+else has already failed — and one of the ways it fails is that the workspace is gone. Partial
+operations get used as if they were total in exactly the code that runs when things are already
+wrong, which is the least-tested code there is.
+
+Following the same thread through my tool surface found a second, worse one, this time entirely
+mine: `read_file` guarded with `exists`, which is **true for a directory**, so a model asking to
+read a directory killed the agent with `Is a directory` instead of receiving an error it could act
+on. Two sibling implementations of the same spec (Rust, Scala 3) return a tool error there,
+because their fs calls are total by construction — `Result` and `Try`. Only the ScalaScript one
+raised. That asymmetry is downstream of this contract being unstated.
+
+### What I am asking for — two things, the first much more important
+
+**1. State the failure behaviour in `specs/std-fs-os.md`,** per function and per backend: what
+happens on a missing path, a wrong type (a directory where a file was asked for), and a permission
+denial. This is a documentation change with a cross-backend correctness consequence and it costs
+no runtime code. Right now a careful reader cannot answer "does `listDir` raise?" from the spec.
+
+**2. Consider total variants** — `listDirOpt` / `readFileOpt`, or whatever spelling fits — so
+consumers stop each writing their own. The vocabulary is already in the library: `std.json`
+navigation is explicitly total ("a missing key, wrong shape, or parse failure funnels to a Null
+JsonValue, never a crash") and `resolveWithin` returns an `Option`. This asks only that `fs` get
+the principle `json` and paths already have.
+
+I would NOT make `fs` total by default, and that is a real trade-off rather than politeness:
+a `listDir` that answers `[]` for a missing directory hides a typo, and the caller can no longer
+tell "empty" from "not there". Variants let the caller choose and make the choice visible at the
+call site.
+
+### What I built meanwhile, in case it is useful as a starting point
+
+A small module in my own repo rather than a patch here — `nadia:src/fsx.ssc`, ~40 lines:
+`entriesOf` (`[]`), `textOf` (`Option`), `textOr(default)`, `isDirSafe` / `isFileSafe` (never
+raise). Contract runs alongside it: `nadia:src/fsx-check.ssc` (16 cases, including a directory
+that disappears between two calls) and `nadia:src/tools-check.ssc` (12 cases on the tool surface).
+Design and reasoning: `nadia:docs/specs/total-fs.md`. Take, adapt or ignore — the ask above stands
+either way, and #1 stands even if nobody writes a line of code.
+
+One limitation of my module that only `std` can fix: a permission denial and a missing file give
+the same answer, because there is no way to tell them apart through the current API.
+
+
+*(Note for whoever triages this: `scripts/inbox-add --body-file` accepted a body whose headings
+started at `##`, and `tests/e2e/inbox-gate.sh` then read each of them as a new entry — my first
+attempt turned one report into five malformed ones. Rewritten at `###` here. The tool could refuse
+or demote them; I have not filed that separately, since you may prefer to fix it in either place.)*
 ## cli-reporter-silent-on-module-blocks — the main-file half of a lane divergence, still open
 
 <!-- status: open
