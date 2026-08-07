@@ -272,16 +272,25 @@ one symptom bucket turned out to be a different construct than the obvious readi
       `Lt on 0 and 1000000` — an Int problem, by the look of it. An operator arm is missing for a
       pair of TYPES, so the message now names them: `Lt on String x and Int 3`.
 
-- [ ] **SSC3-7m — `Map.updated`.** `map-ops.ssc`: `method 'updated' on Map(0 entries) is not
-      implemented on this lane`.
-- [x] **SSC3-7n — `Option.flatMap`.** DONE. `map` was there and `flatMap` was not, one line apart
-      in the same dispatch block. Returns the function's result AS IS: re-wrapping would build
-      `Some(Some(x))`, which then reads as a present value at every later `isDefined` — the same
-      trap the Either case documents, and the two now sit next to each other so the contrast with
-      `map` is visible. Verified DIFFERENTIALLY: `138` on v3's executor, the v2 bridge and the v1
-      interpreter. Corpus 21 -> 22.
-- [ ] **SSC3-7o — `++` on a tuple.** `tuple-monoid.ssc`: `method '++' on #4(3, 2) is not
-      implemented on this lane`.
+- [x] **SSC3-7m — `Map.updated`.** DONE. It COPIES: `VMap` wraps a mutable `ArrayBuffer`, and the
+      one-line version that writes in place passes `map-ops` and is wrong — `val b = a.updated(k, v)`
+      must leave `a` alone. No corpus row would have caught it, because no corpus row keeps the old
+      map, so the control is a written one: `a.getOrElse(1,0)` still `10` after `a.updated(1,99)`.
+      Verified DIFFERENTIALLY: `124750` on the executor and the bridge alike.
+
+- [x] **SSC3-7o — `++` on a tuple.** DONE. `(a, b) ++ (c, d)` is `(a, b, c, d)`; tuples are
+      synthetic `TupleN` case classes and the lowering already pre-registers `Tuple2`..`Tuple8`
+      wherever a `_n` accessor appears, so the widened type exists by the time the executor needs it.
+      `t == tagOf(m, "Tuple" + f.length)` answers "is this a tuple" without a second table to keep
+      in sync.
+
+      **AND IT FOUND A BUG IN THE OTHER LANE.** The differential disagrees: `401280` on the executor,
+      `0` plus a hundred thousand `Stub`s on the bridge — which does NOT fail, it returns. Filed as
+      `BUGS.md v3-bridge-tuple-concat-emits-Stub`; pre-existing (identical with this fix stashed),
+      and invisible until now because the executor used to refuse the program first.
+
+**All four executor gaps are closed: corpus 19 -> 25 running.** What remains is 11 files, all
+declined by the FRONT.
 
 *Verifying any one of these:* `v3/ssc3 bench --warmup 0 --reps 1 bench/corpus/<file>.ssc` must print
 a `BENCH_MS:` line instead of the quoted diagnostic, and `./bench.sh --backends v3 <file>` must show

@@ -16,6 +16,42 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+
+## v3-bridge-tuple-concat-emits-Stub — a wrong answer that does not announce itself
+
+<!-- status: open
+     lane: multi
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-07 by a corpus differential, not by reading either lane.** `SSC3-7o` made
+`(a, b) ++ (c, d)` work on v3's executor. Running the same program on the two lanes then disagreed:
+
+```
+val t = (1, 2) ++ (3, 4)
+println(t._1 + t._4)
+
+  v3 executor   5
+  v2 bridge     StubStub
+```
+
+`bench/corpus/tuple-monoid.ssc` gives `401280` on the executor and `0` followed by a hundred
+thousand `Stub`s on the bridge. **The bridge does not fail.** It prints `Stub` where a value should
+be and exits successfully, so a reader sees output and assumes a result. A refusal naming the
+construct would be strictly better — that is the standard the executor is already held to, and the
+whole reason its "not implemented on this lane" messages name the method.
+
+**Pre-existing, not a regression:** the same output appears with `SSC3-7o` stashed. Before it, the
+executor refused this program, so nothing ever reached the bridge with it.
+
+**Invariant:** this is I-3 — a program that works on one lane and not the other. The unusual part is
+that it does not present as a lane gap at all, because the failing lane is the one that returns.
+
+**Smallest useful fix:** whatever `BridgeV2` emits for an unsupported method must be a diagnostic,
+not a placeholder value. Support for tuple `++` in v2 is the larger question and can stay open; a
+silent `Stub` cannot.
+
 ## rust-lane-produces-no-binary-for-hello-world — and rejects `try`/`catch` outright
 
 <!-- status: open

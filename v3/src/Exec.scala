@@ -686,6 +686,31 @@ object Exec:
           case None         => noneOf(m)
       case (Value.VMap(es), "getOrElse") =>
         es.find((k, _) => eq(k, args.head)).map(_._2).getOrElse(args.tail.head)
+      // `updated` COPIES. VMap wraps a mutable ArrayBuffer, so the one-line version that appends or
+      // overwrites in place would work on `map-ops` and be wrong: `val b = a.updated(k, v)` must
+      // leave `a` alone, and every later read of `a` would silently see `b`'s entry. That is a
+      // defect no corpus row would catch, because no corpus row keeps the old map.
+      case (Value.VMap(es), "updated") if args.length == 2 =>
+        val k = args.head
+        val v = args.tail.head
+        val copy = es.clone()
+        val i = copy.indexWhere((kk, _) => eq(kk, k))
+        if i >= 0 then copy(i) = (k, v) else copy += ((k, v))
+        Value.VMap(copy)
+      // `(a, b) ++ (c, d)` is `(a, b, c, d)`. Tuples are synthetic `TupleN` case classes, and the
+      // lowering pre-registers `Tuple2`..`Tuple8` whenever a `_n` accessor appears, so the widened
+      // type already exists by the time this runs. Checking `t == tagOf(m, "Tuple" + f.length)` is
+      // what makes "is this a tuple" answerable without a second type table to keep in sync.
+      case (Value.VData(t, f), "++") if t == tagOf(m, "Tuple" + f.length) =>
+        args match
+          case Value.VData(t2, f2) :: Nil if t2 == tagOf(m, "Tuple" + f2.length) =>
+            val n = f.length + f2.length
+            val tag = tagOf(m, "Tuple" + n)
+            if tag < 0 then
+              throw ExecError("++ would build a Tuple" + n + ", which this module does not declare")
+            else Value.VData(tag, f ++ f2)
+          case other =>
+            throw ExecError("++ on a tuple takes a tuple, given " + other.map(show).mkString(", "))
       case (Value.VArr(xs), "length") => Value.VInt(xs.length.toLong)
       case (Value.VArr(xs), "size")   => Value.VInt(xs.length.toLong)
       case (_, "toString")            => Value.VStr(showV(m, recv))
