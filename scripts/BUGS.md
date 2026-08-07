@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## uniml-ci-count-floor-went-slack-by-five — the check that guards the aggregate had stopped guarding it
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: .github/workflows/ci.yml
+     fixed-in: 1a166df03 -->
+
+**FIXED 2026-08-07.** The `uniml:` job asserts that the standalone aggregate reports one
+`All tests passed` line per project, because a build that quietly stopped aggregating still exits 0
+while testing less — the failure an exit code cannot see. It compared `passed -lt 10`.
+
+**The aggregate is 15.** `markupCoreCross`, `unimlXmlCross`, `unimlAddress` and the two JS siblings
+were added on 2026-08-06/07 and the number was never moved with them, so the check tolerated losing
+a third of the module in silence. Verified against the OLD predicate rather than reasoned about:
+at `passed` = 14, 11 and 10 it returned green.
+
+    passed   old (-lt 10)   new (-ne 15)
+    15       green          green
+    14       green          RED
+    11       green          RED
+    10       green          RED
+    16       green          RED
+
+Measured, not guessed: `cd uniml && sbt -batch test` reports 15, exit 0, 103 s.
+
+**Now EXACT rather than a floor, and that is the fix.** A floor only ratchets when someone remembers
+to ratchet it, and across five additions nobody did — the same shape as the breadth ceilings
+corrected in `49b3e86a5` the same morning. Equality means losing a project goes red AND adding one
+goes red until the number is bumped in the same commit. One line of friction, bought against a check
+that had stopped checking.
+
+**Deriving the count from `.aggregate(...)` was tried and rejected.** It reads 15 today and looks
+like the self-maintaining answer, but the failure being guarded against is a project dropping OUT of
+that list — an expectation read from the same list falls with it and stays green. The expectation
+has to be frozen where the sabotage cannot reach. Recorded in the step itself so the next reader
+does not re-derive it and think it an improvement.
+
+Found while answering a different question — whether `uniml/build.sbt` could be deleted. It cannot,
+and why is in `uniml/BACKLOG.md`; this was noticed on the way.
+
 ## launcher-digest-includes-nested-specs-so-a-doc-commit-forces-a-rebuild
 
 <!-- status: open
