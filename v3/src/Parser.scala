@@ -349,10 +349,28 @@ object Parser:
         cur = cur.tail
     if found then ln else -1
 
+  /** A method-chain continuation that starts the next line with a dot: the tokens FROM that dot,
+    * and how many INDENTs were crossed to reach it. `None` when what follows the layout is anything
+    * else, which is what stops this from consuming a statement boundary.
+    */
+  private def leadingDot(ts0: List[Tok]): Option[(List[Tok], Int)] =
+    var ts = ts0
+    var crossed = 0
+    var moved = false
+    var go = true
+    while go do
+      peek(ts) match
+        case Tok.TNewline(_) => ts = ts.tail; moved = true
+        case Tok.TIndent(_)  => ts = ts.tail; crossed += 1; moved = true
+        case _               => go = false
+    if moved && isPunct(peek(ts), ".") && ts.tail.nonEmpty then Some((ts, crossed)) else None
+
   private def parsePostfix(ts0: List[Tok]): (Expr, List[Tok]) =
     var (e, ts) = parsePrimary(ts0)
     // The line the expression built so far ENDS on — see the `(` case below for why it is needed.
     var endLine = endLineBetween(ts0, ts)
+    // INDENTs crossed by leading-dot continuations, given back as DEDENTs when the chain ends.
+    var pendingIndents = 0
     var go = true
     while go do
       // EVERY step updates `endLine`, not only the one that reads it. The first version updated it
@@ -386,6 +404,24 @@ object Parser:
               (endLine < 0 || Lexer.posOf(peek(ts)).line == endLine) then
         val (as, t) = parseArgs(ts.tail)
         e = Expr.Apply(e, as, Expr.posOf(e)); ts = t
+      // A LEADING-DOT continuation: the chain goes on, on the next and more deeply indented line.
+      //
+      //     (Bench.opaque(1) to 10)
+      //       .map(x => x * 2)
+      //       .filter(x => x % 3 == 0)
+      //
+      // The `.` branch below wants the dot as the IMMEDIATELY next token, so layout ended the chain
+      // and `streams-pipeline.ssc:10:5` died with `expected an expression, found <indent>`.
+      //
+      // Consuming layout ONLY when a `.` actually follows it is what keeps this from repeating the
+      // `(` case's mistake in a new place: there is nothing to guess here, because no statement in
+      // this language begins with a dot. INDENTs crossed are counted and their DEDENTs given back
+      // at the end — the same bookkeeping `parseBin` does after a trailing operator, and for the
+      // same reason: an unmatched DEDENT ends the enclosing block one statement early.
+      else if leadingDot(ts).isDefined then
+        val (afterLayout, crossed) = leadingDot(ts).get
+        pendingIndents = pendingIndents + crossed
+        ts = afterLayout
       else if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
         peek(ts.tail) match
           case Tok.TId(nm, p) =>
@@ -404,7 +440,7 @@ object Parser:
       else go = false
       // The step consumed `stepFrom` down to `ts`; that is where the expression now ends.
       if go then endLine = endLineBetween(stepFrom, ts)
-    (e, ts)
+    (e, dropDedents(ts, pendingIndents))
 
   /** `match` arms, brace-delimited or indented. An arm's body runs until the next `case` or the end
     * of the block, which is why the body is parsed as a statement sequence rather than one

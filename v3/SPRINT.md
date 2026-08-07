@@ -252,17 +252,26 @@ one symptom bucket turned out to be a different construct than the obvious readi
       knows what `to`/`until` mean. Precedence rows shifted 1..8 → 2..9 because Scala puts
       alphanumeric operators BELOW every symbolic one and there is no integer between 0 and 1.
 
-- [ ] **SSC3-7p — a leading-dot method chain on continuation lines.** `streams-pipeline.ssc:10:5`
-      → `expected an expression, found <indent>`:
+- [x] **SSC3-7p — a leading-dot method chain on continuation lines.** DONE. The `.` branch of the
+      postfix loop wanted the dot as the IMMEDIATELY next token, so layout ended the chain.
 
-          (Bench.opaque(1) to 10)
-            .map(x => x * 2)
-            .filter(x => x % 3 == 0)
+      Layout is consumed ONLY when a `.` actually follows it, which is what keeps this from
+      repeating the `(` case's mistake in a new place: there is nothing to guess, because no
+      statement in this language begins with a dot. INDENTs crossed are counted and their DEDENTs
+      given back when the chain ends — the same bookkeeping `parseBin` does after a trailing
+      operator, and for the same reason: an unmatched DEDENT ends the enclosing block one statement
+      early.
 
-      The chain continues on the next line, more deeply indented, starting with `.`. Found by
-      re-running the file after 7h rather than by reading the source. Note the file may hold a
-      further blocker behind this one (`Bench.opaque`), which is worth expecting rather than being
-      surprised by — that is what the corpus chain in SSC3-6 looks like every time.
+      **The file behind it still does not run**, exactly as this entry predicted when it was
+      written: `streams-pipeline.ssc:9:4` now says `unknown name 'Bench'`. Filed as SSC3-7r. Corpus
+      stays at 28 — the parser gap is closed and the row is not, and those are two different facts.
+
+- [ ] **SSC3-7r — `Bench.opaque`.** `streams-pipeline.ssc:9:4` → `unknown name 'Bench'`. The shared
+      anti-fold helper (`docs/bench/corpus-antifold.md`): it exists so an AOT backend cannot fold a
+      pure pipeline to a literal. v3 has no optimiser to defeat, so the honest implementation is the
+      IDENTITY — the same reasoning that makes `asInstanceOf` the identity at Tier 0. Worth checking
+      how many other corpus rows use it before deciding where it lives.
+
 - [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
       `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall
       SSC3-6 already names (`[` at 36 cases), so this is gated on the type checker decision.
