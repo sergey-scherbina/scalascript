@@ -10,6 +10,25 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] ssc3-handover-gate + ssc3-projection-questions — **UniML's side of ssc3 is discharged, and
+      v3's four open questions are answered.**
+      `Ssc3HandoverSpec` asserts all EIGHT things `40-front-on-uniml.md` §5b says UniML owes v3;
+      all eight hold. The spec called its own list "stale by construction — re-measure, do not
+      inherit" and had no apparatus for that: eight items, eight claims, no standing check. Its
+      item 8 read "Still open" while this board had it `[x]`.
+      **The differential could not have caught the drift**: `v3/front-diff.sh` reports GREEN with
+      `1 front, agree 0`, because `v3/src/Front.scala` lists only `v3` as runnable. It is honest
+      about that in its output; the consequence is that nothing on this side moves its number.
+      `Ssc3ProjectionCensusSpec` then answered `50-uniml-projection.md` §7, which says to MEASURE
+      before writing: Q1 **no** (0 case classes with a second parent — the first detector said 4 and
+      all four were commas inside type arguments), Q2 **yes** (164 typed lambda params, so
+      "lossless" holds only for v3 and not about the source), Q3 **yes, 180** nested declarations
+      against 651 `def` members, so v3's refusal is on a hot path, and Q4 **the mapping is not
+      mechanical** — offsets are CODE POINTS, and one corpus file with emoji already puts the naive
+      `substring` arithmetic at column 181 of a 177-character line.
+      Nothing on either list is waiting on UniML. The rest is v3's: the projection and the wiring
+      in `Front.parse`, which the spec says SSC3-4 consumes and must not duplicate.
+
 - [x] md-fence-body-roundtrip — **composed round-trip reaches 1238 of 1238.** `inject` spliced
       `roots.headOption`: a parse yields one root per top-level construct, so a body that is not a
       single construct has several — `// a` + `//   b` is FOUR roots, `{ "a": 1 }` is TWO — and

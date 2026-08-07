@@ -133,9 +133,47 @@ refuses today anyway.
 Recording it because the opposite assumption is the natural one, and it would have produced a front
 that resolved no imports while looking correct.
 
-## 7 · Open questions, to be MEASURED before the code is written
+## 7 · Open questions, to be MEASURED before the code is written — ANSWERED 2026-08-07
 
-Not answered here on purpose. Each is a probe, and this document is where the answers go.
+Each was a probe, and this is where the answers go. The apparatus is
+`uniml/scala/src/test-jvm/…/ssc/Ssc3ProjectionCensusSpec.scala`, which re-runs every census and
+pins each ANSWER — not a threshold — so a corpus change that flips one goes red here rather than
+being discovered while writing the projection.
+
+| # | question | answer, 2026-08-07 |
+|---|---|---|
+| 1 | `case class C(…) extends A with B`? | **NO.** 723 case classes, 151 with a parent, **0** with a second. `Option[String]` is faithful; no node growth to request. |
+| 2 | typed / defaulted lambda params? | **YES, 164 source lines.** `Vector[String]` drops a type the source wrote. |
+| 3 | an object holding a nested class? | **YES, 180**, across 257 objects — member kinds `Def=651, TopExpr=417, ObjectDecl=96, CaseClass=84`. |
+| 4 | spans | **The mapping is NOT mechanical: offsets are CODE POINTS.** |
+
+**Q1 — no, and the first measurement said yes.** A naive "the text after `extends` contains a
+comma" reported four hits and all four were false: three were commas inside type ARGUMENTS
+(`extends Either[A, B]`, `extends Proc[Int, Int]`) and one was a comment. The census now scans at
+bracket depth zero. Had the first number been believed, this document would carry a request to grow
+a node that nothing in the corpus needs.
+
+**Q2 — yes, so "believed lossless" needs its qualifier.** 164 lines write a typed lambda parameter
+(`(state: String) =>`, `(a: A, as: List[A]) =>`). `Lambda.params: Vector[String]` is lossless **for
+v3 only while v3's lambdas take no parameter types** — it is not lossless about the source. That
+distinction is the answer; the projection may proceed, but not on the grounds that nothing is being
+dropped. This detector was also wrong first: a regex counted `case Some(s: String) =>` (a typed
+PATTERN) and `case class C(f: () => Any)` (a function-typed FIELD) among 195 hits.
+
+**Q3 — yes, emphatically, so the refusal is on a HOT PATH.** 180 nested declarations, and the
+histogram is the argument: against 651 `def` members there are 96 nested objects and 84 nested case
+classes. §7's phrasing — "confirm the refusal fires rather than the class vanishing" — is the right
+worry rather than a formality, and a green corpus sweep will NOT exercise it by accident.
+
+**Q4 — the mapping is not mechanical, and this is the answer that changes code.** `SourceSpan`
+offsets are **code points**, not UTF-16 code units. A projection computing a `Pos` with
+`src.substring(0, offset)` is off by one per astral character, and the corpus already reaches it:
+`examples/control-center-live.ssc` line 93 carries four emoji, and the naive arithmetic put a token
+at column 181 of a 177-character line. Verified in both directions — with code-point arithmetic all
+**778,738 tokens across 1,240 files** agree, and a dedicated case asserts the two arithmetics
+DISAGREE on an astral input, so the trap cannot quietly stop being one.
+
+The questions as originally written:
 
 1. **`CaseClass.parent` is an `Option[String]`; v3's `ClassDef.parents` is a list.** Does the corpus
    write `case class C(…) extends A with B`? If it does, the projection cannot be faithful until
