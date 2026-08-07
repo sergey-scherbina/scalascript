@@ -2,10 +2,21 @@ slug: js-control-direct-suite-wired
 branch: feature/js-control-direct-suite-wired
 agent: claude-code
 started: 2026-08-07T06:38:41Z
-heartbeat: 2026-08-07T06:38:41Z
-status: claimed-before-planning
+heartbeat: 2026-08-07T07:10:00Z
+status: in-progress
 items: js-control-direct-tests-never-run
-paths: file:v2/host/js/control-direct/package.json file:v2/host/js/control-direct/package-lock.json file:tests/e2e/js-control-direct-gate.sh file:v1/runtime/backend/js/BUGS.md file:scripts/smoke-ci.ssc
+paths: file:v2/host/js/control-direct/test/transform.test.js file:v2/host/js/control-direct/test/cli.test.js file:tests/e2e/js-control-direct-gate.sh file:.github/workflows/js-packages.yml file:v1/runtime/backend/js/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The control-direct suite landed WITH its fix and nothing ran it; 16 of its 39 tests could not
+  run at all, because this package's own index.d.ts imports @scalascript/control and resolves
+  it from the PACKAGE ROOT, while the harness symlinked the sibling into the FIXTURE dir.
+  Supply it through TypeScript paths - the mechanism README names and tsconfig.json already
+  used. NOT through a dependency entry: test/package.test.js freezes this package at zero
+  local deps and refused exactly that, which is the design defending itself. Wiring goes in a
+  NEW workflow: ci.yml is held live by uniml-ci-floor-tracks-the-aggregate, and smoke-ci.ssc
+  has its own budget bug still OPEN (tests/BUGS.md smoke-suite-over-its-own-budget) - a 19 s
+  check added to a suite that breached its cap three times is pushing on the weak spot.
+  package.json is deliberately OUT of scope: it must stay unchanged.
+done-so-far: paths supplied in 3 places; clean-room verified 39/39 + typecheck; gate proven
+  in BOTH directions (OK with fix, FAIL 16/39 with it reverted)
+next: add the js-packages workflow, then triage the 11 js-control-direct-* BUGS entries
