@@ -146,11 +146,31 @@ identical hash, checked character by character and now frozen on both lanes as a
 (`HostCaseAgreementSpec`). Keeping a correct conclusion propped up by a wrong reason is how the
 conclusion gets overturned later by someone who checks the reason.
 
-The real divergence is **between ScalaScript's own RUNTIMES**, which is a different and worse
-problem: the interpreter delegates to `Character.isUpperCase`, the js backend tests `/\p{Lu}/u`, and
-**42 BMP characters differ** — Java counts `Other_Uppercase`, `\p{Lu}` does not. Roman numerals are
-the readable case: `case Ⅷ =>` MATCHES on the interpreter and BINDS a variable on js. Same source,
-different meaning, silently.
+The reason that replaced it was **also wrong, and this paragraph is the correction.** It said the
+real divergence was between ScalaScript's own runtimes — interpreter via `Character.isUpperCase`, js
+via `/\p{Lu}/u`, 42 BMP characters apart — with `case Ⅷ =>` matching on one lane and binding on the
+other. I took that from a sprint note dated 2026-08-05 and wrote it in here as current fact.
+Measured 2026-08-07, it is not:
+
+- **The js runtime no longer tests `\p{Lu}`.** `core-collections.mjs` uses `/\p{Uppercase}/u`, which
+  DOES include `Other_Uppercase`, and its comment names the exact trap: *"`\p{Lu}` is NOT
+  isUpperCase (Java adds Other_Uppercase, e.g. Roman numerals)"*. It is held by
+  `tests/e2e/js-char-classification-parity.sh`, which reports **"PASS: both lanes agree on every
+  probe"**.
+- **`case Ⅷ =>` was never governed by that anyway.** Constructor-versus-binder is decided by the
+  FRONT, not the runtime, and every front spells uppercase as ASCII: `isUpper = (c) => c >= 65 && c
+  <= 90` in `ssc1-front.ssc0`, `mira-front.ssc0` and `ssct-front.ssc0` alike. `Ⅷ` is U+2167, so it
+  is a BINDER on every lane by construction — one range comparison, no host call, no table.
+
+So the conclusion of this section survives its second wrong reason, which is exactly why the reason
+is worth stating precisely: **`Prim` is the wrong door for language semantics because a rule the
+host answers is a rule the language does not own.** That argument needs no divergence to exist
+today; it is about where the decision lives, and a divergence that has since been fixed is evidence
+for the rule rather than the rule itself.
+
+The case TABLE below remains justified on its own ground — making every lane agree about `isUpper`
+as a LIBRARY operation, which is what the parity gate now enforces — and not on a pattern-matching
+divergence that the fronts' ASCII rule already prevents.
 
 **So the alphabet and CASE are two questions, and only the first is tableless.** The table above
 stands: every line a range comparison, no table, on any host. Case cannot be done that way — making
