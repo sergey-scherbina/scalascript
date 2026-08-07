@@ -9,12 +9,26 @@ Newest first.
 
 ## coord-release-does-not-check-the-work-landed — a claim can be released, and its record written, over a branch that was never pushed
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
-     gate: none
-     fixed-in: - -->
+     gate: tests/coord/coord-release-refuses-unpushed-work.sh
+     fixed-in: 090ce006f7eac699ab015a84602c0781521ee11f -->
+
+**FIXED 2026-08-07.** `coord-release` now reads `branch:` from the claim and refuses when that
+branch has commits `origin/main` does not, BEFORE it removes anything or commits. An abandoned
+branch is still releasable with `COORD_RELEASE_ALLOW_UNPUSHED=1`, which says so on stderr rather
+than passing quietly. Two cases stay notes rather than refusals, because refusing them would break
+ordinary use: a claim with no `branch:` (the old single-line form) and a branch already deleted
+(merged-and-deleted is the normal order). Both print what could not be checked — a check that cannot
+run must not look like one that ran.
+
+**The A/B is the evidence, not the green.** `tests/coord/coord-release-refuses-unpushed-work.sh`
+against the PRE-guard script: 11 checks fail, and the 6 controls pass on both. The controls are the
+point — a guard on the release path can break every agent's release, so the file asserts that an
+ordinary pushed release still works, that the level still reaches the message, and that the two note
+cases still release. All 11 files in `tests/coord/` are green.
 
 `scripts/coord-release` fetches origin and fast-forwards main, then removes the claim file and
 writes the release record. **It never checks that the claim's own work is reachable from
