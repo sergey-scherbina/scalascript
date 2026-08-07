@@ -45,7 +45,21 @@ later `map`/`filter`/`take` is an ordinary method call on the value that produce
 those invokes for v2, which has no such value, so dispatch fails at the far end with no idea what
 was asked for.
 
-**Smallest useful fix:** `BridgeV2` should refuse `__lazyFrom__` BY NAME at lowering time — "the v2
+**THREE KNOWN TRIGGERS, one cause — measured 2026-08-07, and the count is the argument for a generic
+fix rather than three specific ones:**
+
+```
+LazyList.from(0).filter(…)   __method__: no dispatch for .filter on <closure>
+(0 until 5).map(…)           __method__: no dispatch for .until on 0
+(1 to 10).map(…)             __method__: no dispatch for .to on 1
+```
+
+Each arrived the same way: v3's executor gained a method, `BridgeV2` forwarded the invoke unchanged,
+and v2 — which has no such method — failed at the far end with no idea what was asked for. None is a
+REGRESSION; before each feature landed the FRONT refused those programs, so nothing ever reached the
+bridge with them. Every executor method v3 adds from here will do this again until the bridge checks.
+
+**Smallest useful fix:** `BridgeV2` should refuse an invoke v2 does not have BY NAME at lowering time — "the v2
 bridge has no LazyList" — rather than emitting an invoke that dies unexplained three layers down.
 Supporting laziness in v2 is a much larger question and can stay open; a stack trace cannot.
 

@@ -266,11 +266,16 @@ one symptom bucket turned out to be a different construct than the obvious readi
       written: `streams-pipeline.ssc:9:4` now says `unknown name 'Bench'`. Filed as SSC3-7r. Corpus
       stays at 28 — the parser gap is closed and the row is not, and those are two different facts.
 
-- [ ] **SSC3-7r — `Bench.opaque`.** `streams-pipeline.ssc:9:4` → `unknown name 'Bench'`. The shared
-      anti-fold helper (`docs/bench/corpus-antifold.md`): it exists so an AOT backend cannot fold a
-      pure pipeline to a literal. v3 has no optimiser to defeat, so the honest implementation is the
-      IDENTITY — the same reasoning that makes `asInstanceOf` the identity at Tier 0. Worth checking
-      how many other corpus rows use it before deciding where it lives.
+- [x] **SSC3-7r — `Bench.opaque`.** DONE, as the IDENTITY, and that is the honest implementation
+      rather than a shortcut. Its whole job is to stop an OPTIMISER proving the surrounding
+      expression constant — `std::hint::black_box` on Rust, an ordinary identity call on JVM/JS/interp.
+      v3 walks IR and folds nothing, so there is nothing to defeat; the same reasoning makes
+      `asInstanceOf` the identity in the executor. `streams-pipeline` runs: `36`, which is
+      `(1 to 10).map(_*2).filter(_%3==0).sum` = 6+12+18 by hand. Corpus 28 -> 29.
+
+      **One consequence, stated:** the v2 bridge inherits the erasure, so a program measured through
+      the bridge loses the barrier. Nothing measures that lane today — `bench/run.sc` has no
+      v3-bridge column — but a future one would need the barrier emitted rather than erased.
 
 - [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
       `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall

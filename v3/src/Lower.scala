@@ -400,6 +400,23 @@ object Lower:
     // RECEIVER is the starting Int, so there is no `LazyList` name to resolve at run time and the
     // executor needs no notion of a module object. Everything after it (`map`, `take`, `sum`) is an
     // ordinary method call on the value this produces.
+    // `Bench.opaque(x)` — the corpus anti-fold barrier — is the IDENTITY here, and that is the
+    // honest implementation rather than a shortcut. Its whole job (`v1/runtime/std/bench.ssc`,
+    // `docs/bench/corpus-antifold.md`) is to stop an OPTIMISER proving the surrounding expression
+    // constant: on Rust it becomes `std::hint::black_box`, on JVM/JS/interp it is already an
+    // ordinary identity call. v3 walks IR and folds nothing, so there is nothing to defeat — the
+    // same reasoning that makes `asInstanceOf` the identity in the executor.
+    //
+    // Used without an import in the corpus, so there is no `std/bench.ssc` to resolve; the name is
+    // matched here for the same reason `Set`/`Map`/`Array` are.
+    //
+    // ONE CONSEQUENCE, stated: the v2 BRIDGE inherits this erasure, so a program measured through
+    // the bridge loses the barrier. Nothing measures that lane today — `bench/run.sc` has no
+    // v3-bridge column — but a future one would need the barrier emitted rather than erased.
+    case Expr.MethodCall(Expr.Name("Bench", _), "opaque", List(argE), _)
+        if !classes.exists(c => c.name == "Bench") =>
+      lower(argE, fns, classes, zeroArity, st0)
+
     case Expr.MethodCall(Expr.Name("LazyList", _), "from", List(argE), _)
         if !classes.exists(c => c.name == "LazyList") =>
       val (ai, ar, st1) = lower(argE, fns, classes, zeroArity, st0)
