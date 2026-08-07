@@ -500,6 +500,14 @@ object SpikeParse:
     def parenDepth: Int = pdepth
     def enterParen(): Unit = pdepth += 1
     def exitParen(): Unit = if pdepth > 0 then pdepth -= 1
+    // The column of the innermost offside block being parsed. `parseIf` needs it: an `else` at a
+    // column that would CLOSE the enclosing block cannot belong to an `if` inside that block. A
+    // stack rather than a single value because blocks nest, and `-1` when none is open so a
+    // top-level `if` is unconstrained.
+    private var blockCols: List[Int] = Nil
+    def pushBlockCol(n: Int): Unit = blockCols = n :: blockCols
+    def popBlockCol(): Unit = blockCols = blockCols.drop(1)
+    def curBlockCol: Int = blockCols.headOption.getOrElse(-1)
     private def skipTrivia(): Unit = while p < toks.length && toks(p).kind == "spike.ws" do p += 1
     def eof: Boolean = { skipTrivia(); p >= toks.length }
     def peek: Option[SourceToken] = { skipTrivia(); if p < toks.length then Some(toks(p)) else None }
@@ -1119,8 +1127,10 @@ object SpikeParse:
     // the reference front parses (it fails at RUNTIME on an undefined name, not at parse).
     def enclClose = stopAtParen &&
       (c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket" || c.peekKind == "spike.comma")
+    c.pushBlockCol(blockCol)
     while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" && !enclClose do
       stmts += parseStmt(c)
+    c.popBlockCol()
     Node.Frame("spike.block", None, stmts.result())
 
   // `{ val x = e … finalExpr }` — a braced block at expression position (Scala optional-braces). Projects
@@ -2277,7 +2287,25 @@ object SpikeParse:
     kids += branchExpr(c, thenLine).withRole("if.thenE")
     // `else` is OPTIONAL (`if c then e` is a statement whose else defaults to Unit) — see ifExpr projection.
     // elseLine is the line of `else` itself (BEFORE consuming), so an offside else-branch block is detected.
-    if isKw(c, "else") then
+    // AN `else` THAT WOULD CLOSE THE ENCLOSING BLOCK IS NOT THIS `if`'s. Taking it unconditionally
+    // was the dangling-else bug:
+    //
+    //     if x == 1 then
+    //       r = 1
+    //       if x == 1 then r = 11      <- inner `if`, a statement of the block at column 5
+    //     else if x == 2 then          <- `else` at column 3 CLOSES that block
+    //
+    // The inner `if` swallowed the `else`, so the OUTER `if` was left with no else branch at all
+    // and `f(2)` computed 0 where the reference front answers 2. A WRONG ANSWER, not a loss, which
+    // is why no diagnostic count saw it: this was every one of the 74 corpus disagreements in
+    // `v3/front-diff.sh`, all of them `scljet-*` cases importing one `sql.ssc` that spells
+    // `else if` after an indented single-line `if`.
+    //
+    // The rule is columnar and NOT "an `else` binds to the nearest `if`": in an `else if` chain the
+    // inner `if` sits at the same block level, so a following `else` at that column is >= and does
+    // bind to it, which is what Scala means. `-1` when no block is open leaves a top-level `if`
+    // unconstrained.
+    if isKw(c, "else") && c.peekCol >= c.curBlockCol then
       val elseLine = c.peekLine
       c.advance().foreach(t => kids += Node.Leaf(t, Some("if.else")))
       kids += branchExpr(c, elseLine).withRole("if.elseE")
