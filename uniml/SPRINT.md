@@ -388,12 +388,28 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       because "the same source would lex differently on the JVM, on JS and on the v2 VM". As
       compile hosts that is FALSE: JVM and Scala.js agree exactly — 1,169 uppercase code points,
       identical hash, checked character by character (`HostCaseAgreementSpec`, now frozen on both
-      lanes as a canary). The real divergence is between ScalaScript's OWN runtimes: the
-      interpreter delegates to `Character.isUpperCase`, the js backend tests `/\p{Lu}/u`, and
-      **42 BMP characters differ** — Java counts `Other_Uppercase`, `\p{Lu}` does not. Roman
-      numerals are the readable example: `case Ⅷ =>` would MATCH on the interpreter and BIND on js.
-      Same source, different meaning, silently. So the conclusion §3 reached is right and its stated
-      reason was not; a baked table is what makes every lane agree.
+      lanes as a canary). The real divergence WAS between ScalaScript's OWN runtimes: the
+      interpreter delegates to `Character.isUpperCase`, the js backend tested `/\p{Lu}/u`, and
+      **42 BMP characters differed** — Java counts `Other_Uppercase`, `\p{Lu}` does not.
+      **⚠️ CORRECTED 2026-08-07 — the divergence is CLOSED, and the example never showed it.**
+      (1) It was real when written and was fixed the SAME DAY, hours later: `7726802b3` filed it,
+      `b8b58dfc3` ("char classification means the same thing on both lanes") closed it, js now
+      tests `/\p{Uppercase}/u`, and `tests/e2e/js-char-classification-parity.sh` reports both lanes
+      agreeing on every probe. The entry stood as written for two days, and I copied it into
+      `v3/specs/20-core-language.md` as a CURRENT fact — that spec is corrected in `996a81227`;
+      the message of `c42173618` still carries the stale version, messages being immutable.
+      **An entry that records a defect must be re-read when the defect is fixed, or it becomes a
+      source.** (2) `case Ⅷ =>` never demonstrated it either. Constructor-versus-binding is the
+      FRONT's decision, and the front is shared — the `HostCaseAgreementSpec` result two sentences
+      up is precisely why it cannot diverge. Measured on all three lanes today: `Ⅷ` is a
+      CONSTRUCTOR pattern everywhere (int and native print `NO MATCH`, js emits `_t1 === Ⅷ`),
+      while lowercase `ч` binds everywhere. So §3's conclusion is right, its stated reason was not,
+      and this correction's own example was not either — the table is still what makes every lane
+      agree, and that is the claim that survived three separate checks.
+      **The probe did find a defect, just not this one.** The ASCII control `case Nope =>` is a
+      silent non-match on int and native and a run-time `ReferenceError` on js, where Scala 3
+      refuses to compile it. Filed at the root as
+      `an-undefined-name-in-a-pattern-means-three-different-things`.
       **Cost, measured rather than asserted.** 1,143 code points in **606 ranges** — MORE fragmented
       than the 378 ranges covering all 48,913 non-ASCII letters, because case alternates character
       by character through Latin Extended. ~4.8 KB as `Vector[Int]`. Consulted only after an ASCII

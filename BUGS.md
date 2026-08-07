@@ -16,6 +16,59 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## an-undefined-name-in-a-pattern-means-three-different-things — two lanes ignore it, one throws
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: divergence
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-07 while re-checking whether `case Ⅷ =>` still diverges across lanes — it does not,
+and the correction is in `uniml/SPRINT.md` under UNIML-SSC3-ALPHABET. The probe was about Unicode;
+the ASCII **control** is what carried a defect.
+
+    def main() =
+      val x = 1
+      x match
+        case Nope => println("BOUND, value=" + Nope)
+        case _ => println("NO MATCH")
+
+    lane      result
+    int       NO MATCH                             silent, exit 0
+    native    NO MATCH                             silent, exit 0
+    js        ReferenceError: Nope is not defined  throws at run time, exit 1
+
+**Scala 3 rejects this at compile time** — `not found: value Nope`. The name is capitalised, so it
+is a stable-identifier pattern rather than a binding; no lane resolves it, and each invents its own
+answer for the unresolvable case. The lowercase control binds on every lane, so the capitalisation
+rule itself is fine — what is missing is the resolution check behind it.
+
+js emits the reference verbatim and lets the host decide:
+
+    if ((_t1 === Nope || (_t1 && _t1._type === 'Nope'))) {
+
+so a compile error arrives as a run-time `ReferenceError`, and only when that `match` is REACHED —
+a pattern in a cold branch ships and throws in production.
+
+**int and native are not better, only quieter.** A silent non-match means a typo'd or renamed
+constructor stops matching with no diagnostic: the arm simply never runs.
+
+Same shape as `multi-name-val-binds-garbage-and-says-nothing` directly below — a construct no corpus
+covers, each lane answering differently, and the quiet lanes being the dangerous ones. A fix belongs
+in the fronts' resolution step rather than per backend: if the front refuses an unresolved
+stable-id pattern, all three agree by construction.
+
+**Toolchain, checked rather than disclaimed:** reproduced with a toolchain built from `ca6cce2d0`
+while the repo was at `c5f59d368`. Of the 171 files changed across those 218 commits, none touches
+pattern resolution or the typer, so the measurement holds for this question; confirm on a fresh
+build before closing.
+
+**No gate names this.** A fix should land the three-lane row above as a conformance case, since an
+output comparison is what distinguishes "no match" from "did not run".
+
+
 ## multi-name-val-binds-garbage-and-says-nothing — `val a, b = 1` on four lanes, four answers
 
 <!-- status: open
