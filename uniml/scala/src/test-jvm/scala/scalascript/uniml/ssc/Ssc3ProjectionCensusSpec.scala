@@ -176,16 +176,36 @@ final class Ssc3ProjectionCensusSpec extends AnyFunSuite:
     info(s"objects: ${objs.size}; member kinds: ${memberKinds.map((k, n) => s"$k=$n").mkString(", ")}")
     info(s"objects holding a nested CLASS/TRAIT/OBJECT: ${nested.size}")
     nested.take(5).foreach(n => info(s"  $n"))
-    // THE ANSWER IS YES, EMPHATICALLY: 180 nested declarations across 257 objects as of
-    // 2026-08-07, and the member histogram shows ObjectDecl=96 and CaseClass=84 against Def=651.
-    // So v3's "def members only" refusal is on a HOT PATH, not an edge, and §7's phrasing — "confirm
-    // the refusal fires rather than the class vanishing" — is the right worry rather than a
-    // formality. Pinned as the answer: if this reaches zero, the question changes.
+    // THE ANSWER IS YES, BUT BARELY — AND THE FIRST ANSWER WAS AN ARTEFACT OF A BUG IN THIS
+    // PARSER. Measured the same morning: 180 nested declarations across 257 objects, member
+    // histogram ObjectDecl=96, CaseClass=84, Def=651. Every one of those numbers was wrong.
+    //
+    // `parseObject` and `parseTraitOrClassNoop` ran their member loop even when the declaration had
+    // NO BODY — no braces, no colon. `bodyCol` then took the column of the NEXT TOP-LEVEL
+    // DECLARATION, `peekCol >= bodyCol` held trivially, and the sibling was parsed as a member.
+    // Cascading, so `trait K` / `case object A` / `case class B` / `def f` at column 1 collapsed
+    // into ONE declaration four deep. The reference front does not do this — `ssc1-front.ssc0:2991`
+    // requires a `{` and gives an EMPTY body otherwise — and neither does any Scala compiler.
+    //
+    // After the fix: 4 nested declarations, ObjectDecl=0, CaseClass=4, Def=261. So 176 of the 180
+    // were SWALLOWED SIBLINGS and 390 top-level `def`s had been absorbed into a preceding object.
+    // The lesson is the one this repo keeps relearning: a census answers only its own question, and
+    // this one was asked of a tree the parser had rearranged. It read as a hot path and was noise.
+    //
+    // The refusal v3 must write is therefore on a COLD path — 4 cases, all `case class` inside an
+    // `object` — which is exactly what §7 said to find out before writing it. Whoever writes it
+    // plants a case; a green corpus sweep proves nothing here.
     assert(nested.nonEmpty,
       "Q3 has flipped to NO — no object holds a nested declaration any more; re-read §7")
-    assert(nested.sizeIs > 100,
-      s"Q3: nested declarations dropped to ${nested.size} from the 180 measured on 2026-08-07 — " +
-      "that is a corpus change, and the projection's refusal may no longer be on a hot path")
+    assert(nested.sizeIs >= 4,
+      s"Q3: nested declarations dropped to ${nested.size} from the 4 measured on 2026-08-07 " +
+      "AFTER the body-less-declaration swallow was fixed — that is a corpus change")
+    assert(nested.sizeIs < 100,
+      s"Q3: nested declarations jumped to ${nested.size}. The swallow bug is BACK: a body-less " +
+      "`trait X` or `object X` is eating the declarations that follow it at the same column.")
+    assert(memberKinds.toMap.getOrElse("ObjectDecl", 0) == 0,
+      s"Q3: an object holds a nested OBJECT again (${memberKinds.toMap.getOrElse("ObjectDecl", 0)}). " +
+      "That was the swallow bug's loudest symptom — check the offside rule in parseObject.")
   }
 
   test("§7 Q4 — a span's line/column agrees with its offset, on every token of every file") {

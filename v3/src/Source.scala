@@ -81,7 +81,20 @@ object Source:
     * and ```` ```scalascript ```` blocks and expects both to run, in source order. Its name says so.
     * ```sql / ```yaml stay excluded, and those really are data. */
   private def isCodeFenceOpen(l: String): Boolean =
+    // The info string may carry ATTRIBUTES — ```` ```scalascript @id=defs ```` — and matching it
+    // whole skipped the fence entirely, so `fence-attr-code` compiled with two of its three blocks
+    // missing and no diagnostic. Only the first word names the language.
     val t = trimmed(l)
-    t == "```scalascript" || t == "```ssc" || t == "```scala"
+    if !t.startsWith("```") then false
+    else
+      val info = t.substring(3).trim
+      val lang = info.takeWhile(c => c != ' ' && c != '\t')
+      // `@doc` marks the block as DOCUMENTATION: it is shown, never compiled. `fence-doc-block`
+      // is the case, and it says so in its own prose — "its `demo` must not become a program
+      // definition". Reading attributes without reading this one traded a fence that was wrongly
+      // SKIPPED for a fence that is wrongly RUN, which is the worse of the two.
+      // `@doc=false` is an explicit opt-out, matching `SscCompose.docAttr`.
+      val doc = info.split(Array(' ', '\t')).exists(a => a == "@doc" || (a.startsWith("@doc=") && a != "@doc=false"))
+      !doc && (lang == "scalascript" || lang == "ssc" || lang == "scala")
 
   private def isFenceClose(l: String): Boolean = trimmed(l) == "```"

@@ -275,6 +275,24 @@ object Lexer:
         s = adv(s)
       if done(s) || at(s) != '\'' then throw LexError(p, "unterminated character literal")
       (Tok.TChar(code, p), adv(s))
+    // A TRIPLE-QUOTED string: raw, may span lines, no escapes. Without it `"""{"user":…}"""` lexed
+    // as the empty string `""`, then `{`, then a run of tokens from the JSON inside, and one `val`
+    // became twenty-one statements — a well-formed program saying something the source did not.
+    // `json-value` and `json-lookup` came out that way; the UniML front, which has the form, is
+    // what made the difference visible.
+    else if c == '"' && !done(adv(s0)) && at(adv(s0)) == '"'
+            && !done(adv(adv(s0))) && at(adv(adv(s0))) == '"' then
+      var s = adv(adv(adv(s0)))
+      var text = ""
+      var closed = false
+      while !closed do
+        if done(s) then throw LexError(p, "unterminated triple-quoted string literal")
+        else if at(s) == '"' && !done(adv(s)) && at(adv(s)) == '"'
+                && !done(adv(adv(s))) && at(adv(adv(s))) == '"' then
+          s = adv(adv(adv(s))); closed = true
+        else
+          text = text + at(s); s = adv(s)
+      (Tok.TStr(text, p), s)
     else if c == '"' then
       var s = adv(s0)
       var text = ""

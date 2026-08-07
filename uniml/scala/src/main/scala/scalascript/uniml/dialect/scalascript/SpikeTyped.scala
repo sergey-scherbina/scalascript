@@ -127,8 +127,8 @@ object SpikeTyped:
                 kids(n).collect { case (_, c) if kind(c) == "spike.def" => defDecl(c) }, span(n))
     case "spike.exprStmt"  => TopExpr(byRole(n, "stmt.expr").map(expr).getOrElse(UnitLit(span(n))), span(n))
     case "spike.object"    =>
-      ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "obj.member").map(decl),
-                 flag(n, "obj.case"), span(n))
+      ObjectDecl(byRole(n, "obj.name").map(lex).getOrElse("_"), allByRole(n, "td.parent").map(lex),
+                 allByRole(n, "obj.member").map(decl), flag(n, "obj.case"), span(n))
     case "spike.val"       => TopExpr(valOf(n, "val"), span(n))
     case "spike.var"       => TopExpr(valOf(n, "var"), span(n))
     // Statements that `.ssc` also allows at TOP LEVEL. `expr` already models each of them; only
@@ -219,7 +219,12 @@ object SpikeTyped:
       (byRole(n, "def.name").map(lex).getOrElse("_") +: allByRole(n, "def.nameseg").map(lex)).mkString("."),
       slots(n, "def.param", Set("def.paramType", "def.usingtype"), "def.dflt"),
       byRole(n, "def.retType").map(typeRef),
-      byRole(n, "def.body").map(expr).getOrElse(UnitLit(span(n))),
+      // NO `def.eq`, no body: an ABSTRACT signature — a trait method or an effect op. The
+      // placeholder used to be `UnitLit`, which made it indistinguishable from `def f(): Unit = ()`
+      // — a real implementation. A front reading this tree has to know the difference: one
+      // dispatches to a subclass, the other runs. `NotImplemented` is the node that already means
+      // "declared, no body", so no new shape is introduced.
+      byRole(n, "def.body").map(expr).getOrElse(NotImplemented(span(n))),
       span(n),
     )
 
@@ -233,10 +238,12 @@ object SpikeTyped:
   private def pattern(n: UniNode): Pattern = n match
     case UniNode.Token(t) =>
       t.kind match
-        case "spike.int" | "spike.float"                          => PatLit(t.lexeme, t.span)
-        case "spike.str"                                          => PatLit(SpikeStr.decode(t.lexeme), t.span)
+        // Delegated to `expr`, which already has an arm per literal kind — including the char,
+        // which is a `spike.int` whose lexeme starts with a quote. Writing the decode a second
+        // time here is what put `case '\n'` on character 92.
+        case "spike.int" | "spike.float" | "spike.str"            => PatLit(expr(n), t.span)
         case "spike.id" if t.lexeme == "_"                        => PatWild(t.span)
-        case "spike.id" if t.lexeme == "true" || t.lexeme == "false" => PatLit(t.lexeme, t.span)
+        case "spike.id" if t.lexeme == "true" || t.lexeme == "false" => PatLit(expr(n), t.span)
         case "spike.id"                                           => PatVar(t.lexeme, t.span)
         case other                                                => PatUnsupported(other, t.span)
     case b: UniNode.Branch =>
@@ -376,7 +383,11 @@ object SpikeTyped:
           val cs = kids(b).map((_, c) => c)
           Marker(b.kind.stripPrefix("spike."), cs.headOption.map(expr), cs.drop(1).map(lex).filter(_.nonEmpty), span(b))
         case "spike.assign" =>
-          Assign(byRole(b, "assign.name").map(lex).getOrElse("_"),
+          // A DOTTED target — `Cfg.count = 7` — is head plus `assign.nameseg` per segment, the same
+          // shape `defDecl` reads for `def Source.distributed`. Reading only the head assigned to
+          // `Cfg`, which is a different variable and a silently wrong program.
+          Assign((byRole(b, "assign.name").map(lex).getOrElse("_") +:
+                    allByRole(b, "assign.nameseg").map(lex)).mkString("."),
                  byRole(b, "assign.rhs").map(expr).getOrElse(Unsupported("missing.rhs", span(b))), span(b))
         // `x += 1`. The base operator is the lexeme minus its `=`, and keeping the WRITTEN form
         // rather than desugaring to `x = x + 1` is the projection's job: the CST says `+=`.

@@ -1178,6 +1178,14 @@ object Parser:
     while go do
       ts = skipLayout(ts)
       if peek(ts).isInstanceOf[Tok.TEof] then go = false
+      // `sealed trait Shape` / `abstract class …` — a MODIFIER on the declaration that follows.
+      // Dropped here, exactly as `override`/`final` are dropped inside a body. Without this the
+      // word fell through to the expression parser and became a top-level statement reading an
+      // unbound name: `sealed-traits` printed `(do (name "sealed"))` before its trait.
+      else if (isId(peek(ts), "sealed") || isId(peek(ts), "abstract")) && ts.tail.nonEmpty &&
+              (isId(peek(ts.tail), "trait") || isId(peek(ts.tail), "class") ||
+               isId(peek(ts.tail), "sealed") || isId(peek(ts.tail), "abstract")) then
+        ts = ts.tail
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         defs = d :: defs

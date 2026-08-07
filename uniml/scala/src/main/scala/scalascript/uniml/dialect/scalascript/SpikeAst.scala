@@ -50,8 +50,13 @@ object SpikeAst:
     * the corpus's declaration slots, so modelling them is not an edge case. */
   final case class TopExpr(expr: Expr, span: SourceSpan) extends Decl
   /** `object O` and `case object O`. `isCase` distinguishes them; without it a `case object` and
-    * an empty `object` project identically, which is a wrong answer wherever the tag matters. */
-  final case class ObjectDecl(name: String, members: Vector[Decl], isCase: Boolean, span: SourceSpan) extends Decl
+    * an empty `object` project identically, which is a wrong answer wherever the tag matters.
+    *
+    * `parents` is the `extends` clause. It used to be ERASED in the CST, which is right for the v2
+    * lane and wrong for a front: `case object SqlNull extends SqliteValue` is a nullary constructor
+    * OF that trait, and a constructor with no hierarchy is one no `match` on the trait reaches. */
+  final case class ObjectDecl(name: String, parents: Vector[String], members: Vector[Decl],
+                             isCase: Boolean, span: SourceSpan) extends Decl
   /** `given n: T with { defs }` — a typeclass instance. Distinct from `Given` because it has
     * MEMBERS rather than a right-hand side, which is the whole difference at the use site. */
   final case class GivenObject(name: Option[String], tpe: Option[TypeRef], members: Vector[Decl], span: SourceSpan)
@@ -185,7 +190,16 @@ object SpikeAst:
   sealed trait Pattern extends Node
   final case class PatVar(name: String, span: SourceSpan) extends Pattern
   final case class PatWild(span: SourceSpan) extends Pattern
-  final case class PatLit(value: String, span: SourceSpan) extends Pattern
+  /** `case 1 =>`, `case '\n' =>`, `case "NULL" =>`, `case true =>`.
+    *
+    * `value` is an `Expr` — the SAME node the expression path builds for the same token — and it
+    * used to be a `String`. Stringly-typed, it had lost the literal's KIND, and every kind decodes
+    * differently: the integer arm handed over the raw lexeme, the string arm handed over decoded
+    * CONTENT with the quotes gone, and a consumer holding `NULL` could not tell it from a name.
+    * A char pattern came through as the raw `'\n'` and read as the backslash — `case '\n'` matched
+    * character 92, which is a WRONG MATCH rather than a failure to compile. Carrying the node makes
+    * the two paths incapable of disagreeing, because there is only one of them. */
+  final case class PatLit(value: Expr, span: SourceSpan) extends Pattern
   final case class PatCtor(name: String, args: Vector[Pattern], span: SourceSpan) extends Pattern
   final case class PatTuple(elems: Vector[Pattern], span: SourceSpan) extends Pattern
   final case class PatCons(head: Pattern, tail: Pattern, span: SourceSpan) extends Pattern
@@ -201,7 +215,7 @@ object SpikeAst:
   def walk(n: Node): Vector[Node] = n +: (n match
     case Module(ds, _)            => ds.flatMap(walk)
     case TopExpr(e, _)            => walk(e)
-    case ObjectDecl(_, ms, _, _)  => ms.flatMap(walk)
+    case ObjectDecl(_, _, ms, _, _) => ms.flatMap(walk)
     case While(c, b, _)           => walk(c) ++ walk(b)
     case Tuple(es, _)             => es.flatMap(walk)
     case Def(_, ps, rt, b, _)     => ps.flatMap(walk) ++ rt.toVector.flatMap(walk) ++ walk(b)

@@ -27,12 +27,15 @@ object UniFront:
   private def no(what: String, s: SourceSpan): Nothing =
     throw ParseFail(pos(s), what + " is outside SSC3 core Tier 0")
 
-  /** The ScalaScript subtrees the composer spliced under the code fences.
+  /** The ScalaScript subtrees the composer spliced under the code fences — or, for an unfenced
+    * file, under the whole-file `<bare>` fence.
     *
-    * A BARE `.ssc` is fenced first: fences have been optional in this project since 2026-07-09, and
-    * the composer yields ZERO subtrees for unfenced text — measured, and it would have read a whole
-    * program as prose with no diagnostic. `50-uniml-projection.md` §6 files the bare mode as a
-    * request to UniML; this is the workaround it names. */
+    * THE WRAPPER IS GONE. This used to prepend "```scalascript\n" to unfenced text, because the
+    * composer yielded zero subtrees for it. UniML has bare mode now, and the workaround had a cost
+    * the fixtures made visible: the added line shifted every SourceSpan down by one, so the
+    * synthetic name a `{ case … }` lambda takes from its position read `$m14_17` on this front and
+    * `$m13_17` on v3's. Positions are not printed by `AstText`, which is why this survived — it
+    * leaked through the one place a position becomes a NAME. */
   private def subtrees(n: UniNode): Vector[UniNode] = n match
     case b: UniNode.Branch =>
       if b.kind.startsWith("spike.") then Vector(b)
@@ -40,8 +43,7 @@ object UniFront:
     case _ => Vector.empty
 
   def parse(text: String): Program =
-    val fenced = if text.contains("```") then text else "```scalascript\n" + text + "\n```\n"
-    val subs = subtrees(SscCompose.parse(fenced).root)
+    val subs = subtrees(SscCompose.parse(text).root)
     var defs: List[Def] = Nil
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
@@ -82,12 +84,47 @@ object UniFront:
       Sorted.C(List(ClassDef(n, fs.toList.map(param), ms.toList.map(m =>
         Def(m.name, m.params.toList.map(param), expr(m.body), pos(m.span))),
         parent.toList, pos(s))))
-    case U.ObjectDecl(n, ms, s) =>
-      val defsOnly = ms.toList.map { m => m match
-        case dd: U.Def => Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
-        case other     => no("a non-`def` member of an `object`", other.span)
+    // `isCase` arrived 2026-08-07, closing item 3 of the hand-over. A `case object` is a NULLARY
+    // CONSTRUCTOR — a value — and an `object` is a namespace; without the flag the two were
+    // indistinguishable and the projection could not guess, because an empty object is useless but
+    // legal and turning it into a constructor would invent a value nobody wrote.
+    case U.ObjectDecl(n, parents, ms, isCase, s) =>
+      if isCase then Sorted.C(List(ClassDef(n, Nil, Nil, parents.toList, pos(s))))
+      else
+        // An `object` is a NAMESPACE: its `def`s become `O_name` and its `val`s become the
+        // object's own state. Both kinds are kept — dropping the `val`s left the `def`s reading
+        // names that no longer existed, which fails at RUN time rather than at projection time.
+        var ds: List[Def] = Nil
+        var vs: List[Stmt.Val] = Nil
+        ms.foreach { m => m match
+          case dd: U.Def =>
+            ds = ds :+ Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
+          case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
+            vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
+          case other => no("a non-`def`, non-`val` member of an `object`", other.span)
+        }
+        Sorted.O(ObjectDef(n, ds, vs, pos(s)))
+
+    // A `trait` — it used to VANISH into `NoOpDecl`, invisible to every measurement UniML makes
+    // about itself. `keyword` distinguishes `trait` from the other things the dialect routes here.
+    case U.TraitDecl(_, n, parents, ms, s) =>
+      val defs = ms.toList.flatMap { m => m match
+        case dd: U.Def =>
+          // An ABSTRACT signature — no `=`, no body — arrives with `NotImplemented` as its body
+          // since 2026-08-07. v3 spells the same thing `__abstract__`, and `Lower` reads that name
+          // to decide the method dispatches to a subclass instead of running. Before the two were
+          // told apart, `def area(): Double` in a trait projected as a method that RETURNS UNIT,
+          // and every call on the trait got unit rather than the override's answer.
+          val b = dd.body match
+            case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
+            case other                => expr(other)
+          List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
+        case _ => Nil
       }
-      Sorted.O(ObjectDef(n, defsOnly, Nil, pos(s)))
+      Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
+
+    // `val id: String` with no `=`. v3's traits carry methods, not abstract state.
+    case U.AbstractVal(n, s) => no("the abstract `val` '" + n + "'", s)
     case U.TopExpr(e, s) => Sorted.S(stmtsOf(e, s))
     // An enum has no v3 node: each case IS a constructor with a tag, which is what the v3 parser
     // already produces. The cases are emitted one at a time by the caller's fold.
@@ -109,14 +146,25 @@ object UniFront:
   /** A top-level or block element as v3 STATEMENTS. `ValDef` and the destructuring `TupleVal`
     * expand to several; everything else is one expression statement. */
   private def stmtsOf(e: U.Expr, s: SourceSpan): List[Stmt] = e match
-    case U.ValDef(n, rhs, sp) => List(Stmt.Val(n, expr(rhs), false, pos(sp)))
+    // `isVar` arrived with the same commit — item 2. A `var` read as a `val` made every later
+    // assignment to it a refusal, which is a wrong answer rather than a smaller tree.
+    case U.ValDef(n, rhs, isVar, sp) => List(Stmt.Val(n, expr(rhs), isVar, pos(sp)))
     case U.TupleVal(names, rhs, sp) =>
-      val tmp = "$tup_" + names.mkString("_")
+      // `val (a, _) = pair` — a WILDCARD binds nothing. It used to bind a variable literally named
+      // `_`, so two wildcards in one scope were a redefinition and the value was reachable by a
+      // name no source can mean. It also went into the temporary's name, giving `$tup_a__` where
+      // v3's own front produces `$tup_a` — a difference the fixtures could not see, because a
+      // temporary's name only escapes when two fronts print the same program.
+      val bound = names.toList.zipWithIndex.filter((n, _) => n != "_")
+      val tmp = "$tup_" + bound.map((n, _) => n).mkString("_")
       Stmt.Val(tmp, expr(rhs), false, pos(sp)) ::
-        names.toList.zipWithIndex.map((n, i) =>
+        bound.map((n, i) =>
           Stmt.Val(n, Expr.MethodCall(Expr.Name(tmp, pos(sp)), "_" + (i + 1), Nil, pos(sp)),
                    false, pos(sp)))
-    case U.LocalDef(_, sp) => no("a `def` nested inside a `def`", sp)
+    // A `def` inside a `def`. v3 lifts it in `Lower` with its captures as leading parameters, so
+    // it is an ordinary statement here and not a refusal.
+    case U.LocalDef(d, sp) =>
+      List(Stmt.LocalDef(Def(d.name, d.params.toList.map(param), expr(d.body), pos(sp))))
     case other             => List(Stmt.Exp(expr(other)))
 
   /** v3's `Block` separates the statements from the block's VALUE; UniML's is a flat vector in
@@ -127,7 +175,7 @@ object UniFront:
     if all.isEmpty then Expr.UnitLit(pos(s))
     else
       val isVal = all.last match
-        case U.ValDef(_, _, _)  => true
+        case U.ValDef(_, _, _, _) => true
         case U.TupleVal(_, _, _) => true
         case _                   => false
       if isVal then Expr.Block(all.flatMap(x => stmtsOf(x, s)), None, pos(s))
@@ -138,6 +186,9 @@ object UniFront:
     case U.FloatLit(v, s) => Expr.DoubleLit(v.toDouble, pos(s))
     case U.StrLit(v, s)   => Expr.StrLit(v, pos(s))
     case U.UnitLit(s)     => Expr.UnitLit(pos(s))
+    // Its own node since 2026-08-07. It used to arrive as an `IntLit`, indistinguishable from the
+    // integer — a wrong answer, because `println('x')` is `x` and `println(120)` is `120`.
+    case U.CharLit(code, s) => Expr.CharLit(code.toInt, pos(s))
     case U.Ident(n, s)    =>
       if n == "true" then Expr.BoolLit(true, pos(s))
       else if n == "false" then Expr.BoolLit(false, pos(s))
@@ -182,7 +233,8 @@ object UniFront:
     case U.Match(sc, arms, s) => Expr.Match(expr(sc), arms.toList.map(arm), pos(s))
     case U.Lambda(ps, b, s)  => Expr.Lambda(ps.toList.map(n => Param(n, pos(s))), expr(b), pos(s))
     case U.Assign(n, rhs, s) => Expr.Assign(n, expr(rhs), pos(s))
-    case U.ValDef(n, rhs, s) => Expr.Block(List(Stmt.Val(n, expr(rhs), false, pos(s))), None, pos(s))
+    case U.ValDef(n, rhs, isVar, s) =>
+      Expr.Block(List(Stmt.Val(n, expr(rhs), isVar, pos(s))), None, pos(s))
 
     // `xs(i) = v`. The target must destructure to a one-argument application; anything else is a
     // shape v3's `Update` cannot express, and guessing would put the value in the wrong slot.
@@ -243,7 +295,12 @@ object UniFront:
   private def pattern(p: U.Pattern): Pat = p match
     case U.PatVar(n, s)     => Pat.PBind(n, pos(s))
     case U.PatWild(s)       => Pat.PWild(pos(s))
-    case U.PatLit(v, s)     => Pat.PLit(litOf(v, pos(s)), pos(s))
+    // `PatLit` carries the literal's own EXPRESSION NODE since 2026-08-07, so there is nothing to
+    // re-parse: the same `expr` arm that builds a literal in a value position builds it here. The
+    // string-typed predecessor made this a second decoder — one that read `case '\n'` as character
+    // 92 and would have thrown `NumberFormatException` on `case "NULL"`, since a string pattern
+    // arrived with its quotes already stripped and went to `parseLong`. No fixture had one.
+    case U.PatLit(v, s)     => Pat.PLit(expr(v), pos(s))
     case U.PatCtor(n, as, s) => Pat.PCtor(n, as.toList.map(pattern), pos(s))
     case U.PatTuple(es, s)  => Pat.PCtor("Tuple" + es.length, es.toList.map(pattern), pos(s))
     case U.PatCons(h, t, s) => Pat.PCtor("Cons", List(pattern(h), pattern(t)), pos(s))
@@ -255,10 +312,3 @@ object UniFront:
     case U.PatUnsupported(k, s) => no("the pattern '" + k + "'", s)
 
   /** A pattern literal arrives as TEXT, because that is what the CST has. */
-  private def litOf(v: String, p: Pos): Expr =
-    if v == "true" then Expr.BoolLit(true, p)
-    else if v == "false" then Expr.BoolLit(false, p)
-    else if v.startsWith("\"") then Expr.StrLit(v.substring(1, v.length - 1), p)
-    else if v.startsWith("'") && v.length >= 3 then Expr.CharLit(v.charAt(1).toInt, p)
-    else if v.contains(".") then Expr.DoubleLit(v.toDouble, p)
-    else Expr.IntLit(java.lang.Long.parseLong(v.replace("L", "").replace("l", "")), p)

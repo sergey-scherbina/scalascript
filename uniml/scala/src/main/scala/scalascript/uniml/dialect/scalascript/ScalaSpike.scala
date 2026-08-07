@@ -139,13 +139,30 @@ object SpikeLex:
               else false
             else false
           // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
+          // `0d` / `1.5f` / `3D` — Scala's FLOAT SUFFIX, which this lexer knew nothing about. The
+          // digit run stopped at the letter, so `val a: Double = 0d` lexed as the integer `0`
+          // followed by the identifier `d`, and the statement after it read as a bare name. Three
+          // corpus cases came out with more statements than they had, which is the shape that
+          // hides: the tree is well-formed and says something the source did not.
+          // The lookahead guard keeps `2fooBar` — not a literal in any Scala — from being read as
+          // one; the suffix must be the LAST character of the token.
+          def scanFloatSuffix(): Boolean =
+            val c1 = if i < n then text.charAt(i) else ' '
+            if (c1 == 'f' || c1 == 'F' || c1 == 'd' || c1 == 'D')
+               && !(i + 1 < n && isSpikeIdPart(text.charAt(i + 1))) then
+              advance(c1); true
+            else false
           if i + 1 < n && text.charAt(i) == '.' && UniAlphabet.isDigit(text.charAt(i + 1)) then
             sb.append('.'); advance('.')
             while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
               { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
             scanExponent()
+            scanFloatSuffix()
             emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
           else if scanExponent() then // `1e10` (no decimal point) is still a float
+            scanFloatSuffix()
+            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
+          else if scanFloatSuffix() then // `0d`, `3F` — a float with no point and no exponent
             emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
           else
             if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i)) // Long suffix
@@ -340,6 +357,26 @@ private[scalascript] object SpikeOp:
     case "+:"  => "::"
     case other => other
 
+/** The escape table, in ONE place.
+  *
+  * There were two, and both knew only `\n` and `\t`; everything else fell through to the character
+  * itself. That is right for `\\`, `\"` and `\'` and silently wrong for the rest: `'\r'` was the
+  * letter `r` (114 rather than 13) and `"a\rb"` was `arb`. The tree was well-formed and said
+  * something the source did not, which is why nothing caught it until two fronts printed the same
+  * program side by side and disagreed on one character.
+  *
+  * `\u` stays with each caller — the char form reads a fixed four digits from a known offset, the
+  * string form scans — but the SIMPLE table is shared, so a new escape is added once. */
+private[scalascript] object SpikeEsc:
+  def simple(e: Char): Char = e match
+    case 'n'   => '\n'
+    case 't'   => '\t'
+    case 'r'   => '\r'
+    case 'b'   => '\b'
+    case 'f'   => '\f'
+    case '0'   => '\u0000'
+    case other => other // `\\`, `\"`, `\'` — the character itself
+
 private[scalascript] object SpikeNum:
   def decode(lex: String): String =
     if lex.startsWith("'") then charCode(lex).toString
@@ -350,7 +387,12 @@ private[scalascript] object SpikeNum:
       v.toString
     else
       val stripped = lex.filter(_ != '_')
-      if stripped.endsWith("L") || stripped.endsWith("l") then stripped.dropRight(1) else stripped
+      // `L`/`l` is the Long suffix; `f`/`F`/`d`/`D` the float ones. All are TYPE marks, not part of
+      // the value — `0d.toDouble` is `0.0`, and `"0d".toDouble` throws.
+      val last = if stripped.isEmpty then ' ' else stripped.last
+      if last == 'L' || last == 'l' || last == 'f' || last == 'F' || last == 'd' || last == 'D'
+      then stripped.dropRight(1)
+      else stripped
 
   private def isHex(c: Char): Boolean = UniAlphabet.isHexDigit(c)
   private def hex(c: Char): Int =
@@ -362,11 +404,14 @@ private[scalascript] object SpikeNum:
       val e = if body.length > 1 then body.charAt(1) else '\u0000'
       if e == 'u' && body.length >= 6 then
         (hex(body.charAt(2)) << 12) | (hex(body.charAt(3)) << 8) | (hex(body.charAt(4)) << 4) | hex(body.charAt(5))
-      else (if e == 'n' then '\n' else if e == 't' then '\t' else e).toInt
+      else SpikeEsc.simple(e).toInt
     else if body.nonEmpty then body.charAt(0).toInt
     else 0
 
 private[scalascript] object SpikeStr:
+  private def hexOf(c: Char): Int =
+    if UniAlphabet.isDigit(c) then c - '0' else if c >= 'a' then c - 'a' + 10 else c - 'A' + 10
+
   def decode(lex: String): String =
     if lex.startsWith("\"\"\"") then
       val body = lex.stripPrefix("\"\"\"")
@@ -382,8 +427,16 @@ private[scalascript] object SpikeStr:
         val c = body.charAt(i)
         if c == '\\' && i + 1 < n then
           val e = body.charAt(i + 1)
-          sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
-          i += 2
+          // `\uXXXX` — four hex digits, the one escape that is not a single character. The char
+          // decoder had it and this one did not, so `"\u0041"` came out as the six characters.
+          if e == 'u' && i + 5 < n && (2 to 5).forall(k => UniAlphabet.isHexDigit(body.charAt(i + k))) then
+            var v = 0
+            var k = 2
+            while k <= 5 do { v = (v << 4) | hexOf(body.charAt(i + k)); k += 1 }
+            sb.append(v.toChar); i += 6
+          else
+            sb.append(SpikeEsc.simple(e))
+            i += 2
         else if c == '$' && i + 1 < n && body.charAt(i + 1) == '{' then
           sb.append("${"); i += 2
           var depth = 1
@@ -772,7 +825,7 @@ object SpikeParse:
       if !c.eof && c.peekLine > eqLine then kids += parseBlock(c, c.peekCol).withRole("def.body")
       // a same-line body that is an assignment `x = e` (e.g. `def save(t) = cell = t`) must lower to a store,
       // not a read — parseExpr stops at the second `=`, so dispatch to parseAssign like branchExpr does.
-      else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then kids += parseAssign(c).withRole("def.body")
+      else if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then kids += parseAssign(c).withRole("def.body")
       else parseExpr(c, 1) match
         case Some(b) => kids += b.withRole("def.body")
         case None    => c.report("spike.missing-body", "missing def body expression")
@@ -1025,7 +1078,7 @@ object SpikeParse:
         if braced && c.peekKind == "spike.rbrace" then c.advance()
         Node.Frame("spike.givenobj", None, kids.result())
       else sealedNoop(t0)
-    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
+    else if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("given.name"))) // `given name = body` → a plain val
       c.advance() // `=`
       parseExpr(c, 1).foreach(b => kids += b.withRole("given.body"))
@@ -1197,16 +1250,33 @@ object SpikeParse:
   // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
   private def parseObject(c: Cur, caseTok: Option[SourceToken] = None): Node =
     val kids = Vector.newBuilder[Node]
+    // The DECLARATION's own column, not the `object` keyword's — for `case object` the head token is
+    // `case`, already consumed by the caller. A member must be indented past THIS. See `hasBody`.
+    val declCol = caseTok.map(_.span.start.column).getOrElse(c.peekCol)
     caseTok.foreach(t => kids += Node.Leaf(t, Some("obj.case"))) // `case object` — the marker, kept
     c.advance() // `object`
     expectName(c, "obj.name", "object name").foreach(kids += _)
-    skipExtendsClause(c)
+    // The parents are KEPT now, under the same `td.parent` role the trait uses. They used to be
+    // erased by `skipExtendsClause`, which is right for the v2 lane — it resolves inheritance
+    // elsewhere — and wrong for a front built on this tree: `case object SqlNull extends
+    // SqliteValue` is a CONSTRUCTOR of `SqliteValue`, and without the parent it is a class that
+    // belongs to no hierarchy, so no `match` on the trait can dispatch to it. Additive: consumers
+    // read by role, so the v2 lane sees the same object it saw before.
+    captureExtendsClause(c, kids)
     val braced = c.peekKind == "spike.lbrace"
     if braced then c.advance()
     else if c.peekKind == "spike.colon" then c.advance()
     c.skipSemis()
     val bodyCol = c.peekCol
-    while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+    // A BODY EXISTS only if there were braces, or the next token is indented PAST the declaration.
+    // Without this the member loop ran for a body-less `object X extends Y`, `bodyCol` became the
+    // column of the NEXT TOP-LEVEL DECLARATION, `peekCol >= bodyCol` held trivially, and the
+    // sibling was swallowed as a member — cascading, so `trait K` + `case object A` + `case class B`
+    // + `def f` collapsed into ONE nested declaration and three of them vanished from the program.
+    // Silent: the tree was well-formed, just smaller. Found by v3's front differential, where the
+    // two fronts printed different programs for `v3/tests/front/case-object.ssc`.
+    val hasBody = braced || bodyCol > declCol
+    while !c.eof && hasBody && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
       skipDeclModifiers(c)
       val before = c.mark
       kids += parseMember(c).withRole("obj.member")
@@ -1287,6 +1357,7 @@ object SpikeParse:
   // trait read the roles. Same trade as the import path, for the same reason.
   private def parseTraitOrClassNoop(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
+    val declCol = c.peekCol // before the keyword is consumed — the offside line for members
     c.advance().foreach(t => kids += Node.Leaf(t, Some("td.kw"))) // `trait` / `class`
     if isNameKind(c.peekKind) then c.advance().foreach(t => kids += Node.Leaf(t, Some("td.name")))
     skipTypeParams(c)
@@ -1298,7 +1369,10 @@ object SpikeParse:
     if braced || c.peekKind != "spike.lbrace" then
       c.skipSemis()
       val bodyCol = c.peekCol
-      while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+      // Same offside rule as `parseObject`, and the same bug: a marker `trait SqliteValue` with no
+      // body swallowed every declaration that followed it at column 1.
+      val hasBody = braced || bodyCol > declCol
+      while !c.eof && hasBody && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
         skipDeclModifiers(c)
         val before = c.mark
         kids += parseMember(c).withRole("obj.member")
@@ -1381,7 +1455,7 @@ object SpikeParse:
     else if isWord(c, "var") then parseVarStmt(c)                           // `var x [: T] = e`
     else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
     else if isDefStart(c) then parseDef(c)                                  // nested `def` in a block → letrec
-    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `x = e`
+    else if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then parseAssign(c) // `x = e`
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.op" && isCompoundAssign(c.peek2Lexeme) then parseCompoundAssign(c) // `x += e`
     else parseExpr(c, 1) match
       case Some(e) =>
@@ -1493,9 +1567,34 @@ object SpikeParse:
     parseExpr(c, 1).foreach(e => kids += e.withRole("ca.rhs"))
     Node.Frame("spike.compoundassign", None, kids.result())
 
+  /** `Cfg.count = 7` — an assignment whose TARGET is a dotted path, not a bare name.
+    *
+    * It used to reach `parseExpr`, which parsed `Cfg.count` and then met a `=` it had no rule for,
+    * so the statement projected as `spike.error` — a whole assignment lost with a diagnostic
+    * pointing at the `=`. Every object with a `var` member is written this way, so it is not an
+    * edge case; `v3/tests/front/object-members.ssc` was the fixture that surfaced it.
+    *
+    * Bounded lookahead over `id (. id)+ =`, refusing `==`, run BEFORE committing to an expression. */
+  private def isDottedAssign(c: Cur): Boolean =
+    if !isNameKind(c.peekKind) then false
+    else
+      val m = c.mark
+      c.advance()
+      var segs = 0
+      while c.peekKind == "spike.dot" && isNameKind(c.peek2Kind) do { c.advance(); c.advance(); segs += 1 }
+      val yes = segs > 0 && c.peekKind == "spike.eq"
+      c.reset(m)
+      yes
+
   private def parseAssign(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("assign.name"))) // id
+    // …and the rest of a dotted target, one leaf per segment. The `def.name`/`def.nameseg` pair
+    // already in this file is the convention; a consumer that ignores the segments still sees the
+    // head, which is what it saw before this existed.
+    while c.peekKind == "spike.dot" && isNameKind(c.peek2Kind) do
+      c.advance() // `.`
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("assign.nameseg")))
     c.advance() // `=`
     parseExpr(c, 1) match
       case Some(e) => kids += e.withRole("assign.rhs")
@@ -2067,7 +2166,7 @@ object SpikeParse:
 
   // a for-body may be an assignment (imperative `for … do s = …`) or a plain expression.
   private def parseForBody(c: Cur): Node =
-    if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c)
+    if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then parseAssign(c)
     // `for k <- 1 to 3 do g += k` — the same compound assignment the statement parser accepts at
     // :1359, with the same condition rather than a second spelling of it. The body had only the
     // plain-assignment case, so `g += k` reached parseExpr, which reads `g` and stops at the `+=`.
@@ -2133,7 +2232,7 @@ object SpikeParse:
     // statement there. `modules.foreach(module =>\n  if n > 0 then\n    println(n))` is the shape,
     // and scripts/smoke-ci.ssc spends four diagnostics on it.
     if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol, stopAtParen = c.parenDepth > 0)
-    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `then r = n` (Scala 3)
+    else if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then parseAssign(c) // `then r = n` (Scala 3)
     else
       val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
       // `if c then a(i) = v` — an INDEXED assignment as a single-line branch body.
@@ -2228,7 +2327,7 @@ object SpikeParse:
     while more do
       // named argument `label = value` (single `=`, not `==` which lexes as spike.op) → spike.narg;
       // ssc1-lower reorders it by declared case-class field order (mkNArg, ssc1-front.ssc0:1357).
-      if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
+      if (c.peekKind == "spike.id" && c.peek2Kind == "spike.eq") || isDottedAssign(c) then
         val nameTok = c.advance().get // label
         c.advance()                   // `=`
         val v = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))

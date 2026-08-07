@@ -934,3 +934,75 @@ The third of Sergiy's four original goals — стабильность, лёгк
 The bridge is not retired. It is the COMPATIBILITY lane — `ssc3 build` emits v2 Core IR, which is
 how v3 has the whole backend fleet without having written one — and I-3's differential needs both
 sides to stay real.
+
+## 27 · The UniML front reaches §7's acceptance number — 101 of 101 on the CORPUS
+
+**N = 48 → 50. Front agreement: 35 → 48 of 48 fixtures, and 101 of 101 corpus cases.** §7 says the
+swap is a number: both fronts print the same `Ast`, byte for byte, for every fixture and every
+corpus case v3 compiles. That number is now met.
+
+- [x] **27a — the projection follows UniML's new ADT.** `ObjectDecl` carries `isCase`, `ValDef`
+      carries `isVar`, `CharLit` is its own node, `TraitDecl` and `AbstractVal` exist. Each closed a
+      class of wrong answer rather than a missing feature: a `var` read as a `val` made every later
+      assignment a refusal, and a `case object` was indistinguishable from an empty namespace.
+      Fixture agreement 35 → 43 on that alone.
+
+- [x] **27b — THE FIXTURE SET FLATTERED ITSELF: 48/48 while the corpus read 92/100.** The gate now
+      sweeps `tests/conformance/` as well, and it found eight disagreements the 48 hand-written
+      fixtures could not. This repository has paid for a probe set once already — a parity probe
+      read 40/42 green while the corpus behind it read 34 against 48 — and the reason is
+      structural, not carelessness: a probe set is written by whoever is fixing the thing it
+      measures, so it drifts toward what has been fixed. The corpus was not.
+
+- [x] **27c — a body-less `trait` or `object` SWALLOWED the declarations after it.** UniML's member
+      loop ran even with no braces and no colon; `bodyCol` became the column of the NEXT TOP-LEVEL
+      DECLARATION, `peekCol >= bodyCol` held trivially, and the sibling was parsed as a member —
+      cascading, so `trait K` / `case object A` / `case class B` / `def f` at column 1 collapsed
+      into one declaration four deep.
+
+      **It had a census pinned on top of it.** `Ssc3ProjectionCensusSpec` asked "does any object
+      hold a nested class?" and answered "yes, emphatically: 180 across 257 objects, ObjectDecl=96,
+      CaseClass=84, Def=651" — and concluded v3's refusal was on a hot path. After the fix: 4
+      nested, ObjectDecl=0, Def=261. **176 of the 180 were swallowed siblings and 390 top-level
+      `def`s had been absorbed into a preceding object.** A census answers only its own question,
+      and this one was asked of a tree the parser had rearranged. The refusal is on a COLD path;
+      whoever writes it must plant a case.
+
+- [x] **27d — four more UniML defects, each a WRONG ANSWER rather than a refusal.**
+      - `0d` / `1.5f` / `3D`: no float suffix in the lexer, so `val a: Double = 0d` lexed as the
+        integer `0` followed by the identifier `d` and the next line became a bare name. Three
+        corpus cases came out with more statements than they had.
+      - `'\r'` was the letter `r` — 114, not 13 — and `"a\rb"` was `arb`. **Two copies of the escape
+        table, both knowing only `\n` and `\t`**, everything else falling through to itself: right
+        for `\\`, `\"`, `\'`, silently wrong for the rest. Now one table, plus `\u` on both paths.
+      - `PatLit` was stringly-typed and had lost the literal's KIND. The integer arm handed over the
+        raw lexeme, the string arm decoded CONTENT with the quotes gone, and the char arm handed
+        over `'\n'` raw — so `case '\n'` matched character 92. `case "NULL"` would have thrown
+        `NumberFormatException` in the consumer; no fixture had one. It carries the `Expr` node now,
+        so the two decode paths cannot disagree — there is only one.
+      - `Cfg.count = 7` projected as `spike.error`. A dotted assignment target was unrepresentable,
+        which is every object with a `var` member.
+
+- [x] **27e — and THREE in v3's own front, which the differential found by disagreeing.**
+      - `"""…"""` was not lexed, so `"""{"user":…}"""` read as the empty string `""` followed by the
+        JSON's own tokens: one `val` became twenty-one statements. `json-value`, `json-lookup`.
+      - ```` ```scalascript @id=defs ````: the info string was matched WHOLE, so an attributed fence
+        was skipped entirely and `fence-attr-code` compiled with a third of itself missing.
+      - `sealed trait Shape`: the modifier fell through to the expression parser and became a
+        top-level statement reading an unbound name, `(do (name "sealed"))`.
+
+      Fixing the fence match then broke `fence-doc-block`, whose `@doc` fence must NOT run and says
+      so in its own prose. Reading attributes without reading that one traded a fence wrongly
+      SKIPPED for a fence wrongly RUN — the worse of the two, and the gate caught it in the next
+      run.
+
+- [x] **27f — the gate was observed failing, organically, five times.** Not a planted defect: the
+      corpus sweep went 92 → 94 → 96 → 100 → 101 as each cause was fixed, and the `@doc` regression
+      appeared as a NEW disagreement between two of those runs. That is stronger evidence than a
+      mutation, because nobody chose the failures.
+
+**The swap itself is NOT in this commit.** The number is met, and flipping the default is its own
+decision with its own risk: the kernel has zero dependencies by invariant I-1 and must keep working
+with UniML unbuilt, so `Front.available` growing a default is a change to what `ssc3` REQUIRES, not
+just to what it uses. And §26b's rule applies directly — flipping a default silently re-points every
+gate that named it. It gets its own commit and its own re-reading of every gate.

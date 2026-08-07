@@ -33,7 +33,7 @@ disagree=0
 # The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
 # corpus number carries, and for the same reason: a gate that is permanently red stops being read,
 # and a gate with no floor lets the number slide back without anyone noticing.
-FLOOR="${SSC3_FRONT_AGREE_FLOOR:-35}"
+FLOOR="${SSC3_FRONT_AGREE_FLOOR:-48}"
 
 # The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
 # a list that disagrees with itself. The kernel knows one front; the driver knows whether the second
@@ -82,6 +82,44 @@ for f in v3/tests/front/*.ssc; do
     fi
   done
 done
+
+# ── THE CORPUS, not the fixture set ──────────────────────────────────────────────────────────────
+# The 48 fixtures above are a PROBE SET, and this repository has already paid for trusting one: a
+# parity probe set read 40/42 green while the corpus it was supposed to stand for read 34 against
+# 48. A probe set is written by whoever is fixing the thing it measures, so it drifts toward what
+# has been fixed. The conformance corpus was not, so it is the honest denominator.
+#
+# It compares only what BOTH fronts print. A case v3's own front refuses is not a front-to-front
+# disagreement — it is a construct v3 does not have, which the corpus report already counts.
+if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
+  echo
+  echo "── the conformance corpus ────────────────────────────────────────────────"
+  cagree=0; cdiff=0; conly=0
+  cdiffs="$work/corpus-diffs.txt"; : > "$cdiffs"
+  for f in tests/conformance/*.ssc; do
+    cname="$(basename "$f" .ssc)"
+    "$SSC3" ast "$f" v3 > "$work/c.v3" 2>/dev/null || { conly=$((conly + 1)); continue; }
+    [ -s "$work/c.v3" ] || { conly=$((conly + 1)); continue; }
+    if ! "$SSC3" ast "$f" uniml > "$work/c.uniml" 2>/dev/null || [ ! -s "$work/c.uniml" ]; then
+      conly=$((conly + 1)); continue
+    fi
+    if diff -q "$work/c.v3" "$work/c.uniml" >/dev/null; then
+      cagree=$((cagree + 1))
+    else
+      cdiff=$((cdiff + 1))
+      printf '%s\t%s\n' "$cname" "$(diff "$work/c.v3" "$work/c.uniml" | head -2 | tr '\n' ' ' | cut -c1-110)" >> "$cdiffs"
+    fi
+  done
+  cboth=$((cagree + cdiff))
+  echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
+  echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
+  [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-101}"
+  if [ "$cagree" -lt "$CFLOOR" ]; then
+    echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
+    fail=1
+  fi
+fi
 
 echo
 echo "── self-test: the comparator must SEE a one-token difference ─────────────"
