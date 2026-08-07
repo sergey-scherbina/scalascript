@@ -72,6 +72,38 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
       one is not.
 
+- [ ] **SSC3-3d — a clock prim, so v3 can be timed by the same harness as everything else.**
+      v3 has no way to read a clock: the prim table is `io.println` plus collection operations. That
+      is why the v3 bench column added on 2026-08-07 (`847707e98`) runs its rep loop DRIVER-SIDE in
+      `ssc3 bench`, while every other column in `bench/run.sc` is timed by a wrapper written in
+      ScalaScript that calls `System.nanoTime()` as an ordinary call. Same excluded compilation, same
+      100 ms adaptive window — but v3 is not charged for executing its own rep counter and the others
+      are, so the columns are not measured by one instrument.
+
+      **This is what `Prim` is for, and my earlier note was wrong to imply otherwise.** The bench
+      commit said adding a clock would "widen the kernel's host surface", but I-1 says the opposite
+      in as many words: everything outside the kernel "reaches the language only through `Prim` and
+      the plugin SPI". A clock is exactly such a thing, and routing it through `Prim` is the boundary
+      working, not the boundary moving. What was true is narrower — it was out of scope for a bench
+      column, and doing it inside that claim would have been the change nobody reviewed.
+
+      Two constraints that are the actual work, not the prim itself:
+
+      - **The differential gate compares OUTPUT.** `exec-gate.sh` runs every fixture on the executor
+        and on the v2 bridge and requires identical output. A clock is the first prim whose result is
+        different on every call, so any fixture that prints one directly destroys that property. The
+        prim must be introduced with a rule about where it may appear — the honest one is that
+        differential fixtures may CALL it but must not print it, and the gate should be able to say
+        which fixture broke the rule rather than just going red.
+      - **The bridge needs an answer.** `BridgeV2` lowers SSC IR to v2 Core IR; a prim v2 does not
+        have must either map to v2's own clock or be refused by name with a message that says so.
+        Silently emitting something v2 will not recognise is the failure mode to avoid.
+
+      *Done when:* `bench/run.sc` measures v3 through the same in-language wrapper as the other
+      columns, the asymmetry paragraph comes OUT of `bench/README.md` and out of `runV3Bench`'s
+      comment rather than being restated, and a differential fixture exercising the prim is green on
+      both lanes.
+
 - [x] **SSC3-4 — the front.** RUNNING: `bin/ssc3 run <file.ssc>` compiles and executes real
       `.ssc` source through v3's own lexer, parser, typed AST, lowering, verifier and the v2
       bridge. The AST and the lowering are the halves that SURVIVE the UniML swap; only the
