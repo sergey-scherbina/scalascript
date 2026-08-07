@@ -77,6 +77,44 @@ git fetch -q origin && git merge --ff-only -q origin/main
 
 claim=".work/active/${slug}.claim"
 [ -f "$claim" ] || { echo "coord-release: no such claim: $claim" >&2; exit 2; }
+
+# REFUSE TO ANNOUNCE WORK THAT IS NOT THERE. Until 2026-08-07 this tool fast-forwarded main and then
+# never asked whether the claim's own work was reachable from it, so a release could write "Landed"
+# over a branch whose push had been rejected. Observed that day on
+# `uniml-corpus-floor-independent-oracle`: the push lost a non-fast-forward race, the caller had
+# chained the steps on separate lines instead of with `&&` so nothing stopped, the claim came off the
+# board and the branch was deleted — leaving the commit reachable only as a dangling object and the
+# board asserting the opposite of what happened. Recovered with `git fsck`; the false record cannot
+# be edited, which is the point. `scripts/BUGS.md`
+# `coord-release-does-not-check-the-work-landed`.
+#
+# The caller-side fix is `&&` or `set -e`, and it is the right fix — but it is the caller's to
+# remember, the failure is silent, and the damage lands on a board everyone reads. This guard does
+# not depend on anyone remembering.
+branch="$(sed -n 's/^branch: *//p' "$claim" | head -1)"
+if [ -z "$branch" ]; then
+  # An old single-line claim carries no branch. Say so rather than passing quietly: a check that
+  # cannot run must not look like a check that ran.
+  echo "coord-release: NOTE — claim names no branch, cannot verify the work is on origin/main" >&2
+elif ! git rev-parse --verify -q "refs/heads/$branch" >/dev/null; then
+  # Already deleted. Ambiguous by construction — merged-and-deleted is normal, so refusing here would
+  # break the ordinary order — but the silence is worth naming.
+  echo "coord-release: NOTE — branch '$branch' is gone locally, cannot verify the work is on origin/main" >&2
+else
+  ahead="$(git rev-list --count "origin/main..$branch" 2>/dev/null || echo 0)"
+  if [ "$ahead" != 0 ]; then
+    if [ -n "${COORD_RELEASE_ALLOW_UNPUSHED:-}" ]; then
+      echo "coord-release: NOTE — releasing with $ahead unpushed commit(s) on '$branch' (COORD_RELEASE_ALLOW_UNPUSHED set)" >&2
+    else
+      echo "coord-release: REFUSED — branch '$branch' has $ahead commit(s) that origin/main does not have." >&2
+      echo "  Releasing now would record this as landed when it is not. Push first:" >&2
+      echo "    git -C <worktree> fetch origin && git -C <worktree> rebase origin/main && git -C <worktree> push origin HEAD:main" >&2
+      echo "  If the branch is deliberately being abandoned, say so: COORD_RELEASE_ALLOW_UNPUSHED=1" >&2
+      exit 2
+    fi
+  fi
+fi
+
 git rm -q "$claim"
 
 # Only `.work/` is touched, and that is now sufficient: removing the claim removes it from the
