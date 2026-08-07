@@ -79,7 +79,8 @@ safely is not a template.
 it is routed** (POLICY.md P-3.10). They are what makes `confirmed: no` actionable — it has always
 meant "fixed, but the reporter has not confirmed", and until the inbound queue existed nothing
 recorded who that was. Their presence is also what makes the routed set derivable instead of listed:
-`git grep -l 'reported-by:' -- '*BUGS.md'`.
+`git grep -l 'reported-by:' -- '*BUGS.md' '*BACKLOG.md'`. Both globs — a `feature` report routes to
+a BACKLOG, and this line named only `*BUGS.md` until 2026-08-07, so it could not see one.
 
 ### `kind` — the subtype axis, as a field and not as a directory
 

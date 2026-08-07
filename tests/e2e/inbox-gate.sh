@@ -35,8 +35,13 @@
 # not (P-6): it reads INBOX.md and the `## <slug>` headings of tracked board files. It does NOT
 # verify that a routed report actually reached a board — nothing here can, because a routed entry
 # leaves no trace in this file by design. That property is checked from the other end: every entry
-# anywhere carrying `reported-by` came from a user, so `git grep -l 'reported-by:' -- '*BUGS.md'`
-# is the routed set.
+# anywhere carrying `reported-by` came from a user, so
+# `git grep -l 'reported-by:' -- '*BUGS.md' '*BACKLOG.md'` is the routed set. BOTH GLOBS: a report
+# whose kind is `feature` routes to a BACKLOG, which `specs/work-tracking-layout.md` explicitly
+# permits, and this line used to name only `*BUGS.md`. It therefore could not see any of them —
+# measured 2026-08-07, when BACKLOG.md already carried one such entry and rozum's three tui-fetch
+# reports were about to become the next. Three copies of this derivation exist (here, the note
+# printed below, and `specs/bugs-index.md`) and two of the three were narrow.
 #
 # And when `gh` is missing or unauthenticated, check 7 prints what it could not do and the run says
 # so in its final line. A network check that silently becomes a no-op is worse than one that is
@@ -351,7 +356,8 @@ echo
 if [ "$fail" -eq 0 ]; then
   echo "inbox-gate: OK  (user-report issues: $issue_note)"
   note "not checked here: that a routed report reached a board. Routed entries leave no trace in"
-  note "INBOX.md by design; the routed set is \`git grep -l 'reported-by:' -- '*BUGS.md'\`."
+  note "INBOX.md by design; the routed set is"
+  note "\`git grep -l 'reported-by:' -- '*BUGS.md' '*BACKLOG.md'\` — a \`feature\` report routes to a BACKLOG."
 else
   echo "inbox-gate: FAILED" >&2
 fi
