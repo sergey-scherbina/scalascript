@@ -3670,10 +3670,28 @@ Both found while implementing `tui-fetch-headers`, both outliving that fix, both
       path has a cargo test. `tui-fetch-post` must write a signal from an event handler, i.e. the
       same shape with no backstop.
 
-### ▶ tui-fetch-gaps — three capability gaps reported by rozum (2026-08-04)
+### ▶ tui-fetch-gaps — three capability gaps reported by rozum (2026-08-04) — ALL THREE LANDED
 
-Three `kind: feature`, `impact: blocks` reports from **rozum**, registered in
-[`INBOX.md`](INBOX.md) via `scripts/inbox-add` by the reporter themselves. They emit ONE `.ssc`
+<!-- reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     kind: feature
+     impact: blocks
+     confirmed: no -->
+
+**ROUTED OUT OF `INBOX.md` 2026-08-07, which should have happened when they landed.** All three
+were implemented and on `main` — `5616c18b0`, `30ccb0562`, `4ec7e570f` — while their reports still
+sat in the inbound queue reading `triage: new`. The reporter had no signal, and the queue said four
+untriaged reports when it had one. Two copies of one record is the exact failure P-3.10 exists to
+prevent, and pointing at `INBOX.md` from here instead of carrying the reporter's fields is what let
+it happen: the routed set is derived from `git grep -l 'reported-by:'`, so an entry that names the
+inbox rather than the reporter is invisible to it. The header above fixes that.
+
+`confirmed: no` is deliberate and is what `reported-by` is for — fixed and gated here, but **rozum
+has not confirmed against their own client**. That is the open half.
+
+Three `kind: feature`, `impact: blocks` reports from **rozum**, originally registered in
+`INBOX.md` via `scripts/inbox-add` by the reporter themselves. They emit ONE `.ssc`
 source to two targets — `emit-spa --frontend react` for the web control centre and
 `emit(view(), "tui-out")` for a ratatui client — and every gap below is a place where the web target
 honours something the terminal target silently drops. Silently is the common thread: none of these
@@ -3681,19 +3699,29 @@ is a build error, each produces a client that renders and then does the wrong th
 
 **Their ordering, kept as given** — headers first because it blocks the *read-only* client:
 
-- [~] **tui-fetch-headers** — `FetchUrlSignal` carries `headersId`; `TuiEmitter.collectFetches`
-      drops it and the emitted helper is a bare `ureq::get(url).call()`. Their daemon requires HTTP
-      Basic on every route, so the terminal target cannot read real data at all.
+- [x] **tui-fetch-headers** — LANDED `5616c18b0`. `FetchUrlSignal` carries `headersId`;
+      `TuiEmitter.collectFetches` dropped it and the emitted helper was a bare
+      `ureq::get(url).call()`. Their daemon requires HTTP Basic on every route, so the terminal
+      target could not read real data at all.
       Spec: [`specs/frontend-tui-fetch-headers.md`](specs/frontend-tui-fetch-headers.md).
-      ⚠ Also widens the `serde_json` Cargo dependency condition (today `hasRemoteTable` only), or the
-      emitted crate will not compile.
-- [ ] **tui-fetch-url-signal** — `FetchInfo` captures the URL literal at EMIT time, only the tick is
-      dynamic, so a room switcher or day-pager keeps reading the endpoint chosen at build time. The
-      reporter calls this the cheaper of the remaining two and says it unblocks read-side navigation
-      on its own.
-- [ ] **tui-fetch-post** — no `fetchAction`/POST binding exists on the TUI target, so a `TextInput`
-      composer renders and can never submit. Wanted: a POST with a body that bumps a tick on success
-      so the bound GET re-reads.
+      **Gate:** `TuiCargoSmokeTest` — "a headers signal authenticates the GET via cargo — 401
+      without it, 200 with it". It compiles the emitted crate and runs it against a local server, so
+      it distinguishes the two states rather than matching a string.
+      Also widened the `serde_json` Cargo dependency condition, as the entry warned it would.
+- [x] **tui-fetch-url-signal** — LANDED `30ccb0562`. `FetchInfo` captured the URL literal at EMIT
+      time, only the tick was dynamic, so a room switcher or day-pager kept reading the endpoint
+      chosen at build time. The reporter called this the cheaper of the remaining two and said it
+      unblocks read-side navigation on its own.
+      **Gate:** `TuiFetchCargoTest` — "a signal URL retargets the GET, with the tick untouched", plus
+      "choosing a table row retargets the dependent fetch".
+- [x] **tui-fetch-post** — LANDED `4ec7e570f`. No `fetchAction`/POST binding existed on the TUI
+      target, so a `TextInput` composer rendered and could never submit. Wanted, and delivered: a
+      POST with a body that bumps a tick on success so the bound GET re-reads.
+      **Gate:** `TuiFetchCargoTest` — "a fetchAction posts the body, bumps the tick, and clears only
+      on success". That gate earned its keep on its first run: a composer's body/tick/headers are
+      reachable only through the `EventHandler`, `collectHandlerSignal` had no `FetchAction` case,
+      and the POST went out with an EMPTY body while reporting success — with every string
+      assertion green. Caught and fixed before merge (`77bc1dc84`).
 
 **What makes all three findable at once, and is worth more than any of them:** the dual-target proof
 so far — this repo's `specs/frontend-tui-fetch-refresh.md` gate and the reporter's own PoC smoke —
