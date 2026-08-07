@@ -303,6 +303,39 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**ROOT FOUND 2026-08-07: `Response` was never the cause — it is the third echo of a decline two
+import levels away.** Asking each module for its OWN decision settles it in four commands:
+
+    ssc info --front-report v1/runtime/std/json-core.ssc   ->  (global jsonCoreParseTolerant)
+    ssc info --front-report v1/runtime/std/json.ssc        ->  (global jsonCoreParseTolerant)   inherited
+    ssc info --front-report v1/runtime/std/http.ssc        ->  (global Response)                SUBSTITUTED
+    ssc info --front-report v1/runtime/std/eq.ssc          ->  F                                control
+
+So `json-core.ssc` declines ON ITS OWN, `json.ssc` inherits the same name through its import, and by
+`http.ssc` the reported name has become `Response` — an innocent class of that file. Nine
+measurement runs went after `Response`. The name-substitution is
+`f-malformed-import-blamed-on-downstream-constructor`, filed separately, and it is not a side
+observation: it is what HID the root.
+
+**And `jsonCoreParseTolerant` is declared normally** — column 0, line 344, an ordinary top-level
+`def`. F loses a plain top-level definition, which is a different and sharper question than any
+construct hunted so far.
+
+**Declaration-level reduction is what broke the deadlock and should be the default here.** Cutting
+by whole top-level declarations instead of by line converged in ELEVEN probes where eight
+line-based runs had failed, because a syntactically broken candidate cannot be produced at all —
+the property no predicate could enforce is obtained by construction. `scripts` for it is 30 lines:
+split on `^(case class|def|extern def|object|trait|val|type)\s`, keep the front matter and fences
+as a header, ddmin the declaration list.
+
+Ruled out on the way, each measured rather than assumed: module SIZE (100 filler defs lower fine),
+case-class COUNT (nine lower fine), and a wildcard inside a constructor pattern (`case Ok(v, _)`
+lowers fine).
+
+Remaining hole to know about: reducing a file that references names it no longer defines produces
+dangling references, and F then reports one of THOSE — so a declaration-level run still needs the
+candidate to stay self-contained, or the predicate matches by coincidence of name.
+
 **NARROWED to two files 2026-08-07, and the minimisation of the second FAILED six times — the
 failures are the useful part.**
 
