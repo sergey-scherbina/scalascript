@@ -274,6 +274,17 @@ object Lower:
       val (d, st4) = st3.fresh
       (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
 
+    // An ALPHANUMERIC infix operator is a method call — `a to b` IS `a.to(b)` in Scala, and routing
+    // it to `Invoke` is that identity rather than a new mechanism. It also means the receiver's
+    // runtime type decides, so `to` on an Int and a `to` someone later defines on their own type
+    // both work without the lowering knowing either. Same shape `++` above already uses.
+    case Expr.Bin(op, l, r, _) if op.nonEmpty && (op.charAt(0).isLetter || op.charAt(0) == '_') =>
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
+      val (k, st3) = st2.constIdx(Lit.LStr(op))
+      val (d, st4) = st3.fresh
+      (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
+
     case Expr.Bin(op, l, r, p) =>
       val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
       val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)

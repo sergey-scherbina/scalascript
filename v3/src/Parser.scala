@@ -36,16 +36,23 @@ object Parser:
     // simply had no row for them — and it stayed hidden until pattern guards became the first place
     // an EXPRESSION is parsed immediately before a `=>`. Everywhere else `=>` is either consumed by
     // `expectOp` or detected by `lambdaAhead` before this function is reached.
+    // ALPHANUMERIC operators sit BELOW every symbolic one, which is Scala's rule and the reason the
+    // symbolic rows are 2..9 rather than 1..8: `0 until n * 2` must be `0 until (n * 2)`, and an
+    // alphanumeric level equal to `|` would have made it `(0 until n) * 2`. There is no integer
+    // between 0 and 1, and 0 already means "not an operator" — so the table shifts up by one and
+    // keeps every relative order it had. `parseBin(ts, 1)`, the one caller that passes a literal,
+    // still admits everything.
     if op == "=>" || op == "<-" || op == "=" || op.isEmpty then 0
+    else if op.charAt(0).isLetter || op.charAt(0) == '_' then 1
     else op.charAt(0) match
-      case '|'             => 1
-      case '^'             => 2
-      case '&'             => 3
-      case '=' | '!'       => 4
-      case '<' | '>'       => 5
-      case ':'             => 6
-      case '+' | '-'       => 7
-      case '*' | '/' | '%' => 8
+      case '|'             => 2
+      case '^'             => 3
+      case '&'             => 4
+      case '=' | '!'       => 5
+      case '<' | '>'       => 6
+      case ':'             => 7
+      case '+' | '-'       => 8
+      case '*' | '/' | '%' => 9
       case _               => 0
 
   /** Scala's other half of the same rule: precedence comes from the FIRST character, associativity
@@ -198,12 +205,66 @@ object Parser:
     val (body, t2) = parseBody(ts)
     (Expr.Lambda(params.reverse, body, p), t2)
 
+  /** Can the next token BEGIN an operand, right here on this line?
+    *
+    * Only infix identifiers need this. A symbolic operator with no right operand cannot mean
+    * anything else, so `parseBin` consumes its layout unconditionally; an identifier can perfectly
+    * well be the last thing in an expression, and treating that one as infix would eat the token
+    * after it. Deliberately does NOT look through TNewline/TIndent — an operand on the next line is
+    * a continuation only after an operator the parser already committed to.
+    */
+  /** May this expression be the LEFT operand of an alphanumeric infix operator?
+    *
+    * No, if it is a block-shaped statement. This is not a style rule, it is the difference between
+    * parsing `demo.ssc` and losing half of it. A `while`/`if`/`match` body ends by consuming its
+    * DEDENT, so the token stream hands the next STATEMENT straight to the operator loop with no
+    * newline in between — and `println(total)` on the line after a `while` block looked exactly
+    * like an infix use: an identifier, then `(`, which begins an operand.
+    *
+    * The parser produced `(bin "println" (while …) (name "total"))` and silently dropped two
+    * `println` calls. Both differential gates caught it, and neither could have been read as this
+    * from its output alone: the executor and the bridge AGREED, because they were faithfully
+    * running the same wrong tree.
+    *
+    * Scala says the same thing for the same reason — `while (…) …` is a statement, not an operand.
+    */
+  private def canBeInfixLhs(e: Expr): Boolean = e match
+    case _: Expr.While | _: Expr.If | _: Expr.Match | _: Expr.Block => false
+    case _                                                          => true
+
+  private def startsOperand(ts: List[Tok]): Boolean = ts match
+    case Tok.TInt(_, _) :: _ | Tok.TFloat(_, _) :: _ | Tok.TStr(_, _) :: _ => true
+    case Tok.TChar(_, _) :: _ | Tok.TInterp(_, _) :: _                     => true
+    case Tok.TId(n, _) :: _   => !keywords.contains(n) || n == "true" || n == "false"
+    case Tok.TPunct("(", _) :: _                                           => true
+    // Prefix minus and not. `a to -1` is an operand; `a to )` is not.
+    case Tok.TOp("-", _) :: _ | Tok.TOp("!", _) :: _                       => true
+    case _                                                                 => false
+
   private def parseBin(ts0: List[Tok], minPrec: Int): (Expr, List[Tok]) =
     var (lhs, ts) = parseUnary(ts0)
     var go = true
     var indents = 0
     while go do
       peek(ts) match
+        // `a to b`, `a until b`, `xs map f` — an ordinary identifier used INFIX, which is how Scala
+        // spells `a.to(b)`. The lexer has no reason to call these operators, so they arrive as
+        // `TId` and this loop never looked at them: `(0 until 50)` failed with
+        // `expected ')', found until` (bench/corpus/range-sum.ssc, SSC3-7g/h).
+        //
+        // Two guards, and the second is what keeps this from swallowing programs. A keyword is
+        // never an operator — `if x then y` must not read `x then y` as infix. And there has to be
+        // a RIGHT OPERAND on the same line: statement boundaries are real tokens here
+        // (TNewline/TIndent/TDedent), so `f(x)` followed by `g(y)` on the next line cannot join,
+        // but `f(x) g` at the end of a line would otherwise consume whatever came after.
+        case Tok.TId(n, p)
+            if !keywords.contains(n) && prec(n) >= minPrec
+              && canBeInfixLhs(lhs) && startsOperand(ts.tail) =>
+          val (afterOp, moreIndents) = skipContinuation(ts.tail)
+          indents = indents + moreIndents
+          val (rhs, ts2) = parseBin(afterOp, prec(n) + 1)
+          lhs = Expr.Bin(n, lhs, rhs, p)
+          ts = ts2
         case Tok.TOp(op, p) if prec(op) >= minPrec && prec(op) > 0 =>
           // `::` is RIGHT-associative, so it recurses at its own precedence rather than one above:
           // `1 :: 2 :: Nil` must be `1 :: (2 :: Nil)`, and left association would build a list

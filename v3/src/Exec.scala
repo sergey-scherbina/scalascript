@@ -459,6 +459,24 @@ object Exec:
 
   private def invoke(m: Module, name: String, recv: Value, args: List[Value]): Value =
     (recv, name) match
+      // `a until b` / `a to b`. Materialised as a list rather than a lazy Range: every consumer in
+      // the corpus immediately does `.map`/`.foldLeft`, and a lazy view would be a second sequence
+      // kind for the executor to carry before anything needs one.
+      //
+      // The bound is checked. An unbounded or reversed range is a REFUSAL WITH A NAME, not an
+      // out-of-memory kill: `0 until -1` is empty, which is correct, but a range wider than the
+      // corpus could ever want is far more likely a bug in the program than an intention, and
+      // silently allocating it turns a small mistake into a dead machine.
+      case (Value.VInt(a), "until" | "to") =>
+        args match
+          case Value.VInt(b) :: Nil =>
+            val last = if name == "to" then b else b - 1L
+            if last - a >= 100000000L then
+              throw ExecError(name + " would build a list of " + (last - a + 1L) + " elements")
+            else if last < a then listIn(m, Nil)
+            else listIn(m, (a to last).map(x => Value.VInt(x)).toList)
+          case other =>
+            throw ExecError(name + " takes one Int, given " + other.map(show).mkString(", "))
       case (Value.VStr(s), "length")      => Value.VInt(s.length.toLong)
       case (Value.VStr(s), "toUpperCase") => Value.VStr(s.toUpperCase)
       // A LANE DIVERGENCE, measured 2026-08-05: all four ran on the bridge and refused on the
