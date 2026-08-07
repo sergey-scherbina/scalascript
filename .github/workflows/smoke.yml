@@ -135,6 +135,17 @@ jobs:
       # `Failed to download .../bloop-frontend_2.12-2.1.0.pom` (BUGS
       # corpus-breadth-slice-crashes-scala-cli-on-ci). The cache-hit path is the COMMON path, so the
       # optimisation aimed the flake at the majority of runs.
+      # `tests/conformance/.scala-build` is scala-cli's compiled output for `contract.sc`, and it was
+      # NOT cached — only coursier/ivy/sbt were. That one omission is the whole story of
+      # `smoke-suite-over-its-own-budget`, measured across 13 runs 2026-08-07:
+      #
+      #   suite total 376.5 … 482.9 s  ->  freeze-consistency   8.1 – 12.9 s
+      #   suite total 625.4 … 626.5 s  ->  freeze-consistency  95.5 – 96.3 s
+      #
+      # A perfect split with NOTHING in between: every run under budget has that check at ~11 s,
+      # every run over it at ~96 s, and the other 68 checks differ only by an ordinary ~15 % host
+      # factor. The suite is not too big — one check pays a cold scala-cli resolve-and-compile
+      # whenever the cache does not cover it, and 84 s is the entire breach.
       - name: Cache Coursier/sbt
         uses: actions/cache@v4
         with:
@@ -142,6 +153,7 @@ jobs:
             ~/.cache/coursier
             ~/.ivy2/cache
             ~/.sbt
+            tests/conformance/.scala-build
           key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
           restore-keys: |
             ${{ runner.os }}-sbt-
@@ -151,6 +163,20 @@ jobs:
       # note in ci.yml). Per-job prefix `-v2-smoke-`, disjoint from `-v2-conf-` and `-v2-sbt-`: those
       # jobs compile with different sbt invocations, so their zinc analyses are not interchangeable
       # and sharing a cache re-creates the poison.
+      # Compile `contract.sc` ONCE, here, where it is a visible infrastructure step rather than 84
+      # invisible seconds inside a check that is being timed against a 600 s budget. The budget
+      # governs the suite's own work; a dependency resolve is setup, and it already has steps of its
+      # own directly above. `freeze-consistency` then finds it warm.
+      #
+      # AFTER the Coursier cache restore, deliberately: run before it, this would pay the cold
+      # resolve on EVERY run and only populate the cache for the next one — the cost would move
+      # out of the budget and stay on the clock.
+      #
+      # `|| true`: a failure here must not fail the push. If the warm-up cannot run, the gate still
+      # does its own `scala-cli … --list` and simply pays the old cost — degraded, not broken.
+      - name: Warm the conformance contract build
+        run: scala-cli compile tests/conformance/contract.sc || true
+
       - name: Restore compiled classes (zinc)
         if: steps.toolchain.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4

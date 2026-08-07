@@ -663,6 +663,46 @@ see the cause from the output alone.
      fixed-in: -
      gate: scripts/smoke-ci -->
 
+**MEASURED 2026-08-07, and the framing below is WRONG. It is not "the suite is too big" — it is ONE
+check and ONE missing cache path.** Thirteen consecutive runs, suite total against
+`freeze-consistency` alone:
+
+```
+suite 376.5 421.6 463.7 469.3 471.8 473.0 474.7 479.1 482.9 484.8 │ 625.4 625.5 626.5
+fc      8.1   8.1  10.6  11.0  11.4  11.9  12.3  12.4  12.8  10.6 │  95.5  95.6  96.3
+```
+
+**A perfect split with nothing in between.** Every run under budget has that check at 8–13 s; every
+run over it has the same check at 95–96 s, clustered within 1.1 s of each other. Across the same
+pairs the other 68 checks differ by an ordinary ~15 % host factor (`run-lane-flags` 54.1→63.9,
+`import-alias` 39.1→44.0). 84 s of one check IS the breach.
+
+Two hypotheses tested and REFUTED before the third was accepted: the slow runs did NOT touch
+`build.sbt` or `project/*` (so it is not the cache KEY), and they are NOT a contiguous window —
+03:57 fast, 03:58 slow, 04:01 slow, 04:02 fast, minutes apart. It varies per run.
+
+**Cause.** `freeze-consistency`'s invariant I5 shells out to
+`scala-cli tests/conformance/contract.sc -- --list`, and `tests/conformance/.scala-build` — where
+scala-cli keeps that compiled script — **was in no cache path**. Only `~/.cache/coursier`,
+`~/.ivy2/cache` and `~/.sbt` were. So the script is resolved and compiled per run, at ~11 s when
+coursier covers the dependencies and ~96 s when it does not.
+
+The cost was known and written down at the call site ("0.49 s warm … a cold resolve-and-compile on
+a runner … a 47x ratio") when I5 was added. It was documented and not removed, and the entry below
+then spent four rounds attributing the breach to the suite's size.
+
+**Fix (this claim):** cache `tests/conformance/.scala-build`, and compile `contract.sc` once in a
+named workflow step AFTER the cache restore — where a dependency resolve is visible setup rather
+than 84 unlabelled seconds inside a check being timed against a 600 s budget. `|| true`, so a
+warm-up that cannot run degrades to today's behaviour instead of failing the push.
+
+**What this does NOT settle:** whether 600 s is the right cap for 69 checks. That question is real
+and is what the entry below is about — but it was never what turned main red, and the entry stays
+open for it rather than being closed on this.
+
+---
+
+
 **RAISED TO 500 s ON 2026-08-04, by the project owner's instruction, and this entry STAYS OPEN.**
 The 420 s cap was fitted when the suite held 18 checks; it holds 58, and with runner variance at
 ±14 s it had no headroom against its own noise — it failed run 30905783511 at 428.8 s with every
