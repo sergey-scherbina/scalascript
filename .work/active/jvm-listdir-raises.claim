@@ -1,0 +1,11 @@
+slug: jvm-listdir-raises
+branch: feature/jvm-listdir-raises
+agent: claude-code
+started: 2026-08-07T06:32:13Z
+heartbeat: 2026-08-07T06:32:13Z
+status: claimed-before-planning
+items: jvm listDir answers List() where every other lane raises
+paths: file:v1/runtime/backend/jvm/src/main/resources/scalascript/jvm-runtime/fsRuntime file:v1/runtime/backend/jvm/BUGS.md file:tests/conformance/std-fs-failure-raises.ssc file:specs/std-fs-os.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
