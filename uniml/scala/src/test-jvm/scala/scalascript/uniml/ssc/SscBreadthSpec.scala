@@ -146,13 +146,44 @@ final class SscBreadthSpec extends AnyFunSuite:
     // ScalaScript dialect simply does not parse ssc0. Whether that file should be `.ssc0` or the
     // dialect owes ssc0 support is filed, not guessed: `uniml/BACKLOG.md`.
     //
-    // So `total` is raised to admit a population that was never measured, and the bare column gets
-    // its OWN floor so the concession is bounded and a regression inside it is still visible.
-    // TAGGED is unchanged and must stay so: bare mode is not a language change, and if this commit
-    // had moved that column it would have been a different claim entirely.
+    // ⚠️ `total < 7400` AND `bareDiags < 7300` WERE NOT GATES. Corrected 2026-08-07 after Sergiy
+    // asked what the problem with `fsub.ssc` actually was — and the answer turned out not to be
+    // classification at all.
+    //
+    // Those two ceilings sat above a number, 7,131, of which 7,110 is ONE FILE that is not
+    // ScalaScript-dialect source. So they bounded that file's noise and nothing else: a real
+    // regression of ~270 diagnostics ANYWHERE could have landed under them without a word. A floor
+    // that cannot fail is not a floor, which is the lesson this suite already carries about the
+    // 95% typed-coverage ceiling that let a 96.5% reading pass while every `if` was mis-modelled.
+    //
+    // The fix is NOT a filename exclusion. Hard-coding `fsub.ssc` here would put the measurement's
+    // honesty in a list somebody has to maintain, and a silent exclusion is how a sweep starts
+    // lying. Both replacements below are filename-free and bound what the numbers are FOR:
+    //
+    //   • everything OUTSIDE bare files — the fenced population, which is what the dialect is
+    //     actually measured on;
+    //   • every bare file EXCEPT the noisiest one — so `fsub.ssc` may be as unparseable as it
+    //     likes while a SECOND file going bad is caught immediately.
+    //
+    // Between them, the only thing that can grow unobserved is the single worst bare file, and
+    // `bareWorst.size` below bounds how many files may fail at all.
+    //
+    // The ceilings are 25 and 15 against measured 9 and 3 — roughly two- to threefold headroom, the
+    // same spirit as the tagged floor's "headroom of 8" above. Not 60: a ceiling six times the
+    // truth is how the two numbers being replaced here stopped constraining anything in the first
+    // place, and repeating that with smaller digits would fix nothing.
+    val nonBareDiags = total - bareDiags
+    val worstBare = if bareWorst.isEmpty then 0L else bareWorst.values.max.toLong
+    val bareBesidesWorst = bareDiags - worstBare
+    info(f"non-bare diagnostics=$nonBareDiags   bare besides the worst file=$bareBesidesWorst")
+
     assert(pct > 90.0, f"clean-parse rate fell to $pct%.1f%%")
-    assert(total < 7400, s"diagnostics grew to $total")
-    assert(bareDiags < 7300, s"diagnostics from BARE files grew to $bareDiags")
+    assert(nonBareDiags < 25,
+      s"diagnostics outside bare files grew to $nonBareDiags — this is the fenced population, the " +
+        "one the dialect is measured on, and it is no longer bounded by the headline")
+    assert(bareBesidesWorst < 15,
+      s"bare diagnostics excluding the single worst file grew to $bareBesidesWorst — a SECOND bare " +
+        "file is now failing to parse, which the headline cannot show because one file dominates it")
     // The floor that actually bounds this population, and it needs no filename: at most a handful
     // of bare files may fail to parse. Measured THREE — `specs/v2.2-p6.5-fsub.ssc` (the ssc0
     // program, 7,110 on its own), `v1/tools/scripts/launchers/http.ssc` (2), and
