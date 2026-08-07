@@ -1,0 +1,13 @@
+slug: ssc3-7n-option-flatmap
+branch: feature/ssc3-7n-option-flatmap
+agent: claude-code
+started: 2026-08-07T14:59:40Z
+heartbeat: 2026-08-07T14:59:40Z
+status: in-progress
+items: SSC3-7n
+paths: file:v3/src/Exec.scala
+scope: |
+  Option.flatMap is missing from the executor: option-chain.ssc fails with
+  method flatMap on #2(0) is not implemented on this lane. Same dispatch block that
+  just gained Either.map/flatMap/fold.
+next: implement, verify differentially against the bridge and v1
