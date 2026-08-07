@@ -422,7 +422,7 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
       // now that main is 0.2.0-SNAPSHOT, following it would emit a coordinate that resolves nothing.
       // Bump this when a release is PUBLISHED, not when the build version moves.
       // Gate: tests/e2e/emitted-coordinate-is-published.sh
-      val version  = "0.1.0"
+      val version  = "0.1.1"
       val libDirective =
         s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"
       val implClass = name match

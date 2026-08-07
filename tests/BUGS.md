@@ -312,6 +312,45 @@ gate. It cost me roughly half an hour on `std/credential.ssc` before the lane ma
 Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
 comment pointing here.
 
+## smoke-runner-cannot-run — the suite is unrunnable on main, for everyone
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: scripts/smoke-ci -->
+
+`scripts/smoke-ci` dies before running a single check:
+
+```
+ssc: class scala.Tuple2 cannot be cast to class scala.collection.immutable.List
+```
+
+No check runs, so **every agent's smoke is red on main** and the suite currently protects nothing.
+
+**Bracketed, not guessed.** Two toolchains, same file:
+
+| toolchain built from | result |
+| --- | --- |
+| `612b393bf` (main ~4 h earlier) | runs the suite — 70 checks start |
+| current `origin/main` | dies as above |
+
+36 commits between them.
+
+**It is the RUNTIME, not the script.** Checked out `scripts/smoke-ci.ssc` at `c1d29e7cc~1` and ran
+it with the failing toolchain: identical failure. The most recent edit to that file is therefore
+innocent.
+
+**Not front-specific.** Fails identically under the default front, `SSC_FRONT=legacy` and
+`SSC_FRONT=F`, so it is below the front, in the shared runtime.
+
+**Not general breakage.** Trivial programs run, and so does a program building `List[(Int, String)]`
+and mapping over it — the toolchain is fine for ordinary code; something in that 836-line program
+hits it.
+
+Prime suspect from the bracket, unverified: `5cdf4a3c5 feat(v3): ssc3 run is v3's own runtime`. The
+others are docs, inbox tooling, a conformance gate and a CLI validator. Confirming it costs one
+`install.sh --dev` per bisect step, which is why this is filed with the bracket rather than sat on.
+
 ## compile-jvm-shipped-broken-in-the-native-binary — resources a native image never carried
 
 <!-- status: fixed
