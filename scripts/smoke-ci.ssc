@@ -303,6 +303,13 @@ val suite = List(
   // guard. 180000 is what the other multi-spawn checks here use, and it still catches a hang.
   // Raising it costs the BUDGET nothing: timeoutMs is a ceiling, not a cost.
   Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 180000),
+  // The sbt plugin is a SEPARATE build -- not in the root aggregate, not in ci.yml -- so its ten
+  // scripted scenarios were run by nothing at all. That is how 1fea89a79 (a JS commit) deleted all
+  // four of their .ssc-artifacts fixtures and nobody noticed for three weeks, leaving two scenarios
+  // red and `identity` GREEN while it observed generation being skipped rather than emitting
+  // nothing. Minutes here, against a suite that was decorative.
+  // 600000: ten scenarios, each booting its own sbt and resolving Scala 2.12 for the plugin.
+  Check("tests", "sbt-plugin-scripted", "tests/e2e/sbt-plugin-scripted.sh", List(), 600000),
   // Sub-second, and it guards a string that ends up in SOMEBODY ELSE's build file. The coordinate
   // `ssc` emits into a generated project must name a published release; a -SNAPSHOT there resolves
   // nowhere and fails at the user's first compile, in a file we wrote for them. Its only previous
