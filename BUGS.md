@@ -4021,7 +4021,7 @@ as good as knowing which two things it compared.
      area: build
      kind: bug
      gate: tests/e2e/cds-archive-per-build.sh
-     fixed-in: ad655f6b6d6e9e5e245e9e94a0a18a5cab61a0b6 -->
+     fixed-in: 79521f93ced0e6e5d51018ae6e018050ae0b7785 -->
 
 Found 2026-08-07 after roughly two hours of looking in the wrong place, which is the reason this
 entry is long: the symptom points nowhere near the cause.
