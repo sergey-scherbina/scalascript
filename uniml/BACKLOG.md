@@ -7,6 +7,37 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## the version is declared twice — remove the COPY, not the standalone build
+
+Blocked until `release/0.1.1` lands: `build.sbt` and `uniml/build.sbt` are both held by the live
+`release-v0-1-1` claim, deliberately ("the standalone build must carry the same version").
+
+Sergiy asked on 2026-08-07 whether `uniml/build.sbt` could go, to end the version duplication. **The
+answer measured out to no, and the framing that produced the question was mine and was wrong.** I
+had told him only one property still argued for keeping it — "uniml builds without the root build
+definition" — having checked publishing metadata and module coverage and never checked *what runs
+the tests*. That property is doing three jobs at once:
+
+- **It is the only automated gate for UniML's ~300 tests.** The CI job `uniml:` is
+  `cd uniml && sbt -batch test`; there is no other. Until 2026-08-04 `grep uniml .github/workflows/`
+  returned nothing at all.
+- **`smoke-ci` was tried for this and reverted** — a smoke check consumes the staged toolchain and
+  never builds one, and UniML ships in no artefact for a check to consume (`scripts/smoke-ci.ssc`).
+- **The standalone build IS the proof that UniML stands alone** — zero dependency on the
+  ScalaScript trees — so one command checks the tests and that property together. Putting UniML in
+  the default distribution instead is what §7 invariant 1 of `specs/project-partitioning.md`
+  forbids (no Part III module in the standard tier, 144/144 holding).
+
+So the duplication is real and worth ending, but the thing to delete is the second **declaration**,
+not the build. Read `version` (and `organization`, `licenses`, `homepage`, `scmInfo`) in
+`uniml/build.sbt` from the root `build.sbt` rather than restating them. Then one value exists,
+`UnimlCoordinatesSpec`'s cross-build comparison guards something that can no longer drift — and it
+should be re-pointed at whatever the new single source is, or deleted with its reason recorded,
+rather than left asserting a tautology.
+
+Related and still open: `sbt-plugin-version-and-the-coordinate-templates-emit-disagree` in
+`tests/BUGS.md` is a FOURTH declaration of the same coordinate.
+
 ## the operator lexer munches at most TWO characters — FIXED, and the entry's premise was wrong
 
 **FIXED 2026-08-06.** Maximal munch over operator characters, which is Scala's rule; the two

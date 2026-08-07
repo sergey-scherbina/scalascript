@@ -612,12 +612,30 @@ jobs:
           sbt -batch test | tee /tmp/uniml.log
           passed=$(grep -c "All tests passed" /tmp/uniml.log || true)
           echo "UniML: $passed project(s) reported passing"
-          # Floor == the count observed in run 30937360765, not a round number
-          # under it. Adding a project raises the count and stays green; only
-          # LOSING one goes red, which is the whole point. A floor of 8 against
-          # an actual 10 tolerates exactly the silent loss this asserts against.
-          if [ "$passed" -lt 10 ]; then
-            echo "::error::only $passed UniML project(s) reported passing — expected the whole aggregate"
+          # EXACT, not a floor, and the change is the point. This was `-lt 10`
+          # against an aggregate that had grown to 15: five projects were added
+          # on 2026-08-06/07 (markupCore, unimlXml, unimlAddress and the two JS
+          # siblings) and nobody moved the number, so the check tolerated losing
+          # a THIRD of the module in silence. A floor only ratchets when someone
+          # remembers to ratchet it, and measured here, nobody did.
+          #
+          # Equality makes staleness impossible instead of merely unlikely:
+          # losing a project goes red, and ADDING one also goes red until this
+          # line is bumped in the same commit. That is one line of friction
+          # bought against a check that had quietly stopped checking.
+          #
+          # Deriving the count from `.aggregate(...)` was tried and rejected on
+          # purpose: the failure this guards against is a project dropping OUT
+          # of that list, and an expectation read from the same list falls with
+          # it and stays green. The expectation has to be frozen somewhere the
+          # sabotage cannot reach.
+          #
+          # 15 == measured, `cd uniml && sbt -batch test`, 103 s, exit 0.
+          expected=15
+          if [ "$passed" -ne "$expected" ]; then
+            echo "::error::UniML: $passed project(s) reported passing, expected exactly $expected."
+            echo "::error::Fewer means the aggregate silently stopped testing something."
+            echo "::error::More means a project was added — bump 'expected' in this step."
             exit 1
           fi
 
