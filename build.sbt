@@ -1967,10 +1967,30 @@ lazy val cli = project
         """|_SSC_CDS_ARGS=()
           |if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
           |  _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
+          |  # KEYED ON THE BUILD. The archive used to live at one path for the whole machine, so
+          |  # every checkout and every worktree shared it — and `AutoCreateSharedArchive` did not
+          |  # regenerate it when the jars changed underneath. The JVM then loaded STALE CLASS
+          |  # DEFINITIONS from the archive in preference to the jars on the classpath.
+          |  #
+          |  # What that looks like from outside is a cast error with no position and no stack, in
+          |  # code nobody touched: `class scala.Tuple2 cannot be cast to class
+          |  # scala.collection.immutable.List`, because one jar had changed a payload from a list
+          |  # to a pair and the archive still held the old reader. Cleaning bin/, target/ and a full
+          |  # rebuild all have NO effect — the archive is outside the repository — and the same
+          |  # commit in another copy WORKS if its jars happen to match. Every ordinary hypothesis
+          |  # is wrong, and each costs a rebuild.
+          |  #
+          |  # `.build-digest` is a content digest of the build's inputs and is already written
+          |  # beside the jars, so two builds cannot collide and a rebuild gets a fresh archive.
+          |  _SSC_CDS_DG="none"
+          |  if [[ -r "$_SSC_BIN/lib/.build-digest" ]]; then
+          |    _SSC_CDS_DG="$(<"$_SSC_BIN/lib/.build-digest")"
+          |    _SSC_CDS_DG="${_SSC_CDS_DG//[^0-9a-zA-Z]/}"
+          |  fi
           |  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
           |    _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
           |                   -XX:+AutoCreateSharedArchive \
-          |                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa" \
+          |                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc-$_SSC_CDS_DG.jsa" \
           |                   -Xlog:cds=off -Xlog:cds+dynamic=off)
           |  fi
           |fi

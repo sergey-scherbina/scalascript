@@ -4014,14 +4014,14 @@ I ran `bin/ssc run` and called it v1 for a whole session. `bin/ssc run` is the N
 interpreter is `ssc-tools run --v1`, and it is correct on every one of these. A differential is only
 as good as knowing which two things it compared.
 
-## the CDS archive is SHARED between every checkout and is not keyed on the build
+## the CDS archive is SHARED between every checkout and is not keyed on the build — FIXED
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/cds-archive-per-build.sh
+     fixed-in: 602a396c9bbf4e494b4981642e1580ffd154e5d6 -->
 
 Found 2026-08-07 after roughly two hours of looking in the wrong place, which is the reason this
 entry is long: the symptom points nowhere near the cause.
@@ -4081,5 +4081,16 @@ Then two trees cannot collide, and a rebuild gets a fresh archive instead of a s
 archives accumulate in the cache; a size cap or an age sweep is the follow-up, and is a much smaller
 problem than a wrong answer.
 
-**Not fixed here:** `build.sbt` is held by the live claim `release-v0-1-1`, so the change belongs to
-whoever holds it. Everything needed is above.
+**FIXED 2026-08-07** once `release-v0-1-1` released `build.sbt`. The launcher template now reads
+`bin/lib/.build-digest` and names the archive `ssc-<digest>.jsa`, so two builds cannot collide and a
+rebuild gets a fresh archive. Proven by A/B: with two different digests the launcher opens two
+different archive files.
+
+`tests/e2e/cds-archive-per-build.sh` holds it, and it checks the GENERATED launchers rather than the
+template — a template that is right and a launcher that is stale is exactly the gap this class of
+bug lives in. Observed failing: restoring the shared `ssc.jsa` path gives
+`FAIL bin/ssc shares ONE archive for the machine`. Its own "no launcher with CDS found" guard fired
+first and caught a wrong `ROOT` in the gate, which is what that guard is for.
+
+Old archives accumulate in the cache under their digests; a size cap or an age sweep is the
+follow-up, and is a much smaller problem than a wrong answer.

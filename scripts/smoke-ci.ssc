@@ -182,6 +182,12 @@ val suite = List(
   Check(".", "policy-single-source", "tests/e2e/policy-single-source.sh", List("--self-test"), 120000),
   Check(".", "bugs-index", "tests/e2e/bugs-index-gate.sh", List("--self-test"), 120000),
   Check(".", "task-views", "tests/e2e/task-views-gate.sh", List("--self-test"), 120000),
+  // The CDS archive must be keyed on the BUILD. It was one path for the whole machine, so two
+  // checkouts shared it and the JVM loaded stale classes from it in preference to the jars — a cast
+  // error with no position, in code nobody touched, that survives cleaning bin/ and target/ because
+  // the archive is outside the repository. Grep-fast, and it checks the GENERATED launcher rather
+  // than the template, because the launcher is what runs.
+  Check(".", "cds-archive-per-build", "tests/e2e/cds-archive-per-build.sh", List(), 60000),
   // One NUL byte makes `grep` treat a whole file as binary, and grep then prints nothing — the
   // same output it prints for "no matches". Seven tracked sources carried one (a Char sentinel
   // typed as a raw byte); the largest was the 227 KB v2 runtime, silently un-greppable for
