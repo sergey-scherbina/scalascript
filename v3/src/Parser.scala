@@ -604,7 +604,7 @@ object Parser:
             if isPunct(peek(t), ",") then t = t.tail else go = false
         (Pat.PCtor(n, args.reverse, p), expectPunct(t, ")"))
       // An UPPERCASE bare name is a nullary constructor (`Nil`, `None`); a lowercase one binds.
-      else if n.charAt(0) >= 'A' && n.charAt(0) <= 'Z' then (Pat.PCtor(n, Nil, p), ts.tail)
+      else if Chars.isUpperStart(n.charAt(0)) then (Pat.PCtor(n, Nil, p), ts.tail)
       else (Pat.PBind(n, p), ts.tail)
     case other => throw ParseFail(Lexer.posOf(other), "expected a pattern, found " + Lexer.show(other))
 

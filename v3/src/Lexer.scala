@@ -44,6 +44,20 @@ object Chars:
   def isIdStart(c: Char): Boolean =
     (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$' || c >= 128
   def isIdPart(c: Char): Boolean = isIdStart(c) || isDigit(c)
+  /** Does this name start a CONSTRUCTOR rather than a binder?
+    *
+    * Scala's rule is capitalisation, and the parser used to spell it `>= 'A' && <= 'Z'` — ASCII
+    * only. Every non-ASCII name therefore read as lowercase, so `case Éric =>` was a BINDER that
+    * matched everything and printed `BOUND 1` where Scala 3 says `not found: value Éric` and
+    * UniML's front refuses. A pattern that silently matches everything is the worst answer of the
+    * three this shape produces across lanes (`BUGS.md`,
+    * `an-undefined-name-in-a-pattern-means-three-different-things`), and it was v3's.
+    *
+    * `Character.isUpperCase` rather than a range table, and that is MEASURED rather than assumed:
+    * compared against `UniAlphabet.isTypeNameStart` — UniML's own curated table, which is what the
+    * other front decides by — over every code point in the BMP, the two disagree on ZERO. So the
+    * fronts agree by construction here, not by hoping two tables stay in step. */
+  def isUpperStart(c: Char): Boolean = Character.isUpperCase(c)
   def isOpChar(c: Char): Boolean =
     c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '<' || c == '>' ||
       c == '=' || c == '!' || c == '&' || c == '|' || c == '^' || c == '~'

@@ -1,0 +1,10 @@
+case object Éric
+
+def k(x: Any): String =
+  x match
+    case Éric => "the object"
+    case _ => "other"
+
+def main(): Unit =
+  println(k(Éric))
+  println(k(1))

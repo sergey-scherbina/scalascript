@@ -184,6 +184,26 @@ while the repo was at `c5f59d368`. Of the 171 files changed across those 218 com
 pattern resolution or the typer, so the measurement holds for this question; confirm on a fresh
 build before closing.
 
+**v3 answers a FOURTH way, and it is the one this entry asks for.** Measured 2026-08-07 on both
+v3 lanes and both v3 fronts:
+
+    ssc3: nope.ssc:4:10: unknown constructor 'Nope' in a pattern
+
+A positioned refusal at the pattern, before anything runs — which is exactly "a fix belongs in the
+fronts' resolution step rather than per backend", implemented. So the recommendation above is not a
+proposal any more; there is a working front that does it and two lanes that agree by construction
+because the refusal happens before either is reached.
+
+**And chasing it found the same defect in v3, for NON-ASCII names.** v3's parser decided
+constructor-versus-binder with `>= 'A' && <= 'Z'`, so `case Éric =>` read as a BINDER that matches
+everything and printed `BOUND 1` — the quiet, dangerous answer this entry warns about, in the lane
+that otherwise gets it right. Fixed by `Character.isUpperCase`, chosen after comparing it against
+`UniAlphabet.isTypeNameStart` — UniML's own curated table — over every code point in the BMP: they
+disagree on ZERO, so the two fronts agree by construction rather than by keeping two tables in step.
+Covered by `v3/tests/front/unicode-capitalisation.ssc` (runs, both fronts) and
+`unicode-unresolved-ctor.ssc` (refused), and the fixture was observed failing with the ASCII rule
+put back.
+
 **GATED 2026-08-07** by `tests/e2e/pattern-undefined-name-gate.sh`, which pins the three rows above
 plus the lowercase control, and fails in every direction: a lane that stops matching its row, and —
 separately asserted — js coming to agree with the other two, which would otherwise leave three rows

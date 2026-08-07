@@ -33,7 +33,7 @@ disagree=0
 # The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
 # corpus number carries, and for the same reason: a gate that is permanently red stops being read,
 # and a gate with no floor lets the number slide back without anyone noticing.
-FLOOR="${SSC3_FRONT_AGREE_FLOOR:-48}"
+FLOOR="${SSC3_FRONT_AGREE_FLOOR:-49}"
 
 # The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
 # a list that disagrees with itself. The kernel knows one front; the driver knows whether the second
@@ -167,6 +167,15 @@ if [ "$nfronts" -ge 2 ]; then
   echo "  fronts AGREE on $agree of $ran fixture(s); $disagree still differ or are refused (floor $FLOOR)"
   if [ "$agree" -lt "$FLOOR" ]; then
     echo "  FAIL agreement REGRESSED below the floor — raise it only after a measurement, never before"
+    fail=1
+  fi
+  # A CEILING TOO, for the same reason the corpus half has one. Adding a fixture raises the
+  # denominator, so a floor alone stays satisfied while the new fixture disagrees — measured the
+  # hour after the corpus half was fixed: `unicode-capitalisation` landed differing, agreement was
+  # 48 of 49, the floor was 48, and the gate said GREEN. Twice in two days is the shape, not luck.
+  FIXCEIL="${SSC3_FRONT_FIXTURE_DIFF_CEILING:-0}"
+  if [ "$disagree" -gt "$FIXCEIL" ]; then
+    echo "  FAIL $disagree fixture(s) differ or are refused, above the ceiling $FIXCEIL"
     fail=1
   fi
 fi

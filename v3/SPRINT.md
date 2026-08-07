@@ -1606,3 +1606,42 @@ v3's own front rose 52 → 55. Eight gates green, `install.sh --dev` clean, smok
 **The differential paid for itself here.** Every one of these four defects was a WRONG ANSWER that
 each side's own gates called green, and each was found by two independent implementations printing
 the same program and disagreeing.
+
+## 35 · A sibling's find, checked against v3 — and v3 had the same defect one alphabet over
+
+`BUGS.md` gained `an-undefined-name-in-a-pattern-means-three-different-things`: `case Nope =>` where
+`Nope` is undefined. Scala 3 rejects it at compile time; of the three v1/v2 lanes, int and native
+answer a silent `NO MATCH` and js throws a `ReferenceError` at run time — and only when the `match`
+is reached, so a pattern in a cold branch ships and fails in production. The entry's own conclusion:
+*a fix belongs in the fronts' resolution step rather than per backend.*
+
+- [x] **35a — v3 already answers the way the entry asks.** Both lanes, both fronts:
+      `unknown constructor 'Nope' in a pattern`, positioned, before anything runs. Recorded in the
+      entry, because a recommendation with a working implementation behind it is a different thing
+      from a proposal.
+
+- [x] **35b — AND THE SAME DEFECT WAS IN v3, one alphabet over.** The parser decided
+      constructor-versus-binder with `>= 'A' && <= 'Z'` — ASCII only — so every non-ASCII name read
+      as lowercase and `case Éric =>` was a BINDER that matched everything and printed `BOUND 1`.
+      The quiet, dangerous answer this entry warns about, in the lane that otherwise gets it right.
+      The sibling's probe was about Unicode and reported no divergence; the ASCII control is what
+      carried their defect, and the Unicode case is what carried mine.
+
+      `Character.isUpperCase`, chosen by MEASUREMENT rather than preference: compared against
+      `UniAlphabet.isTypeNameStart` — the curated table UniML's front decides by — over every code
+      point in the BMP, the two disagree on **zero**. So the fronts agree by construction, not by
+      two tables being kept in step by hand.
+
+- [x] **35c — the corpus could not have found this**, which is why it needed fixtures.
+      `unicode-capitalisation.ssc` runs on both fronts and both lanes; `unicode-unresolved-ctor.ssc`
+      must be refused. Observed failing with the ASCII rule put back.
+
+- [x] **35d — AND THE FIXTURE HALF OF THE GATE HAD THE SAME HOLE I FIXED IN THE CORPUS HALF
+      YESTERDAY.** Adding a fixture raises the denominator: agreement was 48 of 49, the floor was
+      48, the new fixture DIFFERED, and the gate said GREEN. Twice in two days is a shape, not luck
+      — a floor on the good number is not a guard, wherever it appears. Both halves now carry a
+      floor and a ceiling; observed failing on both at once.
+
+**Measured:** N = 69 on both v3 lanes, 55 on v3's own front, DIFF 0 and CRASH 0 everywhere. Front
+agreement 49/49 fixtures and 219/219 corpus. Eight gates green, `install.sh --dev` clean, smoke-ci
+70/70.
