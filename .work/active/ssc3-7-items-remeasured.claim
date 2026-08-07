@@ -1,0 +1,11 @@
+slug: ssc3-7-items-remeasured
+branch: feature/ssc3-7-items-remeasured
+agent: claude-code
+started: 2026-08-07T21:27:34Z
+heartbeat: 2026-08-07T21:27:34Z
+status: claimed-before-planning
+items: SSC3-7a..7e are described as front gaps; measured, none of them is one any more
+paths: file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
