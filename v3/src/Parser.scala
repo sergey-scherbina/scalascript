@@ -328,18 +328,62 @@ object Parser:
 
   /** Postfix `.name` / `.name(args)`, left-associative so `a.b.c(1).d` chains. Measured on the
     * corpus, `.` was ~104 of 343 remaining refusals — the largest single cause by a wide margin. */
+  /** The line the tokens between `from` and `to` END on, or -1 when `to` is not a suffix of `from`.
+    *
+    * -1 means "unknown" and every caller treats it PERMISSIVELY — as the same line, which is what
+    * the parser did before this existed. A wrong assumption about how the token list is threaded
+    * then degrades to yesterday's behaviour instead of silently rejecting valid code. */
+  private def endLineBetween(from: List[Tok], to: List[Tok]): Int =
+    // Identified by the head token's POSITION, not by reference. `to` is not a plain suffix of
+    // `from`: `dropDedents` removes tokens from the middle, so the list is rebuilt and `eq` never
+    // matched — the first attempt returned -1 every time and, degrading permissively as designed,
+    // changed nothing at all. A position is unique to a token, which is the identity that survives.
+    val stop = to.headOption.map(Lexer.posOf)
+    var ln = -1
+    var cur = from
+    var found = stop.isEmpty // `to` empty = everything was consumed
+    while cur.nonEmpty && !found do
+      if stop.contains(Lexer.posOf(cur.head)) then found = true
+      else
+        ln = Lexer.posOf(cur.head).line
+        cur = cur.tail
+    if found then ln else -1
+
   private def parsePostfix(ts0: List[Tok]): (Expr, List[Tok]) =
     var (e, ts) = parsePrimary(ts0)
+    // The line the expression built so far ENDS on — see the `(` case below for why it is needed.
+    var endLine = endLineBetween(ts0, ts)
     var go = true
     while go do
+      // EVERY step updates `endLine`, not only the one that reads it. The first version updated it
+      // in the `(` branch alone, so after `Dataset.of(\n  …\n).reduceByKey(a)(b)` it still held the
+      // line of `Dataset` — three lines up — and the second argument list was refused as a new
+      // statement. A guard that is only maintained where it is consumed is a guard that is wrong
+      // everywhere else.
+      val stepFrom = ts
       if isId(peek(ts), "match") then
         val (arms, t) = parseMatchArms(ts.tail)
         e = Expr.Match(e, arms, Expr.posOf(e)); ts = t
       // A `(` DIRECTLY after an expression applies it: `f(a)(b)`, and with it `foldLeft(z)(f)`,
       // which is the shape that made this worth doing — a fold is daily work and it could not be
-      // written. No newline may intervene, and none can: a newline is its own token, so a `(`
-      // opening the next line is a new statement and is not reached here.
-      else if isPunct(peek(ts), "(") then
+      // written.
+      //
+      // ON THE SAME LINE, and the comment that used to stand here said this could not fail to
+      // hold: "a newline is its own token, so a `(` opening the next line is a new statement and
+      // is not reached here". FALSE whenever the expression ended with an INDENTED BLOCK — closing
+      // that block consumes the newline AND the dedent, so the `(` becomes adjacent:
+      //
+      //     while r.nonEmpty do
+      //       r = r.tail
+      //     (0 :: Nil) ++ acc.reverse      <- a sibling statement, and the function's result
+      //
+      // v3 read that as applying the `while`'s result to `(0 :: Nil)`. Applying the result of a
+      // `while` is not a thing this language has, which is the corroboration that the READING was
+      // wrong rather than the tree merely being unusual — and the reference front and UniML both
+      // print two statements. Found by the front differential (`v3/BACKLOG.md`), and it is the
+      // second of the two constructs behind all 74 corpus disagreements; the other was UniML's.
+      else if isPunct(peek(ts), "(") &&
+              (endLine < 0 || Lexer.posOf(peek(ts)).line == endLine) then
         val (as, t) = parseArgs(ts.tail)
         e = Expr.Apply(e, as, Expr.posOf(e)); ts = t
       else if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
@@ -358,6 +402,8 @@ object Parser:
               e = Expr.MethodCall(e, nm, Nil, p); ts = afterName
           case _ => go = false
       else go = false
+      // The step consumed `stepFrom` down to `ts`; that is where the expression now ends.
+      if go then endLine = endLineBetween(stepFrom, ts)
     (e, ts)
 
   /** `match` arms, brace-delimited or indented. An arm's body runs until the next `case` or the end

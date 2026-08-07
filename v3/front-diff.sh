@@ -114,7 +114,7 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
   echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-145}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-219}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
     fail=1
@@ -129,7 +129,7 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   #
   # So: two numbers, two directions, both non-regressing. This is the same rule the corpus N
   # carries (I-5) applied to the thing the differential actually measures.
-  CCEIL="${SSC3_FRONT_CORPUS_DIFF_CEILING:-74}"
+  CCEIL="${SSC3_FRONT_CORPUS_DIFF_CEILING:-0}"
   if [ "$cdiff" -gt "$CCEIL" ]; then
     echo "  FAIL corpus DISAGREEMENTS rose to $cdiff, above the ceiling $CCEIL"
     fail=1

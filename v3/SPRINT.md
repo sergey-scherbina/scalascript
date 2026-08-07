@@ -1525,3 +1525,51 @@ a call that contains a `_` but is not a bare `_` becomes a lambda over that argu
 `install.sh --dev` clean, smoke-ci 70/70. Front agreement unchanged at 145 of 219 with 74
 disagreements — the offside-rule question from §32d is untouched and is the next thing to settle,
 because it is a CORRECTNESS question rather than a coverage one.
+
+## 34 · The 74 front disagreements are ZERO — and the last two were both mine
+
+§32d recorded 74 corpus cases where the two fronts printed different trees, and said it needed the
+reference as a third opinion because the differential cannot say which side is wrong. That is what
+happened, from both ends:
+
+- A sibling agent took the UniML half (`16ef08948`): the dialect bound an `else` unconditionally, so
+  an `if` written as the last statement of an indented block swallowed the `else` belonging to the
+  block's OWNER. A wrong ANSWER, not a loss — `f(2)` evaluated to 0 where the reference says 2 —
+  which is why none of UniML's own gates saw it: diagnostic count, coverage and losslessness were
+  green throughout. **All 74 were `scljet-*` cases importing ONE `scljet/sql.ssc`**, which spells
+  that shape once.
+
+- [x] **34a — the other half was v3's, and it was filed FOR me.** `v3/BACKLOG.md` recorded it with
+      the correction that §5b's premise — "all remaining differences are on UniML's side" — was
+      wrong. `parsePostfix` claimed "a newline is its own token, so a `(` opening the next line is a
+      new statement and is not reached here". **False whenever the expression ended with an indented
+      block**: closing it consumes the newline AND the dedent, so `while … do ⏎ … ⏎ (0 :: Nil) ++ xs`
+      read as applying the `while`'s result. Applying the result of a `while` is not a thing this
+      language has, which is what made the READING wrong rather than the tree merely unusual.
+
+- [x] **34b — two mistakes on the way to a three-line fix, each worth more than the fix.**
+      - **Identity by reference did not hold.** I found the end-of-expression line by walking the
+        token list until it reached the remaining suffix, compared with `eq` — and `dropDedents`
+        removes tokens from the MIDDLE, so the list is rebuilt and `eq` never matched. The helper
+        returned "unknown" every time and, degrading permissively as designed, changed nothing. The
+        design saved it: a wrong assumption became yesterday's behaviour rather than a silent
+        rejection of valid code, and the measurement said so on the next run.
+      - **A guard maintained only where it is read is wrong everywhere else.** I updated the line in
+        the `(` branch alone, so after `Dataset.of(⏎ … ⏎).reduceByKey(a)(b)` it still held the line
+        of `Dataset` and a legitimate second argument list was refused. One case, caught by the
+        differential in the same run that confirmed the first fix.
+
+- [x] **34c — and one that was purely mine: a `case object` LOST ITS METHODS.** The projection's
+      `isCase` arm was written for the bare-marker shape and passed `Nil` for the members, so
+      `case object NoFile extends SqliteFile: def readAt…` projected as an empty class. Two corpus
+      files disagreed over it. A dropped member is exactly the failure this projection exists to
+      avoid: the tree stays well-formed and smaller, so it lowers, runs, and answers a call by
+      falling through to nothing.
+
+**Measured:** front agreement **219 of 219, zero disagreements** (was 145 of 219 with 74). Both
+guards tightened — floor 219, ceiling 0. N unchanged at 69 on both v3 lanes with DIFF 0 and CRASH 0;
+v3's own front rose 52 → 55. Eight gates green, `install.sh --dev` clean, smoke-ci 70/70.
+
+**The differential paid for itself here.** Every one of these four defects was a WRONG ANSWER that
+each side's own gates called green, and each was found by two independent implementations printing
+the same program and disagreeing.

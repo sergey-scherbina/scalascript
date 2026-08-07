@@ -4,39 +4,31 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
-## v3's parser CONTINUES an expression onto a line starting with `(` — and UniML is the one that is right
+## ~~v3's parser CONTINUES an expression onto a line starting with `(`~~ — FIXED 2026-08-07
 
-Found 2026-08-07 by `v3/front-diff.sh` while narrowing its 74 corpus disagreements, and the
-direction is the surprise: `40-front-on-uniml.md` §5b's hand-over said "all 11 remaining
-differences are on this side", meaning UniML's. This one is v3's.
+Filed by whoever narrowed the front differential's 74 corpus disagreements, and fixed the same day.
+Kept here rather than deleted, because the *shape* recurs and the note that stood here was right
+about the direction when the premise on record said otherwise.
 
-    def f(): List[Int] =
-      var r = 1 :: 2 :: Nil
-      var acc: List[Int] = Nil
-      while r.nonEmpty do
-        acc = r.head :: acc
-        r = r.tail
-      (0 :: Nil) ++ acc.reverse
+The claim in the parser was: "a newline is its own token, so a `(` opening the next line is a new
+statement and is not reached here." **False whenever the expression ended with an INDENTED BLOCK** —
+closing that block consumes the newline AND the dedent, so the `(` becomes adjacent and `while … do
+… ⏎ (0 :: Nil) ++ xs` read as applying the `while`'s result. `parsePostfix` now requires the `(` to
+be on the line the expression ENDS on.
 
-The last line starts with `(` at the SAME column as the `while`, so it is a sibling statement and
-the function's result. The reference front agrees — it prints `List(0, 1, 2)`.
+Two things went wrong on the way to a three-line fix, and both are worth more than the fix:
 
-    uniml   (do (while …)) then (bin "++" …)          two statements — matches the reference
-    v3      (bin "++" (apply (while …) …) …)          applies the `while`'s result to `(0 :: Nil)`
+- **Identity by reference did not hold.** The end-of-expression line was found by walking the token
+  list until it reached the remaining suffix, compared with `eq` — and `dropDedents` removes tokens
+  from the middle, so the list is rebuilt and `eq` never matched. The helper returned "unknown"
+  every time and, degrading permissively by design, changed nothing at all. The measurement said so
+  immediately: the fronts still differed. Identity is now the head token's POSITION, which is unique.
+- **A guard maintained only where it is read is wrong everywhere else.** The line was updated in the
+  `(` branch alone, so after `Dataset.of(⏎ … ⏎).reduceByKey(a)(b)` it still held the line of
+  `Dataset`, three lines up, and a legitimate second argument list was refused. It is updated after
+  every postfix step now.
 
-Applying the result of a `while` is not a thing the language has, which is the corroboration: v3 is
-continuing the expression across a newline because the next line opens a paren, where Scala's
-offside rule ends the statement at equal indentation.
-
-**Why it matters more than one construct.** It is the second of the two differences in
-`scljet/sql.ssc`, and that one file is imported by all 74 disagreeing corpus cases. The other was
-UniML's — an `else` binding to an `if` inside a block it closes, fixed in `16ef08948`, which took
-`scljet-jdbc-basic` from 8 differing lines to 2. `front-diff.sh` counts FILES, so **the corpus
-number cannot move from 145/74 until this one lands too**; the fix and the number are one construct
-apart.
-
-Filed here rather than fixed: `v3/src/Parser.scala` is v3's own, and the front differential's
-premise — that the remaining differences are UniML's — needs correcting along with it.
+Result: front agreement on the corpus went **74 differing → 0**, 219 of 219.
 
 ## v3 carries its own copy of the character alphabet — decide, do not drift
 

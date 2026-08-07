@@ -138,7 +138,17 @@ object UniFront:
     // indistinguishable and the projection could not guess, because an empty object is useless but
     // legal and turning it into a constructor would invent a value nobody wrote.
     case U.ObjectDecl(n, parents, ms, isCase, s) =>
-      if isCase then Sorted.C(List(ClassDef(n, Nil, Nil, parents.toList, pos(s))))
+      if isCase then
+        // A `case object` MAY CARRY METHODS — `case object NoFile extends SqliteFile: def readAt…`
+        // — and they were dropped here, silently, because the arm was written for the bare marker
+        // shape. Two corpus files disagreed with v3's own front over exactly that, and a dropped
+        // member is the failure this projection is arranged to avoid: the tree stays well-formed
+        // and smaller, so it lowers, runs, and answers a call by falling through to nothing.
+        val ms2 = ms.toList.flatMap { m => m match
+          case dd: U.Def => List(Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span)))
+          case other     => no("a non-`def` member of a `case object`", other.span)
+        }
+        Sorted.C(List(ClassDef(n, Nil, ms2, parents.toList, pos(s))))
       else
         // An `object` is a NAMESPACE: its `def`s become `O_name` and its `val`s become the
         // object's own state. Both kinds are kept — dropping the `val`s left the `def`s reading
