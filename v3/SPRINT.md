@@ -165,6 +165,81 @@ nothing else, so `:+` split into punctuation and `+`. `effect` and `extension` t
 After it, the histogram is no longer a chain but a WALL: `trait` at 137, then `[` (generics) at 36.
 Both need a type checker, which is the next real decision rather than the next construct.
 
+## SSC3-7 — the bench corpus, one task per MEASURED blocker
+
+Measured 2026-08-07 against `bench/corpus` (36 files), after the first attempt at this list was
+wrong twice over and both mistakes are the reason the list is shaped this way.
+
+**Mistake one: the harness blamed the language.** `ssc3 bench` accepted only a zero-argument
+`workload`, and 17 corpus files declare `def workload(seed: Long)` — the opaque input that stops a
+pure body folding to a constant. Nine rows v3 compiles AND runs came back `n/a`, which reads from
+the table as "v3 cannot run this program". `tests/e2e/bench-seed-type-gate.sh` exists because the
+shared wrapper did this twice; this was the third time, on a new lane.
+
+**Mistake two: compiling is not running.** A sweep with `ssc3 ir` said 23 of 36 compile, and that
+number went into `bench/README.md` as if it were coverage. Eleven of those 23 do not execute. The
+split below is what the two stages actually report.
+
+| stage | count | meaning |
+|---|---|---|
+| runs | 19 | compiles, executes, produces a number |
+| front declines | 13 | the parse or the name resolution stops it |
+| executor declines | 4 | it compiles, and something is missing at run time |
+
+Each row below is its own task on purpose: the blocker is a MEASURED diagnostic with a file and a
+column, so each one can be verified by re-running exactly that file. Do not merge them on a hunch
+that two share a cause — link 6 of SSC3-6 is the standing counter-example, where 116 of 126 cases in
+one symptom bucket turned out to be a different construct than the obvious reading.
+
+### Front — the parse or the name (13 files)
+
+- [ ] **SSC3-7a — `effect X:` declarations.** `effect-oneshot.ssc:18:12` — `effect Bump:` →
+      `expected an expression, found :`. The IR already reserves `Perform`/`Handle`/`Resume`, so
+      this is a front gap, not a representation gap.
+- [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
+      same message, different keyword. Separate from 7a because multi-shot resumption is a different
+      executor obligation, and closing 7a must not silently claim this.
+- [ ] **SSC3-7c — `!` effect types in a signature.** `effect-pure.ssc:6:35` —
+      `def compute(n: Int): Int ! Logger =` → `expected an expression, found =`. The `!` is parsed
+      as far as the return type and then the body is not reached.
+- [ ] **SSC3-7d — `given name: T with`.** `typeclass-fold.ssc:15:13` (`given intSum: Monoid[Int] with`)
+      and `typeclass-monoid.ssc:10:16` (`given intMonoid: IntMonoid with`) →
+      `expected an expression, found :`. Tier 2 in `specs/20-core-language.md §2`; queued here with
+      the measurement rather than left implicit in that deferral.
+- [ ] **SSC3-7e — a block argument, `f { … }`.** `effect-stream.ssc:7:28` — `val (src, _) =
+      runStream {` → `expected an expression, found {`. A call whose single argument is a block.
+- [ ] **SSC3-7f — `Either` / `Right` / `Left`.** `either-chain.ssc:13:17` and
+      `type-lambda-placeholder.ssc:18:17`, both `if n > 0 then Right(n) else Left("neg")` →
+      `call to unknown function 'Right'`. Two files, one missing type.
+- [ ] **SSC3-7g — `until`.** `range-sum.ssc:12:16` — `(0 until 50)` → `expected ')', found until`.
+- [ ] **SSC3-7h — `to`.** `streams-pipeline.ssc:9:20` — `(Bench.opaque(1) to 10)` →
+      `expected ')', found to`. Kept apart from 7g deliberately: they are probably one fix, and if
+      so closing both in one commit costs nothing, while assuming it and being wrong hides a gap.
+- [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
+      `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall
+      SSC3-6 already names (`[` at 36 cases), so this is gated on the type checker decision.
+- [ ] **SSC3-7j — `Vector`.** `vector-index.ssc:17:22` → `call to unknown function 'Vector'`.
+- [ ] **SSC3-7k — `LazyList`.** `lazylist-take.ssc:24:17` → `unknown name 'LazyList'`; needs
+      `LazyList.from`, `.map`, `.take`, `.sum` and therefore laziness, not just a name.
+
+### Executor — it compiles, and then it stops (4 files)
+
+- [ ] **SSC3-7l — `<` on Double.** `float-loop.ssc`: `var i: Double = 0.0` with
+      `while i < 1000000.0` fails at run time with `Lt on 0 and 1000000`. Note the operands print
+      with NO decimal point, so the first thing to measure is whether `Lower` turned the literals
+      into `VInt` or whether `Lt` simply has no `VFloat` case — that decides which file the fix goes
+      in. `float-fold` runs, so Double arithmetic is not wholly absent; this is the comparison.
+- [ ] **SSC3-7m — `Map.updated`.** `map-ops.ssc`: `method 'updated' on Map(0 entries) is not
+      implemented on this lane`.
+- [ ] **SSC3-7n — `Option.flatMap`.** `option-chain.ssc`: `method 'flatMap' on #2(0) is not
+      implemented on this lane`.
+- [ ] **SSC3-7o — `++` on a tuple.** `tuple-monoid.ssc`: `method '++' on #4(3, 2) is not
+      implemented on this lane`.
+
+*Verifying any one of these:* `v3/ssc3 bench --warmup 0 --reps 1 bench/corpus/<file>.ssc` must print
+a `BENCH_MS:` line instead of the quoted diagnostic, and `./bench.sh --backends v3 <file>` must show
+a number instead of `n/a`.
+
 ### Defects found and fixed along the way
 
 - [x] **A parse error inside an IMPORTED unit named the ROOT file.** `std-index.ssc:35:1: trait is

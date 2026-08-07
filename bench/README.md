@@ -60,9 +60,13 @@ at `Prim`, so `v3/ssc3 bench` runs the loop driver-side. Compilation is excluded
 the window doubles to 100 ms on both sides; what differs is that v3 is not charged for executing its
 own rep counter. On an IR walker that is one host increment against a whole `workload()` call.
 
-**A blank v3 cell means the front declined the program, not that it was slow.** v3 compiles 23 of
-the 36 corpus files (2026-08-07): no effects, typeclasses, type lambdas, `range-sum`, `either-chain`,
-`lazylist-take`, `streams-pipeline` or `vector-index`.
+**A blank v3 cell means v3 declined the program, not that it was slow.** Measured 2026-08-07:
+**19 of 36 run**, 13 are declined by the front, and 4 compile but stop in the executor. Every one is
+a named task with its diagnostic in `v3/SPRINT.md` §SSC3-7.
+
+An earlier version of this paragraph said "compiles 23 of 36", which was a `ssc3 ir` sweep reported
+as if it were coverage — eleven of those 23 do not execute. Compiling is not running, and the split
+above is what the two stages actually report.
 
 Generated raw files are ignored. The durable checked-in summaries are:
 

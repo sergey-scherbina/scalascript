@@ -321,17 +321,39 @@ object Cli:
               val m =
                 if path.endsWith(".ssir") then Text.read(src)
                 else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
-              val idx = m.funcs.indexWhere(f => f.name == "workload" && f.nparams == 0)
+              // ZERO OR ONE PARAMETER. 17 of the 36 corpus files declare `def workload(seed: Long)`
+              // (one takes an `Int`): the seed is opaque varying input, there so a pure zero-input
+              // body cannot be folded to a constant. Accepting only arity 0 blanked NINE rows that
+              // v3 compiles and runs perfectly — array-update, bool-predicate, instance-field,
+              // lambda-call, literal-match, option-chain, tuple-monoid and both var-expr-init rows.
+              //
+              // Read from the table that is indistinguishable from "v3 cannot run this program",
+              // which is the exact failure `tests/e2e/bench-seed-type-gate.sh` was written for after
+              // the shared wrapper did it twice. This was the third time, on a new lane.
+              //
+              // v3 needs no declared-type branch the way the source wrapper does: `Value.VInt` holds
+              // a Long and the executor is dynamically typed at the Value level, so one seed shape
+              // serves both `Int` and `Long` workloads.
+              val idx = m.funcs.indexWhere(f => f.name == "workload" && (f.nparams == 0 || f.nparams == 1))
               if idx < 0 then
-                // Named rather than silent: a corpus file without a zero-arg `workload` is a fixture
-                // problem, and a blank cell would read as "v3 cannot do this program".
-                Console.err.println("ssc3: " + path + ": no zero-argument `workload` to bench")
+                // Named rather than silent: a corpus file with no `workload` of arity 0 or 1 is a
+                // fixture problem, and a blank cell would read as "v3 cannot do this program".
+                Console.err.println(
+                  "ssc3: " + path + ": no `workload` of arity 0 or 1 to bench")
                 1
               else
+                val seeded = m.funcs(idx).nparams == 1
+                // Monotonic, exactly as the shared wrapper's `_ssc_seed`: enough varying input to
+                // keep the work honest without making the value depend on the measurement.
+                var seed = 1L
+                def once(): Value =
+                  val v = Exec.callFunc(m, idx, if seeded then List(Value.VInt(seed)) else Nil)
+                  seed = seed + 1
+                  v
                 Exec.run(m)
                 var w = 0
                 while w < warmup do
-                  Exec.callFunc(m, idx, Nil)
+                  once()
                   w = w + 1
                 var reps = if reps0 < 1 then 1 else reps0
                 var ns   = 0L
@@ -340,7 +362,7 @@ object Cli:
                   val t0 = System.nanoTime()
                   var r  = 0
                   while r < reps do
-                    sink = Exec.callFunc(m, idx, Nil)
+                    sink = once()
                     r = r + 1
                   ns = System.nanoTime() - t0
                   if ns < 100000000L then reps = reps * 2
