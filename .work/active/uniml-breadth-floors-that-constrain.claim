@@ -1,0 +1,11 @@
+slug: uniml-breadth-floors-that-constrain
+branch: feature/uniml-breadth-floors-that-constrain
+agent: claude-code
+started: 2026-08-07T03:35:04Z
+heartbeat: 2026-08-07T03:35:04Z
+status: claimed-before-planning
+items: UNIML-SSC3
+paths: file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscBreadthSpec.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
