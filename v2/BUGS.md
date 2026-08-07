@@ -303,6 +303,34 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**AND THE ROOT NARROWS TO THE EXPORT LIST.** In `json-core.ssc` the name
+`jsonCoreParseTolerant` appears exactly twice — line 17, its entry in the front-matter `exports:`,
+and line 344, its own ordinary top-level `def`. Nothing else in the file references it. Deleting
+the ONE export-list line and rebuilding flips the file from declining to `F`.
+
+So F emits a reference for each exported name and does NOT emit the `def` for this one, leaving the
+export reference dangling. The def is unremarkable — column 0, between two exported neighbours that
+are both fine:
+
+    def jsonCoreParseStrict(source: String): Any   exported, F is happy
+    def jsonCoreParseTolerant(source: String): Any exported, def MISSING from F's output
+    def jsonCoreValueOrNull(result: Any): Any      exported, F is happy
+
+A prefix bisect over whole declarations: F lowers the first 22, and from 28 on it declines. That is
+SUGGESTIVE ONLY and is recorded as such — a prefix is not self-contained, so the later cutoffs may
+be reporting dangling forward references rather than the loss.
+
+Shapes ruled out, each measured on a standalone program rather than assumed: a `match` whose
+scrutinee is a call to another def; `case Ok(v, _)` — a wildcard inside a constructor pattern;
+`case _ =>` as the final arm; constructing a ZERO-parameter case class in an arm; module size (100
+filler defs lower); case-class count (nine lower). The body shape of `jsonCoreParseTolerant`
+transplants and lowers FINE in isolation, so whatever drops it is contextual to this file.
+
+Next step that does not repeat any of the above: find whether F's emitted program contains the def
+under a different name or not at all — the question is now about F's DEF EMISSION for one
+declaration, not about a construct, and the export-list line is a one-character switch for
+reproducing it either way.
+
 **ROOT FOUND 2026-08-07: `Response` was never the cause — it is the third echo of a decline two
 import levels away.** Asking each module for its OWN decision settles it in four commands:
 
