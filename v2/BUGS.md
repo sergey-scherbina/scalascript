@@ -330,6 +330,22 @@ different hole in the predicate. Recorded so the seventh does not rediscover the
     4  same                        same hole, tightened to an exact line + exit 0 — still passed
     5  same                        program ran but never CALLED the reduced module's function
     6  two bodyless defs + `}`     calling it was not enough either
+    7  an orphaned `case` arm      required a TAB from `front-report`, but an ERROR row HAS tabs —
+                                   `F` and `ERROR` both print `path \t DECISION \t reason`
+    8  an orphaned `match` + def   rejected ERROR explicitly, and the fragment is not classified
+                                   ERROR at all: it lowers to something, so the proxy still passed
+
+**Eight runs, and the conclusion is about the METHOD, not the file.** Every cheap well-formedness
+proxy available here — the importing program still runs, it prints exactly `ok`, it CALLS the
+reduced module, `front-report` yields a row, that row is not `ERROR` — is satisfiable by a fragment
+that happens to lower. What the predicate actually needs to say is "the reduced module still MEANS
+the same thing", and nothing available expresses that. Breaking a module is always a smaller change
+than finding the real construct, so ddmin finds the break first, every time.
+
+A ninth attempt should not be another predicate. Two directions that do not share this failure mode:
+compare F's lowered IR for the module against the reference front's and look for where they first
+diverge, which needs no reduction at all; or reduce by DECLARATION rather than by line, so every
+candidate is syntactically whole by construction.
 
 And the trap that nearly made me file the wrong defect: the malformed reductions DO transplant, so a
 synthetic two-module chain built from one reproduces — but only while the core module is BROKEN. A
