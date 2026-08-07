@@ -218,46 +218,24 @@ one symptom bucket turned out to be a different construct than the obvious readi
       bridge and on the v1 interpreter. `type-lambda-placeholder`, the second file this task named,
       now stops at `unknown name 'type'` — a type alias, filed as SSC3-7q.
 
-- [ ] **SSC3-7q — `type` aliases.** `type-lambda-placeholder.ssc:15:1` → `unknown name 'type'`.
-      Distinct from SSC3-7i: 7i is the type LAMBDA (`[A] =>> …`) and needs the generics decision,
-      while a plain `type X = Y` alias may not. Surfaced by re-running the file after 7f, not by
-      reading it.
+- [x] **SSC3-7q — `type` aliases.** DONE. Consumed and DISCARDED, which is the whole of it: types
+      are erased at Tier 0, which is why `skipType` exists and why `asInstanceOf` is the identity in
+      the executor. An alias names a type; with no types at run time it names nothing, and every USE
+      of it was already skipped by `skipTypeAnn`.
 
-      *Original diagnostic, kept because it is what the task was opened on:*
-      `either-chain.ssc:13:17` and `type-lambda-placeholder.ssc:18:17`, both
-      `if n > 0 then Right(n) else Left("neg")` → `call to unknown function 'Right'`.
-- [x] **SSC3-7g — `until`.** DONE. `range-sum` runs and agrees with the v1 interpreter on the
-      value (`2425500` on both), which is the check that matters — not merely that it stopped
-      failing.
-- [x] **SSC3-7h — `to`.** DONE as an OPERATOR, and the file it came from still does not run. They
-      were one fix, as suspected: alphanumeric identifiers are now infix operators generally, so
-      `to` and `until` both parse. `streams-pipeline.ssc` then moved to a different blocker at
-      `10:5` — see SSC3-7p. Filing them apart is what made that visible; a merged "ranges" task
-      would have been ticked on `range-sum` alone and quietly carried the second file's real gap.
+      Third occurrence of one pattern, after `sealed` and `extern` directly above it in the same
+      loop: an unrecognised leading word falls through to the EXPRESSION parser, becomes a top-level
+      statement reading an unbound name, and the file dies with a message about the keyword —
+      `unknown name 'type'` — pointing at a line whose content is a type.
 
-      *How it was done, since the shape is reusable:* an alphanumeric operator is a method call —
-      `a to b` IS `a.to(b)` — so the parser gained a `TId` case in the operator loop, the lowering
-      routes any letter-initial operator to `Invoke` exactly as `++` already did, and only `Exec`
-      knows what `to`/`until` mean. Precedence rows shifted 1..8 → 2..9 because Scala puts
-      alphanumeric operators BELOW every symbolic one and there is no integer between 0 and 1.
+      The `=` is part of the TEST rather than only of the consumption: a branch matching on `type`
+      alone would have to leave the tokens untouched when no `=` followed, and the top-level loop
+      would spin on them forever. `type F[A] = …` counts brackets, since they nest in `type M[F[_]]`.
 
-- [ ] **SSC3-7p — a leading-dot method chain on continuation lines.** `streams-pipeline.ssc:10:5`
-      → `expected an expression, found <indent>`:
-
-          (Bench.opaque(1) to 10)
-            .map(x => x * 2)
-            .filter(x => x % 3 == 0)
-
-      The chain continues on the next line, more deeply indented, starting with `.`. Found by
-      re-running the file after 7h rather than by reading the source. Note the file may hold a
-      further blocker behind this one (`Bench.opaque`), which is worth expecting rather than being
-      surprised by — that is what the corpus chain in SSC3-6 looks like every time.
-- [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
-      `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall
-      SSC3-6 already names (`[` at 36 cases), so this is gated on the type checker decision.
-- [ ] **SSC3-7j — `Vector`.** `vector-index.ssc:17:22` → `call to unknown function 'Vector'`.
-- [ ] **SSC3-7k — `LazyList`.** `lazylist-take.ssc:24:17` → `unknown name 'LazyList'`; needs
-      `LazyList.from`, `.map`, `.take`, `.sum` and therefore laziness, not just a name.
+      Verified DIFFERENTIALLY: `482` on the executor and the bridge. Corpus 25 -> 26. **Negative
+      control:** `type-lambda-native` is still refused, so this does not silently claim SSC3-7i —
+      and its diagnostic improved on the way, from `expected an expression, found [` to
+      `expected a name, found [`, which points at the type rather than at the statement.
 
 ### Executor — it compiles, and then it stops (4 files)
 

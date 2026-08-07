@@ -126,6 +126,32 @@ object Parser:
       val (e, t) = parseExpr(ts.tail)
       (Some(e), t)
 
+  /** After the word `type`: the tokens FOLLOWING the alias's `=`, or `None` if this is not an
+    * alias. Recognising before consuming is what keeps the top-level loop from spinning on a `type`
+    * it cannot finish reading.
+    *
+    * Accepts an optional parameter list, `type F[A] = …`, by scanning to the matching `]` — the
+    * brackets nest in `type M[F[_]] = …`, so counting them is not optional.
+    */
+  private def typeAliasEq(ts0: List[Tok]): Option[List[Tok]] =
+    ts0 match
+      case Tok.TId(n, _) :: rest if !keywords.contains(n) =>
+        var ts = rest
+        if isPunct(peek(ts), "[") then
+          var depth = 0
+          var go = true
+          while go do
+            peek(ts) match
+              case Tok.TPunct("[", _) => depth += 1; ts = ts.tail
+              case Tok.TPunct("]", _) =>
+                depth -= 1; ts = ts.tail
+                if depth == 0 then go = false
+              case Tok.TEof(_) => go = false
+              case _           => ts = ts.tail
+          if depth != 0 then return None
+        if isOp(peek(ts), "=") then Some(ts.tail) else None
+      case _ => None
+
   private def skipType(ts0: List[Tok]): List[Tok] =
     var ts =
       if isPunct(peek(ts0), "(") then
@@ -1266,6 +1292,26 @@ object Parser:
       // function this lane does not implement" and drops.
       else if isId(peek(ts), "extern") && ts.tail.nonEmpty && isId(peek(ts.tail), "def") then
         ts = ts.tail
+      // `type RightInt = Either[_, Int]` — a type ALIAS, consumed and discarded.
+      //
+      // Discarding is the whole of it, and it is not laziness: types are erased at Tier 0
+      // (`specs/20-core-language.md` §2), which is why `skipType` exists and why `asInstanceOf` is
+      // the identity in the executor. An alias names a type; with no types at run time it names
+      // nothing, and every USE of it is already skipped by `skipTypeAnn`.
+      //
+      // Same failure shape as `sealed` and `extern` directly above, and found the same way: the
+      // word fell through to the expression parser, became a top-level statement reading an unbound
+      // name, and the file died at `unknown name 'type'` — a message about the KEYWORD, pointing at
+      // a line whose actual content is a type. Three occurrences of one pattern now.
+      //
+      // NOT the type LAMBDA (`type Pair = [A] =>> (A, A)`, SSC3-7i): that one needs the generics
+      // decision. `skipType` will consume its right-hand side too, but declaring that as support
+      // would be claiming a feature on the strength of the parser not objecting.
+      // The `=` is part of the TEST, not just of the consumption. A branch that matched on `type`
+      // alone and then found no `=` would have to leave the tokens untouched, and this loop would
+      // spin on them forever — the shape has to be recognised before anything is consumed.
+      else if isId(peek(ts), "type") && typeAliasEq(ts.tail).isDefined then
+        ts = skipType(typeAliasEq(ts.tail).get)
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         defs = d :: defs
