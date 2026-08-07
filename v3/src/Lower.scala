@@ -686,7 +686,18 @@ object Lower:
       }
       (acc, d, st)
 
-    case Expr.Call("Array", argEs, p) if !classes.exists(c => c.name == "Array") =>
+    // `Vector` shares `Array`'s representation, and the choice is not cosmetic. Vector is an
+    // INDEXED sequence; lowering it to a list — the obvious alternative, since `Seq` already goes
+    // there — would make `v(i)` a traversal, and `bench/corpus/vector-index.ssc` exists precisely to
+    // measure indexed access. v3's column would then report list-walking under the name "vector",
+    // which is the same class of error as measuring the wrong lane.
+    //
+    // WHAT THIS GIVES UP, stated rather than discovered later: a Scala `Vector` is immutable and
+    // `VArr` is not, so `v(i) = x` is accepted here and rejected by Scala. At Tier 0 types are
+    // erased and `asInstanceOf` is already the identity, so this is the tier's existing bargain
+    // rather than a new one — but it IS a difference, and a type checker will have to take it back.
+    case Expr.Call("Array" | "Vector", argEs, p)
+        if !classes.exists(c => c.name == "Array" || c.name == "Vector") =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
       var st = st0
