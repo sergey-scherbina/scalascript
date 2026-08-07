@@ -225,6 +225,41 @@ route safe.
      area: conformance
      gate: tests/conformance/run.sh -->
 
+**THE SECOND HALF IS CLOSED 2026-08-07 — the reason is no longer thrown away. The first half (why a
+case goes silent inside a large batch) is NOT reproduced and this entry stays OPEN for it.**
+
+Half of it had already been fixed since this was filed: when `run-batch` exits NON-zero, `batchLane`
+keeps stderr, prints it, and drops the in-flight case so it re-runs alone. What remained is the shape
+every one of the six sightings actually had — **the batch exits 0** and one case's section is empty.
+That emptiness went straight to the comparison, which reported every line `got=<missing>` and named
+no reason.
+
+**The discriminator is the EXPECTED output**, which is why this is not "distrust every empty
+section": a case whose golden is legitimately empty must not be forced onto the slow path on every
+run — the same care the non-zero branch already takes by distrusting only the last case. An empty
+section with a NON-empty golden is not a legitimate result under any reading. Those keys are now
+dropped, so the caller falls back to `run(...)`, which carries `<exit:N>` and stderr.
+
+Exercised rather than assumed, with a planted case that prints nothing against a non-empty golden:
+
+```
+[batch/v1]      run-batch exited 0 but 1 case(s) produced NO stdout: _zprobe-silent
+                — re-running each on its own so the reason survives.
+[batch/emit-js] run-batch exited 0 but 1 case(s) produced NO stdout: _zprobe-silent
+```
+
+The lane label is part of the fix: `batchLane` runs once per lane, so the unlabelled message printed
+twice and said less than one labelled line does. **Which lane lost the output is the first question a
+reader has.**
+
+Regression: int lane 360/360 across eight shards, union checked against the unsharded total, and
+zero `[batch]` notes on a clean corpus — the branch does not fire on legitimately-empty goldens.
+
+**What this does NOT do:** it does not stop a case going silent in a big batch. That is the first
+half, it has never reproduced in isolation, and it now arrives with its stderr and exit code
+attached instead of as a bare `<missing>`. The next sighting should finally be diagnosable — which
+is the whole reason this half was filed as certain while the other was not.
+
 **Status:** OPEN, **NOT reproduced in isolation** (observed 2026-07-28 by `v2-native-error-diagnostic`
 in a full 350-case local corpus run).
 

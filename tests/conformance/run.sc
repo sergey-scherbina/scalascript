@@ -523,10 +523,43 @@ def lastMarkedCase(out: String): Option[String] =
 def batchLane(launcher: os.Path, extra: Seq[String], eligible: List[Meta]): Map[String, String] =
   if noBatch || eligible.length < 3 then Map.empty
   else
+    // WHICH LANE lost the output is the first question a reader has, and this function runs once per
+    // lane, so an unlabelled `[batch]` line printed twice says less than one labelled line does.
+    val laneLabel = extra.headOption.map(_.stripPrefix("--")).getOrElse("batch")
     val cmd = Seq(launcher.toString, "run-batch", "--delim", BATCH_MARK) ++ extra ++ eligible.map(_.test.toString)
     val res = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
     val sections = splitBatch(res.out.text())
-    if res.exitCode == 0 then sections
+    if res.exitCode == 0 then
+      // AN EMPTY SECTION ON A CLEAN EXIT IS THE OTHER HALF OF THE SAME BUG, and until now it was
+      // invisible: the branch below keeps stderr and re-runs the in-flight case, but only when the
+      // batch DIED. A batch that exits 0 while one case printed nothing hands that emptiness
+      // straight to the comparison, which reports every line as `got=<missing>` and names no reason.
+      // Six sightings are recorded that way in tests/conformance/BUGS.md
+      // `conformance-int-batch-false-fail-and-hidden-stderr`, each one initially mis-attributed to
+      // whatever change was in flight, and five of the six would have been mis-attributed again.
+      //
+      // The discriminator is the EXPECTED output, which is why this is not simply "distrust every
+      // empty section": a case whose golden is legitimately empty must not be forced onto the slow
+      // path on every run — that is the same care the `else` branch takes with only the last case.
+      // Empty section + NON-empty golden is not a legitimate result under any reading.
+      //
+      // Dropping the key makes the caller fall back to `run(...)`, which carries `<exit:N>` AND
+      // stderr, so the next occurrence arrives with its reason attached instead of a silent
+      // `<missing>`.
+      val expectedNonEmpty =
+        eligible.filter(m => m.expected.exists(_.nonEmpty)).map(_.name).toSet
+      val lost = sections.collect {
+        case (name, body) if body.trim.isEmpty && expectedNonEmpty.contains(name) => name
+      }.toList
+      if lost.isEmpty then sections
+      else
+        val err = res.err.text().stripTrailing()
+        System.err.println(
+          s"[batch/$laneLabel] run-batch exited 0 but ${lost.length} case(s) produced NO stdout: " +
+            lost.sorted.mkString(", ") + " — re-running each on its own so the reason survives." +
+            (if err.isEmpty then "\n[batch] (the batch wrote nothing to stderr either)"
+             else s"\n[batch] stderr: ${err.linesIterator.toList.takeRight(5).mkString("\n[batch] ")}"))
+        sections -- lost
     else
       // The batch JVM did not exit cleanly, and `run-batch`'s contract says the marker is flushed
       // BEFORE each case. So the last marked case was mid-execution when the JVM died, and its
@@ -550,7 +583,7 @@ def batchLane(launcher: os.Path, extra: Seq[String], eligible: List[Meta]): Map[
       val inFlight = lastMarkedCase(res.out.text())
       val err = res.err.text().stripTrailing()
       System.err.println(
-        s"[batch] run-batch exited ${res.exitCode} — distrusting the in-flight case" +
+        s"[batch/$laneLabel] run-batch exited ${res.exitCode} — distrusting the in-flight case" +
           inFlight.map(n => s" '$n'").getOrElse("") + "; it will be re-run on its own." +
           (if err.isEmpty then "" else s"\n[batch] stderr: ${err.linesIterator.toList.takeRight(3).mkString("\n[batch] ")}"))
       inFlight.fold(sections)(sections - _)
