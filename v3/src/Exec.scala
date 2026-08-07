@@ -820,6 +820,13 @@ object Exec:
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "map" =>
               someOf(m, apply1(m, args.head, f(0)))
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "map" => noneOf(m)
+            // `flatMap` returns the function's result AS IS — it is already an Option. Wrapping it
+            // in another `Some` type-checks nowhere and here would silently build `Some(Some(x))`,
+            // which then reads as a present value at every later `isDefined`. Same shape as the
+            // Either case above; `map` is directly beside it, and the contrast is the point.
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "flatMap" =>
+              apply1(m, args.head, f(0))
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "flatMap" => noneOf(m)
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "foreach" =>
               apply1(m, args.head, f(0)); Value.VUnit
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "foreach" => Value.VUnit

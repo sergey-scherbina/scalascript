@@ -268,8 +268,12 @@ one symptom bucket turned out to be a different construct than the obvious readi
       in. `float-fold` runs, so Double arithmetic is not wholly absent; this is the comparison.
 - [ ] **SSC3-7m — `Map.updated`.** `map-ops.ssc`: `method 'updated' on Map(0 entries) is not
       implemented on this lane`.
-- [ ] **SSC3-7n — `Option.flatMap`.** `option-chain.ssc`: `method 'flatMap' on #2(0) is not
-      implemented on this lane`.
+- [x] **SSC3-7n — `Option.flatMap`.** DONE. `map` was there and `flatMap` was not, one line apart
+      in the same dispatch block. Returns the function's result AS IS: re-wrapping would build
+      `Some(Some(x))`, which then reads as a present value at every later `isDefined` — the same
+      trap the Either case documents, and the two now sit next to each other so the contrast with
+      `map` is visible. Verified DIFFERENTIALLY: `138` on v3's executor, the v2 bridge and the v1
+      interpreter. Corpus 21 -> 22.
 - [ ] **SSC3-7o — `++` on a tuple.** `tuple-monoid.ssc`: `method '++' on #4(3, 2) is not
       implemented on this lane`.
 
