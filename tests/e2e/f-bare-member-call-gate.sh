@@ -174,6 +174,35 @@ else
   fails=$((fails + 1))
 fi
 
+# ── declared externs are not an F gap ────────────────────────────────────────────────────────────
+# `validateNoReader` accepted a global only if it was a top-level def or started with `@`. An
+# `extern def` is a SIGNATURE — both fronts erase the declaration and the plugin registry binds the
+# name at run time — so every program touching one was counted as an F coverage gap and delegated.
+# The guard now also accepts names DECLARED extern in the program's import closure.
+mkdir -p "$sandbox/mods"
+printf -- '---\nname: base\nexports:\n  - thing\n---\n```scalascript\nextern def thing(n: Int): Int\n```\n' > "$sandbox/mods/base.ssc"
+printf -- '---\nname: mid\nexports:\n  - useIt\n---\n```scalascript\n[thing](base.ssc)\n\ndef useIt(n: Int): Int = thing(n)\n```\n' > "$sandbox/mods/mid.ssc"
+printf '[useIt](mods/mid.ssc)\n\ndef main() = println("ok")\n' > "$sandbox/extern-chain.ssc"
+chain=$(SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/extern-chain.ssc" 2>&1)
+if grep -qF 'refusing to fall back' <<<"$chain"; then
+  echo "  ✗ extern-across-modules: F still declines — $(grep -oE 'unbound global: \(global [a-z]+\)' <<<"$chain" | head -1)"
+  fails=$((fails + 1))
+else
+  echo "  ✓ extern-across-modules: a declared extern is no longer counted as an F gap"
+fi
+
+# THE CONTROL THAT MAKES THE ONE ABOVE MEAN ANYTHING. A genuine F gap surfaces as an unbound global
+# too, so the guard must keep rejecting a name nothing declares. Without this case the change reads
+# as "accept declared externs" while actually being "stop checking".
+printf 'def main() = println(noSuchThingAnywhere(1))\n' > "$sandbox/unknown-name.ssc"
+unk=$(SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/unknown-name.ssc" 2>&1)
+if grep -qE 'refusing to fall back|unbound global' <<<"$unk"; then
+  echo "  ✓ unknown-name: still rejected, the guard was widened and not removed"
+else
+  echo "  ✗ unknown-name: ACCEPTED — validateNoReader no longer catches an unbound global"
+  fails=$((fails + 1))
+fi
+
 echo
 if [[ $fails -eq 0 ]]; then
   echo "✓ f-bare-member-call-gate PASSED"

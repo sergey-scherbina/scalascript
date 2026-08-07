@@ -196,6 +196,8 @@ object RunNativeV2:
       // a static pre-check on untyped IR can't see them, and a run-time rerun would duplicate side effects.
       def lowerWith(runner: java.io.File, fsub: Option[java.io.File]): NativeStructuralFrontend =
         lowerNative(runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, fsub)
+      // Walked once for both call sites below: the check is per-program but the closure is the same.
+      val closureExterns = declaredExterns(canonicalFiles, layout.stdRoot)
       val structural = layout.fsubSrc match
         case Some(_) =>
           // Keep WHY F was rejected, not just THAT it was. `validateNoReader` names the offending
@@ -207,7 +209,7 @@ object RunNativeV2:
           val fResult =
             try
               val s = lowerWith(layout.runner, layout.fsubSrc)
-              validateNoReader(s.program) // throws on any unbound global (F coverage gap)
+              validateNoReader(s.program, closureExterns) // throws on any unbound global (F coverage gap)
               Some(s)
             catch
               case failure: FNestedBytecodeFailure =>
@@ -240,7 +242,7 @@ object RunNativeV2:
             // global, not a sentinel, so every typo still printed the coverage-gap line.
             val userErrorNotGap =
               try
-                validateNoReader(viaDefault.program)
+                validateNoReader(viaDefault.program, closureExterns)
                 false
               catch case _: Throwable => true
             lastFrontDecision =
@@ -678,9 +680,46 @@ object RunNativeV2:
    *  F native path, which the v21-native-plugin-boundary / v21-plugin-backend-isolation smokes
    *  forbid post-flip. This walk stays byte-for-byte behaviourally identical so the fallback (F ->
    *  default front on a coverage gap) is unchanged; it just no longer touches the textual reader. */
-  private def validateNoReader(p: _root_.ssc.Program): Unit =
+  /** Names DECLARED as `extern def` anywhere in the import closure of `roots`.
+   *
+   *  An extern is a SIGNATURE: both fronts erase the declaration and emit a bare `(global name)`,
+   *  and the plugin registry binds it at run time. Measured on the three-module reduction in
+   *  `f-declines-every-non-top-level-def`: declared-but-never-called runs fine on the reference
+   *  front, and only a CALL to an unprovided extern fails — at run time, where it belongs.
+   *
+   *  Deliberately INCOMPLETE-SAFE. Any path that does not resolve is skipped, so a module this walk
+   *  fails to reach simply keeps the old strict behaviour rather than opening a hole; and an
+   *  `extern` name is accepted only if it is declared in a file the program actually imports, never
+   *  because it exists somewhere in std. That is the line the entry asked to hold: accept DECLARED
+   *  externs, keep rejecting unknown names, because a genuine F gap surfaces as an unbound global
+   *  too and loosening that trades a loud delegation for a silent wrong answer.
+   *  BUGS `f-validateNoReader-rejects-plugin-externs`; contract change authorised by the owner. */
+  private val importLine = """^\[([^\]]*)\]\(([^)]+)\)""".r
+  private val externDef  = """^\s*extern\s+def\s+([A-Za-z_][A-Za-z0-9_]*)""".r
+  private def declaredExterns(roots: List[java.io.File], stdRoot: java.io.File): Set[String] =
+    val seen  = scala.collection.mutable.Set.empty[String]
+    val names = scala.collection.mutable.Set.empty[String]
+    def visit(f: java.io.File): Unit =
+      val key = try f.getCanonicalPath catch case _: Throwable => f.getPath
+      if seen.add(key) && f.isFile then
+        val lines = try scala.io.Source.fromFile(f)(using scala.io.Codec.UTF8).getLines().toList
+                    catch case _: Throwable => Nil
+        lines.foreach { line =>
+          externDef.findFirstMatchIn(line).foreach(m => names += m.group(1))
+          importLine.findFirstMatchIn(line).foreach { m =>
+            val spec = m.group(2).trim
+            // Relative to the importing file first, then std-rooted — the two shapes the corpus
+            // uses (`primitives.ssc`, `../content.ssc`, and `std/ui/content.ssc`).
+            val candidates = List(new java.io.File(f.getParentFile, spec), new java.io.File(stdRoot, spec))
+            candidates.find(_.isFile).foreach(visit)
+          }
+        }
+    roots.foreach(visit)
+    names.toSet
+
+  private def validateNoReader(p: _root_.ssc.Program, externNames: Set[String]): Unit =
     val defNames = p.defs.iterator.map(_.name).toSet
-    def globalOk(g: String): Boolean = defNames.contains(g) || g.startsWith("@")
+    def globalOk(g: String): Boolean = defNames.contains(g) || g.startsWith("@") || externNames.contains(g)
     def go(t: _root_.ssc.Term, depth: Int): Unit = t match
       case _root_.ssc.Term.Lit(_) => ()
       case _root_.ssc.Term.Local(i) =>
