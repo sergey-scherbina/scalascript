@@ -1,0 +1,11 @@
+slug: smoke-guard-sized-by-ci
+branch: feature/smoke-guard-sized-by-ci
+agent: claude-code
+started: 2026-08-07T03:29:26Z
+heartbeat: 2026-08-07T03:29:26Z
+status: claimed-before-planning
+items: smoke-check-guards-sized-by-local-time
+paths: file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
