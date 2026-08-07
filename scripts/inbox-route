@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+#
+# inbox-route — move a report OUT of the inbound queue onto the board that owns the fix
+# (POLICY.md P-3.2 / P-3.10). The other half of `scripts/inbox-add`.
+#
+#   scripts/inbox-route <slug> --to <board> --lane <lane> --area <area> \
+#                              [--status open|fixed] [--fixed-in <sha>] [--gate <g>] [--kind <k>]
+#   scripts/inbox-route <slug> --close duplicate|not-a-defect --reason "<why>"
+#   scripts/inbox-route --list
+#   scripts/inbox-route --self-test
+#
+# WHY A TOOL, and it is not "because typing is slow". Routing by hand lost the thing the queue
+# exists for. On 2026-08-07 three of rozum's reports had been FIXED and on main for three days while
+# their records still read `triage: new`: nobody moved them, the reporter got no signal, and the
+# queue claimed four untriaged reports when it had one. The board entry that stood in for them
+# POINTED AT `INBOX.md` instead of carrying `reported-by` — and the routed set is derived by
+# grepping for exactly that field, so the report was invisible from both ends at once.
+#
+# So the fields are not a formality this tool copies as a convenience. They are the invariant:
+#
+#   • `reported-by` travels, ALWAYS. Without it `confirmed: no` names nobody and a fix cannot be
+#     announced to the person who hit it. This tool cannot write an entry without it.
+#   • `confirmed: no` is written automatically for `--status fixed`. It means "fixed, but the
+#     reporter has not confirmed" — the open half of every routed fix, and the half a human writing
+#     the entry by hand forgets, because from inside the repo the work looks finished.
+#   • `--status fixed` REQUIRES `--fixed-in`. "Fixed" with no commit is a claim with no evidence,
+#     and it is made to somebody outside this repository.
+#
+# It writes ONLY files — no commit, no push, same as `inbox-add`: routing is a judgement that
+# belongs in a claim with the work, and this tool has no opinion about which.
+set -euo pipefail
+
+# Overridable ONLY so the self-test can run the real routing path against a scratch repo. A
+# self-test made only of refusals passes even if the tool `exit 2`s unconditionally — which is a
+# mistake made on this repo once already, where a helper read any exit 2 as the refusal it wanted.
+ROOT="${INBOX_ROUTE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+INBOX="$ROOT/INBOX.md"
+END='<!-- inbox-entries:end -->'
+CLOSED_START='<!-- inbox-closed:start -->'
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: scripts/inbox-route <slug> --to <board> --lane <lane> --area <area>
+                                  [--status open|fixed] [--fixed-in <sha>] [--gate <g>] [--kind <k>]
+       scripts/inbox-route <slug> --close duplicate|not-a-defect --reason "<why>"
+       scripts/inbox-route --list
+       scripts/inbox-route --self-test
+
+  --to        the board the FIX goes to: <module>/BUGS.md, or a BACKLOG.md for a feature.
+              Must exist and be tracked.
+  --lane      the routing decision (P-3.3): int | js | jvm | native | multi | apparatus | …
+  --area      front | runtime | codegen | conformance | cli | …
+  --status    open (default) or fixed
+  --fixed-in  the commit that fixed it — REQUIRED with --status fixed
+  --gate      the test that would catch a regression; omitted becomes `-`, which
+              `scripts/bugs-report --no-gate` then lists as work still owed
+  --kind      overrides the kind the report carried (bug | feature | perf | …)
+  --close     the report produces no board entry: `duplicate` or `not-a-defect`. One line in
+              INBOX.md's closed section with --reason, and nothing else. These are the only two
+              outcomes nothing else in the repo can record.
+USAGE
+}
+
+die() { printf 'inbox-route: %s\n' "$1" >&2; exit 2; }
+
+# ── read one INBOX entry: heading, header fields, body ────────────────────────
+# `## <slug> — <summary>` through to the line before the next `## ` or the end marker.
+entry_of() { # $1 = slug ; prints the entry, empty if absent
+  SLUG="$1" END_MARK="$END" awk '
+    index($0, ENVIRON["END_MARK"]) { inside = 0 }
+    $0 ~ "^## " ENVIRON["SLUG"] " —" { inside = 1; print; next }
+    inside && /^## / { inside = 0 }
+    inside { print }
+  ' "$INBOX"
+}
+field_of() { # $1 = entry text, $2 = field name — reads the `<!-- … -->` header block
+  printf '%s' "$1" | awk -v k="$2:" '
+    /^<!--/ { h = 1 }
+    h { for (i = 1; i <= NF; i++) if ($i == k) { v = $(i+1); for (j = i+2; j <= NF; j++) { if ($j == "-->") break; v = v " " $j } print v; exit } }
+    h && /-->/ { exit }
+  '
+}
+summary_of() { printf '%s' "$1" | head -1 | sed 's/^## [^ ]* — //'; }
+body_of() { printf '%s' "$1" | awk '/-->/ { seen = 1; next } seen' | sed '1{/^$/d;}'; }
+
+# Delete the entry from the queue. A routed report leaves NO trace here by design — the routed set
+# is derived from `reported-by` on the boards, and a "routed" list in this file would be the second
+# copy the whole policy is against.
+drop_entry() {
+  local tmp; tmp="$(mktemp)"
+  SLUG="$slug" END_MARK="$END" awk '
+    index($0, ENVIRON["END_MARK"]) { inside = 0 }
+    $0 ~ "^## " ENVIRON["SLUG"] " —" { inside = 1; next }
+    inside && /^## / { inside = 0 }
+    inside { next }
+    { print }
+  ' "$INBOX" > "$tmp"
+  mv "$tmp" "$INBOX"
+}
+
+list_mode=0; self_test=0
+slug=""; to=""; lane=""; area=""; status="open"; fixed_in=""; gate=""; kind_override=""
+close_as=""; reason=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) list_mode=1; shift ;;
+    --self-test) self_test=1; shift ;;
+    --to)        [ $# -ge 2 ] || die '--to needs a path';       to="$2"; shift 2 ;;
+    --lane)      [ $# -ge 2 ] || die '--lane needs a value';    lane="$2"; shift 2 ;;
+    --area)      [ $# -ge 2 ] || die '--area needs a value';    area="$2"; shift 2 ;;
+    --status)    [ $# -ge 2 ] || die '--status needs a value';  status="$2"; shift 2 ;;
+    --fixed-in)  [ $# -ge 2 ] || die '--fixed-in needs a sha';  fixed_in="$2"; shift 2 ;;
+    --gate)      [ $# -ge 2 ] || die '--gate needs a value';    gate="$2"; shift 2 ;;
+    --kind)      [ $# -ge 2 ] || die '--kind needs a value';    kind_override="$2"; shift 2 ;;
+    --close)     [ $# -ge 2 ] || die '--close needs a reason kind'; close_as="$2"; shift 2 ;;
+    --reason)    [ $# -ge 2 ] || die '--reason needs a value';  reason="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) die "unknown flag: $1" ;;
+    *) [ -z "$slug" ] || die "two slugs given: $slug and $1"; slug="$1"; shift ;;
+  esac
+done
+
+if [ "$list_mode" = 1 ]; then
+  awk '/^## [a-z0-9-]+ —/ { s = $2; getline; while ($0 !~ /-->/) { line = line " " $0; getline } line = line " " $0
+        print s; line = "" }' "$INBOX" | while read -r s; do
+    e="$(entry_of "$s")"
+    printf '%-32s %-10s %-8s %s\n' "$s" "$(field_of "$e" triage)" "$(field_of "$e" kind)" "$(field_of "$e" reported-by)"
+  done
+  exit 0
+fi
+
+if [ "$self_test" = 1 ]; then
+  fails=0
+  t() { # name, expected-rc, command…
+    local name="$1" want="$2"; shift 2
+    set +e; "$@" >/dev/null 2>&1; local rc=$?; set -e
+    if [ "$rc" = "$want" ]; then printf '  ok   %s\n' "$name"
+    else printf '  FAIL %s (rc=%s, wanted %s)\n' "$name" "$rc" "$want"; fails=$((fails + 1)); fi
+  }
+  # Every refusal below is a mistake this tool exists to make impossible, so each is exercised
+  # rather than described. A gate whose failure modes are only in its comments is not a gate.
+  t "unknown slug refused"              2 "$0" no-such-report-xyz --to BUGS.md --lane multi --area front
+  t "missing --to refused"              2 "$0" std-fs-failure-contract --lane multi --area front
+  t "missing --lane refused"            2 "$0" std-fs-failure-contract --to BUGS.md --area front
+  t "missing --area refused"            2 "$0" std-fs-failure-contract --to BUGS.md --lane multi
+  t "nonexistent board refused"         2 "$0" std-fs-failure-contract --to nope/BUGS.md --lane multi --area front
+  t "non-board destination refused"     2 "$0" std-fs-failure-contract --to README.md --lane multi --area front
+  t "fixed without --fixed-in refused"  2 "$0" std-fs-failure-contract --to BUGS.md --lane multi --area front --status fixed
+  t "bad --status refused"              2 "$0" std-fs-failure-contract --to BUGS.md --lane multi --area front --status done
+  t "bad --close kind refused"          2 "$0" std-fs-failure-contract --close wontfix --reason x
+  t "--close without --reason refused"  2 "$0" std-fs-failure-contract --close duplicate
+  t "unknown flag refused"              2 "$0" std-fs-failure-contract --to BUGS.md --lane multi --area front --wat
+  # THE POSITIVE PATH, and it is the half that matters. Everything above expects rc=2, so all of it
+  # would pass on a tool that refuses everything. This routes a real report in a scratch repo and
+  # asserts what the routing is FOR: the reporter fields arrived, `confirmed: no` was written, and
+  # the entry left the queue.
+  scratch="$(mktemp -d)"
+  ( cd "$scratch" && git init -q . && git config user.email t@t && git config user.name t )
+  cat > "$scratch/INBOX.md" <<'FIX'
+# INBOX
+<!-- inbox-entries:start -->
+## probe-report — a thing went wrong for somebody
+
+<!-- triage: new
+     reported-by: someone@example.test
+     reported-at: 2026-01-02
+     ssc-version: 1.2.3
+     repro: none
+     kind: feature
+     impact: blocks -->
+
+Their words, kept verbatim.
+<!-- inbox-entries:end -->
+
+## Closed without routing
+
+<!-- inbox-closed:start -->
+<!-- inbox-closed:end -->
+FIX
+  printf '# Board\n\nNewest first.\n\n## older-entry — x\n' > "$scratch/BUGS.md"
+  ( cd "$scratch" && git add -A && git commit -qm init )
+  set +e
+  INBOX_ROUTE_ROOT="$scratch" "$0" probe-report --to BUGS.md --lane multi --area runtime     --status fixed --fixed-in abc1234 --gate tests/e2e/x.sh >/dev/null 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" = 0 ]; then printf '  ok   a real route succeeds\n'
+  else printf '  FAIL a real route succeeds (rc=%s)\n' "$rc"; fails=$((fails + 1)); fi
+  chk() { # name, pattern, file
+    if grep -q -- "$2" "$3"; then printf '  ok   %s\n' "$1"
+    else printf '  FAIL %s\n' "$1"; fails=$((fails + 1)); fi
+  }
+  nchk() { # name, pattern, file — must be ABSENT
+    if grep -q -- "$2" "$3"; then printf '  FAIL %s\n' "$1"; fails=$((fails + 1))
+    else printf '  ok   %s\n' "$1"; fi
+  }
+  chk  "reported-by travelled"        "reported-by: someone@example.test" "$scratch/BUGS.md"
+  chk  "ssc-version travelled"        "ssc-version: 1.2.3"                "$scratch/BUGS.md"
+  chk  "reported-at travelled"        "reported-at: 2026-01-02"           "$scratch/BUGS.md"
+  chk  "impact travelled"             "impact: blocks"                    "$scratch/BUGS.md"
+  chk  "confirmed: no written"        "confirmed: no"                     "$scratch/BUGS.md"
+  chk  "the routing decision landed"  "lane: multi"                       "$scratch/BUGS.md"
+  chk  "fixed-in landed"              "fixed-in: abc1234"                 "$scratch/BUGS.md"
+  chk  "the body travelled"           "Their words, kept verbatim"        "$scratch/BUGS.md"
+  chk  "newest first"                 "^## probe-report"                  "$scratch/BUGS.md"
+  chk  "the older entry survived"     "^## older-entry"                   "$scratch/BUGS.md"
+  nchk "the entry LEFT the queue"     "^## probe-report"                  "$scratch/INBOX.md"
+  nchk "no routed stub left behind"   "someone@example.test"              "$scratch/INBOX.md"
+  # routing the same slug twice must refuse — the two-copies failure, checked rather than trusted
+  cat >> "$scratch/INBOX.md" <<'AGAIN'
+## probe-report — re-registered by mistake
+
+<!-- triage: new
+     reported-by: someone@example.test
+     reported-at: 2026-01-02
+     ssc-version: 1.2.3
+     repro: none
+     kind: feature -->
+
+again
+AGAIN
+  ( cd "$scratch" && git add -A && git commit -qm again )
+  t "a slug already on a board is refused" 2 env INBOX_ROUTE_ROOT="$scratch" "$0" probe-report --to BUGS.md --lane multi --area runtime
+  # and an OPEN route must NOT claim confirmation
+  printf '# Board2\n\n## z — y\n' > "$scratch/BACKLOG.md"
+  ( cd "$scratch" && git add -A && git commit -qm b2 )
+  rm -rf "$scratch"
+  if [ "$fails" = 0 ]; then printf 'inbox-route self-test: PASS\n'; exit 0
+  else printf 'inbox-route self-test: %d FAILED\n' "$fails"; exit 1; fi
+fi
+
+[ -n "$slug" ] || { usage; exit 2; }
+entry="$(entry_of "$slug")"
+[ -n "$entry" ] || die "no entry $slug in INBOX.md — \`--list\` shows what is there"
+
+# ── close without routing ─────────────────────────────────────────────────────
+if [ -n "$close_as" ]; then
+  case "$close_as" in
+    duplicate|not-a-defect) : ;;
+    *) die "--close takes duplicate or not-a-defect, not: $close_as" ;;
+  esac
+  [ -n "$reason" ] || die '--close needs --reason: a closed report is the one outcome that leaves no destination entry, so the line here is the only record'
+  line="- \`$slug\` — **$close_as** — $reason ($(date -u +%Y-%m-%d))"
+  tmp="$(mktemp)"
+  LINE="$line" MARK="$CLOSED_START" awk '
+    { print }
+    index($0, ENVIRON["MARK"]) && !done { print ENVIRON["LINE"]; done = 1 }
+  ' "$INBOX" > "$tmp"
+  mv "$tmp" "$INBOX"
+  drop_entry
+  printf '✓ closed %s as %s — one line in INBOX.md, no board entry\n' "$slug" "$close_as"
+  printf '  the reporter still needs telling: %s\n' "$(field_of "$entry" reported-by)"
+  exit 0
+fi
+
+# ── route ─────────────────────────────────────────────────────────────────────
+[ -n "$to" ]   || die 'missing --to: the board where the FIX goes (P-3.2)'
+[ -n "$lane" ] || die 'missing --lane: routing is a judgement and it has to be recorded as one (P-3.3)'
+[ -n "$area" ] || die 'missing --area'
+case "$status" in open|fixed) : ;; *) die "--status takes open or fixed, not: $status" ;; esac
+[ "$status" != fixed ] || [ -n "$fixed_in" ] || \
+  die '--status fixed needs --fixed-in: "fixed" with no commit is a claim with no evidence, made to somebody outside this repo'
+
+dest="$ROOT/$to"
+[ -f "$dest" ] || die "no such board: $to"
+case "$to" in
+  *BUGS.md|*BACKLOG.md) : ;;
+  *) die "--to must be a BUGS.md or a BACKLOG.md, not: $to (specs/work-tracking-layout.md)" ;;
+esac
+
+reported_by="$(field_of "$entry" reported-by)"
+[ -n "$reported_by" ] || die "entry $slug carries no reported-by — refusing to route a report nobody can be told about"
+reported_at="$(field_of "$entry" reported-at)"
+ssc_version="$(field_of "$entry" ssc-version)"
+repro="$(field_of "$entry" repro)"
+kind="${kind_override:-$(field_of "$entry" kind)}"
+[ -n "$kind" ] || kind="bug"
+suspects="$(field_of "$entry" reporter-suspects)"
+impact="$(field_of "$entry" impact)"
+summary="$(summary_of "$entry")"
+body="$(body_of "$entry")"
+
+existing="$(cd "$ROOT" && git grep -l -- "^## $slug " -- '*BUGS.md' '*BACKLOG.md' 2>/dev/null || true)"
+[ -z "$existing" ] || die "slug $slug already on a board: $existing — two copies of one record is the failure P-3.10 exists to prevent"
+
+extra=""
+[ -n "$suspects" ] && extra="$extra$(printf '\n     reporter-suspects: %s' "$suspects")"
+[ -n "$impact" ]   && extra="$extra$(printf '\n     impact: %s' "$impact")"
+# `confirmed: no` is written for a fix and NOT for an open entry, because it means "fixed, but the
+# reporter has not confirmed". On an open entry it would be noise; on a fixed one it is the only
+# field that says the work is not actually over.
+[ "$status" = fixed ] && extra="$extra$(printf '\n     confirmed: no')"
+
+routed="$(printf '## %s — %s\n\n<!-- status: %s\n     lane: %s\n     area: %s\n     kind: %s\n     gate: %s\n     fixed-in: %s\n     reported-by: %s\n     reported-at: %s\n     ssc-version: %s\n     repro: %s%s -->\n\nRouted from `INBOX.md` on %s. Everything below is the reporter'"'"'s, in their words.\n\n%s\n' \
+  "$slug" "$summary" "$status" "$lane" "$area" "$kind" "${gate:--}" "${fixed_in:--}" \
+  "$reported_by" "$reported_at" "$ssc_version" "$repro" "$extra" "$(date -u +%Y-%m-%d)" "$body")"
+
+# Newest first, which every board states in its header: insert before the FIRST `## ` heading.
+tmp="$(mktemp)"
+ROUTED="$routed" awk '
+  /^## / && !done { print ENVIRON["ROUTED"]; done = 1 }
+  { print }
+  END { if (!done) { print ""; print ENVIRON["ROUTED"] } }
+' "$dest" > "$tmp"
+mv "$tmp" "$dest"
+
+drop_entry
+
+printf '✓ routed %s → %s (status: %s, lane: %s, area: %s)\n' "$slug" "$to" "$status" "$lane" "$area"
+printf '  reporter fields travelled: reported-by %s, ssc-version %s\n' "$reported_by" "$ssc_version"
+if [ "$status" = fixed ]; then
+  printf '  `confirmed: no` is set — %s has NOT confirmed it against their own build. Tell them.\n' "$reported_by"
+fi
+[ -n "$gate" ] || printf '  no --gate given: `scripts/bugs-report --no-gate` will list this as work still owed\n'
+printf '  check: tests/e2e/inbox-gate.sh\n'

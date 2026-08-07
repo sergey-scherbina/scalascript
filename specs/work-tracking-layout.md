@@ -77,8 +77,22 @@ change the lane — that is a one-line edit, and the gate will keep the slug uni
 ```
 INBOX.md                   the queue — untriaged reports only, never a routed copy
 scripts/inbox-add          registers one; `--list` shows what is waiting, oldest first
+scripts/inbox-route        moves one OUT to the board that owns the fix, or closes it; --self-test
 tests/e2e/inbox-gate.sh    the invariants, with --self-test
 ```
+
+**Route with the tool, not by hand.** `inbox-route <slug> --to <board> --lane <l> --area <a>` carries
+the reporter's fields onto the destination entry, writes `confirmed: no` for a fix, and deletes the
+entry from the queue. Hand-routing lost exactly that on 2026-08-07: three reports had been fixed and
+on `main` for three days while their records still read `triage: new`, and the board entry standing
+in for them pointed AT `INBOX.md` rather than carrying `reported-by` — which is the field the routed
+set is derived from, so they were invisible from both ends. The tool refuses `--status fixed`
+without `--fixed-in`, and refuses a slug already on a board.
+
+⚠ **`inbox-route --self-test` is NOT in the smoke suite yet** — `scripts/smoke-ci.ssc` is held by
+the live claim `smoke-guard-sized-by-ci`, so the one line that registers it is left for whoever
+holds that file. It costs 352 ms against a 420 s budget. Until then the self-test exists and passes
+but nothing runs it, which is the state `inbox-gate` was in before it was registered.
 
 **Why a separate place at all, when P-3.8 says subtype is a field.** Inbound is not a subtype, it is
 a STATE BEFORE ROUTING. Every other record in this repo is born routed: `lane:` and `area:` are
