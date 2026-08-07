@@ -203,6 +203,45 @@ else
   fails=$((fails + 1))
 fi
 
+# ── a name-binding match arm no longer eats the rest of the file ─────────────────────────────────
+# `parseConsArm` assumed the shape `h :: t` and indexed blind — head at token 0, tail at token 2,
+# body from token 3. Given `case error => …` it took the ARROW as the cons operator and the BODY as
+# the tail binder, then resumed inside the body, desynchronising the parser for the rest of the FILE.
+# Measured on std/json-core.ssc before the fix: F emitted 96 defs to the reference front's 219, and
+# after the first such arm 24 declarations were missing and 0 present.
+lowered_and_correct binding-arm-unused 42 'case class Ok(v: Int, n: Int)
+def f(x: Any): Any =
+  x match {
+    case Ok(v, n) => v
+    case other => 0
+  }
+def afterIt(x: Int): Int = x * 2
+def main() = println(afterIt(21))'
+
+# THE CASE THAT NAMES THE REMAINING GAP. Using the binder is not supported yet — binding it to the
+# scrutinee slot regressed the native session path — but the failure is now HONEST: F declines on
+# the binder's own name in the file that has it, instead of dropping every declaration below and
+# reporting an innocent one three import levels away. Asserted so the day it starts lowering, this
+# case fails and gets updated rather than the gap going unnoticed.
+printf '%s\n' 'case class Ok(v: Int, n: Int)
+def f(x: Any): Any =
+  x match {
+    case Ok(v, n) => v
+    case error => error
+  }
+def afterIt(x: Int): Int = x * 2
+def main() = println(afterIt(21))' > "$sandbox/binder-used.ssc"
+bu=$(SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/binder-used.ssc" 2>&1)
+if grep -qF '(global error)' <<<"$bu"; then
+  echo "  ✓ binding-arm-used: declines on its OWN name, not on a later declaration"
+elif grep -qF '(global afterIt)' <<<"$bu"; then
+  echo "  ✗ binding-arm-used: reports 'afterIt' — the parser is desynchronising again"
+  fails=$((fails + 1))
+else
+  echo "  ✗ binding-arm-used: expected a decline naming 'error', got: $(head -1 <<<"$bu")"
+  fails=$((fails + 1))
+fi
+
 echo
 if [[ $fails -eq 0 ]]; then
   echo "✓ f-bare-member-call-gate PASSED"
