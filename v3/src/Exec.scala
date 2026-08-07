@@ -423,6 +423,13 @@ object Exec:
     f(0) = v
     Value.VData(t, f)
 
+  private def rightOf(m: Module, v: Value): Value =
+    val t = tagOf(m, "Right")
+    if t < 0 then throw ExecError("this module declares no `Right`")
+    val f = new Array[Value](1)
+    f(0) = v
+    Value.VData(t, f)
+
   private def noneOf(m: Module): Value =
     val t = tagOf(m, "None")
     if t < 0 then throw ExecError("this module declares no `None`")
@@ -779,6 +786,31 @@ object Exec:
         else
           recv match
             // `Some`/`None` are ordinary constructors here, so their methods are too.
+            // EITHER. `f1a82c9b8` made `Right`/`Left` constructible; nothing could be done with the
+            // value afterwards, so `either-chain` got one step further and then stopped with
+            // `method 'map' on #6(3) is not implemented`. Right-biased, as Scala is: `map` and
+            // `flatMap` act on a `Right` and pass a `Left` through untouched.
+            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "map" =>
+              rightOf(m, apply1(m, args.head, f(0)))
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "map" => recv
+            // `flatMap` returns the function's result AS IS — it is already an Either, and wrapping
+            // it in another `Right` is the classic off-by-one-layer that type-checks in a language
+            // with types and here would silently produce `Right(Right(x))`.
+            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "flatMap" =>
+              apply1(m, args.head, f(0))
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "flatMap" => recv
+            // `fold(onLeft, onRight)` — two functions, and the LEFT one comes first, which is the
+            // order Scala uses and the opposite of what the right-biased methods above suggest.
+            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "fold" && args.length == 2 =>
+              apply1(m, args(1), f(0))
+            case Value.VData(t, f) if t == tagOf(m, "Left") && name == "fold" && args.length == 2 =>
+              apply1(m, args.head, f(0))
+            case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isRight" => Value.VBool(true)
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isRight" => Value.VBool(false)
+            case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isLeft" => Value.VBool(false)
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isLeft" => Value.VBool(true)
+            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "getOrElse" => f(0)
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "getOrElse" => args.head
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "get" => f(0)
             case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)

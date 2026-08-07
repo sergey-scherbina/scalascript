@@ -208,9 +208,24 @@ one symptom bucket turned out to be a different construct than the obvious readi
       the measurement rather than left implicit in that deferral.
 - [ ] **SSC3-7e — a block argument, `f { … }`.** `effect-stream.ssc:7:28` — `val (src, _) =
       runStream {` → `expected an expression, found {`. A call whose single argument is a block.
-- [ ] **SSC3-7f — `Either` / `Right` / `Left`.** `either-chain.ssc:13:17` and
-      `type-lambda-placeholder.ssc:18:17`, both `if n > 0 then Right(n) else Left("neg")` →
-      `call to unknown function 'Right'`. Two files, one missing type.
+- [x] **SSC3-7f — `Either` / `Right` / `Left`.** DONE, in two halves by two agents. `f1a82c9b8`
+      (a sibling) put `Right`/`Left` in the constructor table, which made them CONSTRUCTIBLE; nothing
+      could then be done with the value, so `either-chain` advanced one step and stopped at
+      `method 'map' on #6(3) is not implemented`. The executor half — `map`, `flatMap`, `fold`,
+      `isRight`/`isLeft`, `getOrElse` — is right-biased as Scala is, and `flatMap` returns the
+      function's result AS IS rather than re-wrapping it, which in an untyped executor would
+      silently build `Right(Right(x))`. Verified by DIFFERENTIAL: `663` on v3's executor, on the v2
+      bridge and on the v1 interpreter. `type-lambda-placeholder`, the second file this task named,
+      now stops at `unknown name 'type'` — a type alias, filed as SSC3-7q.
+
+- [ ] **SSC3-7q — `type` aliases.** `type-lambda-placeholder.ssc:15:1` → `unknown name 'type'`.
+      Distinct from SSC3-7i: 7i is the type LAMBDA (`[A] =>> …`) and needs the generics decision,
+      while a plain `type X = Y` alias may not. Surfaced by re-running the file after 7f, not by
+      reading it.
+
+      *Original diagnostic, kept because it is what the task was opened on:*
+      `either-chain.ssc:13:17` and `type-lambda-placeholder.ssc:18:17`, both
+      `if n > 0 then Right(n) else Left("neg")` → `call to unknown function 'Right'`.
 - [x] **SSC3-7g — `until`.** DONE. `range-sum` runs and agrees with the v1 interpreter on the
       value (`2425500` on both), which is the check that matters — not merely that it stopped
       failing.
