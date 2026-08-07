@@ -16,6 +16,40 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## rust-lane-produces-no-binary-for-hello-world — and rejects `try`/`catch` outright
+
+<!-- status: open
+     lane: rust
+     area: codegen
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Two independent things, both found 2026-08-07 while measuring the `std.fs` failure contract across
+lanes for `std-fs-failure-contract`, and both meaning the Rust column of `specs/std-fs-os.md` §2.1
+could not be filled in.
+
+**1. `run-rust` emits no binary for a hello-world.** The crate builds with only `non_snake_case`
+warnings and then:
+
+    run-rust: expected binary not found at /var/folders/…/ssc-rust-…/target/release/r0
+
+on a file whose entire program is `println("hello from rust")`. No `error` line appears anywhere in
+the log, so this is not a compile failure being misreported — something between cargo's output path
+and the runner's expectation. Toolchain built from `ca6cce2d0`.
+
+**2. The Rust backend rejects `try`/`catch`:**
+
+    [error] Generic(def `show` contains an unsupported expression: Term.Try (…),Some(rust))
+
+That is worth recording beside a failure contract rather than as a lone codegen gap: on this target
+the question "does this call raise, and can I recover" has no answer expressible in a program,
+because there is nothing to catch with. Any `std` contract that says "raises" is, on Rust, "aborts".
+
+Filed at the root as `lane: rust` rather than under a backend directory because the Rust backend has
+no `BUGS.md`; move it if one appears.
+
+
 ## an-undefined-name-in-a-pattern-means-three-different-things — two lanes ignore it, one throws
 
 <!-- status: open

@@ -7,6 +7,93 @@ grepping for status.
 
 Newest first.
 
+## jvm-listdir-answers-empty-where-every-other-lane-raises
+
+<!-- status: open
+     lane: jvm
+     area: runtime
+     kind: divergence
+     gate: none
+     fixed-in: -
+     reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
+     reported-at: 2026-08-04 -->
+
+`listDir` on a missing directory returns `List()` on the jvm lane, silently, exit 0. Every other
+lane raises: int `NoSuchFileException`, js `ENOENT`, native `RuntimeException`. The same holds for
+`listDir` on a FILE — jvm answers `List()`, the others raise `NotDirectoryException` / `ENOTDIR`.
+
+Measured 2026-08-07 while answering `std-fs-failure-contract`; the full four-lane table is in
+`specs/std-fs-os.md` §2.1.
+
+**Why this one and not the general "the lanes disagree".** The reporter argued in the same message
+AGAINST making `fs` total by default, in these words: *"a `listDir` that answers `[]` for a missing
+directory hides a typo, and the caller can no longer tell empty from not-there."* One lane already
+does exactly that, undocumented, so a program moved from `int` to `jvm` loses an error it was
+relying on and gets an empty loop body instead.
+
+Which side is wrong is a decision, not an obvious bug — `[]` may be the better contract. What is
+not defensible is that the lanes differ and nothing says so. Whichever way it goes, the fix is one
+lane changing to match the other three or a documented, deliberate exception.
+
+**No gate.** No rostered case exercises `listDir` on a missing path, which is why a silent
+divergence survived. A fix should land the §2.1 row as a conformance case across all four lanes.
+
+## jvm-std-import-inside-a-fence-plus-def-main-emits-broken-scala
+
+<!-- status: open
+     lane: jvm
+     area: codegen
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+A `std/…` import written INSIDE a `scalascript` fence, together with an entrypoint `def main`,
+makes the jvm backend emit Scala that does not parse:
+
+    -- [E018] Syntax Error: …/src_generated/main/….scala:7067:82
+    7067 |  sys.error("Http effect requires a serve runtime; call runHttp{} or add serve()")
+         |                                                                                ^
+         |  expression expected but '[' found
+
+Minimal case — no call, the imported name is not even used:
+
+```text
+---
+name: t
+version: 1.0.0
+---
+
+# h
+
+​```scalascript
+[exists](std/fs.ssc)
+def main(): Unit = println(1)
+​```
+```
+
+**Two conditions, and each alone is green** — measured, alternating, stable over two rounds:
+
+| shape | jvm |
+|---|---|
+| fence import + `def main` | **E018** |
+| fence import + top-level statement | ok |
+| `def main`, no import | ok |
+| DOCUMENT-level import + `def main` | ok |
+
+So it is neither the import nor the entrypoint: it is the pair, and only when the import is inside
+the fence. Reproduced with `std/fs`, `std/os`, `std/json` and `std/process`, so it is not one
+module. `@main def m` fails the same way. When the imported name is USED, E006 `Not found: <name>`
+cascades on top of the E018.
+
+**Why nothing is red.** Four corpus files combine `def main()` with a `](std/` import, and all three
+of the conformance ones declare `backends:` WITHOUT jvm — `[int, js]`, `[int, v2]`, `[int, js]`. The
+fourth is `scripts/smoke-ci.ssc`, which is the smoke driver and is not run through this lane. So the
+combination exists in the corpus and no rostered case runs it here. `examples/fs-roundtrip.ssc`
+passes on jvm and uses top-level statements, which is the shape that works.
+
+Found 2026-08-07 while measuring the `std.fs` failure contract for `std-fs-failure-contract` — the
+probe could not be written in its natural form on this lane.
+
 ## jvm-package-import-qualifies-the-link-name — the package ROOT could not be imported
 
 <!-- status: fixed
