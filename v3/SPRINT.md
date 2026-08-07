@@ -194,8 +194,31 @@ one symptom bucket turned out to be a different construct than the obvious readi
 ### Front — the parse or the name (13 files)
 
 - [ ] **SSC3-7a — `effect X:` declarations.** `effect-oneshot.ssc:18:12` — `effect Bump:` →
-      `expected an expression, found :`. The IR already reserves `Perform`/`Handle`/`Resume`, so
-      this is a front gap, not a representation gap.
+      `expected an expression, found :`.
+
+      **CORRECTION, measured 2026-08-07.** This entry said "the IR already reserves
+      `Perform`/`Handle`/`Resume`, so this is a front gap, not a representation gap". Half true, and
+      the wrong half is the expensive one. The representation exists and is verified; the EXECUTOR
+      does not run it:
+
+          $ v3/ssc3 exec <a module containing one `perform`>
+          effects are not implemented in the executor yet
+
+      `BridgeV2` contains zero references to any of the three. So the effect rows need a front AND
+      an executor, and the executor part is not small: `exec(m, body, regs)` walks a list with host
+      recursion and returns a `Signal`, so a general continuation capture means reifying the call
+      stack the spec says is data (`10-ssc-ir.md` §1) and the implementation currently keeps on the
+      host stack.
+
+      **The bounded version that fits, and what it gives up.** `case Bump.tick(resume) => resume(1)`
+      is TAIL-RESUMPTIVE: the arm resumes exactly once, with a value, and does nothing afterwards.
+      That class needs no continuation at all — `Perform` finds the nearest handler on a dynamic
+      handler stack, runs the arm, and uses its resumed value as the perform's result, at any nesting
+      depth. Multi-shot (`effect-multishot`) and any arm that resumes zero times or does work after
+      resuming are NOT that class and must be REFUSED BY NAME rather than silently mis-run.
+
+      Sequencing: front first (this entry), then the tail-resumptive executor, then the refusal for
+      everything outside it. `effect-multishot` (7b) stays open behind all three.
 - [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
       same message, different keyword. Separate from 7a because multi-shot resumption is a different
       executor obligation, and closing 7a must not silently claim this.
