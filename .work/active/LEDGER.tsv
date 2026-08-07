@@ -1,6 +1,5 @@
-# generation: 1199
+# generation: 1200
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionCensusSpec.scala file:setup.sh
 cds-archive-shared-across-checkouts	claude-code	2026-08-07T07:29:31Z	SSC3-CDS	file:build.sbt file:BUGS.md file:tests/e2e/cds-archive-per-build.sh file:scripts/smoke-ci.ssc file:bin/ssc file:bin/ssc-standard
-uniml-corpus-floor-independent-oracle	claude-code	2026-08-07T16:47:21Z	uniml-corpus-floor-instrument	file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscCorpus.scala
 ssc3-7k-lazylist	claude-code	2026-08-07T16:47:27Z	SSC3-7k	file:v3/src/Lower.scala file:v3/src/Exec.scala
