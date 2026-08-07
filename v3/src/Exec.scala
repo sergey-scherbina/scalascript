@@ -482,11 +482,18 @@ object Exec:
       // ONE arm, all argument shapes. The first version split it in two and put the string case
       // first, so a CHARACTER argument hit the general throw before the arm meant for it was ever
       // reached — the arms were ordered by when they were written rather than by specificity.
+      // TWO arguments: the second is a START OFFSET. Ignoring it did not fail — it returned the
+      // first occurrence from zero, so a scan loop got an index BEHIND its own cursor and the
+      // `substring(from, at)` that followed was backwards. The crash was three calls downstream of
+      // the cause, which is what an ignored argument buys you.
       case (Value.VStr(s), "indexOf") =>
+        val from = args.tail.headOption match
+          case Some(Value.VInt(n)) => n.toInt
+          case _                   => 0
         args.head match
-          case Value.VStr(x)  => Value.VInt(s.indexOf(x).toLong)
-          case Value.VChar(c) => Value.VInt(s.indexOf(c.toInt).toLong)
-          case Value.VInt(n)  => Value.VInt(s.indexOf(n.toInt).toLong)
+          case Value.VStr(x)  => Value.VInt(s.indexOf(x, from).toLong)
+          case Value.VChar(c) => Value.VInt(s.indexOf(c.toInt, from).toLong)
+          case Value.VInt(n)  => Value.VInt(s.indexOf(n.toInt, from).toLong)
           case v              => throw ExecError("indexOf " + show(v))
       case (Value.VStr(s), "replace") =>
         (args.head, args.tail.head) match
@@ -506,16 +513,28 @@ object Exec:
           case v             => throw ExecError("endsWith " + show(v))
       case (Value.VStr(s), "nonEmpty") => Value.VBool(s.nonEmpty)
       case (Value.VStr(s), "reverse")  => Value.VStr(s.reverse)
+      // A full-string regex match. Delegated to the HOST rather than given a matcher of its own:
+      // the language has `matches` on every lane, so the portable subset can reach it, and a
+      // hand-written engine would be a second regex semantics to keep in step with the reference.
+      // This is I-1's boundary read correctly — the ban is on host CHARACTER CLASSIFICATION
+      // deciding the language's syntax, not on using the host to implement a library method.
+      case (Value.VStr(s), "matches") =>
+        args.head match
+          case Value.VStr(re) => Value.VBool(s.matches(re))
+          case v              => throw ExecError("matches " + show(v))
       case (Value.VStr(s), "take")     => Value.VStr(s.take(intArg(args.head, "take")))
       case (Value.VStr(s), "drop")     => Value.VStr(s.drop(intArg(args.head, "drop")))
       case (Value.VStr(s), "toList")   => listIn(m, s.toList.map(c => Value.VChar(c)))
       case (Value.VStr(s), "lastIndexOf") =>
+        val before = args.tail.headOption match
+          case Some(Value.VInt(n)) => n.toInt
+          case _                   => s.length
         args.head match
-          case Value.VStr(x)  => Value.VInt(s.lastIndexOf(x).toLong)
+          case Value.VStr(x)  => Value.VInt(s.lastIndexOf(x, before).toLong)
           // A CHARACTER argument, which in this language is an integer that prints differently —
           // so both spellings arrive here and both must work.
-          case Value.VChar(c) => Value.VInt(s.lastIndexOf(c.toInt).toLong)
-          case Value.VInt(n)  => Value.VInt(s.lastIndexOf(n.toInt).toLong)
+          case Value.VChar(c) => Value.VInt(s.lastIndexOf(c.toInt, before).toLong)
+          case Value.VInt(n)  => Value.VInt(s.lastIndexOf(n.toInt, before).toLong)
           case v              => throw ExecError("lastIndexOf " + show(v))
       case (Value.VStr(s), "count") =>
         Value.VInt(s.count(c => truthy(apply1(m, args.head, Value.VInt(c.toLong)))).toLong)
@@ -547,6 +566,10 @@ object Exec:
       case (Value.VSet(xs), "nonEmpty") => Value.VBool(xs.nonEmpty)
       case (Value.VSet(xs), "contains") => Value.VBool(xs.exists(y => eq(y, args.head)))
       case (Value.VSet(xs), "toList")   => listIn(m, xs)
+      case (Value.VSet(xs), "sum") =>
+        var acc = 0L
+        xs.foreach { case Value.VInt(n) => acc = acc + n; case v => throw ExecError("sum over " + show(v)) }
+        Value.VInt(acc)
       case (Value.VSet(xs), "mkString") =>
         val (pre, sep, post) = args match
           case Value.VStr(a) :: Value.VStr(b) :: Value.VStr(c) :: Nil => (a, b, c)
@@ -608,6 +631,10 @@ object Exec:
       case (Value.VArr(xs), "length") => Value.VInt(xs.length.toLong)
       case (Value.VArr(xs), "size")   => Value.VInt(xs.length.toLong)
       case (_, "toString")            => Value.VStr(showV(m, recv))
+      // A cast is the IDENTITY here. Types are erased at Tier 0 — `20-core-language.md` §2 — so
+      // `asInstanceOf` has nothing to check and nothing to change; refusing it would refuse a
+      // no-op. Any value, which is why it sits before the per-type arms.
+      case (_, "asInstanceOf")        => recv
       case _ =>
         if isList(m, recv) then
           val xs = listOut(m, recv)
@@ -742,6 +769,15 @@ object Exec:
             // 64-bit — it is not a narrowing here, and treating it as one would silently change
             // large values. Every arm below was checked against the v2 lane on the same program
             // rather than assumed; the two lanes must agree or the differential gate is worthless.
+            // A STRING parsed as a number. `"3".toInt` — the markdown module reads an ordered
+            // list's start attribute that way, and it was the last thing between this lane and
+            // that corpus case.
+            case Value.VStr(x) if name == "toInt" || name == "toLong" =>
+              try Value.VInt(java.lang.Long.parseLong(x.trim))
+              catch case _: NumberFormatException => throw ExecError("'" + x + "' is not an integer")
+            case Value.VStr(x) if name == "toDouble" =>
+              try Value.VFloat(x.trim.toDouble)
+              catch case _: NumberFormatException => throw ExecError("'" + x + "' is not a number")
             case Value.VInt(n) if name == "toInt"  => Value.VInt(n.toInt.toLong)
             case Value.VInt(n) if name == "toLong" => Value.VInt(n)
             case Value.VInt(n) if name == "toDouble" => Value.VFloat(n.toDouble)
@@ -816,6 +852,14 @@ object Exec:
     case (Value.VBool(x), Value.VBool(y))   => x == y
     case (Value.VFloat(x), Value.VFloat(y)) => x == y
     case (Value.VUnit, Value.VUnit)         => true
+    // A SET is equal by CONTENT, not by order — `Set(1,2) == Set(2,1)` is true, and it is the
+    // membership equality the corpus case is named for. Without this arm the comparison fell to the
+    // catch-all `false`, so two identical sets were unequal.
+    case (Value.VSet(a), Value.VSet(b)) =>
+      a.length == b.length && a.forall(x => b.exists(y => eq(y, x)))
+    case (Value.VMap(a), Value.VMap(b)) =>
+      a.length == b.length &&
+        a.forall((k, v) => b.exists((k2, v2) => eq(k, k2) && eq(v, v2)))
     case (Value.VData(t1, f1), Value.VData(t2, f2)) =>
       t1 == t2 && f1.length == f2.length && f1.indices.forall(i => eq(f1(i), f2(i)))
     case _ => false

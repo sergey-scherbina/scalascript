@@ -874,3 +874,36 @@ throws too; this is about the quality of the failure.
 **Still open, and now the whole of it:** `matches` (regex, and a portability question rather than a
 missing arm), and `markdown-html`, where the executor reaches a backwards `substring(4, 2)` that the
 bridge never does — a genuine divergence with the cause upstream of the call.
+
+## SSC3-25 — the two lanes now give the SAME NUMBER on the corpus
+
+| | bridge | executor |
+|---|---|---|
+| when the parity question was first asked | 48 | 34, CRASH 14 |
+| after the first three rounds | 48 | 45, CRASH 3 |
+| **now** | **48, DIFF 0, CRASH 0** | **48, DIFF 0, CRASH 0** |
+
+`v3/corpus-report.sh --exec` measures it, so the difference is a number in the same report rather
+than a separate errand.
+
+The last three finds were the interesting ones, and all three were WRONG ANSWERS that presented as
+something else:
+
+- [x] **`indexOf` ignored its second argument** — the START OFFSET. Nothing failed at the call: it
+      returned the first occurrence from zero, so a scan loop got an index BEHIND its own cursor and
+      the `substring(from, at)` three calls later was backwards. **The crash was downstream of the
+      cause**, which is what an ignored argument buys. Closing it took `markdown-html` from one line
+      of output to thirty-nine.
+- [x] **`Set` equality fell through to `false`.** `Set(1,2) == Set(2,1)` was false, because `eq` had
+      no arm for it and the catch-all says no. A set is equal by CONTENT — which is what the corpus
+      case is named for.
+- [x] **`mkString` had one form of three** (SSC3-24), same shape: an unchecked arity silently
+      choosing the wrong meaning.
+
+Also: `"3".toInt`, `asInstanceOf` as the identity it is under erasure, and `matches` delegated to
+the host. That last one is I-1's boundary read correctly — **the ban is on host character
+classification deciding the language's SYNTAX, not on using the host to implement a library
+method** — and a hand-written engine would have been a second regex semantics to keep in step.
+
+**Self-sufficiency is now a decision rather than a risk.** The precondition Sergiy set is met and
+measured on the corpus rather than on a probe set.

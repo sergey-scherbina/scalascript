@@ -33,9 +33,14 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
 
-limit=0; show_diff=0; show_crash=0
+limit=0; show_diff=0; show_crash=0; lane=bridge
 while [ $# -gt 0 ]; do
   case "$1" in
+    # The EXECUTOR lane — v3's own runtime instead of the v2 VM. The two must give the same number,
+    # and until 2026-08-07 they did not: the bridge read 48 and the executor 34, which no probe set
+    # had shown because a probe set answers only its own question. Measured here so the difference
+    # is a number in the same report rather than a separate errand.
+    --exec) lane=exec; shift ;;
     --limit) limit="$2"; shift 2 ;;
     --list-diff) show_diff=1; shift ;;
     --list-crash) show_crash=1; shift ;;
@@ -75,9 +80,14 @@ for f in tests/conformance/*.ssc; do
   if [ "$limit" -gt 0 ] && [ "$total" -ge "$limit" ]; then break; fi
   total=$((total + 1))
 
-  err="$(java -jar "$WORK/ssc3.jar" build "$f" 2>"$WORK/e" >"$WORK/ir"; echo $?)"
+  if [ "$lane" = "exec" ]; then
+    err="$(java -Xss512m -jar "$WORK/ssc3.jar" exec "$f" 2>"$WORK/e" >"$WORK/o"; echo $?)"
+  else
+    err="$(java -jar "$WORK/ssc3.jar" build "$f" 2>"$WORK/e" >"$WORK/ir"; echo $?)"
+  fi
   if [ "$err" = "0" ]; then
-    got="$(java -Xss512m -jar "$WORK/ssc2.jar" run-ir "$WORK/ir" 2>/dev/null)"
+    if [ "$lane" = "exec" ]; then got="$(cat "$WORK/o")"
+    else got="$(java -Xss512m -jar "$WORK/ssc2.jar" run-ir "$WORK/ir" 2>/dev/null)"; fi
     if [ "$got" = "$(cat "$exp")" ]; then
       pass=$((pass + 1))
     elif ! holds_v2 "$f"; then
@@ -100,7 +110,7 @@ for f in tests/conformance/*.ssc; do
 done
 
 echo
-echo "═══ SSC3 vs the conformance corpus ═══"
+echo "═══ SSC3 vs the conformance corpus — $lane lane ═══"
 printf '  PASS         %4d\n' "$pass"
 printf '  DIFF         %4d   (defect)\n' "$diff"
 printf '  UNSUPPORTED  %4d   (honest)\n' "$unsup"
