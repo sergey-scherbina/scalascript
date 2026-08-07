@@ -193,6 +193,33 @@ one symptom bucket turned out to be a different construct than the obvious readi
 
 ### Front — the parse or the name (13 files)
 
+> **RE-MEASURED 2026-08-07, and none of SSC3-7a…7e is a front gap any more.** Every message quoted
+> below is `v3/src/Parser.scala`'s, and v3's parser stopped being the default front when the UniML
+> swap landed (`67ef6fd67`). Measured on the fixtures these items name, through both fronts:
+>
+> | item | fixture | v3 front | uniml front (the DEFAULT) | where it actually stops now |
+> |---|---|---|---|---|
+> | 7c | `bench/corpus/effect-pure.ssc` | refused | **parses** | verifier: `call to unknown function 'runLogger'` |
+> | 7e | `bench/corpus/effect-stream.ssc` | refused | **parses** | verifier: `unknown name 'Stream'` |
+> | 7a | `effect-oneshot.ssc` | refused | refused | `UniFront`: "`effect` is outside SSC3 core Tier 0" |
+> | 7b | `effect-multishot.ssc` | refused | refused | same |
+> | 7d | `typeclass-fold.ssc`, `typeclass-monoid.ssc` | refused | refused | `UniFront`: "`given … with` is outside SSC3 core Tier 0" |
+>
+> So they split into two kinds and neither is "grow the parser":
+>
+> - **7c and 7e are no longer parse problems at all.** 7c's text says "the `!` is parsed as far as
+>   the return type and then the body is not reached" — the body IS reached now, and what is missing
+>   is the effect RUNTIME. Both stop in the verifier on a name the program calls.
+> - **7a, 7b and 7d are refused DELIBERATELY, and by the projection rather than the dialect.** The
+>   UniML dialect parses all three; `v3/uniml/UniFront.scala` declines them by name because v3 does
+>   not have the construct — "REFUSALS ARE THE POINT", as that file says, since an erased construct
+>   lowers, runs, and prints something plausible. Closing one is a decision about what SSC3 core
+>   admits, taken with `specs/20-core-language.md` §2's tiers, not a parser change.
+>
+> The fixture paths in the items are also stale: they are in `bench/corpus/`, not `v3/tests/front/`.
+> Left below verbatim rather than rewritten — the measurements they carry were true when taken, and
+> what changed is the front underneath them.
+
 - [ ] **SSC3-7a — `effect X:` declarations.** `effect-oneshot.ssc:18:12` — `effect Bump:` →
       `expected an expression, found :`.
 
