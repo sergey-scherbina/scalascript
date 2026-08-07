@@ -1,0 +1,11 @@
+slug: route-rozum-tui-reports
+branch: feature/route-rozum-tui-reports
+agent: claude-code
+started: 2026-08-07T03:27:21Z
+heartbeat: 2026-08-07T03:27:21Z
+status: claimed-before-planning
+items: three user reports are fixed and on main but still sit untriaged in INBOX
+paths: file:INBOX.md file:BACKLOG.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
