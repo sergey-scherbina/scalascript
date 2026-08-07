@@ -173,7 +173,19 @@ object SscCompose:
       // round-trip there.
       val at = b.edges.indexWhere(_.role.contains(dropRole))
       val kept = b.edges.filterNot(_.role.contains(dropRole))
-      val inj = remapped.roots.headOption.map(r => UniEdge(Some(tagOf(adapter)), r)).toVector
+      // ALL the roots, not just the first. A parse yields one root per top-level construct, and a
+      // fence body that is not a single construct has several — `// a\n//   b\n` is FOUR (each
+      // comment and each newline is its own trivia root), `{ "a": 1 }\n` is TWO (the value, then
+      // the trailing newline). `headOption` kept the first and dropped the rest, so a JSON fence
+      // lost the newline before its closing marker and a ScalaScript fence of only comments lost
+      // every line after the first — the last two composed round-trip failures, and they looked
+      // like two different defects because one lost a character and the other lost 67.
+      //
+      // A body containing a `def` round-tripped throughout, which is what hid this: a definition's
+      // tree absorbs the trailing trivia, so those bodies are ONE root and `headOption` was
+      // lossless for them. The dialects were never at fault — each is lossless over these exact
+      // bodies, measured before touching this line.
+      val inj = remapped.roots.map(r => UniEdge(Some(tagOf(adapter)), r))
       val before = if at < 0 then kept.length else b.edges.take(at).count(e => !e.role.contains(dropRole))
       b.copy(edges = kept.take(before) ++ inj ++ kept.drop(before))
 

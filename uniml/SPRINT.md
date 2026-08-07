@@ -10,6 +10,19 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] md-fence-body-roundtrip — **composed round-trip reaches 1238 of 1238.** `inject` spliced
+      `roots.headOption`: a parse yields one root per top-level construct, so a body that is not a
+      single construct has several — `// a` + `//   b` is FOUR roots, `{ "a": 1 }` is TWO — and
+      every root after the first was silently dropped. All roots are spliced now.
+      **The two survivors were one defect, not two, and I had recorded the opposite.** A JSON fence
+      lost ONE character and a ScalaScript comment-only fence lost SIXTY-SEVEN, so they read as
+      unrelated causes; they were the same line. Two failures at the same SITE differing only in
+      size are one hypothesis.
+      What hid it across 1,236 files: a body containing a `def` is ONE root, since a definition's
+      tree absorbs the trailing trivia, and that is the shape nearly every fence has. The new spec
+      asserts the multi-root PREMISE first, so it cannot pass vacuously if a dialect ever changes.
+      Markdown was measured clean on every one of these bodies before the composer was touched.
+
 - [x] md-continuation-prefix-inside-code-span — **composed round-trip 1235 -> 1236 of 1238.** A
       container's continuation indent is put back after the k-th BREAK PIECE; a code span crossing
       the break leaves no break piece, because the newline sits inside the span's own content

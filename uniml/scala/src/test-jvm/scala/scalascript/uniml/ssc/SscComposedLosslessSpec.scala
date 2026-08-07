@@ -59,23 +59,24 @@ final class SscComposedLosslessSpec extends AnyFunSuite:
     // string, so it fell through to the untyped-fence default, and its body is interleaved with a
     // per-line indent token, so replacing the body with one subtree cannot preserve order.
     //
-    // The remaining ones are a THIRD site, in markdown rather than the composer: a paragraph's
-    // continuation line loses its leading whitespace, `+\n   second` coming back as `+\nsecond`
-    // with the spaces moved to the end. Same shape — order, not loss. Filed in uniml/BACKLOG.md.
+    // THE SET IS EMPTY: all 1,238 corpus files round-trip exactly through the composed tree, as of
+    // 2026-08-07. Keep the assertion as a set comparison anyway — an empty expectation that a file
+    // must JOIN to fail is exactly the direction that matters now, and `newly broken` names it.
     //
-    // One of the three, `dep-cps-ping.ssc`, was the CODE-SPAN case of that site and is fixed
-    // (`md-continuation-prefix-inside-code-span`): a span crossing the break swallowed the newline
-    // into its own lexeme, so the prefix had no break piece to follow.
+    // Defect three was in markdown: a container's continuation prefix is put back after the k-th
+    // BREAK PIECE, and a code span crossing the break leaves none, because the newline sits inside
+    // the span's own lexeme (`md-continuation-prefix-inside-code-span`).
     //
-    // THE TWO BELOW ARE NOT THAT SITE, and the sentence above used to claim all three were. Their
-    // first divergence is inside a FENCED BLOCK's body, not a paragraph continuation:
-    // `nodes.ssc:67` at the newline ending the last body line before the closing fence, and
-    // `streams.ssc:211` at a body line beginning `//   ↑`. Attributing them to the paragraph rule
-    // is what made them look like one fix; they want their own tracing.
-    val known = Set(
-      "v1/runtime/std/nodes.ssc",
-      "v1/runtime/std/streams.ssc",
-    )
+    // Defect four was the last, and it was here again: `inject` spliced only `roots.headOption`.
+    // A parse yields one root per top-level construct, so a body that is not a single construct has
+    // several — `// a\n//   b\n` is FOUR, `{ "a": 1 }\n` is TWO — and every root after the first
+    // was dropped. That is why a JSON fence lost one character (its trailing newline) and a
+    // ScalaScript fence of only comments lost sixty-seven (every line after the first); the two
+    // looked like unrelated defects because the sizes were so different, and I had recorded them
+    // here as "a different mechanism" on exactly that reasoning. A body containing a `def` was
+    // always fine, because a definition's tree absorbs the trailing trivia and is ONE root — which
+    // is what kept this invisible while 1,236 files passed.
+    val known = Set.empty[String]
     val got = broken.map(_._1).toSet
     assert(got == known,
       s"composed round-trip changed.\n  newly broken: ${(got -- known).toVector.sorted}\n  newly exact:  ${(known -- got).toVector.sorted}")
