@@ -1,0 +1,11 @@
+slug: ssc3-projection-questions
+branch: feature/ssc3-projection-questions
+agent: claude-code
+started: 2026-08-07T06:51:55Z
+heartbeat: 2026-08-07T06:51:55Z
+status: claimed-before-planning
+items: the four open questions of the SpikeAst to Ast projection must be MEASURED before the code is written
+paths: file:v3/specs/50-uniml-projection.md file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionCensusSpec.scala file:uniml/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
