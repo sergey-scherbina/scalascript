@@ -23,32 +23,26 @@ last PUBLISHED release, and 0.1.1 is not published yet. Bump it *after* this shi
 
 ## Verified here, locally
 
-Rebased onto `main` at `99c89a9ad` first, so this carries everything that landed after v0.1.0 — 27
-commits, including the locale-dependent heading slug, the Turkish-locale parsing divergence, and the
-v3 Set/exponent literals.
+Rebased onto `main` at `c5f59d368`, so this carries everything that landed after v0.1.0.
 
 | check | result |
 | --- | --- |
 | `install.sh --dev` | clean, 0 errors |
 | `ssc-tools --version` | `ssc 0.1.1` |
-| root and `uniml/` versions agree | both `0.1.1`, and the gate now compares them |
-| emitted coordinate | still `0.1.0` — the last PUBLISHED release, by design |
-| native image | built, 2m14s, 145 MB |
-| **`compile-jvm` on the native binary** | **writes the artifact** — this is the fix |
+| root and `uniml/` versions | both `0.1.1`, compared by a gate |
+| emitted coordinate | `0.1.0` — the last PUBLISHED release, by design |
+| native image | built, 2m17s, 145 MB |
+| **`compile-jvm` on the native binary** | **writes the artifact** — the reason for this release |
 | `run --v2` / `run --v1` | 84 / 84 |
 | `--bytecode` on the native binary | refuses, rc=2, empty stdout |
-| qualifier self-test | 64 compare-first cases, green |
-| smoke | 69/69 green |
-| `bugs-index` | 774 entries, 0 problems |
+| qualifier self-test | 64 compare-first cases |
+| smoke | 69/69 |
+| `bugs-index` | 0 problems |
 
-Two earlier red runs, both resolved and neither caused by this branch:
-
-- `response-transforms` failed once with "server never listened". It passes twice standalone and the
-  suite is green on re-run; the failing run took 697s against a 600s budget on a host building for
-  several agents. Contention.
-- `bugs-index` was red on `main` itself for two sibling entries (an orphaned `fixed-in`, a `lane` not
-  in the enum). Both fixed upstream while this branch was being prepared; recorded here rather than
-  patched by guessing at somebody else's sha.
+**What is NOT verified: anything off this machine.** Every figure above is macOS arm64. Neither
+linux nor macOS x64 has ever built this branch — the release run is their first. That is not a
+reason to wait (the same was true of v0.1.0, which then passed on all three), but it is the honest
+boundary of what the table proves.
 
 ## To publish (Sergiy's call — pushing the tag is what publishes)
 
