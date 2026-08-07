@@ -2350,6 +2350,9 @@ fresh review and landing.
      lane: multi
      area: front -->
 
+**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** No test constructs an effect CodeBlock and an ordinary-object Document carrier that collide on
+one stored witness. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
 
@@ -2429,6 +2432,9 @@ until fresh independent approval and landing on `origin/main`.
 <!-- status: open
      lane: multi
      area: front -->
+
+**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** No test performs the described operation (retaining a stale tree while changing the CodeBlock
+source header). The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -2536,6 +2542,9 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
 <!-- status: open
      lane: multi
      area: front -->
+
+**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** The only test mentioning `effect Real` is *"effect header evidence ignores block comments and
+string literals"* — not the truncated-carrier tamper this entry describes. Near-miss. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);

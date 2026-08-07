@@ -3326,9 +3326,13 @@ effect vectors are green; focused producer passes 82/82 and forced effect
 conformance passes 9/9. Keep `open` until fresh review and landing.
 
 ## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
+     fixed-in: ab7678d0f
      area: front -->
+
+**GATED AND FIXED — verified 2026-08-07 by reading the test against this entry's own recipe, not by matching names.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"a real effect cannot duplicate its parser-owned origin sentinel"*. It reproduces this entry's recipe verbatim — `effect Stable:` carrying
+`private type __effectDecl__ = true` — and requires `UNSUPPORTED_PUBLIC_DECLARATION`.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `ff0e2580b`, landing SHA
@@ -3370,6 +3374,9 @@ Keep `open` until fresh review and landing.
      lane: apparatus
      area: front -->
 
+**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** The only test mentioning `import bar` is *"imports are source ordered and nested import scopes
+do not leak"* — ordering, not a Document carrier mutated away from the stored AST. Near-miss. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `c55ac86e9`, landing SHA
 pending independent approval.
@@ -3406,6 +3413,9 @@ remain green. Keep `open` until fresh review and landing.
 <!-- status: open
      lane: apparatus
      area: front -->
+
+**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** `earlyClause` does not appear ANYWHERE in the suite. The `derives` half has tests; the
+early-initializer half this entry also names has none. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -3772,9 +3782,14 @@ affected conformance 2/2 are green. Status remains `open` until fresh independen
 approval and landing on `origin/main`.
 
 ## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
+     fixed-in: e6df78ce5
      area: front -->
+
+**GATED AND FIXED — verified 2026-08-07 by reading the test against this entry's own recipe, not by matching names.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"retained executable document source cannot silently lose its section AST"*. It does exactly what this entry describes — asserts `parsed.document.nonEmpty` and
+`parsed.sections.nonEmpty`, then requires `descriptor(parsed.copy(sections = Nil))` to FAIL with
+`UNSUPPORTED_PUBLIC_DECLARATION` at `$.sections`. The fail-open is closed.
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
