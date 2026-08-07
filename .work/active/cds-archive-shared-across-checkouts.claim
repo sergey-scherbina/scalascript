@@ -1,0 +1,11 @@
+slug: cds-archive-shared-across-checkouts
+branch: feature/cds-archive-shared-across-checkouts
+agent: claude-code
+started: 2026-08-07T07:29:31Z
+heartbeat: 2026-08-07T07:29:31Z
+status: claimed-before-planning
+items: SSC3-CDS
+paths: file:build.sbt file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
