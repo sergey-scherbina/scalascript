@@ -28,6 +28,18 @@ Two things went wrong on the way to a three-line fix, and both are worth more th
   `Dataset`, three lines up, and a legitimate second argument list was refused. It is updated after
   every postfix step now.
 
+**A `v3/tests/front/` FIXTURE CANNOT GATE THIS, and that was measured rather than assumed.** A
+second agent wrote one — a `while` body and an `if` body each followed by a line opening a paren —
+then planted the defect back to watch it fail. It did not. With `endLineBetween` forced to its
+permissive `-1` the tree returns to `(apply (while …) …)` and `(apply (if …) …)`, and the program
+still prints `List(0, 1, 2)` and `4`: those fixtures compare program OUTPUT, both parses evaluate to
+the same output, so the fixture is green in BOTH states. It was deleted rather than committed as a
+passing test that proves nothing.
+
+So the corpus AST differential is the only gate for this class, and that is the argument for its
+existence: a difference that changes the TREE and not the ANSWER is invisible to every
+output-comparing gate this repository has. `front-diff.sh`'s ceiling of 0 is what holds it.
+
 Result: front agreement on the corpus went **74 differing → 0**, 219 of 219.
 
 ## v3 carries its own copy of the character alphabet — decide, do not drift
