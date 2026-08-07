@@ -1,0 +1,11 @@
+slug: descriptor-v3-gate-mapping
+branch: feature/descriptor-v3-gate-mapping
+agent: claude-code
+started: 2026-08-07T03:51:45Z
+heartbeat: 2026-08-07T03:51:45Z
+status: claimed-before-planning
+items: descriptor-v3-effect-sentinel-duplicate-collision descriptor-v3-import-witness-omission descriptor-v3-nominal-derives-early-loss descriptor-v3-lost-ast-container-fail-open descriptor-v3-codeblock-source-bypass descriptor-v3-dual-effect-evidence-mismatch descriptor-v3-source-ast-correspondence-tamper
+paths: file:BUGS.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
