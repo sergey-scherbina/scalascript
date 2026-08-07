@@ -517,6 +517,38 @@ Fixing it was not attempted here: with both fronts producing it and the def alon
 the next step is inside `ssc1chkInferApp`/the def's type construction in `v2/lib/ssc1-check.ssc0`,
 which is a session of its own.
 
+**NARROWED AGAIN 2026-08-07 — it is the def's inferred TYPE, not the call syntax.** Four new probes
+on the shared toolchain:
+
+| probe | result |
+|---|---|
+| 2 clauses, called | **fine** |
+| 3 clauses, NEVER called | **fine** — the def types |
+| 3 clauses, called | TYPEERR |
+| **4 clauses, called** | TYPEERR — so it is 3-or-more, not exactly 3 |
+| **3 clauses, PARTIALLY applied**: `val g = f(1)` then `g(2)(3)` | **TYPEERR, identical** |
+
+The last row is the one that moves this. Splitting the call across two statements fails the same
+way, so the trigger is NOT the syntactic chain `f(1)(2)(3)` — the def's inferred type is already
+wrong, and the first application past the second clause is merely where it surfaces.
+
+**Where that type is built, and the shape of the mismatch.** `ssc1chkTopStmts`
+(`v2/lib/ssc1-check.ssc0:746`) types every def as `ssc1inferLam(env, s, realParams, body)` over a
+FLAT parameter list — **the checker has no notion of parameter clauses at all**. And `ssc1inferLam`
+on an EMPTY list returns the BODY's type rather than a function type (`:302`, "0-param lambda: type =
+body type"). That is the only place in the checker that can produce the `()` in the message, since
+`()` is `TyTup(Nil)`, i.e. Unit.
+
+So the reading to test next is: **for 3+ clauses the parse tree hands the checker an empty parameter
+group**, which types as Unit and then meets a one-argument function. Two clauses never produce it,
+which is why they work. Start by dumping `params` as `ssc1chkTopStmts` receives it for a 2-clause and
+a 3-clause def and comparing — not by reading the unifier, which is behaving correctly on the input
+it is given.
+
+Still not fixed, and deliberately: the remaining step is a change in the self-hosted checker or in
+how the front emits clause boundaries, and it wants the context to verify on both fronts and all
+four lanes.
+
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed
      lane: multi
