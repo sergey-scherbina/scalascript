@@ -251,13 +251,18 @@ changed — only which node owns each token. The caution was right and the cost 
 
 ## HAND-OVER: eight things the v3 FRONT DIFFERENTIAL found — 2026-08-06 — ALL EIGHT HOLD
 
-**Re-measured 2026-08-07, all eight green, and there is now a gate: `Ssc3HandoverSpec`.** The
-section below says "run `v3/front-diff.sh` after any change here and the number moves or it does
-not" — that is no longer true and is the reason the gate was written. The differential reports
-`GREEN (48 fixtures, 1 front, agree 0)`: `v3/src/Front.scala` lists one runnable front, so it
-compares nothing. It is honest about that in its output, but it means no change on this side moves
-its number, and eight items fixed under eight claims had nothing asking them the same question
-together afterwards.
+**Re-measured 2026-08-07, all eight green, and there is now a gate: `Ssc3HandoverSpec`.** Eight
+items fixed under eight claims had nothing asking them the same question together afterwards, and
+the section below's instruction — "run `v3/front-diff.sh` after any change here and the number moves
+or it does not" — did not supply one.
+
+⚠ **A claim I made here was stale within three hours and I am correcting it in place.** I wrote that
+the differential "compares nothing" because `Front.scala` listed one runnable front. The projection
+and the wiring landed at 11:41 the same day (`67ef6fd67`), and the gate now runs both fronts.
+Worse: re-running it CONFIRMED the stale claim, because `v3/uniml-classpath.sh` had not been run in
+that working tree and the driver reports fronts from a fact about the tree rather than the code.
+With the classpath built: **48 of 48 fixtures agree; on the conformance corpus both fronts print 219
+cases, agreeing on 145 and differing on 74.**
 
 One of the eight assertions was wrong on its first run and the CODE was right: I asserted that a
 fenceless `.ssc` leaves `fences` empty, and the composer in fact records a synthetic `<bare>` fence

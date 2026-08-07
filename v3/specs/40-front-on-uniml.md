@@ -256,15 +256,32 @@ at once. The drift is visible in item 8 below, which still reads "still open" wh
 `uniml/SPRINT.md` has had it `[x]` since 2026-08-05. The list is left as written, with this note
 above it, because the ARGUMENT for each item is why the gate asserts what it asserts.
 
-**The differential could not have caught the drift.** `v3/front-diff.sh` reports
-`GREEN (48 fixtures, 1 front, agree 0)` — `v3/src/Front.scala` lists `v3` as the only runnable
-front, so the gate that "will decide the UniML front swap" currently compares nothing. It says so
-in its own output, which is the right behaviour; the point is that a green run there is not
-evidence about UniML today, and `Ssc3HandoverSpec` is what replaces it until the second front runs.
+**⚠ THE PARAGRAPH THAT USED TO BE HERE WAS STALE WITHIN THREE HOURS, and how it was stale is worth
+more than what it said.** It read: the differential "compares nothing", `Front.scala` lists one
+runnable front, and "the remaining blocker is on v3's side". Written 08:47; the projection and the
+wiring landed at 11:41 the same day (`67ef6fd67`, the UniML front becoming the DEFAULT), with work
+continuing after it.
 
-**So the remaining blocker is on v3's side, not UniML's**: the `SpikeAst` → v3 `Ast` projection
-(§5a, contract in `50-uniml-projection.md`, four open questions to measure first) and the wiring in
-`Front.parse`. Nothing on the list below is waiting on UniML.
+**And re-running the gate confirmed the stale claim rather than correcting it.** `v3/front-diff.sh`
+answered `1 front, agree 0` on a fresh checkout — because `v3/uniml-classpath.sh` had not been run
+in that working tree. The driver reports the runnable fronts from a fact about the WORKING TREE, as
+`front-diff.sh:40` says in as many words, and reading that as a fact about the CODE is how a wrong
+statement survives its own verification. After building the classpath, the same gate says
+`2 front(s), agree 48`.
+
+**Measured 2026-08-07, both fronts live:**
+
+| | |
+|---|---|
+| fixtures | **48 of 48 agree** — the floor in §7, met |
+| conformance corpus | both fronts print **219**; they agree on **145**, differ on **74** |
+| | a further 173 print on one front only — a v3 refusal is not a disagreement |
+
+So §7's acceptance — *every* fixture **and** every corpus case v3 compiles — is met on the fixture
+half and not on the corpus half. The swap has been made the default on the fixture number, which
+`67ef6fd67` says in its own subject line ("and the number was not enough").
+
+Nothing on the list below is waiting on UniML; that part was true and stays true.
 
 ### The list, as originally written
 

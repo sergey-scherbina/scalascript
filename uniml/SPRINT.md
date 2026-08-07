@@ -16,9 +16,12 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       all eight hold. The spec called its own list "stale by construction — re-measure, do not
       inherit" and had no apparatus for that: eight items, eight claims, no standing check. Its
       item 8 read "Still open" while this board had it `[x]`.
-      **The differential could not have caught the drift**: `v3/front-diff.sh` reports GREEN with
-      `1 front, agree 0`, because `v3/src/Front.scala` lists only `v3` as runnable. It is honest
-      about that in its output; the consequence is that nothing on this side moves its number.
+      ⚠ **Corrected same day:** I wrote that the differential "reports GREEN with 1 front, agree 0
+      because only `v3` is runnable". The projection and wiring landed at 11:41 (`67ef6fd67`), and
+      re-running the gate CONFIRMED my stale claim only because `v3/uniml-classpath.sh` had not run
+      in that tree — the driver reports fronts from a fact about the WORKING TREE. With it built:
+      48 of 48 fixtures agree, and on the corpus both fronts print 219 cases, agreeing on 145 and
+      differing on 74. So §7's acceptance is met on the fixture half, not the corpus half.
       `Ssc3ProjectionCensusSpec` then answered `50-uniml-projection.md` §7, which says to MEASURE
       before writing: Q1 **no** (0 case classes with a second parent — the first detector said 4 and
       all four were commas inside type arguments), Q2 **yes** (164 typed lambda params, so
