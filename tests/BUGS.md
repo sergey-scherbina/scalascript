@@ -3370,12 +3370,14 @@ and unexpected-unsupported vectors are green; focused producer passes 82/82.
 Keep `open` until fresh review and landing.
 
 ## descriptor-v3-import-witness-omission — retained carrier import mutations evade correspondence
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
+     fixed-in: ab7678d0f
      area: front -->
 
-**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** The only test mentioning `import bar` is *"imports are source ordered and nested import scopes
-do not leak"* — ordering, not a Document carrier mutated away from the stored AST. Near-miss. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+**GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"ordered imports participate in retained source and AST correspondence"*, which mutates the Document carrier `import foo.Int` → `import bar.Int` while the stored AST keeps the original, and requires `UNSUPPORTED_PUBLIC_DECLARATION`. Landed `ab7678d0f` (2026-07-15).
+
+**My previous note here said STILL UNGATED, and the method was the defect.** I grepped for the identifiers this entry uses to describe the PRODUCER's internals — `earlyClause`, `rawSource` — which by construction do not appear in a test: a test is written in the vocabulary of its INPUT and its ASSERTION, tampering with source text and requiring a rejection, never naming the AST field it exercises. I also took only the FIRST grep hit, which for `effect Real` landed on an unrelated comment-handling test 150 lines above the real one. Both errors point the same way: search for the RECIPE, not for the mechanism.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `c55ac86e9`, landing SHA
@@ -3410,12 +3412,14 @@ shape. The faithful carrier mutation is green and all later focused/full gates
 remain green. Keep `open` until fresh review and landing.
 
 ## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
+     fixed-in: 21ae17ec0
      area: front -->
 
-**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** `earlyClause` does not appear ANYWHERE in the suite. The `derives` half has tests; the
-early-initializer half this entry also names has none. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+**GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"early initializer headers participate in both retained source carriers"*, which changes the early-initializer header in the Document carrier AND in the CodeBlock carrier, and requires BOTH to be rejected. The `derives` half is covered separately by *"derives clauses reject on every directly parseable nominal form"*. Landed `21ae17ec0` (2026-07-15).
+
+**My previous note here said STILL UNGATED, and the method was the defect.** I grepped for the identifiers this entry uses to describe the PRODUCER's internals — `earlyClause`, `rawSource` — which by construction do not appear in a test: a test is written in the vocabulary of its INPUT and its ASSERTION, tampering with source text and requiring a rejection, never naming the AST field it exercises. I also took only the FIRST grep hit, which for `effect Real` landed on an unrelated comment-handling test 150 lines above the real one. Both errors point the same way: search for the RECIPE, not for the mechanism.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.

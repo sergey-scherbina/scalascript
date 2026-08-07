@@ -2433,12 +2433,14 @@ source-order controls are green; focused producer passes 82/82. Keep `open` unti
 fresh review and landing.
 
 ## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
-<!-- status: open
+<!-- status: fixed
      lane: multi
+     fixed-in: 21ae17ec0
      area: front -->
 
-**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** No test constructs an effect CodeBlock and an ordinary-object Document carrier that collide on
-one stored witness. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+**GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"dual carriers distinguish an empty effect from an ordinary object"*, which swaps `effect Empty:` and `object Empty:` between the two carriers in BOTH directions and requires each to be rejected. Landed `21ae17ec0` (2026-07-15).
+
+**My previous note here said STILL UNGATED, and the method was the defect.** I grepped for the identifiers this entry uses to describe the PRODUCER's internals — `earlyClause`, `rawSource` — which by construction do not appear in a test: a test is written in the vocabulary of its INPUT and its ASSERTION, tampering with source text and requiring a rejection, never naming the AST field it exercises. I also took only the FIRST grep hit, which for `effect Real` landed on an unrelated comment-handling test 150 lines above the real one. Both errors point the same way: search for the RECIPE, not for the mechanism.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -2516,12 +2518,14 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open
 until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
-<!-- status: open
+<!-- status: fixed
      lane: multi
+     fixed-in: d80611194
      area: front -->
 
-**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** No test performs the described operation (retaining a stale tree while changing the CodeBlock
-source header). The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+**GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"a documentless packaged module still verifies CodeBlock source against its AST"*, which is this entry's recipe exactly — it removes `document`, rewrites the retained `CodeBlock.source` header, keeps the old tree, and requires `UNSUPPORTED_PUBLIC_DECLARATION`. Landed `d80611194` (2026-07-15).
+
+**My previous note here said STILL UNGATED, and the method was the defect.** I grepped for the identifiers this entry uses to describe the PRODUCER's internals — `earlyClause`, `rawSource` — which by construction do not appear in a test: a test is written in the vocabulary of its INPUT and its ASSERTION, tampering with source text and requiring a rejection, never naming the AST field it exercises. I also took only the FIRST grep hit, which for `effect Real` landed on an unrelated comment-handling test 150 lines above the real one. Both errors point the same way: search for the RECIPE, not for the mechanism.
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -2626,12 +2630,14 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
 `open` until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
-<!-- status: open
+<!-- status: fixed
      lane: multi
+     fixed-in: 52a193593
      area: front -->
 
-**STILL UNGATED — checked 2026-08-07, and a near-miss exists, which is why this is written down.** The only test mentioning `effect Real` is *"effect header evidence ignores block comments and
-string literals"* — not the truncated-carrier tamper this entry describes. Near-miss. The producer suite is 83 tests and all green, so it is easy to assume this family is covered; for this entry it is not.
+**GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"retained declaration source must correspond exactly to its stored section AST"*, which truncates the retained executable source to `effect Real:\n` while preserving the old section AST, and requires rejection. Landed `52a193593` (2026-07-15).
+
+**My previous note here said STILL UNGATED, and the method was the defect.** I grepped for the identifiers this entry uses to describe the PRODUCER's internals — `earlyClause`, `rawSource` — which by construction do not appear in a test: a test is written in the vocabulary of its INPUT and its ASSERTION, tampering with source text and requiring a rejection, never naming the AST field it exercises. I also took only the FIRST grep hit, which for `effect Real` landed on an unrelated comment-handling test 150 lines above the real one. Both errors point the same way: search for the RECIPE, not for the mechanism.
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
