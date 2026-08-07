@@ -1,0 +1,11 @@
+slug: f-response-decline-lever
+branch: feature/f-response-decline-lever
+agent: claude-code
+started: 2026-08-07T06:59:57Z
+heartbeat: 2026-08-07T06:59:57Z
+status: claimed-before-planning
+items: f-declines-every-non-top-level-def
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
