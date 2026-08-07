@@ -79,10 +79,22 @@ enum Pat:
     * same names, and the only way to satisfy that without analysis is to bind none. So this is a
     * pure disjunction of tests and needs no per-alternative environment. */
   case PAlt(alts: List[Pat], pos: Pos)
+  /** `case s: String =>`, `case c: Circle =>`, `case _: Throwable =>` — a TYPE ASCRIPTION pattern.
+    *
+    * The test is NOMINAL and flat: the value's tag against the name, with no subtype graph. That is
+    * what the reference front does (`ssc1-lower.ssc0:3559`, `__isTag__`), and matching it exactly is
+    * the point — the frozen conformance goldens encode the reference's answers, including its
+    * deliberate permissiveness about exception supertypes and its aliases (`List`/`Seq`/`Iterable`
+    * for a cons cell, `Option` for `Some`/`None`).
+    *
+    * `inner` is the pattern the value is bound by once the test passes, which is a binder or a
+    * wildcard in every case the surface syntax can produce. */
+  case PType(name: String, inner: Pat, pos: Pos)
 
 object Pat:
   def posOf(p: Pat): Pos = p match
     case PWild(x)       => x
+    case PType(_, _, x) => x
     case PBind(_, x)    => x
     case PLit(_, x)     => x
     case PCtor(_, _, x) => x

@@ -432,7 +432,18 @@ object Parser:
       (Pat.PAlt(alts, Pat.posOf(first)), ts)
 
   private def parseConsPat(ts0: List[Tok]): (Pat, List[Tok]) =
-    val (head, ts) = parsePatAtom(ts0)
+    val (head0, ts1) = parsePatAtom(ts0)
+    // `case s: String =>` — a TYPE ASCRIPTION on the pattern. Read here rather than in the atom so
+    // that `h :: t` still binds tighter and `case x: Int | y: String` groups as Scala does.
+    //
+    // The type is taken by its HEAD: `List[Int]` tests `List`, because the test is nominal and a
+    // type argument carries no runtime evidence. Passing the whole text would compare the tag to
+    // the literal "List[Int]" — a pattern that silently never matches.
+    val (head, ts) =
+      if !isPunct(peek(ts1), ":") then (head0, ts1)
+      else
+        val (tname, tp, tsT) = expectName(ts1.tail)
+        (Pat.PType(tname, head0, tp), skipBrackets(tsT))
     if isOp(peek(ts), "::") then
       val (tail, t) = parseConsPat(ts.tail)
       (Pat.PCtor("Cons", List(head, tail), Pat.posOf(head)), t)

@@ -934,6 +934,56 @@ object Exec:
       args.head match
         case Value.VInt(n) => Value.VChar(n.toChar)
         case v             => throw ExecError("char of " + show(v))
+    // `case s: String =>` — the NOMINAL, FLAT type test the reference front emits
+    // (`ssc1-lower.ssc0:3559`) and v2 implements (`Runtime.scala:1683`). Mirrored here rather than
+    // reinvented: the two lanes must answer identically, and the frozen conformance goldens encode
+    // the reference's answers — including the parts that look like quirks.
+    //
+    //   • ALIASES. A list is `Cons`/`Nil`, so `case _: List[?]` can never equal the tag; `List`,
+    //     `Seq` and `Iterable` all name it. Same for `Option` over `Some`/`None`.
+    //   • EXCEPTION SUPERTYPES are permissive. A caught error arrives tagged with the thrown
+    //     class's simple name, and `catch { case e: Throwable => … }` must reach it without the
+    //     user naming the concrete class. There is no subtype graph here to consult.
+    //   • ARITY < 0 means "any", which is what a type ascription passes: it carries no field
+    //     patterns, while `case Cons(h, t)` goes through the constructor path with its real arity.
+    case "__isTag__" =>
+      val expected = args(1) match
+        case Value.VStr(x) => x
+        case v             => throw ExecError("__isTag__ expects a type name, got " + show(v))
+      val arity = args(2) match
+        case Value.VInt(n) => n.toInt
+        case _             => -1
+      def superTag(n: String): Boolean =
+        n == "Throwable" || n == "Exception" || n == "RuntimeException" || n == "Error"
+      val yes = args.head match
+        // THE TAG IS AN INDEX HERE, not a name — v3's `VData` carries the type table's slot while
+        // v2's `DataV` carries the string. The comparison is against the NAME, so the table is
+        // consulted; comparing the index to the name would have made every type test false, which
+        // is a pattern that silently never matches.
+        case Value.VData(ti, fs) =>
+          val t = if ti >= 0 && ti < m.types.length then m.types(ti).name else ""
+          val listTag  = t == "Cons" || t == "Nil"
+          val listName = expected == "List" || expected == "Seq" || expected == "Iterable"
+          val optTag   = t == "Some" || t == "None"
+          val optName  = expected == "Option"
+          if (listTag && listName) || (optTag && optName) then true
+          else (t == expected || superTag(expected)) && (arity < 0 || fs.length == arity)
+        case other =>
+          val prim = other match
+            case Value.VUnit      => expected == "Unit"
+            case Value.VBool(_)   => expected == "Boolean" || expected == "Bool"
+            case Value.VInt(_)    => expected == "Int" || expected == "Long"
+            case Value.VFloat(_)  => expected == "Float" || expected == "Double"
+            case Value.VStr(_)    => expected == "String"
+            // A char is an INTEGER that prints as one, so it answers to both — matching the
+            // model the two lanes already share for `'x' + 1`.
+            case Value.VChar(_)   => expected == "Char" || expected == "Int"
+            case Value.VMap(_)    => expected == "Map"
+            case Value.VSet(_)    => expected == "Set" || expected == "Iterable"
+            case Value.VArr(_)    => expected == "Array"
+            case _                => false
+          prim && (arity < 0 || arity == 0)
+      Value.VBool(yes)
     case "__throw__" =>
       throw ExecError(if args.isEmpty then "throw" else showV(m, args.head))
     case other => throw ExecError("unknown primitive '" + other + "'")

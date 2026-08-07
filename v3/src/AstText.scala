@@ -79,6 +79,7 @@ object AstText:
     case Pat.PLit(v, _)        => sx("lit", List(expr(v)))
     case Pat.PCtor(n, args, _) => sx("ctor", q(n) :: args.map(pat))
     case Pat.PAlt(alts, _)     => sx("alt", alts.map(pat))
+    case Pat.PType(n, i, _)    => sx("tpat", List(q(n), pat(i)))
 
   private def arm(a: MatchArm): String =
     a.guard match

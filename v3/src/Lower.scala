@@ -23,7 +23,13 @@ object Lower:
     * oracle, not assumed — so it is ordinary `MkData` over the type table rather than a special
     * form. `Some`/`None` are the same shape and cost nothing extra. */
   private val ctors: List[(String, Int)] =
-    List("Cons" -> 2, "Nil" -> 0, "Some" -> 1, "None" -> 0)
+    List("Cons" -> 2, "Nil" -> 0, "Some" -> 1, "None" -> 0,
+         // `Either` — `Right`/`Left`. Measured 2026-08-07: FIFTY-THREE corpus cases were refused
+         // with `call to unknown function 'Right'`, more than any other single name and by a
+         // factor of four. It is a language-provided constructor exactly as `Some` is, and it was
+         // missing for the same reason `Some` once was — nothing in the kernel names it, so
+         // nothing put it in the table.
+         "Right" -> 1, "Left" -> 1)
 
   /** Tuples as SYNTHETIC case classes — `Tuple2(_1, _2)` and so on.
     *
@@ -1102,6 +1108,10 @@ object Lower:
   private def patNames(p: Pat): List[String] = p match
     case Pat.PBind(n, _)       => List(n)
     case Pat.PCtor(_, args, _) => args.flatMap(a => patNames(a))
+    // `case s: String =>` binds `s`. Missing this arm would have left the binder out of the arm's
+    // scope while the LOWERING bound it anyway — the name would resolve to whatever else was in
+    // scope, or to nothing, which is a wrong answer rather than a compile error.
+    case Pat.PType(_, inner, _) => patNames(inner)
     // An alternative binds nothing by construction — see `Pat.PAlt`.
     case _                     => Nil
 
@@ -1160,6 +1170,27 @@ object Lower:
           val (cr, st2) = st1.fresh
           val (inner, st3) = testPat(more, guard, body, dst, rest, fns, classes, zeroArity, env, st2)
           (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, vr, lr), Instr.If(cr, inner, rest)), st3)
+        // `case s: String =>` — a TYPE ASCRIPTION. One `__isTag__` call, then the inner pattern
+        // (a binder or a wildcard) on the SAME register, because a type test narrows nothing at
+        // run time: the value is the value, the test only decides whether this arm runs.
+        //
+        // `__isTag__(value, name, -1)` is the reference front's own shape (`ssc1-lower.ssc0:3559`)
+        // and v2 implements it, so the BRIDGE lane gets this for nothing and the executor
+        // implements the identical vocabulary rather than a parallel one. The `-1` is "any arity":
+        // a type ascription carries no field patterns, while `case Cons(h, t)` still goes through
+        // the constructor path with its real arity.
+        case Pat.PType(tname, inner, tp) =>
+          val (nameK, st1) = st0.constIdx(Lit.LStr(tname))
+          val (anyArity, st2) = st1.constIdx(Lit.LInt(-1L))
+          val (nameR, st3) = st2.fresh
+          val (arityR, st4) = st3.fresh
+          val (isR, st5) = st4.fresh
+          val (pi, st6) = st5.primIdx("__isTag__")
+          val (innerI, st7) =
+            testPat((inner, vr) :: more, guard, body, dst, rest, fns, classes, zeroArity, env, st6)
+          (List(Instr.Const(nameR, nameK), Instr.Const(arityR, anyArity),
+                Instr.Prim(isR, pi, List(vr, nameR, arityR)),
+                Instr.If(isR, innerI, rest)), st7)
         // `case A | B =>` — a DISJUNCTION of tests, evaluated into one boolean and then branched
         // on once. Alternatives bind nothing, so there is no environment to reconcile between
         // them; that restriction is Scala's, not a simplification made here, and an alternative
@@ -1371,7 +1402,7 @@ object Lower:
     // exactly the lane divergence this pre-registration removes.
     var types: List[TypeDef] =
       List(TypeDef("Cons", 2), TypeDef("Nil", 0), TypeDef("Some", 1), TypeDef("None", 0),
-           TypeDef("Tuple2", 2), TypeDef("Pair", 2))
+           TypeDef("Tuple2", 2), TypeDef("Pair", 2), TypeDef("Right", 1), TypeDef("Left", 1))
     var lifted: List[Func] = Nil
     // Collected BEFORE anything is lowered: a `def` may reference a top-level `val` declared
     // further down the file, and the other lanes allow that.

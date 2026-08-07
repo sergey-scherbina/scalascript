@@ -220,6 +220,17 @@ object UniFront:
     * information under different spellings, kept in step by hand. */
   private def hostGap(name: String, p: Pos): Expr = Expr.Name("__abstract__", p)
 
+  /** The HEAD of a type reference: `List[Int]` -> `List`, `scala.Option[A]` -> `Option`.
+    *
+    * A nominal tag test compares a name, and the tag a value carries is a simple name. Passing the
+    * whole text through would make `case xs: List[Int]` a test against the literal string
+    * "List[Int]", which nothing ever equals — a pattern that silently never matches, which is the
+    * failure mode this project keeps paying for. */
+  private def typeHead(text: String): String =
+    val noArgs = text.takeWhile(c => c != '[')
+    val i = noArgs.lastIndexOf('.')
+    (if i >= 0 then noArgs.substring(i + 1) else noArgs).trim
+
   private def param(p: U.Param): Param =
     if p.using_ then no("a `using` parameter", p.span)
     Param(p.name, pos(p.span), p.default.map(expr))
@@ -395,7 +406,13 @@ object UniFront:
     case U.PatAlt(as, s)    => Pat.PAlt(as.toList.map(pattern), pos(s))
     // Erasing the type would make `case x: Int` match everything — a wrong answer, not a smaller
     // tree, which is why this refuses rather than unwrapping.
-    case U.PatTyped(_, _, s) => no("a typed pattern", s)
+    // `case s: String =>` / `case c: Circle =>`. The TYPE HEAD is what the test uses — a type
+    // argument carries no runtime evidence here, so `List[Int]` and `List[String]` are one test,
+    // exactly as they are on the reference lane.
+    case U.PatTyped(inner, tpe, s) =>
+      tpe match
+        case Some(t) => Pat.PType(typeHead(t.text), pattern(inner), pos(s))
+        case None    => no("a typed pattern with no type", s)
     case U.PatBind(_, _, s)  => no("an `@` pattern", s)
     case U.PatUnsupported(k, s) => no("the pattern '" + k + "'", s)
 

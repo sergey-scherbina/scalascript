@@ -1361,3 +1361,57 @@ that is a long way off.
 
 **Measured:** eight gates green, N = 59 on both lanes with DIFF 0 and CRASH 0, agreement 48/48 and
 105/105, `install.sh --dev` clean, smoke-ci 70/70.
+
+## 32 · Typed patterns and `Either` — N 59 → 66, and the differential grew a second guard
+
+Two constructs, each blocking a large block of the corpus, and both closed by matching the
+REFERENCE rather than inventing a rule.
+
+- [x] **32a — `case s: String =>`, the 138-case blocker.** The reference front emits
+      `__isTag__(value, name, -1)` (`ssc1-lower.ssc0:3559`) and **v2 already implements it**
+      (`Runtime.scala:1683`), so the bridge lane came for free and the executor implements the
+      identical vocabulary rather than a parallel one. That is the same argument the map and set
+      primitives carry, and it is why the two lanes agree here without a second thought.
+
+      The test is nominal and FLAT, with no subtype graph — and its quirks are copied deliberately,
+      because the frozen goldens encode the reference's answers, not an ideal semantics:
+      `List`/`Seq`/`Iterable` all name a cons cell, `Option` names `Some`/`None`, and the four JVM
+      exception supertypes match anything, because a caught error carries the thrown class's simple
+      name and users catch by supertype.
+
+      One thing v3 needed that v2 did not: **the tag is an INDEX here**, not a string, so the type
+      table is consulted. Comparing the index to the name would have made every type test false —
+      a pattern that silently never matches.
+
+      The type is taken by its HEAD: `List[Int]` tests `List`. A type argument carries no runtime
+      evidence, and passing the whole text would compare a tag to the literal `"List[Int]"`.
+
+- [x] **32b — `Either`. Fifty-three cases on one name.** `Right`/`Left` are language-provided
+      constructors exactly as `Some`/`None` are, and were missing for exactly the reason `Some`
+      once was: nothing in the kernel names them, so nothing put them in the table.
+
+- [x] **32c — the payoff was +7, not +138, and that is the honest read.** The 138 cases hit the
+      typed-pattern wall FIRST; behind it stood others. The blocker histogram is the evidence: the
+      typed-pattern line is gone entirely, `call to unknown function` went 176 → 59 as `Right`
+      landed, and the freed cases moved forward into `unknown name '_'` — the placeholder lambda,
+      `xs.map(_ * 2)`. **That is the next single-cause lever.**
+
+- [x] **32d — THE GATE'S FLOOR WAS NOT A GUARD, and it took this commit to show it.** When typed
+      patterns landed, the cases both fronts can print went 105 → 219, agreement went 105 → 145 —
+      and **disagreements went 0 → 74** while the gate stayed green. A floor on the good number
+      says nothing about the bad one, and a ratio would have the same hole in the other direction:
+      it improves whenever the denominator grows.
+
+      Two numbers now, two directions, both non-regressing — the rule I-5 already applies to the
+      corpus N, applied to what the differential actually measures. Observed failing at a ceiling
+      of 73.
+
+      **The 74 are newly EXPOSED, not newly broken.** They are files that could not be parsed at
+      all until this commit, and the disagreement is about where an indented block ENDS: v3's own
+      front closes it before a following `if`, UniML nests the `if` inside. One of the two is wrong
+      about the offside rule and the differential cannot say which — that needs the reference as a
+      third opinion, and it is its own piece of work.
+
+**Measured:** N = 66 on both v3 lanes with the uniml front (was 59) and 52 with v3's own (was 50),
+DIFF 0 and CRASH 0 in all four combinations. Eight gates green, `install.sh --dev` clean, smoke-ci
+70/70.

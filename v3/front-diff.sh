@@ -114,9 +114,24 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
   echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-105}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-145}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
+    fail=1
+  fi
+  # THE DISAGREEMENT COUNT HAS ITS OWN CEILING, and it needed one.
+  #
+  # A floor on AGREE alone is not a guard: when typed patterns landed, the number of cases both
+  # fronts can print went 105 -> 219, agreement went 105 -> 145, and the gate stayed green while
+  # disagreements went 0 -> 74. The floor rose with the good number and said nothing about the bad
+  # one. A ratio would have the same hole in the other direction — it improves whenever the
+  # denominator grows.
+  #
+  # So: two numbers, two directions, both non-regressing. This is the same rule the corpus N
+  # carries (I-5) applied to the thing the differential actually measures.
+  CCEIL="${SSC3_FRONT_CORPUS_DIFF_CEILING:-74}"
+  if [ "$cdiff" -gt "$CCEIL" ]; then
+    echo "  FAIL corpus DISAGREEMENTS rose to $cdiff, above the ceiling $CCEIL"
     fail=1
   fi
 fi
