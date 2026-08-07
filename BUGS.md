@@ -4013,3 +4013,73 @@ they were found by running another implementation on the same source and diffing
 I ran `bin/ssc run` and called it v1 for a whole session. `bin/ssc run` is the NATIVE lane. The
 interpreter is `ssc-tools run --v1`, and it is correct on every one of these. A differential is only
 as good as knowing which two things it compared.
+
+## the CDS archive is SHARED between every checkout and is not keyed on the build
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-07 after roughly two hours of looking in the wrong place, which is the reason this
+entry is long: the symptom points nowhere near the cause.
+
+**Symptom.** `bin/ssc run scripts/smoke-ci.ssc` dies with
+
+```
+ssc: class scala.Tuple2 cannot be cast to class scala.collection.immutable.List
+```
+
+No position, no stack, and `scripts/smoke-ci` is a bash wrapper that `exec`s it — so the whole
+suite prints one line and exits 1. A trivial program still runs, so the toolchain looks alive.
+
+**Cause.** The launcher enables class-data sharing with
+
+```bash
+_SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
+-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa"
+```
+
+**One archive, at one path, for every checkout and every worktree on the machine.** Two trees at
+different commits share it, and `AutoCreateSharedArchive` did not regenerate it when the jars
+changed underneath. The JVM then loads STALE CLASS DEFINITIONS out of the archive in preference to
+the jars on the classpath.
+
+The cast error is what that looks like from the outside. `03887cefb` changed the self-hosted
+front's OBJ-SCOPE payload from `(name, varNames)` to `(name, (varNames, defNames))`; the new jar
+builds the pair and the archive supplies the old reader that expects a list.
+
+**Why it took two hours.** Every ordinary hypothesis is wrong here, and each one costs a rebuild:
+
+- `rm -rf bin/lib`, `target`, `project/target` and a full `install.sh --dev` — **no effect**, the
+  archive is outside the repository;
+- the same commit checked out in another copy of the repo — **works**, because its jars are older
+  and happen to match the archive. That comparison says "your worktree is broken" and it is not;
+- swapping the toolchains proves the source is fine and the toolchain is not, which is true and
+  points at the jars, which are also fine.
+
+**Reproduction and the one-line proof:**
+
+```
+SSC_NO_CDS=1 bin/ssc run scripts/smoke-ci.ssc    # works
+bin/ssc      run scripts/smoke-ci.ssc            # ClassCastException
+rm -f ~/.cache/scalascript/ssc.jsa               # and now both work
+```
+
+**Fix.** Key the archive on the build it belongs to. `bin/lib/.build-digest` already exists and is a
+content digest of the build's inputs, so the launcher template in `build.sbt` (the
+`standardLauncherScript` block, around line 1962) needs the archive path to carry it:
+
+```bash
+_SSC_DG="$(cat "$_SSC_BIN/lib/.build-digest" 2>/dev/null || echo none)"
+-XX:SharedArchiveFile="$_SSC_CACHE/ssc-$_SSC_DG.jsa"
+```
+
+Then two trees cannot collide, and a rebuild gets a fresh archive instead of a stale one. Old
+archives accumulate in the cache; a size cap or an age sweep is the follow-up, and is a much smaller
+problem than a wrong answer.
+
+**Not fixed here:** `build.sbt` is held by the live claim `release-v0-1-1`, so the change belongs to
+whoever holds it. Everything needed is above.
