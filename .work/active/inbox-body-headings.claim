@@ -1,0 +1,11 @@
+slug: inbox-body-headings
+branch: feature/inbox-body-headings
+agent: claude-code
+started: 2026-08-07T04:11:22Z
+heartbeat: 2026-08-07T04:11:22Z
+status: claimed-before-planning
+items: a body heading at ## turns one report into several malformed ones — nadia's closing note
+paths: file:scripts/inbox-add file:tests/e2e/inbox-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
