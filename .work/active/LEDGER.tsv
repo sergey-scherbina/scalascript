@@ -1,6 +1,5 @@
-# generation: 1191
+# generation: 1192
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionCensusSpec.scala file:setup.sh
 cds-archive-shared-across-checkouts	claude-code	2026-08-07T07:29:31Z	SSC3-CDS	file:build.sbt file:BUGS.md file:tests/e2e/cds-archive-per-build.sh file:scripts/smoke-ci.ssc file:bin/ssc file:bin/ssc-standard
 v3-paren-line-continues-expression	claude-code	2026-08-07T16:36:16Z	v3's parser applies a while's result to a following line that opens a paren	file:v3/src/Parser.scala file:v3/front-diff.sh file:v3/tests/front v3/BACKLOG.md
-pattern-undefined-name-lane-gate	claude-code	2026-08-07T16:40:58Z	an-undefined-name-in-a-pattern-means-three-different-things	file:tests/e2e/pattern-undefined-name-gate.sh
