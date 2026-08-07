@@ -59,6 +59,22 @@ object Exec:
   // makes, one level up.
   private var globals: Array[Value] = new Array[Value](0)
 
+  /** The runtime type, for diagnostics only. Never for output — `show` owns that, and the two must
+    * not be conflated: `show` is tuned for lane parity and deliberately hides `0.0` as `0`. */
+  private def typeName(v: Value): String = v match
+    case Value.VUnit       => "Unit"
+    case Value.VBool(_)    => "Boolean"
+    case Value.VInt(_)     => "Int"
+    case Value.VFloat(_)   => "Double"
+    case Value.VChar(_)    => "Char"
+    case Value.VStr(_)     => "String"
+    case Value.VData(_, _) => "data"
+    case Value.VClos(_, _) => "function"
+    case Value.VArr(_)     => "Array"
+    case Value.VSet(_)     => "Set"
+    case Value.VMap(_)     => "Map"
+    case _                 => "value"
+
   def show(v: Value): String = v match
     case Value.VUnit      => "()"
     case Value.VBool(b)   => if b then "true" else "false"
@@ -907,6 +923,16 @@ object Exec:
     case (BinOp.Le, Value.VInt(x), Value.VInt(y))    => Value.VBool(x <= y)
     case (BinOp.Gt, Value.VInt(x), Value.VInt(y))    => Value.VBool(x > y)
     case (BinOp.Ge, Value.VInt(x), Value.VInt(y))    => Value.VBool(x >= y)
+    // Doubles could be ADDED and not COMPARED. The four arithmetic arms above have had `VFloat`
+    // since they were written and these four never did, so `var i: Double = 0.0` with
+    // `while i < 1000000.0` compiled, ran one instruction and died (`float-loop.ssc`, SSC3-7l).
+    // Measured before it was fixed: the constant pool holds `(float 0.0)`, so the lowering was
+    // right and only the executor was missing arms — worth checking rather than assuming, because
+    // the other reading (literals lowered as ints) would have put the fix in a different file.
+    case (BinOp.Lt, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x < y)
+    case (BinOp.Le, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x <= y)
+    case (BinOp.Gt, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x > y)
+    case (BinOp.Ge, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x >= y)
     case (BinOp.Eq, x, y)                            => Value.VBool(eq(x, y))
     case (BinOp.Ne, x, y)                            => Value.VBool(!eq(x, y))
     case (BinOp.BAnd, Value.VInt(x), Value.VInt(y))  => Value.VInt(x & y)
@@ -915,7 +941,14 @@ object Exec:
     case (BinOp.Shl, Value.VInt(x), Value.VInt(y))   => Value.VInt(x << y)
     case (BinOp.Shr, Value.VInt(x), Value.VInt(y))   => Value.VInt(x >> y)
     case (BinOp.UShr, Value.VInt(x), Value.VInt(y))  => Value.VInt(x >>> y)
-    case (o, x, y) => throw ExecError(o.toString + " on " + show(x) + " and " + show(y))
+    // The TYPE, not only the rendered value. `show` prints a Double the way the reference lane
+    // prints it, so `0.0` renders as `0` — correct for program output and actively misleading in a
+    // diagnostic: `Lt on 0 and 1000000` reads as an Int problem, and it cost a wrong first
+    // hypothesis about where the missing arms were. An operator arm is missing for a pair of TYPES,
+    // so the types are what the message has to name.
+    case (o, x, y) =>
+      throw ExecError(
+        o.toString + " on " + typeName(x) + " " + show(x) + " and " + typeName(y) + " " + show(y))
 
   private def eq(a: Value, b: Value): Boolean = (a, b) match
     case (Value.VInt(x), Value.VInt(y))     => x == y

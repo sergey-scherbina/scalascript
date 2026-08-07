@@ -261,11 +261,17 @@ one symptom bucket turned out to be a different construct than the obvious readi
 
 ### Executor — it compiles, and then it stops (4 files)
 
-- [ ] **SSC3-7l — `<` on Double.** `float-loop.ssc`: `var i: Double = 0.0` with
-      `while i < 1000000.0` fails at run time with `Lt on 0 and 1000000`. Note the operands print
-      with NO decimal point, so the first thing to measure is whether `Lower` turned the literals
-      into `VInt` or whether `Lt` simply has no `VFloat` case — that decides which file the fix goes
-      in. `float-fold` runs, so Double arithmetic is not wholly absent; this is the comparison.
+- [x] **SSC3-7l — `<` on Double.** DONE, and the measurement the task demanded chose the file.
+      The constant pool holds `(float 0.0)`, so the lowering was right: `Lt`/`Le`/`Gt`/`Ge` simply
+      had no `VFloat` arms, while `Add`/`Sub`/`Mul`/`Div` had had them since they were written.
+      Doubles could be added and not compared. Verified DIFFERENTIALLY: `499999500000` on v3's
+      executor, the v2 bridge and the v1 interpreter. Corpus 22 -> 23.
+
+      *The diagnostic was fixed too, because it caused the wrong first guess.* `show` renders a
+      Double the way the reference lane does, so `0.0` prints as `0` and the failure read
+      `Lt on 0 and 1000000` — an Int problem, by the look of it. An operator arm is missing for a
+      pair of TYPES, so the message now names them: `Lt on String x and Int 3`.
+
 - [ ] **SSC3-7m — `Map.updated`.** `map-ops.ssc`: `method 'updated' on Map(0 entries) is not
       implemented on this lane`.
 - [x] **SSC3-7n — `Option.flatMap`.** DONE. `map` was there and `flatMap` was not, one line apart
