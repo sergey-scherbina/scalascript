@@ -237,6 +237,51 @@ one symptom bucket turned out to be a different construct than the obvious readi
       and its diagnostic improved on the way, from `expected an expression, found [` to
       `expected a name, found [`, which points at the type rather than at the statement.
 
+- [x] **SSC3-7g — `until`.** DONE. `range-sum` runs and agrees with the v1 interpreter on the
+      value (`2425500` on both), which is the check that matters — not merely that it stopped
+      failing.
+- [x] **SSC3-7h — `to`.** DONE as an OPERATOR, and the file it came from still does not run. They
+      were one fix, as suspected: alphanumeric identifiers are now infix operators generally, so
+      `to` and `until` both parse. `streams-pipeline.ssc` then moved to a different blocker at
+      `10:5` — see SSC3-7p. Filing them apart is what made that visible; a merged "ranges" task
+      would have been ticked on `range-sum` alone and quietly carried the second file's real gap.
+
+      *How it was done, since the shape is reusable:* an alphanumeric operator is a method call —
+      `a to b` IS `a.to(b)` — so the parser gained a `TId` case in the operator loop, the lowering
+      routes any letter-initial operator to `Invoke` exactly as `++` already did, and only `Exec`
+      knows what `to`/`until` mean. Precedence rows shifted 1..8 → 2..9 because Scala puts
+      alphanumeric operators BELOW every symbolic one and there is no integer between 0 and 1.
+
+- [ ] **SSC3-7p — a leading-dot method chain on continuation lines.** `streams-pipeline.ssc:10:5`
+      → `expected an expression, found <indent>`:
+
+          (Bench.opaque(1) to 10)
+            .map(x => x * 2)
+            .filter(x => x % 3 == 0)
+
+      The chain continues on the next line, more deeply indented, starting with `.`. Found by
+      re-running the file after 7h rather than by reading the source. Note the file may hold a
+      further blocker behind this one (`Bench.opaque`), which is worth expecting rather than being
+      surprised by — that is what the corpus chain in SSC3-6 looks like every time.
+- [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
+      `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall
+      SSC3-6 already names (`[` at 36 cases), so this is gated on the type checker decision.
+- [x] **SSC3-7j — `Vector`.** DONE, sharing `Array`'s representation, and the choice is not
+      cosmetic. Vector is an INDEXED sequence; lowering it to a list — the obvious alternative, since
+      `Seq` already goes there — would make `v(i)` a traversal, and `vector-index.ssc` exists
+      precisely to measure indexed access. v3's column would then have reported list-walking under
+      the name "vector", beside seven columns reporting indexing.
+
+      **What it gives up, stated rather than discovered later:** a Scala `Vector` is immutable and
+      `VArr` is not, so `v(i) = x` is accepted here and rejected by Scala. At Tier 0 types are erased
+      and `asInstanceOf` is already the identity, so this is the tier's existing bargain rather than
+      a new one — but it IS a difference, and a type checker will have to take it back.
+
+      Verified DIFFERENTIALLY: `4764780` on the executor and the bridge. Corpus 26 -> 27.
+
+- [ ] **SSC3-7k — `LazyList`.** `lazylist-take.ssc:24:17` → `unknown name 'LazyList'`; needs
+      `LazyList.from`, `.map`, `.take`, `.sum` and therefore laziness, not just a name.
+
 ### Executor — it compiles, and then it stops (4 files)
 
 - [x] **SSC3-7l — `<` on Double.** DONE, and the measurement the task demanded chose the file.
@@ -256,6 +301,12 @@ one symptom bucket turned out to be a different construct than the obvious readi
       map, so the control is a written one: `a.getOrElse(1,0)` still `10` after `a.updated(1,99)`.
       Verified DIFFERENTIALLY: `124750` on the executor and the bridge alike.
 
+- [x] **SSC3-7n — `Option.flatMap`.** DONE. `map` was there and `flatMap` was not, one line apart
+      in the same dispatch block. Returns the function's result AS IS: re-wrapping would build
+      `Some(Some(x))`, which then reads as a present value at every later `isDefined` — the same
+      trap the Either case documents, and the two now sit next to each other so the contrast with
+      `map` is visible. Verified DIFFERENTIALLY: `138` on v3's executor, the v2 bridge and the v1
+      interpreter. Corpus 21 -> 22.
 - [x] **SSC3-7o — `++` on a tuple.** DONE. `(a, b) ++ (c, d)` is `(a, b, c, d)`; tuples are
       synthetic `TupleN` case classes and the lowering already pre-registers `Tuple2`..`Tuple8`
       wherever a `_n` accessor appears, so the widened type exists by the time the executor needs it.
