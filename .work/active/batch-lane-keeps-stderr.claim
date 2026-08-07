@@ -1,0 +1,11 @@
+slug: batch-lane-keeps-stderr
+branch: feature/batch-lane-keeps-stderr
+agent: claude-code
+started: 2026-08-07T15:12:29Z
+heartbeat: 2026-08-07T15:12:29Z
+status: claimed-before-planning
+items: conformance-int-batch-false-fail-and-hidden-stderr
+paths: file:tests/conformance/run.sc file:tests/conformance/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
