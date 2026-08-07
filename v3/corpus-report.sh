@@ -52,11 +52,16 @@ done
 # turn a ~50-minute report into a few minutes, which is the difference between a number that gets
 # looked at and one that does not.
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-echo "packaging v3 and v2 …" >&2
-scala-cli --power package v3/src --assembly -o "$WORK/ssc3.jar" --server=false --quiet -f >/dev/null 2>&1 \
-  || { echo "corpus-report: v3 failed to package" >&2; exit 2; }
-scala-cli --power package v2/src --assembly -o "$WORK/ssc2.jar" --server=false --quiet -f >/dev/null 2>&1 \
-  || { echo "corpus-report: v2 failed to package" >&2; exit 2; }
+# Built through the DRIVER, which compiles each tree once per source digest into a
+# content-addressed directory and shares it with every gate. This script used to package its own
+# assemblies with `scala-cli`, which built the same sources a second time and measured artifacts
+# nothing else had run — and `scala-cli` is gone from v3 entirely now (invariant I-1 means the
+# kernel has no dependencies to resolve, so a pinned compiler is all it ever needed).
+echo "building v3 and v2 …" >&2
+KERNEL_CP="$("$ROOT/v3/ssc3" __kernel-cp)" \
+  || { echo "corpus-report: v3 failed to build" >&2; exit 2; }
+V2_CP="$("$ROOT/v3/ssc3" __v2-cp)" \
+  || { echo "corpus-report: v2 failed to build" >&2; exit 2; }
 
 # WHICH FRONT THIS REPORT MEASURES.
 #
@@ -68,8 +73,8 @@ scala-cli --power package v2/src --assembly -o "$WORK/ssc2.jar" --server=false -
 #
 # The uniml front cannot be an assembly — its classpath is DIRECTORIES, which is measured and
 # documented in `v3/ssc3`. So it runs from the classpath the driver caches.
-SSC3RUN=(java -Xss512m -jar "$WORK/ssc3.jar")
-SSC3BUILD=(java -jar "$WORK/ssc3.jar")
+SSC3RUN=(java -Xss512m -cp "$KERNEL_CP" ssc3.ssc3)
+SSC3BUILD=(java -cp "$KERNEL_CP" ssc3.ssc3)
 front_used="v3"
 if [ "${SSC3_FRONT:-auto}" != "v3" ] && [ -s "$ROOT/v3/.jars/uniml.cp" ]; then
   ucp="$("$ROOT/v3/ssc3" __classpath 2>/dev/null)" || ucp=""
@@ -111,7 +116,7 @@ for f in tests/conformance/*.ssc; do
   fi
   if [ "$err" = "0" ]; then
     if [ "$lane" = "exec" ]; then got="$(cat "$WORK/o")"
-    else got="$(java -Xss512m -jar "$WORK/ssc2.jar" run-ir "$WORK/ir" 2>/dev/null)"; fi
+    else got="$(java -Xss512m -cp "$V2_CP" ssc.cli run-ir "$WORK/ir" 2>/dev/null)"; fi
     if [ "$got" = "$(cat "$exp")" ]; then
       pass=$((pass + 1))
     elif ! holds_v2 "$f"; then

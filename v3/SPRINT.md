@@ -1285,3 +1285,57 @@ CRASH 0 in all four combinations. Front agreement 48/48 fixtures and **105/105 c
 **What leads the refusal list now:** `unknown name` (55) and `call to unknown function` (30) — which
 are no longer one construct but a long tail, then typed patterns (22), `given … with` (13) and
 `effect` (10). The single-cause blockers are gone.
+
+## 31 · `scala-cli` is gone from v3 — because invariant I-1 made it removable
+
+v3 shelled into `scala-cli` for every artifact: the kernel jar, the v2 bridge jar, and the second
+front's classpath. It does not any more, and the reason it CAN not is the charter's own first
+invariant: `v3/src` and `v2/src` declare **zero dependencies**, and dependency resolution is the
+only thing `scala-cli` offers over the compiler itself.
+
+Measured before deciding: `dotty.tools.dotc.Main` on the pinned 3.8.3 compiles the kernel in **4.0 s
+against `scala-cli`'s 5.4 s**, and `cs fetch` is 0.02 s from cache.
+
+- [x] **31a — the version is READ, not written down twice.** The `scalac` on this host is **3.7.2**
+      while every source says `//> using scala 3.8.3`. My first measurement of "can we drop
+      scala-cli" used that launcher, compiled the kernel with the wrong compiler, and said nothing —
+      which is how version drift survives. `SCALA_V` now comes out of the `//> using` line, and so
+      do the compiler options.
+
+- [x] **31b — content-addressed output closes §29 STRUCTURALLY.** `classes_for` chooses the output
+      directory itself and puts the digest in its NAME, so it is written once and never rewritten.
+      The stamp file §29 added was a guard against a directory `scala-cli` owned and overwrote;
+      owning the directory makes the failure unrepresentable instead of detected. Returning to an
+      earlier source state now finds that state's own directory intact.
+
+- [x] **31c — `corpus-report.sh` stopped building its own copy.** It packaged two assemblies per
+      run, so it compiled the same sources a second time and measured artifacts nothing else had
+      ever run. It asks the driver now (`ssc3 __kernel-cp`, `__v2-cp`) and shares the cache.
+
+- [x] **31d — the gate EMULATES the host, and its first version proved less than it claimed.**
+      `toolchain-gate.sh` builds all three artifacts with `scala-cli` unavailable — a grep would
+      pass on a call from a branch the pattern misses, and a dependence that is merely unused looks
+      identical to one that is absent until you take the thing away.
+
+      The first version removed every `PATH` directory holding a `scala-cli`. **`cs` lives in the
+      same Coursier directory**, so that took the RESOLVER away too, and the build only worked
+      because a toolchain classpath was already cached: green for the wrong reason. Found by
+      planting a version drift and watching it fail with "coursier is needed" instead of the
+      version message. It shadows `scala-cli` with a failing shim now, clears the toolchain cache
+      as well, and asserts that `cs` is still reachable so that RESOLUTION is under test.
+
+      Observed failing: a driver that calls `scala-cli` again (three checks red), and a pin that
+      stops reading the source (`the kernel classpath does not carry scala3-library 3.8.3`).
+
+- [x] **31e — `setup.sh` installs coursier.** `scala-cli` bundles its own copy, which is why nothing
+      needed it before. Leaving that out would have made a fresh checkout unable to build v3 at all
+      — a gap created by this commit, so it is closed by this commit.
+
+**What still needs a real toolchain, stated plainly:** UniML is an sbt project and the second front
+needs its classpath, so `v3/uniml-classpath.sh` still runs sbt. That dependency is real and stays;
+`scala-cli` is not part of it. The end of the story is self-hosting — the kernel is written in the
+Scala ∩ ScalaScript-2 portable subset precisely so that `ssc` can compile it — and at N = 59 of 362
+that is a long way off.
+
+**Measured:** eight gates green, N = 59 on both lanes with DIFF 0 and CRASH 0, agreement 48/48 and
+105/105, `install.sh --dev` clean, smoke-ci 70/70.

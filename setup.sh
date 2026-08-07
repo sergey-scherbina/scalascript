@@ -5,6 +5,22 @@ set -euo pipefail
 
 echo "Setting up ScalaScript development environment..."
 
+# Coursier — the artifact fetcher. `scala-cli` bundles its own copy, which is why nothing needed
+# this before; v3 stopped using scala-cli on 2026-08-07 and fetches its pinned Scala compiler
+# directly, so `cs` is now a first-class requirement rather than an implementation detail of
+# something else. `v3/toolchain-gate.sh` fails without it.
+if ! command -v cs &> /dev/null; then
+    echo "Installing coursier (cs)..."
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
+        brew install coursier/formulas/coursier && cs setup --yes
+    else
+        curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" \
+          | gzip -d > /tmp/cs && chmod +x /tmp/cs && /tmp/cs setup --yes && rm -f /tmp/cs
+    fi
+else
+    echo "coursier (cs) present."
+fi
+
 if command -v scala-cli &> /dev/null; then
     echo "Updating scala-cli..."
     if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then

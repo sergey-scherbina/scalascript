@@ -34,29 +34,78 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 JARS="$ROOT/v3/.jars"
 
-# The jar for a source tree, built if this exact source has not been built before. Written to a
-# temporary name and MOVED into place, so two processes racing on the same digest cannot leave a
-# half-written jar behind — the move is atomic, and both end up with the same bytes anyway.
-jar_for() {
-  local tree="$1" name="$2" dg jar tmp
+# ── THE SCALA TOOLCHAIN, and there is no `scala-cli` in it ───────────────────────────────────────
+#
+# v3 used to shell into `scala-cli` for every artifact. It does not any more, and the reason it CAN
+# not is invariant I-1: `v3/src` and `v2/src` declare zero dependencies, and dependency resolution
+# is the only thing `scala-cli` offers over the compiler itself. So the compiler is fetched once,
+# PINNED TO THE VERSION THE SOURCES DECLARE, and invoked directly.
+#
+# The pin is the point. The `scalac` on this host is 3.7.2 while every source file says
+# `//> using scala 3.8.3`, so a build through the launcher on `PATH` silently used a different
+# compiler than the one declared — measured, and it compiled, which is how that kind of drift
+# survives. Reading the version out of the source is what makes the two impossible to disagree.
+SCALA_V="$(grep -h '^//> using scala ' "$ROOT/v3/src"/*.scala | head -1 | awk '{print $NF}')"
+
+toolchain() {
+  local f="$JARS/toolchain-$SCALA_V.cp"
+  if [ -s "$f" ]; then cat "$f"; return 0; fi
   mkdir -p "$JARS"
-  dg="$(cat "$tree"/*.scala | shasum | cut -c1-16)"
-  jar="$JARS/$name-$dg.jar"
-  if [ ! -f "$jar" ]; then
-    tmp="$jar.$$.tmp"
-    if ! scala-cli --power package "$tree" --assembly -o "$tmp" --server=false --quiet -f >&2; then
-      rm -f "$tmp"
-      echo "ssc3: failed to package $tree" >&2
-      return 1
-    fi
-    mv -f "$tmp" "$jar"
+  if ! command -v cs >/dev/null 2>&1; then
+    echo "ssc3: coursier ('cs') is needed to fetch the Scala $SCALA_V compiler — see setup.sh" >&2
+    return 1
   fi
-  printf '%s' "$jar"
+  if ! cs fetch "org.scala-lang:scala3-compiler_3:$SCALA_V" \
+                "org.scala-lang:scala3-library_3:$SCALA_V" 2>/dev/null \
+       | tr '\n' ':' | sed 's/:$//' > "$f"; then
+    rm -f "$f"
+    echo "ssc3: could not fetch the Scala $SCALA_V toolchain" >&2
+    return 1
+  fi
+  [ -s "$f" ] || { rm -f "$f"; return 1; }
+  cat "$f"
 }
 
-V3JAR="$(jar_for "$ROOT/v3/src" ssc3)" || exit 2
-SSC3=(java -jar "$V3JAR")
-V2=(java -Xss512m -jar "$(jar_for "$ROOT/v2/src" ssc2)")
+# The compiled classes for one or more source trees, built if this exact source has not been built.
+#
+# CONTENT-ADDRESSED, and that is a bug fix rather than a style: the output directory's NAME carries
+# the digest, so it is written once and never rewritten. The previous design cached a path that
+# `scala-cli` overwrote on the next compile of the same inputs, so returning to an earlier source
+# state — an A/B, or a gate self-test that plants a defect and reverts it — served the OTHER state's
+# classes. Choosing the output directory ourselves makes that unrepresentable.
+#
+#   classes_for <name> <extra-classpath|""> <tree> [tree …]
+classes_for() {
+  local name="$1" extra="$2"; shift 2
+  local tc dg out tmp opts srcs=()
+  tc="$(toolchain)" || return 1
+  local t
+  for t in "$@"; do srcs+=("$t"/*.scala); done
+  dg="$(cat "${srcs[@]}" <(printf '%s' "$extra$SCALA_V") | shasum | cut -c1-16)"
+  out="$JARS/$name-$dg"
+  if [ -d "$out" ]; then printf '%s' "$out"; return 0; fi
+  # The compiler flags the sources themselves declare — `-deprecation`, `-Wunused:imports` — read
+  # rather than duplicated here, for the same reason the version is.
+  opts="$(grep -h '^//> using options ' "$1"/*.scala | head -1 | cut -d' ' -f4-)"
+  tmp="$out.$$.tmp"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  if ! java -cp "$tc" dotty.tools.dotc.Main \
+         -classpath "$tc${extra:+:$extra}" $opts -d "$tmp" "${srcs[@]}" >&2; then
+    rm -rf "$tmp"
+    echo "ssc3: failed to compile $*" >&2
+    return 1
+  fi
+  # A rename onto a name that does not exist; if a concurrent build won the race, keep theirs.
+  if [ -d "$out" ]; then rm -rf "$tmp"; else mv "$tmp" "$out" 2>/dev/null || rm -rf "$tmp"; fi
+  [ -d "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+
+TC="$(toolchain)" || exit 2
+V3CP="$(classes_for ssc3 "" "$ROOT/v3/src")" || exit 2
+SSC3=(java -cp "$V3CP:$TC" ssc3.ssc3)
+V2=(java -Xss512m -cp "$(classes_for ssc2 "" "$ROOT/v2/src"):$TC" ssc.cli)
 
 # The SECOND front, if it is available. Availability is an explicit cached fact — the classpath file
 # exists or it does not — rather than something the driver discovers by running sbt, because a
@@ -69,42 +118,26 @@ uniml_available() { [ -s "$UNIML_CP_FILE" ]; }
 # embed — measured, and the assembly ran with a NoClassDefFoundError on every fixture.
 # CACHED on a digest of both source trees, for the same reason the jars are: without it every
 # invocation recompiles, and the front-diff gate runs one per fixture.
-# CACHING A CLASS DIRECTORY IS NOT LIKE CACHING A JAR, and the difference cost an hour.
+# The second front's classpath: its own classes, UniML's jars, and the toolchain.
 #
-# `jar_for` above is sound: it caches an ARTIFACT FILE keyed on the source digest, and the file
-# holds the bytes. Reverting to an earlier source state hits a jar built from exactly that source.
-# Content-addressed storage of an immutable thing.
+# IT USED TO CACHE A PATH `scala-cli` OWNED, and that cost an hour. `scala-cli` rewrites its output
+# directory on every compile of the same inputs, so a digest-keyed cache of that path served the
+# WRONG state's classes whenever the source went back to an earlier one — an A/B, or a gate
+# self-test that plants a defect and reverts it. Three gates then reported a defect I had already
+# fixed, which is the expensive kind of wrong answer because it points at working code.
 #
-# This caches a PATH, and the path is a directory `scala-cli` REWRITES on every compile of the same
-# inputs — measured: two compiles of the same tree in different states print the SAME directory. So
-# a digest-keyed cache of it is unsound in one specific way:
+# `classes_for` makes it unrepresentable rather than guarded: the output directory's NAME carries
+# the digest, so it is written once and never rewritten, and going back to an earlier state finds
+# that state's own directory still intact.
 #
-#     state A -> compile -> cache[A] = P, P holds A
-#     state B -> compile -> cache[B] = P, P now holds B      <- P is shared, and was overwritten
-#     back to A -> cache HIT on cache[A] = P -> serves P, which holds B
-#
-# That is exactly an A/B measurement, and exactly a gate self-test that plants a defect and reverts
-# it. It bit me on the second: three gates reported a defect I had already restored, which is the
-# worst kind of wrong answer because it points at working code. My first fix — discard the
-# incremental build directory on a MISS — did not touch this, because the failing case is a HIT.
-#
-# The fix is a STAMP: one file recording which digest the shared directory currently holds. A hit
-# requires the stamp to match, so returning to an earlier state recompiles. That is the right cost:
-# an A/B between two states must compile twice, and the cache still does its real job — the
-# front-diff gate runs one invocation per fixture and must not recompile for each of them.
+# HISTORICAL NOTE, kept because the shape recurs: `jar_for` sat six lines from the broken function
+# and was always sound, for exactly this reason — it cached an artifact FILE keyed on the digest.
 uniml_classpath() {
-  local ucp dg cache stamp full
+  local ucp out tc
   ucp="$(cat "$UNIML_CP_FILE")"
-  dg="$(cat "$ROOT/v3/src"/*.scala "$ROOT/v3/uniml"/*.scala "$UNIML_CP_FILE" | shasum | cut -c1-16)"
-  cache="$JARS/uniml-full.cp"
-  stamp="$JARS/uniml-full.digest"
-  if [ -s "$cache" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$dg" ]; then cat "$cache"; return 0; fi
-  full="$(scala-cli compile "$ROOT/v3/src" "$ROOT/v3/uniml" --classpath "$ucp" \
-            --server=false --print-class-path 2>/dev/null | tail -1)"
-  [ -n "$full" ] || return 1
-  printf '%s' "$full" > "$cache"
-  printf '%s' "$dg" > "$stamp"
-  printf '%s' "$full"
+  tc="$(toolchain)" || return 1
+  out="$(classes_for uniml "$ucp" "$ROOT/v3/src" "$ROOT/v3/uniml")" || return 1
+  printf '%s' "$out:$ucp:$tc"
 }
 
 # ── THE DEFAULT FRONT ────────────────────────────────────────────────────────────────────────────
@@ -176,6 +209,19 @@ case "$cmd" in
   # The resolved uniml classpath, for callers that must run the second front themselves.
   # `corpus-report.sh` packages its own assembly for speed and so cannot use `$SSC3`; without this
   # it silently measured v3's own front no matter what it was asked for.
+  # The kernel's and v2's classpaths, for callers that must run them directly. `corpus-report.sh`
+  # starts a JVM per case per side and cannot pay a driver invocation for each; before this it
+  # packaged its own copies with `scala-cli`, so it built the same sources twice and measured
+  # artifacts nobody else had run.
+  __kernel-cp)
+    printf '%s:%s\n' "$V3CP" "$TC"
+    exit 0
+    ;;
+  __v2-cp)
+    cp2="$(classes_for ssc2 "" "$ROOT/v2/src")" || exit 2
+    printf '%s:%s\n' "$cp2" "$TC"
+    exit 0
+    ;;
   __classpath)
     uniml_available || { echo "ssc3: the uniml front is not available — run v3/uniml-classpath.sh" >&2; exit 2; }
     uniml_classpath || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
@@ -191,7 +237,7 @@ case "$cmd" in
       cp="$(uniml_classpath)" || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
       exec java -cp "$cp" ssc3.ssc3uniml ast "$2"
     fi
-    exec java -jar "$V3JAR" ast "$2"
+    exec java -cp "$V3CP:$TC" ssc3.ssc3 ast "$2"
     ;;
   *)
     exec "${SSC3[@]}" "$@"
