@@ -342,12 +342,34 @@ Nothing in §5 blocks the apparatus. Under `ssc3-core`, in this order:
    detector until the second front exists, and the file says so rather than implying coverage it
    does not have.
 
-## 7 · Acceptance: the swap is a NUMBER, not a judgement
+## 7 · Acceptance: the swap is a NUMBER, not a judgement — **DONE 2026-08-07, and the number was not enough**
 
 The UniML front is adopted when, for every case in `v3/tests/front/` and every corpus case v3
-currently compiles, **both fronts produce the same `Ast`, byte for byte in canonical form**. Until
-then `SSC3_FRONT=uniml` selects it and the default does not, so the two can be compared at any time
-and a regression is one environment variable away from being isolated.
+currently compiles, **both fronts produce the same `Ast`, byte for byte in canonical form**.
+
+**Met on 2026-08-07** at 48 of 48 fixtures and 102 of 102 corpus cases, and the swap landed: the
+uniml artifact registers its parser and `Front.default` returns it, so `build`, `ir`, `exec` and
+`emit-v2` all run on it. `SSC3_FRONT=v3` isolates the kernel — the sense of the variable is
+inverted from what this section first wrote, because the default moved.
+
+**AND THE NUMBER WAS NOT SUFFICIENT.** Recorded here because the criterion above was mine and it
+was too weak in two distinct ways:
+
+1. **Agreement is measured only where BOTH fronts print.** UniML parses cases v3's own front
+   refuses — curried clauses, a second parameter list — and those reach the lowering for the first
+   time on the day of the swap. The first honest corpus run after the flip was N = 53 with DIFF 1
+   and CRASH 3, against a tree comparison that was 101/101 green.
+2. **`AstText` folds `Neg(float)` into a negative literal**, so the two fronts printed identical
+   trees for `float-format` while one executed `1.0 / 0.0` as `-inf`. The canonicalisation was
+   added for a good reason — the two fronts genuinely disagree on where the sign lives, and both
+   are right — and it suppressed a real defect underneath: the constant pool conflated `-0.0` with
+   `0.0`. A canonicalisation that exists to hide a harmless difference will eventually hide a
+   harmful one.
+
+So the criterion is now: **the same `Ast` AND the same OUTPUT, on both fronts, plus a corpus run
+with DIFF 0 and CRASH 0 through the front being adopted.** `front-report-gate.sh` holds the second
+half; it is the end-to-end twin of `front-diff.sh` and it is the one that catches what the tree
+comparison structurally cannot.
 
 Two rules this repository paid for, applied here from the start:
 

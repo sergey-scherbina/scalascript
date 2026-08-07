@@ -108,7 +108,10 @@ object Loader:
     *
     * The order matters and the deduplication matters: a diamond (two modules importing a third)
     * is ordinary, and loading the shared module twice would declare every one of its names twice. */
-  def closure(rootPath: String): List[Unit3] = closure(rootPath, Front.v3)
+  // `Front.default`, not `Front.v3`: with the uniml front registered this is what makes `build`,
+  // `ir`, `exec` and `emit-v2` run on it rather than only `ast`, which took a front argument and so
+  // was the ONLY command the differential could ever have reached.
+  def closure(rootPath: String): List[Unit3] = closure(rootPath, Front.default)
 
   def closure(rootPath: String, front: String): List[Unit3] =
     closureWith(rootPath, t => Front.parse(t, front))

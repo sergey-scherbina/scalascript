@@ -559,7 +559,24 @@ object Exec:
       // strings on both.
       case (Value.VStr(s), "split") =>
         args.head match
-          case Value.VStr(sep) => listIn(m, s.split(java.util.regex.Pattern.quote(sep), -1).toList.map(x => Value.VStr(x)))
+          // THE SEPARATOR IS A REGULAR EXPRESSION, as it is in Scala and on the reference lane.
+          // `Pattern.quote` made it a literal, so `"a **b** c".split("\\*\\*")` — the escaped-regex
+          // form real code writes — matched nothing and returned the whole string as one part.
+          // `v1/runtime/std/litdoc.ssc:155` does exactly that, and `litdoc` printed
+          // `P(buy a **new** dress)` where it should print three spans.
+          //
+          // NEITHER FRONT COULD HAVE FOUND THIS. They agree on the tree, so both lanes printed the
+          // same wrong line and the differential was green: agreement is not correctness. What
+          // found it was the corpus, comparing against a recorded expectation from another lane.
+          case Value.VStr(sep) =>
+            val parts =
+              try s.split(sep, -1)
+              // An invalid pattern is not an executor crash: a `.` or a `|` in a separator someone
+              // meant literally is ordinary, and the reference lane throws there too — but a raw
+              // `PatternSyntaxException` reads as a v3 defect in every report.
+              catch case e: java.util.regex.PatternSyntaxException =>
+                throw ExecError("split by an invalid pattern '" + sep + "'")
+            listIn(m, parts.toList.map(x => Value.VStr(x)))
           case v               => throw ExecError("split by " + show(v))
       case (Value.VSet(xs), "size")     => Value.VInt(xs.length.toLong)
       case (Value.VSet(xs), "isEmpty")  => Value.VBool(xs.isEmpty)

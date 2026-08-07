@@ -1006,3 +1006,91 @@ decision with its own risk: the kernel has zero dependencies by invariant I-1 an
 with UniML unbuilt, so `Front.available` growing a default is a change to what `ssc3` REQUIRES, not
 just to what it uses. And §26b's rule applies directly — flipping a default silently re-points every
 gate that named it. It gets its own commit and its own re-reading of every gate.
+
+## 28 · THE SWAP. UniML is the default front — N = 50 → 57
+
+§7 made the swap a number and §27 met it: 48 of 48 fixtures and 101 of 101 corpus cases printing
+the same `Ast`. This is the flip, and it did **not** go through cleanly — which is the point of
+having done it as its own commit.
+
+- [x] **28a — the front is REGISTERED, not imported.** `v3/uniml` is a separate artifact because the
+      kernel has zero dependencies (I-1) and must build and run with UniML absent, so registration
+      goes the other way: the outer artifact installs its parser into `Front`, and `Front.default`
+      returns it. `UniMain` then runs the SAME `Cli.run` the kernel runs — before this it duplicated
+      nothing because it only printed an `Ast`, and duplicating a 130-line dispatch so the second
+      front could reach `exec` is exactly how the two would have drifted.
+
+      `SSC3_FRONT=v3` still isolates the kernel. §7 promised that and an unexercised promise is a
+      hypothesis, so `front-report-gate.sh` asserts it.
+
+- [x] **28b — `ast` was the one command that ignored the registered front.** Its default was
+      hard-coded `Front.v3`, so inside the uniml artifact `exec` ran on UniML while `ast` printed
+      v3's tree. The text the differential compares and the tree that actually runs could have
+      drifted apart with every gate green. Found by running a curried fixture and getting a refusal
+      from `ast` and a verifier error from `exec` — two different fronts, one command line.
+
+- [x] **28c — `corpus-report.sh` COULD NOT SEE THE FRONT, and I reported a number from it anyway.**
+      It packages `v3/src` alone, so `SSC3_FRONT` was a no-op there. Two runs — one of them
+      explicitly `SSC3_FRONT=v3` — gave the same N and the same buckets, and I wrote that down as
+      "both fronts agree". They did not agree; one of them ran twice. A census answers only the
+      question its own command asks. Fixed by teaching it the uniml classpath (`ssc3 __classpath`)
+      and by printing which front the report measured in its header.
+
+      The honest first measurement was **N = 53 with DIFF 1 and CRASH 3** — not the free win the
+      Ast agreement suggested. Agreement is measured only where BOTH fronts print; UniML prints for
+      cases v3's front refuses, and those reach the lowering for the first time.
+
+- [x] **28d — four defects behind that, all in v3, none reachable before.**
+      - Curried clauses. `def ap(n: Int)(f: …)` flattens to one parameter list, so `ap(3)(f)` has
+        to flatten too; it lowered to a one-argument call and the verifier refused the module.
+        `flattenCurried` runs before `fillDefaults` and is GUARDED ON ARITY — `mk()(3)`, where `mk`
+        returns a closure, must stay an application of that closure.
+      - `-9223372036854775808`. The minus has to join the digits BEFORE parsing: `Long.MinValue`'s
+        digit string is 2^63 and overflows on its own. v3's own lexer learned this and says so at
+        `Lexer.scala:13`; the projection was the second copy of the mistake, and it arrived as a raw
+        `NumberFormatException`, which `corpus-report.sh` bins as CRASH.
+      - **`split` was a LITERAL split, not a regex one.** `"a **b**".split("\\*\\*")` matched
+        nothing and returned the whole string. Both lanes and both fronts printed the same wrong
+        answer, so no differential here could ever have found it — the corpus did, against a
+        recorded expectation from another lane. Agreement is not correctness.
+      - The **constant pool conflated `-0.0` and `0.0`**, because `indexOf` compares with `==` and
+        `-0.0 == 0.0` is true for a `Double` (and `NaN == NaN` is false, so every NaN got its own
+        slot). `println(-0.0)` put a NEGATIVE zero in the pool; `1.0 / 0.0` then found that slot and
+        divided by it, printing `-inf` where it must print `inf`. Interning is by
+        `doubleToLongBits` now.
+
+        **This one is the lesson of the whole session.** v3's own parser reads `-0.0` as
+        `Neg(DoubleLit(0.0))` — a runtime negation of a positive zero — so the poisoned constant
+        was never created and the pool looked correct for two months. UniML folds the sign into the
+        literal, which is equally right, and hit it at once. And the front differential was BLIND:
+        `AstText` deliberately folds `Neg(float)` into a negative literal, so the two trees printed
+        identically while executing differently. A canonicalisation that exists to suppress a
+        harmless difference will, one day, suppress a harmful one.
+
+- [x] **28e — the uniml front ACCEPTED a file with an unclosed brace.** UniML's parser is
+      error-TOLERANT by design — it reports and carries on, so a document viewer can still show the
+      good parts. For a compiler front that is the wrong contract, and `def main(): Unit = {` with
+      no `}` came back as a clean two-line program. Any `Error`/`Fatal` diagnostic is now a
+      positioned refusal. Compiling a file the user did not write is worse than refusing one they
+      did.
+
+- [x] **28f — §26b's rule arrived in person.** Flipping the default silently re-pointed every
+      runtime gate: exec, bridge, parity and the corpus all stopped touching v3's own front, which
+      I-1 says must keep working. Two of them went red immediately, which is the system working.
+      `front-report-gate.sh` now runs every fixture through BOTH fronts and requires the same
+      answer — the end-to-end twin of `front-diff.sh`, and the one that would have caught the
+      constant-pool bug, because it compares OUTPUT rather than trees.
+
+      Observed failing: reverting the const-pool fix gives `DIFFER float-format` and RED.
+
+- [x] **28g — `scala-cli compile` returned STALE CLASSES for a changed source.** After editing
+      `Lower.scala` the classpath cache took a new digest, compiled, and handed back a directory
+      still holding the previous version — so three gates reported a defect that was already fixed,
+      which is the worst kind of wrong answer because it points at working code. A cache miss now
+      discards the incremental build directory first: one full compile per source change, which is
+      what a source change costs anyway.
+
+**Measured, all four combinations:** uniml front N = 57 on both v3 lanes, v3's own front N = 50 on
+both, DIFF 0 and CRASH 0 everywhere — so invariant I-3 holds under either front. Seven v3 gates
+green, front agreement 48/48 fixtures and 102/102 corpus (floors raised), `install.sh --dev` clean,
+smoke-ci 70/70.

@@ -57,8 +57,31 @@ object Lower:
     def lookup(n: String): Option[Int] =
       env.find((k, _) => k == n).map((_, v) => v)
     def globalIdx(n: String): Int = globals.indexOf(n)
+    /** Interning, and FLOATS ARE INTERNED BY BIT PATTERN.
+      *
+      * `indexOf` compares with `==`, which on a `Double` field says `-0.0 == 0.0` is TRUE and
+      * `NaN == NaN` is FALSE — both wrong for a pool whose whole job is identity. The first cost a
+      * real answer: `println(-0.0)` put `LFloat(-0.0)` in the pool, `1.0 / 0.0` then looked up
+      * `LFloat(0.0)`, FOUND that slot, and divided by NEGATIVE zero — so the program printed `-inf`
+      * where it should print `inf`, and `-1.0 / 0.0` printed `inf`. The two lines came out swapped.
+      * The second is only waste: every NaN got its own slot.
+      *
+      * `doubleToLongBits` gives both properties at once — it separates the zeros and canonicalises
+      * NaN, so all NaNs share one slot and behave identically anyway.
+      *
+      * IT TOOK A SECOND FRONT TO SURFACE THIS, and it nearly did not. v3's own parser reads `-0.0`
+      * as `Neg(DoubleLit(0.0))` — a runtime negation of a POSITIVE zero — so the poisoned constant
+      * was never created and the pool looked correct for two months. UniML folds the sign into the
+      * literal, which is equally right and hit the bug immediately. The front differential itself
+      * was blind: `AstText` deliberately folds `Neg(float)` into a negative literal, so the two
+      * trees printed identically while executing differently. What caught it was a gate comparing
+      * output against a recorded expectation — not the two fronts against each other. */
     def constIdx(l: Lit): (Int, St) =
-      val i = consts.indexOf(l)
+      def same(a: Lit, b: Lit): Boolean = (a, b) match
+        case (Lit.LFloat(x), Lit.LFloat(y)) =>
+          java.lang.Double.doubleToLongBits(x) == java.lang.Double.doubleToLongBits(y)
+        case _ => a == b
+      val i = consts.indexWhere(c => same(c, l))
       if i >= 0 then (i, this) else (consts.length, copy(consts = consts :+ l))
     def primIdx(p: String): (Int, St) =
       val i = prims.indexOf(p)
@@ -820,6 +843,30 @@ object Lower:
     * Trailing only. A call that omits a MIDDLE argument needs the parameter's name, which is what
     * named arguments are for; without them, filling from the left is the only unambiguous reading
     * and a short call to a function whose gap is not at the end stays an honest arity error. */
+  /** `ap(3)(f)` where `def ap(n: Int)(f: Int => Int)` — a CURRIED APPLICATION of a plain function.
+    *
+    * Multiple parameter clauses flatten into one list at the definition, so the call has to flatten
+    * too. Left alone it lowered to a one-argument `Call` whose result was applied to the second
+    * list, and the verifier refused the module: "call to ap passes 1 argument(s), it takes 2". Two
+    * corpus cases came out that way — and only once UniML became the front, because v3's own parser
+    * cannot read a second parameter clause at all (`expected ')', found :`).
+    *
+    * IT RUNS BEFORE `fillDefaults` and it is GUARDED ON THE ARITY, which is the whole content of
+    * it. `mk()(3)`, where `mk` returns a closure, must stay an application OF that closure —
+    * flattening it would call `mk` with an argument it does not take. So the two lists are joined
+    * only when together they match the callee's declared arity exactly. A returned closure cannot
+    * fake that: `mk` has arity 0 and `0 != 0 + 1`.
+    *
+    * Named arguments are excluded because `resolveArgs` reorders against the parameter list, and
+    * which clause a name belongs to is information this flattening has just destroyed. */
+  private def flattenCurried(e: Expr, sigs: List[(String, List[Param])]): Expr =
+    mapDeep(e, x => x match
+      case Expr.Apply(Expr.Call(fn, as1, cp), as2, _)
+        if !as1.exists(_.isInstanceOf[Expr.NamedArg]) && !as2.exists(_.isInstanceOf[Expr.NamedArg]) &&
+           sigs.exists((n, ps) => n == fn && ps.length == as1.length + as2.length) =>
+        Expr.Call(fn, as1 ++ as2, cp)
+      case other => other)
+
   private def fillDefaults(e: Expr, sigs: List[(String, List[Param])]): Expr =
     mapDeep(e, x => x match
       // `copy` is resolved in the LOWERING, not here — it needs field reads and a constructor, and
@@ -1260,7 +1307,7 @@ object Lower:
     val sigs: List[(String, List[Param])] =
       allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
     val allDefs = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
-      .map(d => d.copy(body = fillDefaults(d.body, sigs)))
+      .map(d => d.copy(body = fillDefaults(flattenCurried(d.body, sigs), sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)

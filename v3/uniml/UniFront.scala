@@ -2,6 +2,7 @@ package ssc3
 
 import scalascript.uniml.UniNode
 import scalascript.uniml.SourceSpan
+import scalascript.uniml.Severity
 import scalascript.uniml.ssc.SscCompose
 import scalascript.uniml.dialect.scalascript.SpikeTyped
 import scalascript.uniml.dialect.scalascript.SpikeAst as U
@@ -43,7 +44,25 @@ object UniFront:
     case _ => Vector.empty
 
   def parse(text: String): Program =
-    val subs = subtrees(SscCompose.parse(text).root)
+    val composed = SscCompose.parse(text)
+
+    // A DIAGNOSTIC IS A REFUSAL HERE, and it has to be said explicitly because UniML's parser is
+    // error-TOLERANT by design: it reports what went wrong and carries on, so that a tool showing
+    // a document can still show the parts that are fine. For a compiler front that is the wrong
+    // contract. `v3/tests/front/unclosed-brace.ssc` — `def main(): Unit = {` with no `}` — came
+    // back as a clean two-line program with the brace quietly forgotten, and the front gate caught
+    // it the moment this front became the default: "unclosed-brace was ACCEPTED — the front emits
+    // for anything". Compiling a file the user did not write is worse than refusing one they did.
+    //
+    // Errors only. A `Warning` or an `Info` is a remark about legal source, and refusing those
+    // would make the front stricter than the language.
+    composed.diagnostics.find(d => d.severity == Severity.Error || d.severity == Severity.Fatal)
+      .foreach { d =>
+        val at = d.span.map(pos).getOrElse(Pos(0, 0))
+        throw ParseFail(at, d.message + " [" + d.code + "]")
+      }
+
+    val subs = subtrees(composed.root)
     var defs: List[Def] = Nil
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
@@ -139,6 +158,16 @@ object UniFront:
     case U.Extension(_, _, s)      => no("`extension`", s)
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 
+  /** A 64-bit literal, or a POSITIONED refusal. `ssc` integers are 64-bit, so a literal outside
+    * `[-2^63, 2^63-1]` is a real error — and it has to arrive as one. Left to `parseLong` it came
+    * out as a bare `NumberFormatException` stack trace, which `corpus-report.sh` classifies as
+    * CRASH rather than as a clean refusal, so an out-of-range constant read as a v3 defect. */
+  private def longOf(v: String, p: Pos): Long =
+    val digits = v.replace("L", "").replace("l", "").replace("_", "")
+    try java.lang.Long.parseLong(digits)
+    catch case _: NumberFormatException =>
+      throw ParseFail(p, "the integer literal '" + v + "' does not fit in 64 bits")
+
   private def param(p: U.Param): Param =
     if p.using_ then no("a `using` parameter", p.span)
     Param(p.name, pos(p.span), p.default.map(expr))
@@ -182,7 +211,7 @@ object UniFront:
       else Expr.Block(all.dropRight(1).flatMap(x => stmtsOf(x, s)), Some(expr(all.last)), pos(s))
 
   def expr(e: U.Expr): Expr = e match
-    case U.IntLit(v, s)   => Expr.IntLit(java.lang.Long.parseLong(v.replace("L", "").replace("l", "")), pos(s))
+    case U.IntLit(v, s)   => Expr.IntLit(longOf(v, pos(s)), pos(s))
     case U.FloatLit(v, s) => Expr.DoubleLit(v.toDouble, pos(s))
     case U.StrLit(v, s)   => Expr.StrLit(v, pos(s))
     case U.UnitLit(s)     => Expr.UnitLit(pos(s))
@@ -205,8 +234,12 @@ object UniFront:
     // `-1` is a LITERAL in v3, not a negation of one — its lexer folds the sign in. UniML keeps the
     // written form, which is right for a CST-faithful tree and wrong for this one, so the fold
     // happens here. Without it every negative number in every fixture is a difference.
-    case U.Prefix("-", U.IntLit(v, _), s) =>
-      Expr.IntLit(-java.lang.Long.parseLong(v.replace("L", "").replace("l", "")), pos(s))
+    // The MINUS JOINS THE DIGITS before parsing. `-9223372036854775808` is `Long.MinValue` and its
+    // digit string is 2^63, which overflows on its own — so negating after parsing throws on the
+    // one literal that most needs to work. v3's own lexer learned this and says so at
+    // `Lexer.scala:13`; this was the second copy of the mistake, and it reached the corpus as a raw
+    // `NumberFormatException` rather than a diagnostic.
+    case U.Prefix("-", U.IntLit(v, _), s) => Expr.IntLit(longOf("-" + v, pos(s)), pos(s))
     case U.Prefix("-", U.FloatLit(v, _), s) => Expr.DoubleLit(-v.toDouble, pos(s))
     case U.Prefix(op, x, s) =>
       if op == "-" then Expr.Neg(expr(x), pos(s))

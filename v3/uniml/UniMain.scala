@@ -3,27 +3,19 @@ package ssc3
 // The uniml front's entry point. A SEPARATE artifact from the kernel — `v3/src` has zero
 // dependencies and must keep building when UniML is not built at all, which every gate relies on.
 //
-// It prints the canonical `Ast` and nothing else: the front-diff gate compares that text, and a
-// second front exists to be COMPARED before it is trusted to run anything.
+// IT IS NO LONGER AN `ast` PRINTER. It registers UniML's projection as a front and then runs the
+// SAME dispatch the kernel's entry point runs, so `build`, `ir`, `exec` and `emit-v2` all go
+// through it — not just `ast`, which took a front argument and was therefore the only command the
+// differential could ever reach. That is the swap: `40-front-on-uniml.md` §7's number is met at
+// 48 of 48 fixtures and 101 of 101 corpus cases, so the front that answers by DEFAULT is this one
+// whenever this artifact is the one being run.
+//
+// The registration happens BEFORE the dispatch and exactly once. `Front.default` reads it, so
+// every command that does not name a front gets UniML here and v3's own front in the kernel jar.
 @main def ssc3uniml(args: String*): Unit =
-  val code =
-    if args.length < 1 then
-      Console.err.println("usage: ssc3-uniml ast <file.ssc>")
-      2
-    else
-      val path = args(if args.head == "ast" then 1 else 0)
-      try
-        // Through `Loader`, not `UniFront.parse` alone: a `.ssc` may import other files, and the
-        // module graph is built from the source TEXT rather than from the tree
-        // (`50-uniml-projection.md` §6). The first version of this parsed ONE file and every
-        // cross-file import vanished without a diagnostic — caught by the front differential,
-        // which is the only thing that could have caught it.
-        print(AstText.render(Loader.merge(Loader.closureWith(path, UniFront.parse))))
-        0
-      catch
-        case e: LoadError => Console.err.println("ssc3: " + e.message); 1
-        case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-        case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-        case e: java.io.IOException =>
-          Console.err.println("ssc3: cannot read '" + path + "': " + e.getClass.getSimpleName); 2
-  sys.exit(code)
+  // Through `Loader`, not `UniFront.parse` alone: a `.ssc` may import other files and the module
+  // graph is built from the source TEXT (`50-uniml-projection.md` §6). Registering the per-FILE
+  // parser is what keeps that true — `Loader` calls it once per unit in the closure. The first
+  // version of this parsed ONE file and every cross-file import vanished with no diagnostic.
+  Front.register(Front.uniml, UniFront.parse)
+  sys.exit(Cli.run(args.toList))

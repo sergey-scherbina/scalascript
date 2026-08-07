@@ -193,11 +193,18 @@ object SelfTest:
     if failures == 0 then println("SSC3-2 self-test: OK") else println("SSC3-2 self-test: " + failures + " FAILED")
     failures
 
-@main def ssc3(args: String*): Unit =
-  val code =
+/** The command dispatch, as a FUNCTION.
+  *
+  * It was the body of `@main def ssc3` and had to come out, because there are two entry points
+  * now: the kernel's, and `v3/uniml`'s, which registers the UniML front and then wants exactly
+  * this. Duplicating a 130-line dispatch so that the second front could run more than `ast` is how
+  * the two would have drifted — and drift between two things that are supposed to be the same is
+  * the failure this whole front differential exists to catch. */
+object Cli:
+  def run(args: List[String]): Int =
     try
       if args.isEmpty then
-        println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
+        println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest | front")
         2
       else
         args.head match
@@ -215,7 +222,11 @@ object SelfTest:
           // through the lowering, the verifier and a backend.
           case "ast" if args.length >= 2 =>
             val path = args(1)
-            val front = if args.length >= 3 then args(2) else Front.v3
+            // `Front.default`, not `Front.v3`. Hard-coding v3 here made `ast` the ONE command
+            // that ignored the registered front: `exec` ran on UniML while `ast` printed v3's tree
+            // in the same artifact, so the text the differential compares and the tree that
+            // actually runs could have drifted apart without a single gate noticing.
+            val front = if args.length >= 3 then args(2) else Front.default
             try
               print(AstText.render(Loader.merge(Loader.closure(path, front))))
               0
@@ -275,6 +286,16 @@ object SelfTest:
               case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+          // WHICH FRONT ANSWERED. Not decoration: the swap makes the front depend on the working
+          // tree — the uniml artifact registers it, the kernel jar cannot — and v3's own front and
+          // UniML's agree on every fixture and every corpus case, so their OUTPUT is identical by
+          // construction and can never distinguish them. A gate that cannot see which of two
+          // states it is in is not a gate; this repository has shipped that mistake and written it
+          // down. `front-report-gate.sh` reads these two lines.
+          case "front" =>
+            println("front: " + Front.default)
+            println("available: " + Front.available.mkString(" "))
+            0
           case "sample" =>
             print(Text.write(Sample.module))
             0
@@ -328,4 +349,5 @@ object SelfTest:
         val what = if args.length >= 2 then args(1) else "the input"
         Console.err.println("ssc3: cannot read '" + what + "': " + e.getClass.getSimpleName)
         2
-  sys.exit(code)
+
+@main def ssc3(args: String*): Unit = sys.exit(Cli.run(args.toList))

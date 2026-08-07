@@ -58,6 +58,30 @@ scala-cli --power package v3/src --assembly -o "$WORK/ssc3.jar" --server=false -
 scala-cli --power package v2/src --assembly -o "$WORK/ssc2.jar" --server=false --quiet -f >/dev/null 2>&1 \
   || { echo "corpus-report: v2 failed to package" >&2; exit 2; }
 
+# WHICH FRONT THIS REPORT MEASURES.
+#
+# It packaged `v3/src` alone and nothing else, so `SSC3_FRONT` was a NO-OP here: with the uniml
+# front made the default in `v3/ssc3`, two runs of this script — one of them with `SSC3_FRONT=v3` —
+# gave the same N and the same buckets, and I reported that as "both fronts agree". They did not
+# agree; only one of them ran, twice. A census answers only its own question, and the question this
+# script asks is set by the command it actually invokes.
+#
+# The uniml front cannot be an assembly — its classpath is DIRECTORIES, which is measured and
+# documented in `v3/ssc3`. So it runs from the classpath the driver caches.
+SSC3RUN=(java -Xss512m -jar "$WORK/ssc3.jar")
+SSC3BUILD=(java -jar "$WORK/ssc3.jar")
+front_used="v3"
+if [ "${SSC3_FRONT:-auto}" != "v3" ] && [ -s "$ROOT/v3/.jars/uniml.cp" ]; then
+  ucp="$("$ROOT/v3/ssc3" __classpath 2>/dev/null)" || ucp=""
+  if [ -n "$ucp" ]; then
+    SSC3RUN=(java -Xss512m -cp "$ucp" ssc3.ssc3uniml)
+    SSC3BUILD=(java -cp "$ucp" ssc3.ssc3uniml)
+    front_used="uniml"
+  else
+    echo "corpus-report: the uniml front is present but its classpath did not build" >&2
+  fi
+fi
+
 # Does this case hold the v2 lane to its expectation? `backends:` lists the lanes it applies to;
 # a `known-red: … v2 …` declares the lane a declared, expiring failure. Either way, a difference on
 # the bridge is not v3's to answer for.
@@ -81,9 +105,9 @@ for f in tests/conformance/*.ssc; do
   total=$((total + 1))
 
   if [ "$lane" = "exec" ]; then
-    err="$(java -Xss512m -jar "$WORK/ssc3.jar" exec "$f" 2>"$WORK/e" >"$WORK/o"; echo $?)"
+    err="$("${SSC3RUN[@]}" exec "$f" 2>"$WORK/e" >"$WORK/o"; echo $?)"
   else
-    err="$(java -jar "$WORK/ssc3.jar" build "$f" 2>"$WORK/e" >"$WORK/ir"; echo $?)"
+    err="$("${SSC3BUILD[@]}" build "$f" 2>"$WORK/e" >"$WORK/ir"; echo $?)"
   fi
   if [ "$err" = "0" ]; then
     if [ "$lane" = "exec" ]; then got="$(cat "$WORK/o")"
@@ -110,7 +134,7 @@ for f in tests/conformance/*.ssc; do
 done
 
 echo
-echo "═══ SSC3 vs the conformance corpus — $lane lane ═══"
+echo "═══ SSC3 vs the conformance corpus — $lane lane, $front_used front ═══"
 printf '  PASS         %4d\n' "$pass"
 printf '  DIFF         %4d   (defect)\n' "$diff"
 printf '  UNSUPPORTED  %4d   (honest)\n' "$unsup"

@@ -75,12 +75,49 @@ uniml_classpath() {
   dg="$(cat "$ROOT/v3/src"/*.scala "$ROOT/v3/uniml"/*.scala "$UNIML_CP_FILE" | shasum | cut -c1-16)"
   cache="$JARS/uniml-full-$dg.cp"
   if [ -s "$cache" ]; then cat "$cache"; return 0; fi
+  # A CACHE MISS MEANS THE SOURCES CHANGED, so the incremental build directory is discarded before
+  # recompiling. Measured, and it cost an hour: after editing `Lower.scala`, `scala-cli compile`
+  # returned a classes directory that still held the PREVIOUS version — the digest was new, the
+  # cache entry was new, and the artifact behind it was stale. Three gates then reported a defect I
+  # had already fixed, which is the worst kind of wrong answer: it points at working code.
+  #
+  # One full compile per source change, which is what a source change costs anyway. The cache still
+  # does its real job — the front-diff gate runs one invocation per fixture and must not recompile
+  # for each of them.
+  rm -rf "$ROOT/v3/src/.scala-build" "$ROOT/v3/uniml/.scala-build"
   full="$(scala-cli compile "$ROOT/v3/src" "$ROOT/v3/uniml" --classpath "$ucp" \
             --server=false --print-class-path 2>/dev/null | tail -1)"
   [ -n "$full" ] || return 1
   printf '%s' "$full" > "$cache"
   printf '%s' "$full"
 }
+
+# ── THE DEFAULT FRONT ────────────────────────────────────────────────────────────────────────────
+# UniML answers when its classpath is present. `40-front-on-uniml.md` §7 makes the swap a NUMBER
+# rather than a judgement, and the number is met: both fronts print the same `Ast` for 48 of 48
+# fixtures and 101 of 101 corpus cases.
+#
+# THE KERNEL JAR IS STILL THE FALLBACK, and that is the whole reason this is a driver decision.
+# Invariant I-1 says v3's kernel has zero dependencies and must build and run with UniML absent —
+# `v3/src` alone is a complete language. So the uniml front is a SECOND ARTIFACT that the driver
+# prefers, never a requirement.
+#
+# `SSC3_FRONT=v3` forces the kernel's own front. Gates that compare the two need to name them, and
+# §7 promised exactly this: "a regression is one environment variable away from being isolated".
+#
+# Which one actually answered is reported by `ssc3 front`, and `v3/front-report-gate.sh` asserts on
+# it. That gate is not optional book-keeping: the two fronts agree on every fixture BY
+# CONSTRUCTION, so no program's output can distinguish them, and a gate that cannot tell which of
+# two states it is in proves nothing about either.
+SSC3_FRONT_SEL="v3"
+if [ "${SSC3_FRONT:-auto}" != "v3" ] && uniml_available; then
+  if _ucp="$(uniml_classpath)"; then
+    SSC3=(java -cp "$_ucp" ssc3.ssc3uniml)
+    SSC3_FRONT_SEL="uniml"
+  else
+    echo "ssc3: the uniml front is present but did not compile — using v3's own front" >&2
+  fi
+fi
 
 cmd="${1:-}"
 case "$cmd" in
@@ -121,13 +158,25 @@ case "$cmd" in
     ;;
   # `ast <file> [front]` routes to the second front when it is the one asked for. Everything else
   # goes to the kernel, which does not know UniML exists.
+  # The resolved uniml classpath, for callers that must run the second front themselves.
+  # `corpus-report.sh` packages its own assembly for speed and so cannot use `$SSC3`; without this
+  # it silently measured v3's own front no matter what it was asked for.
+  __classpath)
+    uniml_available || { echo "ssc3: the uniml front is not available — run v3/uniml-classpath.sh" >&2; exit 2; }
+    uniml_classpath || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
+    exit 0
+    ;;
+  # `ast <file> [front]` NAMES its front, and names it all the way down to the artifact rather than
+  # to `$SSC3` — the differential's whole job is running both on the same file, so it must not be
+  # affected by which one the default happens to be. Omitting the argument gets the default.
   ast)
-    if [ "${3:-v3}" = "uniml" ]; then
+    want="${3:-$SSC3_FRONT_SEL}"
+    if [ "$want" = "uniml" ]; then
       uniml_available || { echo "ssc3: the uniml front is not available — run v3/uniml-classpath.sh" >&2; exit 2; }
       cp="$(uniml_classpath)" || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }
       exec java -cp "$cp" ssc3.ssc3uniml ast "$2"
     fi
-    exec "${SSC3[@]}" ast "$2"
+    exec java -jar "$V3JAR" ast "$2"
     ;;
   *)
     exec "${SSC3[@]}" "$@"
