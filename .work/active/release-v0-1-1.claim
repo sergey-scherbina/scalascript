@@ -1,0 +1,13 @@
+slug: release-v0-1-1
+branch: release/0.1.1
+agent: claude-code
+started: 2026-08-07T03:47:00Z
+heartbeat: 2026-08-07T03:47:00Z
+status: implementing
+items: release-v0-1-1 compile-jvm-shipped-broken-in-the-native-binary
+paths: file:build.sbt file:uniml/build.sbt file:tests/BUGS.md
+scope: |
+  Re-taken after my own claim was released as stale — my heartbeat sat 13h untouched during a long
+  session, which is a process failure on my side, not a bad triage. Rebase release/0.1.1 onto main
+  (115 commits ahead) and re-verify. Branch only: pushing a tag is what publishes.
+next: rebase, re-verify, refresh this heartbeat as work proceeds
