@@ -1,0 +1,11 @@
+slug: pattern-undefined-name-conformance-case
+branch: feature/pattern-undefined-name-conformance-case
+agent: claude-code
+started: 2026-08-07T16:39:27Z
+heartbeat: 2026-08-07T16:39:27Z
+status: claimed-before-planning
+items: an-undefined-name-in-a-pattern-means-three-different-things
+paths: file:tests/conformance/pattern-undefined-name.ssc file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
