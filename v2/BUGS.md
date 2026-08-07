@@ -261,6 +261,46 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**NARROWED to two files 2026-08-07, and the minimisation of the second FAILED six times — the
+failures are the useful part.**
+
+The real reproduction, both files well-formed, and the program RUNS via the reference front:
+
+    mods/user.ssc:
+      [jsonCoreRender](std/json-core.ssc)
+      case class K(a: Int, b: Int, c: Int):
+        def bump(): K = K(a + 1, b, c)
+    t.ssc:
+      [K](mods/user.ssc)
+      def main() = println("ok")          -> unbound global: (global K)
+
+Controls: importing `std/eq.ssc` or `std/show.ssc` instead lowers; no import at all lowers; the same
+case class at top level lowers. The intermediate `std/json.ssc` is NOT involved — reducing it left
+exactly one line, its own import of json-core. So a well-formed imported module makes the IMPORTING
+module's own case-class constructor unbound, and the reported name points at the innocent class.
+
+**Six ddmin runs over `json-core.ssc` all converged on a MALFORMED reduction**, each through a
+different hole in the predicate. Recorded so the seventh does not rediscover them:
+
+    1  empty code fence            predicate did not require the SAME symbol in the decline
+    2  `def` with no body          did not require the reduced module to be well-formed
+    3  `value match {` unclosed    "ok" matched as a SUBSTRING of token/lookup/broken
+    4  same                        same hole, tightened to an exact line + exit 0 — still passed
+    5  same                        program ran but never CALLED the reduced module's function
+    6  two bodyless defs + `}`     calling it was not enough either
+
+And the trap that nearly made me file the wrong defect: the malformed reductions DO transplant, so a
+synthetic two-module chain built from one reproduces — but only while the core module is BROKEN. A
+well-formed synthetic core lowers fine. That is a SECOND, separate defect worth its own line (F
+misattributes a malformed import to a downstream constructor while the reference front tolerates it)
+and it is NOT the `Response` cause, whose json-core is well-formed and runs.
+
+What the seventh attempt needs: a predicate that rejects a malformed reduction outright — check the
+reduced module through the toolchain (`ssc info --front-report` reporting no ERROR for it) rather
+than inferring well-formedness from the importing program still working. Every clause I tried was
+satisfiable by a broken module, because breaking one is always the smaller change and ddmin finds
+the smallest thing the predicate allows, not the cause.
+
 **`Response` is the top decline name once externs are accepted (4c01973bb), and here is the working
 METHOD plus what it did and did not settle.**
 
