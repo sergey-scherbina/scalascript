@@ -47,6 +47,23 @@ sbt "compilerBench/Jmh/run -rff $(pwd)/bench/jmh-compiler-results.json -rf json"
 The last two commands are kept here for tools that already parse those exact
 JSON paths; the wrapper commands above produce the same data more ergonomically.
 
+## Comparing the three versions
+
+`./bench.sh` with no flags spans all three: `ssc ssc-asm jvm js rust` (v1), `v2 v2-bytecode` (v2),
+`v3`. Before 2026-08-07 the default was the v1/v2 columns only and v3 had none at all, so the
+question people bring to this table — is the new one faster — needed a flag that did not exist.
+
+**v3 is measured differently, and the difference is small but real.** Every other column is timed by
+a wrapper written in ScalaScript that calls `System.nanoTime()` itself. v3 has no clock: its prim
+table is `io.println` plus collection operations, and the charter keeps the kernel's only host door
+at `Prim`, so `v3/ssc3 bench` runs the loop driver-side. Compilation is excluded on both sides and
+the window doubles to 100 ms on both sides; what differs is that v3 is not charged for executing its
+own rep counter. On an IR walker that is one host increment against a whole `workload()` call.
+
+**A blank v3 cell means the front declined the program, not that it was slow.** v3 compiles 23 of
+the 36 corpus files (2026-08-07): no effects, typeclasses, type lambdas, `range-sum`, `either-chain`,
+`lazylist-take`, `streams-pipeline` or `vector-index`.
+
 Generated raw files are ignored. The durable checked-in summaries are:
 
 - `bench/BASELINE.md` for runtime/JMH summaries and update policy;

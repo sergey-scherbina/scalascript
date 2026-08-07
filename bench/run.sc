@@ -77,7 +77,17 @@ val backends: Seq[String] = backendsFlag match
     case Some(b)             => Seq(b)
     case None if v2BackendMode => Seq("v2", "v2-jvm", "v2-rust")
     case None if v2BytecodeMode => Seq("v2", "v2-bytecode")
-    case None                => Seq("ssc", "ssc-asm", "v2", "jvm", "js", "rust")
+    // THE DEFAULT SPANS ALL THREE VERSIONS, which is the question people actually bring to this
+    // table: is the new one faster than the old one. Until 2026-08-07 the default was the six v1/v2
+    // columns and v3 had no column at all, so "compare the versions" meant knowing to pass a flag
+    // that did not exist. Ordered v1 → v2 → v3 so the table reads left to right as the project's
+    // own history.
+    //
+    // v2-bytecode is in and v2-jvm/v2-rust are not: bytecode is v2's own execution lane and belongs
+    // beside the VM, while the other two are source-emitting backends already reachable through
+    // `--v2-backends` and each costs a full external toolchain per row. `--backends a,b,c` still
+    // expresses any set this default does not.
+    case None                => Seq("ssc", "ssc-asm", "jvm", "js", "rust", "v2", "v2-bytecode", "v3")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
@@ -414,8 +424,40 @@ fn main() {
   catch
     case e: Throwable => cleanup(); None
 
+/** The v3 column. v3 is a different PRODUCT, not another backend of the same CLI: it has its own
+ *  driver (`v3/ssc3`), its own IR and its own executor, and `bin/ssc --backend v3` does not exist.
+ *
+ *  It therefore cannot be timed by the shared wrapper the other columns use, because that wrapper
+ *  calls `System.nanoTime()` as ordinary ScalaScript and v3 has no clock — its prim table is
+ *  `io.println` plus collection operations. `ssc3 bench` does the loop driver-side instead, keeping
+ *  the two things that make the numbers comparable: compilation is excluded (lower + verify happen
+ *  before the clock starts) and the window doubles until it reaches 100 ms.
+ *
+ *  The one asymmetry, stated because a reader will otherwise assume it away: v3's rep counter is a
+ *  host loop, so v3 is not charged for executing the counter itself, while every other column is.
+ *  Against a whole `workload()` call on an IR walker that is small, and it flatters v3 slightly on
+ *  the cheapest rows.
+ *
+ *  A blank v3 cell usually means the FRONT declined the program, not that it ran slowly — v3
+ *  compiles 23 of the 36 corpus files as of 2026-08-07 (no effects, typeclasses or type lambdas).
+ */
+def runV3Bench(file: java.io.File): Option[Double] =
+  val buf = new java.io.ByteArrayOutputStream
+  val ps  = new java.io.PrintStream(buf, true)
+  try
+    Process(
+      Seq(s"$root/v3/ssc3", "bench", "--warmup", warmup.toString, "--reps", reps.toString,
+          file.getAbsolutePath),
+      new java.io.File(root)
+    ).!(ProcessLogger(ps.println, _ => ()))
+    buf.toString.linesIterator.collectFirst {
+      case l if l.startsWith("BENCH_MS:") => l.stripPrefix("BENCH_MS:").trim.toDoubleOption
+    }.flatten
+  catch case _: Throwable => None
+
 def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[Double] =
   if b == "rust" then return runRustBench(sscPath, file)
+  if b == "v3" then return runV3Bench(file)
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)

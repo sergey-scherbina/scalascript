@@ -286,6 +286,76 @@ object Cli:
               case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+          // Times `workload()` so v3 can appear in bench/run.sc beside v1 and v2.
+          //
+          // WHY THE LOOP IS HERE AND NOT IN THE MEASURED LANGUAGE. Every other backend is timed by a
+          // wrapper written in ScalaScript itself, calling `System.nanoTime()` as an ordinary call.
+          // v3 has no clock: its prim table is `io.println` and collection operations, and the
+          // charter says the kernel's only door to the host is `Prim` (I-1). Adding a clock prim to
+          // put the timer inside the language would widen the kernel's host surface to make a
+          // measurement, which is the wrong trade. The driver is already host-side, so the loop
+          // lives here.
+          //
+          // WHAT IS AND IS NOT COMPARABLE. Compilation is excluded on both sides: the module is
+          // lowered and verified once, before the clock starts, exactly as `ssc bench --machine`
+          // excludes it. The adaptive window is the same rule (double the reps until the measured
+          // span reaches 100 ms) for the same reason — nanoTime granularity, and on this lane the
+          // interpreter's own warm-up. What differs is that the rep counter is a host `while` rather
+          // than a loop the measured language executes, so v3 is NOT charged for its own loop
+          // overhead the way an in-language wrapper charges the others. On an AST/IR walker that
+          // difference is one host increment per iteration against a whole `workload()` call; it
+          // flatters v3 slightly on the very cheapest rows and is stated here rather than hidden.
+          //
+          // `Exec.run` first, and it is not optional: it initialises the globals array and runs the
+          // module entry. Calling `workload` against uninitialised globals would either fault or
+          // measure a program in a state no real run ever has.
+          case "bench" if args.length >= 2 =>
+            val path = args.findLast(a => !a.startsWith("--") && a != "bench").getOrElse(args(1))
+            def flag(name: String, dflt: Int): Int =
+              val i = args.indexOf("--" + name)
+              if i >= 0 && i + 1 < args.length then args(i + 1).toIntOption.getOrElse(dflt) else dflt
+            val warmup  = flag("warmup", 3)
+            val reps0   = flag("reps", 1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m =
+                if path.endsWith(".ssir") then Text.read(src)
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              val idx = m.funcs.indexWhere(f => f.name == "workload" && f.nparams == 0)
+              if idx < 0 then
+                // Named rather than silent: a corpus file without a zero-arg `workload` is a fixture
+                // problem, and a blank cell would read as "v3 cannot do this program".
+                Console.err.println("ssc3: " + path + ": no zero-argument `workload` to bench")
+                1
+              else
+                Exec.run(m)
+                var w = 0
+                while w < warmup do
+                  Exec.callFunc(m, idx, Nil)
+                  w = w + 1
+                var reps = if reps0 < 1 then 1 else reps0
+                var ns   = 0L
+                var sink: Value = Value.VUnit
+                while ns < 100000000L && reps <= 268435456 do
+                  val t0 = System.nanoTime()
+                  var r  = 0
+                  while r < reps do
+                    sink = Exec.callFunc(m, idx, Nil)
+                    r = r + 1
+                  ns = System.nanoTime() - t0
+                  if ns < 100000000L then reps = reps * 2
+                println("BENCH_MS: " + (ns.toDouble / (reps.toDouble * 1000000.0)))
+                // Printed for the same reason the other lanes print it: a result nothing consumes is
+                // a result an optimiser is allowed to delete, and the sink is the evidence it did not.
+                println("BENCH_SINK: " + sink)
+                0
+            catch
+              case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
+              case e: ExecError  => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
           // WHICH FRONT ANSWERED. Not decoration: the swap makes the front depend on the working
           // tree — the uniml artifact registers it, the kernel jar cannot — and v3's own front and
           // UniML's agree on every fixture and every corpus case, so their OUTPUT is identical by
