@@ -907,3 +907,30 @@ method** — and a hand-written engine would have been a second regex semantics 
 
 **Self-sufficiency is now a decision rather than a risk.** The precondition Sergiy set is met and
 measured on the corpus rather than on a probe set.
+
+## SSC3-26 — `ssc3 run` is v3's own runtime
+
+The third of Sergiy's four original goals — стабильность, лёгкость, **самодостаточность**,
+корректность — and the one that had been waiting on a precondition.
+
+- [x] **26a — `run` executes on v3's runtime; `run --bridge` reaches the v2 VM.** Three things were
+      checked before the switch, not after:
+      1. both lanes give the same corpus number — 48, DIFF 0, CRASH 0;
+      2. the executor implements EVERY primitive v3's lowering can emit (5 plus 3 builtins), so
+         there is no capability a v3 program can reach through the bridge and not here. This was
+         the check that nearly stopped it: the bridge exposes v2's whole runtime — `io`, `str`,
+         `big`, `cell`, `arr` — and the corpus, being pure, could never have shown the difference.
+         What matters is not what v2 HAS but what v3 can EMIT;
+      3. the gates still compare two real lanes.
+- [x] **26b — the parity gate was VACUOUS for one commit, and I caught it by looking.** It compared
+      `run` against `exec`; with `run` switched those became the same lane, and it was green for it.
+      Now it names `run --bridge` explicitly. Observed failing afterwards: removing `sorted` from
+      the executor gives `FAIL list-sorted — bridge [1,2,3/] executor []`.
+
+      **Flipping a default silently re-points every gate that named it.** Worth stating as a rule:
+      after changing what a command MEANS, re-read every gate that calls it and ask what the two
+      sides are now.
+
+The bridge is not retired. It is the COMPATIBILITY lane — `ssc3 build` emits v2 Core IR, which is
+how v3 has the whole backend fleet without having written one — and I-3's differential needs both
+sides to stay real.

@@ -63,6 +63,28 @@ implementation, or an oracle outside the pair, is what turns it into evidence of
 ([`20-core-language.md`](20-core-language.md)) and publishes `N/M` against the existing conformance
 corpus on every run. The gate is **non-regression** on `N`. "Mostly compatible" is not a status.
 
+## Self-sufficiency: `ssc3 run` is v3's own runtime — since 2026-08-07
+
+For most of v3's life `ssc3 run` meant *build v2 Core IR, then hand it to the v2 VM*. It no longer
+does. `run` executes on v3's own runtime, and the bridge is reached explicitly as `run --bridge`.
+
+**The switch was made on a measurement, and the first answer to that measurement was no.** When the
+question was first asked the executor scored 34 of the corpus against the bridge's 48, with 14
+crashes — while a 42-probe parity gate read 40 of 42 green. The probe set had been built from the
+corpus's method names by FREQUENCY, and the corpus lives in the tail. Three things had to be true
+before the switch, and all three are now measured rather than assumed:
+
+1. both lanes give the same number: **48, DIFF 0, CRASH 0**, and `corpus-report.sh --exec` keeps
+   measuring it;
+2. the executor implements **every primitive v3's lowering can emit** — so no capability exists that
+   a v3 program can reach through the bridge and not through the executor;
+3. the parity gate still COMPARES two lanes. It briefly did not: with `run` switched, it was
+   comparing the executor against itself, and it was green for it. It now names `run --bridge`.
+
+**The bridge is not retired and is not a fallback.** It is the COMPATIBILITY lane: `ssc3 build`
+emits v2 Core IR, which is how v3 has the whole v2 backend fleet without having written a backend.
+Invariant I-3's differential is between these two lanes, so both have to stay real.
+
 ## How v3 measures itself, and the ways the apparatus has lied
 
 Every number in these specs comes from a script. Those scripts have been wrong more often than the

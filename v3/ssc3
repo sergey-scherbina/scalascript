@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ssc3 — the ScalaScript 3 driver.
 #
-#   v3/ssc3 run   <file.ssc>    compile and run
+#   v3/ssc3 run   <file.ssc>    compile and run on v3's OWN runtime
+#   v3/ssc3 run --bridge <f>    the same program through the v2 VM — the compatibility lane
 #   v3/ssc3 ir    <file.ssc>    print the SSC IR the front produced
 #   v3/ssc3 build <file.ssc>    print the v2 Core IR the bridge produced
 #   v3/ssc3 <anything else>     passed straight to the kernel (check, fmt, sample, selftest)
@@ -83,14 +84,26 @@ uniml_classpath() {
 
 cmd="${1:-}"
 case "$cmd" in
+  # `run` is v3's OWN runtime as of 2026-08-07. It was the v2 bridge until then, and the switch was
+  # made on a measurement rather than a preference: both lanes give N = 48 on the corpus with DIFF 0
+  # and CRASH 0, and the executor implements EVERY primitive v3's lowering can emit — so there is no
+  # capability a v3 program can reach through the bridge and not here.
+  #
+  # The bridge is not retired and is not a fallback. It is the COMPATIBILITY lane: `ssc3 build`
+  # emits v2 Core IR, which is how v3 inherits the whole v2 backend fleet without having written
+  # one. `run --bridge` runs through it, and the executor gate compares the two on every fixture.
   run)
-    [ $# -ge 2 ] || { echo "usage: ssc3 run <file.ssc>" >&2; exit 2; }
-    ir="$(mktemp -t ssc3run)"
-    trap 'rm -f "$ir"' EXIT
-    # The build step's diagnostics go to stderr and its exit code decides. Running a program the
-    # front refused would be worse than not running it at all.
-    "${SSC3[@]}" build "$2" > "$ir" || exit 1
-    "${V2[@]}" run-ir "$ir"
+    [ $# -ge 2 ] || { echo "usage: ssc3 run [--bridge] <file.ssc>" >&2; exit 2; }
+    if [ "$2" = "--bridge" ]; then
+      [ $# -ge 3 ] || { echo "usage: ssc3 run --bridge <file.ssc>" >&2; exit 2; }
+      ir="$(mktemp -t ssc3run)"
+      trap 'rm -f "$ir"' EXIT
+      # The build step's diagnostics go to stderr and its exit code decides. Running a program the
+      # front refused would be worse than not running it at all.
+      "${SSC3[@]}" build "$3" > "$ir" || exit 1
+      exec "${V2[@]}" run-ir "$ir"
+    fi
+    exec "${SSC3[@]}" exec "$2"
     ;;
   # The v2 VM, for callers that drive it themselves — the gates run `run-ir` on a `.ssir` the front
   # produced. Exposed here rather than letting each gate spell out `scala-cli run v2/src`, which is

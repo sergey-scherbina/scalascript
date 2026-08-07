@@ -26,7 +26,10 @@ agree=0; neither=0; fail=0; ran=0
 for f in v3/tests/parity/*.ssc; do
   name="$(basename "$f" .ssc)"
   ran=$((ran + 1))
-  b="$("$SSC3" run  "$f" 2>/dev/null | tr '\n' '/')"
+  # `run --bridge`, NOT `run`. On 2026-08-07 `run` became v3's own runtime, and for the length of
+  # one commit this gate compared that lane against itself — vacuous, and green for it. Naming the
+  # bridge explicitly is what keeps the two sides two.
+  b="$("$SSC3" run --bridge "$f" 2>/dev/null | tr '\n' '/')"
   e="$("$SSC3" exec "$f" 2>/dev/null | tr '\n' '/')"
   if [ -n "$b" ] && [ "$b" = "$e" ]; then
     agree=$((agree + 1))

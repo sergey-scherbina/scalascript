@@ -203,8 +203,8 @@ chosen:
 | an `Array` | `<foreign>` | `[I@…` |
 | `"abc".charAt(1)` | `98` | `b` |
 
-This is v1-parity behaviour, and v3 INHERITS it rather than forking it: `ssc3 run` goes through v2,
-and the corpus expectations are the ones every other lane is held to. Two consequences worth stating
+This is v1-parity behaviour, and v3 INHERITS it rather than forking it: the corpus expectations are
+the ones every other lane is held to, and both of v3's lanes match them. Two consequences worth stating
 because each cost a debugging round:
 
 - the executor's printer is a SEPARATE function from `Text.floatText`, which is the canonical
