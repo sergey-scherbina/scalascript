@@ -1,0 +1,13 @@
+slug: ssc3-7l-double-compare
+branch: feature/ssc3-7l-double-compare
+agent: claude-code
+started: 2026-08-07T15:04:58Z
+heartbeat: 2026-08-07T15:04:58Z
+status: in-progress
+items: SSC3-7l
+paths: file:v3/src/Exec.scala file:v3/src/Lower.scala
+scope: |
+  float-loop.ssc fails at run time with "Lt on 0 and 1000000" though its literals are
+  Doubles. Measure FIRST whether Lower produced VInt or Lt has no VFloat case - that
+  decides which file the fix belongs in.
+next: measure, then fix
