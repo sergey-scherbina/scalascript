@@ -1,0 +1,11 @@
+slug: f-name-the-failing-module
+branch: feature/f-name-the-failing-module
+agent: claude-code
+started: 2026-08-07T12:29:55Z
+heartbeat: 2026-08-07T12:29:55Z
+status: claimed-before-planning
+items: f-malformed-import-blamed-on-downstream-constructor
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/f-bare-member-call-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
