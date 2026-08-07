@@ -8,11 +8,27 @@ grepping for status.
 Newest first.
 
 ## js-control-direct-tests-never-run — the repair landed with 496 lines of tests and nothing runs them
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: build
      kind: apparatus
-     gate: none -->
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: fa28ae2ad -->
+
+**FIXED 2026-08-07, same day.** The suite runs, from a clean `npm install`, and CI runs it
+(`.github/workflows/js-packages.yml`). 16 of its 39 tests could not execute at all: every fixture
+mentioning a marker type pulls in the package's own `index.d.ts`, whose `import type … from
+"@scalascript/control"` resolves by walking up from the PACKAGE ROOT, not from the fixture directory
+where the harness had symlinked the sibling. Supplied through TypeScript `paths` in three places —
+the mechanism the README names and `tsconfig.json` already used.
+
+**Not through a dependency entry, and that is the part worth keeping.** I tried that first;
+`test/package.test.js` went red on it, because `"@scalascript/control": "file:../control"` in
+devDependencies IS a filed bug of this package — `js-control-direct-packed-local-dev-dependency`,
+fixed in `9baf6d2bf`. The suite stopped me from reintroducing a defect it was written to catch.
+
+All twelve sibling `js-control-direct-*` entries were then triaged on evidence and closed: every
+named repair is reachable from `origin/main`, and each entry now names the test that guards it.
 
 **Found 2026-08-07 while checking why eleven `js-control-direct-*` entries are open and ungated.**
 They are not ungated. Their fix landed, WITH tests, and the tests are dead.
@@ -3368,15 +3384,20 @@ packaged-JAR example compiles and runs. Keep this entry open until rereview
 approves and the fix lands.
 
 ## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: build -->
+     area: build
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: 9baf6d2bf -->
 
-**Status:** open; repair candidate `9baf6d2bf` is fully locally verified and awaits
-fresh independent review and landing. Reported as P1 by the fresh
-independent read-only review of exact range `445f7faf7..d66ed988df` on 2026-07-15;
-the other semantic, JavaScript, declaration, source-map, and atomicity gates were
-clean.
+**FIXED — verified 2026-08-07.** The repair landed as `9baf6d2bf`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `exact tarball manifest has no local dependency and installs at a clean boundary`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`. Independently re-measured on 2026-08-07 without using the suite at all: `npm pack`, extract, and the published manifest carries `devDependencies: {typescript: 5.9.3}` and nothing local; `npm install --ignore-scripts` in the extracted package with no sibling checkout succeeds and the ESM import loads. THIS ENTRY IS ALSO WHY THE TEST EXISTS: `file:../control` in devDependencies WAS this bug. I proposed re-adding exactly that to make the suite resolve its sibling, and test/package.test.js went red on it — the design defending itself.
 
 **Symptom/reproduce:** run `npm pack` for `v2/host/js/control-direct`, extract the
 result into a fresh directory with no `../control`, and inspect
@@ -3410,14 +3431,20 @@ Direct package tests pass 39/39; its exact pack, explicit control 31/31, catalog
 open until landing and a new independent reviewer confirmation.
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: fabad7d84 -->
 
-**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
-fresh independent review and landing. Reported as P1 by the fresh
-independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `82aee139a`).
+**FIXED — verified 2026-08-07.** The repair landed as `fabad7d84`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `external marker import-equals is fail-closed except when explicitly type-only`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** compile a CommonJS/Node10 source containing
 `import markers = require("@scalascript/control-direct")`, with or without a use of
@@ -3441,14 +3468,20 @@ packed-CLI CommonJS/Node10 regressions are green under both verbatim modes; the 
 direct package passes 38/38.
 
 ## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: fabad7d84 -->
 
-**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
-fresh independent review and landing. Reported as P1 by the fresh
-independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `82aee139a`).
+**FIXED — verified 2026-08-07.** The repair landed as `fabad7d84`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `type-only source exports drop empty runtime links and preserve mixed values`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** with `verbatimModuleSyntax: true`, compile
 `export { type direct as Marker } from "@scalascript/control-direct"`. The transform
@@ -3472,14 +3505,20 @@ modes retain the original `.d.ts`, and packed production runs without the marker
 package; the full direct package passes 38/38.
 
 ## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: fabad7d84 -->
 
-**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
-fresh independent review and landing. Reported as P1 by the fresh
-independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `82aee139a`).
+**FIXED — verified 2026-08-07.** The repair landed as `fabad7d84`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `mixed marker imports normalize JavaScript but preserve declarations`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** compile a transformed file containing
 `import { direct, type DirectMarkerContractError as ErrorType } from
@@ -3503,13 +3542,20 @@ source. Both verbatim modes pass real packed-CLI `node --check`, `.d.ts`, and
 production-without-marker regressions; the full direct package passes 38/38.
 
 ## js-control-direct-type-only-export-false-positive — erased exports are rejected
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: ec95c4c65 -->
 
-**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
-independent review plus landing. Reported as P1 by independent rereview of exact
-frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+**FIXED — verified 2026-08-07.** The repair landed as `ec95c4c65`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `type-only marker exports erase without runtime diagnostics`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** TypeScript files using local
 `export type { direct as Marker }`, direct
@@ -3532,13 +3578,20 @@ without a diagnostic; a shadowed local runtime export remains ordinary. Direct
 package tests pass 35/35.
 
 ## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: ec95c4c65 -->
 
-**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
-independent review plus landing. Reported as P1 by independent rereview of exact
-frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+**FIXED — verified 2026-08-07.** The repair landed as `ec95c4c65`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `marker shorthand and local runtime export aliases fail file atomically`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** place runtime shorthand `{ direct }`, local
 `export { direct }`, or `export { direct as alias }` in a file selected for marker
@@ -3562,13 +3615,20 @@ assignment-initializer shorthand, and local/source aliases each get exactly one
 file-atomic diagnostic with unchanged ignored-diagnostic emit.
 
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: 4c6b8e2a9 -->
 
-**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
-independent review plus landing. Confirmed by parent adversarial pre-rereview on
-2026-07-15; the original independent-review snapshot was `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `4c6b8e2a9`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `real JavaScript prefix references cannot cross into a marker suffix binding`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** define outer `const later = 99`; inside a direct reset, read
 `later` in a pure prefix declaration before the first marker, then declare inner
@@ -3594,13 +3654,20 @@ the first crossing value reference, preserves type-only/shadowed references, and
 keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
 
 ## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
-awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
-independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `c19d42401`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `transparent TypeScript wrappers preserve exact marker ownership`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** exact-import marker calls written as `(direct).reset(...)`,
 `direct!.reset(...)`, or `(direct as typeof direct).reset(...)` are not consistently
@@ -3619,13 +3686,20 @@ assertions before exact checker-symbol matching; positive and negative wrapper
 regressions prove that no owned marker call survives a clean emit.
 
 ## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
-awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
-independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `c19d42401`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `packed installed bin uses the consumer compiler and emits production-only imports`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`. The store holding the installed CLI has no `typescript` at all — it is symlinked only into the consumer, and the bin runs with `cwd` set there, so the test cannot pass by finding an ambient compiler.
 
 **Symptom/reproduce:** place the published runtime files under an external
 tool/store path, install `typescript` only in a consuming project, and run the real
@@ -3647,13 +3721,20 @@ directory or cwd, never falls back to the store/global environment, and exercise
 both present and missing consumer compilers through the packed installed bin.
 
 ## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
-awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
-independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `c19d42401`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `packed installed bin uses the consumer compiler and emits production-only imports`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`. The specific assertion is `assert.doesNotMatch(readFileSync(output, "utf8"), /@scalascript\/control-direct/)` on the emitted JavaScript, in two places.
 
 **Symptom/reproduce:** transform a valid source importing named `direct` from
 `@scalascript/control-direct`, inspect the emitted JavaScript, then deploy it with
@@ -3675,13 +3756,20 @@ unrelated imports intact, and runs packed production output without the direct
 package.
 
 ## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
-awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
-independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `c19d42401`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `packed installed bin uses the consumer compiler and emits production-only imports`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`. The specific assertion is that `node_modules/.bin/ssc-control-tsc` — the symlink, not the real file — both emits at status 0 and fails at status 1 with `TS5023` on an invalid option, which is what the entry asked for.
 
 **Symptom/reproduce:** invoke `ssc-control-tsc` through the normal
 `node_modules/.bin` symlink. `cli.js` compares the real module `import.meta.url` to
@@ -3701,13 +3789,20 @@ identity with explicit missing/unreadable handling; the exact packed `.bin` now
 compiles and invalid options fail non-zero.
 
 ## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     gate: tests/e2e/js-control-direct-gate.sh
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
-awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
-independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+**FIXED — verified 2026-08-07.** The repair landed as `c19d42401`, which is reachable from
+`origin/main`. What kept this entry open was not the code: the repair shipped with its own
+test and NOTHING RAN IT for three weeks, and it could not run as checked out
+(js-control-direct-tests-never-run). The suite is green 39/39 from a clean `npm install` and
+now runs on every push touching the package, so this is guarded rather than merely believed.
+
+**Guarded by:** `real JavaScript retains const/let declarations and fresh resume names`
+in the @scalascript/control-direct suite, via `tests/e2e/js-control-direct-gate.sh`.
 
 **Symptom/reproduce:** compile real JavaScript with `allowJs: true` and
 `checkJs: false`, using `const` or `let x = direct.shift(...)`. Lowering replaces the
