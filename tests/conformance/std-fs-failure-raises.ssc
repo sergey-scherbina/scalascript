@@ -1,0 +1,55 @@
+---
+name: std-fs-failure-raises
+description: "std.fs raises on a missing path and on the wrong type — on the three lanes that agree; jvm is EXCLUDED and that is the finding"
+backends: [int, js, v2]
+---
+
+# `std.fs` raises — and `backends:` above is the assertion
+
+`specs/std-fs-os.md` §2.1. Every read-shaped `std.fs` operation raises on a missing path on
+**int**, **js** and **v2-native**. `jvm` is missing from `backends:` on purpose, and the exclusion
+is measured rather than cautious: with `jvm` added, this case fails on **exactly two rows** —
+
+    line 3: expected=listDir(missing)=raised  got=listDir(missing)=NO-RAISE(List())
+    line 4: expected=listDir(file)=raised     got=listDir(file)=NO-RAISE(List())
+
+— and every other row passes there. So the jvm divergence is `listDir` and nothing else:
+`readFile`, `readBytes`, `copyFile` and `moveFile` all raise on jvm exactly as elsewhere. Filed as
+`jvm-listdir-answers-empty-where-every-other-lane-raises`. **Adding `jvm` to the line above is how
+that entry gets closed** — the fix and the gate are one edit apart.
+
+**Only the FACT of the raise is asserted, not its text**, because the text differs on every lane and
+is not a contract: `NoSuchFileException` on int and jvm, `ENOENT` on js, a bare
+`RuntimeException(path)` on native. That last one is its own problem — native erases the exception
+TYPE, so `listDir` on a file and `listDir` on a missing path are indistinguishable there even
+inside a `catch`. This case cannot see that; §2.1 records it.
+
+Reported by **nadia** as `std-fs-failure-contract` (2026-08-04), whose first ask was that this
+behaviour be stated at all.
+
+```scalascript
+[readFile, listDir, readBytes, copyFile, moveFile, mkdirs, writeFile](std/fs.ssc)
+
+val root = "/tmp/ssc-fs-raises-case"
+val dir  = root + "/adir"
+val file = root + "/afile.txt"
+val gone = root + "/does-not-exist"
+
+mkdirs(dir)
+writeFile(file, "x\n")
+
+def raises(label: String, thunk: () => String): Unit =
+  try
+    val v = thunk()
+    println(label + "=NO-RAISE(" + v + ")")
+  catch
+    case e: Throwable => println(label + "=raised")
+
+raises("readFile(missing)", () => readFile(gone))
+raises("readFile(dir)", () => readFile(dir))
+raises("listDir(missing)", () => listDir(gone).toString)
+raises("listDir(file)", () => listDir(file).toString)
+raises("readBytes(missing)", () => readBytes(gone).length.toString)
+raises("copyFile(missing)", () => { copyFile(gone, root + "/c1"); "ok" })
+raises("moveFile(missing)", () => { moveFile(gone, root + "/m1"); "ok" })
+```

@@ -1,0 +1,75 @@
+---
+name: std-fs-failure
+description: "std.fs on a missing path and on the wrong type — the behaviour the four lanes AGREE on"
+backends: [int, jvm, js, v2]
+---
+
+# `std.fs` failure behaviour — the agreed part
+
+`specs/std-fs-os.md` §2.1 measures what every `std.fs` function does on a missing path and on a
+path of the wrong type, across int / js / jvm / v2-native. Reported by **nadia** as
+`std-fs-failure-contract` (2026-08-04): the spec mapped each name to a backend primitive and the
+primitives disagree, so the contract a caller programmed against was "whatever the host does".
+
+**This case gates only the rows where all four lanes agree**, and that boundary is the point. A
+conformance case compares one expected output, so it cannot express a divergence — and the
+divergences are real, filed, and deliberately NOT hidden here by weakening the case until it passes
+everywhere:
+
+- `listDir` on a missing path, and on a file, **raises on int / js / v2 and answers `List()` on
+  jvm** — `jvm-listdir-answers-empty-where-every-other-lane-raises`. Gated by its sibling case
+  `std-fs-failure-raises`, which declares the three lanes that agree.
+- `v2 / native` erases the exception TYPE, so *missing* and *wrong type* cannot be told apart there
+  even with a `catch`. Nothing gates that yet; it is in §2.1 and in the entry above.
+
+What is below is therefore the FLOOR: behaviour a caller may rely on today on every lane.
+
+## The total predicates answer, they do not raise
+
+`exists` / `isFile` / `isDir` are the only total operations in `std.fs`, and this is what makes the
+"guard before you read" convention possible at all.
+
+**`exists` is TRUE FOR A DIRECTORY** — the row that matters most, and the second bug the reporter
+found in their own code: guarding a `readFile` with `exists` alone lets a directory through, and it
+then fails as `Is a directory`. Guard with `isFile` before `readFile`, `isDir` before `listDir`.
+
+```scalascript
+[exists, isFile, isDir, mkdirs, writeFile, deleteFile, mkdir](std/fs.ssc)
+
+val root = "/tmp/ssc-fs-failure-case"
+val dir  = root + "/adir"
+val file = root + "/afile.txt"
+val gone = root + "/does-not-exist"
+
+mkdirs(dir)
+writeFile(file, "x\n")
+
+println("exists(missing)=" + exists(gone).toString)
+println("isFile(missing)=" + isFile(gone).toString)
+println("isDir(missing)=" + isDir(gone).toString)
+
+println("exists(dir)=" + exists(dir).toString)
+println("isFile(dir)=" + isFile(dir).toString)
+println("isDir(dir)=" + isDir(dir).toString)
+
+println("exists(file)=" + exists(file).toString)
+println("isFile(file)=" + isFile(file).toString)
+println("isDir(file)=" + isDir(file).toString)
+```
+
+## `deleteFile` and `mkdir` are already TOTAL, and the spec's mapping says otherwise
+
+The JVM column of the table in §2 names `Files.createDirectory`, which raises when the directory
+exists. No lane raises. `deleteFile` on a missing path is likewise a no-op everywhere. Both are
+asserted here because a caller may rely on them and because the documented mapping predicts
+something different — if a lane is ever "corrected" toward its primitive, this goes red.
+
+```scalascript
+deleteFile(gone)
+println("deleteFile(missing)=ok")
+mkdir(dir)
+println("mkdir(existing)=ok")
+
+deleteFile(file)
+println("exists(file) after delete=" + exists(file).toString)
+```

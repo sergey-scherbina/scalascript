@@ -1,0 +1,7 @@
+readFile(missing)=raised
+readFile(dir)=raised
+listDir(missing)=raised
+listDir(file)=raised
+readBytes(missing)=raised
+copyFile(missing)=raised
+moveFile(missing)=raised

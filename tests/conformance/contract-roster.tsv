@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=98206a77e38df47ebe5d7eb40c00778e230bb02de44b08afcbafb51ffa281b9e	roster-sha256=911cc49df174281c88f60fb940469f7cd74410dfb912c31fc5b0656a2291abd5
+# corpus-contract-roster-v1	baseline-sha256=98206a77e38df47ebe5d7eb40c00778e230bb02de44b08afcbafb51ffa281b9e	roster-sha256=046f26bda9ca6c1f7b3ee4bee5bb3c8e49d5bb18be15e848073b19dbd7f04621
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -431,6 +431,8 @@ standard-scala-mixed-runnable
 standard-scala-multifence
 std-bifunctor
 std-foldable-traversable
+std-fs-failure
+std-fs-failure-raises
 std-functor-applicative-monad
 std-i18n
 std-index

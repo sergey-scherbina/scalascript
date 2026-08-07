@@ -50,8 +50,20 @@ destroys today. Their argument for variants is that the vocabulary already exist
 outlier rather than the rule. Their own 40-line implementation and its 28-case contract are named
 below; a decision should read those first.
 
-Not started, and named so it is not lost: **there is no conformance case** for any row of §2.1. The
-divergences above are recorded in a spec and in two BUGS entries, none of which is a gate.
+**Gated 2026-08-07** by two conformance cases, `std-fs-failure` (int/jvm/js/v2 — the rows all four
+lanes agree on) and `std-fs-failure-raises` (int/js/v2 — that the read-shaped operations raise, the
+fact only, never the message). The split is the finding, not a convenience: one expected output
+cannot express a divergence, and weakening a single case until it passed everywhere would have
+hidden what §2.1 measured.
+
+`jvm` absent from the second `backends:` line IS the assertion, and it sharpened the finding —
+with jvm added the case fails on exactly two rows, both `listDir`, and every other row passes, so
+the divergence is `listDir` alone rather than the lane broadly. Adding `jvm` to that line is how
+`jvm-listdir-answers-empty-where-every-other-lane-raises` gets closed.
+
+Still ungated, and named so it is not read as finished: the native lane's erasure of the exception
+TYPE (missing and wrong-type indistinguishable even inside a `catch`), permission denial, and the
+Rust column.
 
 ### The reporter's note about the tooling, acted on
 

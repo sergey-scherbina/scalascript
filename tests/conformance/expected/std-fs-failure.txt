@@ -1,0 +1,12 @@
+exists(missing)=false
+isFile(missing)=false
+isDir(missing)=false
+exists(dir)=true
+isFile(dir)=false
+isDir(dir)=true
+exists(file)=true
+isFile(file)=true
+isDir(file)=false
+deleteFile(missing)=ok
+mkdir(existing)=ok
+exists(file) after delete=false
