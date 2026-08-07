@@ -312,44 +312,45 @@ gate. It cost me roughly half an hour on `std/credential.ssc` before the lane ma
 Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
 comment pointing here.
 
-## smoke-runner-cannot-run — the suite is unrunnable on main, for everyone
+## smoke-runner-cannot-run — a poisoned classpath cache, and a control that shared it
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
+     fixed-in: e714c31ab
      gate: scripts/smoke-ci -->
 
-`scripts/smoke-ci` dies before running a single check:
+`scripts/smoke-ci` died before its first check with
 
 ```
 ssc: class scala.Tuple2 cannot be cast to class scala.collection.immutable.List
 ```
 
-No check runs, so **every agent's smoke is red on main** and the suite currently protects nothing.
+**No longer reproduces.** On current main: the suite runs 70/70 green.
 
-**Bracketed, not guessed.** Two toolchains, same file:
+**The cause was not a runtime regression, which is what I filed.** `e714c31ab` describes it exactly:
+`uniml_classpath` cached a *directory path*, and scala-cli rewrites that directory on every compile
+of the same inputs — so
 
-| toolchain built from | result |
-| --- | --- |
-| `612b393bf` (main ~4 h earlier) | runs the suite — 70 checks start |
-| current `origin/main` | dies as above |
+```
+A -> compile -> cache[A] = P, P holds A
+B -> compile -> cache[B] = P, P now holds B     (shared, overwritten)
+back to A -> HIT on cache[A] -> serves P, holding B
+```
 
-36 commits between them.
+A class file from a different compilation state is precisely how you get a cast error between two
+unrelated types. It hit me because I had been rebuilding across tree states all session — release
+branch, main, revert, main — which is the A → B → A pattern that triggers it.
 
-**It is the RUNTIME, not the script.** Checked out `scripts/smoke-ci.ssc` at `c1d29e7cc~1` and ran
-it with the failing toolchain: identical failure. The most recent edit to that file is therefore
-innocent.
+**The instructive part is why my control did not catch it.** I reverted my change, rebuilt, re-ran,
+got the identical failure, and concluded "main is broken, not me". That inference needs the two arms
+to differ only in my change — and they did not: both shared the same poisoned cache, so the control
+could not exonerate anything. A control that shares the contaminated resource is not a control, it
+is the same measurement twice.
 
-**Not front-specific.** Fails identically under the default front, `SSC_FRONT=legacy` and
-`SSC_FRONT=F`, so it is below the front, in the shared runtime.
-
-**Not general breakage.** Trivial programs run, and so does a program building `List[(Int, String)]`
-and mapping over it — the toolchain is fine for ordinary code; something in that 836-line program
-hits it.
-
-Prime suspect from the bracket, unverified: `5cdf4a3c5 feat(v3): ssc3 run is v3's own runtime`. The
-others are docs, inbox tooling, a conformance gate and a CLI validator. Confirming it costs one
-`install.sh --dev` per bisect step, which is why this is filed with the bracket rather than sat on.
+What did hold up: the narrowing. Running the previous `smoke-ci.ssc` under the failing toolchain
+showed the script was innocent, and testing all three fronts showed it was below the front. Both
+were true and both pointed at shared state — I read them as pointing at shared *code*.
 
 ## compile-jvm-shipped-broken-in-the-native-binary — resources a native image never carried
 
