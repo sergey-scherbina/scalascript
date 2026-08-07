@@ -1478,3 +1478,50 @@ REFERENCE rather than inventing a rule.
 **Measured:** N = 66 on both v3 lanes with the uniml front (was 59) and 52 with v3's own (was 50),
 DIFF 0 and CRASH 0 in all four combinations. Eight gates green, `install.sh --dev` clean, smoke-ci
 70/70.
+
+## 33 · The placeholder lambda — 97 cases on one underscore. N 66 → 69
+
+`xs.map(_ * 2)`. The rule is the reference front's, verbatim (`ssc1-front.ssc0:984`): an ARGUMENT of
+a call that contains a `_` but is not a bare `_` becomes a lambda over that argument, and a bare
+`f(_)` is left alone because that is eta-expansion, a different thing.
+
+- [x] **33a — each `_` is a DISTINCT parameter, left to right.** `_ + _` is `(a, b) => a + b` with
+      arity 2, not one parameter used twice. The reference records this as a fix (K62.29) and names
+      what it broke — `foldLeft`/`reduce` failing with "arity: 1 expected, 2 given". Copying the
+      rule rather than re-deriving it is what keeps the bridge lane and the frozen goldens in
+      agreement, and it is why `xs.foldLeft(0)(_ + _)` works on both lanes on the first try.
+
+- [x] **33b — ONE pass in the lowering, not one per front.** Both fronts already hand `_` over as
+      an ordinary name, so the desugaring has a single home. Two fronts implementing the same
+      desugaring is two implementations that will disagree — the failure this project keeps
+      arranging its apparatus to catch, so not arranging it is cheaper than catching it.
+
+      The descent says exactly which shapes are searched — binary, prefix, call, and the receiver
+      of a method call. Not a block, not an `if`, not a lambda body: a `_` there belongs to
+      something else, and the reference does not look either.
+
+- [x] **33c — `toChar` was the case behind it, and I got it wrong first.** `int-tochar-codepoint`
+      reached the executor for the first time and crashed on a missing method, so CRASH went 0 → 1
+      and the floor said so. I implemented it as a `VChar` — which read `65.toChar` as `A`
+      correctly and diverged from the bridge on the very next method, `String.toInt: invalid
+      integer`.
+
+      **The reference returns a one-character STRING** (`v2/src/Runtime.scala:2000`,
+      `StrV((n & 0xffff).toChar.toString)`), and the corpus case depends on it: it prints
+      `65.toChar + 8364.toChar` as `A€` and `List(65,66,67).map(_.toChar).mkString` as `ABC`, both
+      of which are string behaviour. Masking to the low 16 bits is the reference's rule too, and a
+      real one — `toChar` is a UTF-16 CODE UNIT, so it wraps rather than failing.
+
+      The lesson is the one this session keeps paying for: **the reference is the specification,
+      and a plausible reading of the name is not.** A one-line probe on both lanes found it
+      immediately; a corpus run would have found it as a DIFF much later.
+
+- [x] **33d — a diagnostic that sent the reader to the wrong lane.** The executor's
+      method-not-implemented message ended "`ssc3 run` uses the v2 runtime", which stopped being
+      true on 2026-08-07 when `run` switched to v3's own executor. It now names the executor and
+      points at `ssc3 run --bridge`. A stale diagnostic is worse than a terse one.
+
+**Measured:** N = 69 on both v3 lanes (was 66), DIFF 0 and CRASH 0. Eight gates green,
+`install.sh --dev` clean, smoke-ci 70/70. Front agreement unchanged at 145 of 219 with 74
+disagreements — the offside-rule question from §32d is untouched and is the next thing to settle,
+because it is a CORRECTNESS question rather than a coverage one.

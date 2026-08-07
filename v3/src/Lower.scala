@@ -889,6 +889,78 @@ object Lower:
     * Trailing only. A call that omits a MIDDLE argument needs the parameter's name, which is what
     * named arguments are for; without them, filling from the left is the only unambiguous reading
     * and a short call to a function whose gap is not at the end stays an honest arity error. */
+  /** `xs.map(_ * 2)` — the PLACEHOLDER LAMBDA.
+    *
+    * The rule is the reference front's, verbatim (`ssc1-front.ssc0:984`, `wrapPhArg`): an ARGUMENT
+    * of a call that CONTAINS a `_` but is not a bare `_` becomes a lambda over that argument. A
+    * bare `f(_)` is left alone — it is eta-expansion, a different thing, and rarer.
+    *
+    * EACH `_` IS A DISTINCT PARAMETER, left to right, so `_ + _` is `(a, b) => a + b` with arity 2
+    * rather than one parameter used twice. The reference records that as a fix (K62.29) and names
+    * what it broke: `foldLeft`/`reduce` failed with "arity: 1 expected, 2 given". Copying the rule
+    * rather than re-deriving it is what keeps the bridge lane and the frozen goldens in agreement.
+    *
+    * THE SCOPE IS ONE ARGUMENT, and the descent below says exactly which shapes are searched:
+    * binary, prefix, call, and the receiver of a method call. Not a block, not an `if`, not a
+    * lambda body — a `_` there belongs to something else, and the reference does not look either.
+    * Written as ONE pass over the AST rather than in each front: two fronts implementing the same
+    * desugaring is two implementations that will disagree, which is the failure this project keeps
+    * arranging its apparatus to catch.
+    */
+  private def hasPh(e: Expr): Boolean = e match
+    case Expr.Name("_", _)            => true
+    case Expr.Bin(_, l, r, _)         => hasPh(l) || hasPh(r)
+    case Expr.Neg(x, _)               => hasPh(x)
+    case Expr.Not(x, _)               => hasPh(x)
+    case Expr.Call(_, as, _)          => as.exists(hasPh)
+    case Expr.MethodCall(r, _, as, _) => hasPh(r) || as.exists(hasPh)
+    case Expr.Apply(f, as, _)         => hasPh(f) || as.exists(hasPh)
+    case _                            => false
+
+  /** Replace each `_` with `__u<i>`, left to right, returning the next free index. */
+  private def replacePh(e: Expr, i0: Int): (Expr, Int) = e match
+    case Expr.Name("_", p) => (Expr.Name("__u" + i0, p), i0 + 1)
+    case Expr.Bin(o, l, r, p) =>
+      val (l1, i1) = replacePh(l, i0)
+      val (r1, i2) = replacePh(r, i1)
+      (Expr.Bin(o, l1, r1, p), i2)
+    case Expr.Neg(x, p) => val (x1, i1) = replacePh(x, i0); (Expr.Neg(x1, p), i1)
+    case Expr.Not(x, p) => val (x1, i1) = replacePh(x, i0); (Expr.Not(x1, p), i1)
+    case Expr.Call(fn, as, p) =>
+      val (as1, i1) = replacePhAll(as, i0)
+      (Expr.Call(fn, as1, p), i1)
+    case Expr.MethodCall(r, n, as, p) =>
+      val (r1, i1) = replacePh(r, i0)
+      val (as1, i2) = replacePhAll(as, i1)
+      (Expr.MethodCall(r1, n, as1, p), i2)
+    case Expr.Apply(f, as, p) =>
+      val (f1, i1) = replacePh(f, i0)
+      val (as1, i2) = replacePhAll(as, i1)
+      (Expr.Apply(f1, as1, p), i2)
+    case other => (other, i0)
+
+  private def replacePhAll(es: List[Expr], i0: Int): (List[Expr], Int) =
+    var i = i0
+    var out: List[Expr] = Nil
+    es.foreach { e => val (e1, i1) = replacePh(e, i); out = out :+ e1; i = i1 }
+    (out, i)
+
+  private def wrapPhArg(e: Expr): Expr = e match
+    // A bare `_` is eta-expansion, not a placeholder lambda. Left exactly as the reference leaves it.
+    case Expr.Name("_", _) => e
+    case _ if hasPh(e) =>
+      val p = Expr.posOf(e)
+      val (body, n) = replacePh(e, 0)
+      Expr.Lambda((0 until n).toList.map(k => Param("__u" + k, p)), body, p)
+    case _ => e
+
+  private def expandPlaceholders(e: Expr): Expr =
+    mapDeep(e, x => x match
+      case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(wrapPhArg), p)
+      case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(r, n, as.map(wrapPhArg), p)
+      case Expr.Apply(f, as, p)         => Expr.Apply(f, as.map(wrapPhArg), p)
+      case other                        => other)
+
   /** `ap(3)(f)` where `def ap(n: Int)(f: Int => Int)` — a CURRIED APPLICATION of a plain function.
     *
     * Multiple parameter clauses flatten into one list at the definition, so the call has to flatten
@@ -1396,7 +1468,7 @@ object Lower:
     val sigs: List[(String, List[Param])] =
       allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
     val allDefs = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
-      .map(d => d.copy(body = fillDefaults(flattenCurried(d.body, sigs), sigs)))
+      .map(d => d.copy(body = fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)

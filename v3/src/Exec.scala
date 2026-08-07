@@ -899,9 +899,26 @@ object Exec:
             case Value.VFloat(d) if name == "toInt"  => Value.VInt(d.toLong.toInt.toLong)
             case Value.VFloat(d) if name == "toLong" => Value.VInt(d.toLong)
             case Value.VFloat(d) if name == "toDouble" => Value.VFloat(d)
-            // Refused BY NAME, with the receiver shown: a program that needs a method this lane
-            // lacks is told which one, rather than getting a wrong value.
-            case _ => throw ExecError("method '" + name + "' on " + show(recv) + " is not implemented on this lane — `ssc3 run` uses the v2 runtime")
+            // `65.toChar` is the one-character STRING "A", not a char value — which is not what I
+            // reached for first. The reference lane is explicit (`v2/src/Runtime.scala:2000`:
+            // `StrV((n & 0xffff).toChar.toString)`), and the corpus case depends on it: it prints
+            // `65.toChar + 8364.toChar` as `A€` and `List(65,66,67).map(_.toChar).mkString` as
+            // `ABC`, both of which are string behaviour. A `VChar` here read `A` correctly and then
+            // diverged from the bridge on the very next method.
+            //
+            // MASKING THE LOW 16 BITS is the reference's too, and it is a real rule rather than
+            // tidiness: `toChar` is a UTF-16 CODE UNIT, so it wraps rather than failing.
+            case Value.VInt(n)  if name == "toChar" => Value.VStr((n & 0xffffL).toChar.toString)
+            // A char IS an integer on both lanes — v2 has `CharV extends IntV`, so its `toInt` arm
+            // catches one by inheritance. v3's `VChar` is a separate case, so it needs the arm
+            // written out to answer the same.
+            case Value.VChar(c) if name == "toInt" || name == "toLong" => Value.VInt(c.toLong)
+            // Refused BY NAME, with the receiver shown. The tail of this message used to read
+            // "`ssc3 run` uses the v2 runtime", which stopped being true on 2026-08-07 when `run`
+            // switched to v3's own executor — a diagnostic that sends the reader to the wrong lane
+            // is worse than one that says less.
+            case _ => throw ExecError("method '" + name + "' on " + show(recv) +
+                        "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
 
   private def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
