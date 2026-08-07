@@ -303,6 +303,31 @@ CONTROLS — these lower fine, so the gap is the nested `def` and not "class bod
 The lambda control is the informative one: a `val`-bound function becomes a local and works, so the
 machinery for non-global callables exists — it is the `def` FORM that is lowered wrong.
 
+**CORPUS IMPACT OF THE PARSE FIX: ZERO, measured with the control.** 140 files from examples/ and
+tests/conformance/, the same list both ways, the pre-fix binary built by reverting only
+`specs/v2.2-p6.5-fsub.ssc` and verified to still decline the repro before measuring:
+
+    decision        before   after
+    BOTH-UNBOUND        64      64
+    GAP                 39      39
+    F                   31      31
+    ERROR                6       6      changed: 0
+
+The reason is in the fix's own scope: only the arm whose binder is UNUSED now lowers, and
+`json-core.ssc` USES its binder (`case error => error`), so it still declines and so does everything
+importing it. Fixing the parse without the binding does not move a single decision.
+
+**What DID change is the diagnosis, completely.** `std/http.ssc` reported `(global Response)` — an
+innocent class of its own, three import levels from the fault. It now reports `(global error)`, the
+actual construct. That is the difference between a name that sends you to the wrong file and one
+that names the thing to fix; nine measurement runs went into the first.
+
+Both facts belong together. Reporting the diagnostic win alone would read as progress on breadth,
+and reporting the zero alone would hide that the misattribution — the thing that cost the most — is
+gone. Breadth moves when the BINDING half lands, and that half is blocked on the native session
+regression recorded above, with a gate case already asserting today's honest-decline behaviour so
+the day it changes it fails and gets updated.
+
 **ROOT CAUSE FOUND 2026-08-07. Seven lines, and F silently drops every declaration after it.**
 
     case class Ok(v: Int, n: Int)
