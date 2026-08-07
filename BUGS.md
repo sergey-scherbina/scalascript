@@ -92,7 +92,7 @@ no `BUGS.md`; move it if one appears.
      lane: multi
      area: front
      kind: divergence
-     gate: none
+     gate: tests/e2e/pattern-undefined-name-gate.sh
      fixed-in: - -->
 
 Found 2026-08-07 while re-checking whether `case Ⅷ =>` still diverges across lanes — it does not,
@@ -135,8 +135,22 @@ while the repo was at `c5f59d368`. Of the 171 files changed across those 218 com
 pattern resolution or the typer, so the measurement holds for this question; confirm on a fresh
 build before closing.
 
-**No gate names this.** A fix should land the three-lane row above as a conformance case, since an
-output comparison is what distinguishes "no match" from "did not run".
+**GATED 2026-08-07** by `tests/e2e/pattern-undefined-name-gate.sh`, which pins the three rows above
+plus the lowercase control, and fails in every direction: a lane that stops matching its row, and —
+separately asserted — js coming to agree with the other two, which would otherwise leave three rows
+passing individually while the divergence they exist to report had quietly gone. Proved by planting
+each drift in turn and watching it go red; the baseline is green.
+
+**It pins the DEFECT, not the fix, and that is deliberate.** The wanted behaviour is a compile error
+on all three lanes and no lane produces one, so a gate asserting it would be red on arrival and
+could not land. If a lane starts rejecting the program, its row is to be DELETED rather than
+loosened — the row becoming wrong is the point of it.
+
+**A conformance case was costed and rejected for now**, not overlooked: `CONTRACT.md` makes every
+newly selected name RED as `NEW` for everyone until a full unsharded `int,js,v2` run refreshes the
+paired freeze, over 392 cases and needing a toolchain rebuild first. That is the right home for this
+row eventually — an expected-output comparison is what distinguishes "no match" from "did not run" —
+but it belongs in a commit that is already refreshing the baseline.
 
 
 ## multi-name-val-binds-garbage-and-says-nothing — `val a, b = 1` on four lanes, four answers
