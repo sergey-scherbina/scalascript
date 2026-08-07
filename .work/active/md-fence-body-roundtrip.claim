@@ -5,7 +5,7 @@ started: 2026-08-07T03:13:32Z
 heartbeat: 2026-08-07T03:13:32Z
 status: claimed-before-planning
 items: the last two composed round-trip failures diverge inside a fenced block body
-paths: file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/MarkdownFenceBodySpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscComposedLosslessSpec.scala
+paths: file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:uniml/markdown/src/test/scala/scalascript/uniml/dialect/markdown/MarkdownFenceBodySpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscComposedLosslessSpec.scala file:uniml/scala/src/main/scala/scalascript/uniml/ssc/SscCompose.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscMultiRootFenceSpec.scala file:uniml/BACKLOG.md file:uniml/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
