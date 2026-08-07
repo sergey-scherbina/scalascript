@@ -45,10 +45,54 @@ where the version policy lives.
 
 ## smoke-check-guards-sized-by-local-time — two checks killed by their own guard, and the runner will not say so
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: none -->
+     gate: scripts/smoke-ci.ssc
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-06 — both remaining items.** `freeze-consistency` was closed earlier (`d0df30a89`,
+and the diagnosis corrected with it); the two the entry left open because `scripts/smoke-ci.ssc` sat
+inside another claim are done now that it is free.
+
+**1. The guard is sized by MEASUREMENT, not by a dev host.** `run-lane-flags-are-flags` spawns
+TWELVE JVMs — two launchers × five lane-flag combinations, plus two unknown-flag probes — each a
+cold start plus a compile. On CI, across GREEN runs:
+
+```
+45d6148b5  51.3s     59dcabf82  51.3s     5a4ea14ab  47.2s     5903776db  54.0s
+4d8b5ae7b  60.1s  ->  TIMED OUT against a 60 000 ms guard, main RED
+```
+
+so the guard sat at ~85 % of the check's ordinary cost and ordinary runner variance tipped it over.
+`60000 -> 180000`, which is what the other multi-spawn checks here use, and it **costs the budget
+nothing**: `timeoutMs` is a ceiling, not a cost.
+
+The file's own rule — *"a check that approaches it is a check to look at, never a number to raise"* —
+is right, and it was followed rather than waived: the twelve spawns ARE the assertions, and the flag
+PAIRING is the point of the gate (the missing `--interpret` was found only because its partner
+existed), so there is nothing to cut without dropping coverage. The check is honest; the guard was
+sized against a dev host, which is this entry's title.
+
+**2. A killed check now says it was killed.** `-1` was never in the runner's legend (124 / 127 /
+137), so a timeout printed a bare `exit code -1` with no stdout and no stderr — three facts that read
+as a crash. Exercised rather than assumed, with a one-check suite and a deliberate sleep:
+
+```
+FAIL deliberate-timeout-probe          1.0s
+       | exit code -1 — TIMED OUT against its 1s guard
+```
+
+127 and 137 got the same treatment while the branch was open.
+
+**Note the probe that did NOT work, because it looked like it did.** `ssc info --front-report` on
+the modified suite reports `BOTH-UNBOUND: unbound global: readFile` — and reports exactly the same
+for the UNMODIFIED file, because `readFile` is a plugin extern a static pre-check cannot see. Without
+that control it reads as "my edit broke the file". The real check is running the suite.
+
+Full suite after the change: 69/69 green, 281.2 s of 600 s.
+
+### Original report (superseded 2026-08-06)
 
 Main has been red since 6f8e3a98f (runs 31060534903, 31060671890 — the same two failures on both,
 so the second commit inherited them). `66/68 green`, and the two reds are not logic failures:

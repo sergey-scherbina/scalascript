@@ -281,7 +281,22 @@ val suite = List(
   // while StandardMain had it, and the only thing that ever executed that path was the release
   // qualifier — on the native binary, on a runner, in a workflow that had never reached that step.
   // Both launchers are asserted because they are two entries onto one flag vocabulary.
-  Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 60000),
+  // 180000, not 60000, and the number is measured rather than chosen. This check spawns TWELVE
+  // JVMs — two launchers x five lane-flag combinations, plus two unknown-flag probes — and each is
+  // a cold start plus a compile. On CI that is 47-54 s on a GREEN run (45d6148b5 51.3, 59dcabf82
+  // 51.3, 5a4ea14ab 47.2, 5903776db 54.0) against a 60 s guard, i.e. the guard sat at ~85 % of the
+  // check's ordinary cost, and 4d8b5ae7b crossed it at 60.1 s and put main RED for nothing.
+  //
+  // The rule above — "a check that approaches it is a check to look at, never a number to raise" —
+  // is right, and I looked: the twelve spawns are the assertions, the flag PAIRING is the point of
+  // the gate (the missing `--interpret` was found only because its partner existed), and there is
+  // no fat to cut without dropping coverage. So the check is honest and the GUARD was sized against
+  // a dev host, which is this entry's title: tests/BUGS.md smoke-check-guards-sized-by-local-time.
+  //
+  // A runaway guard has to sit well clear of the working range or it is a flake generator, not a
+  // guard. 180000 is what the other multi-spawn checks here use, and it still catches a hang.
+  // Raising it costs the BUDGET nothing: timeoutMs is a ceiling, not a cost.
+  Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 180000),
   // Sub-second, and it guards a string that ends up in SOMEBODY ELSE's build file. The coordinate
   // `ssc` emits into a generated project must name a published release; a -SNAPSHOT there resolves
   // nowhere and fails at the user's first compile, in a file we wrote for them. Its only previous
@@ -682,7 +697,20 @@ def main() =
       // The exit code first: 124 is the timeout guard firing, 127 a command that could not start,
       // 137 a kill (OOM on a runner). Those three are answered by the number alone, and reading
       // them out of the output is guesswork.
-      println("         | exit code " + outcome.exitCode.toString())
+      //
+      // -1 was NOT in that legend and is what THIS runner reports when its own guard fires, so a
+      // killed check printed a bare `exit code -1` with no stdout and no stderr — three facts that
+      // look like a crash and are actually a timeout. It cost a wrong diagnosis once already
+      // (tests/BUGS.md smoke-check-guards-sized-by-local-time). Say which it is, and say the guard
+      // it hit, because "60.1 s against 60 000 ms" is the whole answer and the reader has to be
+      // able to see it without opening this file.
+      val killed = outcome.exitCode == -1 || outcome.exitCode == 124
+      val why =
+        if killed then " — TIMED OUT against its " + (check.timeoutMs / 1000).toString() + "s guard"
+        else if outcome.exitCode == 127 then " — the command could not start"
+        else if outcome.exitCode == 137 then " — killed (OOM on the runner?)"
+        else ""
+      println("         | exit code " + outcome.exitCode.toString() + why)
       headTail(outcome.stdout, 10).foreach(line => println("         | " + line))
       headTail(outcome.stderr, 10).foreach(line => println("         | " + line))
     outcomes = outcomes ++ List(outcome))
