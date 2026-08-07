@@ -96,7 +96,13 @@ parse_entries() {
       }
       slug = ""; t = ""; rb = ""; ra = ""; sv = ""; rp = ""; wo = ""; banned = ""
     }
-    /^## / { flush(); slug = $2; next }
+    # AN ENTRY HEADING HAS A SHAPE, and matching bare `^## ` did not check it. A reporter whose body
+    # used `## What I ran into` had every such line read as a new entry named "What", so ONE report
+    # became five malformed ones and this gate printed a wall of refusals about entries nobody wrote
+    # (reported by nadia, 2026-08-07, as a closing note on `std-fs-failure-contract`). The shape is
+    # what `inbox-add` writes and what `board_slugs` below already required by a different means:
+    # a kebab-case slug, then the em-dash separator. `## What I ran into` fails on both counts.
+    /^## [a-z0-9][a-z0-9-]* — / { flush(); slug = $2; next }
     slug != "" {
       for (i = 1; i <= NF; i++) {
         if ($i == "triage:")      t  = $(i+1)
@@ -247,6 +253,27 @@ if [ "$self_test" -eq 1 ]; then
   else
     printf 'FAIL  --self-test: a WELL-FORMED entry was rejected\n' >&2; st_fail=1
   fi
+  # A BODY HEADING IS NOT AN ENTRY. `## What I ran into` inside a report body used to be read as an
+  # entry named "What", so one report became five malformed ones and this gate printed refusals
+  # about entries nobody wrote (nadia, 2026-08-07). The entry below is well-formed and its BODY has
+  # exactly that shape; it must be accepted, and the count must be one.
+  { echo '<!-- inbox-entries:start -->'; printf '## g-slug — s\n%s\n\n## What I ran into\n\nbroke\n\n## What I expected\n\nnot that\n' "$hdr"; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
+  if check_file "$lab/INBOX.md" selftest >/dev/null 2>&1; then
+    printf '  ok   --self-test accepts an entry whose BODY has `## ` headings\n'
+  else
+    printf 'FAIL  --self-test: a body heading was read as an entry — one report becomes several\n' >&2; st_fail=1
+  fi
+
+  # …and the reverse, so the shape check has not simply stopped seeing entries: a MALFORMED entry
+  # heading — the right shape, missing the required fields — must still be refused. Without this
+  # pair, narrowing the pattern until nothing matches would read as a pass.
+  { echo '<!-- inbox-entries:start -->'; printf '## h-slug — s\n<!-- triage: new -->\n'; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
+  if check_file "$lab/INBOX.md" selftest >/dev/null 2>&1; then
+    printf 'FAIL  --self-test: an entry with no reported-by was ACCEPTED — the pattern matches nothing now\n' >&2; st_fail=1
+  else
+    printf '  ok   --self-test still refuses a well-shaped heading with missing fields\n'
+  fi
+
   # Check 7 gets a STUBBED `gh` rather than a live one: a self-test that depends on what happens to
   # be open on GitHub today asserts nothing reproducible, and a network round-trip in a self-test is
   # a flake waiting to be blamed on the code. The stub emits one issue that is old and referenced
@@ -298,7 +325,14 @@ board_slugs() {
   local f
   for f in $(git ls-files '*BUGS.md' '*BACKLOG.md' 2>/dev/null); do
     awk '
-      /^## / { pending = $2; next }
+      # Same shape as the INBOX reader above, and the comment over this function has claimed for a
+      # while that the two agree — they did not, and the INBOX one was the loose end that let a
+      # report body become five entries. Kept BOTH conditions here: the shape, and the `<!--` block
+      # that must follow. Either alone has a hole — a body heading spelled in kebab-case with an
+      # em dash would pass the shape, and a prose heading followed by an HTML comment would pass
+      # the block test.
+      /^## [a-z0-9][a-z0-9-]* — / { pending = $2; next }
+      /^## / { pending = ""; next }
       pending != "" && $0 ~ /^[[:space:]]*$/ { next }
       pending != "" { if ($0 ~ /^[[:space:]]*<!--/) print pending; pending = "" }
     ' "$f"

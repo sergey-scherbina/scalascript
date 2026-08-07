@@ -206,6 +206,31 @@ elif [ -n "$body_file" ]; then
 fi
 [ -n "$body" ] || body="_(no detail supplied beyond the summary)_"
 
+# A REPORTER'S HEADINGS ARE NESTED UNDER THEIR ENTRY, so they must sit below `##`. A body written
+# with `## What I ran into` used to be appended verbatim, and `inbox-gate` then read each of those
+# lines as a new entry — one report became five malformed ones and the gate printed refusals about
+# entries nobody wrote (nadia, 2026-08-07).
+#
+# DEMOTED, NOT REFUSED. Refusing would make the reporter's markdown their problem, which is the
+# shape users objected to on 2026-07-31 and were right about: a report is never blocked on
+# formatting. Their relative structure is preserved — the shallowest heading becomes `###` and
+# everything below it shifts by the same amount — so an outline stays an outline. Said out loud on
+# stderr, because silently rewriting someone's text is worse than the bug.
+if printf '%s' "$body" | grep -qE '^#{1,2} '; then
+  shallowest="$(printf '%s' "$body" | grep -oE '^#{1,6} ' | awk '{ print length($1) }' | sort -n | head -1)"
+  shift_by=$((3 - shallowest))
+  body="$(printf '%s' "$body" | awk -v n="$shift_by" '
+    /^#{1,6} / { m = match($0, /^#+/); pad = ""; for (i = 0; i < n; i++) pad = pad "#"; print pad $0; next }
+    { print }
+  ')"
+  printf 'inbox-add: the body has headings at level %d; demoted by %d so they nest under the entry.
+'     "$shallowest" "$shift_by" >&2
+  printf '  Nothing was removed and the order is unchanged — `## x` in a body reads as a NEW ENTRY
+' >&2
+  printf '  to tests/e2e/inbox-gate.sh, which is how one report once became five.
+' >&2
+fi
+
 today="$(date -u +%Y-%m-%d)"
 hdr_extra=""
 [ -n "$suspects" ] && hdr_extra="$hdr_extra$(printf '\n     reporter-suspects: %s' "$suspects")"
