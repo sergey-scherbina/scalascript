@@ -1,0 +1,11 @@
+slug: bench-v3-columns
+branch: feature/bench-v3-columns
+agent: claude-code
+started: 2026-08-07T09:52:06Z
+heartbeat: 2026-08-07T09:52:06Z
+status: claimed-before-planning
+items: bench-v3-columns
+paths: file:v3/src/Main.scala file:v3/ssc3 file:bench/run.sc file:bench/README.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
