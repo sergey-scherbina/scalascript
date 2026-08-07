@@ -396,6 +396,17 @@ object Lower:
     // single type table exists to remove.
     // `Foo.bar(…)` where `Foo` is a declared object is a DIRECT call, not dynamic dispatch. An
     // object is a namespace at Tier 0, so resolving it here is the whole of its semantics.
+    // `LazyList.from(n)` — the one LazyList CONSTRUCTOR the corpus uses. Lowered as an invoke whose
+    // RECEIVER is the starting Int, so there is no `LazyList` name to resolve at run time and the
+    // executor needs no notion of a module object. Everything after it (`map`, `take`, `sum`) is an
+    // ordinary method call on the value this produces.
+    case Expr.MethodCall(Expr.Name("LazyList", _), "from", List(argE), _)
+        if !classes.exists(c => c.name == "LazyList") =>
+      val (ai, ar, st1) = lower(argE, fns, classes, zeroArity, st0)
+      val (k, st2) = st1.constIdx(Lit.LStr("__lazyFrom__"))
+      val (d, st3) = st2.fresh
+      (ai :+ Instr.Invoke(d, k, ar, Nil), d, st3)
+
     case Expr.MethodCall(Expr.Name(obj, _), nm, argEs, p) if fns.contains(obj + "." + nm) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil

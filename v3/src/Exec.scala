@@ -40,6 +40,19 @@ enum Value:
   /** A `Set`, INSERTION-ORDERED and de-duplicated on construction — `Set(1, 2, 2, 3)` prints
     * `Set(1, 2, 3)` on the reference lane, in the order written. */
   case VSet(elems: List[Value])
+  /** A LAZY sequence: a thunk yielding either nothing or a head and the rest.
+    *
+    * `LazyList.from(n)` is INFINITE, so the representation has to be one that can be infinite —
+    * `bench/corpus/lazylist-take.ssc` maps over the whole thing and only then takes 8. The obvious
+    * cheap alternative, materialising some generous prefix and calling it a LazyList, passes that
+    * exact row and is a lie the moment a `filter` appears: `from(0).filter(_ > 1_000_000).take(1)`
+    * would come back empty instead of running on. A cons-thunk cannot be wrong that way; it can
+    * only be slow or, on a genuinely unbounded fold, refuse.
+    *
+    * NOT memoised, unlike Scala's LazyList. Traversing the same value twice recomputes it, which is
+    * invisible for the pure functions Tier 0 has and would not be once effects arrive. Stated here
+    * because the name promises memoisation to anyone who knows the Scala type. */
+  case VLazy(step: () => Option[(Value, Value)])
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -73,6 +86,7 @@ object Exec:
     case Value.VArr(_)     => "Array"
     case Value.VSet(_)     => "Set"
     case Value.VMap(_)     => "Map"
+    case Value.VLazy(_)    => "LazyList"
     case _                 => "value"
 
   def show(v: Value): String = v match
@@ -85,6 +99,7 @@ object Exec:
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
     case Value.VSet(xs)    => "Set(" + xs.length + " elements)"
+    case Value.VLazy(_)    => "LazyList(<not forced>)"
     case Value.VMap(es)    => "Map(" + es.length + " entries)"
     case Value.VClos(f, _) => "<closure " + f + ">"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
@@ -439,6 +454,29 @@ object Exec:
     f(0) = v
     Value.VData(t, f)
 
+  /** How far a fold will walk a LazyList before deciding the source is unbounded. Large enough that
+    * no honest corpus program reaches it, small enough that the refusal arrives while someone is
+    * still watching. */
+  private val LazyStepBudget = 10000000L
+
+  /** Walk a lazy sequence to its end, or refuse by name. `sum` on `LazyList.from(0)` has no answer;
+    * the only three things this could do are hang, guess, or say so. */
+  private def forceLazy(step: () => Option[(Value, Value)], why: String): List[Value] =
+    val buf = scala.collection.mutable.ListBuffer.empty[Value]
+    var cur = step
+    var go = true
+    while go do
+      if buf.length >= LazyStepBudget then
+        throw ExecError(
+          why + " walked " + buf.length + " elements without reaching the end; a LazyList this " +
+          "long is either infinite or a mistake — `take(n)` first")
+      cur() match
+        case None => go = false
+        case Some((h, t)) =>
+          buf += h
+          cur = (t match { case Value.VLazy(ts) => ts; case _ => () => None })
+    buf.toList
+
   private def rightOf(m: Module, v: Value): Value =
     val t = tagOf(m, "Right")
     if t < 0 then throw ExecError("this module declares no `Right`")
@@ -684,6 +722,98 @@ object Exec:
         es.find((k, _) => eq(k, args.head)) match
           case Some((_, v)) => someOf(m, v)
           case None         => noneOf(m)
+      // ── LazyList ────────────────────────────────────────────────────────────────────────────
+      // `LazyList.from(n)`. The lowering turns it into an invoke on the Int, so the receiver here
+      // is the starting value and there is no `LazyList` name at run time to resolve.
+      case (Value.VInt(n), "__lazyFrom__") =>
+        def gen(i: Long): Value = Value.VLazy(() => Some((Value.VInt(i), gen(i + 1L))))
+        gen(n)
+      case (Value.VLazy(step), "map") =>
+        val f = args.head
+        def go(s: () => Option[(Value, Value)]): Value =
+          Value.VLazy(() =>
+            s() match
+              case None => None
+              case Some((h, t)) =>
+                Some((apply1(m, f, h), t match { case Value.VLazy(ts) => go(ts); case other => other })))
+        go(step)
+      // `filter` is the reason this is a thunk and not a materialised prefix. It may skip
+      // arbitrarily far before yielding, and on an infinite source that is the correct behaviour
+      // rather than a hang — bounded by the same step budget as the folds below.
+      case (Value.VLazy(step), "filter") =>
+        val f = args.head
+        def go(s: () => Option[(Value, Value)]): Value =
+          Value.VLazy { () =>
+            var cur = s
+            var out: Option[(Value, Value)] = None
+            var seen = 0L
+            var searching = true
+            while searching do
+              cur() match
+                case None => searching = false
+                case Some((h, t)) =>
+                  val rest = t match { case Value.VLazy(ts) => ts; case _ => () => None }
+                  if truthy(apply1(m, f, h)) then
+                    out = Some((h, go(rest))); searching = false
+                  else
+                    seen += 1
+                    if seen > LazyStepBudget then
+                      throw ExecError(
+                        "filter scanned " + seen + " elements without a match; if the source is " +
+                        "infinite this cannot terminate")
+                    cur = rest
+            out
+          }
+        go(step)
+      case (Value.VLazy(step), "take") =>
+        val k = args.head match
+          case Value.VInt(x) => x
+          case other         => throw ExecError("take needs an Int, given " + show(other))
+        def go(s: () => Option[(Value, Value)], left: Long): Value =
+          Value.VLazy(() =>
+            if left <= 0 then None
+            else
+              s() match
+                case None => None
+                case Some((h, t)) =>
+                  Some((h, t match { case Value.VLazy(ts) => go(ts, left - 1); case o => o })))
+        go(step, k)
+      case (Value.VLazy(step), "drop") =>
+        val k = args.head match
+          case Value.VInt(x) => x
+          case other         => throw ExecError("drop needs an Int, given " + show(other))
+        var cur = step
+        var i = 0L
+        var go = true
+        while go && i < k do
+          cur() match
+            case None         => go = false
+            case Some((_, t)) => cur = (t match { case Value.VLazy(ts) => ts; case _ => () => None }); i += 1
+        Value.VLazy(cur)
+      case (Value.VLazy(step), "head") =>
+        step() match
+          case Some((h, _)) => h
+          case None         => throw ExecError("head of an empty LazyList")
+      case (Value.VLazy(step), "isEmpty")  => Value.VBool(step().isEmpty)
+      case (Value.VLazy(step), "nonEmpty") => Value.VBool(step().nonEmpty)
+      // FORCING. An unbounded fold cannot finish, and hanging is the worst of the three possible
+      // behaviours — worse than a wrong answer, because nothing says anything at all. The budget
+      // turns it into a named refusal, exactly as the `until` range guard does.
+      case (Value.VLazy(step), "toList" | "sum" | "size" | "length" | "foreach" | "foldLeft") =>
+        val xs = forceLazy(step, name)
+        name match
+          case "toList" => listIn(m, xs)
+          case "sum" =>
+            if xs.exists { case Value.VFloat(_) => true; case _ => false } then
+              Value.VFloat(xs.map { case Value.VFloat(d) => d; case Value.VInt(i) => i.toDouble
+                                    case o => throw ExecError("sum over " + show(o)) }.sum)
+            else Value.VInt(xs.map { case Value.VInt(i) => i
+                                     case o => throw ExecError("sum over " + show(o)) }.sum)
+          case "size" | "length" => Value.VInt(xs.length.toLong)
+          case "foreach"         => xs.foreach(x => apply1(m, args.head, x)); Value.VUnit
+          case _ /* foldLeft */  =>
+            if args.length < 2 then Value.VPartial(recv, name, args)
+            else xs.foldLeft(args.head)((a, b) => apply2(m, args(1), a, b))
       case (Value.VMap(es), "getOrElse") =>
         es.find((k, _) => eq(k, args.head)).map(_._2).getOrElse(args.tail.head)
       // `updated` COPIES. VMap wraps a mutable ArrayBuffer, so the one-line version that appends or

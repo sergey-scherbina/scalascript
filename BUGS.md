@@ -17,6 +17,41 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 Newest first.
 
 
+
+## v3-bridge-lazylist-crashes-with-a-java-stack-trace — the executor gained a type the bridge cannot see
+
+<!-- status: open
+     lane: multi
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-07 while landing SSC3-7k.** v3's executor now has a real lazy sequence. The bridge
+does not, and says so like this:
+
+```
+Exception in thread "main" java.lang.RuntimeException: __method__: no dispatch for .filter on <closure>
+        at ... (full Java stack trace)
+```
+
+**It fails loudly, which is already better than `v3-bridge-tuple-concat-emits-Stub` on the same
+board** — that one returns a placeholder and exits 0. But a raw `RuntimeException` with a JVM stack
+trace is a CRASH by this project's own standard: `corpus-report.sh` has a bucket for exactly this,
+"neither ran it nor refused it cleanly", and v3's executor is held to naming the method it cannot
+do. The bridge should be too.
+
+**Where it comes from:** `LazyList.from(n)` lowers to `Invoke(__lazyFrom__)` on an Int, and every
+later `map`/`filter`/`take` is an ordinary method call on the value that produces. `BridgeV2` emits
+those invokes for v2, which has no such value, so dispatch fails at the far end with no idea what
+was asked for.
+
+**Smallest useful fix:** `BridgeV2` should refuse `__lazyFrom__` BY NAME at lowering time — "the v2
+bridge has no LazyList" — rather than emitting an invoke that dies unexplained three layers down.
+Supporting laziness in v2 is a much larger question and can stay open; a stack trace cannot.
+
+**Invariant:** I-3, a program that works on one lane and not the other. Recorded rather than fixed
+because `v3/src/BridgeV2.scala` was outside the claim that found it.
+
 ## v3-bridge-tuple-concat-emits-Stub — a wrong answer that does not announce itself
 
 <!-- status: open

@@ -279,8 +279,27 @@ one symptom bucket turned out to be a different construct than the obvious readi
 
       Verified DIFFERENTIALLY: `4764780` on the executor and the bridge. Corpus 26 -> 27.
 
-- [ ] **SSC3-7k — `LazyList`.** `lazylist-take.ssc:24:17` → `unknown name 'LazyList'`; needs
-      `LazyList.from`, `.map`, `.take`, `.sum` and therefore laziness, not just a name.
+- [x] **SSC3-7k — `LazyList`.** DONE, and REALLY lazy — a cons-thunk, not a materialised prefix.
+      `LazyList.from(n)` is infinite and the corpus row maps over the whole thing before taking 8, so
+      the representation has to be able to be infinite. The cheap alternative — build a generous
+      prefix and call it a LazyList — passes that exact row and is a lie the moment a `filter`
+      appears. The control says so: `from(0).filter(_ > 1000000).take(2).toList` returns
+      `List(1000001, 1000002)`; a prefix of any fixed size returns empty.
+
+      **A fold that cannot finish REFUSES BY NAME rather than hanging** — `LazyList.from(0).sum`
+      says "walked 10000000 elements without reaching the end … `take(n)` first". Hanging is the
+      worst of the three possible behaviours, worse than a wrong answer, because nothing says
+      anything at all. Same reasoning as the `until` range guard.
+
+      **Not memoised**, unlike Scala's LazyList: traversing one twice recomputes it. Invisible for
+      the pure functions Tier 0 has, and not once effects arrive. Written down because the NAME
+      promises memoisation to anyone who knows the Scala type.
+
+      Corpus 27 -> 28. **Executor only:** the bridge crashes with a raw Java stack trace
+      (`no dispatch for .filter on <closure>`) — filed as
+      `BUGS.md v3-bridge-lazylist-crashes-with-a-java-stack-trace`, since `BridgeV2.scala` was
+      outside this claim.
+
 
 ### Executor — it compiles, and then it stops (4 files)
 
