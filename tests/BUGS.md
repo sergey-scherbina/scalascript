@@ -49,7 +49,7 @@ where the version policy lives.
      lane: apparatus
      area: build
      gate: scripts/smoke-ci.ssc
-     fixed-in: PENDING -->
+     fixed-in: c1d29e7cc -->
 
 **FIXED 2026-08-06 — both remaining items.** `freeze-consistency` was closed earlier (`d0df30a89`,
 and the diagnosis corrected with it); the two the entry left open because `scripts/smoke-ci.ssc` sat
