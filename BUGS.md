@@ -18,6 +18,148 @@ Newest first.
 
 
 
+## parameterless-def-local-not-invoked-js-and-native — a local parameterless def, and v2 answers silently
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: tests/conformance/parameterless-def-local.ssc -->
+
+`def mk: Box = Box("loc")` declared INSIDE a body is not invoked at its mention on two lanes, while
+the same declaration at top level is invoked on all four. Found while fixing the interpreter half of
+`parameterless-def-diverges-native-vs-interp` (below), by measuring five declaration positions
+instead of the one the report named.
+
+```scalascript
+case class Box(v: String)
+def main(): Unit =
+  def mk: Box = Box("loc")
+  println(mk.v)
+```
+
+| lane | result |
+| --- | --- |
+| int | `loc` |
+| jvm | `loc` |
+| js | `Method not found: v on <function>` (exit 1) |
+| v2 / native | **`<closure>`, exit 0** |
+
+**The v2 half is the one to fix first, because it does not fail.** `.v` on the closure yields
+something that prints as `<closure>` and the program exits 0, so a mis-invoked local def produces a
+plausible wrong answer rather than an error — a program can carry this for a long time. js at least
+names the shape it has (`<function>`).
+
+The interpreter had the same defect and the fix there is a template: the distinction is not visible
+in the parameter list (both spellings give none), so it has to be carried on the def and consulted
+where a bare name is resolved — and there was more than one such place.
+
+## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
+
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     gate: tests/e2e/parameterless-def-import-gate.sh
+     fixed-in: 14190447f -->
+
+**FIXED on the interpreter side.** Scala settles which lane was right: `def mk: Box = …` declares a
+*parameterless method*, so every mention invokes it and `mk()` is not how it is called. native, jvm
+and js all did that; the interpreter — the lane the conformance corpus treats as golden — did not,
+and handed the closure to the use site.
+
+**The report's table was true only for a TOP-LEVEL def.** Measuring five declaration positions
+instead of the one it named turned one divergence into a map. The local-def cell is a defect on the
+other lane, filed above. A second cell I read as one was not: the extension row failed on v2 in my
+probe, and the probe had wrapped its call in `def main()` — the conformance case put the same call
+at top level, v2 passed, and the `known-red` I had declared for it went red as STALE. What is
+actually broken there is `v2-extension-member-call-inside-a-def-body-fails-by-arity` in
+`v2/BUGS.md`, which has nothing to do with parameterless defs.
+
+| declaration | int (before) | int (after) | jvm | js | v2 / native |
+| --- | --- | --- | --- | --- | --- |
+| top-level | `FunV` | ✅ | ✅ | ✅ | ✅ |
+| object member | ✅ | ✅ | ✅ | ✅ | ✅ |
+| class member | ✅ | ✅ | ✅ | ✅ | ✅ |
+| local, in a body | `FunV` | ✅ | ✅ | ❌ | ❌ silent `<closure>` |
+| extension member | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**The fix.** `params` cannot tell the two spellings apart — both are empty — so `FunV` gains a
+`parameterless` constructor field, set at the def sites from an empty `paramClauseGroups`, and a
+bare name that resolves to one is invoked instead of returned. Three positional `FunV(…)` patterns
+had to become typed patterns for the added field; they are better that way anyway, since the next
+field will not touch them.
+
+**Two implementations passed every single-file shape and were still wrong**, and each was caught by
+a control rather than by review:
+
+1. *A non-constructor `var`, plus an `interp.parameterlessDefsPresent` gate* — modelled on
+   `declaredReturnType` and `objectVarsPresent` right above it, and wrong twice over. `copy` starts
+   a case class's non-constructor `var`s over and the section/import path copies every function it
+   binds; and the gate is owned by the RUNNING program, so an imported def — which arrives from a
+   child `Interpreter` — reads false and skips the check entirely.
+2. *An identity-keyed map of parameterless def BODIES on the interpreter* — the shape `tcoCache`
+   uses, and immune to `copy` for exactly the reason that cache is keyed that way. Still wrong: a
+   module import runs the imported file in its own `Interpreter`, so the registration lands in the
+   CHILD's map and the parent probes an empty one. Isolating gate from registry took one probe — put
+   a parameterless def in the importing file too, so the gate reads true; the import still failed.
+
+A constructor field is what survives both, because the value itself is the answer wherever it
+travels. `tests/e2e/parameterless-def-import-gate.sh` is the two-file gate that says so, and it goes
+red against the pre-fix binary while its control row stays green.
+
+**One fix, two decision sites.** Patching the monadic `Term.Name` path alone made `mk.v` print `L` —
+the report's own repro — while `println(mk)`, `f(mk)` and `val a = mk` still handed over the closure.
+`EvalRuntime.fastValue` is a second site answering the same question: a Pure-free lane that reads a
+name as a `Value` without going through `eval`. It cannot invoke anything (it returns a `Value`, not
+a `Computation`), so it now DECLINES a parameterless def and lets the mention fall through to the
+path that can. Had the gate carried only the reported repro, this would have shipped as a fix for
+one position out of four.
+
+**The controls are the case, not decoration.** `next` mentioned twice must print `1` then `2`, or a
+lane that memoises like a `val` passes everything else. `def toFn: Int => Int` mentioned bare must
+yield the lambda so `toFn(3)` is one call of each — the shape `v2/bin/ssc1-run.ssc0` depends on
+(`def sscLibRoot = () => …` called as `sscLibRoot()`), and a census found all 13 same-file
+paren-less-declaration/`name()`-call pairs in the repo to be exactly that shape, so no existing
+program changed meaning.
+
+The control I tried first — `val f = zero` for `def zero(): Int` — is a **compile error in real
+Scala 3**, and the jvm lane said so, since it compiles to Scala. int, js and v2 all accepted it. The
+looseness is not what this entry is about, so it is not in the case.
+
+**Moved here from `tests/BUGS.md`.** `lane: multi` routes to the root file (AGENTS.md §"A bug goes
+in the BUGS.md of the module that owns the FIX"); it was filed under the harness because that is
+where the case that caught it lived, which is the mis-routing that rule exists to stop.
+
+A `def` declared **without** parens (`def mk: Box = Box("L")`) is handled in exactly opposite ways
+by the two lanes, and there is no way to write the call that satisfies both.
+
+| expression | native (`bin/ssc run`) | interpreter (`ssc-tools run --v1`) |
+| --- | --- | --- |
+| `mk` (any position: `val`, field access, argument) | auto-invokes → `L` | yields the function → `No method 'v' on FunV(<function(0)>)` |
+| `mk()` | `ssc: app: not a function: Box("L")` | `L` |
+
+Minimal repro — no import, no module boundary, three lines:
+
+```scalascript
+case class Box(v: String)
+def mk: Box = Box("L")
+println(mk.v)
+```
+
+Native prints `L`; the interpreter fails with `No method 'v' on FunV(<function(0)>)`.
+
+**Portable spellings do exist**, which is what keeps this from being a blocker: `def mk(): Box`
+declared *with* parens and called as `mk()`, or `val mk: Box`. Both lanes agree on both forms. The
+defect is confined to the paren-less declaration.
+
+**Why it is worth an entry rather than a note.** The failure does not name its cause: it surfaces
+as `No method '<field>' on FunV` at the *use* site, which reads as a missing field on a case class,
+not as a def that was never invoked. It also cannot be found by running the program the usual way —
+`bin/ssc run` is green on the very file the conformance INT lane rejects, so it looks like a bad
+gate. It cost me roughly half an hour on `std/credential.ssc` before the lane map explained it.
+
+Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
+comment pointing here.
+
 ## v3-bridge-lazylist-crashes-with-a-java-stack-trace — the executor gained a type the bridge cannot see
 
 <!-- status: fixed

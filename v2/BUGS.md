@@ -10,6 +10,50 @@ Newest first.
 
 
 
+## v2-extension-member-call-inside-a-def-body-fails-by-arity — two conditions, and one of them is a spelling
+
+<!-- status: open
+     lane: native
+     area: runtime
+     gate: tests/conformance/extension-call-in-a-def-body.ssc -->
+
+```scalascript
+case class Box(v: String)
+extension (s: String) def boxed: Box = Box(s)
+def inBody(): Unit = println("body-" + "a".boxed.v)
+def main(): Unit = inBody()
+```
+
+v2 / native: `arity: 1 expected, 0 given`. int, js and jvm print `body-a`.
+
+**Reproducing needs BOTH conditions**, which is the whole content of this entry — three drafts of the
+conformance case were green on v2 because each happened to drop one of them:
+
+| extension form | top-level statement above the `def`? | call site | v2 |
+| --- | --- | --- | --- |
+| single-line `extension (s: String) def boxed: Box = …` | — | top level | ✅ |
+| single-line | yes, and it uses the member | def body | ✅ |
+| single-line | yes, and it touches no extension at all | def body | ✅ |
+| single-line | present, but BELOW the def | def body | ❌ |
+| single-line | none | def body | ❌ |
+| single-line | none | `def main` directly | ❌ |
+| block form (`extension (s: String)` then indented members) | none | def body | ✅ |
+| block form | yes, using another member | def body | ✅ |
+
+So a top-level statement *lexically above* the def fixes it whatever it contains, and the block-form
+declaration is immune. That shape — any statement above works, position matters, content does not —
+reads like the single-line form's registration being emitted lazily at the first top-level statement,
+so a def lowered before any statement does not see it. Not verified; nobody has read the emitter.
+
+An extension member **with a parameter** (`def tag(t: String): Box`) fails identically on the red
+rows, and a parameterless one succeeds on the green ones.
+
+**This replaces a wrong entry**, `parameterless-extension-member-arity-native`, which said v2 counts
+the receiver as an argument to a *parameterless* extension member. That came from one probe that
+happened to satisfy both conditions above, and the conformance harness refuted it the first time the
+case ran — the case had put the call at top level, v2 passed, and the declared known-red failed as
+STALE. Every narrowing step after that came from the harness rejecting a draft, not from reading code.
+
 ## f-getOrElse-on-a-case-class-field-passes-the-receiver — `arity: 2 expected, 3 given`
 
 <!-- status: fixed
