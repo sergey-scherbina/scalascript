@@ -972,7 +972,17 @@ object SpikeParse:
     else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then take()
     var more = true
     while more do
-      if c.peekKind == "spike.lbracket" then takeBalanced("spike.lbracket", "spike.rbracket")
+      // A QUALIFIED type name — `a.b.C[Book]`. Only the head was taken, so the type ended at `a` and
+      // whatever followed was read as a new statement: `given x: a.b.C[Book] = …` reported TWO
+      // diagnostics, and the anonymous spelling reported one. Both are ordinary Scala and the
+      // reference front parses them. Dots are consumed here rather than in either `given` branch
+      // because every caller of `captureType` has the same gap — a `def`'s result type, a `val`'s
+      // ascription, a parameter type.
+      if c.peekKind == "spike.dot" &&
+         (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then
+        take() // `.`
+        take() // segment
+      else if c.peekKind == "spike.lbracket" then takeBalanced("spike.lbracket", "spike.rbracket")
       else if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
         take()
         if c.peekKind == "spike.lparen" then takeBalanced("spike.lparen", "spike.rparen")
@@ -1095,7 +1105,39 @@ object SpikeParse:
       c.advance() // `=`
       parseExpr(c, 1).foreach(b => kids += b.withRole("given.body"))
       Node.Frame("spike.givenval", None, kids.result())
-    else sealedNoop(t0) // anonymous given — no-op
+    else
+      // AN ANONYMOUS GIVEN — `given T = body`, `given T with { … }` — is a no-op to this dialect, and
+      // it used to be a no-op that CONSUMED NOTHING. So `given a.b.C[Book] = a.b.C.derived` left the
+      // cursor on `a`, the parser resumed there as if it were a statement, and reported
+      // "expected statement, found '='" — the last diagnostic in the whole tagged corpus
+      // (examples/graph-rdf4j-http-storage.ssc:21). The reference front parses and runs the same
+      // file, so it was a gap here.
+      //
+      // It stays SEMANTICALLY a no-op: the projection documents `spike.sealed` as the node an
+      // anonymous given produces because it "genuinely carries nothing", and giving it a name-less
+      // `spike.given` would hand the typed AST a node whose `given.name` is absent. What changes is
+      // only that the construct is now EATEN, which is what a lossless parser owes a form it does
+      // not model.
+      val save = c.mark
+      captureType(c, "given.type")
+      if c.peekKind == "spike.eq" then
+        c.advance()
+        parseExpr(c, 1)
+        sealedNoop(t0)
+      else
+        // ONLY THE `= body` FORM IS CONSUMED, and an anonymous `given … with` deliberately is NOT.
+        //
+        // I wrote the `with` arm first and then removed it. Consuming a `with` body here would parse
+        // its members and DISCARD them — `sealedNoop` carries nothing — which is the exact shape
+        // `40-front-on-uniml.md` §5b item 3 is about: a construct swallowed into a contentless node
+        // is invisible to the diagnostic count, to the drop census and to coverage, all at once.
+        // Trading a loud diagnostic for a silent drop is the wrong direction, and the corpus does
+        // not ask for it: ZERO files write an anonymous `given … with`.
+        //
+        // So the cursor goes back and the form keeps its diagnostic. Half-consuming would be worse
+        // than either — it would move the complaint onto whatever followed.
+        c.reset(save)
+        sealedNoop(t0)
 
   // `summon[T]` — resolved to the matching given by lowerProg. A bare `summon` (no `[`) is a var.
   // The payload is the WHOLE type application as ONE string, exactly as ssc1-front builds it: its

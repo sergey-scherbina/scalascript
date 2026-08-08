@@ -183,5 +183,14 @@ final class SscBreadthSpec extends AnyFunSuite:
     // floor is 0 gaps and the ceiling can sit just above the known-bad set. Headroom of 8 is for a
     // sibling adding an example with a construct nobody has taught the dialect yet; a real
     // regression in this parser moves this number by tens.
-    assert(taggedDiags <= 12, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
+    // ZERO, as of 2026-08-08 over 1,660 tagged fences. The ceiling was 12 while the last four were
+    // `@side = server` in one example — a construct the language does not have, and the author's
+    // decision was to delete it. The last diagnostic after that was a real gap: a qualified type
+    // name (`a.b.C[Book]`) was not a type to `captureType`, in every position and not just `given`.
+    //
+    // The headroom is 4 rather than 0 for one reason, and it is not caution: a sibling adding an
+    // example with a construct nobody has taught the dialect yet should not turn main red on a
+    // number with no slack at all. A real regression here moves it by tens — every previous slice
+    // did.
+    assert(taggedDiags <= 4, s"diagnostics from TAGGED fences grew to $taggedDiags — this is the column that measures the language, and it regressed")
   }
