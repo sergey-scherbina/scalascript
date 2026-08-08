@@ -2358,7 +2358,13 @@ def collectEAR2(ename, pr) = pr match { case (cases, r) => Cons((ename, caseName
 // env (a later default sees earlier params). Linear top-level scan (like collectCC): react ONLY to a `def`/
 // `case class` HEAD or the `enum` keyword, then ALWAYS advance ONE token — the construct's params get
 // re-walked but nothing re-triggers (a match-arm `case Name(..)` is never a trigger, so patterns are safe).
-def collectFuncDflts(ts) = if isEmpty(ts) then Nil else collectFD1(ts)
+// Externs are excluded here for the same reason as in collectCurried, and this registry is the one
+// that carries THREE behaviours: default synthesis, the vararg list collapse, and the curried-clause
+// padding. Leaving externs in it was a divergence I introduced with the vararg work — `va(1, 2)` on
+// `extern def va(xs: Int*)` started emitting a Cons list where the oracle passes the two arguments
+// individually. Caught by dumping F0's IR beside the oracle's rather than by any test, which is the
+// argument for having built that instrument.
+def collectFuncDflts(ts) = if isEmpty(ts) then Nil else (if isExternHead(ts) then collectFuncDflts(tl(tl(ts))) else collectFD1(ts))
 def collectFD1(ts) = if isDefHead(ts) then appEnv(defDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isCCHead(ts) then appEnv(ccDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isEnumHead(ts) then appEnv(enumDfltEntries(ts), collectFuncDflts(tl(ts))) else collectFuncDflts(tl(ts))))
 def isDefHead(ts) = if isTok(hd(ts), 2, 1) then isNameTok(hd(tl(ts))) else false
 def isNameTok(t) = if fst(t) == 1 then true else fst(t) == 3
@@ -2373,7 +2379,20 @@ def collectRetTab(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appE
 // Same whole-file token walk as collectRetTab above, and the same known limit: a curried METHOD
 // inside an object lands in this flat name table too. That can only matter for a top-level call of
 // the same name with two clauses, which would be curried anyway.
-def collectCurried(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appEnv(curriedEntry(ts), collectCurried(tl(ts))) else collectCurried(tl(ts)))
+// AN `extern def` IS EXCLUDED, and this is the general rule for externs rather than a special case
+// here: the oracle passes an extern call site through VERBATIM. Dumped from ssc1-front+ssc1-lower
+// against F0 for the same three-line program:
+//
+//   extern def httpClient(url: String)(block: => Unit)     REF (app (app (global httpClient) u) lam)
+//                                                          F   (app (global httpClient) u lam)
+//   extern def rd(options: Int = 5)     called rd()         REF (app (global rd))
+//   extern def va(xs: Int*)             called va(1, 2)     REF (app (global va) 1 2)
+//
+// No clause flattening, no default synthesis, no vararg list. The native implementation owns its
+// calling convention, and rewriting the call to match a SOURCE signature it never sees is what made
+// examples/_bug1b.ssc drop its block: F handed the thunk as a second argument to a native function
+// that takes one, and the runtime discarded it silently — `after` printed, `inside-block` never.
+def collectCurried(ts) = if isEmpty(ts) then Nil else (if isExternHead(ts) then collectCurried(tl(tl(ts))) else (if isDefHead(ts) then appEnv(curriedEntry(ts), collectCurried(tl(ts))) else collectCurried(tl(ts))))
 def curriedEntry(ts) = curried1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
 def curried1(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then Cons(nm, Nil) else Nil)
 def defRetEntry(ts) = defRet1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
