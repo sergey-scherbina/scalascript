@@ -101,6 +101,23 @@ own `curObj`/package handling is the area that
 guesses: the placeholder binder `__u0` may be going unbound because the enclosing def is registered
 under a different name than the one the placeholder's lambda is emitted into.
 
+**That check was run and it is NOT the package key.** The same seven lines as a synthetic module,
+once with `package: std.demo.m` and once without, BOTH lower. So the def-name diff shows a real
+difference in F's output but the package declaration alone does not cause it — the synthetic version
+substitutes plain types for the real ones and evidently loses whatever else matters.
+
+**Eight hypotheses eliminated on this symptom, every one by measurement.** In order: nesting inside a
+concatenation; nesting inside an enclosing call; the argument split across source lines; a callee
+with a default parameter; mutual recursion through placeholders; a wildcard pattern beside a
+placeholder; string interpolation and bracket literals; the number of preceding `val`s; and the
+`package:` key. None reproduces.
+
+WHAT IS SOLID: the seven-line reduction, verified IN PLACE in `std/ui/content.ssc`, where every
+single line is load-bearing. That artefact is the deliverable — it took a mechanical hand-cut to get
+and no amount of building candidates up has reproduced it. A ninth guess is not the move; working
+FROM the seven lines is, by editing them in place one construct at a time rather than rewriting them
+elsewhere.
+
 Check that first: whether the same seven lines in a module WITHOUT a `package:` front-matter key
 still reproduce. If they do not, this is package-name mangling and not placeholders at all — which
 would also explain why every synthetic reconstruction, none of which declared a package, lowered
