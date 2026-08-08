@@ -1,1 +1,1 @@
-addSbtPlugin("org.scalascript" % "sbt-scalascript-interop" % "0.1.0")
+addSbtPlugin("org.scalascript" % "sbt-scalascript-interop" % "0.1.0-SNAPSHOT")

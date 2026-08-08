@@ -126,6 +126,24 @@ if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
     echo "  Anything measured with this tree would be the OLD toolchain." >&2
     exit 1
 fi
+# The sbt interop plugin, published to the local ivy repo.
+#
+# `ssc new` scaffolds five of six templates with `addSbtPlugin(... sbt-scalascript-interop ...)` and
+# `enablePlugins(ScalascriptInteropPlugin)`, so a generated project cannot even LOAD its build
+# unless that artifact resolves. Nothing publishes it anywhere, so before this every `ssc new`
+# produced a project that failed on its first `sbt compile` with "Not found" -- reproduced in
+# tests/BUGS.md scaffolded-projects-cannot-load-their-build.
+#
+# It is a SEPARATE sbt build (not in the root aggregate), hence its own invocation. Local publish
+# only: whether this plugin should be published for real is an open product question, and until it
+# is, this makes the scaffolds work for anyone who builds ssc from source.
+echo "Publishing the sbt interop plugin locally (ssc new needs it to resolve)..."
+(cd "$ROOT/v1/tools/sbt-plugin" && sbt -no-colors -batch publishLocal) || {
+    echo "install.sh: sbt-plugin publishLocal failed — 'ssc new' will produce projects that cannot" >&2
+    echo "  load their build. See tests/BUGS.md scaffolded-projects-cannot-load-their-build." >&2
+    exit 1
+}
+
 [ -f "$LIB/standard/ssc.jar" ]  || { echo "Stage did not produce $LIB/standard/ssc.jar" >&2; exit 1; }
 [ -d "$LIB/standard/jars" ]     || { echo "Stage did not produce $LIB/standard/jars/" >&2; exit 1; }
 [ -f "$LIB/ssc.jar" ]           || { echo "Stage did not produce $LIB/ssc.jar" >&2; exit 1; }

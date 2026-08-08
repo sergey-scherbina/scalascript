@@ -310,6 +310,13 @@ val suite = List(
   // nothing. Minutes here, against a suite that was decorative.
   // 600000: ten scenarios, each booting its own sbt and resolving Scala 2.12 for the plugin.
   Check("tests", "sbt-plugin-scripted", "tests/e2e/sbt-plugin-scripted.sh", List(), 600000),
+  // `ssc new` must produce a project that LOADS. It did not: five of six templates scaffold an
+  // addSbtPlugin line for an artifact nobody published, so every generated project died on its
+  // first sbt command with "Not found". Nothing had ever scaffolded a project and then tried to
+  // build it, and inspecting the template FILES would not have caught it either — the coordinate
+  // was well-formed, it just named something that did not exist. This resolves for real.
+  // 300000: one `sbt update` in a scratch project, plus sbt's own boot.
+  Check("tests", "scaffold-loads-its-build", "tests/e2e/scaffold-loads-its-build.sh", List(), 300000),
   // Sub-second, and it guards a string that ends up in SOMEBODY ELSE's build file. The coordinate
   // `ssc` emits into a generated project must name a published release; a -SNAPSHOT there resolves
   // nowhere and fails at the user's first compile, in a file we wrote for them. Its only previous

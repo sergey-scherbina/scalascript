@@ -3,7 +3,7 @@
 <!-- status: open
      lane: apparatus
      area: cli
-     gate: none -->
+     gate: tests/e2e/scaffold-loads-its-build.sh -->
 
 `ssc new <name> --template app` produces a project that fails on its first command. Reproduced, not
 inferred:
@@ -33,9 +33,17 @@ So aligning the version alone does not fix this: `0.1.0-SNAPSHOT` is equally unr
 question underneath is whether this plugin is meant to be published at all, which is a product
 decision rather than a defect to patch.
 
-**Interim that would at least work for people who built ssc from source:** have `install.sh`
-`publishLocal` the plugin and have the templates name the version it produces. That fixes the
-scaffold for this repository's own users and leaves the publication question open.
+**Fixed that way, on Sergiy's decision:** `install.sh` now `publishLocal`s the plugin, and the five
+templates name `0.1.0-SNAPSHOT` — the version that build actually produces, instead of a `0.1.0`
+nothing ever made. Gated by `tests/e2e/scaffold-loads-its-build.sh`, which scaffolds a project and
+runs `sbt update` in it: checking the template FILES would not have caught the original defect,
+because the coordinate was well-formed and simply named an artifact that did not exist.
+
+Falsifiable, measured: remove the local publish from `~/.ivy2` and the gate fails with the
+resolution error; restore it and it passes.
+
+**Still open, deliberately:** whether this plugin should be published for real. Until it is,
+`ssc new` works for people who build ssc from source and not for anyone else.
 
 Related: this is the third site in the same family — `Main.scala`'s emitted coordinate and
 `uniml/build.sbt` were the other two, both fixed and now gated by
