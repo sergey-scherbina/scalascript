@@ -98,6 +98,12 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     val sscGenerateFacade = taskKey[Seq[File]](
       "Generate Scala 3 facade sources from .scim artifacts via `ssc generate-facade`."
     )
+    /** Classifier for the linked ScalaScript jar in `publishLocal` / `publish`.
+      *
+      *  A classifier rather than the main artifact: the plain jar carries the Scala facades that
+      *  `sscGenerateFacade` generates and sbt compiles, so the two are different things. */
+    val SscClassifier = "ssc"
+
     val sscManagedDependencies = settingKey[Seq[ModuleID]](
       "Maven deps lifted from .ssc front-matter `dependencies:` (dep: coordinates) " +
       "and added to libraryDependencies so Coursier resolves them onto the classpath."
@@ -110,6 +116,10 @@ object ScalascriptInteropPlugin extends AutoPlugin {
 
   // Opt-in: users call `enablePlugins(ScalascriptInteropPlugin)`.
   override def trigger: PluginTrigger = noTrigger
+
+  /** The classified artifact descriptor for the linked ScalaScript jar. */
+  private def sscArtifactFor(module: String): Artifact =
+    Artifact(module, "jar", "jar", Some(autoImport.SscClassifier), Vector.empty, None)
 
   override def projectSettings: Seq[Setting[_]] = Seq(
     sscBinary := "ssc",
@@ -291,6 +301,26 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     },
 
     Compile / compile := ((Compile / compile) dependsOn (Compile / sscCompile)).value,
+
+    // The linked JAR reaches sbt's artifacts, so `publishLocal` / `publish` carry it. Before this
+    // `sscLink` produced a jar and handed it to nobody, so a ScalaScript library could not be
+    // published from sbt at all.
+    //
+    // PROJECT scope, not `Compile /`: publishLocal reads packagedArtifacts at the project level,
+    // and scoping them to Compile publishes nothing while saying nothing about it.
+    //
+    // ADDITIVE, with a classifier, rather than replacing packageBin: the plain jar holds the Scala
+    // facades sscGenerateFacade emits and sbt compiles, so replacing it would publish a library
+    // missing them.
+    //
+    // Registered ONLY when the jar exists. sscLink returns its output path even when it skipped the
+    // work ("no .ssc artifacts to link"), so a project with no .ssc sources would otherwise claim
+    // an artifact for a file nobody wrote and publishing would die on "Missing files for
+    // publishing". Nothing consumed sscLink's result before, so that phantom had never mattered.
+    packagedArtifacts ++= {
+      val jar = (Compile / sscLink).value
+      if (jar.exists()) Map(sscArtifactFor(moduleName.value) -> jar) else Map.empty[Artifact, File]
+    },
     Compile / packageBin := ((Compile / packageBin) dependsOn (Compile / sscLink)).value,
     Test / test := ((Test / test) dependsOn (Test / sscTest)).value,
     Compile / sourceGenerators += sscGenerateFacade.taskValue

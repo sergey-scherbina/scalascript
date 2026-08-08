@@ -1,0 +1,6 @@
+# A .ssc source, so `sscCompile` has something to build and `sscLink` has something to link.
+# Without one the plugin logs "no .ssc artifacts to link" and the scenario measures nothing.
+
+```scalascript
+def answer(): Int = 42
+```

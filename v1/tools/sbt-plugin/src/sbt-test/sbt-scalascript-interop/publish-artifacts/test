@@ -1,0 +1,6 @@
+# The linked ScalaScript jar must reach sbt's artifacts, so publishLocal/publish carry it.
+# Wiring it as a CLASSIFIED artifact rather than replacing packageBin is deliberate: the plain jar
+# holds the Scala facades sscGenerateFacade emits and sbt compiles, so replacing it would publish a
+# library missing them. This asserts the classified jar exists; it never touches a remote repo.
+> publishLocal
+> checkSscArtifact

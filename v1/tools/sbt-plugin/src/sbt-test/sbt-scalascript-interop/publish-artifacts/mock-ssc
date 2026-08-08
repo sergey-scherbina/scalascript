@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Mock ssc for scripted testing — implements only `generate-facade`.
+# Reads .scim files from <artifactDir> and writes hard-coded facade sources
+# to <outputDir> for the test fixtures provided alongside this script.
+set -euo pipefail
+
+# `link` writes a placeholder jar at --output: this scenario is about sbt's ARTIFACT wiring, not
+# about what ssc puts inside the jar.
+if [ "$1" = "link" ]; then
+  out=""
+  while [ $# -gt 0 ]; do
+    [ "$1" = "--output" ] && out="$2"
+    shift
+  done
+  [ -n "$out" ] || { echo "[mock-ssc] link: no --output" >&2; exit 1; }
+  mkdir -p "$(dirname "$out")"
+  printf 'PK\003\004mock-linked-jar' > "$out"
+  echo "[mock-ssc] link -> $out" >&2
+  exit 0
+fi
+
+# `build` writes one .scim so sscCompile returns a non-empty Seq and link actually runs. Returning
+# success while writing nothing made sscLink skip, and the artifact wiring then pointed at a file
+# that did not exist -- which is the phantom this scenario now also guards.
+if [ "$1" = "build" ]; then
+  art=""
+  while [ $# -gt 0 ]; do
+    [ "$1" = "--artifact-dir" ] && art="$2"
+    shift
+  done
+  [ -n "$art" ] || { echo "[mock-ssc] build: no --artifact-dir" >&2; exit 1; }
+  mkdir -p "$art"
+  printf '{"magic":"SSCART","moduleName":"demo"}\n' > "$art/demo.scim"
+  exit 0
+fi
+
+# generate-facade emits NOTHING here. `basic` has a mock that writes a facade referencing
+# _ssc_runtime symbols and only ever asserts the file exists; this scenario runs publishLocal, which
+# COMPILES the generated sources, and that facade does not compile on its own. Artifact wiring is
+# what is under test, so the facade is deliberately empty rather than fake-but-broken.
+if [ "$1" = "generate-facade" ]; then
+  echo "[mock-ssc] generate-facade: nothing to emit in this scenario" >&2
+  exit 0
+fi
+
+echo "[mock-ssc] unknown command: $1" >&2
+exit 1
