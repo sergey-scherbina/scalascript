@@ -16,7 +16,7 @@ in its own worktree off `origin/main`.
 ## F coverage: the decline reasons left after 2026-08-08 (claim `f-underscore-global`)
 
 Measured, not guessed: `ssc info --front-report` over 140 corpus files. After the arm-body fix
-(`c50b9ae8a`): **53 F, 17 GAP, 65 BOTH-UNBOUND, 5 ERROR**, from 38/32/64/6 before it — 15 files
+(`d7546f299`): **53 F, 17 GAP, 65 BOTH-UNBOUND, 5 ERROR**, from 38/32/64/6 before it — 15 files
 GAP→F, one ERROR→BOTH-UNBOUND, and **no file regressed out of F**.
 
 **Rank by GAP only.** The earlier ranking in this section counted every row, so it was topped by
