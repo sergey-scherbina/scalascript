@@ -949,10 +949,11 @@ cells capture; if a cell here ever disagrees with a manual run again, start ther
 
 ## v2-three-parameter-clauses-fail-typecheck — `def f(a)(b)(c)` dies with "cannot unify Tuple with non-Tuple"
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     gate: none -->
+     gate: tests/conformance/curried-def-three-clauses.ssc
+     fixed-in: PENDING -->
 
 Found 2026-08-04 while fixing `v2-front-curried-def-second-clause`, by adding a three-clause row to
 `tests/e2e/v2-front-coverage.sh` and watching it report `ERROR` instead of `F`:
@@ -1026,9 +1027,81 @@ which is why they work. Start by dumping `params` as `ssc1chkTopStmts` receives 
 a 3-clause def and comparing — not by reading the unifier, which is behaving correctly on the input
 it is given.
 
-Still not fixed, and deliberately: the remaining step is a change in the self-hosted checker or in
-how the front emits clause boundaries, and it wants the context to verify on both fronts and all
-four lanes.
+**FOUND 2026-08-08 — the checker is innocent and both earlier hypotheses are wrong.** The recorded
+next step was the right one: dumping what `ssc1chkTopStmts` receives settles it in one run. Debug
+built into the def-typing site of the staged tower copy (read at runtime, no rebuild), the def
+returned via `TcErr` so the message surfaces:
+
+```
+def two(a: Int)(b: Int): Int      →  nparams=2  ty=(t1 -> (t1 -> t1))     ✅
+def tri(a: Int)(b: Int)(c: Int)   →  nparams=2  ty=(t0 -> (t1 -> ()))     ❌
+```
+
+**The three-clause def arrives with TWO parameters and a Unit result.** There is no empty parameter
+group — the hypothesis this entry recorded — and no zero-argument application to hunt for. The `()`
+is not produced by the unifier at all: it is the def's own body type.
+
+**Cause, in one comment.** `v2/lib/ssc1-front.ssc0:1958` reads *"KC8: handle (using p: T, ...) or a
+SECOND regular param list"*, and that is the whole clause handling — first clause into `params`, one
+more into `rp2`, no loop. For a third clause `toks5` then points at `(c: Int)`, `skipTypeAnnot`
+finds no annotation, `kindIs("=", toks6)` is FALSE, and the def falls into the abstract-def branch
+whose body is `mkTup(Nil)` — Unit. Everything else follows: the def types fine on its own because an
+abstract def does; `tri(1)(2)` is Unit; applying `(3)` demands `Unit ~ (Int -> t6)`; and splitting the
+call across statements fails identically because the TYPE was already wrong.
+
+**Why fixing the checker or F would not have helped.** F's own def parser DOES loop over clauses —
+`emitDefClause` recurses back into `emitDefU` — and `ssc info --front-report` names F for the
+two-clause file. But the type check runs on the TOWER front's parse regardless of which front lowers,
+which is why both fronts report the same error and why the fix belongs in `ssc1-front.ssc0`.
+
+**FIXED.** The parse now folds every further plain clause after `rp2` and threads the result through
+`callParams` and `toks5`; a `using` clause is left to the branch that already handles it. Measured:
+3 clauses → 6, 4 clauses → 10, 2 clauses unchanged at 3. Four are in the gate as well as three,
+because the old ceiling was "two" — a fix that special-cased a third clause would pass a three-clause
+case and fail a four-clause one.
+
+**Guard, since the walk keys on `(`:** nothing that merely starts with a paren may be eaten. A
+parenthesised body (`def paren(a: Int): Int = (a + 1)`) and a tuple return annotation
+(`def tup(a: Int): (Int, Int)`) both sit right after a parameter list; the walk stops at `:` and `=`,
+and both are pinned in `tests/conformance/curried-def-three-clauses.ssc`.
+
+**One probe in the narrowing above measured a different defect, and it is worth striking out.** The
+row *"3 clauses, PARTIALLY applied: `val g = f(1)` then `g(2)(3)` → TYPEERR, identical"* was read as
+evidence about clause count. It is not: with three clauses now working, that shape still fails with
+`arity: 3 expected, 1 given`, and the TWO-clause equivalent fails the same way — on the unmodified
+shared toolchain as well, so it predates everything here. Curried defs lower at their TOTAL arity
+(`curried-def-clauses.ssc` says so in as many words), so partial application is unsupported at any
+clause count. Filed separately as `v2-curried-def-partial-application-unsupported`.
+
+## v2-curried-def-partial-application-unsupported — a curried def cannot be applied one clause at a time
+
+<!-- status: open
+     lane: native
+     area: front
+     gate: none -->
+
+```scalascript
+def two(a: Int)(b: Int): Int = a + b
+def main(): Unit =
+  val g = two(1)
+  println(g(2))
+```
+
+`ssc: arity: 2 expected, 1 given`. Three clauses give `arity: 3 expected, 1 given`. Measured on the
+unmodified shared toolchain, so it is not a consequence of the clause-loop fix above.
+
+A curried def lowers at its TOTAL arity and its call site flattens — `curried-def-clauses.ssc` pins
+exactly that as intended behaviour — so `f(1)` is an under-applied call rather than a partial
+application, and there is no closure to bind. Making it work means either lowering curried defs to
+nested lambdas or synthesising a partial-application wrapper when a call supplies fewer arguments
+than the arity, and the first would change what that conformance case pins.
+
+Found while fixing `v2-three-parameter-clauses-fail-typecheck`, where this shape had been recorded as
+a probe supporting a wrong reading of THAT defect: it fails identically at two clauses, so it says
+nothing about clause count. No gate: it would have to be a `known-red`, and the behaviour it would
+pin is a design question rather than a regression.
+
+
 
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed

@@ -1962,8 +1962,21 @@ def parseDef = (toks) =>
       if kwIs("using", ts4b) then parseUsingParams(advance(ts4b))
       else parseParamList(toks4)
     else pr(Nil, toks4) in
+  -- THIRD AND FURTHER clauses. The line above handles exactly one continuation, and its comment says
+  -- so ("a SECOND regular param list") — so `def f(a)(b)(c)` parsed two clauses, then found `(c: Int)`
+  -- where it wanted `=`, and fell into the abstract-def branch whose body is `mkTup(Nil)`. The def
+  -- came out typed `(t0 -> (t1 -> ()))`, and the call died as `cannot unify tuple: () vs (Int -> t6)`
+  -- far from the cause. A `using` clause is left to the branch above; only plain clauses are folded
+  -- here, and anything that is not `(` — `:`, `=` — stops the walk, so a parenthesised body or a
+  -- tuple return annotation is untouched. (BUGS.md v2-three-parameter-clauses-fail-typecheck.)
+  let rec moreClauses = (acc, ts) =>
+    if kindIs("(", ts) then
+      (if kwIs("using", advance(ts)) then pr(acc, ts)
+       else let rcN = parseParamList(ts) in moreClauses(append(acc, prV(rcN)), prT(rcN)))
+    else pr(acc, ts) in
+  let rp3 = moreClauses(Nil, prT(rp2)) in
   -- ctxParams first, then regular params, then using params
-  let allParams = append(ctxParams, append(extensionParams, append(params, prV(rp2)))) in
+  let allParams = append(ctxParams, append(extensionParams, append(params, append(prV(rp2), prV(rp3))))) in
   -- Register named `using` params for call-site auto-injection: (defName → ([usingTypeStr], fullCount)).
   -- fullCount = regular + using count (the arg count when using is passed EXPLICITLY); ssc1-lower's
   -- injectGivens appends the using givens only when the call has fewer args than that.
@@ -1978,7 +1991,7 @@ def parseDef = (toks) =>
   -- trailing args at call sites.
   -- Context dictionaries are injected separately by the lowerer and therefore
   -- are not part of the source-call arity/default registry.
-  let callParams = append(params, prV(rp2)) in
+  let callParams = append(params, append(prV(rp2), prV(rp3))) in
   let _reg = registerParamDflts(name, callParams) in
   -- Curried = a non-empty SECOND clause; snapshot the first clause's defaults so the
   -- lowerer's curry-collapse can fill them when the first clause is called empty.
@@ -1993,7 +2006,7 @@ def parseDef = (toks) =>
     case Cons(h, t) =>
       #cell.set(extensionMethodsCell, Cons(name, #cell.get(extensionMethodsCell)))
   } in
-  let toks5 = prT(rp2) in
+  let toks5 = prT(rp3) in
   -- optional return type
   let toks6 = skipTypeAnnot(toks5) in
   -- '=' is optional: abstract defs (in traits/effects) have no body

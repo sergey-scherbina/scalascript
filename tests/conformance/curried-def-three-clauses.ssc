@@ -1,0 +1,31 @@
+---
+name: curried-def-three-clauses
+description: "a def with three or more parameter clauses types and runs; two clauses were the old ceiling"
+backends: [int, jvm, js, v2]
+---
+
+# `def f(a)(b)(c)` — the third clause
+
+`curried-def-clauses` pins two clauses. Three used to die with `cannot unify tuple: () vs (Int ->
+t6)`, and the message pointed nowhere near the cause: the tower front parsed a first clause and one
+continuation, found `(c: Int)` where it wanted `=`, and took the abstract-def branch whose body is
+the empty tuple. So the def typed as `(t0 -> (t1 -> ()))` — two parameters returning Unit — and the
+error surfaced at the call, which is why the def alone always looked fine.
+
+Four clauses are here because the old ceiling was "two", not "three": a fix that special-cased a
+third would pass a three-clause case and fail this one.
+
+The last two lines are the guard. Nothing that merely *starts* with `(` may be eaten as a parameter
+clause — a parenthesised body and a tuple return annotation both follow a def's parameter list and
+must survive untouched.
+
+```scalascript
+def tri(a: Int)(b: Int)(c: Int): Int = a + b + c
+def quad(a: Int)(b: Int)(c: Int)(d: Int): Int = a + b + c + d
+def paren(a: Int): Int = (a + 1)
+def tup(a: Int): (Int, Int) = (a, a * 2)
+println(tri(1)(2)(3))
+println(quad(1)(2)(3)(4))
+println(paren(10))
+println(tup(5)._2)
+```
