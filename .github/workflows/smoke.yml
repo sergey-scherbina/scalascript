@@ -65,7 +65,7 @@ jobs:
     name: smoke — the fast repo-wide suite
     runs-on: ubuntu-latest
     # MEASURED on the first run (30543331480, cold caches): 10.8 min end to end — ~4 min of setup and
-    # launcher build, then 6.3 min of suite. The suite's own budget is 500 s (SSC_SMOKE_BUDGET) and it
+    # launcher build, then 6.3 min of suite. The suite's own budget is 750 s (SSC_SMOKE_BUDGET) and it
     # FAILS when it overruns — which it has done twice, both times with every check green: 378.5 s
     # against a 300 s guess, then 338.6 s against a 330 s cap fitted to one observation. See the
     # table in scripts/smoke-ci.ssc; the short version is that the corpus slice varies ±25 % between

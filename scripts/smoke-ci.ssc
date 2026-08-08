@@ -73,7 +73,7 @@ DEFAULT one could not. A CI runner is subprocesses and nothing else, so the gap 
 ## Accounting
 
 Per-check timings, aggregated per module, with a hard total budget (`SSC_SMOKE_BUDGET`, default
-600 s). The budget is enforced, not documented — this file is where the push path stops being allowed
+750 s). The budget is enforced, not documented — this file is where the push path stops being allowed
 to grow silently, and a run that overruns it fails even when every check passed.
 
 **420 s is sized on a DISTRIBUTION, not on one sample, and getting that wrong cost two red runs.**
@@ -88,7 +88,8 @@ wrong:
 | 330 s | 338.6 s | 18/18 green, RED on the budget alone. The slice was 175.2 s that run — the SAME suite, +60 s |
 | 420 s | 428.8 s | 58/58 green, RED on the budget alone (run 30905783511). By then the suite held 58 checks, not the 18 the row above measured |
 | 500 s | 509.9 s | RED on the cap alone at 65/65 green — the suite had grown to 65 checks |
-| 600 s | see below | RAISED 2026-08-05, again on the project owner's instruction |
+| 600 s | 634.9 s | 72/72 green, RED on the cap alone (run 31253238252) — and the 600 s was never met by a suite doing all of its work, see below |
+| 750 s | RAISED 2026-08-08, on the project owner's instruction |
 
 The third row is the lesson: the dominant check varies by ±25 % between runs on a shared runner, so a
 cap fitted to one sample encodes that sample's luck. POLICY P-6.6 says one measurement is a
@@ -108,6 +109,23 @@ Raising it was refused twice before by agents including me, and correctly: an ag
 on its own work is how the cap stops meaning anything. This raise is the project owner's decision,
 recorded here rather than applied quietly, and `tests/BUGS.md smoke-suite-over-its-own-budget` stays
 OPEN — 500 s is headroom for the current 58 checks, not an answer to what the suite should contain.
+
+**On the raise to 750 s, and why it is not the "agent lifts a cap on its own work" the paragraph
+above forbids.** The 600 s was never met by a suite that ran all of its checks. `Setup sbt` in
+`smoke.yml` was gated on the toolchain cache being a MISS, so on every cache HIT the sbt setup was
+skipped and `sbt-plugin-scripted` + `scaffold-loads-its-build` failed instantly instead of running —
+that is `tests/BUGS.md smoke-sbt-setup-skipped-on-cache-hit`. Run 31253238252, the first cache-HIT
+run after fixing it: 72/72 green, 634.9 s, `sbt-plugin-scripted` 102.9 s where it had been 0.0 s.
+The suite's real cost on that path was always ~635 s and the breach was invisible because the cheap
+runs were the broken ones.
+
+So this raise admits work the suite was already supposed to do, not work that was added. Measured
+spread on comparable runs is 580.4 s (cache miss) to 634.9 s (cache hit), so 750 s sits ~115 s above
+the observed maximum — the same "above the maximum with room for the spread" rule the 420 s row was
+fitted by. It is still the project owner's decision, asked for and given on 2026-08-08 with those
+numbers in hand, and `tests/BUGS.md smoke-suite-over-its-own-budget` stays OPEN: 750 s is headroom
+for 72 checks, not an answer to what the push path should contain. The alternative offered and not
+taken was moving `sbt-plugin-scripted` (16 % of the run) to the sbt job.
 
 When a run overruns THIS, read the per-check timings before touching the number; that is the whole
 point of printing them. Uniform inflation across every check is a loaded host, not a slow suite. One
@@ -667,7 +685,7 @@ def showTally(tally: LaneTally): String =
 def main() =
   val argv = args
   val listOnly = argv.contains("--list")
-  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "600").toInt()
+  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "750").toInt()
   val modules = declaredModules()
 
   // The hierarchy check comes FIRST: a suite that silently drops a check because its module name

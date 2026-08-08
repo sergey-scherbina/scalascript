@@ -778,12 +778,17 @@ its stated budget for as long as that step has been broken.
 | `tests` | 384.2 s of 634.9 s (60 %), of which `sbt-plugin-scripted` 102.9 s |
 | everything else | 250.7 s |
 
-**Not decided here, on purpose.** `scripts/smoke-ci.ssc` says a raise "was refused twice before by
-agents including me, and correctly: an agent lifting a cap on its own work is how the cap stops
-meaning anything", and both prior raises (500 s, 600 s) were the project owner's. The two options
-are a cap that admits ~635 s plus runner spread, or `sbt-plugin-scripted` (16 % of the run) leaving
-the push path for the sbt job — a coverage-versus-latency call with its own history in this repo.
-Raising it quietly is the one thing that must not happen.
+**Decided by the project owner, asked with the numbers above in hand: RAISED to 750 s on
+2026-08-08.** `scripts/smoke-ci.ssc` says a raise "was refused twice before by agents including me,
+and correctly: an agent lifting a cap on its own work is how the cap stops meaning anything", and
+both prior raises (500 s, 600 s) were the owner's, so this one was put to them rather than applied.
+The alternative offered and not taken was moving `sbt-plugin-scripted` (16 % of the run) to the sbt
+job, which would have held the suite at ~532 s at the cost of catching a plugin regression off the
+push path.
+
+750 s sits ~115 s above the observed maximum (580.4 s cache miss, 634.9 s cache hit), which is the
+same "above the maximum with room for the spread" rule the 420 s cap was fitted by. **This entry
+stays OPEN:** 750 s is headroom for 72 checks, not an answer to what the push path should contain.
 
 **MEASURED 2026-08-07, and the framing below is WRONG. It is not "the suite is too big" — it is ONE
 check and ONE missing cache path.** Thirteen consecutive runs, suite total against

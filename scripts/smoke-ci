@@ -17,7 +17,7 @@
 # Usage:
 #   scripts/smoke-ci              run the suite (exit 1 on any failure or budget overrun)
 #   scripts/smoke-ci --list       print the suite without running it
-#   SSC_SMOKE_BUDGET=600 …        raise the total budget — read the note in smoke-ci.ssc first
+#   SSC_SMOKE_BUDGET=750 …        raise the total budget — read the note in smoke-ci.ssc first
 
 set -euo pipefail
 
