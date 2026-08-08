@@ -1,0 +1,90 @@
+# ScalaScript 3 — its gates, run by something other than a person remembering to.
+#
+# WHY THIS FILE EXISTS. Measured 2026-08-08: `v3` appears in NO workflow, in no script under
+# `scripts/`, and not in `scripts/smoke-ci.ssc`. Every one of v3's gates — selftest, exec, bridge,
+# parity, front, front-report — is run by hand, and they are good gates: they caught a parser change
+# that silently dropped two statements the same day they were run.
+#
+# That is the second suite found unwired this week; the first was `@scalascript/control-direct`,
+# whose 496 lines of tests nothing invoked for three weeks while eleven BUGS entries sat open
+# waiting for a signal they could never receive. A suite nobody runs is worse than a red one: a red
+# suite at least says something.
+#
+# Its own file rather than a job in ci.yml, for the same reason js-packages.yml has one: the
+# push-path budget should not be the reason a suite stays unwired, and these gates need none of
+# that suite's setup.
+name: v3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v3/**'
+      - '.github/workflows/v3.yml'
+  pull_request:
+    paths:
+      - 'v3/**'
+      - '.github/workflows/v3.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: v3 gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The kernel builds with the JDK and nothing else — invariant I-1 — so nothing is installed
+      # for these. The driver caches a jar per SOURCE DIGEST, which is why the first gate pays for
+      # the compile and the rest do not.
+      - name: selftest
+        run: v3/selftest.sh
+      - name: executor differential
+        run: v3/exec-gate.sh
+      - name: bridge
+        run: v3/bridge-gate.sh
+      - name: parity
+        run: v3/parity-gate.sh
+      - name: front
+        run: v3/front-gate.sh
+      - name: front report
+        run: v3/front-report-gate.sh
+
+  front-capability:
+    name: the two fronts accept the same programs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # SEPARATE JOB because this one costs an sbt build. UniML is an sbt project and v3's kernel is
+      # not; the second front is available only when its classpath file exists. Without this step the
+      # gate reports that it cannot run and exits 1 on CI — deliberately, since a capability
+      # comparison with one front is not a comparison, and saying nothing is the failure this gate
+      # was written about.
+      - name: Register the UniML front
+        run: v3/uniml-classpath.sh
+
+      - name: Front capability parity
+        run: v3/front-capability-gate.sh
