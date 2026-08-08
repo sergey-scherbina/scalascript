@@ -4,6 +4,73 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## DATASET — the second decision v3 has not made, measured 2026-08-08
+
+Not a task, and taken off the queue after measuring it rather than after starting it. `Dataset` is
+the largest single name left in the corpus's `unknown name` bucket, which makes it look like the
+next link in the chain SSC3-6 walked. It is not a link. It is the question of HOW v3 GETS HOST
+SURFACE AT ALL, and it cannot be answered one lane at a time.
+
+**The prize, counted rather than estimated.** 42 corpus files mention `Dataset`. **21 fail FIRST on
+the name itself** — 12 in `tests/conformance` (counted in `N`) and 9 in `examples` (not counted).
+The other 17 fail on something else before they ever reach it: `spark`, `HandlerRegistry`, `Seq`,
+`java`, `args`, `ActiveUsers`, a multi-arm `catch`. So the ceiling is **N 166 → 178**, and only if
+every one of the 12 also passes the rest of its program — each uses `collect`, `map`, `groupBy`,
+`reduce`, `sortBy`, `first`, `mkString` on top of the constructor.
+
+The surface those files actually call, counted across the corpus:
+
+    46  Dataset.of          11  Dataset.fromTable      9  Dataset.fromFile
+     7  Dataset.fromList     3  Dataset.fromGenerator  2  Dataset.fromCsvAs
+     1  Dataset.run          1  Dataset.runParallel    1  Dataset.runShuffle
+
+**What already exists, and where.** v1 implements it in host code — `DatasetRuntime.scala` (284
+lines) plus `DStreamsIntrinsics.scala` (1200). v2 implements it as a NATIVE PLUGIN,
+`v2/runtime/std/dataset-plugin`, which registers **the exact names above**: `context.register
+("Dataset.of")`, `"Dataset.fromList"`, `"Dataset.fromFile"`, `"Dataset.fromGenerator"`. v3's entire
+host surface is three entries — `Lower.scala:20`: `println`, `__autoOutput__`, `__throw__`.
+
+**Why it cannot be added to one lane.** This is the part that turns a task into a decision, and
+every clause of it was measured:
+
+- `Ir.Prim` is the single door to the host, and v2's runtime does route prims through
+  `V2PluginRegistry.handlers`. The seam is real and the names already agree.
+- But the corpus's bridge lane is `java -cp "$V2_CP" ssc.cli run-ir`, and `$V2_CP` is
+  `classes_for ssc2 "" "$ROOT/v2/src"` plus the toolchain — **0 dataset entries on it**. `run-ir`
+  is `v2/src` ALONE (`Jit.scala:133` says so in as many words), and `v2/src` contains no
+  `.install(`, no `NativePluginContext`, no `ServiceLoader`: there is no plugin-loading path in
+  that lane at all. `Dataset` appears in `v2/src/Runtime.scala` exactly once, in a comment.
+- `holds_v2` returns TRUE for these cases — they carry no `known-red: … v2` and no `backends:`
+  line, only `requires: Feature.Dataset`, which **nothing in `corpus-report.sh` reads**. So a
+  bridge-lane failure lands as **DIFF, not EXCL**.
+
+Put together: implementing `Dataset` in v3's executor alone would turn 12 UNSUP into 12 PASS on the
+exec lane and **12 DIFF on the bridge lane**, breaking the stated DIFF 0. The escape hatch that
+exists for exactly this shape — `EXCL`, "ran, differed, but this case does not hold the v2 lane" —
+does not apply, because these cases DO hold it.
+
+**The three ways out, none of them cheap, and the choice is not a lowering author's to make:**
+
+1. **Implement it twice** — in `v3/src/Exec.scala` and in the shared `v2/src` kernel. That is the
+   1200-line runtime in two places, one of them the kernel both v2 lanes execute, and a feature
+   implemented in two places is two implementations that will disagree — the same argument this
+   file already makes about by-name arguments.
+2. **Give `run-ir` a plugin path**, so the bridge lane can load `v2/runtime/std/dataset-plugin` and
+   v3 only has to LOWER `Dataset.of(…)` to `Prim("Dataset.of", …)`. One implementation, and it is
+   already written. Cost is an integration v2 has deliberately not had: `run-ir` being a pure VM is
+   what makes the zero-dependency invariant checkable rather than aspirational (`Ir.scala:137`).
+3. **Write `Dataset` in ScalaScript**, as a library over lists, so both lanes get it with no host
+   surface at all. Architecturally the best answer and the one the project's own rule points at
+   (new intrinsics go to the plugin, never the core). **Blocked on a prelude:** the corpus files
+   call `Dataset.of` with NO import, v3's module system is markdown links, and v3 has no prelude or
+   auto-import mechanism — `grep -rniE 'prelude|auto-import' v3/src v3/ssc3` is empty. Ambient
+   names are a mechanism v3 does not have, and adding one is its own decision.
+
+**What is NOT worth doing, stated so nobody does it:** making `corpus-report.sh` honour `requires:`
+so these cases stop counting. It would move `N` without moving anything real, and the script's own
+comment already settled the policy — *"still counted and still listed — a silent skip would hide
+work"*.
+
 ## The two fronts disagree on WHERE a by-name argument becomes a thunk — 29 corpus cases
 
 Measured 2026-08-08 **on `origin/main` in a clean worktree**, before any of my own uncommitted work:
