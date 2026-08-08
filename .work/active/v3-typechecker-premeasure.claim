@@ -5,7 +5,7 @@ started: 2026-08-08T15:39:16Z
 heartbeat: 2026-08-08T15:39:16Z
 status: claimed-before-planning
 items: the three measurements the type-checker decision names as not done, none of which commits anything
-paths: file:v3/BACKLOG.md
+paths: file:v3/BACKLOG.md file:scripts/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
