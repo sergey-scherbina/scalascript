@@ -2,7 +2,6 @@
 name: parameterless-def-local
 description: "a parameterless def declared inside a body is invoked at its mention, like a top-level one"
 backends: [int, jvm, js, v2]
-known-red: "v2 — a LOCAL parameterless def is not invoked at its mention: v2 prints the closure and exits 0, so it answers plausibly and wrongly rather than failing. js was red here too and is FIXED; remove this line when BUGS.md v2-local-parameterless-def-not-invoked is fixed"
 ---
 
 # The same rule inside a body
@@ -12,8 +11,11 @@ covered by `parameterless-def-mention`. This case exists because the two are sep
 every lane, and measuring them separately is what showed the top-level one green while the local one
 was not.
 
-The v2 half is the worse failure: it exits **0** and prints `<closure>` for every line, so a program
-that mis-invokes here produces a plausible wrong answer instead of an error.
+Both halves are fixed; this case is green on all four lanes and carries no `known-red`.
+
+v2 was the worse failure: it exited **0** and printed `<closure>` for every line, so a program that
+mis-invoked here produced a plausible wrong answer instead of an error. `SSC_FRONT=legacy` still
+does — see `v2/BUGS.md legacy-front-local-parameterless-def-not-invoked`.
 
 js was red here too. Its emitter had the right rule and an incomplete input: `zeroParamFns`, which
 decides whether a bare name is emitted as `mk` or `mk()`, was filled by the TOP-LEVEL pre-pass only,

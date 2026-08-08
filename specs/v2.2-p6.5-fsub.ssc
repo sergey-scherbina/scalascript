@@ -1165,7 +1165,7 @@ def tupleCtor(es) = "(ctor Tuple" ++ dlen(es) ++ joinArgs(es) ++ ")"
 // else a top-level var/val -> `(prim cell.get (global name__cell))`; else a bare global.
 def isThisRef(nm, env) = if nm == "this" then lookup("__self", env) >= 0 else false
 def calleeOf(nm, env, cx) = if isThisRef(nm, env) then "(local " ++ lookup("__self", env) ++ ")" else calleeOf1(nm, env, cx)
-def calleeOf1(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isCurObjMethod(nm, cx) then "(global " ++ curObjMethod(nm, cx) ++ ")" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")"))))))))
+def calleeOf1(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("%" ++ nm, env) >= 0 then "(app (local " ++ lookup("%" ++ nm, env) ++ "))" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isCurObjMethod(nm, cx) then "(global " ++ curObjMethod(nm, cx) ++ ")" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")")))))))))
 // A lowercase call may carry explicit type args before its `(args)` or block arg — `foo[T](x)`,
 // `coroutineCreate[Int, Unit, String] { .. }`. Type args are erased, so skip the `[..]` (skipGen) and
 // dispatch on the following `(` (or fall to a bare ref, letting postfix pick up a trailing block arg).
@@ -1421,7 +1421,16 @@ def parseCaseLamGen(ts, env, cx) = parseGenMatch("(local 0)", ts, "" :: env, cx)
 // Env discipline mirrors parseBlockVal exactly: params are pushed onto `nm :: env`, so slot order
 // inside the lambda is [params.., nm, outer..] and the arity is the number of params alone.
 def parseBlockDef(ts, env, cx) = parseBlockDef1(snd(hd(tl(ts))), skipGen(tl(tl(ts))), env, cx)
-def parseBlockDef1(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockDefP(nm, parseParams(tl(ts), Cons(nm, env)), env, cx) else parseBlockDefB(nm, Cons(nm, env), 0, skipToEq(ts), env, cx)
+// A LOCAL def with no parameter clause is a parameterless METHOD: every mention invokes it. Both
+// spellings lower to `(lam 0 ..)`, so `def zero(): Int` worked only because its call site applied it
+// while a bare `mk` handed back the closure — v2 printed `<closure>` and exited 0, a plausible wrong
+// answer rather than a failure. The binder is pushed under a `%` PREFIX, exactly as cell-backed
+// locals use `@`/`@@`/`@@@`, and calleeOf1 turns a hit on it into `(app (local i))`. The name never
+// reaches the emitted `(letrec ((lam ..)) ..)` — that node is positional — so prefixing `nm` on the
+// way in marks the binder for BOTH the body (self-recursion) and the rest of the block without
+// changing a single signature, and `dlen` is untouched because the list length is the same.
+// The paren-full branch is deliberately left plain. (v2/BUGS.md v2-local-parameterless-def-not-invoked.)
+def parseBlockDef1(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockDefP(nm, parseParams(tl(ts), Cons(nm, env)), env, cx) else parseBlockDefB("%" ++ nm, Cons("%" ++ nm, env), 0, skipToEq(ts), env, cx)
 def parseBlockDefP(nm, pr, env, cx) = pr match { case (penv, r) => parseBlockDefB(nm, penv, dlen(penv) - dlen(env) - 1, skipToEq(r), env, cx) }
 def parseBlockDefB(nm, penv, ar, ts, env, cx) = parseExpr(ts, 0, penv, cx) match { case (b, r) => parseBlockDefR(nm, ar, erase(b, cx), r, env, cx) }
 def parseBlockDefR(nm, ar, b, ts, env, cx) = parseBlock(ts, Cons(nm, env), cx) match { case (rest, r) => ("(letrec ((lam " ++ ar ++ " " ++ b ++ ")) " ++ rest ++ ")", r) }

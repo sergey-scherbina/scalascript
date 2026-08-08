@@ -64,7 +64,6 @@ oidc-idp	*	SKIP
 oidc-login-flow	*	SKIP
 openapi-annotation	*	SKIP
 paginated-typed-client	*	SKIP
-parameterless-def-local	v2	KNOWN-RED
 pg-listen-notify	*	SKIP
 quoted-macro-constfold	v2	FAIL
 quoted-macro-interpreter	js	FAIL

@@ -12,73 +12,65 @@ Newest first.
 
 ## v2-local-parameterless-def-not-invoked — `<closure>`, exit 0, for every line
 
+<!-- status: fixed
+     lane: native
+     area: front
+     gate: tests/conformance/parameterless-def-local.ssc
+     fixed-in: PENDING -->
+
+`def mk: Box = Box("loc")` declared INSIDE a body was not invoked at its mention on v2 / native,
+while the same declaration at top level was. v2 printed `<closure>` for **every** line and exited 0 —
+not a lost invocation but a plausible wrong answer, which is why this outlived the other three lanes.
+
+**The fix is in `specs/v2.2-p6.5-fsub.ssc`, the F front — not in the tower lowerer.** Both spellings
+lower to `(lam 0 …)`, so `def zero(): Int` only ever worked because its call site applied the thunk;
+a bare `mk` handed back the closure. F already marks cell-backed locals with `@`/`@@`/`@@@` prefixes
+on the env entry, so the parenless local binder now goes in under `%`, and `calleeOf1` turns a hit on
+it into `(app (local i))`. The emitted `(letrec ((lam …)) …)` is positional and never carries the
+name, so prefixing `nm` on the way into `parseBlockDefB` marks the binder for the body
+(self-recursion) AND the rest of the block without changing one signature, and `dlen` is untouched
+because the list length is unchanged. The paren-full branch is deliberately left plain.
+
+**I spent a build cycle editing the wrong front, and the check that would have prevented it costs one
+command.** The entry's own advice said the shape would repeat in `v2/lib/ssc1-lower.ssc0`, so I fixed
+it there — and nothing changed. `ssc info --front-report <file>` answers who compiles it: `F`. The
+tower lowerer is what `SSC_FRONT=legacy` runs.
+
+**What the tower attempt actually proved, measured rather than assumed.** I first read its failure as
+"the `parameterlessDefsCell` mechanism is not involved", on the strength of a probe that hardcoded a
+name into the module-level registration and still printed `<closure>` — but that probe ran under **F**,
+so it measured nothing about the tower. Re-run under `SSC_FRONT=legacy` with the registration in
+place, it prints `unbound global: mk`: the registration DID fire, and `parameterless_app` lowers to
+`(app (global n))`, which is wrong for a LOCAL binder. Half right — the right place, the wrong node.
+That is the same distinction F's own comment draws, and what `(app (local i))` solves there.
+
+Controls measured on v2 and on the native lane: `def zero(): Int` bound and called still prints 7, a
+parenless `def mk: Int` prints 5, and `next` mentioned twice prints 1 then 2 rather than 1 twice.
+
+## legacy-front-local-parameterless-def-not-invoked — the same defect, one front over
+
 <!-- status: open
      lane: native
-     area: runtime
-     gate: tests/conformance/parameterless-def-local.ssc -->
+     area: front
+     gate: none -->
 
-`def mk: Box = Box("loc")` declared INSIDE a body is not invoked at its mention on v2 / native, while
-the same declaration at top level is invoked on all four lanes.
+`SSC_FRONT=legacy` still prints `<closure>` for a local parenless def; F is fixed. Same repro as the
+entry above.
 
-```scalascript
-case class Box(v: String)
-def main(): Unit =
-  def mk: Box = Box("loc")
-  var n = 0
-  def next: Int =
-    n = n + 1
-    n
-  println(mk.v)
-  println(next)
-  println(next)
-```
+**Two thirds of the work is already done and recorded there.** The registration site is
+`resolveE`'s `"block"` arm in `v2/lib/ssc1-lower.ssc0` — around its `let rec resolveBlock` walk,
+saving and restoring `parameterlessDefsCell` the way `prevCtx`/`prevHR` do a few hundred lines down;
+that has to be on the resolve side because a def body is resolved by `resolveE` before `lowerBlock`
+ever sees it. Measured: with exactly that in place, legacy goes from `<closure>` to
+`unbound global: mk`.
 
-int, jvm and js print `loc / 1 / 2`. **v2 prints `<closure>` three times and exits 0** — so it does
-not merely lose the invocation, it answers plausibly and wrongly for every line, which a program can
-carry for a long time. That is why this is filed separately and why it outlived the other three
-lanes.
+**What is missing is the second half.** `resolveE`'s `"var"` arm rewrites a registered name to
+`parameterless_app`, and that lowers to `(app (global n))` — right for a top-level def, wrong for a
+local binder, hence the unbound global. It needs a local-aware forcing node, which is precisely what
+F does with `(app (local i))`.
 
-**Formerly `parameterless-def-local-not-invoked-js-and-native`, `lane: multi`, in the root
-`BUGS.md`.** The js half is fixed, so only one implementation is left and the entry moved to the file
-its lane names. The js fix is worth reading before starting on v2, because the shape may repeat: the
-emitter's RULE was correct and its INPUT was incomplete — `zeroParamFns`, which decides whether a
-bare name emits as `mk` or `mk()`, was populated by the TOP-LEVEL pre-pass only, so a local
-declaration emitted `_dispatch(mk, 'v', [])`, the function object instead of its value. The fix
-registers a statement list's parenless defs for the duration of that list and restores exactly what
-was there before, so a same-named sibling scope is unaffected. Landed on the js lane as part of the
-work that split this entry.
-
-**The shape DOES repeat, located but not fixed.** `v2/lib/ssc1-lower.ssc0` has the same two pieces js
-has: `parameterlessDefsCell` (line 274, whose own comment says "a bare source reference denotes the
-produced value" and that explicit `def f()` is intentionally absent) and `isParameterlessDef`
-consulted by `resolveCallee`. It is filled once per module at line 5918 from
-`collectParameterlessDefs` (line 5577) — and that function walks the TOP-LEVEL statement list only.
-It matches `Cons(stmt, rest)` and recurses on `rest`; it never descends into a def's body. So a local
-`def mk: Box` is never registered and its bare reference is never auto-applied.
-
-**Do not just make the collector descend.** The js registry needed SCOPING, and v2's is one flat list
-in a cell reset per module: adding local names to it globally would auto-apply a same-named top-level
-`def f()` that legitimately takes parens. The v2 fix needs save/restore, which is the part js already
-models.
-
-**Where it goes, located.** The decision is one line — `resolveE`'s `"var"` arm:
-`if isParameterlessDef(data) then Pair("parameterless_app", data) else expr`. Resolution of a def's
-body happens in `lowerStmtToList` via `resolveE(body)` BEFORE `lowerBlock` runs, so registering
-during lowering is too late; it has to be on the resolve side. The place is `resolveE`'s `"block"`
-arm, around its `let rec resolveBlock` walk of that block's statements — that arm already receives the
-full statement list, and the same file already uses this exact save/restore idiom twice a few hundred
-lines down (`prevCtx`/`_setCtx` for `kc5ActiveCtxCell`, `prevHR`/`_rstHR` for `defHasReturnCell`, the
-second with a comment explaining that save/restore is what stops a nested def's returns leaking).
-
-**The ordering worry is settled, so nobody duplicates code for nothing.** `collectParameterlessDefs`
-is defined at line 5577, far BELOW `resolveE` at 2222, which looked like it would force a second copy
-of the collector higher up. It does not: this file already contains **51** forward references between
-top-level defs, including `resolveCallee` at line 311 calling `resolveE` at 2222 — 1,900 lines ahead.
-Call it directly from the `"block"` arm.
-
-The interpreter had the same defect at top level and in bodies; see
-`parameterless-def-diverges-native-vs-interp` in the root `BUGS.md` for the two implementations that
-passed every single-file shape and were still wrong.
+No gate: `tests/conformance/parameterless-def-local.ssc` exercises the DEFAULT front, so it is green
+and cannot see this. A gate would have to set `SSC_FRONT=legacy` explicitly.
 
 ## f-placeholder-in-a-call-argument-stays-a-bare-name — `unbound global: (global _)`
 
