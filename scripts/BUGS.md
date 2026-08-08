@@ -148,12 +148,12 @@ none could be seen on the developer host.
 
 ## a-shared-board-file-has-no-guard-against-a-stale-copy-overwrite
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: cli
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: .githooks/commit-msg --self-test (smoke: board-deletion)
+     fixed-in: fd593e7cd -->
 
 **The incident, 2026-08-08.** `78077acd7` — subject `fix(frontend/custom): jsLiteral encodes case
 classes, maps and tuples` — removed **65 lines from `v3/BACKLOG.md` and added none**, deleting two
@@ -206,6 +206,24 @@ Registered in `scripts/smoke-ci.ssc` as `board-deletion`.
 **Found by accident**, which is the argument for a gate: I went to `v3/BACKLOG.md` to record three
 measurements, found the section I meant to edit absent, and only then traced it. Nobody was looking
 for it, and the deletion had already been on `main` for hours.
+
+**The header said `open` with `gate: none` while the prose above said FIXED — closed 2026-08-08 after
+checking, not after reading.** The self-test passes all six directions it distinguishes, and it is
+registered in `scripts/smoke-ci.ssc` as `board-deletion`, so the gate field was wrong too.
+
+**It has now fired on a real commit, which is worth more than the self-test.** A different agent's
+`BUGS.md` was 23 commits stale after a rebase, and the commit-msg hook refused it and NAMED the three
+entries that would have been deleted — `front-diff-cannot-finish-when-the-second-front-does-not-compile`,
+`v3-has-no-scala-style-import`, `v3-refuses-a-default-argument-inside-an-enum-case`. The message it
+prints is what made the fix obvious: *"your tree predates someone else's edit: rebase and re-apply"*,
+which is exactly what happened and exactly what was done. Without it those three would have gone the
+way the incident above describes, inside a commit about `val a, b = 1`.
+
+**Two of the three options remain unbuilt, deliberately.** The pre-push variant against the pushed
+range would catch a rebase that resurrects an old copy, and `scripts/board --check` drift detection
+would cover the boards as well as `.work/active/`. Neither is the defect this entry filed — that one
+was "no guard at all" — so they belong to whoever wants that hardening, not to this entry staying
+open and reading as unprotected.
 
 
 ## launchers-not-dead-red-in-every-fresh-worktree — the gate refuses on an empty bin/, by design, every time
