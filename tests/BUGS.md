@@ -241,6 +241,32 @@ is misleading, and the corpus coverage picture is better than the numbers sugges
 files run correctly — the reference front compiles and executes them, it is only the static
 pre-check that objects.
 
+**ONE MECHANISM WAS AUTHORISED, IMPLEMENTED, MEASURED AND REVERTED — record it so it is not tried
+again.** The idea: since `BOTH-UNBOUND` means the REFERENCE front fails the same check, F's program
+is "no worse" and should be kept instead of delegating. It is wrong, and cheaply so.
+
+Built it (keep F's rejected program, use it when `userErrorNotGap`), then RAN eight of the affected
+files instead of trusting the reasoning:
+
+    3 of 8   ran as before
+    5 of 8   died with `unbound global: msg / v / of / s` — names F alone cannot bind
+
+And the decisive pair, same file both ways:
+
+    examples/frontend/components-demo   F: unbound global: s      legacy: runs
+
+So both fronts failing the STATIC check does not make them equal: the reference front's failure is
+on a runtime-provided name it then binds at execution, while F's program carries ADDITIONAL unbound
+names that are real gaps. "Both fail validation" and "both are equally usable" are different
+statements, and this conflated them.
+
+Reverted, nothing landed. What a real fix needs is what the entry above already said — the actual
+registry of names the runtime binds, consulted per name, not a same-verdict shortcut. `pluginNativeNames`
+exists in the interpreter (`Interpreter.scala:232`) but is `private[interpreter]` and belongs to the
+wrong lane; the native side has no equivalent table, and `__yamlSection__` is not a plugin name at
+all — the RUNNER synthesises it (`v2/bin/ssc1-run.ssc0:187`). Those three sources would have to be
+unified first.
+
 Not fixed here, and the reason is the same one the extern entry recorded: widening the guard to
 accept plugin intrinsics trades a loud misclassification for a silent wrong answer if the name is
 genuinely absent, so it wants the registry consulted rather than a pattern match on leading
