@@ -279,6 +279,22 @@ one symptom bucket turned out to be a different construct than the obvious readi
       wrong loses a continuation silently) and under-approximating in the one place it cannot help
       (a call through a VALUE contributes nothing, the same limit the `gapNames` walk records).
 
+      **Step 2's design decided 2026-08-08**, in `10-ssc-ir.md` §3 "Who PRODUCES the continuation".
+      The protocol said where `k` goes and not where it comes from; the executor has been writing
+      `unit` there since the tail-resumptive path was written, because that path never reads it.
+
+      **The LOWERING produces it, as `Perform`'s LAST ARGUMENT.** An arm binds `params.length` values
+      from the front and `k` from the one after — the same rule its own binders already follow, so
+      it is one convention stated twice rather than two conventions. A function that has not been
+      converted emits `perform` with the operation's arguments alone and `k` stays `unit`, which is
+      exactly today's behaviour, so the two coexist without a mode flag.
+
+      Splitting is what makes "the rest of a function" a function: a `Perform` at position *i* keeps
+      everything before it and turns everything after into a new function taking the resumed value
+      and the registers still live there. **That is also why step 3 is a step and not a detail** — a
+      perform inside a `Loop` cannot split that way, because a loop's remainder is not a suffix of an
+      instruction list.
+
       *Order of work, each step gateable on its own:* (1) compute the transitively-performing set;
       (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
       (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal

@@ -202,6 +202,41 @@ those recursions are constant-stack rather than a new leak. The transformation a
 functions that TRANSITIVELY perform — a set the lowering can compute, and which in the bench corpus
 today is two programs.
 
+#### Who PRODUCES the continuation — the last argument of `Perform`
+
+The protocol above says where `k` goes. It did not say where it comes from, and the executor has
+been putting `unit` there since the tail-resumptive path was written, because that path never reads
+it.
+
+**The lowering produces it, and passes it as `Perform`'s LAST ARGUMENT.** An arm binds
+`params.length` values from the front of the argument list and `k` from the one after them, which is
+the same rule the arm's own binders already follow ("the LAST binder is the continuation") — one
+convention, stated twice, rather than two.
+
+A function that has been CPS-converted therefore emits
+
+```
+(mkclos 12 <rest-of-f> <live registers>)
+(perform 7 0 8 12)          ; op 0, one operation argument in r8, continuation in r12
+```
+
+and one that has not — because nothing in it can be resumed non-tail — emits `perform` with the
+operation's arguments alone. The executor binds `k` to `unit` in that case, exactly as it does now,
+and the arm cannot tell the difference unless it tries to resume, which the tail-resumptive check
+already forbids it from doing more than once.
+
+**Why not have the executor build it.** That is the rejected design above, restated where an
+implementer will be tempted: producing `k` in the executor means the executor knows what "the rest
+of this function" is, which means the machine has to be reified. Producing it in the LOWERING means
+the rest of the function is an ordinary function and `k` is an ordinary closure — the whole reason
+this design was chosen.
+
+**Splitting is what makes the rest of a function a function.** A `Perform` at position *i* of a body
+splits it: everything before *i* stays, everything after becomes a new function whose parameters are
+the resumed value and the registers still live at that point. Nested regions are why step 3 exists —
+a perform inside a `Loop` cannot split that way, because the loop's remainder is not a suffix of an
+instruction list — and it is why the loop conversion is a step of its own rather than a detail.
+
 **What does not change:** `Perform`, `Handle`, `Resume` and the arm protocol above. The executor's
 tail-resumptive fast path stays exactly as it is — it is what a CPS-converted arm reduces to when the
 arm resumes once as its last act, so it becomes an optimisation rather than the only thing that
