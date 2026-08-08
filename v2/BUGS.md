@@ -59,7 +59,7 @@ STALE. Every narrowing step after that came from the harness rejecting a draft, 
 <!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: f9ac09af0
+     fixed-in: 61836a9b5
      gate: tests/e2e/f-bare-member-call-gate.sh -->
 
 **FIXED, and MY LANE COMPARISON ABOVE WAS WRONG — corrected here rather than left standing.** I
