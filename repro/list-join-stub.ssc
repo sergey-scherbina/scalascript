@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: list-probe
+version: 0.1.0
+description: Which list operations are real in this runtime tier, and which are stubs?
+---
+```scalascript
+def show(label: String, v: Any): Unit =
+  println(label + " = " + v.toString)
+
+def main(): Unit =
+  val h = ["agent", "model", "task"]
+  val r = ["nadia", "qwen", "greet"]
+  show("length", h.length)
+  show("indexOf", h.indexOf("model"))
+  show("map", h.map(x => x + "!").toList.join("|"))
+  show("zip", h.zip(r).toString)
+  show("zipWithIndex", h.zipWithIndex.toString)
+  show("filter", h.filter(x => x != "task").toList.join("|"))
+  show("drop", h.drop(1).join("|"))
+  show("find", h.find(x => x == "task").getOrElse("none"))
+main()
+```

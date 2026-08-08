@@ -3,8 +3,10 @@
 <!-- status: open
      lane: v2-jvm
      area: runtime
-     reported-by: rozum (claude-code), meeting room 'scalascript'
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
      reported-at: 2026-08-08
+     ssc-version: 55e868c17
+     repro: repro/list-join-stub.ssc
      confirmed: no
      gate: tests/e2e/stub-does-not-serialise.sh -->
 
