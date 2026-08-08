@@ -1179,8 +1179,59 @@ def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm
 // by a local), expand it into nested one-arg lambdas so args/defaults evaluate once, left-to-right, later
 // defaults seeing earlier params (oracle ssc1-lower expandDefaultCall :1883 → resolveE). `greet()` →
 // `(app (lam 1 (app (lam 1 (app (global greet) (local 1) (local 0))) <d1>)) <d0>)`. Otherwise the plain path.
-def parseCall(nm, ts, env, cx) = parseCallS(nm, scanArgs(ts), ts, env, cx)
-def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallN(nm, slices, ts, rest, env, cx) }
+// The other half: when the callee is CURRIED the argument slices must span every clause too, so the
+// synthesis sees one call with all the arguments -- which is exactly the shape the oracle emits:
+//   (app (lam 1 (app (lam 1 (app (global v) (local 1) (local 0))) "a")) 24)
+// one application of `v` carrying BOTH clauses, wrapped in lams that fix evaluation order. Scanning
+// only the first clause left the second to `postApp`, which nests via emitAppCur -- and emitAppCur
+// cannot flatten a synthesised call anyway, because that string starts `(app (lam 1 ` rather than
+// `(app (global `, so isCurriedApp reads false. Widening the scan fixes both halves at once.
+// The non-firing path is untouched: parseCallPlain re-parses from `ts` and ignores `rest`, so a
+// plain positional curried call still goes through postApp/emitAppCur exactly as before.
+// An UNDER-SUPPLIED first clause is padded to its param count with EMPTY slices before the later
+// clauses are appended, which is what makes `vstack()(children)` work — measured in the corpus at
+// examples/frontend/ios-hello: `vstack()(` and `hstack()(`. Without the padding the flattened slices
+// are `["a"]` against params `[gap, c]`, so the one argument that belongs to clause TWO lands in
+// clause ONE's slot. An empty slice is already the marker synthW1 reads as "evaluate this param's
+// default", and scanArgs never produces one for an argument that is present, so it cannot collide.
+// The count comes from a companion registry entry under `<name> *c1` — a key no def can have, since
+// a space is not an identifier char — which lets clause boundaries be recorded without a new cx slot.
+// KNOWN LIMIT, deliberate: only the FIRST clause is padded. A def whose THIRD clause is under-supplied
+// behind a full second one would still misalign; no corpus file has that shape, and inventing the
+// n-clause registry for it would be design ahead of a measured need.
+// VARARG COLLAPSE, applied ONCE here so every downstream decision sees the same shape. The oracle
+// emits the call as `(app (global v) 24 (ctor Cons "a" (ctor Cons "b" (ctor Nil))))` — the trailing
+// arguments become ONE list argument. Rather than emit that chain in each of the three call paths
+// (plain positional, default-synthesis, named-assignment), the trailing SLICES are rewritten into a
+// single synthetic slice holding the tokens `List ( a , b )`, which F already lowers to exactly that
+// Cons chain. One decision site, and the three paths keep working unchanged.
+def parseCall(nm, ts, env, cx) = parseCallS(nm, vaCollapse(nm, scanArgsCur(nm, ts, cx), env, cx), ts, env, cx)
+def vaCollapse(nm, pr, env, cx) = pr match { case (sl, r) => (vaSlices(nm, sl, env, cx), r) }
+def vaSlices(nm, sl, env, cx) = if lookup(nm, env) >= 0 then sl else vaSlices1(vaIdxOf(dfltEntryPd(nm, cx)), sl)
+def vaSlices1(k, sl) = if k < 0 then sl else (if dlen(sl) < k then sl else collapseVA(k, sl))
+def collapseVA(k, sl) = appEnv(takeL(k, sl), Cons(vaListSlice(dropL(k, sl)), Nil))
+def vaListSlice(rest) = Cons((3, "List"), Cons((2, 21), appEnv(joinSlices(rest), Cons((2, 22), Nil))))
+def joinSlices(sl) = sl match { case Nil => Nil case h :: t => if isEmpty(t) then h else appEnv(h, Cons((2, 27), joinSlices(t))) }
+def scanArgsCur(nm, ts, cx) = if memL(nm, curriedOf(cx)) then argClausesAll(nm, scanArgs(ts), cx) else scanArgs(ts)
+def argClausesAll(nm, pr, cx) = pr match { case (sl, r) => argClauseMore(padC1(nm, sl, cx), r) }
+def padC1(nm, sl, cx) = padTo(sl, dlen(dfltEntryPd(nm ++ " *c1", cx)))
+def padTo(sl, n) = if dlen(sl) >= n then sl else padTo(appEnv(sl, Cons(Nil, Nil)), n)
+def argClauseMore(sl, r) = if isTok(hd(r), 2, 21) then argClauseJoin(sl, scanArgs(tl(r))) else (sl, r)
+def argClauseJoin(sl, pr2) = pr2 match { case (sl2, r2) => argClauseMore(appEnv(sl, sl2), r2) }
+// The vararg branch comes FIRST and emits straight from the collapsed slices. It has to: the
+// fall-through path is parseCallPlain, which re-parses from `ts` and never sees the collapse, so a
+// plain positional `f("a", "b")` would keep passing two arguments to a one-slot lam. The
+// default/named paths below already build from slices and need no second collapse.
+def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => parseCallV(nm, slices, ts, rest, env, cx) }
+def parseCallV(nm, slices, ts, rest, env, cx) = if vaGo(nm, slices, env, cx) then (vaCall(nm, slices, env, cx), rest) else parseCallD(nm, slices, ts, rest, env, cx)
+def parseCallD(nm, slices, ts, rest, env, cx) = if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallN(nm, slices, ts, rest, env, cx)
+def vaGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else vaGoR(dfltEntryPd(nm, cx), slices)
+def vaGoR(pd, slices) = if vaIdxOf(pd) < 0 then false else vaGoN(pd, slices)
+// Exactly-filled only. A short call (an omitted default before the varargs) falls through to the
+// synthesis paths, which know how to fill it and see the same collapsed slice.
+def vaGoN(pd, slices) = if anyNamedSlice(slices) then false else dlen(slices) == dlen(pd)
+def vaCall(nm, slices, env, cx) = emitApp(calleeOf(nm, env, cx), vaArgs(slices, env, cx))
+def vaArgs(sl, env, cx) = sl match { case Nil => "" case h :: t => " " ++ erase(fst(parseArgExpr(h, env, cx)), cx) ++ vaArgs(t, env, cx) }
 def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
 // A class method's global takes the receiver as its FIRST parameter (ccMParams seeds the body
 // env with `Cons("__self", Nil)`), while an object method has no such slot. `calleeOf` returns
@@ -1229,7 +1280,12 @@ def isNamedSlice(s) = if isEmpty(s) then false else (if fst(hd(s)) == 1 then (if
 // produces an empty slice for an argument that is actually there.
 def nargGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else nargGoR(dfltEntryOf(nm, cx), slices)
 def nargGoR(entry, slices) = entry match { case (found, pd) => if found == "__some__" then nargGo2(pd, slices) else false }
-def nargGo2(pd, slices) = if anyNamedSlice(slices) then nargGo3(pd, slices) else false
+// An EMPTY slice fires this path too, not only a named one. Padding an under-supplied first clause
+// produces exactly that shape (`vstack()(children)` -> [EMPTY, children]), and dfltGo cannot take it:
+// dfltGo2 bails once the slice count reaches the param count, which padding makes it do, and it can
+// only fill a TRAILING run of defaults anyway — here the omitted param is the first.
+def nargGo2(pd, slices) = if anyNamedSlice(slices) then nargGo3(pd, slices) else (if anyEmptySlice(slices) then nargGo3(pd, slices) else false)
+def anyEmptySlice(slices) = slices match { case Nil => false case h :: t => if isEmpty(h) then true else anyEmptySlice(t) }
 // Fire only when every label names a real param AND every unfilled param has a default — otherwise
 // fall through to the plain path, which keeps today's (wrong but unchanged) behaviour rather than
 // emitting something new for a call this cannot express.
@@ -2328,10 +2384,30 @@ def defRet2(nm, tts) = if simpleRetTy(tts) then Cons((nm, snd(hd(tts))), Nil) el
 def simpleRetTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then isTok(hd(tl(tts)), 2, 20) else false) else false
 // A `def NAME [gen] (params)` — register only when the param list actually holds a default.
 def defDfltEntry(ts) = defDfltE1(snd(hd(tl(ts))), skipGen(tl(tl(ts))))
-def defDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then dfltReg(nm, collectPD(tl(afterName), Nil)) else Nil
+// A CURRIED def is lowered at the TOTAL arity (emitDefU), so its default/named-argument registry has
+// to hold the params of EVERY clause, not just the first. With only the first clause, synthCall built
+// `fullCallStr(nm, dlen(pd))` at the first clause's arity and the call died with
+// `arity: 2 expected, 1 given` -- for `def v(gap: Int = 0)(c: String)` called `v(gap = 24)("a")`.
+// A `(using ..)` clause is EXCLUDED, matching curried1: those params are injected at the call site by
+// injectGivens, never written by the caller, so folding them into pd would misalign every slot.
+def defDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then defDfltE2(nm, collectPD(tl(afterName), Nil)) else Nil
+def defDfltE2(nm, pr1) = pr1 match { case (pd1, r1) => defDfltE3(nm, pd1, pdAllClauses((pd1, r1))) }
+def defDfltE3(nm, pd1, prAll) = prAll match { case (pd, r) => appEnv(dfltReg(nm, (pd, r)), c1Reg(nm, pd1, pd)) }
+// Records the FIRST clause's params under a key that cannot be a def name, so padC1 can tell how many
+// slots clause one owns. Registered only when the def is actually curried (the full list is longer).
+def c1Reg(nm, pd1, pd) = if dlen(pd1) == dlen(pd) then Nil else Cons((nm ++ " *c1", pd1), Nil)
+def pdAllClauses(pr) = pr match { case (pd, r) => pdClauseMore(pd, r) }
+def pdClauseMore(pd, r) = if isUsingClause(r) then (pd, r) else (if isTok(hd(r), 2, 21) then pdClauseJoin(pd, collectPD(tl(r), Nil)) else (pd, r))
+def pdClauseJoin(pd, pr2) = pr2 match { case (pd2, r2) => pdClauseMore(appEnv(pd, pd2), r2) }
 // A `case class NAME [gen] (fields)` — skipNameGenParen skips NAME+[gen]+`(`.
 def ccDfltEntry(ts) = dfltReg(snd(hd(tl(tl(ts)))), collectPD(skipNameGenParen(tl(tl(ts))), Nil))
-def dfltReg(nm, pr) = pr match { case (pd, r) => if pdAnyDflt(pd) then Cons((nm, pd), Nil) else Nil }
+// Registered when the def has a default OR a vararg: the call-site vararg collapse reads its param
+// list from this same registry, and a vararg def with no defaults would otherwise not be in it.
+// Registering more defs is safe for the existing paths — dfltGo still needs a TRAILING run of
+// defaults and nargGo still needs a named or empty slice, and a param with no default has an empty
+// token list, which both read as "cannot fill".
+def dfltReg(nm, pr) = pr match { case (pd, r) => if pdAnyDflt(pd) then Cons((nm, pd), Nil) else dfltRegVA(nm, pd) }
+def dfltRegVA(nm, pd) = if vaIdxOf(pd) >= 0 then Cons((nm, pd), Nil) else Nil
 def pdAnyDflt(pd) = pd match { case Nil => false case h :: t => if isEmpty(snd(h)) then pdAnyDflt(t) else true }
 // enum cases: mirror goCasesF's walker but capture defaults; emit a registry entry per parametrized case.
 def enumDfltEntries(ts) = goCaseDf(enumSkipToBody(tl(ts)))
@@ -2381,7 +2457,21 @@ def lastParamStar1(t, rest, d, prev) = if isTok(t, 2, 22) then (if d == 0 then i
 // is Nil when the param has no default. Mirrors collectField but captures the default token slice.
 def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectPD1(ts, acc))
 def collectPD1(ts, acc) = collectPDafterName(snd(hd(ts)), tl(ts), acc)
-def collectPDafterName(nm, ts, acc) = if isTok(hd(ts), 2, 34) then collectPDdflt(nm, skipParamType(tl(ts)), acc) else collectPDdflt(nm, ts, acc)
+// A VARARG param (`xs: T*`) is marked by appending " *" to its registry name — a space cannot occur
+// in an identifier, so the mark cannot collide with a real param, and vaIdxOf reads it back. The def
+// SIDE needs nothing: the oracle lowers a vararg param as one ordinary slot (`(lam 2 ..)`) and F
+// already agreed. It is the CALL side that has to build the list.
+// Detected from the TOKENS, not from typeText: punctStr has no entry for `*` (code 25) and renders it
+// as the empty string, so `String*` and `String` have the SAME type text. Reading the text was the
+// first attempt and it silently marked nothing — every vararg test stayed exactly as red as before,
+// which is the signature of a predicate that never fires rather than a fix that does not work.
+def collectPDafterName(nm, ts, acc) = if isTok(hd(ts), 2, 34) then collectPDty(nm, tyHasStar(tl(ts), 0), skipParamType(tl(ts)), acc) else collectPDdflt(nm, ts, acc)
+def collectPDty(nm, star, r, acc) = collectPDdflt(vaName(nm, star), r, acc)
+def vaName(nm, star) = if star then nm ++ " *" else nm
+def tyHasStar(ts, d) = if isEmpty(ts) then false else (if isTypeEnd(hd(ts), d) then false else (if isTok(hd(ts), 2, 25) then true else tyHasStar(tl(ts), typeDepth(hd(ts), d))))
+def endsStar(s) = if s.length == 0 then false else s.charAt(s.length - 1) == 42
+def vaIdxOf(pd) = vaIdxGo(pd, 0)
+def vaIdxGo(pd, i) = pd match { case Nil => 0 - 1 case h :: t => if endsStar(fst(h)) then i else vaIdxGo(t, i + 1) }
 def skipParamType(ts) = typeText(ts, 0, "") match { case (ty, r) => r }
 def collectPDdflt(nm, ts, acc) = if isTok(hd(ts), 2, 20) then collectPDcap(nm, captureDflt(tl(ts), 0, Nil), acc) else collectPDend(nm, Nil, ts, acc)
 def collectPDcap(nm, pr, acc) = pr match { case (dtoks, r) => collectPDend(nm, dtoks, r, acc) }
