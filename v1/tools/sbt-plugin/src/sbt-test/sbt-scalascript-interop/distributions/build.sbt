@@ -46,3 +46,27 @@ TaskKey[Unit]("checkEmitLibCall") := {
   val dir = (Compile / sscDistDir).value / (moduleName.value + "-lib")
   if (!dir.isDirectory) sys.error(s"emit-lib produced no directory at $dir")
 }
+
+TaskKey[Unit]("checkEmitSpa") := {
+  val dir = (Compile / sscDistDir).value / "spa"
+  val files = Option(dir.listFiles()).getOrElse(Array.empty).map(_.getName).sorted.toSeq
+  if (files != Seq("demo.html", "other.html"))
+    sys.error(s"expected one html per source, got: ${files.mkString(", ")}")
+  val html = IO.read(dir / "demo.html")
+  if (!html.contains("mock-spa")) sys.error(s"the html was not captured: $html")
+  // stderr must NOT end up in the file: a diagnostic pasted into generated output is a silent
+  // corruption that only shows up in somebody's browser.
+  if (html.contains("[mock-ssc]")) sys.error(s"stderr leaked into the generated html: $html")
+}
+
+TaskKey[Unit]("checkTargetCall") := {
+  val calls = IO.readLines(baseDirectory.value / "calls.log")
+  val line = calls.find(_.startsWith("build --target")).getOrElse(
+    sys.error("ssc build --target was never called"))
+  if (!line.contains("--target desktop")) sys.error(s"wrong target: $line")
+  // --out, not -o: the CLI uses a different flag here and passing -o would silently land the
+  // bundle in target/build instead of where the task said.
+  if (!line.contains("--out ")) sys.error(s"build --target needs --out, not -o: $line")
+  val dir = (Compile / sscDistDir).value / "desktop"
+  if (!(dir / "marker.txt").exists()) sys.error(s"no bundle under $dir")
+}

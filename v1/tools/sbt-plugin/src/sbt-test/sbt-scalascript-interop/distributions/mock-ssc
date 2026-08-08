@@ -9,7 +9,27 @@ for a in "$@"; do
   [ "$prev" = "-o" ] && out="$a"
   prev="$a"
 done
+# `build --target` writes into --out (not -o), so the out-detection above does not see it.
+if [ "$1" = "build" ]; then
+  o=""
+  prev=""
+  for a in "$@"; do
+    [ "$prev" = "--out" ] && o="$a"
+    prev="$a"
+  done
+  [ -n "$o" ] || { echo "[mock-ssc] build: no --out" >&2; exit 1; }
+  mkdir -p "$o"
+  printf 'mock-bundle\n' > "$o/marker.txt"
+  exit 0
+fi
+
 case "$1" in
+  emit-spa)
+    # emit-spa PRINTS its html and writes nothing — stdout is the product. It also prints a
+    # diagnostic to stderr, so the scenario can prove the task captured one and not the other.
+    echo "[mock-ssc] emit-spa rendering $2" >&2
+    printf '<!doctype html><title>mock-spa</title>\n'
+    ;;
   emit-lib)
     # emit-lib writes a DIRECTORY, not a file — the task must return a path that exists as one.
     [ -n "$out" ] || { echo "[mock-ssc] emit-lib: no -o" >&2; exit 1; }

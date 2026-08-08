@@ -14,3 +14,10 @@
 > checkBundleCall
 > sscEmitLib
 > checkEmitLibCall
+# emit-spa prints its product; the task names the file. One html per source, and stderr must stay
+# out of the html.
+> sscEmitSpa
+> checkEmitSpa
+# A platform bundle. The target is an argument, not a setting: it is a choice made per invocation.
+> sscBuildTarget desktop src/main/scalascript/demo.ssc
+> checkTargetCall

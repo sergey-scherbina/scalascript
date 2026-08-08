@@ -71,8 +71,19 @@ produced without inventing a location. Wrapping it would mean guessing where its
 task whose result path is a guess is worse than no task. Wants a look at where it actually writes
 before it gets a wrapper.
 
-Genuinely remaining: `build --target desktop|ios|macos`, and `emit-spa` once its output is
-understood.
+`sscEmitSpa` and `sscBuildTarget` landed too, and both needed the CLI read rather than guessed:
+
+- **`emit-spa` PRINTS its html and writes nothing.** The task captures stdout and names the file
+  itself — which is what a build tool is for. `SscRunner.runCapture` was added for it, capturing
+  stdout only: folding stderr in would paste diagnostics into somebody's generated page, a
+  corruption that surfaces in a browser and nowhere else. One html per source, since emit-spa
+  renders each file it is given.
+- **`build --target` uses `--out`, not `-o`,** and defaults to `target/build` when omitted, so
+  passing `-o` would have silently put the bundle somewhere the task did not name. It is an input
+  task (`sscBuildTarget desktop <file.ssc>`): the platform is a choice made per invocation, not a
+  property of the project.
+
+**The family is complete.** 14 scripted scenarios, all green. Nothing was published to Maven.
 
 ### Deliberately out of scope
 

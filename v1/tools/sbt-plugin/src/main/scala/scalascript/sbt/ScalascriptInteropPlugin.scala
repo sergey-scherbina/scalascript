@@ -117,6 +117,13 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     val sscBundle = taskKey[File](
       "Package .ssc sources into an .sscpkg via `ssc bundle`, into sscDistDir."
     )
+    val sscBuildTarget = inputKey[File](
+      "Build a platform bundle: `sscBuildTarget desktop|ios|macos <file.ssc>` via `ssc build " +
+      "--target`, into sscDistDir/<target>/."
+    )
+    val sscEmitSpa = taskKey[Seq[File]](
+      "Render each .ssc source to a standalone SPA HTML file in sscDistDir via `ssc emit-spa`."
+    )
     val sscEmitLib = taskKey[File](
       "Emit a host-native library via `ssc emit-lib`, into sscDistDir."
     )
@@ -180,6 +187,50 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     // the user -- silently building the wrong entry point is worse than not building -- an ambiguous
     // project is told what to set and which candidates it has.
     // `ssc bundle <file.ssc>... [-o name.sscpkg]` — many sources, one package, like build-jvm.
+    // `ssc emit-spa` PRINTS the HTML and writes nothing — its parser takes files, --frontend and
+    // --server-url, and there is no output flag. So the task captures stdout and names the file
+    // itself, which is what a build tool is for. One html per source, because emit-spa renders each
+    // file it is given and a single concatenated blob would be nonsense.
+    // `ssc build --target <t> --out <dir>` — note --out, not -o, and it defaults to target/build
+    // when omitted. An input task rather than a setting per platform: the target is a choice made at
+    // the command line ("build me the ios one"), not a property of the project.
+    Compile / sscBuildTarget := {
+      import complete.DefaultParsers._
+      val parsed = spaceDelimited("<target> <file.ssc>").parsed
+      if (parsed.lengthCompare(2) != 0)
+        sys.error("Usage: sscBuildTarget <desktop|ios|macos> <file.ssc>")
+      val Seq(target, file) = parsed.take(2)
+      val src = new File(file)
+      val entry = if (src.isAbsolute) src else (baseDirectory.value / file)
+      if (!entry.exists()) sys.error(s"sscBuildTarget: no such file: $entry")
+      val out = (Compile / sscDistDir).value / target
+      IO.createDirectory(out)
+      SscRunner.run(
+        binary = sscBinary.value,
+        args = Seq("build", "--target", target, "--out", out.getAbsolutePath, entry.getAbsolutePath) ++
+          sscExtraArgs.value,
+        log = streams.value.log
+      )
+      out
+    },
+
+    Compile / sscEmitSpa := {
+      val sources = (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
+      if (sources.isEmpty) sys.error("sscEmitSpa: no .ssc sources found")
+      val outDir = (Compile / sscDistDir).value / "spa"
+      IO.createDirectory(outDir)
+      val binary = sscBinary.value
+      val extraArgs = sscExtraArgs.value
+      val log = streams.value.log
+      sources.map { src =>
+        val html = SscRunner.runCapture(binary, Seq("emit-spa", src.getAbsolutePath) ++ extraArgs, log)
+        val out = outDir / (src.getName.stripSuffix(".ssc") + ".html")
+        IO.write(out, html)
+        out
+      }
+    },
+
     Compile / sscBundle := {
       val sources = (Compile / sscSourceDirectories).value
         .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
