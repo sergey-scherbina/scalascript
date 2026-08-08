@@ -47,9 +47,32 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # The kernel builds with the JDK and nothing else — invariant I-1 — so nothing is installed
-      # for these. The driver caches a jar per SOURCE DIGEST, which is why the first gate pays for
-      # the compile and the rest do not.
+      # `v3/ssc3` fetches the Scala compiler with coursier, so `cs` has to be here. Mirrors the
+      # Linux branch of the repository's own `setup.sh`, which is where a developer gets it —
+      # `v3/SPRINT.md` item 31e records why it became a first-class requirement: scala-cli used to
+      # bundle a copy, and v3 stopped going through scala-cli.
+      #
+      # THIS STEP IS WHY THE JOB WAS RED ON ALL TEN OF ITS RUNS, from the commit that introduced it.
+      # The comment that stood here said "the kernel builds with the JDK and nothing else —
+      # invariant I-1 — so nothing is installed for these", and that is a MISREADING of I-1.
+      # `00-charter.md` defines I-1 as an empty `libraryDependencies` and no kernel import outside
+      # `java.*`/`scala.*` — a property of the ARTIFACT. It says nothing about build tooling, and it
+      # cannot: the kernel is written in Scala, so compiling it needs a Scala compiler no matter how
+      # dependency-free the result is. Installing `cs` does not weaken I-1; the gate for I-1 is the
+      # dependency-list check named in the charter, not the absence of a setup step here.
+      - name: Setup coursier
+        run: |
+          set -euo pipefail
+          if ! command -v cs >/dev/null 2>&1; then
+            curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" \
+              | gzip -d > "$RUNNER_TEMP/cs"
+            chmod +x "$RUNNER_TEMP/cs"
+            sudo mv "$RUNNER_TEMP/cs" /usr/local/bin/cs
+          fi
+          cs --version
+
+      # The driver caches a jar per SOURCE DIGEST, which is why the first gate pays for the compile
+      # and the rest do not.
       - name: selftest
         run: v3/selftest.sh
       - name: executor differential
