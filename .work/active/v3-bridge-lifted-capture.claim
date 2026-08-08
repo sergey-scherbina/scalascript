@@ -1,0 +1,11 @@
+slug: v3-bridge-lifted-capture
+branch: feature/v3-bridge-lifted-capture
+agent: claude-code
+started: 2026-08-08T19:10:23Z
+heartbeat: 2026-08-08T19:10:23Z
+status: claimed-before-planning
+items: bridge: app: not a function on a lambda lifted with captures (comp(f,g) = x => f(g(x)))
+paths: file:v3/src/BridgeV2.scala file:v3/src/Lower.scala file:v3/tests/front BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
