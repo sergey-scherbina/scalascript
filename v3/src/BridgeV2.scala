@@ -209,7 +209,14 @@ object BridgeV2:
       val callee = cx.m.funcs(fi)
       val k = callee.nparams - caps.length
       if k < 0 then throw Unsupported("a closure capturing more values than its function takes")
-      val capBinds = caps.map(c => read(c, sh)).mkString(" ")
+      // `sh + i`, NOT `sh`. v2's `let` binds SEQUENTIALLY — `Runtime.appendOne(e, v)` per rhs — so
+      // the i-th expression is evaluated in an env already extended by the i before it, and
+      // `frameAt` is de Bruijn (`Local(i)` is `env(env.length - 1 - i)`). Reading the frame at a
+      // fixed `sh` was therefore correct for the FIRST capture and one slot too shallow for every
+      // one after it. With a single capture there is nothing to shift, which is exactly why
+      // `mk(g) = x => g(x)` worked on the bridge and `comp(f, g) = x => f(g(x))` died with
+      // `app: not a function` — the two-capture case is the smallest one that can expose it.
+      val capBinds = caps.zipWithIndex.map((c, i) => read(c, sh + i)).mkString(" ")
       val capRefs = (0 until caps.length).toList.map(i => "(local " + (k + caps.length - 1 - i) + ")")
       val parRefs = (0 until k).toList.map(j => "(local " + (k - 1 - j) + ")")
       val applied = (capRefs ++ parRefs).mkString(" ")

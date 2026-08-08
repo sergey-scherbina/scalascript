@@ -8,8 +8,14 @@ def dbl(x: Int): Int = x * 2
 
 def viaTopLevel(): Int => Int = x => dbl(x)
 
+// THREE captures. The bridge read every capture's frame at a FIXED depth while v2's `let` binds
+// sequentially, so capture i was off by i — one capture could never show it and two showed it as
+// `app: not a function`. Three pins the general shift rather than the single case that broke.
+def tri(f: Int => Int, g: Int => Int, h: Int => Int): Int => Int = x => f(g(h(x)))
+
 def main(): Unit =
   println(ap(y => y + 1, 41))
   println(mk(y => y + 1)(41))
   println(comp(a => a * 2, b => b + 1)(20))
   println(viaTopLevel()(21))
+  println(tri(a => a * 2, b => b + 1, c => c + 10)(10))
