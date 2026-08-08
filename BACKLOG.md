@@ -1,3 +1,71 @@
+## sbt-plugin-covers-7-of-67-cli-commands — the matrix, measured
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: task
+     gate: tests/e2e/sbt-plugin-scripted.sh -->
+
+Sergiy's question: does the sbt plugin do what the CLI does — including building for several
+backends and assembling distributions? Counted rather than estimated.
+
+**The CLI exposes 67 commands. The plugin invokes 7:**
+
+| ssc command | in the plugin | exercised by a scripted scenario |
+| --- | --- | --- |
+| `build` | `sscCompile` (with `--incremental`, `--backend`) | yes — `compile-sources`, `cross-build` |
+| `link` | `sscLink` | yes — `package-link` |
+| `test` | `sscTest` (`--output-format junit-xml`) | yes — `test-integration` |
+| `generate-facade` | `sscGenerateFacade` | yes — 4 scenarios |
+| `run` | `sscRun` | yes — `dev-tools` |
+| `repl` | `sscRepl` | yes — `dev-tools` |
+| `watch` | `sscWatch` | yes — `dev-tools` |
+
+So everything the plugin invokes IS covered by a scenario — the ten scenarios are well aimed. The
+gap is not coverage, it is surface.
+
+**Multi-backend: supported.** `sscBackends` builds each target in one `compile`; a single backend
+writes to the flat `sscArtifactDir`, several write to `sscArtifactDir/<backend>/`. Exercised by
+`cross-build`.
+
+**Distributions: absent.** None of `bundle`, `package`, `install`, `deploy`, `publish` is invoked,
+and neither is any of the `emit-*` family (`emit-spa`, `emit-lib`, `emit-js`, `emit-wasm`,
+`emit-rust`, `emit-swift`, `emit-openapi`, …). An sbt build cannot produce a ScalaScript
+distribution today.
+
+**The 60 commands the plugin does not reach:**
+
+```
+add bench build-jvm build-rust bundle check check-compat check-types
+check-with-iface clean cluster compile-js compile-jvm compile-runtime debug deploy
+deps emit-interface emit-ir emit-js emit-lib emit-openapi emit-rust emit-scala
+emit-spa emit-spark emit-swift emit-wasm emit-wc fmt help info
+install lint-jit lock lsp new oauth package parse
+plugin preview profile publish render run-batch run-js run-jvm
+run-rust run-swift search serve ssc submit toolchain tui
+update verify version watch-bench
+```
+
+Not all of these belong in an sbt plugin — `lsp`, `tui`, `oauth`, `bench`, `cluster`, `search` are
+interactive or operational, and wrapping them would be noise. The ones worth arguing about are the
+build-and-ship set: the `emit-*` family, `bundle`/`package`/`install`, `compile-jvm`, `build-rust`,
+`build-jvm`, `run-js`/`run-jvm`/`run-rust`, plus `check-types`, `fmt`, `deps`/`lock`/`update`.
+
+### Slices
+
+- [ ] **S1 — decide the intended surface.** Not every CLI command should exist as an sbt task. The
+      question to answer first is which ones a *build tool* owes its user, and that is a product
+      call rather than a coverage number.
+- [ ] **S2 — the emit/ship family**, if S1 wants it: this is what "assemble a distribution from
+      sbt" actually means, and it is the largest single gap.
+- [ ] **S3 — a scenario per new task.** The ten existing scenarios cover every task that exists,
+      and that property is worth keeping: it is what made the fixture loss visible at all.
+
+Context: until 2026-08-08 nothing ran these tests, so a JS commit had deleted their fixtures three
+weeks earlier and two scenarios sat red with a third green-but-blind
+(`tests/BUGS.md sbt-plugin-fixtures-deleted-by-an-unrelated-commit-and-unrestorable`). They are in
+smoke now.
+
 # . — backlog
 
 Can-wait and not-yet-started work whose code lives in `./`. When an item is
