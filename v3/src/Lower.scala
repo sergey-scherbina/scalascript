@@ -109,6 +109,7 @@ object Lower:
     case Expr.Update(a, i, v, _)  => freeVars(a, bound) ++ freeVars(i, bound) ++ freeVars(v, bound)
     case Expr.Apply(f, as, _)     => freeVars(f, bound) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.Prim(_, as, _)      => as.flatMap(a => freeVars(a, bound))
+    case Expr.Perform(_, as, _)   => as.flatMap(a => freeVars(a, bound))
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
@@ -673,6 +674,19 @@ object Lower:
     // function table, because a prim is not a function this module defines — it is what the LANE
     // provides. The executor answers with `unknown primitive '…'` when it has none, and the bridge
     // hands the name to v2, which has its whole plugin fleet. Two lanes, two honest answers.
+    // A performed operation. The op id was resolved by the rewrite in `programOf`; here it is an
+    // ordinary instruction whose arguments are lowered like anyone else's.
+    case Expr.Perform(op, argEs, _) =>
+      var acc: List[Instr] = Nil
+      var regs: List[Int] = Nil
+      var st = st0
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (d, st1) = st.fresh
+      (acc :+ Instr.Perform(d, op, regs), d, st1)
+
     case Expr.Prim(name, argEs, _) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -986,6 +1000,7 @@ object Lower:
       case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+      case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
       case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
       case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
@@ -1312,6 +1327,7 @@ object Lower:
       case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+      case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
       case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
       case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
       case Expr.Not(x, p)               => Expr.Not(go(x), p)
@@ -1641,6 +1657,27 @@ object Lower:
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
     // second list is how one consumer ends up reading the un-rewritten version.
     val allDefs = rewriteByName(allDefsEager)
+
+    // ── effect operations ──────────────────────────────────────────────────────────────────────
+    //
+    // `effect Bump:` declares operations; `Bump.tick(a)` performs one. Op ids are assigned HERE,
+    // where the declarations are in scope, and the rewrite puts the resolved id into the tree — so
+    // the lowering below never needs the effect table, and there is no fifth parameter to thread
+    // through every case and forget in one of them.
+    //
+    // Ids are positional within the module: effects in declaration order, operations within each.
+    // That is enough because `Perform` and `Handle` only ever compare ids inside one module — and
+    // it is written down because a positional id is exactly the kind of thing a second front would
+    // number differently.
+    val effectOps: Map[String, Int] =
+      p.effects.flatMap(e => e.methods.map(mm => e.name + "." + mm.name)).zipWithIndex.toMap
+    def resolvePerforms(d: Def): Def =
+      if effectOps.isEmpty then d
+      else d.copy(body = mapDeep(d.body, x => x match
+        case Expr.MethodCall(Expr.Name(obj, _), nm, as, xp) if effectOps.contains(obj + "." + nm) =>
+          Expr.Perform(effectOps(obj + "." + nm), as, xp)
+        case other => other))
+    val allDefsE = allDefs.map(resolvePerforms)
       .map(d => d.copy(body = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
@@ -1660,7 +1697,7 @@ object Lower:
     // at run time exactly as it did before; nothing gets worse, some things get better.
     val gapNames = p.defs.filter(isAbstract).map(d => d.name)
     if gapNames.nonEmpty then
-      val byName = allDefs.map(d => (d.name, d)).toMap
+      val byName = allDefsE.map(d => (d.name, d)).toMap
       def callees(e: Expr): List[String] =
         var out: List[String] = Nil
         mapDeep(e, x => { x match { case Expr.Call(fn, _, _) => out = fn :: out; case _ => () }; x })
@@ -1688,8 +1725,8 @@ object Lower:
         }
       }
 
-    val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
-    val names = allDefs.map(d => d.name)
+    val zeroArityNames = allDefsE.filter(d => d.params.isEmpty).map(d => d.name)
+    val names = allDefsE.map(d => d.name)
     val entry = names.indexOf(entryName)
 
     var consts: List[Lit] = Nil
@@ -1715,7 +1752,7 @@ object Lower:
       case _                    => Nil
     } ++ objectGlobals).distinct
     var funcs: List[Func] = Nil
-    allDefs.foreach { d =>
+    allDefsE.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
       val (body, r, st) = lower(d.body, names, resolved ++ tupleClasses, zeroArityNames, st0)

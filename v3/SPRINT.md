@@ -318,6 +318,31 @@ one symptom bucket turned out to be a different construct than the obvious readi
       to `Perform`, and the `handle` form lowering to `Handle` with the arm's `resume` binder as its
       `k`. The executor half and the protocol are already done, so this is front work only.
 
+      **2026-08-08 — the declaration and the PERFORM half work end to end.** `effect Bump:` parses
+      (`parseTrait` — the shape is a name, a `:` and body-less `def`s, identical to a trait), op ids
+      are assigned in `Lower.programOf` where the declarations are in scope, and `Bump.tick()`
+      lowers to `Instr.Perform`. The whole chain is verified by the one thing that proves it
+      reached the executor:
+
+          effect Bump:  def tick(): Int
+          def use(): Int = Bump.tick() + 1
+          use()                       ->  no handler for effect operation 0
+
+      Ids are POSITIONAL within a module — effects in declaration order, operations within each —
+      which is enough because ids are only ever compared inside one module, and is written down
+      because a second front would number them differently.
+
+      **`effect` is NOT a keyword**, and the control is checked: `val effect = 7` still prints 7. The
+      declaration is recognised by two tokens, `effect` followed by a plain name.
+
+      **A defaulted field cost an hour and is worth the warning.** `Program` gained `effects` with a
+      default, and `Loader.merge` rebuilds `Program` by hand — so every merged program silently had
+      NO effect declarations, and the symptom was `unknown name 'Bump'` in the LOWERING, three layers
+      from the cause. `merge` now lists every field explicitly.
+
+      What is left for 7a is the HANDLE form: `handle(e) { case Bump.tick(resume) => resume(1) }` →
+      `Instr.Handle`, with the arm's `resume` binder as its `k` and the pattern's binders as
+      `params`. `effect-oneshot` now stops there rather than at its declaration.
 - [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
       same message, different keyword. Separate from 7a because multi-shot resumption is a different
       executor obligation, and closing 7a must not silently claim this.

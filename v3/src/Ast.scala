@@ -46,6 +46,13 @@ enum Expr:
     * provides and an unknown one is a capability the lane lacks. Collapsing them would have turned
     * every misspelled function into a silent prim. */
   case Prim(name: String, args: List[Expr], pos: Pos)
+  /** A performed effect operation, with its op id already RESOLVED.
+    *
+    * Produced by a rewrite in `Lower.programOf`, where the `effect` declarations are in scope, so
+    * the lowering itself needs no extra parameter threaded through every case — the alternative was
+    * a fifth argument on `lower`, and a list that one consumer forgets to pass is how the front ends
+    * up with two notions of the same program. */
+  case Perform(op: Int, args: List[Expr], pos: Pos)
   /** `recv.name` and `recv.name(args)` alike — a getter is a call with no arguments, which is what
     * it is on every lane already. Keeping them one node means the lowering has one case, not two
     * that must agree. */
@@ -150,7 +157,13 @@ final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
 final case class ObjectDef(name: String, defs: List[Def], vals: List[Stmt.Val], pos: Pos)
 
 final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef],
-                         objects: List[ObjectDef], traits: List[TraitDef] = Nil)
+                         objects: List[ObjectDef], traits: List[TraitDef] = Nil,
+                         /** `effect E:` declarations. `TraitDef` is reused rather than copied: an
+                           * effect declaration IS a name plus a list of operation signatures, which
+                           * is what a trait body already parses to. Kept in its OWN field because
+                           * the two mean different things downstream — a trait's methods are
+                           * dispatched, an effect's are PERFORMED. */
+                         effects: List[TraitDef] = Nil)
 
 object Expr:
   def posOf(e: Expr): Pos = e match
@@ -167,6 +180,7 @@ object Expr:
     case Not(_, p)        => p
     case Call(_, _, p)    => p
     case Prim(_, _, p)    => p
+    case Perform(_, _, p)  => p
     case MethodCall(_, _, _, p) => p
     case If(_, _, _, p)   => p
     case While(_, _, p)   => p

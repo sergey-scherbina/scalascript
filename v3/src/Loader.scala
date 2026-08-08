@@ -170,12 +170,14 @@ object Loader:
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
     var traits: List[TraitDef] = Nil
+    var effects: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
     units.foreach { u =>
       defs = defs ++ u.program.defs
       classes = classes ++ u.program.classes
       objects = objects ++ u.program.objects
       traits = traits ++ u.program.traits
+      effects = effects ++ u.program.effects
       val keep =
         if u.path == root.path then u.program.topLevel
         else u.program.topLevel.filter { s => s match
@@ -184,4 +186,8 @@ object Loader:
         }
       top = top ++ keep
     }
-    Program(defs, top, classes, objects, traits)
+    // EVERY field, listed explicitly. `effects` was added to `Program` with a default and this
+    // rebuild silently dropped it — a merged program had no effect declarations at all, and the
+    // symptom was `unknown name 'Bump'` in the LOWERING, three layers from the cause. A defaulted
+    // field is invisible exactly where a case class is reconstructed by hand.
+    Program(defs, top, classes, objects, traits, effects)

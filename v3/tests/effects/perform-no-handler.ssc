@@ -1,0 +1,6 @@
+```scalascript
+effect Bump:
+  def tick(): Int
+def use(): Int = Bump.tick() + 1
+println(use())
+```

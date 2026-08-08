@@ -74,6 +74,12 @@ object Parser:
   private def peek(ts: List[Tok]): Tok = ts.head
   private def posOf(ts: List[Tok]): Pos = Lexer.posOf(peek(ts))
 
+  /** An identifier that is not a keyword — the test that separates `effect Bump:` from any other
+    * use of the word `effect`, which is not reserved in this language. */
+  private def isPlainName(t: Tok): Boolean = t match
+    case Tok.TId(n, _) => !keywords.contains(n)
+    case _             => false
+
   private def isId(t: Tok, s: String): Boolean = t match
     case Tok.TId(n, _) => n == s
     case _             => false
@@ -1425,6 +1431,7 @@ object Parser:
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
     var traits: List[TraitDef] = Nil
+    var effects: List[TraitDef] = Nil
     var go = true
     while go do
       ts = skipLayout(ts)
@@ -1445,6 +1452,18 @@ object Parser:
       // function this lane does not implement" and drops.
       else if isId(peek(ts), "extern") && ts.tail.nonEmpty && isId(peek(ts.tail), "def") then
         ts = ts.tail
+      // `effect Bump:` followed by indented operation signatures. Parsed with `parseTrait`, because
+      // the SHAPE is identical — a name, a `:`, and a block of body-less `def`s — and kept in its
+      // own list because the MEANING is not: a trait's methods are dispatched on a receiver, an
+      // effect's are PERFORMED and answered by the nearest handler.
+      //
+      // The two-token test matters. `effect` is not a keyword in this language, so a program with a
+      // value called `effect` must keep working; requiring a NAME after it is what separates the
+      // declaration from any other use of the word.
+      else if isId(peek(ts), "effect") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
+        val (t, t2) = parseTrait(ts.tail, posOf(ts))
+        effects = t :: effects
+        ts = t2
       // `type RightInt = Either[_, Int]` — a type ALIAS, consumed and discarded.
       //
       // Discarding is the whole of it, and it is not laziness: types are erased at Tier 0
@@ -1510,4 +1529,5 @@ object Parser:
         val (sts, t) = parseStmt(ts)
         sts.foreach { st => top = st :: top }
         ts = t
-    Program(defs.reverse, top.reverse, classes.reverse, objects.reverse, traits.reverse)
+    Program(defs.reverse, top.reverse, classes.reverse, objects.reverse, traits.reverse,
+            effects.reverse)
