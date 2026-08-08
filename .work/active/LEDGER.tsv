@@ -6,5 +6,5 @@ v3-calls-a-captured-function-parameter	claude-code	2026-08-08T17:27:52Z	calling 
 v3-dataset-vertical-slice	claude-code	2026-08-08T18:04:11Z	Dataset.of collect count reduce first on both v3 lanes	file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/front BUGS.md
 v3-object-nested-class	claude-code	2026-08-08T18:44:06Z	exec-gate RED: object-nested-class, executor and bridge both empty where hello/bye expected	file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/tests/front BUGS.md
 f-trailing-block-arg	claude-code	2026-08-08T18:47:24Z	f-drops-a-trailing-block-argument-without-running-it	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-trailing-block-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
-v3-bridge-emits-stub-not-a-refusal	claude-code	2026-08-08T18:56:54Z	BridgeV2 emits a placeholder Stub for an unsupported method: a wrong answer that exits 0	file:v3/exec-gate.sh file:v3/tests/front BUGS.md
+v3-bridge-emits-stub-not-a-refusal	claude-code	2026-08-08T18:56:54Z	BridgeV2 emits a placeholder Stub for an unsupported method: a wrong answer that exits 0	file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/tests/front BUGS.md
 sprint-item-nobody-writes	claude-code	2026-08-08T19:05:13Z	module-sprint-item-written-by-nobody	file:scripts/coord-release file:scripts/coord-claim
