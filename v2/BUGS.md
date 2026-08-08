@@ -123,6 +123,44 @@ of these is the trigger and none needs re-testing:
     a callee with a DEFAULT parameter, supplied or omitted     lowers
     two MUTUALLY RECURSIVE defs each calling the other with `_` lowers
 
+**WHAT THE FIX ACTUALLY CHANGED ACROSS THE CORPUS, measured on the same 140 files before and
+after: NO decision moved, and 33 REASONS did.**
+
+    decision changes                     0
+    reason-name changes                 33     `_` -> `v` (21), `_` -> `__u0` (11), `_` -> `row` (1)
+
+So on every affected file the bare `_` is gone — the wrap fires — and something one level further in
+is unbound instead. Two of the three new names (`v`, `row`) are ORDINARY source identifiers, not the
+synthesised `__u<n>`, which is the part to look at first. The concrete one, from
+`std/ui/lower.ssc`:
+
+    def _lenOf(v: String, theme: Theme): Int =
+      try v.toInt
+      catch case _ => _spaceTokOf(v, theme)
+
+`v` is the enclosing parameter, referenced from inside a `catch case _ =>` arm.
+
+**NOT ESTABLISHED, and stated rather than assumed: whether `v` was newly EXPOSED or newly BROKEN.**
+The file declined before and declines now, so no decision regressed, but "the reason moved forward"
+and "I introduced a scope bug one level in" look identical from the census alone. THE CHECK WAS RUN, and it narrows without closing. With the placeholder change reverted,
+`std/ui/lower.ssc` reports `(global _)`; with it, `(global v)`. That is consistent with either
+reading, because `validateNoReader` names the FIRST unbound global it reaches — fixing `_` simply
+lets the next one surface.
+
+A second, sharper test also came back clean: the shape `v` appears in,
+
+    def lenOf(v: String, theme: Int): Int =
+      try v.toInt
+      catch case _ => spaceTok(v, theme)
+
+lowers FINE in isolation, with and without the enclosing `catch`. So the `catch`-arm scope is not
+the cause and `v` is coming from somewhere else in that file.
+
+Left open deliberately rather than guessed at. The one measurement that would settle it: dump the
+def names for `lower.ssc` on both builds (`SSC_DUMP_DEFS=1`) and check whether `v` is missing from
+F's output in the PRE-fix build too — if it is, the fix only uncovered it, and if it is not, the
+fix introduced it.
+
 **MINIMAL AT SEVEN LINES**, hand-cut one line at a time from the 2-declaration reduction until no
 single removal keeps the symptom. Every line below is load-bearing — dropping any one of them makes
 F lower the file:
