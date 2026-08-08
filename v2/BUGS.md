@@ -4005,9 +4005,31 @@ REFERENCE and would answer `false` for equal data. A numbers-only `__eq__` would
 green and diverge from js on the first structural comparison anywhere else — the parity harness
 exists to catch exactly that, so a partial implementation is worse than the current loud failure.
 
-So the work is: mirror `$eq` in `JvmBackend.prim2` and again in the Rust emitter, then re-run
-`v2/backend/check.sh` whole — the js output is the reference for every case, which is what makes
-"mirror it" checkable rather than a matter of taste.
+**HALF DONE 2026-08-08: the JVM lane now passes; rust and wasm still fail.** `check.sh` whole is
+36 ok / 2 fail, and exactly one row flipped — no other fixture moved.
+
+**Correcting my own instruction from an hour earlier: the reference is the VM, not js.** I first
+wrote "mirror `$eq`". `Runtime.scala:1896` answers `__eq__` with Scala `==` over the Value ADT,
+wrapped in `liftArith` — and `liftArith` turns out to be an EFFECT lift, diverting only when an
+argument is `DataV("Op", _)`, not a numeric one. So the rule is deep structural equality with NO
+cross-type numeric arm, while js's `$eq` carries a bigint/number arm the VM does not have. js is a
+passing example, not the specification; sending the next person to it would have copied an arm that
+is not in the reference.
+
+**What the JVM lane needed was not the rule but the representation.** `==` alone is wrong here
+because a constructor value is emitted as `(tag, Array[V])` and Tuple2's `==` compares the Array by
+REFERENCE, so structurally equal values answer false. `arr.new` values are `mutable.ArrayBuffer`,
+whose `equals` is already structural, so they need no arm.
+
+Also checked rather than assumed: there is no `__ne__` prim anywhere — `!=` reaches the backends
+through `__arith__` with the op string — so the sibling case I had started to add was deleted as
+dead code before it shipped.
+
+**REMAINING: the same in the Rust emitter** (`RustBackend.scala`, and wasm shares it). Note for
+whoever takes it: `V` there derives only `Clone`, not `PartialEq` — it cannot, since it holds
+`V::Fn(Rc<dyn Fn…>)` — so this needs a hand-written recursive `v_eq` over the enum, with
+`V::Data(tag, fields)` as the structural arm. I read the `#[derive(… PartialEq …)]` three lines
+above `enum V` as belonging to it and it belongs to `struct VKey`; do not repeat that.
 
 ## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
 <!-- status: fixed

@@ -241,6 +241,32 @@ private def _call2(fn: V, a: V, b: V): V = fn.asInstanceOf[Fn](Array(a, b))
 private def _call3(fn: V, a: V, b: V, c: V): V = fn.asInstanceOf[Fn](Array(a, b, c))
 
 // Show: convert a Value to a string (for display, not serialization)
+// Structural equality — the semantics of `__eq__`, which this lane did not implement at all until
+// 2026-08-08 (`backend-check-mutual-recursion-drops-output`). Any program containing `==` on this
+// backend threw `unknown prim2: __eq__` on its first comparison and printed nothing.
+//
+// THE REFERENCE IS THE VM, not the JS backend. `Runtime.scala` answers `__eq__` with Scala `==`
+// over its Value ADT — `DataV(tag, fields: IndexedSeq[Value])` is a case class, so that `==` is
+// deep — wrapped in `liftArith`, which is an EFFECT lift (it only diverts when an argument is
+// `DataV("Op", _)`) and not a numeric one. So: deep structural, no cross-type numeric arm.
+//
+// `==` ALONE IS WRONG HERE, and the reason is this lane's representation rather than the rule: a
+// constructor value is emitted as `(tag, Array[V])`, and Tuple2's `==` compares the Array component
+// by REFERENCE, so two structurally equal values answer false. `arr.new` values are
+// `mutable.ArrayBuffer`, whose `equals` is already structural, so they need no arm and get one only
+// by falling through.
+private def _eqV(a: V, b: V): Boolean = (a, b) match
+  case ((t1: String, f1: Array[V]), (t2: String, f2: Array[V])) =>
+    t1 == t2 && f1.length == f2.length && {
+      var i = 0
+      var ok = true
+      while ok && i < f1.length do
+        ok = _eqV(f1(i), f2(i))
+        i += 1
+      ok
+    }
+  case _ => a == b
+
 private def _show(v: V): String = v match
   case ()         => "()"
   case b: Boolean => b.toString
@@ -505,6 +531,9 @@ object R:
     // __method0__ = an APPLIED zero-arg call. This backend never eta-expands (the
     // _method fallthrough throws), so it is exactly __method__ here.
     case "__method__" | "__method0__" => _method(_asStr(a0), a1, Array.empty[V])
+    // Only `__eq__`: there is no `__ne__` prim anywhere — `!=` reaches the backends through
+    // `__arith__` with the op string, and inventing a sibling here would be dead code.
+    case "__eq__"   => _eqV(a0, a1)
     case _ => throw new RuntimeException(s"unknown prim2: $op")
 
   // Bridge-generated arithmetic: prim3("__arith__", op, left, right)
