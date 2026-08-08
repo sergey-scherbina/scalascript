@@ -83,7 +83,16 @@ before it gets a wrapper.
   task (`sscBuildTarget desktop <file.ssc>`): the platform is a choice made per invocation, not a
   property of the project.
 
-**The family is complete.** 13 scripted scenarios, all green. Nothing was published to Maven.
+**The family is complete.** 14 scripted scenarios, all green. Nothing was published to Maven.
+
+**And one of them now uses the REAL toolchain.** The other thirteen mock `ssc`, which proves the
+wiring — which command, which arguments, what the task returns — and proves nothing about whether
+the toolchain accepts any of it. `real-ssc` points `sscBinary` at the staged launcher and requires a
+compile to produce artifacts. It found a defect on its first run: the backend stamp file introduced
+by S2 sat in the artifact directory, so `sscCompile` returned it AS an artifact — it fed `sscLink`
+and would have been published. No mocked scenario could see that; their mocks write nothing else
+there. The stamp moved to the cache directory and the scenario now refuses any plugin bookkeeping
+among the artifacts.
 
 (The commit that landed the last two says "14/14". It is 13 — three scenarios were added to the
 original ten, not four. Counted rather than remembered, after the gate's own hardcoded "10

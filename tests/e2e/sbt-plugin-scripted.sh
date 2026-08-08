@@ -16,6 +16,14 @@ PLUGIN="$ROOT/v1/tools/sbt-plugin"
 
 [[ -d $PLUGIN ]] || { echo "sbt-plugin-scripted: no plugin at $PLUGIN" >&2; exit 2; }
 
+# The `real-ssc` scenario runs against the STAGED launcher rather than a mock, so it needs one. Said
+# here, once, rather than letting that scenario fail with "Cannot run program .../bin/ssc-tools" --
+# a message that reads like a broken scenario instead of an unbuilt tree.
+[[ -x "$ROOT/bin/ssc-tools" ]] || {
+  echo "sbt-plugin-scripted: no staged launcher at $ROOT/bin/ssc-tools — run ./install.sh --dev" >&2
+  exit 2
+}
+
 # The fixtures are the thing that rotted, so their absence is reported as itself rather than as ten
 # confusing scenario failures. `.ssc-artifacts/` is gitignored with an exception for these paths; if
 # that exception ever stops matching again, this is the line that says so.

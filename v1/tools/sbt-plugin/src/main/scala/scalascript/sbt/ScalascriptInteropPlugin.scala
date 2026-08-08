@@ -335,8 +335,14 @@ object ScalascriptInteropPlugin extends AutoPlugin {
         // invocation, so a lastModified-keyed cache misses every time — which is exactly what the
         // first attempt did, and the invocation-counting scenario said `saw 2` rather than letting
         // it look like it worked.
-        val backendStamp = artifactDir / ".ssc-backends"
+        // In the CACHE directory, not the artifact directory. Putting it beside the artifacts made
+        // it one: sscCompile returns `(outDir ** "*").filter(_.isFile)`, so the stamp came back as
+        // a compile output, fed sscLink, and would have reached anything published. Every mocked
+        // scenario missed it because their mocks write nothing else there; the real-ssc scenario
+        // showed it in the first artifact listing it printed.
+        val backendStamp = cacheStore.getParentFile / "ssc-backends"
         IO.createDirectory(artifactDir)
+        IO.createDirectory(backendStamp.getParentFile)
         val backendsText = backends.mkString("\n")
         val currentStamp = if (backendStamp.exists()) IO.read(backendStamp) else null
         if (currentStamp != backendsText) IO.write(backendStamp, backendsText)

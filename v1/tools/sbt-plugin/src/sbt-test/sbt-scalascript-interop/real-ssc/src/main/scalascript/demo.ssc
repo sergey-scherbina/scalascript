@@ -1,0 +1,3 @@
+```scalascript
+def answer(): Int = 42
+```

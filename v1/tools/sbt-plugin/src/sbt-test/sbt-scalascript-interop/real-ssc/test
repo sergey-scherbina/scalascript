@@ -1,0 +1,6 @@
+# Compile with the real toolchain and require it to have produced something. Deliberately not
+# asserting file NAMES: those are the toolchain's business and pinning them here would make this
+# scenario fail every time ssc renames an artifact, which is not what it is for. What it is for is
+# "the plugin and the real ssc still agree on the command line".
+> compile
+> checkRealArtifacts
