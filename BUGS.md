@@ -27,7 +27,8 @@ Newest first.
      lane: v3
      area: build
      kind: apparatus
-     gate: v3/exec-gate.sh -->
+     gate: v3/exec-gate.sh
+     fixed-in: 60345372e -->
 
 **FIXED 2026-08-08.** `v3/exec-gate.sh` line 73 read
 
