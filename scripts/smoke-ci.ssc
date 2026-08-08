@@ -326,6 +326,12 @@ val suite = List(
   // serialised — rozum had {"cell":{Stub}} in an HTTP body with a 200 and no log line. Both halves
   // are asserted: a missing method is fatal AND names itself, and ordinary values still render.
   Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 60000),
+  // Sibling of the check above, and it exists because that one taught the lesson: a gate that
+  // asserts on message TEXT has to run BOTH launchers, since only `bin/ssc` wraps errors with
+  // `ssc: ` while `bin/ssc-tools` used to hand the user the JVM's own report. Four `run`s, still
+  // under a second. It also guards the escape hatch — SSC_STACKTRACE=1 must still produce frames,
+  // or the "fix" would just be deleting the diagnostics.
+  Check("tests", "cli-errors-are-messages", "tests/e2e/cli-errors-are-messages.sh", List(), 60000),
   // The sbt plugin is a SEPARATE build -- not in the root aggregate, not in ci.yml -- so its ten
   // scripted scenarios were run by nothing at all. That is how 1fea89a79 (a JS commit) deleted all
   // four of their .ssc-artifacts fixtures and nobody noticed for three weeks, leaving two scenarios

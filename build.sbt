@@ -1861,6 +1861,11 @@ lazy val cli = project
       IO.delete(standardJarStage); IO.createDirectory(standardJarStage)
       val standardClassPrefixes = Seq(
         "scalascript/cli/StandardMain",
+        // The failure boundary both launchers share. Omitting it does not fail the build — it fails
+        // at RUN time, on the first line of main, with NoClassDefFoundError: every `ssc` invocation
+        // dead. This allowlist is an inventory, so a class reached from StandardMain has to be in
+        // it; it depends only on ssc.ControlRunFailure, which the standard tier already catches.
+        "scalascript/cli/CliFailure",
         "scalascript/cli/RunNativeV2",
         "scalascript/cli/NativeManifest",
         "scalascript/cli/NativeSourceManifest",

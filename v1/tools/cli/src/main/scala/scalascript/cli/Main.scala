@@ -24,7 +24,14 @@ import scalascript.codegen.SparkBackend
 import RenderHelpers.*
 import ArtifactInfoPrinters.*
 
-@main def ssc(rawArgs: String*): Unit =
+/** The entry point stays named `ssc` — `--main-class scalascript.cli.ssc` is spelled out in
+ * `bin/ssc-tools`, in the installer template and in three e2e scripts, so renaming it breaks
+ * launchers. All it does now is put the body behind the same failure boundary `bin/ssc` has always
+ * had: without it an ordinary runtime error reached the user as
+ * `Exception in thread "main" java.lang.RuntimeException: …` and a stack trace. */
+@main def ssc(rawArgs: String*): Unit = CliFailure.guard(sscMain(rawArgs*))
+
+private def sscMain(rawArgs: String*): Unit =
   NativeImageInstallRoot.configure()
   // --quiet silences third-party SLF4J library output (commonmark, …)
   // by raising the slf4j-simple threshold to error.  Must run before any SLF4J

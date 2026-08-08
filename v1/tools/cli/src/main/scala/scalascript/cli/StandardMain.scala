@@ -1,7 +1,5 @@
 package scalascript.cli
 
-import scala.util.control.NonFatal
-
 /** ScalaScript 2.1 standard-tier entry point.
  *
  * This object deliberately mentions only the native frontend/runtime and the
@@ -9,15 +7,11 @@ import scala.util.control.NonFatal
  * the separate full CLI JAR for the optional tools launcher, but is never
  * initialized or spawned by the standard launcher. */
 object StandardMain:
+  // The arms this used to spell out inline now live in CliFailure, so that BOTH launchers reach the
+  // same ones. Keeping a private copy here is how the two drifted in the first place — bin/ssc-tools
+  // had no copy at all and printed a raw java trace for the identical failure.
   def main(rawArgs: Array[String]): Unit =
-    try dispatch(rawArgs.toList.filterNot(_ == "--quiet"))
-    catch
-      case failure: _root_.ssc.ControlRunFailure =>
-        System.err.println(failure.rendered)
-        System.exit(1)
-      case NonFatal(error) =>
-        System.err.println(s"ssc: ${Option(error.getMessage).getOrElse(error.getClass.getSimpleName)}")
-        System.exit(1)
+    CliFailure.guard(dispatch(rawArgs.toList.filterNot(_ == "--quiet")))
 
   private def dispatch(args: List[String]): Unit = args match
     case ("help" | "--help" | "-h") :: _ => printHelp()
