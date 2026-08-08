@@ -9,20 +9,74 @@ object YamlProjection:
     )
     if blocking then YamlProjectionResult(None, result.diagnostics)
     else
-      val tokens = result.roots.flatMap(UniNode.sourceTokens).sortBy(_.id)
-      val source = tokens.headOption.map(_.span.source).getOrElse(SourceId("memory:yaml"))
-      val text = tokens.iterator.map(_.lexeme).mkString
-      val parsed = YamlSemanticParser.parse(source, text, options.schema)
-      val validationDiagnostics = validate(parsed.stream)
-      val diagnostics = result.diagnostics ++ parsed.diagnostics ++ validationDiagnostics
-      if diagnostics.exists(diagnostic => diagnostic.severity == Severity.Error || diagnostic.severity == Severity.Fatal) then
-        YamlProjectionResult(None, diagnostics)
-      else options.aliases match
-        case AliasPolicy.Preserve => YamlProjectionResult(Some(parsed.stream), diagnostics)
-        case AliasPolicy.Resolve =>
-          resolve(parsed.stream, options) match
-            case Left(resolveDiagnostics) => YamlProjectionResult(None, diagnostics ++ resolveDiagnostics)
-            case Right(value)             => YamlProjectionResult(Some(value), diagnostics)
+      // TRAVERSAL ORDER IS THE SOURCE ORDER, and it is VALIDATED rather than imposed. This used to
+      // read `.sortBy(_.id)`, which silently repaired a tree whose traversal order and token ids
+      // disagreed — and then reparsed the repaired text, manufacturing a semantic success out of an
+      // invalid CST. YAML is source-ORDERED (anchors bind before aliases, directives before the
+      // document they govern), so a reordering does not merely hide the defect: it can change what
+      // the document means. `uniml.yaml.projection-invalid-cst` is the answer instead.
+      //
+      // The sibling projection already worked this way — `JsonProjection` refuses with
+      // `uniml.json.projection-invalid-cst` rather than fixing its input — so this was the second
+      // decision site of one rule, and the wrong one.
+      val tokens = result.roots.flatMap(UniNode.sourceTokens)
+      val cstDiagnostics = validateCst(tokens)
+      if cstDiagnostics.nonEmpty then YamlProjectionResult(None, result.diagnostics ++ cstDiagnostics)
+      else
+        val source = tokens.headOption.map(_.span.source).getOrElse(SourceId("memory:yaml"))
+        val text = tokens.iterator.map(_.lexeme).mkString
+        val parsed = YamlSemanticParser.parse(source, text, options.schema)
+        val validationDiagnostics = validate(parsed.stream)
+        val diagnostics = result.diagnostics ++ parsed.diagnostics ++ validationDiagnostics
+        if diagnostics.exists(diagnostic => diagnostic.severity == Severity.Error || diagnostic.severity == Severity.Fatal) then
+          YamlProjectionResult(None, diagnostics)
+        else options.aliases match
+          case AliasPolicy.Preserve => YamlProjectionResult(Some(parsed.stream), diagnostics)
+          case AliasPolicy.Resolve =>
+            resolve(parsed.stream, options) match
+              case Left(resolveDiagnostics) => YamlProjectionResult(None, diagnostics ++ resolveDiagnostics)
+              case Right(value)             => YamlProjectionResult(Some(value), diagnostics)
+
+  /** The CST invariants the projection RELIES on, checked before it flattens the tree to text.
+    *
+    * Each one is a way the flattened text could differ from the source the tree came from, which is
+    * the only reason this projection can reparse at all. Named in `BUGS.md`
+    * `uniml-yaml-projection-reorders-invalid-cst`; the first four are structural and checkable here,
+    * and what is NOT checkable is stated rather than implied: the ORIGINAL TEXT is not available to
+    * this function, so a token's lexeme cannot be compared against a slice of it. Contiguity of
+    * spans is the structural stand-in — a gap or an overlap means the tree is not a partition of the
+    * source, which is the condition that made the old `sortBy` reachable.
+    */
+  private def validateCst(tokens: Vector[SourceToken]): Vector[Diagnostic] =
+    if tokens.isEmpty then Vector.empty
+    else
+      var problems: Vector[Diagnostic] = Vector.empty
+      def reject(message: String, span: Option[SourceSpan]): Unit =
+        if problems.isEmpty then
+          problems = problems :+ diagnostic("uniml.yaml.projection-invalid-cst", message, Severity.Error, span)
+
+      val head = tokens.head
+      tokens.find(_.span.source != head.span.source).foreach { other =>
+        reject(
+          s"the CST spans two sources — '${head.span.source.value}' and '${other.span.source.value}'",
+          Some(other.span))
+      }
+      if tokens.map(_.id).distinct.size != tokens.size then
+        reject("the CST has duplicate token ids", Some(head.span))
+      var i = 1
+      while i < tokens.size && problems.isEmpty do
+        val prev = tokens(i - 1)
+        val cur = tokens(i)
+        if cur.id <= prev.id then
+          reject(
+            s"traversal order and token ids disagree: id ${cur.id} follows ${prev.id}",
+            Some(cur.span))
+        else if cur.span.start.offset < prev.span.end.offset then
+          reject(
+            s"token spans overlap or go backwards: ${cur.span.start.offset} follows ${prev.span.end.offset}",
+            Some(cur.span))
+        i += 1
+      problems
 
   private def validate(stream: YamlValue.Stream): Vector[Diagnostic] =
     var allDiagnostics: Vector[Diagnostic] = Vector.empty
