@@ -1601,12 +1601,31 @@ def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, c
 // layout opener so braceless arms close with a `}`. A single-expr body is byte-unchanged (armSeqCont hits
 // the boundary immediately). A bare non-final stmt pushes an anon env slot ("") so later refs shift, as in
 // a block. The leading-assign path stays single (its block form is `(seq ..)`, not `(let ..)` — separate).
-def armBodyExpr(ts, aenv, cx) = if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx))
+// A `val` in an INLINE arm body — `case "a" => val n = e; rest`, the same line as the `=>` — was not a
+// statement this sequence knew, and the failure was not a diagnostic: parseExpr consumed no `val`, the
+// tokens LEAKED past the arm, and the top-level item parser read them as a top-level `val`. So the entry
+// got `(prim cell.set (global n__cell) ..)` while collectTopVals — which correctly scans top level only —
+// never declared the cell. Hence `unbound global (global n__cell)`, an F-invented name the user never
+// wrote. When the initializer mentions an enclosing parameter (`val n = _lenOf(v, theme)`) that name is
+// unbound at top level and surfaces FIRST, which is why runtime/std/ui/lower.ssc reported `(global v)`
+// and this reducer reports `(global n__cell)`: one mechanism, two symptoms, neither naming the cause.
+// Measured 2026-08-08: the leak is what made lower.ssc GAP, and lower.ssc is what made 16 of the 32 GAP
+// corpus files GAP — every frontend example imports it. The braceless multi-LINE form already worked
+// (parseBlock handles it), so this is only the inline `;` form. Shape is parseDBlockVal's (:2441), the
+// `direct` block's local val, which threads de Bruijn the same way.
+def isArmValHead(ts) = isTok(hd(ts), 2, 7)
+def parseArmVal(ts, env, cx) = parseArmVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+def parseArmVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArmValRest(nm, erase(e, cx), r, env, cx) }
+def parseArmValRest(nm, e, ts, env, cx) = armBodyExpr(skipSemisF(ts), nm :: env, cx) match { case (b, r) => (eNode("(let (" ++ e ++ ") " ++ erase(b, cx) ++ ")"), r) }
+def armBodyExpr(ts, aenv, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), aenv, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)))
 def armSeqExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => armSeqCont(e, skipSemisF(r), env, cx) }
 def armSeqCont(e, ts, env, cx) = if armSeqEnd(ts) then (e, ts) else armSeqMore(e, ts, env, cx)
 def armSeqEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 6) then true else isTok(hd(ts), 2, 29))
 def armSeqMore(e, ts, env, cx) = armSeqStmt(ts, "" :: env, cx) match { case (b, r) => (eNode("(let (" ++ erase(e, cx) ++ ") " ++ erase(b, cx) ++ ")"), r) }
-def armSeqStmt(ts, env, cx) = if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx))
+// The SECOND decision site for the same construct, reached by a different surface form: `a; val n = e; b`
+// puts the val one statement later, where armSeqStmt — not armBodyExpr — dispatches. Left out, the leak
+// survives behind a leading statement and the gate above it stays green.
+def armSeqStmt(ts, env, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx)))
 def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ erase(b, cx) ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 // A QUALIFIED ctor pattern `case Enum.Case(..)` drops the enum qualifier and matches on the CASE tag
@@ -1687,9 +1706,29 @@ def parseGenCtorGuardG(nm, ar, vs, gToks, afterArrow, menv, cx) = parseExpr(gTok
 def parseGenCtorGuardB(nm, ar, vs, g, ts, menv, cx) = parseExpr(ts, 0, appEnv(vs, menv), cx) match { case (body, r) => parseGenCtorGuardC(nm, ar, g, erase(body, cx), r, menv, cx) }
 def parseGenCtorGuardC(nm, ar, g, body, ts, menv, cx) = parseGenArms(ts, appEnv(dummyBinders(ar), menv), cx) match { case (fb, r0) => parseGenCtorGuardD(nm, ar, g, body, fb, ts, menv, cx) }
 def parseGenCtorGuardD(nm, ar, g, body, fb, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (deflt, r) => (genCtorMatch(nm, ar, "(if " ++ g ++ " " ++ body ++ " " ++ fb ++ ")", deflt, menv), r) }
-def parseGenCtorPlain(nm, ar, vs, ts, menv, cx) = parseExpr(ts, 0, appEnv(vs, menv), cx) match { case (body, r) => parseGenCtorPlain2(nm, ar, erase(body, cx), r, menv, cx) }
+// ARM BODIES ON THE ORDERED (gen) RESOLVER ARE STATEMENT SEQUENCES, same as on parseCtorMatch. Every
+// site below parsed its body with a bare `parseExpr`, which stops at the first `;` — so the ordered
+// path had BOTH of the arm-body gaps the ctor path did not:
+//
+//   `case "a" => e1; e2`        F returned e1 and dropped e2. Not a decline — a SILENT WRONG ANSWER.
+//                               Measured 2026-08-08: `case "a" => "xy".length; 3.toString` gives 2
+//                               under F, 3 under the reference front and 3 under the v1 interpreter.
+//   `case "a" => val n = e; e2` the tokens leaked out of the arm entirely and the top-level item
+//                               parser read them as a top-level val, so the entry referenced a cell
+//                               `n__cell` that collectTopVals never declared -> F declined the file.
+//
+// Which resolver a match uses is decided by its FIRST pattern (parseMatchArms :1556): a string or
+// other scalar literal routes here, a ctor routes to parseCtorMatch. So `case "a" =>` and `case A() =>`
+// are the same construct through two parsers, and fixing only one leaves the other silently wrong —
+// which is exactly what the first version of this change did, with a green gate, because every test
+// in it matched on a String and never reached the code being edited.
+//
+// armBodyExpr is the ctor path's existing body parser, so this makes the two agree rather than adding
+// a second implementation. It also brings the leading-assign and index-store arms the ctor path
+// already handled; that is a widening, and it is the point — the two arm families had drifted.
+def parseGenCtorPlain(nm, ar, vs, ts, menv, cx) = armBodyExpr(ts, appEnv(vs, menv), cx) match { case (body, r) => parseGenCtorPlain2(nm, ar, erase(body, cx), r, menv, cx) }
 def parseGenCtorPlain2(nm, ar, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (deflt, r) => (genCtorMatch(nm, ar, body, deflt, menv), r) }
-def parseGenInt(n, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenIntRest(n, erase(body, cx), r, menv, cx) }
+def parseGenInt(n, ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseGenIntRest(n, erase(body, cx), r, menv, cx) }
 def parseGenIntRest(n, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), emitInt(n)), body, rest), r) }
 // Scalar-literal arms (`case "s" =>` / `case 1.5 =>` / `case true =>`) mirror parseGenInt: an ordered
 // `(if (__eq__ scrut <lit>) body rest)`. Before this only INT literals (parseGenInt) were handled; a
@@ -1704,21 +1743,23 @@ def parseGenIntRest(n, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { 
 def isNumLitHead(t) = if fst(t) == 0 then true else fst(t) == 12
 def isScalarLitHead(t) = if fst(t) == 4 then true else (if fst(t) == 5 then true else (if isTok(t, 2, 8) then true else isTok(t, 2, 9)))
 def litArmIR(t, cx) = if fst(t) == 4 then emitStr(snd(t), dqOf(cx)) else (if fst(t) == 5 then emitFloat(snd(t)) else (if isTok(t, 2, 8) then "(lit true)" else "(lit false)"))
-def parseGenLit(t, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenLitRest(litArmIR(t, cx), erase(body, cx), r, menv, cx) }
+def parseGenLit(t, ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseGenLitRest(litArmIR(t, cx), erase(body, cx), r, menv, cx) }
 def parseGenLitRest(litIR, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), litIR), body, rest), r) }
 // `case () =>` in the ordered resolver. Same shape as parseGenLit, except the pattern is TWO tokens
 // (`(` `)`), so the caller advances by two; the literal IR is fixed. BUGS
 // `unit-literal-pattern-diverges-two-lanes-against-two`.
-def parseGenUnit(ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenLitRest("(lit unit)", erase(body, cx), r, menv, cx) }
+def parseGenUnit(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseGenLitRest("(lit unit)", erase(body, cx), r, menv, cx) }
 def parseGenVar(nm, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenVarGuard(nm, tl(ts), menv, cx) else parseGenVarPlain(nm, tl(ts), menv, cx)
 def parseGenVarGuard(nm, ts, menv, cx) = parseExpr(ts, 0, nm :: menv, cx) match { case (g, r) => parseGenVarGuard2(nm, erase(g, cx), r, menv, cx) }
-def parseGenVarGuard2(nm, g, ts, menv, cx) = parseExpr(tl(ts), 0, nm :: menv, cx) match { case (body, r) => parseGenVarGuard3(nm, g, erase(body, cx), r, menv, cx) }
+// Only the BODY becomes a sequence. The GUARD above stays a single expression — a guard is not a
+// statement list, and `armSeqEnd` would not stop it at the `=>` anyway.
+def parseGenVarGuard2(nm, g, ts, menv, cx) = armBodyExpr(tl(ts), nm :: menv, cx) match { case (body, r) => parseGenVarGuard3(nm, g, erase(body, cx), r, menv, cx) }
 def parseGenVarGuard3(nm, g, body, ts, menv, cx) = parseGenArms(ts, nm :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(g, body, rest) ++ ")", r) }
-def parseGenVarPlain(nm, ts, menv, cx) = parseExpr(ts, 0, nm :: menv, cx) match { case (body, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ erase(body, cx) ++ ")", armsRest(r)) }
+def parseGenVarPlain(nm, ts, menv, cx) = armBodyExpr(ts, nm :: menv, cx) match { case (body, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ erase(body, cx) ++ ")", armsRest(r)) }
 def parseGenWild(ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenWildGuard(tl(ts), menv, cx) else parseGenWildPlain(tl(ts), menv, cx)
-def parseGenWildPlain(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => (erase(body, cx), armsRest(r)) }
+def parseGenWildPlain(ts, menv, cx) = armBodyExpr(ts, menv, cx) match { case (body, r) => (erase(body, cx), armsRest(r)) }
 def parseGenWildGuard(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (g, r) => parseGenWildGuard2(erase(g, cx), r, menv, cx) }
-def parseGenWildGuard2(g, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenWildGuard3(g, erase(body, cx), r, menv, cx) }
+def parseGenWildGuard2(g, ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseGenWildGuard3(g, erase(body, cx), r, menv, cx) }
 def parseGenWildGuard3(g, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(g, body, rest), r) }
 
 // -- NESTED constructor/tuple patterns (K62.10) ---------------------------------------------------
@@ -2370,9 +2411,10 @@ def skipTTAclose(r, ts, d) = if d == 0 then ts else skipTTA(r, d - 1)
 def isTypedArm(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 34) else false
 def parseTypedArm(ts, menv, cx) = parseTypedArm1(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), menv, cx)
 def parseTypedArm1(wild, binder, th, tsA, menv, cx) = if wild then parseTypedWild(th, tl(tsA), menv, cx) else parseTypedBind(binder, th, tl(tsA), menv, cx)
-def parseTypedWild(th, ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => parseTypedWildRest(th, erase(body, cx), r, menv, cx) }
+def parseTypedWild(th, ts, menv, cx) = armBodyExpr(ts, menv, cx) match { case (body, r) => parseTypedWildRest(th, erase(body, cx), r, menv, cx) }
 def parseTypedWildRest(th, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), body, rest), r) }
-def parseTypedBind(binder, th, ts, menv, cx) = parseExpr(ts, 0, binder :: menv, cx) match { case (body, r) => parseTypedBindRest(th, erase(body, cx), r, menv, cx) }
+// The typed arms (`case x: T =>`) are the same body shape reached by a third surface syntax.
+def parseTypedBind(binder, th, ts, menv, cx) = armBodyExpr(ts, binder :: menv, cx) match { case (body, r) => parseTypedBindRest(th, erase(body, cx), r, menv, cx) }
 def parseTypedBindRest(th, body, ts, menv, cx) = parseGenArms(ts, "__typed_scrut__" :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(typedTagTest("(local 0)", th, cx), body, rest) ++ ")", r) }
 // -- try / catch / finally (DA2) ------------------------------------------------------------------
 // `try B catch {case e:T=>..} [finally F]` -> `(prim __tryCatch__ (lam 0 B) <pf>)`; `try B finally F` ->
