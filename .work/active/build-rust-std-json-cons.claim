@@ -1,0 +1,14 @@
+slug: build-rust-std-json-cons
+branch: feature/build-rust-std-json-cons
+agent: claude-code
+started: 2026-08-08T20:00:00Z
+heartbeat: 2026-08-08T20:00:00Z
+status: implementing
+items: build-rust-std-json-cons
+paths: file:v1/runtime/backend/rust/src file:tests/e2e
+scope: |
+  rozum report: `build-rust` cannot compile any program touching std/json. Three errors, all inside
+  std: a `Term.Name (Nil)` pattern, `Cons` not a known enum constructor, and infix `::`. The JVM
+  lane had the same Cons trouble and was fixed 2026-08-05; this may be the same fix not applied to
+  genRust. Downstream a production PWA cannot be rebuilt.
+next: reproduce with a minimal probe before touching anything
