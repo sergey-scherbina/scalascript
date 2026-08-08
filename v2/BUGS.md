@@ -15,7 +15,7 @@ Newest first.
 <!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: PLACEHOLDER
+     fixed-in: f9ac09af0
      gate: tests/e2e/f-bare-member-call-gate.sh -->
 
 **FIXED, and MY LANE COMPARISON ABOVE WAS WRONG — corrected here rather than left standing.** I
