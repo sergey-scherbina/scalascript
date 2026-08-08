@@ -121,10 +121,22 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # sbt is only needed to BUILD. On a toolchain-cache hit it is pure setup cost for a step that
-      # will not run.
+      # UNCONDITIONAL, and the comment this replaces is why. It said "sbt is only needed to BUILD.
+      # On a toolchain-cache hit it is pure setup cost for a step that will not run" — and that is
+      # false: two smoke CHECKS shell out to `sbt` at RUN time, `tests sbt-plugin-scripted` and
+      # `tests scaffold-loads-its-build`. So every cache-HIT run skipped the setup and then failed
+      # both of them with `sbt: command not found`, deterministically. Measured on two runs 20
+      # minutes apart: 31251679562 logged "Cache not found", built, and passed sbt-plugin-scripted
+      # in 104.8s; 31252689448 logged "Cache restored from key" and failed it in 0.0s.
+      #
+      # It stayed invisible because a push that changes compiler sources changes the launcher digest
+      # and therefore MISSES the cache — so the runs that exercise the build always had sbt, and the
+      # runs that went red were the docs-and-bookkeeping ones nobody re-reads.
+      #
+      # This is the same mistake as the coursier one recorded immediately below, one step up: a step
+      # was gated on "is this a build?" when what it feeds is the SUITE. Before making any setup step
+      # conditional here, grep the smoke checks for the tool it installs.
       - name: Setup sbt
-        if: steps.toolchain.outputs.cache-hit != 'true'
         uses: sbt/setup-sbt@v1
 
       # UNCONDITIONAL, and making it conditional was a real regression that took three red runs to
