@@ -60,9 +60,31 @@ mapfile -t DELEGATING < <(
   done
 )
 
+# NEVER INSTALLED is not the same state as INSTALLED AND DEAD, and conflating them made this gate
+# red on every smoke run from a fresh worktree — `scripts/new-worktree` hands you a `bin/` holding
+# `ssc` and nothing else. A red that appears unconditionally is one people learn to skip, and the
+# next real failure goes with it (BUGS.md launchers-not-dead-red-in-every-fresh-worktree, filed after
+# being observed in roughly fifteen runs over three days and mentioned in commit messages every time).
+#
+# The two states are distinguishable without guessing: the launcher SOURCES are tracked at
+# $LAUNCHER_SRC. If they exist and `bin/` has NONE of them, the checkout is partially built and the
+# honest verdict is SKIP with that reason, the same shape f-bare-member-call-gate and its siblings
+# use for "$ssc not built". If `bin/` has SOME but fewer than the sources provide, discovery is what
+# broke and that is still a hard fail — an almost-empty subject list makes every assertion below
+# vacuous.
+LAUNCHER_SRC="$ROOT/v1/tools/scripts/launchers"
+if [ "${#DELEGATING[@]}" -eq 0 ] && [ -d "$LAUNCHER_SRC" ]; then
+  echo "SKIP launchers-are-not-dead-on-arrival: no launchers installed in $BIN"
+  echo "    ($(ls -1 "$LAUNCHER_SRC" 2>/dev/null | wc -l | tr -d ' ') source(s) under v1/tools/scripts/launchers/, none staged —"
+  echo "     a partially built checkout, e.g. a fresh worktree. Run ./install.sh --dev to populate bin/.)"
+  exit 0
+fi
+
 if [ "${#DELEGATING[@]}" -lt 4 ]; then
   echo "✗ found only ${#DELEGATING[@]} delegating launcher(s) in $BIN — discovery broke."
   echo "    An almost-empty subject list makes every assertion below vacuous, so this fails."
+  echo "    This is NOT the fresh-worktree case: that one has zero and is skipped above. Some"
+  echo "    launchers ARE staged here and the discovery predicate no longer matches them."
   exit 1
 fi
 echo "✓ discovered ${#DELEGATING[@]} delegating launchers: ${DELEGATING[*]}"

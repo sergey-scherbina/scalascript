@@ -210,30 +210,43 @@ for it, and the deletion had already been on `main` for hours.
 
 ## launchers-not-dead-red-in-every-fresh-worktree — the gate refuses on an empty bin/, by design, every time
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: tests/e2e/launchers-are-not-dead-on-arrival.sh -->
+     gate: tests/e2e/launchers-are-not-dead-on-arrival.sh
+     fixed-in: PENDING -->
 
-`scripts/new-worktree` gives a checkout whose `bin/` holds five entries and none of the delegating
-launchers. The gate discovers zero subjects and FAILS rather than passing vacuously — which is the
-property it was built with, and correct: an empty subject list makes every assertion below it
-meaningless.
+`scripts/new-worktree` gives a checkout whose `bin/` holds `ssc` and none of the delegating
+launchers, so discovery found zero subjects and the gate FAILED rather than passing vacuously — the
+property it was built with, and correct as far as it went. The consequence was that every smoke run
+from a fresh worktree was red on this one check, in roughly fifteen runs over three days. A red that
+appears unconditionally is one people learn to skip, and the next real failure goes with it.
 
-The consequence is that **every smoke run from a fresh worktree is red on this one check**, and it
-has been in roughly fifteen of my own runs over three days. A red that appears unconditionally is
-one people learn to skip, and the next real failure goes with it.
+**FIXED as the entry prescribed: SKIP is not the same verdict as PASS, and neither is FAIL.** The
+launcher sources are tracked at `v1/tools/scripts/launchers/`. If they exist and `bin/` holds NONE of
+them, the checkout is partially built and the gate now says so and exits 0, in the same shape
+`f-bare-member-call-gate` and its siblings already use for `$ssc not built`. If `bin/` holds SOME but
+fewer than the floor, discovery is what broke and that is still a hard fail, and the message says
+explicitly that this is not the fresh-worktree case.
 
-The fix is not to let an empty list pass. The distinction the gate is missing is between "installed
-and dead" and "never installed": the launcher sources are tracked under
-`v1/tools/scripts/launchers/`, so if those exist and `bin/` has none, the checkout is partially
-built and the honest verdict is SKIP with that reason — the same shape other gates already use for
-`$ssc not built`. If `bin/` has some launchers but discovery finds none, that is still a hard fail.
+**Three states, all measured — the middle one is why this is not just "let empty pass".**
 
-Filed late, and that is the point worth recording: I hit it on 2026-08-05 and mentioned it in
-commit messages perhaps fifteen times without ever filing it, because each time it was "the known
-one" and not the thing I was working on. An audit for exactly that — observed repeatedly, filed
-never — is what surfaced it.
+| `bin/` holds | verdict | exit |
+| --- | --- | --- |
+| no delegating launchers, sources present | `SKIP … no launchers installed` | 0 |
+| all five (`jssc ssc-js ssc-spark ssc-wasm sscc`) | asserts each, PASSED | 0 |
+| two of five | `✗ found only 2 … discovery broke` | **1** |
+
+The second and third states were produced by staging launchers into a fresh worktree's `bin/` and
+then removing three, so the gate was watched crossing the boundary in both directions rather than
+argued about.
+
+**This entry was filed late and said so, which is the part worth keeping.** It was hit on 2026-08-05
+and mentioned in commit messages perhaps fifteen times without ever being filed, because each time it
+was "the known one" and not the thing being worked on. It was hit twice more on 2026-08-08 by an
+agent who did not know the entry existed — once as two `StandardMain` traces in a scratchpad, once as
+a smoke suite that died before its first check in an unbuilt worktree — and diagnosed from scratch
+both times.
 
 ## url-import-flakes-under-suite-load — green standalone, red inside the smoke suite
 
