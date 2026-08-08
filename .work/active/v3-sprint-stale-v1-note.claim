@@ -1,0 +1,11 @@
+slug: v3-sprint-stale-v1-note
+branch: feature/v3-sprint-stale-v1-note
+agent: claude-code
+started: 2026-08-08T09:58:05Z
+heartbeat: 2026-08-08T09:58:05Z
+status: claimed-before-planning
+items: parameterless-def-diverges-native-vs-interp
+paths: file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
