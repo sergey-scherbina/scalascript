@@ -25,7 +25,7 @@ Newest first.
      area: codegen
      kind: bug
      gate: none
-     fixed-in: PENDING -->
+     fixed-in: 400e0aa10 -->
 
 **FIXED 2026-08-08.** `BridgeV2` now refuses BY NAME at lowering time, so all three triggers
 produce one sentence and zero stack-trace lines:
