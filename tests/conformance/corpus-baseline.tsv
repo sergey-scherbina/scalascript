@@ -22,6 +22,7 @@ derived-route-clients	*	SKIP
 distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
 dsl-sql-recovery	js	FAIL
+extension-call-in-a-def-body	v2	KNOWN-RED
 fetch-auth	*	SKIP
 graph-fullstack-rdf	*	SKIP
 graph-janusgraph-gremlin	*	SKIP
@@ -39,7 +40,6 @@ int-width	js	KNOWN-RED
 international-bank-rails	*	SKIP
 js-glue-component	js	FAIL
 js-glue-component	v2	FAIL
-map-getorelse-expr-receiver	v2	KNOWN-RED
 markdown-toolkit-links	*	SKIP
 mcp-agent	js	FAIL
 mcp-client-discover	*	SKIP
@@ -64,6 +64,8 @@ oidc-idp	*	SKIP
 oidc-login-flow	*	SKIP
 openapi-annotation	*	SKIP
 paginated-typed-client	*	SKIP
+parameterless-def-local	js	KNOWN-RED
+parameterless-def-local	v2	KNOWN-RED
 pg-listen-notify	*	SKIP
 quoted-macro-constfold	v2	FAIL
 quoted-macro-interpreter	js	FAIL

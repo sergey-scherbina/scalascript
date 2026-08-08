@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=98206a77e38df47ebe5d7eb40c00778e230bb02de44b08afcbafb51ffa281b9e	roster-sha256=046f26bda9ca6c1f7b3ee4bee5bb3c8e49d5bb18be15e848073b19dbd7f04621
+# corpus-contract-roster-v1	baseline-sha256=cab1340ded3a297248f051a4b8b39970277552a23e717942358f27db2f960899	roster-sha256=a4cb26a6fd32f3f8425f579e72732efc97e83ee5b125c3fb87fedf6bee45f2ef
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -132,6 +132,7 @@ effects
 effects-handler
 enum-shared-casename
 enums
+extension-call-in-a-def-body
 extensions
 f-tilde-arrow-ext
 f-tilde-extension-infix
@@ -261,6 +262,9 @@ optics-index-at
 option
 optional
 paginated-typed-client
+parameterless-def-extension
+parameterless-def-local
+parameterless-def-mention
 parenless-def-value
 parsing-error-node
 parsing-parse-all
