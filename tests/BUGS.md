@@ -1,3 +1,55 @@
+## f-drops-a-trailing-block-argument-without-running-it
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-08
+     ssc-version: 071ded545
+     confirmed: yes
+     gate: none -->
+
+F discards a trailing block argument. The block is never executed and nothing is reported.
+
+```
+examples/_bug1b.ssc (and _bug1c.ssc, same shape)
+
+def main(): Unit =
+  httpClient("http://example.invalid") {
+    println("inside-block")
+    httpTimeout(2000)
+    httpRetry(2, 500)
+  }
+  println("after")
+
+F                 after            <- the block never ran
+reference front   inside-block …
+```
+
+**Pre-existing** — measured identical on the pre-fix binary — and NOT caused by
+`f-ordered-match-arm-body-is-not-a-statement-sequence`. Filed because of how it was found, which is
+the part worth keeping.
+
+**How it was found: the coverage number does not measure correctness.** After that fix F claimed 53
+of the 140 corpus files. Asking a second question of those 53 — not "did F lower it" but "does F
+PRINT what the reference front prints" — gives:
+
+```
+34  agree, both ran, identical output
+ 3  both fail identically (environment, not the front)
+16  disagree
+```
+
+Of the 16: thirteen fail under BOTH fronts with different messages (F hits
+`f-multi-parameter-clause-def-is-not-lowered`, the reference hits a TLS or duplicate-signal
+blocker), one is the `smoke-test.ssc` regression recorded in that entry, and **two are these — the
+only rows where both fronts RUN to completion and disagree on the answer.** Those two are the worst
+category on the board: not a decline, not a crash, a different result.
+
+So of 53 files F claims, it is observably worse than the reference on **three**. That ratio belongs
+next to the coverage number every time the coverage number is quoted; on its own, 53-of-140 reads
+as progress that is 3 files less real than it looks.
+
 ## stub-rendered-as-data-reached-an-http-body
 
 <!-- status: fixed

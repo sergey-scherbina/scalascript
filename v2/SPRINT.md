@@ -19,6 +19,15 @@ Measured, not guessed: `ssc info --front-report` over 140 corpus files. After th
 (`d7546f299`): **53 F, 17 GAP, 65 BOTH-UNBOUND, 5 ERROR**, from 38/32/64/6 before it — 15 files
 GAP→F, one ERROR→BOTH-UNBOUND, and **no file regressed out of F**.
 
+**The coverage number is not a correctness number, and here is its counterpart.** Asking the 53
+F-verdict files a second question — does F PRINT what the reference front prints — gives 34 agree,
+3 fail identically for environment reasons, 16 disagree. Of the 16, thirteen fail under both fronts
+with different messages, one is a file that worked before F claimed it, and two RUN under both
+fronts and produce different answers. **F is observably worse than the reference on 3 of the 53 it
+claims.** Quote that alongside 53/140 or the number reads as three files more progress than it is.
+Entries: `f-multi-parameter-clause-def-is-not-lowered`,
+`f-drops-a-trailing-block-argument-without-running-it`.
+
 **Rank by GAP only.** The earlier ranking in this section counted every row, so it was topped by
 `(global _)` at 33 — but most of those are BOTH-UNBOUND rows, where the reference front declines
 too and the work is not ours. Ranked over GAP alone, which is what F actually owes, the top reason
