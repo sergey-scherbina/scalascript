@@ -1,3 +1,63 @@
+## sbt-plugin-build-tool-parity — make it an sbt plugin first, then widen it
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: task
+     gate: tests/e2e/sbt-plugin-scripted.sh -->
+
+Sergiy asked what the plugin still needs, having noted that assembling distributions is missing. It
+is — and two things ahead of it decide whether the plugin behaves like an sbt plugin at all. Order
+agreed with him; **nothing is to be published to Maven** by this work, only the wiring so that
+`publishLocal`/`publish` work when he chooses to.
+
+Measured surface: 7 of 67 CLI commands (`build`, `link`, `test`, `run`, `repl`, `watch`,
+`generate-facade`), every one of them exercised by a scripted scenario. The gap is surface, not
+coverage. Multi-backend already works (`sscBackends`, exercised by `cross-build`).
+
+### S1 — the linked jar reaches sbt's artifacts
+
+`sscLink` produces a runnable JAR and hands it to nobody: `packagedArtifacts`, `artifacts`,
+`addArtifact` and `publish` appear nowhere in the plugin. So a ScalaScript library cannot be
+published from sbt at all — which is the most sbt-native expectation there is, and the reason people
+install a build-tool plugin in the first place.
+
+Do the wiring only. Publishing anywhere is the owner's action, not this task's.
+
+### S2 — sbt must see the compile's inputs and outputs
+
+`sscCompile` has no `FileFunction.cached`, no `lastModified` check, nothing: **every** `sbt compile`
+forks `ssc build --incremental` unconditionally. The incrementality lives inside ssc, where sbt
+cannot see it, so sbt can neither skip the task nor invalidate what depends on it.
+
+Measure before and after rather than asserting an improvement — the claim "this is slow" is mine
+from reading the code, not from a stopwatch.
+
+### S3 — the distribution family
+
+Not one command but several, and they differ in kind. Checked against `ssc --help`, these are NOT
+aliases of `build --backend`, so the existing multi-backend support does not cover them:
+
+| command | produces |
+| --- | --- |
+| `build-jvm` | a compiler-free executable JAR |
+| `build-rust` | a native binary in one step (rust backend + cargo) |
+| `build --target desktop` | an Electron bundle |
+| `build --target ios\|macos` | a SwiftUI Swift package |
+| `emit-spa`, `emit-lib`, `bundle`, `package`, `install` | the rest of the ship set |
+
+Start with `build-jvm` and `build-rust`; the rest by demand.
+
+### Deliberately out of scope
+
+`lsp`, `tui`, `oauth`, `bench`, `cluster`, `search` and friends. Interactive or operational; an sbt
+task wrapping them is noise that then has to be maintained and tested.
+
+### The property to keep
+
+Every plugin task has a scripted scenario — that is true today and is what made the deleted fixtures
+visible the moment anything ran them. Each slice adds its own scenario.
+
 ## sbt-plugin-covers-7-of-67-cli-commands — the matrix, measured
 
 <!-- status: open
