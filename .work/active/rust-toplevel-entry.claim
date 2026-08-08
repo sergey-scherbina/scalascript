@@ -5,7 +5,7 @@ started: 2026-08-08T13:50:04Z
 heartbeat: 2026-08-08T13:50:04Z
 status: claimed-before-planning
 items: bare top-level statements are dropped entirely by the rust backend; every other lane runs them
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust file:BUGS.md
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust file:BUGS.md file:specs/std-fs-os.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
