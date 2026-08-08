@@ -295,7 +295,7 @@ no `BUGS.md`; move it if one appears.
 ## v3-loses-a-mutation-to-a-captured-var — both v3 lanes answer 0 where the reference answers 6
 
 <!-- status: open
-     lane: v3
+     lane: multi
      area: codegen
      kind: wrong-answer
      gate: none
