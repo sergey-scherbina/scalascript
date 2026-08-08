@@ -53,7 +53,7 @@ parenless `def mk: Int` prints 5, and `next` mentioned twice prints 1 then 2 rat
      lane: native
      area: front
      gate: tests/e2e/legacy-front-parameterless-gate.sh
-     fixed-in: PENDING -->
+     fixed-in: 21115d706 -->
 
 `SSC_FRONT=legacy` printed `<closure>` for a local parenless def, and exited 0, after F was fixed.
 
