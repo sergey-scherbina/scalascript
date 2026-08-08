@@ -98,7 +98,7 @@ as progress that is 3 files less real than it looks.
 ## stub-rendered-as-data-reached-an-http-body
 
 <!-- status: fixed
-     fixed-in: 3d1d92bbd
+     fixed-in: b32c9e663
      lane: v2-jvm
      area: runtime
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
