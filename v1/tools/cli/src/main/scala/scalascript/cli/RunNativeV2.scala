@@ -246,15 +246,26 @@ object RunNativeV2:
             // the file is broken whichever front reads it. Checking only for `_err*` SENTINELS was
             // not enough and the gate caught it: a plain `undefinedThing()` is an ordinary unbound
             // global, not a sentinel, so every typo still printed the coverage-gap line.
+            // Keep the REFERENCE front's own reason, not just whether it failed. A BOTH-UNBOUND
+            // verdict is decided by THIS check and used to report `fFailure` — F's reason — so a
+            // census of those files tabulated names that describe the wrong front and could not
+            // answer the question it was run to answer.
+            var refFailure: String = ""
             val userErrorNotGap =
               try
                 if System.getenv("SSC_DUMP_DEFS") != null then
                   viaDefault.program.defs.foreach(d => System.err.println("REF-DEF " + d.name))
                 validateNoReader(viaDefault.program, closureExterns)
                 false
-              catch case _: Throwable => true
+              catch
+                case e: Throwable =>
+                  refFailure = Option(e.getMessage).getOrElse(e.toString)
+                  true
             lastFrontDecision =
-              if userErrorNotGap then FrontDecision("BOTH-UNBOUND", fFailure)
+              if userErrorNotGap then
+                // Both reasons, F's first, so the column stays readable where it always was and the
+                // reference front's own reason is no longer thrown away.
+                FrontDecision("BOTH-UNBOUND", if refFailure.isEmpty then fFailure else s"$fFailure  ||REF: $refFailure")
               else FrontDecision("GAP", fFailure)
             // Refuse BEFORE announcing: in strict mode the fallback is not going to happen, so the
             // "compiled with the default front instead" line would state something untrue.

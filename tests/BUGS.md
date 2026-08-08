@@ -143,6 +143,45 @@ grepping for status.
 Newest first.
 
 
+
+## both-unbound-is-mostly-plugin-intrinsics-not-user-error — the label blames the program; the names say otherwise
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     gate: - -->
+
+`ssc info --front-report` classifies a file `BOTH-UNBOUND` when the REFERENCE front also fails
+`validateNoReader`, and the surrounding comment reads that as "the file is broken whichever front
+reads it" — the user's own program. On a 140-file sample that is 64 files, the largest single group.
+
+**It reported the wrong front's reason, which is why nobody could check that reading.** The verdict
+is decided by the reference front's failure and the row printed `fFailure`, F's reason. Fixed here:
+a `BOTH-UNBOUND` row now carries both, F's first and then `||REF: <reason>`.
+
+With the reference front's own objections visible, the 64 break down as:
+
+    10  (global __yamlSection__)      4  (global _println)       3  (global NamedHandler)
+     5  (global JsonCodec_derived)    3  (global self)           2  (global VertexCodec_derived)
+     4  (global scope)                3  (global route)          2  (global sqlSection)
+     4  (global awaitClient)
+
+These are not typos. `__yamlSection__`, `_println`, `sqlSection` and `route` are plugin-provided
+intrinsics, and `*_derived` are synthesised typeclass instances — names the RUNTIME binds, in the
+same family as the declared `extern def`s that `f-validateNoReader-rejects-plugin-externs` covered
+and that `validateNoReader` now accepts.
+
+So the largest group in the front report is mostly NOT user error and NOT F's fault; it is the same
+validator blind spot one layer further out. Two consequences: the `BOTH-UNBOUND` label as documented
+is misleading, and the corpus coverage picture is better than the numbers suggest, because these
+files run correctly — the reference front compiles and executes them, it is only the static
+pre-check that objects.
+
+Not fixed here, and the reason is the same one the extern entry recorded: widening the guard to
+accept plugin intrinsics trades a loud misclassification for a silent wrong answer if the name is
+genuinely absent, so it wants the registry consulted rather than a pattern match on leading
+underscores. Owner call, like its predecessor.
+
 ## uniml-version-drifted-from-root — the standalone build would publish two versions of one artifact
 
 <!-- status: fixed
