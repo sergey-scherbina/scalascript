@@ -5,7 +5,7 @@ started: 2026-08-08T13:31:29Z
 heartbeat: 2026-08-08T13:31:29Z
 status: claimed-before-planning
 items: the rust backend recognises only @main, so def main() and top-level statements emit a library and run-rust reports a missing file
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust file:v1/tools/cli/src/main/scala/scalascript/cli/RunRustCmd.scala file:BUGS.md
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust file:v1/tools/cli/src/main/scala/scalascript/cli/RunRustCmd.scala file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
