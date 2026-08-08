@@ -214,7 +214,7 @@ for it, and the deletion had already been on `main` for hours.
      lane: apparatus
      area: build
      gate: tests/e2e/launchers-are-not-dead-on-arrival.sh
-     fixed-in: PENDING -->
+     fixed-in: 8fb4327f5 -->
 
 `scripts/new-worktree` gives a checkout whose `bin/` holds `ssc` and none of the delegating
 launchers, so discovery found zero subjects and the gate FAILED rather than passing vacuously — the
