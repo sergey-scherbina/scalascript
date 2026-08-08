@@ -1372,10 +1372,80 @@ object Lower:
           case Some((_, v)) => out = out :+ v
           case None =>
             q.default match
-              case Some(d) => out = out :+ d
+              case Some(d) => out = out :+ withEarlierParams(d, ps, out, what, p)
               case None    => ok = false
       }
       if ok then out else as
+
+  /** A later parameter's default that references an EARLIER PARAMETER — `def shift(x: Int, by: Int
+    * = x + 1)`, which is legal Scala and which the corpus uses. The default is pasted in AT THE CALL
+    * SITE, where `x` does not exist, so it read `unknown name 'x'` while the reference front answers
+    * 21. The argument already placed for `x` goes in its place.
+    *
+    * SUBSTITUTING AN EXPRESSION DUPLICATES ITS EVALUATION, and Scala does not: there the default is
+    * a function receiving the preceding parameters, so `shift(next(), )` advances the counter once.
+    * `resolveArgs` returns an argument LIST and has nowhere to bind a temporary, so the duplication
+    * is only taken where it CANNOT BE OBSERVED — a name or a literal. Anything else is refused by
+    * name rather than quietly evaluated twice.
+    *
+    * A default containing a binder is refused for the same reason: the rewrite is by name, a lambda
+    * or block inside the default may bind the parameter's name, and this cannot tell the two apart.
+    * Both refusals replace one error message with a clearer one — never a working call. */
+  private def withEarlierParams(d: Expr, ps: List[Param], filled: List[Expr],
+                                what: String, p: Pos): Expr =
+    val earlier = ps.take(filled.length).map(_.name).zip(filled).toMap
+    if earlier.isEmpty then d
+    else
+      var used: List[String] = Nil
+      mapDeep(d, x => { x match
+        case Expr.Name(n, _) if earlier.contains(n) => used = n :: used
+        case _                                      => ()
+        x })
+      if used.isEmpty then d
+      else
+        val binder = hasBinder(d)
+        used.distinct.foreach { n =>
+          if binder then
+            throw LowerFail(p, "the default for a parameter of '" + what + "' mentions the earlier " +
+              "parameter '" + n + "' inside a lambda, block or match, where a binder of the same " +
+              "name cannot be told apart from it — pass the argument explicitly")
+          if !isDuplicable(earlier(n)) then
+            throw LowerFail(p, "the default for a parameter of '" + what + "' mentions the earlier " +
+              "parameter '" + n + "', whose argument here is not a name or a literal — substituting " +
+              "it would evaluate that argument twice; pass the argument explicitly")
+        }
+        mapDeep(d, x => x match
+          case Expr.Name(n, np) => earlier.get(n).map(a => reposition(a, np)).getOrElse(x)
+          case other            => other)
+
+  /** Can this expression be evaluated twice with the same effect and the same answer? Only a name
+    * or a literal — deliberately not "has no call in it", because a name read is the only
+    * non-literal this needs and widening it is how a duplicated side effect gets in. */
+  private def isDuplicable(e: Expr): Boolean = e match
+    case Expr.Name(_, _) | Expr.IntLit(_, _) | Expr.DoubleLit(_, _) | Expr.StrLit(_, _) |
+         Expr.BoolLit(_, _) | Expr.CharLit(_, _) | Expr.UnitLit(_) => true
+    case _ => false
+
+  private def hasBinder(e: Expr): Boolean =
+    var found = false
+    mapDeep(e, x => { x match
+      case Expr.Lambda(_, _, _) | Expr.Block(_, _, _) | Expr.Match(_, _, _) |
+           Expr.Try(_, _, _, _) | Expr.Handle(_, _, _) => found = true
+      case _ => ()
+      x })
+    found
+
+  /** The substituted argument reports the DEFAULT's position, so a failure inside it points at the
+    * call the reader is looking at rather than at the declaration three files away. */
+  private def reposition(e: Expr, at: Pos): Expr = e match
+    case Expr.Name(n, _)      => Expr.Name(n, at)
+    case Expr.IntLit(v, _)    => Expr.IntLit(v, at)
+    case Expr.DoubleLit(v, _) => Expr.DoubleLit(v, at)
+    case Expr.StrLit(v, _)    => Expr.StrLit(v, at)
+    case Expr.BoolLit(v, _)   => Expr.BoolLit(v, at)
+    case Expr.CharLit(v, _)   => Expr.CharLit(v, at)
+    case Expr.UnitLit(_)      => Expr.UnitLit(at)
+    case other                => other
 
   /** Does every named argument of a `copy` name a field of this class? A class that does not have
     * all of them cannot be the receiver, so it contributes no arm. */

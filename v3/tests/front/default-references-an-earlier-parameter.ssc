@@ -1,0 +1,25 @@
+// A later parameter's default may reference an EARLIER parameter. The default is pasted in at the
+// call site, so the reference has to be replaced by the argument already placed for that parameter.
+def shift(x: Int, by: Int = x + 1): Int = x + by
+
+// Two earlier parameters, and the default of the third mentions both.
+def span(lo: Int, hi: Int, mid: Int = lo + hi): Int = mid
+
+// A default that mentions NO parameter still works, and one that mentions a top-level val
+// must keep reading the val rather than being captured by a parameter of the same shape.
+val base: Int = 100
+def plain(x: Int, by: Int = 1): Int = x + by
+def fromVal(x: Int, by: Int = base): Int = x + by
+
+// The argument substituted is a NAME here, not a literal — the other duplicable form.
+def viaName(): Int =
+  val n = 7
+  shift(n)
+
+def main(): Unit =
+  println(shift(10))        // 10 + 11
+  println(span(1, 2))       // 1 + 2
+  println(span(1, 2, 9))    // the default is not used
+  println(plain(5))         // 5 + 1
+  println(fromVal(5))       // 5 + 100
+  println(viaName())        // 7 + 8
