@@ -56,6 +56,62 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## build-rust-std-imports-unlowerable — Importing std/http.ssc or std/fs.ssc makes a program unlowerable for the Rust backend (19 and 1 errors, all ::/Cons/Nil) while the SAME functions used unimported lower and run fine — so our live .ssc server is blocked by two import lines
+<!-- triage: new
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-08
+     ssc-version: bin/ssc-tools built from 7eecad50a
+     repro: none
+     kind: bug
+     impact: blocks -->
+
+Measured while porting rozum's control server to .ssc. One import at a time, each in an otherwise
+empty program, emitted with `ssc-tools emit-rust`:
+
+| import | lowering errors |
+|---|---:|
+| `[route, serve](std/http.ssc)` | **19** |
+| `[readFile](std/fs.ssc)` | 1 |
+| `[exec, ProcessOptions](std/process.ssc)` | 0 |
+
+Every one of the 20 names `::` / `Cons` / `Nil` — json-core for http.ssc (`jsonCoreParseStringLoop`,
+`jsonCoreFindField`, …), `_normSegments` for fs.ssc. Same root cause as `build-rust-std-json-cons`.
+
+The part that was new to me: **the same functions work when NOT imported.** A program calling bare
+`route` / `serve` / `readFile` / `httpGet` lowers to the emitted Rust runtime and runs — I have a
+.ssc server built this way answering live HTTP, reading files and calling an upstream over httpGet.
+It is the import line that pulls in the unlowerable module, not the use of the function.
+
+Consequence for us: our live `:8405` meeting server (a pure .ssc→Rust program, in production for
+weeks) cannot be rebuilt for Rust, and the only reason is its two opening import lines. Programs
+written against the bare intrinsics ship fine today.
+
+One note against `d21cb5b44`, which corrected our earlier report by saying there are ZERO
+ssc-level diagnostics today: on `ssc-tools emit-rust` there ARE — the 20 above are
+`[error] Generic(def … uses unsupported infix operator ::)` lines, naming the def and the cause.
+That correction was measured on `build-rust`. If both are true, the two commands differ in whether
+the refusal survives to the user, which seems worth more than the diagnostics themselves.
+## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
+<!-- triage: new
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-08
+     ssc-version: bin/ssc-tools built from 7eecad50a
+     repro: none
+     kind: bug
+     impact: workaround -->
+
+`ProcessOptions(None, Map(), None)` — the three-argument form used by our live meeting server —
+emits Rust that does not compile:
+
+    error[E0063]: missing field `inheritEnv` in initializer of `ProcessOptions`
+
+`ProcessOptions` declares `inheritEnv: Boolean = true`, and `RustCapabilities` lists
+`Feature.DefaultParameters` with the comment "parsed but not yet used by the backend". The emitted
+struct literal simply omits the defaulted field.
+
+Passing all four arguments explicitly works. Found together with the import finding above, on
+`ssc-tools emit-rust` built from 7eecad50a (v1/runtime/backend/rust and v1/runtime/std unchanged
+since, so it reflects current code).
 <!-- inbox-entries:end -->
 
 ## Closed without routing
