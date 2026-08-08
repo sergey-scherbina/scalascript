@@ -436,12 +436,32 @@ single-arm shortcut with a `match` on the caught value plus a rethrow arm.
 
 ## v3-loses-a-mutation-to-a-captured-var — both v3 lanes answer 0 where the reference answers 6
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen
      kind: wrong-answer
-     gate: none
-     fixed-in: - -->
+     gate: v3/tests/front/captured-var-mutation.ssc
+     fixed-in: b17e7141b -->
+
+**FIXED in `b17e7141b`** — "box a captured mutable local, a one-element array was already in the
+vocabulary". Re-measured 2026-08-08 across four shapes, executor and bridge agreeing with the
+reference on every one:
+
+    List(1,2,3).foreach { n = n + i }     6      (was 0 on both v3 lanes)
+    for i <- 0 until 5 do q = q + i       10     the shape that originally surfaced it
+    nested lambdas both assigning         90
+    a var CAPTURED but never assigned     14     the case that must NOT be boxed
+
+**A correction to this entry's own closing advice.** It said "it belongs as a conformance case,
+since only an output comparison against another lane can distinguish mutated from did-not". A
+conformance case would NOT have caught this: `contract.sc`'s lanes are `int`, `js`, `jvm`, `v2` —
+**v3 is not one of them**. The gate that fits is the v3 front fixture, and it is the one that
+landed: `captured-var-mutation.expected` pins `6 / 10 / ab / 30 / 8`, and the defect made the first
+row `0`, so the file discriminates the two states rather than merely running.
+
+That distinction is not pedantry here. The entry's own headline is that BOTH v3 lanes agreed and
+both were wrong, so agreement proved nothing and only an oracle could see it — and the oracle that
+can is a pinned expected output on the lane that has the defect, not a corpus that never runs it.
 
 Found 2026-08-08 while adding `to`/`until` to v3 — `for i <- 0 until 5 do n = n + i` printed 0, and
 the range was not the cause.
