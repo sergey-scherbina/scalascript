@@ -1,0 +1,5 @@
+agent!, model!, task!
+1-2-3
+solo
+
+n1, n2, n3

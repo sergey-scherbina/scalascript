@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=001fa401a45c641b059036bb1176ff8b99a32388268e5ff5314e26e57ce11d4a	roster-sha256=c641812d0792be8a52198137194c01f5901afe934f22ce1f438e51186aef2bc1
+# corpus-contract-roster-v1	baseline-sha256=001fa401a45c641b059036bb1176ff8b99a32388268e5ff5314e26e57ce11d4a	roster-sha256=1a0ebe60822b1801d1456ffca0777e650a5dd607bba8b53c445cc9cca10b416d
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -49,6 +49,7 @@ char-as-value
 char-literal-escapes
 cluster-capability
 cluster-connect
+collection-join
 collections
 companion-case-class-order
 components-demo

@@ -1,0 +1,23 @@
+# collection-extras
+
+Collection vocabulary that is **not** Scala's, kept out of the collections themselves.
+
+ScalaScript's `List` is meant to be the real Scala `List` — that is a design decision, not an
+accident, and it is why `mkString` is the name that exists. `join` is JavaScript's name for the same
+idea, and people arriving from that side reach for it: a user hit its absence while porting a real
+backend, and the miss cost them a wrong HTTP response (`tests/BUGS.md`,
+`stub-rendered-as-data-reached-an-http-body`).
+
+Both facts can hold at once. The name goes in an **extension**, in a module you import on purpose,
+so `List` keeps Scala's API and `join` is still one line away. An extension is also portable across
+every lane by construction — it is `.ssc` source, so the interpreter, the native front and the VM
+get the identical definition. A method added to the collection runtime has to be added on each lane
+separately, and that is exactly how two lanes come to disagree about what a `List` can do.
+
+```scalascript
+extension [A](xs: List[A])
+  /** `List("a", "b").join(", ")` — Scala spells this `mkString`. Separator is required on purpose:
+    * JS defaults it to `","` and Scala's `mkString` defaults it to `""`, so a defaulted `join()`
+    * would silently mean different things to the two audiences this method exists to serve. */
+  def join(sep: String): String = xs.mkString(sep)
+```

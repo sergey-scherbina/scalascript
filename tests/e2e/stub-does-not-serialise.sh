@@ -15,8 +15,14 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-SSC="$ROOT/bin/ssc-tools"
-[[ -x $SSC ]] || { echo "stub-does-not-serialise: no launcher at $SSC — run ./install.sh --dev" >&2; exit 2; }
+# BOTH launchers, not one. The first draft ran only `bin/ssc-tools`, and the prefix assertion below
+# was worthless there: `ssc-tools` prints the raw exception while `bin/ssc` wraps it with `ssc: `, so
+# the defect the assertion targets is only VISIBLE on the launcher the gate did not run. A gate that
+# cannot reach the state it tests measures nothing.
+LAUNCHERS=("$ROOT/bin/ssc-tools" "$ROOT/bin/ssc")
+for l in "${LAUNCHERS[@]}"; do
+  [[ -x $l ]] || { echo "stub-does-not-serialise: no launcher at $l — run ./install.sh --dev" >&2; exit 2; }
+done
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/stub-gate.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
@@ -28,25 +34,40 @@ def main(): Unit =
 SSC
 
 failed=0
-set +e
-out=$("$SSC" run "$tmp/missing.ssc" 2>&1); rc=$?
-set -e
+for SSC in "${LAUNCHERS[@]}"; do
+  who=${SSC#"$ROOT"/}
+  set +e
+  out=$("$SSC" run "$tmp/missing.ssc" 2>&1); rc=$?
+  set -e
 
-if [[ $rc -eq 0 ]]; then
-  echo "stub-does-not-serialise: FAILED — a missing method exited 0" >&2
-  echo "--- output: $out" >&2
-  failed=1
-fi
-if [[ $out == *"map = Stub"* ]]; then
-  echo "stub-does-not-serialise: FAILED — the sentinel was rendered as data" >&2
-  echo "--- output: $out" >&2
-  failed=1
-fi
-if [[ $out != *"join"* ]]; then
-  echo "stub-does-not-serialise: FAILED — the error does not name the missing method" >&2
-  echo "--- output: $out" >&2
-  failed=1
-fi
+  if [[ $rc -eq 0 ]]; then
+    echo "stub-does-not-serialise: FAILED [$who] — a missing method exited 0" >&2
+    echo "--- output: $out" >&2
+    failed=1
+  fi
+  if [[ $out == *"map = Stub"* ]]; then
+    echo "stub-does-not-serialise: FAILED [$who] — the sentinel was rendered as data" >&2
+    echo "--- output: $out" >&2
+    failed=1
+  fi
+  if [[ $out != *"join"* ]]; then
+    echo "stub-does-not-serialise: FAILED [$who] — the error does not name the missing method" >&2
+    echo "--- output: $out" >&2
+    failed=1
+  fi
+  # The message is user-facing text and `bin/ssc` already prefixes `ssc: `. Both arms shipped with a
+  # second one baked in, so what a user read began `ssc: ssc:`. Of the 148 sys.error calls in
+  # Runtime.scala exactly those two carried a prefix — the convention is that they do not.
+  if [[ $out == *"ssc: ssc:"* ]]; then
+    echo "stub-does-not-serialise: FAILED [$who] — the message prefixes itself; the launcher adds 'ssc: '" >&2
+    echo "--- output: $out" >&2
+    failed=1
+  fi
+done
+# `join` DOES exist now — as an extension in `std/collection-extras.ssc`, which the repro above does
+# not import, on purpose. Extensions are opt-in, so an unimported one is still a missing method and
+# the repro keeps its tie to the original report. If anyone ever moves `join` onto the collection
+# itself this gate goes RED rather than quietly ceasing to test anything, which is the point.
 
 # The other half: ordinary values must still render. A fix that made every DataV fatal would pass
 # the assertions above and break the language.
@@ -57,14 +78,17 @@ def main(): Unit =
   println("xs = " + List(1, 2, 3).toString())
   println(Map("k" -> 1))
 SSC
-set +e
-ok=$("$SSC" run "$tmp/ok.ssc" 2>&1); okrc=$?
-set -e
-if [[ $okrc -ne 0 || $ok != *"P(1, x)"* ]]; then
-  echo "stub-does-not-serialise: FAILED — ordinary rendering broke" >&2
-  echo "--- output: $ok" >&2
-  failed=1
-fi
+for SSC in "${LAUNCHERS[@]}"; do
+  who=${SSC#"$ROOT"/}
+  set +e
+  ok=$("$SSC" run "$tmp/ok.ssc" 2>&1); okrc=$?
+  set -e
+  if [[ $okrc -ne 0 || $ok != *"P(1, x)"* ]]; then
+    echo "stub-does-not-serialise: FAILED [$who] — ordinary rendering broke" >&2
+    echo "--- output: $ok" >&2
+    failed=1
+  fi
+done
 
 [[ $failed -eq 0 ]] || { echo "stub-does-not-serialise: FAILED" >&2; exit 1; }
 echo "stub-does-not-serialise: OK (missing method is fatal and named; ordinary values render)"

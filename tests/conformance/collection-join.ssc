@@ -1,0 +1,29 @@
+---
+name: collection-join
+backends: [int, js, jvm]
+---
+
+# `join` is a std extension, and it means the same thing on every lane.
+
+The point of putting it in `.ssc` rather than in the collection runtime is that there is one
+definition, so no lane can have its own idea of what `join` does. This case is what makes that claim
+checkable rather than merely plausible: `int`, `js` and `jvm` all run it against one expected file.
+`jvm` is in that list because it was tried, not because it was assumed — the header started as
+`[int, js]`, copied from a neighbouring case, and the third lane passes on its own evidence.
+
+The empty-list line is deliberate. `List().join(",")` is `""` — an empty line here, not the absence
+of a line — and an implementation that quietly returned the separator, or `"null"`, or dropped the
+line entirely would otherwise pass unnoticed.
+
+The last line is the shape the whole thing came from: `.map(...).join(", ")`, which is what a user
+wrote while porting a backend and got a silent `Stub` for.
+
+[join](std/collection-extras.ssc)
+
+```scalascript
+println(List("agent!", "model!", "task!").join(", "))
+println(List(1, 2, 3).join("-"))
+println(List("solo").join(", "))
+println(List[String]().join(","))
+println(List(1, 2, 3).map(n => "n" + n).join(", "))
+```

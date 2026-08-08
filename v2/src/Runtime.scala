@@ -3557,7 +3557,7 @@ object Prims:
         case Some(StrV(s)) => s"`$s`"
         case _             => "a method that does not exist"
       sys.error(
-        s"ssc: $what was called but does not exist, and the result reached output. " +
+        s"$what was called but does not exist, and the result reached output. " +
         "This used to render as the text `Stub` and serialise as if it were data. " +
         "Check the method name, or the receiver's type."
       )
@@ -3972,7 +3972,7 @@ object Show:
         case Some(StrV(s)) => s"`$s`"
         case _             => "a method that does not exist"
       sys.error(
-        s"ssc: $what was called but does not exist, and the result reached output. " +
+        s"$what was called but does not exist, and the result reached output. " +
         "This used to print as `Stub` and serialise as if it were data. " +
         "Check the method name, or the receiver's type."
       )
