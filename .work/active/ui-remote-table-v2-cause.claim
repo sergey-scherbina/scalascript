@@ -1,0 +1,11 @@
+slug: ui-remote-table-v2-cause
+branch: feature/ui-remote-table-v2-cause
+agent: claude-code
+started: 2026-08-08T19:00:14Z
+heartbeat: 2026-08-08T19:00:14Z
+status: claimed-before-planning
+items: corpus-contract-ui-remote-table-v2-unrecorded
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
