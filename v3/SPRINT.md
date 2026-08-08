@@ -1721,3 +1721,74 @@ is reached, so a pattern in a cold branch ships and fails in production. The ent
 **Measured:** N = 69 on both v3 lanes, 55 on v3's own front, DIFF 0 and CRASH 0 everywhere. Front
 agreement 49/49 fixtures and 219/219 corpus. Eight gates green, `install.sh --dev` clean, smoke-ci
 70/70.
+
+## 36 · N 69 → 182. Five defects, one chasing the next, and every one a WRONG READING
+
+`call to unknown function 'jvmVfsShmRead'` led the refusal list at **113 cases against one name**.
+`scljet-address-read.ssc` does not contain that name: `v1/runtime/std/scljet/jvm-vfs.ssc` calls it on
+line 136, and 113 corpus cases import that module without going near it. Each fix exposed the next.
+
+- [x] **36a — an `extern` DECLARATION cost the whole program.** §30 dropped an unimplementable host
+      function from the table, so a CALL was refused at the call site — right for a program that
+      reaches one, wrong for a module that merely defines a function containing one. The declaration
+      stays a function now, with a body that throws.
+
+- [x] **36b — the throw needed its POSITION, and that is why §30 rejected this shape.** An
+      unpositioned run-time failure is classified CRASH, rightly: a refusal a reader can act on
+      names a place. `Diag.at` joins a path to a message that already carries `line:col` with no
+      space, so `file.ssc:136:18: …` reads as one position. Measured: the same failure counted 13
+      CRASH without it and 0 with it.
+
+- [x] **36c — the dispatch emitted INVALID IR, and 113 cases came through one line.** A method call
+      was claimed by any class having a method of that NAME, without checking the ARITY. `open.lock`
+      is a FIELD read on a `MemoryHandleState`; an unrelated class has a one-argument `lock` METHOD;
+      the arm emitted `JvmSqliteFile.lock(receiver)` — one argument where the flattened method takes
+      two — and the verifier refused the module. **A name is not a signature**, and this file
+      resolves methods by name across every class precisely because there is no type checker, so
+      the arity is the only part of the signature available and has to be used.
+
+- [x] **36d — and the same confusion in the other direction: 76 cases.** A name can be a method on
+      one class and a field on another — `name` and `sectorSize` both are, across `scljet/`. Whichever
+      arm claimed the call left the other's classes with no arm, so their receivers fell to the
+      dynamic default and the executor answered `method 'name' … is not implemented`. One switch
+      now, arms from BOTH sources, the tag decides — which is what this dispatch was always for.
+
+- [x] **36e — `<` on Strings did not exist. 30 cases.** The comparison arms covered `VInt` and
+      `VFloat` and nothing else, so `"alice" < "carol"` died with `Lt on String alice and String
+      carol` — every one of them a `scljet` SQL query with an ORDER BY. `compareTo`, as the
+      reference spells it (`scmp`), not a locale collator: a program that sorts differently on two
+      machines is worse than one that sorts unexpectedly on both. Chars too, since a char is an
+      integer on both lanes.
+
+- [x] **36f — an arity mismatch is caught at LOWERING now, with a position.** `extern def
+      pathJoin(parts: String*)` is a vararg host function and v3 has no varargs, so the declaration
+      says one parameter and calls pass three or four. Emitting a call the verifier will reject is
+      a defect in `Lower` whatever the cause: the lowering knows both numbers AND the position, the
+      verifier knows neither.
+
+      **It was too strict on its first run and the corpus said so in the same measurement.** A
+      ZERO-ARITY def applied to arguments is legitimate — `def mkAdd = (a) => a + 1` then `mkAdd(3)`
+      calls `mkAdd` with nothing and applies what it returns — and refusing it broke
+      `parenless-def-value`, which had been passing. Exempted, and N went back up.
+
+- [x] **36g — THE TWO LANES DISAGREED ON FIVE CASES, and reachability is what separates them.**
+      A program that really calls a missing host function died at run time: the executor printed a
+      clean positioned refusal, the bridge let v2 throw an uncaught `SscThrow` — so one lane read
+      UNSUPPORTED and the other read a wrong ANSWER. Both halves of the problem had already been
+      paid for: refusing the DECLARATION costs 113, refusing nothing costs 5.
+
+      A reachable host gap is refused at BUILD time, from a call graph rooted at the entry.
+      Deliberately UNDER-approximated — direct calls only, no dynamic dispatch — because
+      over-approximating would mark a host function reachable through any same-named method and
+      refuse the 113 again. What it can miss still fails at run time exactly as before: nothing gets
+      worse, some things get better.
+
+- [x] **36h — `Either.toOption`**, one case, `Right(v)` → `Some(v)` and `Left(_)` → `None`.
+
+**Measured:** **N = 182 on both v3 lanes** (was 69), DIFF 0 and CRASH 0 on both; v3's own front 55 →
+**164**. Front agreement 49/49 fixtures and **225/225** corpus, floor raised. Eight gates green,
+`install.sh --dev` clean, smoke-ci 70/70.
+
+Every defect here was a WRONG READING rather than a missing feature — a field read taken for a
+method call, a method resolved by name without its arity, a comparison that silently had no arm.
+The corpus found them only because each earlier fix let the next one be reached.

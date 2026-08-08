@@ -513,9 +513,18 @@ object Lower:
     // a body, an implementation that its subclasses inherit; the call site never needs to know the
     // static type, because the arm is chosen by the tag at run time. `given`/`using` is the part
     // that genuinely needs types, and it stays refused.
+    //
+    // THE ARITY IS PART OF THE MATCH, and leaving it out generated INVALID IR. `open.lock` is a
+    // FIELD read on a `MemoryHandleState`; some unrelated class has a `lock` METHOD taking one
+    // argument; this arm claimed the call because a method of that NAME exists somewhere, emitted
+    // `JvmSqliteFile.lock(receiver)` — one argument where the flattened method takes two — and the
+    // verifier refused the module. **113 corpus cases** came through that one line, all importing
+    // `scljet/jvm-vfs.ssc`. A name is not a signature, and this file resolves methods by name
+    // across every declared class precisely because there is no type checker; the arity is the only
+    // part of the signature available, so it has to be used.
     case Expr.MethodCall(recv, nm, argEs, p)
-        if classes.exists(c => c.methods.exists(mm => mm.name == nm)) =>
-      val owners = classes.filter(c => c.methods.exists(mm => mm.name == nm))
+        if classes.exists(c => c.methods.exists(mm => mm.name == nm && mm.params.length == argEs.length)) =>
+      val owners = classes.filter(c => c.methods.exists(mm => mm.name == nm && mm.params.length == argEs.length))
       val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
       var acc = ri
       var argRegs: List[Int] = Nil
@@ -536,6 +545,22 @@ object Lower:
         st = sN2
         arms = arms :+ SwitchArm(t, List(Instr.Call(cr, fi, rr :: argRegs), Instr.Move(d, cr)))
       }
+      // FIELD OWNERS GO IN THE SAME SWITCH. A name can be a method on one class and a field on
+      // another — `name` and `sectorSize` are both, across `scljet/` — and whichever arm claimed
+      // the call left the other's classes with no arm at all, so their receivers fell to the
+      // dynamic `Invoke` default and the executor answered "method 'name' … is not implemented".
+      // 76 corpus cases, and every one of them a WRONG READING rather than a missing feature: the
+      // field is right there on the receiver. One switch, arms from both sources, the tag decides —
+      // which is what this dispatch was always for.
+      if argEs.isEmpty then
+        classes.filter(c => c.fields.exists(f => f.name == nm) && !owners.exists(o => o.name == c.name))
+          .foreach { o =>
+            val (t, sN) = st.typeIdx(o.name, o.fields.length)
+            val (fr, sN2) = sN.fresh
+            st = sN2
+            arms = arms :+ SwitchArm(t, List(Instr.Field(fr, rr, t, o.fields.indexWhere(f => f.name == nm)),
+                                             Instr.Move(d, fr)))
+          }
       val (nk, stK) = st.constIdx(Lit.LStr(nm))
       val (ir2, stF) = stK.fresh
       (acc :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, argRegs), Instr.Move(d, ir2))),
@@ -549,6 +574,9 @@ object Lower:
     //
     // It also RETIRES the ambiguity refusal this arm used to carry. Two classes with the same field
     // name are simply two arms — the receiver decides, at run time, which is what it always was.
+    // The FIELD-ONLY case: no class has a method of this name at this arity, so the arm above did
+    // not claim it. Same shape, and it stays separate because the common case is a plain record
+    // read and paying the method lookup for it would be noise.
     case Expr.MethodCall(recv, nm, Nil, p) if classes.exists(c => c.fields.exists(f => f.name == nm)) =>
       val owners = classes.filter(c => c.fields.exists(f => f.name == nm))
       val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
@@ -1011,6 +1039,40 @@ object Lower:
         if !as1.exists(_.isInstanceOf[Expr.NamedArg]) && !as2.exists(_.isInstanceOf[Expr.NamedArg]) &&
            sigs.exists((n, ps) => n == fn && ps.length == as1.length + as2.length) =>
         Expr.Call(fn, as1 ++ as2, cp)
+      // A curried METHOD — `file.lock(a)(b)` where `def lock(a: Int)(b: Int)`. The plain-call arm
+      // above missed it entirely, and the verifier said so: "call to JvmSqliteFile.lock passes 1
+      // argument(s), it takes 2". A method's flattened signature carries the RECEIVER as its first
+      // parameter, so the arity to match is 1 + both argument lists.
+      case Expr.Apply(Expr.MethodCall(recv, nm, as1, cp), as2, _)
+        if !as1.exists(_.isInstanceOf[Expr.NamedArg]) && !as2.exists(_.isInstanceOf[Expr.NamedArg]) &&
+           sigs.exists((n, ps) => n.endsWith("." + nm) && ps.length == 1 + as1.length + as2.length) =>
+        Expr.MethodCall(recv, nm, as1 ++ as2, cp)
+      case other => other)
+
+  /** An arity mismatch, caught HERE with a position rather than by the verifier without one.
+    *
+    * `extern def pathJoin(parts: String*)` is a VARARG host function; v3 has no varargs, so the
+    * declaration says one parameter and every real call passes three or four. The call lowered
+    * anyway and the verifier refused the whole module — `call to pathJoin passes 4 argument(s), it
+    * takes 1` — which `corpus-report.sh` classifies as CRASH, rightly, because it names no place.
+    *
+    * Emitting a call the verifier will reject is a defect in this file whatever the cause: the
+    * lowering knows both numbers AND the source position, and the verifier knows neither. Runs
+    * after `fillDefaults`, since that is what makes a short argument list legitimate. */
+  private def checkArity(e: Expr, sigs: List[(String, List[Param])]): Expr =
+    mapDeep(e, x => x match
+      case Expr.Call(fn, as, p) =>
+        sigs.find((n, _) => n == fn) match
+          // A ZERO-ARITY def APPLIED to arguments is legitimate and has its own lowering arm:
+          // `def mkAdd = (a) => a + 1` then `mkAdd(3)` calls `mkAdd` with nothing and applies the
+          // closure it returns. Refusing that broke `parenless-def-value`, which had been passing —
+          // the check was right about the shape and wrong about this one case, and the corpus said
+          // so in the same run that showed the crashes go to zero.
+          case Some((_, ps)) if ps.isEmpty && as.nonEmpty => x
+          case Some((_, ps)) if ps.length != as.length =>
+            throw LowerFail(p, "call to '" + fn + "' passes " + as.length +
+                               " argument(s), it takes " + ps.length)
+          case _ => x
       case other => other)
 
   private def fillDefaults(e: Expr, sigs: List[(String, List[Param])]): Expr =
@@ -1489,16 +1551,76 @@ object Lower:
     // trait or a class that means dispatch to a subclass, and HERE, at top level, it means an
     // `extern` — a host function. The distinction is structural (`p.defs` versus a member list),
     // not a second spelling kept in step by hand.
-    val allDefs0 = (p.defs.filterNot(isAbstract) ++ objectDefs ++ methodDefs) :+ entryDef
+    //
+    // AND IT STAYS A FUNCTION, throwing when CALLED. Dropping it from the table made a call refuse
+    // at the call site, which is right for a program that reaches one and wrong for the far more
+    // common case: `v1/runtime/std/scljet/jvm-vfs.ssc` calls `jvmVfsShmRead` on line 136, and
+    // **113 corpus cases import that module without ever going near it**. Lowering refuses every
+    // def in the module, so all 113 were refused for a host function they never reach.
+    //
+    // The message CARRIES ITS POSITION so the failure stays actionable — see `Diag.at`. That was
+    // the whole reason the first attempt at this was rejected: an unpositioned run-time failure is
+    // classified CRASH, and rightly.
+    val externDefs = p.defs.filter(isAbstract).map { d =>
+      val at = d.pos.line.toString + ":" + d.pos.col.toString
+      d.copy(body = Expr.Prim("__throw__",
+        List(Expr.StrLit(at + ": the host function '" + d.name +
+                         "' is not implemented on this lane", d.pos)), d.pos))
+    }
+    val allDefs0 = (p.defs.filterNot(isAbstract) ++ externDefs ++ objectDefs ++ methodDefs) :+ entryDef
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
     // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
     val sigs: List[(String, List[Param])] =
       allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
     val allDefs = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
-      .map(d => d.copy(body = fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs)))
+      .map(d => d.copy(body = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
+    // A HOST FUNCTION THAT IS ACTUALLY REACHED is refused HERE, with a position, rather than left
+    // to fail at run time.
+    //
+    // Both halves of that sentence were paid for. Refusing the DECLARATION cost 113 corpus cases
+    // that merely import `scljet/jvm-vfs.ssc` and never go near its `jvmVfsShmRead`. Letting the
+    // call fail at RUN time cost 5 the other way: the executor prints a clean positioned refusal
+    // and the bridge lets v2 throw, so one lane reads UNSUPPORTED and the other reads a wrong
+    // ANSWER, and the two v3 lanes stopped agreeing (invariant I-3).
+    //
+    // Reachability from the entry separates them. It is deliberately UNDER-approximated — direct
+    // calls only, no dynamic method dispatch — because over-approximating would mark a host
+    // function reachable through any same-named method and refuse the 113 all over again. What an
+    // under-approximation can miss is a gap reached only through dynamic dispatch, which then fails
+    // at run time exactly as it did before; nothing gets worse, some things get better.
+    val gapNames = p.defs.filter(isAbstract).map(d => d.name)
+    if gapNames.nonEmpty then
+      val byName = allDefs.map(d => (d.name, d)).toMap
+      def callees(e: Expr): List[String] =
+        var out: List[String] = Nil
+        mapDeep(e, x => { x match { case Expr.Call(fn, _, _) => out = fn :: out; case _ => () }; x })
+        out
+      var seen: List[String] = List(entryName)
+      var queue: List[String] = List(entryName)
+      while queue.nonEmpty do
+        val n = queue.head
+        queue = queue.tail
+        byName.get(n).foreach { d =>
+          callees(d.body).foreach { c => if !seen.contains(c) then { seen = c :: seen; queue = c :: queue } }
+        }
+      seen.foreach { n =>
+        byName.get(n).foreach { d =>
+          var bad: Option[(String, Pos)] = None
+          mapDeep(d.body, x => {
+            x match
+              case Expr.Call(fn, _, cp) if bad.isEmpty && gapNames.contains(fn) => bad = Some((fn, cp))
+              case _ => ()
+            x
+          })
+          bad.foreach { (fn, cp) =>
+            throw LowerFail(cp, "the host function '" + fn + "' is not implemented on this lane")
+          }
+        }
+      }
+
     val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
     val names = allDefs.map(d => d.name)
     val entry = names.indexOf(entryName)

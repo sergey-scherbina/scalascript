@@ -982,6 +982,10 @@ object Exec:
             case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isLeft" => Value.VBool(true)
             case Value.VData(t, f) if t == tagOf(m, "Right") && name == "getOrElse" => f(0)
             case Value.VData(t, _) if t == tagOf(m, "Left") && name == "getOrElse" => args.head
+            // `Either.toOption` — `Right(v)` is `Some(v)`, `Left(_)` is `None`. Scala's, and the
+            // shape `scljet` uses to reach into a result it has already checked.
+            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "toOption" => someOf(m, f(0))
+            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "toOption" => noneOf(m)
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "get" => f(0)
             case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
@@ -1105,6 +1109,24 @@ object Exec:
     case (BinOp.Le, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x <= y)
     case (BinOp.Gt, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x > y)
     case (BinOp.Ge, Value.VFloat(x), Value.VFloat(y)) => Value.VBool(x >= y)
+    // STRINGS ORDER LEXICOGRAPHICALLY, as they do in Scala and on the reference lane, which spells
+    // it `scmp` (`v2/src/Runtime.scala:1456`, `compareTo`). The four arithmetic-shaped arms above
+    // covered `VInt` and `VFloat` and nothing else, so `"alice" < "carol"` reached the fallthrough
+    // and died with `Lt on String alice and String carol` — 30 corpus cases, every one of them a
+    // `scljet` SQL query with an ORDER BY.
+    //
+    // `compareTo` and not a locale collator: the reference compares code units, and a program that
+    // sorts differently on two machines is worse than one that sorts unexpectedly on both.
+    case (BinOp.Lt, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) < 0)
+    case (BinOp.Le, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) <= 0)
+    case (BinOp.Gt, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) > 0)
+    case (BinOp.Ge, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) >= 0)
+    // A char is an integer on both lanes, so it orders as one — and mixed `Char`/`Int` comparison
+    // is ordinary once that is true.
+    case (BinOp.Lt, Value.VChar(x), Value.VChar(y))  => Value.VBool(x < y)
+    case (BinOp.Le, Value.VChar(x), Value.VChar(y))  => Value.VBool(x <= y)
+    case (BinOp.Gt, Value.VChar(x), Value.VChar(y))  => Value.VBool(x > y)
+    case (BinOp.Ge, Value.VChar(x), Value.VChar(y))  => Value.VBool(x >= y)
     case (BinOp.Eq, x, y)                            => Value.VBool(eq(x, y))
     case (BinOp.Ne, x, y)                            => Value.VBool(!eq(x, y))
     case (BinOp.BAnd, Value.VInt(x), Value.VInt(y))  => Value.VInt(x & y)

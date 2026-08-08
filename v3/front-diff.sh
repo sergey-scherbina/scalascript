@@ -114,7 +114,7 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
   echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-219}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-225}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
     fail=1

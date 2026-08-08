@@ -200,6 +200,23 @@ object SelfTest:
   * this. Duplicating a 130-line dispatch so that the second front could run more than `ast` is how
   * the two would have drifted — and drift between two things that are supposed to be the same is
   * the failure this whole front differential exists to catch. */
+/** Joining a path to a run-time message.
+  *
+  * A message that ALREADY names a source position — `136:18: …` — is joined with no space, so the
+  * line reads `file.ssc:136:18: …` and points somewhere. Everything else keeps the space.
+  *
+  * It is not cosmetic. `corpus-report.sh` classifies an unpositioned failure as CRASH and a
+  * positioned one as UNSUPPORTED, and its rule is right: a refusal a reader can act on names a
+  * place. A run-time failure that KNOWS its position and prints it in a form nothing can read is
+  * the worst of both. Measured: the same failure counted 13 CRASH without this and 0 with it. */
+object Diag:
+  def at(path: String, msg: String): String =
+    val i = msg.indexOf(": ")
+    val head = if i > 0 then msg.substring(0, i) else ""
+    val positioned = head.nonEmpty && head.count(_ == ':') == 1 &&
+      head.split(':').forall(part => part.nonEmpty && part.forall(c => c >= '0' && c <= '9'))
+    if positioned then path + ":" + msg else path + ": " + msg
+
 object Cli:
   def run(args: List[String]): Int =
     try
@@ -285,7 +302,7 @@ object Cli:
               case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
-              case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+              case e: ExecError => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // Times `workload()` so v3 can appear in bench/run.sc beside v1 and v2.
           //
           // WHY THE LOOP IS HERE AND NOT IN THE MEASURED LANGUAGE. Every other backend is timed by a
@@ -377,7 +394,7 @@ object Cli:
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
-              case e: ExecError  => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+              case e: ExecError  => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // WHICH FRONT ANSWERED. Not decoration: the swap makes the front depend on the working
           // tree — the uniml artifact registers it, the kernel jar cannot — and v3's own front and
           // UniML's agree on every fixture and every corpus case, so their OUTPUT is identical by
