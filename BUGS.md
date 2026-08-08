@@ -182,13 +182,26 @@ about a gate.
 
 ## v3-uniml-front-drops-by-name — one language, two evaluation orders, decided by the working tree
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: v3/front-diff.sh -->
+     gate: v3/front-diff.sh
+     fixed-in: 119925dc5 -->
 
-**Measured 2026-08-08.** `def twice(x: => Int): Int = x + x`, called with an argument that counts its
+**FIXED 2026-08-08 in `119925dc5`.** Both fronts now agree, in behaviour and in text:
+
+```
+behaviour   uniml: 3 2              v3: 3 2
+tree        uniml: (p "x" byname)   v3: (p "x" byname)
+```
+
+The fix was in the GRAMMAR, as this entry said it had to be. `ScalaSpike` keeps the arrow as a
+`def.byname` LEAF instead of discarding it — a leaf and not a flag on the type, because the token is
+real source and UniML's tree is the storage, so dropping it also broke reconstruction.
+`SpikeAst.Param` carries the flag, defaulted so every other construction site compiled untouched.
+
+**Original measurement, kept because it is what made the case:** `def twice(x: => Int): Int = x + x`, called with an argument that counts its
 own evaluations:
 
 ```
