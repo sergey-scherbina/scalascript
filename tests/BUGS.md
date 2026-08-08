@@ -1,6 +1,7 @@
 ## stub-rendered-as-data-reached-an-http-body
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 3d1d92bbd
      lane: v2-jvm
      area: runtime
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
