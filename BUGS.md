@@ -21,6 +21,58 @@ Newest first.
 
 
 
+## v3-refuses-a-default-argument-inside-an-enum-case
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: defect
+     gate: none -->
+
+A default on a parameter of an `enum` case is a parse error, while the same default on a `def` or a
+`case class` parameter works:
+
+```
+$ cat /tmp/c.ssc
+enum Shape:
+  case Circle(radius: Int = 1)
+def main(): Unit = println(1)
+
+$ v3/ssc3 exec /tmp/c.ssc
+ssc3: /tmp/c.ssc:2:27: expected ')', found =
+```
+
+`Ast.Param` already carries `default` and documents both spellings — *"`def f(x: Int = 5)` and
+`case class C(x: Int = 5)`"* — so this is the enum case's own parameter parser not reaching the
+shared one, not a missing representation.
+
+FOUND WHILE FIXING A DIFFERENT DEFECT IN THE SAME FILE. `tests/conformance/default-params.ssc`
+reported `unknown name 'x'`, which was a default referencing an earlier parameter (fixed). The file
+does not lower yet because of THIS second, unrelated failure at line 18 — worth stating, because a
+corpus case that stays refused after a fix reads like the fix did not work.
+
+## v3-has-no-scala-style-import — its module system is markdown links, and 4 corpus cases use the other spelling
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: gap
+     gate: none -->
+
+NOT A DEFECT, recorded so it is not filed as one a third time. `import actors.Overflow` reports
+`unknown name 'import'` because v3's parser has no `import` keyword at all — `grep '"import"'
+v3/src/*.scala` is empty. v3 composes modules through MARKDOWN LINKS, read by
+`Loader.importsOf`, whose own comment says *"the names a file imports … link text is ignored, path
+is what matters"*.
+
+So the message is misleading rather than wrong: the word is parsed as an ordinary name because
+nothing claims it. Four corpus cases use the Scala spelling — `actors-bounded-mailbox`,
+`actors-process-info`, `curried-extern-import`, `std-process-import` — and 0 of the 4 lower.
+
+Two ways out, and the choice belongs to whoever owns v3's module story: teach the parser the
+keyword and map it onto the link mechanism, or refuse it BY NAME so the diagnostic says v3 uses
+links instead of leaving a reader to guess from `unknown name`.
+
 ## front-diff-cannot-finish-when-the-second-front-does-not-compile
 
 <!-- status: fixed
