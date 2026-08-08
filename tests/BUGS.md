@@ -51,6 +51,44 @@ Related: this is the third site in the same family — `Main.scala`'s emitted co
 `tests/e2e/emitted-coordinate-is-published.sh`. That gate deliberately does not cover the plugin,
 because until it publishes there is no correct version for it to name.
 
+## smoke-sbt-setup-skipped-on-cache-hit — every cache-HIT smoke run is red, and only those
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     gate: .github/workflows/smoke.yml
+     fixed-in: fb66987bc -->
+
+`.github/workflows/smoke.yml` gated `Setup sbt` on `steps.toolchain.outputs.cache-hit != 'true'`,
+with the reason written next to it: *"sbt is only needed to BUILD. On a toolchain-cache hit it is
+pure setup cost for a step that will not run."* Two smoke CHECKS shell out to `sbt` at RUN time —
+`tests sbt-plugin-scripted` and `tests scaffold-loads-its-build` — so on a cache hit both failed with
+`sbt: command not found`.
+
+**Measured on two runs twenty minutes apart, same cache key:**
+
+| run | cache | `sbt-plugin-scripted` | verdict |
+| --- | --- | --- | --- |
+| 31251679562 (b86af8375) | `Cache not found for` | passed, 104.8s | 71/72, red on an unrelated check |
+| 31252689448 (a3896e549) | `Cache restored from key` | **FAIL in 0.0s** | 70/72 |
+
+**Why it survived.** A push that changes compiler sources changes the launcher digest and therefore
+MISSES the cache — verified, not assumed: appending a byte to
+`v1/.../interpreter/EvalRuntime.scala` moves `scripts/launcher-input-digest` from `6e4a0a15…` to
+`6d88c30f…`. So every run that exercised the build had sbt and was green, and the runs that went red
+were docs and bookkeeping pushes, which is the class nobody re-reads. The failure is deterministic,
+not flaky; it just selects for the commits least likely to be investigated.
+
+**Same shape as the comment directly below it**, which records the coursier version of this mistake
+("NOT cached — only coursier/ivy/sbt were… making it conditional was a real regression that took
+three red runs to find"). Both are a setup step gated on *"is this a build?"* when what it feeds is
+the SUITE.
+
+**Budget risk, stated rather than discovered later.** On a cache hit the two checks now RUN instead
+of failing instantly, which adds roughly 105 s + 25 s to a suite that used 528 s of its 600 s cap on
+that run. If the cap starts firing, that is `smoke-suite-over-its-own-budget`, not this — and the
+suite reports its own budget line, so it will say so.
+
 ## sbt-plugin-fixtures-deleted-by-an-unrelated-commit-and-unrestorable
 
 <!-- status: fixed
