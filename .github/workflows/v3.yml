@@ -101,6 +101,22 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # BOTH jobs need coursier, and I added it to only one — which is why this job then failed
+      # 0.02 s in with "only these fronts are registered: none": `v3/ssc3` could not fetch the
+      # compiler, and the gate reads that through 2>/dev/null. Duplicated rather than factored into
+      # a composite action: two steps of copy beats a second file to keep in sync, and the comment
+      # is here so the next person adding a job to this workflow sees both are required.
+      - name: Setup coursier
+        run: |
+          set -euo pipefail
+          if ! command -v cs >/dev/null 2>&1; then
+            curl -fL "https://github.com/coursier/launchers/raw/master/cs-x86_64-pc-linux.gz" \
+              | gzip -d > "$RUNNER_TEMP/cs"
+            chmod +x "$RUNNER_TEMP/cs"
+            sudo mv "$RUNNER_TEMP/cs" /usr/local/bin/cs
+          fi
+          cs --version
+
       # `v3/uniml-classpath.sh` builds an sbt project, and the runner does not ship sbt — the same
       # omission as the missing coursier above, in the other job. `ci.yml` uses this exact action.
       - name: Setup sbt
