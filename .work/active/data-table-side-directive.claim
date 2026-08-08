@@ -1,0 +1,11 @@
+slug: data-table-side-directive
+branch: feature/data-table-side-directive
+agent: claude-code
+started: 2026-08-08T15:02:00Z
+heartbeat: 2026-08-08T15:02:00Z
+status: claimed-before-planning
+items: an example uses a directive the language does not have
+paths: file:examples/frontend/data-table/data-table.ssc file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
