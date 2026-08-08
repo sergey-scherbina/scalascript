@@ -5,7 +5,7 @@ started: 2026-08-08T11:50:42Z
 heartbeat: 2026-08-08T11:50:42Z
 status: claimed-before-planning
 items: YamlProjection sorts tokens by id instead of validating source order, manufacturing a success from an invalid CST
-paths: file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlProjection.scala
+paths: file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlProjection.scala file:uniml/yaml/src/test/scala/scalascript/uniml/dialect/yaml/YamlProjectionCstSpec.scala file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
