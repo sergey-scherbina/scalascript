@@ -5,7 +5,7 @@ started: 2026-08-08T11:27:50Z
 heartbeat: 2026-08-08T11:27:50Z
 status: claimed-before-planning
 items: parameterless-def-local-not-invoked-js-and-native
-paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/parameterless-def-local.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:BUGS.md file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
