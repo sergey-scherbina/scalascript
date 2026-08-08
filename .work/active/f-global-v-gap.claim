@@ -2,10 +2,10 @@ slug: f-global-v-gap
 branch: feature/f-global-v-gap
 agent: claude-code
 started: 2026-08-08T15:09:39Z
-heartbeat: 2026-08-08T15:09:39Z
-status: claimed-before-planning
+heartbeat: 2026-08-08T16:03:40Z
+status: in-progress
 items: f-global-v-gap
 paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-global-v-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  (global v) was 16 of 32 GAP files; cause is one module, runtime/std/ui/lower.ssc.
+next: smoke green, then push -- fix + gate + 3 BUGS entries committed
