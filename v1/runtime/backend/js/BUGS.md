@@ -1684,11 +1684,43 @@ Scala.js reject adjacency to `[`/`{` with `uniml.yaml.invalid-tag`; a literal
 end-of-input case remains a valid non-specific tag.
 
 ## uniml-yaml-alias-resolution-last-wins — earlier aliases bind to a later duplicate anchor
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     gate: uniml/yaml/src/test/scala/scalascript/uniml/dialect/yaml/YamlDialectSpec.scala
+     fixed-in: edefdf55abac38d806ac7acafad4007eb478d9ab -->
 
-**Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
+**FIXED 2026-08-08.** `resolve` is now source-ORDERED: it registers each anchor as the clone walk
+reaches that node, so an alias binds to the nearest PRECEDING definition and a duplicate `&name`
+rebinds only from its own position onward.
+
+**The correct algorithm was already in the file, thirty lines up.** `validate` builds its anchor map
+incrementally as it walks and uses it to report `alias '*name' has no preceding anchor` — source
+order, exactly right. `resolve` pre-walked the whole document into a last-wins `Map` first. Two
+halves of one file disagreeing about one rule, with the accepting half warning about the duplicate
+and moving on, so the document was accepted and then resolved against the wrong graph.
+
+Registering at node ENTRY rather than after the children is what keeps a recursive anchor
+(`&a [*a]`) reachable from inside its own subtree; the existing `visiting` set still stops the loop.
+
+**Reproduced before fixing and the failure is quoted, not paraphrased**: with the document below the
+new test read `` `before: *slot` resolved to 'two', expected 'one' `` and every other test in the
+suite passed — so the defect was this and nothing around it. `collectAnchors` had one caller and is
+gone with it.
+
+**Two controls, because a fix that simply stopped seeing later anchors would also turn the first
+assertion green**: `after: *slot` must still see `two`, and a document with a single anchor must
+still resolve at all.
+
+**No corpus movement.** `unimlYaml/test` is 55/55, and that includes `YamlOfficialCorpusSpec`'s
+frozen baseline over all 402 cases — the check that would have caught this changing any official
+outcome. It did not.
+
+**Routing note, not acted on:** this entry sits in `v1/runtime/backend/js/BUGS.md` with `lane: js`,
+but the fix is in `uniml/yaml`. P-3.2 puts an entry where the FIX goes. Left where it is rather than
+moved silently, since re-routing an entry is a tracking change someone should make deliberately.
+
+**Status:** FIXED (found 2026-07-28 during UPR-2 architecture audit).
 
 **Reproduction.** Parse and resolve:
 
