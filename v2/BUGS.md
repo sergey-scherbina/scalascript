@@ -7112,6 +7112,48 @@ not currently one:
   consumes an already-built in-memory `IrProg`, and the textual `Reader` is a JVM API;
 - emitted names/tags/opcodes are not checked against the documented `SYMBOL` grammar.
 
+---
+
+**RE-MEASURED 2026-08-08: four of the five are closed, and nobody linked the work back.** The entry
+was observed at `638d3f5fe` on 2026-07-14; the line numbers in its own Reproduce block no longer
+point at the code they name.
+
+| item | state now |
+|---|---|
+| `floatStr(-0.0)` loses the sign; integral doubles emit integer syntax | **closed** — the function was SPLIT. `floatLit` (CoreIR.scala:405) is the canonical literal form and collapses nothing, so `-0.0` emits `-0.0` and `2.0` emits `2.0`; `floatStr` (:414) is user-visible rendering and carries a comment saying it is not the canonical form. `IrEncode.const` uses `floatLit`. |
+| `IrEncode.const` has no `IrBytes` case | **closed** — `case Const.CBytes(b)` is there, with an empty-bytes arm. |
+| `coreir.encode` returns `StrV` while the spec promises `Bytes` | **closed, by the SPEC moving** — `10-core-ir.md:380` now says `coreir.encode v` → **`Str`**, which is what the code does. Worth noting the direction: the disagreement was resolved on the document side, not the code side. |
+| documented `coreir.decode` does not exist | **closed** — `Runtime.scala:1864`, `Str \| Bytes → IrProg`, read through the bounded Reader. |
+| names/tags/opcodes unchecked against `SYMBOL` | **still true, and the ask was wrong** — see below. |
+
+**The fifth item cannot be done as written, and the measurement is why.** `SYMBOL` was
+`[A-Za-z_][A-Za-z0-9_.]*`, which is NARROWER than the canonical form in use: scanning real Core IR
+(the eight `v2/conformance/*.coreir` fixtures plus a freshly generated ssc1c program) found
+`(prim str->i …)` — from the ssc1c prelude's `_sel_` helpers — and `->` is outside that grammar.
+The canonical `Writer` emits it verbatim and the canonical `Reader` reads it back, because
+`readAtom` consumes everything up to a delimiter. **Enforcing the documented grammar would have
+rejected correct canonical output.** That is the same shape as the `while`/`seq` reconciliation
+already recorded in `12-ir-format.md` — the grammar was the drifting side. Widened there, with the
+evidence.
+
+**What IS worth enforcing, precisely scoped.** The round-trip invariant is not `SYMBOL` but the
+DELIMITER set: whitespace, `(`, `)`, `;`, `"` (`CoreIR.scala:141`). A name containing one would make
+the `Reader` split the atom and re-parse the remainder as structure. Reachability, measured rather
+than assumed:
+
+- compiler-generated IR cannot produce one — `ssc1c` rejects an operator-named `def` outright, so
+  `~>` never reaches a name position (it comes out as the `_err` sentinel);
+- but `coreir.encode` serializes a `Data` tree its CALLER built (`Runtime.scala:1856`,
+  `StrV(IrEncode.program(a(0)))`), so a program can put any string in a name position — and this
+  entry was opened while validating Core IR as the persisted `SavedContinuation` capsule format,
+  which is exactly where a caller-influenced name arrives.
+
+Five verbatim emission sites, all in `IrEncode`: `(def ${d.name}`, `(global …`, `(ctor $tag`,
+`(prim $op`, `(arm ${m.tag}`. One `sym()` helper applied at those five is the whole change. **Not
+done here** — it puts a `throw` on a kernel path that has no direct test harness (`v2/src` has no
+unit suite; `check.sh` exercises the generators, not `coreir.encode`), and adding one deserves its
+own slice rather than the tail of another.
+
 **Reproduce:** inspect the exact compiler/runtime sources and contract:
 
 ```sh

@@ -71,8 +71,24 @@ by [`specs/coreir-inventory-gate.sh`](../../specs/coreir-inventory-gate.sh).
 
 ### Tokens
 
-- `SYMBOL` := `[A-Za-z_][A-Za-z0-9_.]*` — dots allowed so `i.add`, `io.print`, `map.get`
-  are single tokens. Tags are conventionally capitalized but the kernel does not require it.
+- `SYMBOL` := any run of characters containing no DELIMITER, where a delimiter is whitespace,
+  `(`, `)`, `;` or `"`. Dots are ordinary, so `i.add`, `io.print`, `map.get` are single tokens; so
+  are `->` forms such as `str->i`. Tags are conventionally capitalized but the kernel does not
+  require it.
+
+  **Widened 2026-08-08 (`coreir-symbol-grammar-drift`), and this is a reconciliation rather than a
+  relaxation** — the same shape as the `while`/`seq` entry above. It read
+  `[A-Za-z_][A-Za-z0-9_.]*`, which is NARROWER than the canonical form actually in use: the prim
+  `str->i` appears in ordinary generated IR (it is in the ssc1c prelude, via `_sel_` helpers), the
+  canonical `Writer` emits it verbatim and the canonical `Reader` reads it back, because `readAtom`
+  consumes up to a delimiter and nothing else. Enforcing the old spelling would have REJECTED
+  correct canonical output; the grammar was the drifting side, not the code.
+
+  **What the delimiter set is actually for.** A name containing one of those five characters would
+  break the round trip — the `Reader` would split the atom and re-parse the remainder as structure.
+  Compiler-generated IR cannot produce one (`ssc1c` rejects an operator-named `def` outright), but
+  `coreir.encode` serializes a `Data` tree its CALLER built, so the boundary is reachable from a
+  program. Nothing validates it today; see `coreir-canonical-codec-contract` in `v2/BUGS.md`.
 - `NAT` := `0` | `[1-9][0-9]*` — no leading zeros.
 - `INT` := `-?` `NAT` — `-0` is not canonical; zero is `0`.
 - `FLOAT` := canonical shortest round-tripping decimal of the IEEE-754 value (the unique
