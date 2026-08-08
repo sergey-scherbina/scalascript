@@ -4,6 +4,29 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## The two fronts disagree on WHERE a by-name argument becomes a thunk — 29 corpus cases
+
+Measured 2026-08-08 **on `origin/main` in a clean worktree**, before any of my own uncommitted work:
+`front-diff.sh` reads 263 corpus cases printed by both fronts, 234 agreeing and **29 differing**,
+and the gate is RED. It is not a regression from the boxing or infix work in the same session —
+that tree measures the same 29.
+
+    v3     (call "runActors" (block …))
+    uniml  (call "runActors" (lam (params) (block …)))
+
+UniML's projection emits the THUNK; v3's own front passes the block eagerly and `rewriteByName`
+wraps it in the lowering. Both readings can be made to work, but they are two places, and a feature
+implemented in two places is two implementations that will disagree — which is what the differential
+is reporting.
+
+**Worth checking before choosing a side:** if `rewriteByName` wraps an argument that UniML has
+ALREADY wrapped, the uniml lane gets a thunk of a thunk, and that is a wrong answer rather than a
+printed difference. All 29 are `actors-*` cases and every one is currently UNSUPPORTED for other
+reasons, so the corpus cannot see it either way yet.
+
+Owned by `ssc3-effect-protocol`, which holds `v3/src/Lower.scala` and landed the by-name rewrite.
+Filed here rather than fixed because choosing where by-name lives is that claim's decision.
+
 ## ~~v3's parser CONTINUES an expression onto a line starting with `(`~~ — FIXED 2026-08-07
 
 Filed by whoever narrowed the front differential's 74 corpus disagreements, and fixed the same day.

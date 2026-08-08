@@ -281,23 +281,33 @@ object Parser:
 
   private def parseBin(ts0: List[Tok], minPrec: Int): (Expr, List[Tok]) =
     var (lhs, ts) = parseUnary(ts0)
+    // The line the LEFT OPERAND ends on — see the identifier-infix case for why it is needed.
+    var lhsEnd = endLineBetween(ts0, ts)
     var go = true
     var indents = 0
     while go do
+      val stepFrom = ts
       peek(ts) match
         // `a to b`, `a until b`, `xs map f` — an ordinary identifier used INFIX, which is how Scala
         // spells `a.to(b)`. The lexer has no reason to call these operators, so they arrive as
         // `TId` and this loop never looked at them: `(0 until 50)` failed with
         // `expected ')', found until` (bench/corpus/range-sum.ssc, SSC3-7g/h).
         //
-        // Two guards, and the second is what keeps this from swallowing programs. A keyword is
-        // never an operator — `if x then y` must not read `x then y` as infix. And there has to be
-        // a RIGHT OPERAND on the same line: statement boundaries are real tokens here
-        // (TNewline/TIndent/TDedent), so `f(x)` followed by `g(y)` on the next line cannot join,
-        // but `f(x) g` at the end of a line would otherwise consume whatever came after.
+        // Three guards. A keyword is never an operator — `if x then y` must not read `x then y`
+        // as infix. There has to be a RIGHT OPERAND, or `f(x) g` at the end of a line would
+        // consume whatever came after.
+        //
+        // AND THE OPERATOR MUST SIT ON THE LINE THE LEFT OPERAND ENDS ON. The comment that stood
+        // here said that guard was unnecessary — "statement boundaries are real tokens, so `f(x)`
+        // followed by `g(y)` on the next line cannot join" — and it is the same false claim the
+        // `(` continuation carried: closing an INDENTED BLOCK consumes the newline AND the dedent,
+        // so the next line's first token becomes adjacent. After a `for … do` block, `println(q)`
+        // on the following line read as `<the for> println (q)`, an infix application of `println`.
+        // Found by the front differential on a fixture written for something else entirely.
         case Tok.TId(n, p)
             if !keywords.contains(n) && prec(n) >= minPrec
-              && canBeInfixLhs(lhs) && startsOperand(ts.tail) =>
+              && canBeInfixLhs(lhs) && startsOperand(ts.tail)
+              && (lhsEnd < 0 || p.line == lhsEnd) =>
           val (afterOp, moreIndents) = skipContinuation(ts.tail)
           indents = indents + moreIndents
           val (rhs, ts2) = parseBin(afterOp, prec(n) + 1)
@@ -322,6 +332,7 @@ object Parser:
           lhs = Expr.Bin(op, lhs, rhs, p)
           ts = ts2
         case _ => go = false
+      if go then lhsEnd = endLineBetween(stepFrom, ts)
     (lhs, dropDedents(ts, indents))
 
   /** Layout after a trailing binary operator, reporting how many INDENTs were crossed so their

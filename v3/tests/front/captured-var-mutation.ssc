@@ -1,0 +1,30 @@
+var atTopLevel = 0
+
+def sumWith(xs: List[Int]): Int =
+  var n = 0
+  xs.foreach { i =>
+    n = n + i
+  }
+  n
+
+def main(): Unit =
+  println(sumWith(List(1, 2, 3)))
+  var q = 0
+  for i <- 0 until 5 do
+    q = q + i
+  println(q)
+  var seen = ""
+  List("a", "b").foreach { s =>
+    seen = seen + s
+  }
+  println(seen)
+  // A TOP-LEVEL var is a module global — already a cell, already mutable through a closure, and
+  // it must NOT be boxed. Boxing one rewrote its reads and writes while its declaration stayed a
+  // global assignment, so the box was never created; `arrays.ssc` died with `array write on ()`.
+  List(10, 20).foreach { k =>
+    atTopLevel = atTopLevel + k
+  }
+  println(atTopLevel)
+  var untouched = 7
+  untouched = untouched + 1
+  println(untouched)

@@ -33,7 +33,7 @@ disagree=0
 # The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
 # corpus number carries, and for the same reason: a gate that is permanently red stops being read,
 # and a gate with no floor lets the number slide back without anyone noticing.
-FLOOR="${SSC3_FRONT_AGREE_FLOOR:-49}"
+FLOOR="${SSC3_FRONT_AGREE_FLOOR:-50}"
 
 # The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
 # a list that disagrees with itself. The kernel knows one front; the driver knows whether the second

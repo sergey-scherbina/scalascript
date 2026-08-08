@@ -1957,3 +1957,48 @@ and three of them are what a person writes daily.
 
 **Measured:** N = 186 on both v3 lanes (was 182), DIFF 0 and CRASH 0. Front agreement 49/49 fixtures
 and 228/228 corpus, floor raised. Eight gates green, `install.sh --dev` clean, smoke-ci 71/71.
+
+## 38 · The captured `var` is boxed — and a one-element array was already in the vocabulary
+
+§37e filed `v3-loses-a-mutation-to-a-captured-var`: `List(1,2,3).foreach { i => n = n + i }` left `n`
+at 0 where the reference answers 6, on BOTH v3 lanes, so nothing in v3's own apparatus could see it.
+Fixed here.
+
+- [x] **38a — the box is a ONE-ELEMENT ARRAY, not a new prim family.** `Array(v)`, `n(0)` and
+      `n(0) = v` are shapes both lanes already have — `NewArr`, an application, `ArrSet` — so this
+      needed no new instruction, no new prim, and nothing added to the vocabulary the bridge shares
+      with v2. A `cell` family would have been a second way to say the same thing.
+
+- [x] **38b — only names a LAMBDA ASSIGNS TO from the outside.** Boxing every capture would cost
+      every closure an indirection for a mutation that never happens; boxing every `var` would box
+      loop counters no lambda sees. The binding rules mirror `freeVars` exactly, because a name
+      shadowed by an inner binder is a DIFFERENT name.
+
+- [x] **38c — and only names DECLARED HERE, which is the difference between working and broken.**
+      A top-level `var` is a module GLOBAL in v3 — already a cell, already correct through a
+      closure. Boxing one rewrote its reads and writes while its DECLARATION stayed a global
+      assignment, so the box was never created and `arrays.ssc` died with `array write on ()`. The
+      front gate caught it on the first run. The fixture now covers BOTH halves: a local that must
+      be boxed and a global that must not.
+
+- [x] **38d — the corpus never covered this at all.** N did not move — 186 before and after — so
+      the fixture is the only thing standing between the fix and its silent return. Observed
+      failing with the boxing removed: `expected [6/10/ab/30/8] got [0/0//30/8]`.
+
+- [x] **38e — and the fixture found a THIRD instance of the same parser bug.** `println(q)` on the
+      line after a `for … do` block read as `<the for> println (q)` — an identifier used INFIX. The
+      comment there said the guard was unnecessary because "statement boundaries are real tokens",
+      which is the same false claim the `(` continuation carried in §34a and for the same reason:
+      closing an INDENTED BLOCK consumes the newline AND the dedent. Third time, so it is a shape:
+      **anything that reads "the next token cannot be adjacent" is wrong after a block.**
+
+- [x] **38f — `origin/main` was RED before I touched it, and I measured that in a clean worktree
+      rather than assuming.** The by-name work landed with `front-diff.sh` at 234 of 263 and 29
+      disagreements: UniML's projection emits the by-name THUNK, v3's own front passes the block
+      eagerly and `rewriteByName` wraps it in the lowering — one feature in two places. Filed in
+      `v3/BACKLOG.md` under the claim that owns it, with the note that a thunk of a thunk would be a
+      wrong ANSWER rather than a printed difference. The ceiling was NOT lowered to accommodate it.
+
+**Measured:** N = 186 on both v3 lanes, DIFF 0 and CRASH 0 (the corpus grew to 366 cases). Fixtures
+50/50. Seven of eight gates green; `front-diff` is red on the pre-existing by-name divergence,
+identically to `origin/main`.

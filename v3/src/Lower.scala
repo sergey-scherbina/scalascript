@@ -1022,6 +1022,131 @@ object Lower:
     * Trailing only. A call that omits a MIDDLE argument needs the parameter's name, which is what
     * named arguments are for; without them, filling from the left is the only unambiguous reading
     * and a short call to a function whose gap is not at the end stays an honest arity error. */
+  /** Locals that a LAMBDA ASSIGNS TO from the outside — the ones that must be boxed.
+    *
+    * v3's lambda lifting passes captures as leading PARAMETERS, so a captured `var` arrives as a
+    * copy and an assignment inside the lambda mutates the copy. Measured 2026-08-08:
+    * `List(1,2,3).foreach { i => n = n + i }` left `n` at 0 where the reference answers 6, on BOTH
+    * v3 lanes — so neither the parity gate nor the front differential could see it, and only the
+    * reference caught it (`BUGS.md`, `v3-loses-a-mutation-to-a-captured-var`).
+    *
+    * Only names that are BOTH assigned inside a lambda AND free there. Boxing every capture would
+    * cost every closure an indirection for a mutation that never happens; boxing by "is a `var`"
+    * would box loop counters that no lambda ever sees. The binding rules mirror `freeVars` exactly,
+    * because a name shadowed by an inner binder is a DIFFERENT name and boxing the outer one on its
+    * account would be a wrong answer of its own. */
+  private def assignedFree(e: Expr, bound: List[String]): List[String] = e match
+    case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ assignedFree(v, bound)
+    case Expr.Name(_, _)          => Nil
+    case Expr.Bin(_, l, r, _)     => assignedFree(l, bound) ++ assignedFree(r, bound)
+    case Expr.Neg(x, _)           => assignedFree(x, bound)
+    case Expr.Not(x, _)           => assignedFree(x, bound)
+    case Expr.Update(a, i, v, _)  => assignedFree(a, bound) ++ assignedFree(i, bound) ++ assignedFree(v, bound)
+    case Expr.Apply(f, as, _)     => assignedFree(f, bound) ++ as.flatMap(a => assignedFree(a, bound))
+    case Expr.Prim(_, as, _)      => as.flatMap(a => assignedFree(a, bound))
+    case Expr.If(c, t, el, _)     => assignedFree(c, bound) ++ assignedFree(t, bound) ++ el.toList.flatMap(x => assignedFree(x, bound))
+    case Expr.While(c, b, _)      => assignedFree(c, bound) ++ assignedFree(b, bound)
+    case Expr.Call(_, as, _)      => as.flatMap(a => assignedFree(a, bound))
+    case Expr.MethodCall(r, _, as, _) => assignedFree(r, bound) ++ as.flatMap(a => assignedFree(a, bound))
+    case Expr.NamedArg(_, v, _)   => assignedFree(v, bound)
+    case Expr.Interp(_, xs, _)    => xs.flatMap(x => assignedFree(x, bound))
+    case Expr.Try(b, x, h, _)     => assignedFree(b, bound) ++ assignedFree(h, x :: bound)
+    case Expr.Lambda(ps, b, _)    => assignedFree(b, bound ++ ps.map(_.name))
+    case Expr.Match(sc, arms, _) =>
+      assignedFree(sc, bound) ++ arms.flatMap { a =>
+        val inner = bound ++ patNames(a.pat)
+        a.guard.map(g => assignedFree(g, inner)).getOrElse(Nil) ++ assignedFree(a.body, inner)
+      }
+    case Expr.Block(stmts, res, _) =>
+      var b = bound
+      var acc: List[String] = Nil
+      stmts.foreach { st =>
+        st match
+          case Stmt.Val(n, v, _, _) => acc = acc ++ assignedFree(v, b); b = n :: b
+          case Stmt.Exp(x)          => acc = acc ++ assignedFree(x, b)
+          case Stmt.LocalDef(d) =>
+            b = d.name :: b
+            acc = acc ++ assignedFree(d.body, b ++ d.params.map(_.name))
+      }
+      acc ++ res.toList.flatMap(r => assignedFree(r, b))
+    case _ => Nil
+
+  /** Names DECLARED by a `val`/`var` anywhere in this expression. */
+  private def declaredLocals(e: Expr): List[String] =
+    var out: List[String] = Nil
+    mapDeep(e, x => {
+      x match
+        case Expr.Block(sts, _, _) =>
+          sts.foreach { st => st match { case Stmt.Val(n, _, _, _) => out = n :: out; case _ => () } }
+        case _ => ()
+      x
+    })
+    out.distinct
+
+  /** Every name some lambda in this expression assigns to from the outside AND that is declared as
+    * a local here.
+    *
+    * THE SECOND HALF IS NOT A REFINEMENT, it is the difference between working and broken. A
+    * top-level `var` is a module GLOBAL in v3 — already a cell, already mutable by reference, and
+    * already correct through a closure. Boxing one rewrote its reads and writes while its
+    * DECLARATION stayed a global assignment, so the box was never created and `v3/tests/front/
+    * arrays.ssc` died with `array write on ()`. Caught by the front gate on the first run after
+    * the boxing landed. */
+  private def boxedNames(e: Expr): List[String] =
+    var out: List[String] = Nil
+    mapDeep(e, x => {
+      x match
+        case Expr.Lambda(ps, b, _) => out = out ++ assignedFree(b, ps.map(_.name))
+        case _ => ()
+      x
+    })
+    val local = declaredLocals(e)
+    out.distinct.filter(n => local.contains(n))
+
+  /** A boxed local becomes a ONE-ELEMENT ARRAY, and its reads and writes become element access.
+    *
+    * `Array(v)`, `n(0)` and `n(0) = v` are all shapes both lanes already have — `NewArr`, an
+    * application, `ArrSet` — so this needs no new instruction, no new prim, and nothing added to
+    * the vocabulary the bridge shares with v2. The alternative was a `cell` prim family, which
+    * would have been a second way to say the same thing. */
+  private def boxLocals(e: Expr, boxed: List[String]): Expr =
+    if boxed.isEmpty then e
+    else
+      def zero(p: Pos): Expr = Expr.IntLit(0L, p)
+      def go(x: Expr): Expr = x match
+        // The TARGET's name is not a read — rewriting it would index the box to find the box.
+        case Expr.Assign(n, v, p) if boxed.contains(n) =>
+          Expr.Update(Expr.Name(n, p), zero(p), go(v), p)
+        case Expr.Name(n, p) if boxed.contains(n) => Expr.Apply(Expr.Name(n, p), List(zero(p)), p)
+        case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
+        case Expr.Neg(y, p)               => Expr.Neg(go(y), p)
+        case Expr.Not(y, p)               => Expr.Not(go(y), p)
+        case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
+        case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
+        case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
+        case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+        case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
+        case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
+        case Expr.Call(f, as, p)          => Expr.Call(f, as.map(go), p)
+        case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+        case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
+        case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
+        case Expr.Try(b, n, h, p)         => Expr.Try(go(b), n, go(h), p)
+        case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
+        case Expr.Match(sc, arms, p)      =>
+          Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
+        case Expr.Block(sts, res, p) =>
+          Expr.Block(sts.map { st => st match
+            // The DECLARATION creates the box. It becomes immutable — the box is what changes.
+            case Stmt.Val(n, v, _, q) if boxed.contains(n) =>
+              Stmt.Val(n, Expr.Call("Array", List(go(v)), q), false, q)
+            case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
+            case Stmt.Exp(x2)          => Stmt.Exp(go(x2))
+            case Stmt.LocalDef(d)      => Stmt.LocalDef(d.copy(body = go(d.body)))
+          }, res.map(go), p)
+        case other => other
+      go(e)
+
   /** `xs.map(_ * 2)` — the PLACEHOLDER LAMBDA.
     *
     * The rule is the reference front's, verbatim (`ssc1-front.ssc0:984`, `wrapPhArg`): an ARGUMENT
@@ -1678,7 +1803,13 @@ object Lower:
           Expr.Perform(effectOps(obj + "." + nm), as, xp)
         case other => other))
     val allDefsE = allDefs.map(resolvePerforms)
-      .map(d => d.copy(body = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)))
+      .map { d =>
+        val e0 = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)
+        // Boxing runs LAST, on the tree every other pass has finished with: `expandPlaceholders`
+        // creates lambdas, and a lambda created after the analysis would capture a var the analysis
+        // never saw.
+        d.copy(body = boxLocals(e0, boxedNames(e0)))
+      }
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.
     // A HOST FUNCTION THAT IS ACTUALLY REACHED is refused HERE, with a position, rather than left
