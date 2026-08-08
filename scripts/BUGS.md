@@ -36,8 +36,27 @@ are the only ones with no protection at all** — not the claim-scope check, not
 A worktree holding a copy from before someone else's edit commits it back and the edit is gone, with
 no diff anyone reads because the commit is about something else entirely.
 
-**What would catch it, in rough order of cost.** None of these is implemented; the entry exists so
-the next occurrence is recognised rather than re-diagnosed:
+**FIXED 2026-08-08 — `.githooks/commit-msg`, the first option below.** A staged shared board may not
+DELETE a `## ` heading that exists on `origin/main` unless the message NAMES it: the entry's slug,
+or any word of it that is at least eight characters and contains a letter. Deletion is the shape
+that hurts; appends are the normal traffic and are never touched. It is a `commit-msg` hook rather
+than `pre-commit` for one reason — only there is the message available, and "say what you removed"
+IS the mechanism.
+
+**Validated against the incident itself**: replaying `78077acd7`'s staged file with `78077acd7`'s
+own message is refused, and the refusal names both destroyed entries. And in the other direction —
+a message naming them passes, an append passes, a no-op passes.
+
+**Its self-test caught a defect in the rule, which is why it exists.** The first version keyed on the
+LONGEST token of the heading, and `THE TYPE CHECKER — the decision v3 has not made, framed
+2026-08-08` made that the DATE. No message about removing an entry contains a date, so a
+correctly-worded deletion was refused while the incident was still caught — a guard tested only on
+the case that motivated it is a guard tested in one direction. The rule now takes ANY token of ≥8
+characters CONTAINING A LETTER, and a second self-test case pins the date shape.
+
+Registered in `scripts/smoke-ci.ssc` as `board-deletion`.
+
+**The options as first written, in rough order of cost:**
 
 - a pre-commit check that a shared board file's staged version does not DELETE a `## ` heading that
   exists in `origin/main`, unless the commit's message names it. Cheap, and deletion is the shape

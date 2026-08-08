@@ -471,6 +471,11 @@ val suite = List(
   // a tool that refuses everything, which is a mistake this repository has made before. 352 ms
   // measured, against a 420 s budget.
   Check(".", "inbox-route", "scripts/inbox-route", List("--self-test"), 60000),
+  // The shared boards had no guard at all — claim-scope and overlap both exempt them by design, and
+  // that is how a commit about jsLiteral deleted 65 lines of v3/BACKLOG.md. Its self-test drives
+  // the four directions the rule has to tell apart, including the one that caught a defect in the
+  // rule itself: a DATE in a heading became the key, so a correctly-worded deletion was refused.
+  Check(".", "board-deletion", ".githooks/commit-msg", List("--self-test"), 60000),
   Check("v1/runtime/backend/js", "json-number-policy-js", "tests/e2e/json-number-policy-js-gate.sh", List(), 60000),
   // JsGen has TWO function-emission paths and self-TCO was on only one of them, so the SAME
   // tail-recursive function looped at top level and recursed for real inside an `object` — a

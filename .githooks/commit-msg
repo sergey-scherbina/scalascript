@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+#
+# A SHARED BOARD MAY NOT LOSE AN ENTRY SILENTLY.
+#
+# `SPRINT.md` / `BACKLOG.md` / `CHANGELOG.md` / `BUGS.md` / `MILESTONES.md` / `AGENTS.md` /
+# `README.md` are exempt from the claim-scope and overlap guards ON PURPOSE — every task appends to
+# them, and treating each touch as a conflict would stop the queue. The pre-commit hook says so in
+# as many words. The consequence is that the files every agent's work is RECORDED in were the only
+# ones with no protection at all.
+#
+# 2026-08-08: `78077acd7`, subject "fix(frontend/custom): jsLiteral encodes case classes, maps and
+# tuples", removed 65 lines from `v3/BACKLOG.md` and added none — deleting `THE TYPE CHECKER — the
+# decision v3 has not made`, written the same day, and `v3 carries its own copy of the character
+# alphabet`. A worktree holding a copy from before those edits committed it back. Nobody read the
+# diff, because the commit was about something else. Found by accident, hours later.
+#
+# So: deleting a `## ` heading that exists on `origin/main` is refused unless the message NAMES it.
+# Deletion is the shape that hurts — appends are the normal traffic and are never touched.
+#
+# This is a `commit-msg` hook rather than `pre-commit` for one reason: only here is the message
+# available, and "say what you removed" is the whole mechanism. Escape hatch: `--no-verify`.
+set -euo pipefail
+
+# ── self-test ────────────────────────────────────────────────────────────────
+# `--self-test` builds a scratch repo and drives the four directions this guard has to tell apart.
+# It exists because the FIRST version of the rule passed the incident and refused a correctly-worded
+# deletion: the heading `… framed 2026-08-08` made the longest token the DATE, and no message about
+# removing an entry contains a date. A guard tested only on the case that motivated it is a guard
+# tested in one direction.
+if [ "${1:-}" = "--self-test" ]; then
+  fails=0
+  lab=$(mktemp -d); trap 'rm -rf "$lab"' EXIT
+  hook=$(cd "$(dirname "$0")" && pwd)/commit-msg
+  ( cd "$lab" && git init -q . && git config user.email t@t && git config user.name t
+    printf '# Board\n\n## alpha-entry-one — first\n\ntext\n\n## beta-entry-two — the resolution step\n\ntext\n' > BACKLOG.md
+    git add -A && git commit -qm init && git branch -f main HEAD 2>/dev/null || true
+    git remote add origin . 2>/dev/null || true
+    git update-ref refs/remotes/origin/main HEAD ) >/dev/null 2>&1
+
+  run() { # message, staged-content -> exit code
+    printf '%s' "$2" > "$lab/BACKLOG.md"
+    printf '%s\n' "$1" > "$lab/msg.txt"
+    ( cd "$lab" && git add BACKLOG.md >/dev/null 2>&1 && "$hook" msg.txt >/dev/null 2>&1 ); echo $?
+  }
+  both='# Board
+
+## alpha-entry-one — first
+
+text
+
+## beta-entry-two — the resolution step
+
+text
+'
+  oneGone='# Board
+
+## alpha-entry-one — first
+
+text
+'
+  appended="$both
+## gamma-entry-three — third
+
+text
+"
+  t() { # name, expected, actual
+    if [ "$2" = "$3" ]; then printf '  ok   %s\n' "$1"
+    else printf '  FAIL %s (exit %s, wanted %s)\n' "$1" "$3" "$2"; fails=$((fails + 1)); fi
+  }
+  t "an unrelated message deleting an entry is REFUSED" 1 "$(run 'fix(x): something else entirely' "$oneGone")"
+  t "a message naming the entry is allowed"             0 "$(run 'board: drop beta-entry-two, superseded' "$oneGone")"
+  # A PROSE word counts too, not only the slug — but it must clear the 8-character bar. My first
+  # version of this case said "second", which is six, so the rule correctly refused it and the test
+  # was the thing that was wrong.
+  t "naming its distinctive WORD is enough"             0 "$(run 'board: the resolution step is gone' "$oneGone")"
+  t "an ordinary append is untouched"                   0 "$(run 'board: note something new' "$appended")"
+  t "no change at all is untouched"                     0 "$(run 'board: unrelated' "$both")"
+  # The regression that motivated the self-test: a DATE in the heading must not become the key.
+  ( cd "$lab" && printf '# Board\n\n## alpha-entry-one — first, framed 2026-08-08\n\ntext\n\n## beta-entry-two — the resolution step\n\ntext\n' > BACKLOG.md \
+      && git add -A && git commit -qm dated >/dev/null 2>&1 && git update-ref refs/remotes/origin/main HEAD ) >/dev/null 2>&1
+  datedGone='# Board
+
+## beta-entry-two — the resolution step
+
+text
+'
+  t "a DATE in the heading is not the key"              0 "$(run 'board: drop alpha-entry-one' "$datedGone")"
+  if [ "$fails" = 0 ]; then echo "commit-msg self-test: PASS"; exit 0
+  else echo "commit-msg self-test: $fails FAILED"; exit 1; fi
+fi
+
+msg_file="${1:?commit-msg hook expects the message file}"
+msg=$(tr '[:upper:]' '[:lower:]' < "$msg_file")
+
+# The same vocabulary the pre-commit shared-set uses, keyed on the BASENAME. Both sides must agree;
+# a per-module split (`v2/BUGS.md`, `tests/conformance/BUGS.md`) is exactly how these two drifted
+# apart once before — see the note in pre-commit.
+is_board() {
+  case "${1##*/}" in
+    SPRINT.md|BACKLOG.md|CHANGELOG.md|BUGS.md|MILESTONES.md|AGENTS.md|README.md) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The words a reader would use to refer to the entry: every token of >= 8 characters that CONTAINS A
+# LETTER. For a kebab-case entry slug that is the slug itself; for a prose heading it is its
+# content words. Naming ANY one of them is enough.
+#
+# Two rules learned by the first version failing its own test. Short generic heads ("v3", "the")
+# are skipped, because keying on them would let any commit mentioning "v3" delete a v3 entry. And
+# the token must contain a letter: the first version took the LONGEST token, and
+# `THE TYPE CHECKER — the decision v3 has not made, framed 2026-08-08` made that the DATE — which
+# nobody writes in a message about deleting an entry, so a correctly-worded deletion was refused.
+distinctive() {
+  printf '%s\n' "$1" | tr -c 'A-Za-z0-9_-' '\n' |
+    awk 'length($0) >= 8 && /[A-Za-z]/ { print tolower($0) }'
+}
+
+offenders=""
+for f in $(git diff --cached --name-only --diff-filter=ACMRD); do
+  is_board "$f" || continue
+  git cat-file -e "origin/main:$f" 2>/dev/null || continue   # new file: nothing can be lost
+  before=$(git show "origin/main:$f" 2>/dev/null | grep '^## ' | sed 's/^## //' | sort -u)
+  after=$(git show ":$f" 2>/dev/null | grep '^## ' | sed 's/^## //' | sort -u || true)
+  [ -n "$before" ] || continue
+  gone=$(comm -23 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))
+  [ -n "$gone" ] || continue
+  while IFS= read -r h; do
+    [ -n "$h" ] || continue
+    keys=$(distinctive "$h")
+    # No distinctive word at all — require the heading's opening words rather than waving it through.
+    [ -n "$keys" ] || keys=$(printf '%s' "$h" | cut -c1-24 | tr '[:upper:]' '[:lower:]')
+    named=0
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      case "$msg" in *"$key"*) named=1; break ;; esac
+    done <<< "$keys"
+    [ "$named" = 1 ] && continue
+    offenders="$offenders$f	$h
+"
+  done <<< "$gone"
+done
+
+if [ -n "$offenders" ]; then
+  {
+    echo "✋ commit-msg: this commit DELETES entries from a shared board and does not say so."
+    echo
+    printf '%s' "$offenders" | while IFS=$'\t' read -r f h; do
+      [ -n "$f" ] || continue
+      printf '  %s\n      ## %s\n' "$f" "$h"
+    done
+    echo
+    echo "These headings exist on origin/main and are absent from what you staged. Shared boards are"
+    echo "exempt from the claim-scope and overlap guards by design, so nothing else checks them —"
+    echo "which is how 65 lines of v3/BACKLOG.md were destroyed by a commit about something else"
+    echo "(78077acd7, scripts/BUGS.md 'a-shared-board-file-has-no-guard-against-a-stale-copy-overwrite')."
+    echo
+    echo "If the deletion is INTENDED, name the entry in the commit message — its slug, or its most"
+    echo "distinctive word — and this passes."
+    echo "If it is NOT, your tree predates someone else's edit: rebase and re-apply."
+    echo
+    echo "Override (rarely correct): git commit --no-verify"
+  } >&2
+  exit 1
+fi
+exit 0
