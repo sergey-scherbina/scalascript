@@ -718,12 +718,56 @@ but it belongs in a commit that is already refreshing the baseline.
 
 ## multi-name-val-binds-garbage-and-says-nothing — `val a, b = 1` on four lanes, four answers
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: divergence
      gate: tests/e2e/multi-name-val-gate.sh
-     fixed-in: - -->
+     fixed-in: 7fa903f57 -->
+
+**FIXED on int and js; the two SILENT WRONG answers are gone.** The table now reads:
+
+| lane | `println(a)` | `println(b)` |
+| --- | --- | --- |
+| int | 1 | 1 |
+| js | 1 | 1 |
+| jvm | 1 | 1 |
+| v2 / F | declines the file | declines the file |
+
+Three lanes agree and the fourth refuses loudly — which this entry already called the only defensible
+one of the wrong answers, since it cannot be mistaken for a value. `<native:a>` and `<function>`,
+internal placeholders arriving at exit 0, no longer exist.
+
+**The load-bearing measurement was made BEFORE writing either fix, and it changed the fix.** Scala's
+`val p₁, …, pₙ = e` is `val p₁ = e; …; val pₙ = e` — the right-hand side is evaluated ONCE PER NAME.
+The obvious implementation evaluates once and binds the value to every name, and it would have passed
+every row this gate had. Asked of the jvm lane first, which gets the semantics free by emitting the
+form verbatim to Scala:
+
+```scalascript
+var c = 0
+def bump(): Int = { c = c + 1; c }
+val a, b = bump()      // jvm: a=1, b=2, c=2
+```
+
+So both fixes evaluate per name, and the gate now pins that with its own row.
+
+**Three code paths, not one, and the first two I fixed were the wrong ones.** A `val` at TOP LEVEL
+goes through `StatRuntime.execStat`; a `val` in a `direct` block through `BlockRuntime.step`; and a
+`val` in an ordinary body — the case in the repro — through `BlockRuntime.evalBlock`, which has its
+own `Defn.Val` arm with a fast path for the single-`Pat.Var` shape. Patching the first two left the
+repro printing `<native:a>` unchanged; the top-level probe is what separated them, because it started
+working while the block one did not. js had a single site, and it was not missing a case at all: it
+matched the shape and emitted `/* multi-pat val */`, a comment.
+
+**The gate pinned the defect and refused to be loosened, which is why it is rewritten rather than
+edited.** Its own failure message said: *"If this lane now binds BOTH names and prints 1, that is the
+fix — delete this lane's row instead of loosening it."* Both `KNOWN-RED` rows for int and js are
+deleted and replaced by assertions; native keeps its declared red; the per-name row is new; and the
+jvm probe was asking `bin/ssc run-jvm`, the STANDARD tier, which refuses that subcommand — so the
+lane the entry calls the reference had always reported UNMEASURED. It goes through `ssc-tools` now
+and is checked. Verified in both directions: 6 failures against the pre-fix toolchain, 0 after, with
+the single-name control rows green in both.
 
 Found 2026-08-06 while writing a control for `uniml-block-stops-at-comma`: the control needed a
 comma at paren-depth 0 inside a block, `val a, b = 1` was the obvious way to produce one, and it
