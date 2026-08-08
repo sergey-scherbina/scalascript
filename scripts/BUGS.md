@@ -254,7 +254,7 @@ both times.
      lane: apparatus
      area: build
      gate: tests/e2e/url-import-smoke.sh
-     fixed-in: PENDING -->
+     fixed-in: fd070f4f7 -->
 
 `url-import` FAILED inside a full smoke run and PASSED when the same script was run directly on the
 same tree seconds later. Recorded as load- or timing-sensitive and not narrowed further.
