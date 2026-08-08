@@ -133,6 +133,44 @@ nearest enclosing `Handle`. Because the frame is data (§1), what the handler re
 may store, queue, or resume later from another thread — which is the execution model as stated:
 the executor performs a command and reports the result back to a dispatcher.
 
+#### The protocol, and why it is written here
+
+An arm is `on op, params, k, body`: the registers — **of the handling function's frame** — that
+`Perform`'s arguments are copied into, and the register the continuation is placed in.
+
+```
+(handle 6
+  (body (call 7 loop 8))
+  (on 0 (params 9 10) (k 11)
+    (resume 6 11 9)))
+```
+
+**Everything above the arm line was already here; the arm line was not, and that was a hole rather
+than an omission.** Until 2026-08-08 this section described the dispatcher in prose and stopped:
+`Perform d, opId, args` carried argument registers while `HandlerArm(op, body)` had no parameter
+list, so nothing said where those arguments landed; `Resume d, k, v` read `k` as a continuation and
+nothing anywhere put one in a register. `tests/sample.ssir` did not settle it either — it is a
+coverage module, and its arm was `(on 0 (const 7 1))`, an arbitrary write. An implementer therefore
+had to invent the convention, and the first one to do so would have made it real without writing it
+down.
+
+**Explicit registers rather than fixed positions, and the reason is the verifier.** The alternative
+— arguments at `0..n-1` and the continuation at `n` of a fresh arm frame — needs no change to this
+document, and that is exactly its defect: rule 1 below checks every register index against the
+enclosing function's `nregs`, and a second frame with its own numbering is a rule this validation
+cannot express. Naming the registers keeps the arm inside the one frame the verifier already knows
+how to check, so `params` and `k` are ordinary indices validated by the machinery that is already
+there. An IR whose invariants live in prose instead of in the verifier is the failure this whole
+section exists to avoid.
+
+**`k` is a value like any other.** Placing the continuation in a register is what makes §1's claim
+("a frame is data") operative rather than aspirational: an arm may store it, ignore it, or resume it
+more than once, and each of those is a program the executor either supports or refuses BY NAME. An
+arm that resumes exactly once as its last act is the **tail-resumptive** class, and it needs no
+continuation capture at all — `Perform` can run the arm and take the resumed value as its result at
+any call depth. That is an implementation strategy, not a restriction of this protocol; the protocol
+admits the general case whether or not a given executor does.
+
 **Host boundary** — `Prim d, primId, args`
 
 The single door to everything the IR does not define: I/O, host interop, plugin SPI. This is what

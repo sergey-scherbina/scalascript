@@ -61,6 +61,8 @@
         (body
           (const 7 0))
         (on 0
+          (params 1)
+          (k 7)
           (const 7 1)))
       (resume 6 7 1)
       (prim 6 0 1)

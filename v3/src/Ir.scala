@@ -55,7 +55,14 @@ final case class GlobalDef(name: String)
 final case class SwitchArm(tag: Int, body: List[Instr])
 
 /** One arm of a `Handle`: the effect operation it handles, and what to run. */
-final case class HandlerArm(op: Int, body: List[Instr])
+/** One arm of a `Handle`: the effect operation it handles, where its arguments land, where the
+  * continuation lands, and what to run.
+  *
+  * `params` and `k` are registers OF THE HANDLING FUNCTION'S FRAME — see `specs/10-ssc-ir.md` §3
+  * "The protocol". They are explicit rather than positional so that rule 1 of §4 covers them: the
+  * verifier already checks every register index against the function's `nregs`, and a second frame
+  * with its own numbering would be an invariant this IR states in prose and cannot check. */
+final case class HandlerArm(op: Int, params: List[Int], k: Int, body: List[Instr])
 
 /** `d`/`a`/`b`/`c` are register indices; `k` indexes the constant pool, `g` the globals, `t` the
   * types, `f` the functions. */

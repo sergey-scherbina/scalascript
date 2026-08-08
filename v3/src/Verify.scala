@@ -135,7 +135,17 @@ object Verify:
 
       case Instr.Perform(d, _, as)    => reg(d, "dst").orElse(regs(as, "arg"))
       case Instr.Handle(d, b, arms) =>
+        // An arm's `params` and `k` are ORDINARY REGISTER INDICES of this function's frame, so
+        // rule 1 covers them here with the same helper as everything else. That is the whole reason
+        // `specs/10-ssc-ir.md` §3 names them instead of fixing their positions in a frame of the
+        // arm's own: an invariant this pass cannot state is not an invariant.
+        def armRegs(as: List[HandlerArm]): Option[VerifyError] =
+          if as.isEmpty then None
+          else regs(as.head.params, "handler param")
+                 .orElse(reg(as.head.k, "continuation"))
+                 .orElse(armRegs(as.tail))
         reg(d, "dst")
+          .orElse(armRegs(arms))
           .orElse(block(m, f, b, at + " > handle.body", 0, depth + 1))
           .orElse(handlerArms(m, f, arms, at, 0, depth))
       case Instr.Resume(d, k, v)      => reg(d, "dst").orElse(reg(k, "continuation")).orElse(reg(v, "value"))

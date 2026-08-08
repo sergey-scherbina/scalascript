@@ -246,7 +246,9 @@ object Text:
     case Instr.Handle(d, b, arms) =>
       Sx.L(
         a("handle") :: n(d) :: Sx.L(a("body") :: b.map(instrSx)) ::
-          arms.map(ar => Sx.L(a("on") :: n(ar.op) :: ar.body.map(instrSx)))
+          arms.map(ar =>
+            Sx.L(a("on") :: n(ar.op) :: Sx.L(a("params") :: ar.params.map(n)) ::
+                 Sx.L(List(a("k"), n(ar.k))) :: ar.body.map(instrSx)))
       )
     case Instr.Resume(d, k, v)    => Sx.L(List(a("resume"), n(d), n(k), n(v)))
     case Instr.Try(d, b, x, h) =>
@@ -365,7 +367,8 @@ object Text:
       case "handle" =>
         val arms = t.drop(2).map { ar =>
           val ai = items(ar, "on")
-          HandlerArm(int(ai.head), body(ai.tail))
+          HandlerArm(int(ai.head), items(ai(1), "params").map(int), int(items(ai(2), "k").head),
+                     body(ai.drop(3)))
         }
         Instr.Handle(int(t.head), body(items(t(1), "body")), arms)
       case "resume" => Instr.Resume(int(t(0)), int(t(1)), int(t(2)))

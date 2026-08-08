@@ -61,7 +61,7 @@ object Sample:
     Instr.CallV(6, 5, List(1)),
     Instr.Call(6, 0, List(1)),
     Instr.Perform(6, 0, List(1)),
-    Instr.Handle(6, List(Instr.Const(7, 0)), List(HandlerArm(0, List(Instr.Const(7, 1))))),
+    Instr.Handle(6, List(Instr.Const(7, 0)), List(HandlerArm(0, List(1), 7, List(Instr.Const(7, 1))))),
     Instr.Resume(6, 7, 1),
     Instr.Prim(6, 0, List(1)),
     Instr.Invoke(6, 5, 4, List(1)),

@@ -102,7 +102,7 @@ object TailCalls:
     case Instr.GlobSet(g, a)       => Instr.GlobSet(g, a + d)
     case Instr.Perform(a, o, as)   => Instr.Perform(a + d, o, as.map(_ + d))
     case Instr.Handle(a, b, arms)  =>
-      Instr.Handle(a + d, shift(b, d), arms.map(x => HandlerArm(x.op, shift(x.body, d))))
+      Instr.Handle(a + d, shift(b, d), arms.map(x => HandlerArm(x.op, x.params.map(_ + d), x.k + d, shift(x.body, d))))
     case Instr.Resume(a, b, c)     => Instr.Resume(a + d, b + d, c + d)
     case Instr.Invoke(a, nm, r, as) => Instr.Invoke(a + d, nm, r + d, as.map(_ + d))
     case Instr.Prim(a, p, as)      => Instr.Prim(a + d, p, as.map(_ + d))

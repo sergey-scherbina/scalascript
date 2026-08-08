@@ -268,31 +268,23 @@ one symptom bucket turned out to be a different construct than the obvious readi
       | `HandlerArm(op, params: List[Int], k: Int, body)` — explicit registers | changes the canonical text form, `Verify`, the frozen `sample.ssir`, `TailCalls` shifting, and the spec |
       | fixed positions — args in `0..n-1`, `k` in `n`, of a fresh arm frame | no IR change, but an unwritten rule the verifier cannot state and a second frame convention alongside `Func`'s |
 
-      **This decision is the actual next step for 7a/7b/7c**, and it belongs in `10-ssc-ir.md`
-      rather than in whichever implementation task reaches it first. It is written here rather than
-      chosen because a spec that says "reserved" and an implementation that quietly fills in the
-      blank produce exactly the kind of divergence `BridgeV2` will then be measured against.
-- [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
-      same message, different keyword. Separate from 7a because multi-shot resumption is a different
-      executor obligation, and closing 7a must not silently claim this.
-- [ ] **SSC3-7c — `!` effect types in a signature.** `effect-pure.ssc:6:35` —
-      `def compute(n: Int): Int ! Logger =` → `expected an expression, found =`. The `!` is parsed
-      as far as the return type and then the body is not reached.
-- [ ] **SSC3-7d — `given name: T with`.** `typeclass-fold.ssc:15:13` (`given intSum: Monoid[Int] with`)
-      and `typeclass-monoid.ssc:10:16` (`given intMonoid: IntMonoid with`) →
-      `expected an expression, found :`. Tier 2 in `specs/20-core-language.md §2`; queued here with
-      the measurement rather than left implicit in that deferral.
-- [ ] **SSC3-7e — a block argument, `f { … }`.** `effect-stream.ssc:7:28` — `val (src, _) =
-      runStream {` → `expected an expression, found {`. A call whose single argument is a block.
-- [x] **SSC3-7f — `Either` / `Right` / `Left`.** DONE, in two halves by two agents. `f1a82c9b8`
-      (a sibling) put `Right`/`Left` in the constructor table, which made them CONSTRUCTIBLE; nothing
-      could then be done with the value, so `either-chain` advanced one step and stopped at
-      `method 'map' on #6(3) is not implemented`. The executor half — `map`, `flatMap`, `fold`,
-      `isRight`/`isLeft`, `getOrElse` — is right-biased as Scala is, and `flatMap` returns the
-      function's result AS IS rather than re-wrapping it, which in an untyped executor would
-      silently build `Right(Right(x))`. Verified by DIFFERENTIAL: `663` on v3's executor, on the v2
-      bridge and on the v1 interpreter. `type-lambda-placeholder`, the second file this task named,
-      now stops at `unknown name 'type'` — a type alias, filed as SSC3-7q.
+      **DECIDED 2026-08-08 and written into `specs/10-ssc-ir.md` §3 "The protocol".** An arm is
+      `on op, params, k, body`: explicit registers of the HANDLING FUNCTION'S frame.
+
+      Explicit registers rather than fixed positions, and the reason is the verifier — the same
+      argument the table above priced. Rule 1 checks every register index against the enclosing
+      function's `nregs`; a second frame with its own numbering is an invariant the pass cannot
+      state. Named registers keep the arm inside the one frame the verifier already knows, so
+      `params` and `k` are checked by machinery that was already there. **Proved by making it fail:**
+      `(k 99)` gives `func kitchen #19: continuation r99 is outside the frame (nregs=8)` and
+      `(params 99)` the same for a param. An invariant that cannot go red is not an invariant.
+
+      Blast radius, measured before starting rather than discovered: `Ir`, `Text`, `Verify`,
+      `TailCalls`, `Main`(sample) — five files — plus the spec and the frozen `tests/sample.ssir`.
+      `BridgeV2` has ZERO references to any effect instruction, so it needed nothing; it refuses.
+      The frozen sample was edited MINIMALLY — its arm gains `(params 1)` and `(k 7)`, nothing else —
+      because the selftest checks that `fmt` of the file equals the file, not that it equals
+      `ssc3 sample`; replacing it wholesale would have swept in unrelated drift.
 
 - [x] **SSC3-7q — `type` aliases.** DONE. Consumed and DISCARDED, which is the whole of it: types
       are erased at Tier 0, which is why `skipType` exists and why `asInstanceOf` is the identity in
