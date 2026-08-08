@@ -98,7 +98,7 @@ as progress that is 3 files less real than it looks.
 ## stub-rendered-as-data-reached-an-http-body
 
 <!-- status: fixed
-     fixed-in: b32c9e663
+     fixed-in: 3d1d92bbd
      lane: v2-jvm
      area: runtime
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
@@ -150,7 +150,7 @@ before by a targeted gate passing while a shared renderer broke ~28 checks elsew
      reported-at: 2026-08-08
      ssc-version: d7546f299
      confirmed: yes
-     fixed-in: 1a13d17ea
+     fixed-in: b32c9e663
      gate: tests/e2e/f-curried-def-gate.sh -->
 
 **FIXED in `1a13d17ea`,** and the fix turned out to be two constructs rather than one: the curried
