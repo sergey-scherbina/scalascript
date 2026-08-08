@@ -328,11 +328,31 @@ one symptom bucket turned out to be a different construct than the obvious readi
       `def once(x: => Int)` fails with `expected a name, found =>`. So `runLogger { body }` evaluates
       `body` BEFORE the handler is installed and a perform inside finds no handler. See SSC3-7s.
 
-- [ ] **SSC3-7s — by-name parameters, `def f(x: => A)`.** Measured 2026-08-08:
-      `expected a name, found =>`. NOT on the "not in the language at all" list in
-      `20-core-language.md`, unlike `lazy val` and varargs, so this is a gap rather than a decision.
-      It is what an effect RUNNER needs: with eager arguments a handler cannot be installed before
-      the body it handles runs.
+- [x] **SSC3-7s — by-name parameters, `def f(x: => A)`.** DONE 2026-08-08, as a FRONT
+      transformation — the way Scala does it, and the way that costs the IR, the executor and the
+      bridge nothing. The call site wraps the argument in a zero-argument lambda; each use of the
+      parameter in the body calls it. Both halves already existed: `val f = () => 41; f()` has always
+      worked, so this is a rewrite, not a new capability.
+
+      **Verified by OBSERVABLE EFFECT, not by parsing.** With `var n = 0` and a `bump()` that
+      increments it:
+
+          def twice(x: => Int) = x + x    twice(bump())  ->  3    (called twice: 1 + 2)
+          def once(x: Int)     = x + x    once(bump())   ->  2    (called once:  1 + 1)
+
+      A parse-only check could not tell those apart, and "it compiles" is what a wrong by-name
+      implementation also does.
+
+      Applied where `allDefs` is BOUND, so every consumer downstream — the gap check,
+      `zeroArityNames`, the lowering — sees the rewritten program and none of them knows this feature
+      exists. Threading a second list is how one consumer ends up reading the un-rewritten version.
+
+      **Two limits, both stated rather than discovered.** A call site is rewritten only when the
+      callee is a statically known `def`; a call THROUGH A VALUE cannot be, because knowing whether
+      that value's parameter is by-name needs a type and Tier 0 has none. And a by-name parameter
+      SHADOWED by a lambda parameter of the same name is REFUSED BY NAME
+      (`v3/tests/effects/by-name-shadowed.ssc`) — rewriting inside the shadow would read a value from
+      the wrong binding, which is a wrong answer rather than a missing feature.
 
 - [x] **SSC3-7f — `Either` / `Right` / `Left`.** DONE, in two halves by two agents. `f1a82c9b8`
       (a sibling) put `Right`/`Left` in the constructor table, which made them CONSTRUCTIBLE; nothing

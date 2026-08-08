@@ -1382,10 +1382,14 @@ object Parser:
       var go = true
       while go do
         val (pn, pp, t) = expectName(ts)
-        ts = skipTypeAnn(t)
+        // `x: => A` — a BY-NAME parameter. Detected here rather than inside `skipType` because the
+        // marker has to survive as a fact about the parameter; `skipType` discards what it reads,
+        // which is right for a type and wrong for this.
+        val byName = isPunct(peek(t), ":") && isOp(peek(t.tail), "=>")
+        ts = if byName then skipType(t.tail.tail) else skipTypeAnn(t)
         val (dflt, tD) = parseDefault(ts)
         ts = tD
-        params = Param(pn, pp, dflt) :: params
+        params = Param(pn, pp, dflt, byName) :: params
         if isPunct(peek(ts), ",") then ts = ts.tail else go = false
     ts = expectPunct(ts, ")")
     ts = skipTypeAnn(ts)

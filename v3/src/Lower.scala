@@ -920,6 +920,58 @@ object Lower:
     * to shrink its name set inside a lambda whose parameter shadows a method, and a plain walker
     * carries no scope. Everything scope-INDEPENDENT goes through here rather than growing a third
     * copy of the same twenty cases. */
+
+  /** By-name parameters, as a FRONT transformation.
+    *
+    * `def f(x: => A)` is implemented the way Scala implements it, and the way that costs the IR, the
+    * executor and the bridge nothing: the CALL SITE wraps the argument in a zero-argument lambda,
+    * and each USE of the parameter in the body calls it. v3 already had both halves —
+    * `val f = () => 41; f()` has always worked — so this is a rewrite, not a new capability.
+    *
+    * WHAT IT COVERS AND WHAT IT CANNOT. A call site is rewritten only when the callee is a
+    * statically known `def`, because that is all the front has here. A call THROUGH A VALUE cannot
+    * be: knowing whether that value's parameter is by-name needs a type, and Tier 0 has none. Scala
+    * decides it with types; v3 decides it by name, and where it cannot decide it leaves the call
+    * eager. A real limit, written down rather than assumed away.
+    */
+  private def rewriteByName(defs: List[Def]): List[Def] =
+    val byNameParams: Map[String, Set[Int]] =
+      defs.map(d => (d.name, d.params.zipWithIndex.filter((pm, _) => pm.byName).map(_._2).toSet))
+          .filter((_, ixs) => ixs.nonEmpty).toMap
+    if byNameParams.isEmpty then defs
+    else
+      def thunkArgs(e: Expr): Expr = mapDeep(e, x => x match
+        case Expr.Call(fn, as, cp) if byNameParams.contains(fn) =>
+          val ixs = byNameParams(fn)
+          Expr.Call(fn, as.zipWithIndex.map { (a, i) =>
+            if ixs.contains(i) then Expr.Lambda(Nil, a, Expr.posOf(a)) else a
+          }, cp)
+        case other => other)
+      // Each USE of a by-name parameter becomes a call of the thunk the call site now passes.
+      //
+      // Shadowing is respected by REFUSING it. A nested binder reusing the name refers to its own
+      // binding, so rewriting inside it would read a value from the wrong place — and that is a
+      // wrong answer, not a missing feature. Tracking scopes here would be the better fix and is
+      // more than this needs; the refusal names the def and says what to do.
+      def forceUses(d: Def): Def =
+        val names = d.params.filter(_.byName).map(_.name).toSet
+        if names.isEmpty then d
+        else
+          mapDeep(d.body, x => {
+            x match
+              case Expr.Lambda(ps, _, lp) if ps.exists(pm => names.contains(pm.name)) =>
+                throw LowerFail(lp,
+                  "a by-name parameter of '" + d.name + "' is shadowed by a lambda parameter of " +
+                  "the same name; rename one — the front rewrites uses by name and cannot tell " +
+                  "them apart")
+              case _ => ()
+            x
+          })
+          d.copy(body = mapDeep(d.body, x => x match
+            case Expr.Name(n, np) if names.contains(n) => Expr.Apply(Expr.Name(n, np), Nil, np)
+            case other                                 => other))
+      defs.map(forceUses).map(d => d.copy(body = thunkArgs(d.body)))
+
   private def mapDeep(e: Expr, f: Expr => Expr): Expr =
     def go(x: Expr): Expr = mapDeep(x, f)
     val rebuilt = e match
@@ -1583,7 +1635,12 @@ object Lower:
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
     val sigs: List[(String, List[Param])] =
       allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
-    val allDefs = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
+    val allDefsEager = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
+    // BY-NAME is applied HERE, at the one place `allDefs` is bound, so every consumer downstream —
+    // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
+    // them needs to know this feature exists. Applying it later meant threading a second list, and a
+    // second list is how one consumer ends up reading the un-rewritten version.
+    val allDefs = rewriteByName(allDefsEager)
       .map(d => d.copy(body = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)))
     // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
     // def declared later in the file is still callable from one declared earlier.

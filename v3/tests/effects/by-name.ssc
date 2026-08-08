@@ -1,0 +1,11 @@
+```scalascript
+var n = 0
+def bump(): Int =
+  n = n + 1
+  n
+def twice(x: => Int): Int = x + x
+def once(x: Int): Int = x + x
+println(twice(bump()))
+n = 0
+println(once(bump()))
+```
