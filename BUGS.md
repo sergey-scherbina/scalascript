@@ -20,11 +20,26 @@ Newest first.
 
 ## v3-bridge-lazylist-crashes-with-a-java-stack-trace — the executor gained a type the bridge cannot see
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen
      kind: bug
-     gate: none -->
+     gate: none
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-08.** `BridgeV2` now refuses BY NAME at lowering time, so all three triggers
+produce one sentence and zero stack-trace lines:
+
+```
+ssc3: …: v2 bridge V-0 does not translate `until`, which v3's executor implements and v2 does not
+      — run this program with `ssc3 run` rather than `ssc3 run --bridge`
+```
+
+The refusal list is MEASURED and deliberately short — `__lazyFrom__`, `to`, `until` — because
+nothing in the bridge knows what v2 implements in general. Removing a name and running the program
+through `--bridge` is how to re-measure it; if v2 gains the method, the name comes out. What it does
+NOT cover is the receiver-dependent case: tuple `++` is a method v2 has for lists, so it cannot be
+refused by name, and `v3-bridge-tuple-concat-emits-Stub` stays open on its own.
 
 **Found 2026-08-07 while landing SSC3-7k.** v3's executor now has a real lazy sequence. The bridge
 does not, and says so like this:

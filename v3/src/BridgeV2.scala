@@ -17,6 +17,18 @@ package ssc3
 
 object BridgeV2:
 
+  /** Methods v3's EXECUTOR has and v2 does not — measured, one at a time, by running the program
+    * through `ssc3 run --bridge` and reading what v2 said.
+    *
+    * `__lazyFrom__` can never be v2's: it is v3's own lowering of `LazyList.from`. `to` and `until`
+    * are ordinary Scala methods that v2 simply does not dispatch today, so if it gains them the
+    * name comes out of this list and the refusal stops.
+    *
+    * Not a general answer to "what does v2 implement" — nothing here knows that. It is the set that
+    * turned a crash into a sentence, and it grows the same way it was built: by measurement.
+    */
+  private val executorOnlyMethods: Set[String] = Set("__lazyFrom__", "to", "until")
+
   final case class Unsupported(what: String)
       extends RuntimeException("v2 bridge V-0 does not translate " + what)
 
@@ -227,6 +239,27 @@ object BridgeV2:
       val mname = cx.m.consts(nm) match
         case Lit.LStr(x) => x
         case _           => throw Unsupported("an invoke whose name const is not a string")
+      // REFUSE HERE rather than let v2 fail at the far end. An invoke this bridge forwards for a
+      // method v2 does not have dies inside v2's dispatcher as a raw Java exception with a stack
+      // trace and no idea what was asked for:
+      //
+      //   __method__: no dispatch for .filter on <closure>
+      //   __method__: no dispatch for .until on 0
+      //
+      // A refusal naming the method and the lane is the standard the EXECUTOR is already held to —
+      // its "not implemented on this lane" messages name the method — and `corpus-report.sh` has a
+      // bucket for the other thing, "neither ran it nor refused it cleanly".
+      // (BUGS.md v3-bridge-lazylist-crashes-with-a-java-stack-trace.)
+      //
+      // The list is MEASURED, not guessed, and it is short on purpose: these are the methods v3's
+      // executor grew that v2 was then observed to lack. Re-measure by removing a name and running
+      // the program through `ssc3 run --bridge`; if v2 has since gained it, the name comes out.
+      if executorOnlyMethods.contains(mname) then
+        // `Unsupported` already says "v2 bridge V-0 does not translate", so this completes that
+        // sentence rather than starting a second one.
+        throw Unsupported(
+          "`" + mname + "`, which v3's executor implements and v2 does not — run this program with " +
+          "`ssc3 run` rather than `ssc3 run --bridge`")
       write(d, "(prim __method__ " + lit("(str " + quote(mname) + ")") + " " + read(r, sh) +
               args(as, sh) + ")", sh)
     case Instr.Prim(d, p, as) => write(d, "(prim " + cx.m.prims(p) + args(as, sh) + ")", sh)
