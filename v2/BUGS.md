@@ -62,6 +62,28 @@ of these is the trigger and none needs re-testing:
     a callee with a DEFAULT parameter, supplied or omitted     lowers
     two MUTUALLY RECURSIVE defs each calling the other with `_` lowers
 
+**MINIMAL AT SEVEN LINES**, hand-cut one line at a time from the 2-declaration reduction until no
+single removal keeps the symptom. Every line below is load-bearing — dropping any one of them makes
+F lower the file:
+
+    def contentViewSection(section: SectionContent,
+                           options: ContentRenderOptions = ContentRenderOptions()): View =
+      val tag = if section.level >= 1 && section.level <= 6 then s"h${section.level}" else "h2"
+      val headingAttrs =
+        if options.sectionIdsAsAnchors then Map("id" -> section.id) else Map()
+      val heading = element(tag, headingAttrs, Map(), [textNode(section.title)])
+      val children = section.children.map(contentViewSection(_, options))
+
+Note what survived the cut: the other declaration went, so this is a SELF-recursive placeholder
+call. Six constructs in here were each tested ALONE and each lowers fine — a multi-line parameter
+list, a default parameter, `s"…${…}"` interpolation, a `val` whose RHS is on the following line, a
+`[…]` list literal, and a self-recursive placeholder call. So the trigger is a COMBINATION, which is
+exactly why six synthetic reconstructions missed it and why the cut had to be mechanical.
+
+Whoever takes this: start by deleting ONE line at a time from the seven and watching which flips it,
+then reintroduce that line alone into a fresh file. Do not synthesise a seventh candidate — that
+approach has now failed six times on this one symptom.
+
 The reduction is the artefact to work from, not another guess — the last four were mine and each
 cost a build. What separates it from the reconstructions is still unknown; the promising next move
 is to cut those 60 lines further BY HAND (they are two functions, so hand-cutting keeps them whole)
