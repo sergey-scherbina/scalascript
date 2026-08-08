@@ -8,6 +8,49 @@ grepping for status.
 Newest first.
 
 
+## a-shared-board-file-has-no-guard-against-a-stale-copy-overwrite
+
+<!-- status: open
+     lane: apparatus
+     area: cli
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+**The incident, 2026-08-08.** `78077acd7` — subject `fix(frontend/custom): jsLiteral encodes case
+classes, maps and tuples` — removed **65 lines from `v3/BACKLOG.md` and added none**, deleting two
+whole entries written the same day: `THE TYPE CHECKER — the decision v3 has not made` (`467adf641`)
+and `v3 carries its own copy of the character alphabet`. Nothing in that commit's subject, its other
+three files or its message concerns either. It wrote a STALE COPY of a shared board over the current
+one. Restored in `3c086798c`.
+
+**Why no guard fired, and this is the point.** The overlap guard says so itself, in the message it
+prints:
+
+    Note: SPRINT.md / BACKLOG.md / CHANGELOG.md / BUGS.md / MILESTONES.md / README.md are SHARED
+    and are never an overlap — if one of those is in the list above, this hook has a bug.
+
+That exemption is correct for its own purpose: everyone appends to these files and treating every
+touch as a conflict would stop the queue. But it means **the files every agent's work is recorded in
+are the only ones with no protection at all** — not the claim-scope check, not the overlap check.
+A worktree holding a copy from before someone else's edit commits it back and the edit is gone, with
+no diff anyone reads because the commit is about something else entirely.
+
+**What would catch it, in rough order of cost.** None of these is implemented; the entry exists so
+the next occurrence is recognised rather than re-diagnosed:
+
+- a pre-commit check that a shared board file's staged version does not DELETE a `## ` heading that
+  exists in `origin/main`, unless the commit's message names it. Cheap, and deletion is the shape
+  that hurts — appends are fine and are the normal traffic;
+- the same as a pre-push check against the pushed range, which catches a rebase that resurrects an
+  old copy;
+- `scripts/board --check`-style drift detection extended from `.work/active/` to the boards.
+
+**Found by accident**, which is the argument for a gate: I went to `v3/BACKLOG.md` to record three
+measurements, found the section I meant to edit absent, and only then traced it. Nobody was looking
+for it, and the deletion had already been on `main` for hours.
+
+
 ## launchers-not-dead-red-in-every-fresh-worktree — the gate refuses on an empty bin/, by design, every time
 
 <!-- status: open
