@@ -184,6 +184,29 @@ final class UiNativePlugin extends NativePlugin:
     case Value.DataV("NativeUiSignal", fields) if fields.length == 6 => fields
     case _ => throw new RuntimeException(s"$operation argument must be NativeUiSignal")
 
+  /** The `credential` parameter these fetch primitives grew on 2026-08-05, ACCEPTED and checked
+    * rather than accepted and dropped.
+    *
+    * `std/credential.ssc` makes `Credential(kind, source, scheme)` a declaration of where a secret
+    * comes from, and `credentialNone` is `Credential("none", "", "")` — it carries nothing. So
+    * ignoring the DEFAULT loses no information and is safe; ignoring a real one would silently
+    * strip authentication from a request on this lane, which is worse than refusing.
+    *
+    * Until the native lane can resolve a credential at call time the way v1's `FetchUrlSignal`
+    * does, a non-default one is a loud error naming the entry that owns the gap. Widening the
+    * arity without this guard is the version of the fix that must not ship.
+    */
+  private def rejectCredential(value: Value, operation: String): Unit = value match
+    case Value.DataV("Credential", fields) if fields.headOption.contains(Value.StrV("none")) => ()
+    case Value.DataV("Credential", fields) =>
+      val kind = fields.headOption match { case Some(Value.StrV(k)) => k; case _ => "?" }
+      throw new RuntimeException(
+        s"$operation: credential '$kind' is not supported on the native lane yet — it would be " +
+        "silently dropped. See corpus-contract-ui-remote-table-v2-unrecorded (v2/BUGS.md). " +
+        "An explicit Authorization header in `headers` works today.")
+    case _ =>
+      throw new RuntimeException(s"$operation credential argument must be a Credential")
+
   private def readSignal(value: Value, operation: String): Value =
     val read = signalFields(value, operation)(3).asInstanceOf[Value.ClosV]
     Runtime.run(read.code, read.env)
@@ -536,11 +559,13 @@ final class UiNativePlugin extends NativePlugin:
         Value.DataV("NativeUiSignalMetaFetch", Vector(url, refresh, headers, phase, error)), writable = false)
 
     siteNative(context, "fetchUrlSignal") { (site, _, args) =>
-      if args.length != 3 && args.length != 4 then throw new RuntimeException("fetchUrlSignal(name, url, refresh[, headers])")
+      if args.length < 3 || args.length > 5 then throw new RuntimeException("fetchUrlSignal(name, url, refresh[, headers[, credential]])")
+      args.lift(4).foreach(rejectCredential(_, "fetchUrlSignal"))
       fetchSignal(site, text(args, 0, "fetchUrlSignal"), Value.StrV(text(args, 1, "fetchUrlSignal")), args(2), args.lift(3).getOrElse(emptyHeaders))
     }
     siteNative(context, "fetchUrlSignalTo") { (site, _, args) =>
-      if args.length != 3 && args.length != 4 then throw new RuntimeException("fetchUrlSignalTo(name, urlSignal, refresh[, headers])")
+      if args.length < 3 || args.length > 5 then throw new RuntimeException("fetchUrlSignalTo(name, urlSignal, refresh[, headers[, credential]])")
+      args.lift(4).foreach(rejectCredential(_, "fetchUrlSignalTo"))
       signalFields(args(1), "fetchUrlSignalTo url")
       fetchSignal(site, text(args, 0, "fetchUrlSignalTo"), args(1), args(2), args.lift(3).getOrElse(emptyHeaders))
     }
@@ -590,9 +615,9 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "formBody") { case fields :: Nil => Value.DataV("NativeUiFormBody", Vector(NativeUiPortable.canonical(fields, "NativeUiFormBody.fields"))); case _ => throw new RuntimeException("formBody(fields)") }
 
     def tickEffects(tick: Value): Value = { signalFields(tick, "fetch success tick"); list(List(success("bumpTick", tick, Value.UnitV))) }
-    siteNative(context, "fetchAction") { (site, _, args) => if args.length == 4 || args.length == 5 then fetchAction(site, text(args, 0, "fetchAction"), Value.StrV(text(args, 1, "fetchAction")), args(2), tickEffects(args(3)), args.lift(4).getOrElse(emptyHeaders)) else throw new RuntimeException("fetchAction(method, url, body, tick[, headers])") }
+    siteNative(context, "fetchAction") { (site, _, args) => if args.length >= 4 && args.length <= 6 then { args.lift(5).foreach(rejectCredential(_, "fetchAction")); fetchAction(site, text(args, 0, "fetchAction"), Value.StrV(text(args, 1, "fetchAction")), args(2), tickEffects(args(3)), args.lift(4).getOrElse(emptyHeaders)) } else throw new RuntimeException("fetchAction(method, url, body, tick[, headers[, credential]])") }
     siteNative(context, "fetchActionTo") { (site, _, args) => if args.length == 4 || args.length == 5 then { signalFields(args(1), "fetchActionTo url"); fetchAction(site, text(args, 0, "fetchActionTo"), args(1), args(2), tickEffects(args(3)), args.lift(4).getOrElse(emptyHeaders)) } else throw new RuntimeException("fetchActionTo(method, urlSignal, body, tick[, headers])") }
-    siteNative(context, "fetchActionClear") { (site, _, args) => if args.length == 4 || args.length == 5 then fetchAction(site, text(args, 0, "fetchActionClear"), Value.StrV(text(args, 1, "fetchActionClear")), args(2), tickEffects(args(3)), args.lift(4).getOrElse(emptyHeaders), clear = args(2)) else throw new RuntimeException("fetchActionClear(method, url, body, tick[, headers])") }
+    siteNative(context, "fetchActionClear") { (site, _, args) => if args.length >= 4 && args.length <= 6 then { args.lift(5).foreach(rejectCredential(_, "fetchActionClear")); fetchAction(site, text(args, 0, "fetchActionClear"), Value.StrV(text(args, 1, "fetchActionClear")), args(2), tickEffects(args(3)), args.lift(4).getOrElse(emptyHeaders), clear = args(2)) } else throw new RuntimeException("fetchActionClear(method, url, body, tick[, headers[, credential]])") }
     siteNative(context, "fetchCaptureAction") { (site, _, args) => if args.length == 5 || args.length == 6 then fetchAction(site, text(args, 0, "fetchCaptureAction"), Value.StrV(text(args, 1, "fetchCaptureAction")), args(2), tickEffects(args(4)), args.lift(5).getOrElse(emptyHeaders), capture = args(3)) else throw new RuntimeException("fetchCaptureAction(method, url, body, into, tick[, headers])") }
     siteNative(context, "fetchActionWith") { (site, _, args) => if args.length == 4 || args.length == 5 then fetchAction(site, text(args, 0, "fetchActionWith"), Value.StrV(text(args, 1, "fetchActionWith")), args(2), args(3), args.lift(4).getOrElse(emptyHeaders)) else throw new RuntimeException("fetchActionWith(method, url, body, effects[, headers])") }
 

@@ -21,11 +21,16 @@ object NativeUiSites:
     "dataTableView" -> Set(3, 4),
     "computedSignal" -> Set(1),
     "eqSignal" -> Set(2),
-    "fetchUrlSignal" -> Set(3, 4),
-    "fetchUrlSignalTo" -> Set(3, 4),
-    "fetchAction" -> Set(4, 5),
+    // The trailing arity of each fetch primitive is its `credential` parameter, added to the
+    // declarations in `std/ui/primitives.ssc` on 2026-08-05 and NOT mirrored here at the time — so
+    // `fetchUrlSignal` was unusable on this lane at every arity until 2026-08-08, and only the
+    // corpus contract noticed. This table and `UiNativePlugin` are the two places that must move
+    // whenever one of those `extern def`s grows a parameter.
+    "fetchUrlSignal" -> Set(3, 4, 5),
+    "fetchUrlSignalTo" -> Set(3, 4, 5),
+    "fetchAction" -> Set(4, 5, 6),
     "fetchActionTo" -> Set(4, 5),
-    "fetchActionClear" -> Set(4, 5),
+    "fetchActionClear" -> Set(4, 5, 6),
     "fetchCaptureAction" -> Set(5, 6),
     "fetchActionWith" -> Set(4, 5),
     "emit" -> Set(2),

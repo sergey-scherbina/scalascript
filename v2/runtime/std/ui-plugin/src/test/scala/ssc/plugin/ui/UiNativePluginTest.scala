@@ -549,3 +549,47 @@ class UiNativePluginTest extends AnyFunSuite:
     val badKey = list(Value.DataV("Pair", Vector(Value.IntV(1), Value.StrV("v"))))
     assert(intercept[RuntimeException](NativeUiPortable.stringMap(badKey, "test.attrs"))
       .getMessage.contains("String keys"))
+
+  // ── the `credential` parameter, added to std/ui/primitives.ssc on 2026-08-05 ────────────────
+  //
+  // The v1 plugin followed that change and this lane did not, so `fetchUrlSignal` threw at EVERY
+  // arity — `examples/ui-remote-table.ssc` was red on the corpus contract nightly for it, while
+  // int ran the same file fine. These pin both halves of the fix: the arity is accepted, and a
+  // credential that would be DROPPED is refused instead
+  // (`corpus-contract-ui-remote-table-v2-unrecorded`).
+
+  private def credential(kind: String): Value =
+    Value.DataV("Credential", Vector(Value.StrV(kind), Value.StrV(""), Value.StrV("")))
+
+  test("fetchUrlSignal accepts the credential parameter when it is the default"):
+    val tick = call("signal", Value.StrV("tick"), Value.IntV(0))
+    val headers = call("signal", Value.StrV("h"), Value.StrV(""))
+    val signal = call("fetchUrlSignal", Value.StrV("status"), Value.StrV("/control/status"),
+      tick, headers, credential("none"))
+    assert(signal.isInstanceOf[Value.DataV])
+
+  // The CONTROL for the row above: three arguments must still work, since that is what every
+  // existing caller writes and what the failing corpus case writes.
+  test("fetchUrlSignal still accepts three arguments"):
+    val tick = call("signal", Value.StrV("tick3"), Value.IntV(0))
+    assert(call("fetchUrlSignal", Value.StrV("s3"), Value.StrV("/u"), tick).isInstanceOf[Value.DataV])
+
+  test("a real credential is REFUSED rather than silently dropped"):
+    val tick = call("signal", Value.StrV("tick2"), Value.IntV(0))
+    val headers = call("signal", Value.StrV("h2"), Value.StrV(""))
+    val thrown = intercept[RuntimeException](call("fetchUrlSignal", Value.StrV("s"), Value.StrV("/u"),
+      tick, headers, credential("bearer")))
+    assert(thrown.getMessage.contains("not supported on the native lane"))
+    // It must name where the decision lives, or it reads as a bug rather than a gap.
+    assert(thrown.getMessage.contains("corpus-contract-ui-remote-table-v2-unrecorded"))
+
+  // The TWIN. Three other primitives grew the same parameter on the same day; fixing one and
+  // leaving the others is the shape this entry is an instance of.
+  test("fetchAction takes the credential parameter too, and refuses a real one"):
+    val tick = call("signal", Value.StrV("at"), Value.IntV(0))
+    val body = call("signal", Value.StrV("ab"), Value.StrV(""))
+    val headers = call("signal", Value.StrV("ah"), Value.StrV(""))
+    assert(call("fetchAction", Value.StrV("POST"), Value.StrV("/u"), body, tick, headers,
+      credential("none")) != null)
+    assert(intercept[RuntimeException](call("fetchAction", Value.StrV("POST"), Value.StrV("/u"),
+      body, tick, headers, credential("basic"))).getMessage.contains("not supported"))

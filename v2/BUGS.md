@@ -4304,10 +4304,33 @@ credential would make the case pass while silently dropping an authentication pa
 native lane — worse than the current loud refusal. The fix has to decide what the v2 lane DOES with
 a `Credential`, which is the same question `credential-parameter` answered for v1.
 
-**One check I did not run**, and it is the cheap confirmation for whoever takes this: print
-`args.length` at `UiNativePlugin.scala:539`. Everything above is consistent with "it is always 5",
-but I inferred that from the declaration rather than observing it — the 2-argument row is the one
-that does not obviously fit, and instrumenting settles it in one run.
+**FIXED 2026-08-08 in the arity, GUARDED in the semantics.** All four primitives that grew the
+parameter — `fetchUrlSignal`, `fetchUrlSignalTo`, `fetchAction`, `fetchActionClear` — now accept it
+in both places (`NativeUiSites` arities and `UiNativePlugin`), and a credential that is NOT the
+default is REFUSED with a message naming this entry.
+
+**Widening the arity alone would have been the wrong fix**, and the guard is the difference:
+`credentialNone` is `Credential("none", "", "")` and carries nothing, so ignoring the default loses
+no information; ignoring a real one would strip authentication from a request on this lane while
+the program looks fine. A loud refusal beats that, and it says an explicit `Authorization` header
+still works today.
+
+**The model I could not confirm yesterday is confirmed, and not by instrumenting.** The A/B did it:
+against the PRE-fix plugin the new tests fail three of four — and the one that PASSES is the
+three-argument control. So the plugin always accepted a literal 3-arg call; what it never saw was
+three arguments. The front applies the declaration's defaults, so every call arrived as five. That
+is why every end-to-end arity failed while the isolated 3-arg call worked, and the 2-argument row
+that "did not obviously fit" fits: 2 given + 3 defaults is five as well.
+
+**Four tests, and two of them exist to stop a smaller fix passing**: the three-argument control
+(green on both sides, so it cannot be what proves the change) and `fetchAction`, because three
+other primitives grew the same parameter on the same day and fixing one is the shape this entry is
+an instance of. `v2NativeUiPlugin/test` 20/20.
+
+**NOT verified end to end.** `bin/ssc` loads a STAGED plugin jar, so re-running
+`examples/ui-remote-table.ssc` needs `./install.sh --dev`, which I did not do. The unit evidence and
+the A/B are what this rests on; the corpus-contract nightly is the confirmation, and it is the thing
+that reported the defect in the first place.
 
 **Toolchain caveat, checked not assumed:** measured with a build from `7eecad50a`. `v2/src` has not
 changed since, so the v2 side is current; `v1/runtime/backend/interpreter` HAS changed, so the int
