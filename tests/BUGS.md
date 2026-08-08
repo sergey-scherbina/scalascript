@@ -51,7 +51,7 @@ before by a targeted gate passing while a shared renderer broke ~28 checks elsew
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
-     ssc-version: 1f708ae22
+     ssc-version: c50b9ae8a
      confirmed: yes
      gate: none -->
 
@@ -74,7 +74,7 @@ Two of the four are **silent wrong answers**: F applies the first clause, never 
 and stringifies the resulting closure into the result.
 
 **How it surfaced, and the one regression it caused.** Fixing
-`f-ordered-match-arm-body-is-not-a-statement-sequence` (`1f708ae22`) flipped
+`f-ordered-match-arm-body-is-not-a-statement-sequence` (`c50b9ae8a`) flipped
 `runtime/std/ui/lower.ssc` from GAP to F. A decline is program-scoped, so before that flip EVERY
 program importing that module went to the reference front — which is what had been hiding this.
 Of the 15 corpus files that moved GAP→F, 14 fail identically under both fronts (they are demos that
@@ -104,7 +104,7 @@ without a written record would repeat the mistake this file exists to prevent.
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
-     ssc-version: 1f708ae22
+     ssc-version: c50b9ae8a
      confirmed: yes
      gate: none -->
 
@@ -146,7 +146,7 @@ corpus file does, because the failure mode is a wrong answer rather than a refus
      reported-at: 2026-08-08
      ssc-version: 59f2145df
      confirmed: yes
-     fixed-in: 1f708ae22
+     fixed-in: c50b9ae8a
      gate: tests/e2e/f-global-v-gate.sh -->
 
 Front F treated the body of an **ordered-resolver** match arm as a single expression. Two defects
