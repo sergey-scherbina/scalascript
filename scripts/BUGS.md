@@ -250,23 +250,45 @@ both times.
 
 ## url-import-flakes-under-suite-load — green standalone, red inside the smoke suite
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: tests/e2e/url-import-smoke.sh -->
+     gate: tests/e2e/url-import-smoke.sh
+     fixed-in: PENDING -->
 
-Seen 2026-08-08: `url-import` FAILED inside a full smoke run and PASSES when the same script is run
-directly on the same tree, seconds later, with no rebuild in between. All four of its cases report
-`[PASS]` standalone, including the `SSC_NO_NETWORK=1` refusal case.
+`url-import` FAILED inside a full smoke run and PASSED when the same script was run directly on the
+same tree seconds later. Recorded as load- or timing-sensitive and not narrowed further.
 
-So it is load- or timing-sensitive rather than broken, and the suite is where it manifests. Not
-narrowed further — recorded because an intermittent red that only appears in the suite is the kind
-that gets attributed to whatever change happened to be pushed, and this one is not caused by any of
-mine.
+**It is neither load nor timing: the gate is not safe against a second copy of ITSELF, and the suite
+is simply where a second copy is likely — several agents run it at once in this repo.** Four things
+were shared between concurrent runs, and all four are per-run now:
 
-Worth pairing with `smoke-check-guards-sized-by-local-time` in tests/BUGS.md: the same suite already
-has two checks whose guards were sized against a dev host, and a fetch-shaped check under a loaded
-runner is the same class of problem.
+| was | now |
+| --- | --- |
+| `PORT=9870`, fixed | a free port probed from a random offset, and a hard failure if none is free |
+| `/tmp/url-smoke-consumer.ssc` | inside the run's own `mktemp -d` |
+| `/tmp/url-smoke-http.log` | likewise |
+| `trap … lsof -ti :$PORT \| xargs kill -9` | kills only this run's server, by pid |
+| `rm -rf ~/.cache/ssc` — the whole tree | `~/.cache/ssc/http/127.0.0.1:$PORT`, this run's entry |
+
+**The last row is the one that mattered most, and the first attempt at it was wrong.** I tried to
+isolate the cache with `SSC_CACHE_DIR`; that is bin/ssc's ARTIFACT cache, while the import cache is
+hard-coded at `ImportResolver.scala:27` as `os.home / ".cache" / "ssc"` with no override. But it is
+keyed by scheme/authority/path and the authority carries the port, so once the port was per-run each
+instance's ENTRY was already private — what was still shared was the WIPE, which deleted every
+instance's entries. A concurrent run removed this one's between its fetch and its "cache hit (server
+stopped)" case, which is exactly the case that failed.
+
+**Measured, with the protocol stated because it decides the answer.** Two instances started ONE
+SECOND APART: before, 2/4 and 0/4 with both exiting 1, reproduced 3 trials out of 3; after, 4/4 and
+4/4 across 3 trials. Three instances started SIMULTANEOUSLY passed even before the fix — which is
+why this presented as a flake rather than a broken gate, and why a single passing run would have
+been the wrong thing to conclude from.
+
+Also fixed while in here: the readiness loop waited 10 s for the local server and then fell THROUGH,
+so a server that never came up surfaced as four unrelated case failures. It waits 30 s and exits with
+the server log now. And `BIN` is overridable, which is how the before/after above were run against
+the two toolchains.
 
 ## coord-release-does-not-check-the-work-landed — a claim can be released, and its record written, over a branch that was never pushed
 
