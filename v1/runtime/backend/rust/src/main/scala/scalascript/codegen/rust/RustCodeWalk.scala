@@ -881,7 +881,7 @@ object RustCodeWalk:
              |${indent(topValPreamble + bodyRs)}
              |}
              |""".stripMargin
-        GeneratedDef(name = name, render = src, isMain = hasMainAnnotation(d))
+        GeneratedDef(name = name, render = src, isMain = isEntryPoint(d, name))
 
   /** Extract just the parameter names from a def (all parameter groups). */
   private def extractParamNames(d: m.Defn.Def): List[String] =
@@ -1233,6 +1233,23 @@ object RustCodeWalk:
             )
 
   /** A def is the entry point when it carries an `@main` annotation. */
+  /** The entry point of a program, which is `@main` OR a zero-argument `def main`.
+    *
+    * `def main()` is the convention every other lane uses — `ssc run` calls it, and the interpreter,
+    * jvm, js and native lanes all start there. This backend recognised only `@main`, so an ordinary
+    * program emitted a `[lib]` crate with no binary at all, and `run-rust` then reported
+    * `expected binary not found at <temp path>` — a message about a missing FILE, naming the
+    * consequence and not the cause. It was filed as "the rust lane produces no binary for a
+    * hello-world" on exactly that evidence; the lane was working, and `@main def run()` ran fine.
+    *
+    * ZERO-ARGUMENT is required, and checked rather than assumed: `renderMainRs` emits
+    * `fn main() { generated::<crate>::<entry>(); }`, so a `main` taking parameters would generate a
+    * call missing its arguments — a Rust compile error at the end of a long build, which is worse
+    * than the `[lib]` it replaces.
+    */
+  private def isEntryPoint(d: m.Defn.Def, name: String): Boolean =
+    hasMainAnnotation(d) || (name == "main" && extractParamNames(d).isEmpty)
+
   private def hasMainAnnotation(d: m.Defn.Def): Boolean =
     d.mods.exists {
       case m.Mod.Annot(m.Init.After_4_6_0(m.Type.Name("main"), _, _)) => true

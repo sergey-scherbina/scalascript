@@ -57,6 +57,30 @@ class RustGenCargoTomlTest extends AnyFunSuite:
     assert(toml.contains("[lib]"))
     assert(!toml.contains("[[bin]]"))
 
+  test("emits [[bin]] for a zero-argument `def main` — the entry point every other lane uses"):
+    // The backend recognised ONLY `@main`, so an ordinary program — `def main(): Unit = …`, which is
+    // what `ssc run` calls and what the interpreter, jvm, js and native lanes all start from —
+    // emitted a `[lib]` crate with no binary. `run-rust` then said `expected binary not found at
+    // <temp path>`, naming the consequence and not the cause, and it was filed as "the rust lane
+    // produces no binary for a hello-world". The lane was working; `@main def run()` ran fine.
+    val toml = cargoToml(compile(moduleWith(
+      sources = List("def main(): Unit = println(\"Hello from Rust\")")
+    )))
+    assert(toml.contains("[[bin]]"))
+    assert(!toml.contains("[lib]"))
+    assert(toml.contains("""path = "src/main.rs""""))
+
+  test("a `main` that TAKES ARGUMENTS is not an entry point"):
+    // `renderMainRs` emits `fn main() { generated::<crate>::<entry>(); }`, so a `main` with
+    // parameters would generate a call missing its arguments — a Rust compile error at the end of a
+    // long build, which is worse than the `[lib]` it would replace. Zero-arity is checked, not
+    // assumed.
+    val toml = cargoToml(compile(moduleWith(
+      sources = List("def main(argv: String): Unit = println(argv)")
+    )))
+    assert(toml.contains("[lib]"))
+    assert(!toml.contains("[[bin]]"))
+
   test("emits [[bin]] when an @main is detected in any code block"):
     val toml = cargoToml(compile(moduleWith(
       sources = List("@main def run(): Unit = println(\"Hello from Rust\")")

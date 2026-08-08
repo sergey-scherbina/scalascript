@@ -485,7 +485,13 @@ object RustGen:
    *  after whitespace at the start of a line.  Conservative to avoid
    *  false positives inside string literals or comments. */
   private[rust] def sourceHasMain(source: String): Boolean =
-    source.linesIterator.exists(_.stripLeading.startsWith("@main"))
+    source.linesIterator.exists { line =>
+      val l = line.stripLeading
+      // `def main` counts too — it is the entry point every other lane uses. This is only a HINT
+      // (the AST walk below decides, and re-renders Cargo.toml when the two disagree), but a hint
+      // that is right avoids rendering the manifest twice for every ordinary program.
+      l.startsWith("@main") || l.startsWith("def main(") || l.startsWith("def main:")
+    }
 
   /** Cargo's package name accepts `[A-Za-z0-9_-]`.  Map ScalaScript
    *  manifest names (which may contain dots, spaces, …) to that
