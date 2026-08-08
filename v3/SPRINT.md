@@ -2120,3 +2120,47 @@ parse rather than because anything regressed. The ceiling was not raised to acco
 
 `smoke-ci` read 72/73 on the run alongside these measurements, on `ci-status-guard` — which passes
 standalone and queries CI status over the network. Recorded as a flake rather than claimed green.
+
+## 43 · The corpus report: 600s → 217s, and the measurement said something I had not guessed
+
+Sergiy asked what could be done about the report's speed. Measured before touching anything, which
+changed the answer:
+
+| | |
+|---|---|
+| one case, alone | **0.24 s** average, 0.42 s worst |
+| the report's FIXED cost | ~1 s (`--limit 1`) |
+| 120 cases | 79 s — **0.65 s each** |
+| 240 cases | 442 s — **1.84 s each** |
+
+**The per-case cost GROWS.** The corpus is alphabetical and the later `scljet-*` family re-parses a
+large import closure every time, so the tail dominates. And the host has 14 cores while the report
+was using 1.2 of them — so the fix is not "make a case faster", which is kernel work in someone
+else's files, but "stop running them one at a time", which is this script.
+
+- [x] **43a — a pool of background jobs IN THIS SHELL, not `xargs bash -c`.** The first version used
+      xargs and every case "crashed": `export -f` does not carry ARRAYS, so `SSC3RUN` arrived empty
+      in the subshell and the report read **240 CRASH** — a wrong answer that looks exactly like a
+      catastrophic regression. Measured immediately, which is the only reason it cost a minute.
+
+- [x] **43b — per-case temporary files.** The serial version shared one `$WORK/o` and `$WORK/e`;
+      two concurrent cases would have overwritten each other's output and the verdicts would have
+      been noise that still added up to a plausible number.
+
+- [x] **43c — half the cores, and an escape hatch.** Each case is a JVM, and the deep-recursion
+      cases sit on the bridge's stack limit — the script has said for weeks that they land in DIFF
+      on a contended host and PASS otherwise. Piling on every core would trade minutes for a number
+      that moves. `SSC3_CORPUS_JOBS=1` reproduces the serial reading exactly.
+
+- [x] **43d — the answer is unchanged, checked at THREE points rather than asserted.** 240 cases
+      on the exec lane: 127 serially, 127 in parallel. The whole corpus on the exec lane:
+      **N = 186, DIFF 2, CRASH 0** both ways. The whole corpus on the BRIDGE lane, which spawns v2
+      per case as well and is where contention would show first: **N = 186, DIFF 1, CRASH 1** both
+      ways. A speedup that changes the number it reports is not a speedup, and the serial control is
+      the only thing that can say so.
+
+      The bridge lane's `CRASH 1` is `effects-handler` — "v2 bridge V-0 does not translate perform",
+      a deterministic gap in the new effects work, not contention. Confirmed by reading it rather
+      than by assuming parallelism was to blame.
+
+**Measured:** exec lane 600 s → **217 s** (2.8×), bridge lane 4:46 with v2 spawned per case as well.

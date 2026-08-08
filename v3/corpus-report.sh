@@ -102,41 +102,94 @@ holds_v2() {
 pass=0; diff=0; unsup=0; crash=0; excl=0; total=0
 : > "$WORK/diff.txt"; : > "$WORK/crash.txt"; : > "$WORK/unsup.txt"; : > "$WORK/excl.txt"
 
-for f in tests/conformance/*.ssc; do
+# ── ONE CASE, one line of verdict ────────────────────────────────────────────────────────────────
+#
+# Pulled out of the loop so the loop can be PARALLEL. Measured before changing anything: 120 cases
+# cost 79s and 240 cost 442s — the per-case cost GROWS, because the corpus is alphabetical and the
+# later `scljet-*` family re-parses a large import closure every time. The host has 14 cores and
+# the report was using 1.2 of them.
+#
+# Each case writes ONE line — `verdict<TAB>name<TAB>message` — and nothing else, so the parallel
+# runs cannot interleave inside a record. Temporary files are per-case for the same reason: the
+# serial version shared one `$WORK/o` and `$WORK/e`, which two concurrent cases would overwrite
+# under each other.
+run_case() {
+  local f="$1"
+  local name exp got err msg out ere irf
   name="$(basename "$f" .ssc)"
   exp="tests/conformance/expected/$name.txt"
-  [ -f "$exp" ] || continue
-  if [ "$limit" -gt 0 ] && [ "$total" -ge "$limit" ]; then break; fi
-  total=$((total + 1))
-
+  out="$WORK/o.$name"; ere="$WORK/e.$name"; irf="$WORK/ir.$name"
   if [ "$lane" = "exec" ]; then
-    err="$("${SSC3RUN[@]}" exec "$f" 2>"$WORK/e" >"$WORK/o"; echo $?)"
+    err="$("${SSC3RUN[@]}" exec "$f" 2>"$ere" >"$out"; echo $?)"
   else
-    err="$("${SSC3BUILD[@]}" build "$f" 2>"$WORK/e" >"$WORK/ir"; echo $?)"
+    err="$("${SSC3BUILD[@]}" build "$f" 2>"$ere" >"$irf"; echo $?)"
   fi
   if [ "$err" = "0" ]; then
-    if [ "$lane" = "exec" ]; then got="$(cat "$WORK/o")"
-    else got="$(java -Xss512m -cp "$V2_CP" ssc.cli run-ir "$WORK/ir" 2>/dev/null)"; fi
+    if [ "$lane" = "exec" ]; then got="$(cat "$out")"
+    else got="$(java -Xss512m -cp "$V2_CP" ssc.cli run-ir "$irf" 2>/dev/null)"; fi
     if [ "$got" = "$(cat "$exp")" ]; then
-      pass=$((pass + 1))
+      printf 'PASS\t%s\t\n' "$name"
     elif ! holds_v2 "$f"; then
       # Ran, differed, but this case does not hold the v2 lane to that expectation. Still counted
       # and still listed — a silent skip would hide work — but not as a v3 defect.
-      excl=$((excl + 1)); printf '%s\n' "$name" >> "$WORK/excl.txt"
+      printf 'EXCL\t%s\t\n' "$name"
     else
-      diff=$((diff + 1)); printf '%s\n' "$name" >> "$WORK/diff.txt"
+      printf 'DIFF\t%s\t\n' "$name"
     fi
   else
-    msg="$(cat "$WORK/e")"
+    msg="$(head -1 "$ere")"
     # A positioned, named refusal is UNSUPPORTED. A stack trace or a bare failure is a CRASH,
     # because it tells the reader nothing they can act on.
-    if grep -qE ':[0-9]+:[0-9]+:' <<<"$msg" && ! grep -q '	at ' <<<"$msg"; then
-      unsup=$((unsup + 1)); printf '%s\t%s\n' "$name" "$(printf '%s' "$msg" | head -1)" >> "$WORK/unsup.txt"
+    if grep -qE ':[0-9]+:[0-9]+:' "$ere" && ! grep -q '\tat ' "$ere"; then
+      printf 'UNSUP\t%s\t%s\n' "$name" "$msg"
     else
-      crash=$((crash + 1)); printf '%s\t%s\n' "$name" "$(printf '%s' "$msg" | head -1)" >> "$WORK/crash.txt"
+      printf 'CRASH\t%s\t%s\n' "$name" "$msg"
     fi
   fi
+  rm -f "$out" "$ere" "$irf"
+}
+# The case list, in corpus order, honouring `--limit`.
+: > "$WORK/cases.txt"
+for f in tests/conformance/*.ssc; do
+  name="$(basename "$f" .ssc)"
+  [ -f "tests/conformance/expected/$name.txt" ] || continue
+  if [ "$limit" -gt 0 ] && [ "$total" -ge "$limit" ]; then break; fi
+  total=$((total + 1))
+  printf '%s\n' "$f" >> "$WORK/cases.txt"
 done
+
+# HOW MANY AT ONCE, and why not all of them. Each case is a JVM; the deep-recursion cases sit on
+# the bridge's stack limit and whether they overflow depends on the memory available at that moment,
+# so piling on every core would trade minutes for a number that moves. Half the cores is the
+# compromise, and `SSC3_CORPUS_JOBS` overrides it — set it to 1 to reproduce the serial reading.
+JOBS="${SSC3_CORPUS_JOBS:-$(( $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4) / 2 ))}"
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=1
+echo "running $total case(s), $JOBS at a time …" >&2
+# A pool of background jobs IN THIS SHELL, not `xargs bash -c`. The first version used xargs and
+# every case "crashed": `export -f` does not carry ARRAYS, so `SSC3RUN` arrived empty in the
+# subshell and the report read 240 CRASH — a wrong answer that looked like a catastrophic
+# regression. Measured immediately, which is the only reason it cost a minute rather than a
+# morning.
+#
+# Waves of `$JOBS`, each writing to its OWN file so two cases cannot interleave inside a record.
+slot=0
+while IFS= read -r f; do
+  run_case "$f" >> "$WORK/v.$slot" &
+  slot=$(( (slot + 1) % JOBS ))
+  [ "$slot" -eq 0 ] && wait
+done < "$WORK/cases.txt"
+wait
+cat "$WORK"/v.* > "$WORK/verdicts.txt" 2>/dev/null || : > "$WORK/verdicts.txt"
+
+while IFS=$'\t' read -r verdict name msg; do
+  case "$verdict" in
+    PASS)  pass=$((pass + 1)) ;;
+    DIFF)  diff=$((diff + 1)); printf '%s\n' "$name" >> "$WORK/diff.txt" ;;
+    EXCL)  excl=$((excl + 1)); printf '%s\n' "$name" >> "$WORK/excl.txt" ;;
+    UNSUP) unsup=$((unsup + 1)); printf '%s\t%s\n' "$name" "$msg" >> "$WORK/unsup.txt" ;;
+    CRASH) crash=$((crash + 1)); printf '%s\t%s\n' "$name" "$msg" >> "$WORK/crash.txt" ;;
+  esac
+done < "$WORK/verdicts.txt"
 
 echo
 echo "═══ SSC3 vs the conformance corpus — $lane lane, $front_used front ═══"
