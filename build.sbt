@@ -667,6 +667,16 @@ lazy val unimlCross =
       libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
+      // THE SHARED ALPHABET — one copy for UniML and for v3's kernel (`alphabet/src`), a source
+      // directory rather than a dependency in either direction.
+      //
+      // AND IT HAS TO BE SAID IN BOTH BUILDS. `uniml/build.sbt` defines the same project over the
+      // same sources, and adding the directory there alone left this build compiling a UniML whose
+      // `UniAlphabet` referenced a package it could not see. Two build definitions over one source
+      // tree is the duplicated-helper shape wearing a different hat; the setting is duplicated here
+      // deliberately, and `toolchain-gate.sh` asserts a single copy of the TABLE, which is the part
+      // that could silently drift.
+      Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "alphabet" / "src",
     )
     .jvmConfigure(_.withId("uniml"))
     .jvmSettings(

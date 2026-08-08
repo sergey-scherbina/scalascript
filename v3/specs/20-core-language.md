@@ -130,11 +130,21 @@ loud — but it makes every non-ASCII lowercase name a constructor, so `case и�
 A language whose patterns cannot bind a Russian or Greek name is a worse outcome than 606 ranges of
 data, and this project's author writes Russian.
 
-**Two copies, and a gate rather than a hope.** UniML carries the same ranges (`UniAlphabet`), and it
-must: the kernel may not depend on UniML (I-1) and neither may call the host.
-`v3/toolchain-gate.sh` sweeps all 65536 BMP code points comparing the two, and reports how many
-differ from Java's classifier — which is the check this section asks for two paragraphs down.
-Observed failing on a one-code-point drift.
+**ONE copy, shared, which is better than a gate watching two.** The ranges live in
+`alphabet/src/Alphabet.scala` — a SOURCE DIRECTORY that v3's kernel build and UniML's both include,
+not a library either depends on. `v3/ssc3` compiles `v3/src` and `alphabet/src` together, so the
+kernel still builds with UniML absent (measured) and self-hosting still means "compile these repo
+files"; UniML adds it as an unmanaged source directory, in `uniml/build.sbt` **and** in the root
+`build.sbt`, because two build definitions cover the same sources and saying it once left the other
+one compiling against a package it could not see.
+
+It was two hand-copied tables for a day, with a gate sweeping the BMP for drift. A gate that watches
+for drift is worth having only while sharing is impossible. What the gate asserts now is different:
+that both NAMES answer alike over the BMP (either could be mis-delegated), that exactly ONE
+definition of the table exists in the repository, and how many code points we differ from Java's
+classifier on. All three observed failing — a broken delegation gives 1143 disagreements, and a
+second table planted in the same file is caught only because the check counts DEFINITIONS; counting
+files missed it, which is how that version was found.
 
 **Recorded because it was got wrong first:** for one day `Chars.isUpperStart` called
 `Character.isUpperCase`, justified by measuring agreement with UniML over the BMP. That measurement

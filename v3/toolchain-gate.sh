@@ -149,12 +149,29 @@ if [ -s "v3/.jars/uniml.cp" ]; then
       say FAIL "the alphabets DISAGREE on $_dis code point(s): $(printf '%s' "$_res" | sed -n 's/^first: //p')"
       fail=1
     fi
-    # A sweep that compares a table with ITSELF would pass on anything. Drive one side off by a
-    # single code point and require the comparison to see it.
-    if java -cp "$_out:$_ucp:$_v3:$_tc" alphabetSweep 2>&1 | grep -q '^bmp-disagreements: '; then
+    if printf '%s' "$_res" | grep -q '^bmp-disagreements: '; then
       say ok "the sweep reports a count, so it ran over the range rather than short-circuiting"
     else
       say FAIL "the sweep printed no count — it did not run"
+      fail=1
+    fi
+    # ONE COPY OF THE TABLE, and this is the check that keeps the sweep from being a tautology.
+    # The sweep now compares two NAMES that delegate to the same object; if someone re-introduces a
+    # second table, the sweep would still pass while the drift it was built to catch became
+    # possible again. So count the tables directly.
+    # Counts DEFINITIONS, not mentions. The first version grepped the name and reported two,
+    # because `UniAlphabetSweepSpec` talks about the table in a comment — a check that cannot tell
+    # a definition from a sentence about one would have blocked every commit that documented it.
+    # Counts DEFINITIONS, not files and not mentions. Two earlier versions of this line were
+    # wrong in opposite directions: grepping the NAME reported two because a test talks about the
+    # table in a comment, and `grep -l` counts FILES, so a second table planted in the SAME file
+    # went unnoticed — observed, by planting one.
+    _tables=$(grep -rhoE 'val upperRanges[^=]*=[[:space:]]*(Array|Vector)\(' \
+                --include='*.scala' alphabet uniml v3/src 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$_tables" = "1" ]; then
+      say ok "exactly ONE copy of the uppercase ranges exists in the repository"
+    else
+      say FAIL "$_tables copies of the uppercase ranges — the alphabet has been duplicated again"
       fail=1
     fi
   else

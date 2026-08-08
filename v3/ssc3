@@ -103,7 +103,10 @@ classes_for() {
 
 
 TC="$(toolchain)" || exit 2
-V3CP="$(classes_for ssc3 "" "$ROOT/v3/src")" || exit 2
+# The kernel is `v3/src` PLUS `alphabet/src` — the lexical alphabet, one copy shared with UniML.
+# A source directory, not a dependency: the kernel still builds with nothing but a Scala compiler
+# and files from this repository, which is what invariant I-1 asks and what self-hosting needs.
+V3CP="$(classes_for ssc3 "" "$ROOT/v3/src" "$ROOT/alphabet/src")" || exit 2
 SSC3=(java -cp "$V3CP:$TC" ssc3.ssc3)
 V2=(java -Xss512m -cp "$(classes_for ssc2 "" "$ROOT/v2/src"):$TC" ssc.cli)
 

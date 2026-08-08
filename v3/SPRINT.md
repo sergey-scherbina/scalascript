@@ -1976,3 +1976,45 @@ was taken on one JVM, which is exactly the guarantee the rule says not to rely o
 **Measured:** N = 186 on the exec lane, CRASH 0. **DIFF 1 is not mine** — `parameterless-def-local`
 fails identically with my changes reverted, so it arrived with main; checked rather than assumed.
 Fixtures 50/50, seven gates green, `install.sh --dev` clean, smoke-ci 72/72.
+
+## 41 · The alphabet is ONE file now, shared by v3's kernel and UniML
+
+Sergiy asked whether the table could be a single copy used by both. It can, and the shape is a
+**source directory rather than a dependency in either direction**: `alphabet/src/Alphabet.scala`.
+
+- [x] **41a — v3's kernel keeps invariant I-1, and that is measured rather than argued.** `v3/ssc3`
+      compiles `v3/src` and `alphabet/src` together, so the kernel is still "a Scala compiler plus
+      files from this repository" — no jar, no sbt, nothing to resolve. Checked directly:
+      `dotc v3/src/*.scala alphabet/src/*.scala` with an empty classpath builds, and the result runs
+      a program. Self-hosting is not made harder by one more file.
+
+- [x] **41b — UniML gains no dependency on v3**, and keeps travelling as its own tree plus this one
+      small directory. The file is `CrossType.Pure`-safe, so it compiles on UniML's JS lane too —
+      which is why it contains no host calls at all.
+
+- [x] **41c — IT HAD TO BE SAID IN TWO BUILDS.** `uniml/build.sbt` and the root `build.sbt` define
+      the same project over the same sources. Adding the directory to the first alone left the
+      second compiling a `UniAlphabet` that referenced a package it could not see — and the error
+      was confusing, because `show uniml/Compile/unmanagedSources` (run from `uniml/`) listed the
+      file while the failing compile was the other build's. Two build definitions over one source
+      tree is the duplicated-helper shape wearing a different hat.
+
+- [x] **41d — the gate changed, because comparing the two names would now be comparing one table
+      with itself.** That is the vacuous-gate shape this repository has paid for twice, so the
+      check asserts three different things: both names answer alike over the BMP (either could be
+      mis-delegated — a broken delegation gives 1143 disagreements), exactly ONE definition of the
+      table exists, and how many points we differ from Java on. All three observed failing.
+
+      The single-copy check was wrong twice on the way. Grepping the NAME reported two copies
+      because a UniML test mentions the table in a sentence. Then `grep -l` counted FILES, so a
+      second table planted in the SAME file went unnoticed — found by planting one. It counts
+      DEFINITIONS now.
+
+- [x] **41e — and the justification in §3 is corrected.** UniML's own measurements draw a line I had
+      blurred: case FOLDING diverges on the same runtime under `-Duser.language=tr` and they proved
+      it in the locale, while CLASSIFICATION needs a different runtime and no divergence has been
+      observed. The rule stands, but for the honest reason — an alphabet should be a property of the
+      language, not of where it runs — rather than an observed failure it never had.
+
+**Measured:** UniML 213/213, seven v3 gates green, `install.sh --dev` clean, smoke-ci 72/72,
+`v3/src` + `alphabet/src` builds and runs with no UniML present.

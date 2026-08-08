@@ -58,6 +58,17 @@ lazy val unimlCross =
       Test    / scalacOptions ++= sharedScalacOptions,
     )
     .settings(standaloneTargetSettings)
+    // THE SHARED ALPHABET, one copy for UniML and for v3's kernel (`alphabet/src`). A source
+    // directory rather than a dependency in either direction: v3's kernel must build with UniML
+    // absent (its invariant I-1) and UniML must not gain a dependency on v3. It is `CrossType.Pure`
+    // here, so the file compiles on the JS lane too — which is why it contains no host calls.
+    .settings(
+      // `ThisBuild / baseDirectory` is `uniml/`, so its parent is the repository root. Written
+      // this way rather than counting `getParentFile` off the cross project's own base, which for
+      // `CrossType.Pure` is `core/.jvm` — three levels, and I got it wrong at two.
+      Compile / unmanagedSourceDirectories +=
+        (ThisBuild / baseDirectory).value.getParentFile / "alphabet" / "src",
+    )
     .jvmConfigure(_.withId("uniml"))
     .jsConfigure(_.withId("unimlJs"))
     // `UniAlphabetSweepSpec` compares the classifier against the host's Unicode tables, which only
