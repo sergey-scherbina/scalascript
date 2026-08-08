@@ -83,7 +83,11 @@ before it gets a wrapper.
   task (`sscBuildTarget desktop <file.ssc>`): the platform is a choice made per invocation, not a
   property of the project.
 
-**The family is complete.** 14 scripted scenarios, all green. Nothing was published to Maven.
+**The family is complete.** 13 scripted scenarios, all green. Nothing was published to Maven.
+
+(The commit that landed the last two says "14/14". It is 13 — three scenarios were added to the
+original ten, not four. Counted rather than remembered, after the gate's own hardcoded "10
+scenarios" turned out to be stale for the same reason.)
 
 ### Deliberately out of scope
 

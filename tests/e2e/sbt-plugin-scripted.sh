@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The sbt plugin's ten `scripted` scenarios, run by something.
+# The sbt plugin's `scripted` scenarios, run by something.
 #
 # Why this gate exists, in one sentence: nothing ran them, so a JS commit
 # (1fea89a79, "record leaderHistory on every accepted claim") could delete all four of their
@@ -41,4 +41,8 @@ if ! sbt -batch scripted > "${TMPDIR:-/tmp}/sbt-plugin-scripted.log" 2>&1; then
     | grep -viE 'at (sbt|java|scala|xsbt)\.' | head -20 >&2
   exit 1
 fi
-echo "sbt-plugin-scripted: OK (10 scenarios, fixtures present)"
+# Counted, not written down. The literal said "10 scenarios" and was wrong four scenarios later --
+# a number in a message is a claim, and one nothing checks goes stale the first time the thing it
+# describes changes.
+count=$(find "$PLUGIN/src/sbt-test/sbt-scalascript-interop" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+echo "sbt-plugin-scripted: OK ($count scenarios, fixtures present)"
