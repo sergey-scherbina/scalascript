@@ -156,10 +156,20 @@ A second, sharper test also came back clean: the shape `v` appears in,
 lowers FINE in isolation, with and without the enclosing `catch`. So the `catch`-arm scope is not
 the cause and `v` is coming from somewhere else in that file.
 
-Left open deliberately rather than guessed at. The one measurement that would settle it: dump the
-def names for `lower.ssc` on both builds (`SSC_DUMP_DEFS=1`) and check whether `v` is missing from
-F's output in the PRE-fix build too — if it is, the fix only uncovered it, and if it is not, the
-fix introduced it.
+**SETTLED — newly EXPOSED, not newly broken.** Ran that measurement. Def names F emits for
+`std/ui/lower.ssc`, both builds:
+
+    pre-fix    F 297 defs      `v` among them: no
+    post-fix   F 297 defs      `v` among them: no
+    emitted PRE but not POST:  none
+
+Nothing left F's output, so the fix removed no binding. `v` was unbound before as well and simply
+was not the FIRST name the validator reached; fixing `_` let it surface. The same reading applies to
+the other 32 reason changes.
+
+That is the general shape worth remembering here: on this front a changed decline REASON is the
+normal result of a real fix, and only a changed DECISION — or a def disappearing from the dump — is
+evidence of a regression.
 
 **MINIMAL AT SEVEN LINES**, hand-cut one line at a time from the 2-declaration reduction until no
 single removal keeps the symptom. Every line below is load-bearing — dropping any one of them makes
