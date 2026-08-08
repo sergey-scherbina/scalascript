@@ -18,6 +18,55 @@ Newest first.
 
 
 
+
+## v3-two-fronts-differ-in-CAPABILITY and every gate compares only OUTPUT
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-08, and the numbers are why it stayed invisible.** v3 has two fronts and
+`Front.default` picks UniML whenever it is registered — which depends on the WORKING TREE, since
+UniML needs `v3/uniml-classpath.sh`. A worktree without it runs v3's own front; the shared checkout
+runs UniML. Both facts are documented in `Front.scala`; what is not is that the two do not accept the
+same programs.
+
+Corpus, same 36 files, same commit, one tree each:
+
+```
+UniML front   30 run,  6 refused
+v3    front   30 run,  6 refused
+```
+
+**Identical counts, different sets.** They disagree on exactly two rows, in OPPOSITE directions:
+
+```
+effect-oneshot       uniml REFUSES     v3 RUNS
+type-lambda-native   uniml RUNS        v3 REFUSES
+```
+
+So "30 of 36" is true of both and describes neither. Any report that quotes the count without naming
+the front is not wrong so much as unfalsifiable.
+
+**Why no gate catches it.** `front-diff.sh` and `front-report-gate.sh` compare the two fronts' AST
+OUTPUT on programs BOTH accept, and `Front.scala`'s own comment says why that is the design: the two
+agree on every fixture, so no fixture's output can distinguish them. That reasoning is sound and it
+leaves a hole exactly one shape wide — **a program one front refuses and the other runs produces no
+output to compare.** Capability divergence is invisible to an output differential by construction.
+
+**How it bit, concretely.** SSC3-7a (algebraic effects) is front work. It was developed and verified
+in a worktree, where v3's front is default, and `effect-oneshot` runs there and agrees with the v1
+interpreter on the value. On the shared checkout it reports
+`` `effect` is outside SSC3 core Tier 0 `` — UniML's refusal — so the feature is absent on the path
+most people and every benchmark actually take. The benchmark's v3 column was measured with UniML.
+
+**Smallest useful fix:** a gate that runs the corpus through BOTH fronts and asserts the ACCEPT/REFUSE
+sets are equal, naming any row where they differ. It needs no oracle and no expected output — the
+comparison is between the two fronts, which is the same technique the output differential already
+uses, applied to the axis it cannot see.
+
 ## rust-toplevel-val-calling-an-intrinsic-does-not-compile
 
 <!-- status: open
