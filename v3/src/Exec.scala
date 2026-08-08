@@ -72,6 +72,35 @@ object Exec:
   // makes, one level up.
   private var globals: Array[Value] = new Array[Value](0)
 
+  /** One live `Handle`: the arms, and the FRAME they read. `specs/10-ssc-ir.md` §3 puts an arm's
+    * `params` and `k` in the handling function's frame, so the frame has to travel with the arms —
+    * a perform can happen any number of host calls deeper, and the arm still writes here. */
+  private final case class HandlerFrame(m: Module, arms: List[HandlerArm], regs: Array[Value])
+  private var handlers: List[HandlerFrame] = Nil
+  /** Set by `Resume`, read by the `Perform` that ran the arm. A field rather than a return value
+    * because an arm's body is an ordinary instruction list and `Signal` has no case for "resumed"
+    * — adding one would put effects into every control-flow path in the executor for a value that
+    * only ever travels one frame. */
+  private var resumedWith: Option[Value] = None
+
+  /** Is this arm the one class the executor can run — a single `resume` as its LAST act?
+    *
+    * Checked STRUCTURALLY and before the arm runs, not by watching what it does. A dynamic check
+    * ("did it resume exactly once?") cannot see the difference between an arm that resumed and
+    * stopped and one that resumed and then did work whose effect is already gone. The refusal has
+    * to arrive before anything is observable.
+    */
+  private def tailResumptive(arm: HandlerArm): Boolean =
+    def countResumes(body: List[Instr]): Int =
+      body.map {
+        case Instr.Resume(_, _, _) => 1
+        case other                 => countResumes(Instr.children(other))
+      }.sum
+    arm.body.nonEmpty && (arm.body.last match
+      case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
+      case _                     => false)
+
+
   /** The runtime type, for diagnostics only. Never for output — `show` owns that, and the two must
     * not be conflated: `show` is tuned for lane parity and deliberately hides `0.0` as `0`. */
   private def typeName(v: Value): String = v match
@@ -387,8 +416,62 @@ object Exec:
 
     case Instr.GlobGet(d, g) => regs(d) = globals(g); Signal.Done
     case Instr.GlobSet(g, a) => globals(g) = regs(a); Signal.Done
-    case Instr.Perform(_, _, _) | Instr.Handle(_, _, _) | Instr.Resume(_, _, _) =>
-      throw ExecError("effects are not implemented in the executor yet")
+    // ── effects, TAIL-RESUMPTIVE ONLY ───────────────────────────────────────────────────────────
+    //
+    // `Handle` pushes its arms and the frame they read; `Perform` walks out to the nearest arm for
+    // the operation, runs it, and takes the resumed value as its own result.
+    //
+    // NO CONTINUATION IS CAPTURED, and that is the whole reason this fits in an executor that keeps
+    // its call stack on the host's. It is correct for exactly one class — an arm that resumes ONCE,
+    // as its last act — because for that class "run the arm, use the value" and "capture the rest,
+    // hand it over, resume it" are the same computation. Outside that class they are not, so the
+    // shape is CHECKED before the arm runs and anything else is refused BY NAME: a wrong answer
+    // here would be indistinguishable from a working effect system.
+    //
+    // The protocol is `specs/10-ssc-ir.md` §3: `params` and `k` are registers of the HANDLING
+    // function's frame, so the arm reads its arguments where the spec says they are, and nothing
+    // about this is invented locally.
+    case Instr.Handle(d, body, arms) =>
+      handlers = HandlerFrame(m, arms, regs) :: handlers
+      try exec(m, body, regs)
+      finally handlers = handlers.tail
+
+    case Instr.Perform(d, op, as) =>
+      val args = as.map(r => regs(r))
+      handlers.find(h => h.arms.exists(_.op == op)) match
+        case None =>
+          throw ExecError("no handler for effect operation " + op)
+        case Some(h) =>
+          val arm = h.arms.find(_.op == op).get
+          if arm.params.length != args.length then
+            throw ExecError(
+              "effect operation " + op + " was performed with " + args.length +
+              " argument(s) and its handler binds " + arm.params.length)
+          if !tailResumptive(arm) then
+            throw ExecError(
+              "this handler for operation " + op + " is not tail-resumptive — the executor " +
+              "implements only an arm whose LAST act is a single `resume`. Capturing a " +
+              "continuation needs the reified stack v3 does not have yet")
+          var i = 0
+          while i < arm.params.length do
+            h.regs(arm.params(i)) = args(i)
+            i = i + 1
+          // The continuation register is bound to a marker rather than left stale: `Resume` reads
+          // it, and a leftover value from a previous perform would resume the wrong thing silently.
+          h.regs(arm.k) = Value.VUnit
+          resumedWith = None
+          exec(h.m, arm.body, h.regs)
+          resumedWith match
+            case Some(v) => regs(d) = v; resumedWith = None; Signal.Done
+            case None =>
+              throw ExecError(
+                "the handler for operation " + op + " finished without resuming; the executor " +
+                "implements only tail-resumptive handlers")
+
+    case Instr.Resume(d, k, v) =>
+      resumedWith = Some(regs(v))
+      regs(d) = regs(v)
+      Signal.Done
     // The executor's own guard. `ExecError` is the only thing thrown by this lane, so catching it
     // is catching exactly what an SSC3 program can raise — a bare `catch Throwable` would also
     // swallow a StackOverflowError and report it as a caught user exception.

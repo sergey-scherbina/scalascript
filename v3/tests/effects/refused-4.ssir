@@ -1,0 +1,25 @@
+(module
+  (consts
+    (int 7)
+    (int 1)
+    (unit))
+  (types)
+  (globals)
+  (prims
+    (prim "io.println"))
+  (funcs
+    (func "main" 0 6
+      (handle 0
+        (body
+          (const 1 0)
+          (perform 2 0 1)
+          (move 0 2))
+        (on 0
+          (params 3)
+          (k 4)
+          (const 5 1)
+          (resume 4 4 5)
+          (const 5 0)))
+      (prim 5 0 0)
+      (ret 0)))
+  (entry 0))

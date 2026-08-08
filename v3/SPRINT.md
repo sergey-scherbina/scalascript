@@ -244,8 +244,24 @@ one symptom bucket turned out to be a different construct than the obvious readi
       depth. Multi-shot (`effect-multishot`) and any arm that resumes zero times or does work after
       resuming are NOT that class and must be REFUSED BY NAME rather than silently mis-run.
 
-      Sequencing: front first (this entry), then the tail-resumptive executor, then the refusal for
-      everything outside it. `effect-multishot` (7b) stays open behind all three.
+      **THE EXECUTOR HALF IS DONE (2026-08-08).** `Handle` pushes its arms and the frame they read;
+      `Perform` walks out to the nearest arm, runs it, and takes the resumed value as its result. No
+      continuation is captured, which is why this fits an executor that keeps its call stack on the
+      host's — for a tail-resumptive arm, "run the arm and use the value" and "capture the rest, hand
+      it over, resume it" are the same computation.
+
+      Outside that class they are NOT the same, so the shape is checked STRUCTURALLY before the arm
+      runs. A dynamic check cannot tell an arm that resumed and stopped from one that resumed and
+      then did work whose effect is already gone; the refusal has to arrive before anything is
+      observable. All three shapes refuse by name, with fixtures in `v3/tests/effects/`:
+
+          two resumes            -> not tail-resumptive
+          no resume at all       -> not tail-resumptive
+          work after the resume  -> not tail-resumptive
+
+      What remains for 7a/7c is the FRONT: `effect X:`, `Bump.tick()` as a perform, `handle(e) { … }`
+      and the `!` type. The corpus rows stay red until that lands — the executor being ready is not
+      the same fact, and this entry says both.
 
       **AND THERE IS A BLOCKING DESIGN QUESTION AHEAD OF ALL OF IT, measured 2026-08-07.** The IR
       reserves the three instructions but does NOT define the protocol between them:
