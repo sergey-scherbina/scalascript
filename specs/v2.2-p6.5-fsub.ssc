@@ -1301,7 +1301,23 @@ def phArgWrap(sc, ts, env, cx) = sc match { case (c0, rest) => rest match { case
   else if ct == 0 then parseExpr(ts, 0, env, cx)
   else if isBarePhArg(ts) then parseExpr(ts, 0, env, cx)
   else if c0 == ct then wrapPh(ts, ct, env, cx)
+  // `f(_, x)` as an argument — the placeholders sit at depth 1, inside a call, so `c0 == ct` is
+  // false and the `_` fell through as a bare name: `unbound global: (global _)`, 33 of the corpus
+  // decline reasons after 2026-08-08 and three times the next one. Scala scopes a placeholder to
+  // the SMALLEST enclosing expression, which here is that call, so wrapping the whole argument is
+  // right — but only when the argument IS that one call. Deliberately narrow: `f(g(_))` would scope
+  // to `g(_)` and wrapping the outside would be WRONG, so this requires every placeholder to be a
+  // DIRECT argument of a single leading application. Anything else keeps the old path.
+  else if isSimpleAppPh(ts, ct) then wrapPh(ts, ct, env, cx)
   else parseExpr(ts, 0, env, cx) } }
+// The argument is `name(` … and every `_` in it is at depth exactly 1, i.e. a direct argument of
+// that call rather than nested deeper inside another one.
+def isSimpleAppPh(ts, ct) = if isAppHeadPh(ts) then phDepth1Count(tl(tl(ts)), 1, 0) == ct else false
+def isAppHeadPh(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 21) else false
+// Walks to the call's own closing paren — depth back to 0 — NOT to the first comma. Stopping at a
+// comma counted only the FIRST argument, so `sub(100, _)` saw zero placeholders and fell through.
+def phDepth1Count(ts, depth, n) = if isEmpty(ts) then n else (if depth == 0 then n else phD1Tok(hd(ts), tl(ts), depth, n))
+def phD1Tok(t, rest, depth, n) = if isOpenB(t) then phDepth1Count(rest, depth + 1, n) else (if isCloseB(t) then phDepth1Count(rest, depth - 1, n) else (if isWild(t) then phDepth1Count(rest, depth, (if depth == 1 then n + 1 else n)) else phDepth1Count(rest, depth, n)))
 def wrapPh(ts, n, env, cx) = parseExpr(renameArgPh(ts), 0, pushU(0, n, env), cx) match { case (b, r) => (eNode("(lam " ++ n ++ " " ++ erase(b, cx) ++ ")"), r) }
 def pushU(i, n, env) = if i >= n then env else pushU(i + 1, n, ("__u" ++ i) :: env)
 def renameArgPh(ts) = renamePhD(ts, 0, 0)

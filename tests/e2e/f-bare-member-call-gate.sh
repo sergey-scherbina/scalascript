@@ -253,6 +253,27 @@ lowered_and_correct getOrElse-option-form 5 'def main() =
   println(o.getOrElse(0))'
 
 
+# ── `_` as a call ARGUMENT ───────────────────────────────────────────────────────────────────────
+# F wraps a placeholder argument into a lambda only when every `_` sits at bracket depth 0, so
+# `f(_, x)` — where they are one level in, inside the call — fell through as a bare name:
+# `unbound global: (global _)`, 33 of the corpus decline reasons and three times the next one.
+lowered_and_correct placeholder-first-arg 60 'def twice(a: Int, b: Int): Int = a * b
+def main() = println(List(1,2,3).map(twice(_, 10)).sum)'
+
+# The SECOND position, which the first attempt got wrong: the counter stopped at the first comma
+# inside the call and so never saw this `_` at all.
+lowered_and_correct placeholder-second-arg 294 'def sub(a: Int, b: Int): Int = a - b
+def main() = println(List(1,2,3).map(sub(100, _)).sum)'
+
+# CONTROLS. The arithmetic shorthand already worked and must keep working, and a nested call must
+# NOT be captured by the outer wrap — Scala scopes `f(g(_))` to `g(_)`, so wrapping the outside
+# would silently change what the program means rather than fail loudly.
+lowered_and_correct placeholder-arith 9 'def main() = println(List(1,2,3).map(_ + 1).sum)'
+
+lowered_and_correct nested-call-untouched 15 'def f(a: Int): Int = a + 1
+def g(a: Int): Int = a * 2
+def main() = println(List(1,2,3).map(x => f(g(x))).sum)'
+
 echo
 if [[ $fails -eq 0 ]]; then
   echo "✓ f-bare-member-call-gate PASSED"

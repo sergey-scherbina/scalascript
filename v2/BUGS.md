@@ -10,6 +10,48 @@ Newest first.
 
 
 
+
+## f-placeholder-in-a-call-argument-stays-a-bare-name — `unbound global: (global _)`
+
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: tests/e2e/f-bare-member-call-gate.sh -->
+
+**33 of the F decline reasons on a 140-file corpus sample as of 2026-08-08 — three times the next
+one.** All of the affected corpus files reach `std/ui/content.ssc` or `std/ui/lower.ssc`, and both
+of those modules decline ON THEIR OWN, which is where the reason originates.
+
+    List(1,2,3).map(twice(_, 10))     unbound global: (global _)
+    List(1,2,3).map(_ + 1)            fine — the arithmetic shorthand already worked
+    List(1,2,3).map(x => twice(x,10)) fine — the explicit form
+
+CAUSE. F has placeholder machinery (`phScanArg` / `wrapPh` / `renameArgPh`), and `phArgWrap` wraps
+an argument into a lambda only when `c0 == ct` — every `_` at bracket depth 0. In `twice(_, 10)` the
+placeholder is one level in, inside the call, so `c0 = 0`, `ct = 1`, the test fails and the `_`
+falls through to the ordinary expression path as a bare name.
+
+**PARTIALLY FIXED, and the remainder is stated rather than implied.** The direct shape now lowers,
+in both argument positions, with the arithmetic shorthand and nested calls untouched — all four are
+in the gate. What does NOT work yet is the shape the std modules actually use:
+
+    fragment(doc.blocks.map(contentViewBlock(_, options)) ++ doc.sections.map(...))
+
+`content.ssc` moved from `(global _)` to `(global __u0)`, so the rename fires and the binder is lost
+further in; `lower.ssc` moved to `(global v)`. **The corpus sample did not move at all** — 38 F /
+32 GAP / 64 BOTH-UNBOUND / 6 ERROR before and after — because those modules still decline.
+
+DELIBERATELY NARROW, and this is the part not to "simplify" later: the wrap fires only when the
+argument IS a single leading application and every `_` is a DIRECT argument of it. Scala scopes a
+placeholder to the smallest enclosing expression, so `f(g(_))` means `f(x => g(x))` — wrapping the
+outer call there would change what the program means instead of failing, which is worse than the
+bug. The `nested-call-untouched` gate case exists to hold that line.
+
+Next step for the remainder: find where the binder is lost between `wrapPh`'s `pushU` and the body
+parse for an argument that is itself inside another call — the `(global __u0)` reason names the
+synthesised binder, so the rename and the env push are disagreeing about scope.
+
 ## v2-extension-member-call-inside-a-def-body-fails-by-arity — two conditions, and one of them is a spelling
 
 <!-- status: open
