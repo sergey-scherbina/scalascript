@@ -45,14 +45,41 @@ bisection — the section-level split above is the expensive part, and it is don
 
 ## f-drops-a-trailing-block-argument-without-running-it
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
      ssc-version: 071ded545
      confirmed: yes
-     gate: none -->
+     fixed-in: ce140eb69
+     gate: tests/e2e/f-trailing-block-gate.sh -->
+
+**FIXED in `ce140eb69`, and the block was never the cause.** F was treating a curried `extern def`
+as an ordinary curried def and FLATTENING the call onto the total arity, so the native
+implementation — which takes one argument and returns the applier — received the thunk as a second
+argument and discarded it without complaint:
+
+```
+extern def httpClient(url: String)(block: => Unit)
+
+F    (app (global httpClient) "u" (lam 0 …))          flattened
+REF  (app (app (global httpClient) "u") (lam 0 …))    nested
+```
+
+**The rule turned out to be general:** the oracle does nothing at all to an extern call site — no
+clause flattening, no default synthesis, no vararg list. The native implementation owns its calling
+convention, and rewriting the call to match a SOURCE signature it never sees is the defect. Externs
+are now excluded from both registries that drive those rewrites.
+
+The second of those was a divergence **I had introduced myself** with the vararg work: `va(1, 2)` on
+`extern def va(xs: Int*)` had started emitting a Cons list where the oracle passes the arguments
+individually. No test caught it and no corpus file had reached it; dumping F's own IR beside the
+oracle's did — bootstrapping F0 the way `specs/v2.2-p6.5-corpus.sh` does, which is the instrument
+this whole line of work had been missing and which answered in one run what eight hypotheses had not.
+
+Output agreement over the 53 F-verdict corpus files: **F is now observably worse than the reference
+on 1 of them, down from 3**; agreement 34→36, disagreements 8→6.
 
 F discards a trailing block argument. The block is never executed and nothing is reported.
 

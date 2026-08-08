@@ -22,8 +22,24 @@ GAP→F, one ERROR→BOTH-UNBOUND, and **no file regressed out of F**.
 **The coverage number is not a correctness number, and here is its counterpart.** Ask the 53
 F-verdict files a second question — does F PRINT what the reference front prints:
 
-    after the arm-body fix (d7546f299)     34 agree   3 fail identically    16 DISAGREE
-    after curried defs + varargs (241d67402)  34 agree  11 fail identically   8 DISAGREE
+    after the arm-body fix (d7546f299)        34 agree   3 fail identically   16 DISAGREE   3 F-worse
+    after curried defs + varargs (b32c9e663)  34 agree  11 fail identically    8 DISAGREE   3 F-worse
+    after externs pass through (ce140eb69)    36 agree  11 fail identically    6 DISAGREE   1 F-worse
+
+The last column is the one that matters and the only one that fell all the way: **F is observably
+worse than the reference on 1 of the 53 files it claims**, down from 3. The remaining one is
+`smoke-test.ssc`, held by the three std/ui gaps in
+`f-std-ui-gaps-behind-the-curried-def-fix` — none of them F's lowering.
+
+**The instrument, which should have existed first.** Bootstrap F0 the way
+`specs/v2.2-p6.5-corpus.sh` does and dump F's OWN IR beside the oracle's for a three-line program:
+
+    FSUB_SRC=specs/v2.2-p6.5-fsub.ssc java -Dssc.stackSize=1073741824 -jar <kernel> run bin/<drv> > F0.ir
+    java -Dssc.stackSize=1073741824 -jar <kernel> run-ir F0.ir probe.code
+
+It takes about a minute, needs no toolchain rebuild, and it answered in ONE run what eight
+hypotheses and several six-minute builds had not. Every "F does something different and I cannot see
+what" question should start here.
 
 The curried/vararg fix moved **eight files out of disagreement**: they now fail exactly the way the
 reference front fails, on a shared TLS or duplicate-signal blocker, instead of on an arity error of
