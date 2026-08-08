@@ -68,6 +68,19 @@ safely is not a template.
 | `area` | always | `front` · `runtime` · `codegen` · `cli` · `conformance` · `build` · `docs` · `plugin` · `other` |
 | `fixed-in` | when `status: fixed` | a commit sha that resolves in this repository, or `unrecorded` |
 | `gate` | recommended | the path that would catch a regression; `none` if there is not one yet |
+
+**A GREEN GATE ON AN `open` ENTRY IS NORMAL AND IS NOT EVIDENCE THE ENTRY IS STALE.** The dominant
+idiom here is to gate the CURRENT WRONG ANSWER so that changing it cannot be silent — `gate:` on an
+open entry usually means "this is pinned as it is today", not "this is fixed". Measured 2026-08-08
+over every open entry naming a gate: 33 of them do, and the four cheapest to run all pass, all by
+that design. Their own output says so — `pattern-undefined-name-gate: OK — three lanes, three
+meanings`, `keyword-import-missing-module: PASS (keyword form SILENT …)`.
+
+Recorded because the opposite reading is the obvious one and it is wrong: a staleness checker built
+on "status is open but the gate passes" would flag those thirty-three and find nothing. The real
+staleness signal is that the entry's stated REPRODUCTION no longer reproduces, which is not
+mechanical — five entries went stale that way in a single day, three of them written by the agent
+that later corrected them, and every one was caught by re-running the repro rather than by a query.
 | `kind` | optional, defaults to `bug` | `bug` · `perf` · `feature` · `regression` · `apparatus` · `programme` |
 | `duplicate-of` | when `status: duplicate` | the slug this duplicates |
 | `confirmed` | optional | `no` — fixed but the reporter has not confirmed. **Not a separate status.** |
