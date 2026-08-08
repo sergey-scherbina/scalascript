@@ -2080,6 +2080,25 @@ existing semantics/strict counts. Fail-first coverage must distinguish `%21` fro
 `!`; a full 402-case candidate diff must prove 6CK3 is the only changed row.
 Expected corrected census is semantics `137`, strict `125`, failures `277`, with
 validity `214`, actual errors `216`, source/chunks `402/402`, and zero crashes.
+
+⚠ **THAT CENSUS IS STALE — measured 2026-08-08 against the gate's own assertions**, which are the
+authority because they are what goes red. Every count except source/chunks has moved, and all of
+them upward, i.e. the corpus got BETTER after this entry was written:
+
+| | this entry | `YamlOfficialCorpusSpec` today |
+|---|---|---|
+| semantics | 137 | **138** |
+| strict | 125 | **126** |
+| validity | 214 | **216** |
+| actual errors | 216 | **218** |
+| failures | 277 | **276** |
+| source / chunks | 402 / 402 | 402 / 402 |
+| crashes | 0 | 0 |
+
+The numbers above are left as written rather than rewritten: they were the expectation attached to
+the measurement repair, and a reader checking that repair against history needs them. What they are
+NOT is a description of today, which is what a bare number in an open entry reads as. The gate is
+the thing to re-read — `report.census` is asserted field by field there.
 The tracker remains OPEN after the local measurement repair because the normative
 text/example conflict and upstream issue remain unresolved.
 
