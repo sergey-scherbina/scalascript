@@ -1188,6 +1188,7 @@ object SpikeParse:
     c.pushBlockCol(blockCol)
     while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" && !enclClose do
       stmts += parseStmt(c)
+      c.skipSemis()
     c.popBlockCol()
     Node.Frame("spike.block", None, stmts.result())
 

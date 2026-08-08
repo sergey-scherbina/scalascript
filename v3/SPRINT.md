@@ -2164,3 +2164,28 @@ else's files, but "stop running them one at a time", which is this script.
       than by assuming parallelism was to blame.
 
 **Measured:** exec lane 600 s → **217 s** (2.8×), bridge lane 4:46 with v2 spawned per case as well.
+
+## 44 · `;` as a statement separator — one line, and the count did not move
+
+`a = 1; b = 2` is ordinary Scala and neither front had it. Five of v3's own kernel files use it, so
+it is on the self-hosting path as well as being something a person writes.
+
+- [x] **44a — one line in `parseBlock`.** The loop called `parseStmt` and went round again without
+      consuming the `;`, so the next iteration tried to parse a statement that began with one. The
+      cursor has had `skipSemis` all along — thirty-two other places call it — and the block loop
+      was the one that did not.
+
+- [x] **44b — the self-hosting count did NOT move, 9 of 17 before and after, and that is the honest
+      read.** Each of those five files has its own next blocker behind the semicolon. `Main.scala`
+      now reaches the multi-arm `catch` (§40e, blocked on `Exec.scala:482`); `Lexer.scala` reaches a
+      `;` inside an `if` BRANCH, which is a different parse path from a block. A construct opening
+      and a file opening are not the same event, and reporting the second when only the first
+      happened is how a number stops meaning anything.
+
+- [x] **44c — N = 186 → 187, and the third DIFF is not mine.** `head-field-effect-shadow` fails
+      identically with the change reverted — checked that way rather than by reading the name,
+      though the name says the same. All three DIFFs (`effects-handler`,
+      `parameterless-def-local`, `head-field-effect-shadow`) belong to the effects work.
+
+**Measured:** UniML 218/218, seven v3 gates green, fixture half 51 of 52 with one declared
+uniml-only, N = 187 of 368 with CRASH 0.
