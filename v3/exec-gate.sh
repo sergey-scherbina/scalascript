@@ -100,7 +100,17 @@ ir="$(mktemp "${TMPDIR:-/tmp}/ssc3x.XXXXXX")"; $SSC3 emit-v2 v3/tests/tail-call.
 # exits non-zero precisely BECAUSE it overflowed — so `… | grep -q` reported failure exactly when
 # the thing being looked for had happened. The check inverted itself.
 bridge_out="$($V2 run-ir "$ir" 2>&1)"
-if printf '%s' "$bridge_out" | grep -q StackOverflowError; then
+# NO PIPE, and that is the fix rather than a style choice. `grep -q` exits the instant it matches,
+# which closes the pipe while `printf` still has the rest of a StackOverflowError trace to write;
+# `printf` then fails with EPIPE and, under `set -o pipefail`, takes the whole pipeline non-zero —
+# so the check reports "did NOT overflow" exactly when the overflow DID happen. The comment above
+# describes this same inversion being fixed once already, in its earlier shape; it came back through
+# the pipe instead of through java's exit status.
+#
+# It cannot be caught on macOS: the trace fits the 64 KB pipe buffer there, so `printf` completes
+# before `grep` exits and the pipeline is clean. On Linux CI the trace is larger than the buffer.
+# Reproduced deliberately — marker FIRST then 300 KB of filler inverts it, marker LAST does not.
+if grep -q StackOverflowError <<<"$bridge_out"; then
   echo "  ok   the bridge overflows on the same program — so the check can tell the two apart"
 else
   echo "  FAIL the bridge did NOT overflow; this comparison no longer proves anything"

@@ -47,7 +47,7 @@ for f in v3/tests/front/*.ssc; do
     echo "  FAIL $name was ACCEPTED — the front emits for anything"
     fail=1
   # A diagnostic without a line:col is a diagnostic nobody can act on, so the gate demands one.
-  elif printf '%s' "$msg" | grep -qE ':[0-9]+:[0-9]+:'; then
+  elif grep -qE ':[0-9]+:[0-9]+:' <<<"$msg"; then
     echo "  ok   $name refused: $msg"
   else
     echo "  FAIL $name refused without a source position: $msg"

@@ -69,7 +69,7 @@ fi
 # The TOOLCHAIN cache goes too. Leaving it made the gate prove only that an already-resolved
 # compiler works without scala-cli, which is a much smaller claim than the one on the tin.
 rm -rf v3/.jars/ssc3-* v3/.jars/ssc2-* v3/.jars/uniml-* v3/.jars/toolchain-*.cp
-if out="$(PATH="$NOSCLI" v3/ssc3 selftest 2>&1)" && printf '%s' "$out" | grep -q 'self-test: OK'; then
+if out="$(PATH="$NOSCLI" v3/ssc3 selftest 2>&1)" && grep -q 'self-test: OK' <<<"$out"; then
   say ok "the kernel builds from scratch and passes its self-test with no scala-cli"
 else
   say FAIL "the kernel could not build without scala-cli: $(printf '%s' "$out" | tail -1 | cut -c1-80)"
@@ -149,7 +149,7 @@ if [ -s "v3/.jars/uniml.cp" ]; then
       say FAIL "the alphabets DISAGREE on $_dis code point(s): $(printf '%s' "$_res" | sed -n 's/^first: //p')"
       fail=1
     fi
-    if printf '%s' "$_res" | grep -q '^bmp-disagreements: '; then
+    if grep -q '^bmp-disagreements: ' <<<"$_res"; then
       say ok "the sweep reports a count, so it ran over the range rather than short-circuiting"
     else
       say FAIL "the sweep printed no count — it did not run"

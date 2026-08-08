@@ -130,7 +130,7 @@ for f in tests/conformance/*.ssc; do
     msg="$(cat "$WORK/e")"
     # A positioned, named refusal is UNSUPPORTED. A stack trace or a bare failure is a CRASH,
     # because it tells the reader nothing they can act on.
-    if printf '%s' "$msg" | grep -qE ':[0-9]+:[0-9]+:' && ! printf '%s' "$msg" | grep -q '	at '; then
+    if grep -qE ':[0-9]+:[0-9]+:' <<<"$msg" && ! grep -q '	at ' <<<"$msg"; then
       unsup=$((unsup + 1)); printf '%s\t%s\n' "$name" "$(printf '%s' "$msg" | head -1)" >> "$WORK/unsup.txt"
     else
       crash=$((crash + 1)); printf '%s\t%s\n' "$name" "$(printf '%s' "$msg" | head -1)" >> "$WORK/crash.txt"
