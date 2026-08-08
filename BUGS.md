@@ -223,14 +223,40 @@ that it does not present as a lane gap at all, because the failing lane is the o
 not a placeholder value. Support for tuple `++` in v2 is the larger question and can stay open; a
 silent `Stub` cannot.
 
-## rust-lane-produces-no-binary-for-hello-world — and rejects `try`/`catch` outright
+## rust-lane-top-level-statements-have-no-entry-point — and the lane rejects `try`/`catch` outright
 
 <!-- status: open
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
+     gate: v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCargoTomlTest.scala
      fixed-in: - -->
+
+⚠ **THE TITLE AND THE FIRST HALF OF THIS ENTRY WERE WRONG, AND I WROTE THEM.** It was filed as "the
+rust lane produces no binary for a hello-world". The lane was working. Measured properly on
+2026-08-08:
+
+    @main def run()          runs, prints "hello from rust"
+    def main()               no binary   <- FIXED 2026-08-08
+    bare top-level statements no binary  <- the real remaining defect
+
+My probe used a bare `println`, so the generator did exactly what its own tested rule says — "No
+`@main` → emit a `[lib]` target" — and `run-rust` reported `expected binary not found at <temp
+path>`, a message about a missing FILE. Cargo had exited 0; the crate built, as a LIBRARY. The
+message named the consequence, I filed the consequence, and "the lane is dead" was three
+measurements away from "the lane wants an entry point I did not give it".
+
+**`def main()` is an entry point now** (`fceb807e1`) — it is what `ssc run` calls and what the
+interpreter, jvm, js and native lanes all start from, and the backend recognised only `@main`.
+Zero-arity is required and gated: `renderMainRs` emits `fn main() { generated::<crate>::<entry>(); }`,
+so a `main` with parameters would emit a call missing its arguments.
+
+**The message names the cause now**, since that is what cost the misfiling — it says the crate built
+as a library, lists the two forms that are entry points, and points here.
+
+**What remains, and it is the entry's real subject:** bare top-level statements have no entry point.
+Every other lane runs them. Closing it needs a SYNTHESIZED entry rather than a name lookup, which is
+why it was not bundled into the one-line rule change above.
 
 Two independent things, both found 2026-08-07 while measuring the `std.fs` failure contract across
 lanes for `std-fs-failure-contract`, and both meaning the Rust column of `specs/std-fs-os.md` §2.1

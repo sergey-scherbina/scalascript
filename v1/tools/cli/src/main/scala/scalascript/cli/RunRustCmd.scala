@@ -101,7 +101,17 @@ final class RunRustCmd extends CliCommand:
       val binExt = if scala.util.Properties.isWin then ".exe" else ""
       val binary = targetSubdir / s"${RustToolchain.sanitizeBinName(stem)}$binExt"
       if !os.exists(binary) then
-        System.err.println(s"run-rust: expected binary not found at $binary")
+        // NAME THE CAUSE, NOT THE CONSEQUENCE. This used to print only the missing path, and the
+        // path is never the reason: cargo exited 0 just above, so the crate BUILT — it simply built
+        // a `[lib]`, because the Rust backend emits a binary target only when the program has an
+        // entry point it recognises. A bare-`println` program has none, and the old message sent me
+        // to file "the rust lane produces no binary for a hello-world" against a working lane.
+        System.err.println(s"run-rust: the crate built, but as a LIBRARY — no binary at $binary")
+        System.err.println( "  The Rust backend emits a `[[bin]]` target only for a program with an")
+        System.err.println( "  entry point it recognises: `@main def name()` or a zero-argument")
+        System.err.println( "  `def main()`. Bare top-level statements are not one yet — every other")
+        System.err.println( "  lane runs them, and BUGS.md `rust-lane-top-level-statements-have-no-entry-point`")
+        System.err.println( "  tracks it. Wrap them in `def main(): Unit = …`.")
         cleanup(); System.exit(1)
       val binCmd  = (binary.toString :: binArgs)
       val binProc = os.proc(binCmd).spawn(stdout = os.Inherit, stderr = os.Inherit)
