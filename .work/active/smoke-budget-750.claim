@@ -5,7 +5,7 @@ started: 2026-08-08T11:21:14Z
 heartbeat: 2026-08-08T11:21:14Z
 status: claimed-before-planning
 items: smoke-suite-over-its-own-budget
-paths: file:scripts/smoke-ci.ssc file:tests/BUGS.md
+paths: file:scripts/smoke-ci.ssc file:tests/BUGS.md file:.github/workflows/smoke.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
