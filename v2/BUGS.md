@@ -4268,6 +4268,47 @@ registers the plain name, passing `args` straight through, AND
 line 539. The next step is to print `args` there — or to find where the front chooses between the
 two names — rather than to adjust the arity test, which is very likely correct as written.
 
+**CAUSE FOUND — `fetchUrlSignal` does not work on the v2 lane AT ALL, and the causing commits are
+named.** This is not an arity mistake in the case; it is a twin that was never updated.
+
+    arguments   int    v2
+    3           ok     ssc: fetchUrlSignal(name, url, refresh[, headers])
+    4           ok     the same
+    2                  the same
+
+Every arity fails on v2 while int accepts 3 and 4. A primitive that fails at every arity is not
+being called wrongly.
+
+**On 2026-08-05 the declaration grew a FIFTH parameter** — `credential: Credential =
+credentialNone` — in `v1/runtime/std/ui/primitives.ssc` (`7bb52f30b`, then `7e17192d4`):
+
+    extern def fetchUrlSignal(name, url, refreshTick,
+                              headers = emptyHeaders,
+                              credential = credentialNone): Signal[String]
+
+**The v1 plugin followed; the v2 native lane did not.** `FetchIntrinsics.scala:106` raises
+`fetchUrlSignal(name, url, refreshTick[, headers[, credential]])` — five. The v2 side still says
+four, in two places that were both untouched by those commits (`git log -S credential` over each is
+empty):
+
+    v2/nativeui/.../NativeUiSites.scala:24        "fetchUrlSignal" -> Set(3, 4)
+    v2/runtime/std/ui-plugin/.../UiNativePlugin.scala:539   args.length != 3 && args.length != 4
+
+With the defaults applied a three-argument call arrives as five, which neither accepts. That is the
+`two-front-pairs` shape: **a feature added on one path and missing on its twin, with no gate over
+the pair** — the corpus contract is the only thing that noticed, and its entry pointed at a
+different row.
+
+**Not fixed here, and widening the arity alone would be wrong.** Accepting 5 and discarding the
+credential would make the case pass while silently dropping an authentication parameter on the
+native lane — worse than the current loud refusal. The fix has to decide what the v2 lane DOES with
+a `Credential`, which is the same question `credential-parameter` answered for v1.
+
+**One check I did not run**, and it is the cheap confirmation for whoever takes this: print
+`args.length` at `UiNativePlugin.scala:539`. Everything above is consistent with "it is always 5",
+but I inferred that from the declaration rather than observing it — the 2-argument row is the one
+that does not obviously fit, and instrumenting settles it in one run.
+
 **Toolchain caveat, checked not assumed:** measured with a build from `7eecad50a`. `v2/src` has not
 changed since, so the v2 side is current; `v1/runtime/backend/interpreter` HAS changed, so the int
 side may not be — that matters only if someone re-reads the int column, not for the v2 failure.
