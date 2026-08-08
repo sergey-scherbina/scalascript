@@ -21,6 +21,66 @@ Newest first.
 
 
 
+## v3-exec-gate-and-front-gate-report-the-WORKING-TREE-and-blamed-a-sibling-for-it
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     kind: apparatus
+     gate: v3/exec-gate.sh v3/front-gate.sh -->
+
+**FIXED 2026-08-08.** Both gates now detect whether the uniml front is registered, refuse to run a
+`.uniml-only` fixture without it, and say so in a line that names the cause and the command that
+fixes it. Neither reports it as a failing fixture any more.
+
+**What was wrong.** `v3/tests/front/object-nested-class.ssc` is marked `.uniml-only`: v3's own
+parser refuses a `case class` inside an `object`, so only the second front can read it. Which
+fronts are registered is a fact about the WORKING TREE — the uniml front exists only after
+`v3/uniml-classpath.sh` has been run there, and a fresh worktree has not run it. `Front.default`
+then falls back to `v3`, the fixture produces nothing, and both gates scored it as:
+
+```
+FAIL object-nested-class — executor [] bridge [] expected [at 0 of hello/at 2 of bye]
+```
+
+A failing FIXTURE. The gates were indicting the code for the state of the checkout.
+
+**Measured both ways, by moving `v3/.jars/uniml.cp` aside and back** — `uniml_available()` is
+`[ -s "$UNIML_CP_FILE" ]`, so that toggles exactly the condition:
+
+| | front-gate | exec-gate |
+|---|---|---|
+| uniml present | **GREEN, 60 cases** | **GREEN, 61 cases** |
+| uniml absent, before | RED — `FAIL object-nested-class` | RED — `FAIL object-nested-class` |
+| uniml absent, after | RED — names the front and the command | RED — names the front and the command |
+
+**I PUBLISHED A WRONG VERDICT ON A SIBLING'S COMMIT BECAUSE OF THIS, and that is the reason this
+entry exists.** Twice on 2026-08-08 I wrote in a commit message that these gates were red on
+`origin/main` from `c71b58e28`, "verified by stashing my change and seeing the identical failure".
+The stash control could not have said anything else: the missing front is reachable WITHOUT my
+change, so removing my change left the failure exactly where it was. **A control that cannot
+distinguish the two states is not evidence, and this one was structurally incapable of it** — the
+same lesson as a probe whose subject is reachable without the thing tested. `c71b58e28` is not
+implicated; it hoists a `case class` out of an `object` in the projection and its own fixture
+passes.
+
+**Two changes, and the second matters as much as the first.** The gates also sent stderr to
+`/dev/null`, so "the front refused this program" and "the program printed the wrong thing" were the
+same observation — an empty string. The FAIL line now carries the first line of stderr. Had it done
+so, this would have read `← ssc3: … case class inside an object` and been diagnosed in seconds
+instead of costing a wrong report on a shared board.
+
+**Red rather than skipped, deliberately.** A gate that goes green with fixtures unrun reports less
+than it claims — the shape already recorded as a floor on the good number not being a guard. The
+message says explicitly that nothing in the diff under test can fix it, so a reader is not sent
+hunting through their own change.
+
+Related: [`front-diff-cannot-finish-when-the-second-front-does-not-compile`] is the same family on
+the third gate, fixed the same day by probing each declared front once before the corpus.
+`front-report-gate.sh` was checked and is NOT affected — its comparison is already guarded by
+`if [ "$auto" = "uniml" ]`. `parity-gate.sh`, `bridge-gate.sh` and `corpus-report.sh` do not run
+these fixtures.
+
 ## v3-refuses-a-default-argument-inside-an-enum-case
 
 <!-- status: open

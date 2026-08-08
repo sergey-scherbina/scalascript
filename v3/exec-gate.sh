@@ -22,6 +22,22 @@ V2="v3/ssc3 v2"
 fail=0; ran=0
 $SSC3 selftest >/dev/null 2>&1   # compile once; a compile racing the first case reads as a failure
 
+# WHICH FRONTS EXIST IS A FACT ABOUT THIS WORKING TREE, NOT ABOUT THE CODE. The uniml front is
+# registered only after `v3/uniml-classpath.sh` has been run HERE, and a fresh worktree has not run
+# it. A fixture marked `.uniml-only` uses a construct v3's own parser refuses — without that front
+# it cannot be read at all, `$SSC3 exec` prints nothing, and this gate used to report it as
+# `FAIL … executor [] bridge [] expected [at 0 of hello/…]`: a failing FIXTURE, which indicts the
+# code for the state of the checkout. It cost a wrong verdict on a sibling's commit on 2026-08-08 —
+# and the control that "confirmed" it (revert the change, watch it still fail) could not have said
+# otherwise, because the missing front is reachable without the change.
+#
+# The same shape is already written down at the top of this file for a different cause: a program
+# that prints nothing gets read as a wrong answer. Naming the cause is the whole fix.
+uniml=0
+$SSC3 fronts 2>/dev/null | grep -qx uniml && uniml=1
+unreadable=0; unreadable_names=""
+ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
+
 echo "── differential: v3 executor vs the v2 bridge ──────────────────────────"
 for f in v3/tests/bridge/*.ssir; do
   name="$(basename "$f" .ssir)"
@@ -48,17 +64,35 @@ for f in v3/tests/front/*.ssc; do
   name="$(basename "$f" .ssc)"
   exp="v3/tests/front/$name.expected"
   [ -f "$exp" ] || continue
+  if [ -f "v3/tests/front/$name.uniml-only" ] && [ "$uniml" = 0 ]; then
+    unreadable=$((unreadable + 1)); unreadable_names="$unreadable_names $name"; continue
+  fi
   ran=$((ran + 1))
-  own="$($SSC3 exec "$f" 2>/dev/null)"
+  own="$($SSC3 exec "$f" 2>"$ERRF")"
+  why="$(head -1 "$ERRF")"
   via="$(v3/ssc3 run "$f" 2>/dev/null)"
   want="$(cat "$exp")"
   if [ "$own" = "$via" ] && [ "$own" = "$want" ]; then
     echo "  ok   $name -> $(printf '%s' "$own" | tr '\n' '/')  (both lanes agree)"
   else
-    echo "  FAIL $name — executor [$(printf '%s' "$own" | tr '\n' '/')] bridge [$(printf '%s' "$via" | tr '\n' '/')] expected [$(printf '%s' "$want" | tr '\n' '/')]"
+    # The REASON, not just the empty string it produced. Discarding stderr here is what made an
+    # unreadable fixture and a wrong answer look identical.
+    echo "  FAIL $name — executor [$(printf '%s' "$own" | tr '\n' '/')] bridge [$(printf '%s' "$via" | tr '\n' '/')] expected [$(printf '%s' "$want" | tr '\n' '/')]${why:+  ← $why}"
     fail=1
   fi
 done
+
+if [ "$unreadable" != 0 ]; then
+  echo
+  echo "  ✋ $unreadable fixture(s) COULD NOT BE READ IN THIS WORKING TREE, and were not run:"
+  echo "    $unreadable_names"
+  echo "     They are marked \`.uniml-only\` — they use a construct v3's own parser refuses, and the"
+  echo "     uniml front is not registered here. Run \`v3/uniml-classpath.sh\`, then re-run this gate."
+  echo "     This is the state of the CHECKOUT. It is RED rather than skipped because a gate that"
+  echo "     goes green with fixtures unrun reports less than it claims — but it is NOT a defect in"
+  echo "     the code, and nothing in the diff you are testing can fix it."
+  fail=1
+fi
 
 echo
 echo "── constant stack, shown by contrast ───────────────────────────────────"

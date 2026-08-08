@@ -21,20 +21,48 @@ ran=0
 # code under test is a gate people stop believing, which is worse than not having it.
 v3/ssc3 selftest >/dev/null 2>&1
 
+# The paragraph above is about a compile racing the first case. THIS IS THE SAME SHAPE FROM A
+# DIFFERENT CAUSE: which fronts are registered is a fact about the WORKING TREE, not about the code.
+# The uniml front exists only after `v3/uniml-classpath.sh` has been run here, and a fixture marked
+# `.uniml-only` uses a construct v3's own parser refuses — so in a fresh worktree it produces nothing
+# and this loop scored it as a failing fixture. On 2026-08-08 that read as a regression from a
+# sibling's commit and was reported as one.
+uniml=0
+v3/ssc3 fronts 2>/dev/null | grep -qx uniml && uniml=1
+unreadable=0; unreadable_names=""
+ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
+
 echo "── compiled by v3 and RUN ──────────────────────────────────────────────"
 for f in v3/tests/front/*.ssc; do
   name="$(basename "$f" .ssc)"
   exp="v3/tests/front/$name.expected"
   [ -f "$exp" ] || continue
+  if [ -f "v3/tests/front/$name.uniml-only" ] && [ "$uniml" = 0 ]; then
+    unreadable=$((unreadable + 1)); unreadable_names="$unreadable_names $name"; continue
+  fi
   ran=$((ran + 1))
-  got="$(v3/ssc3 run "$f" 2>/dev/null)"
+  got="$(v3/ssc3 run "$f" 2>"$ERRF")"
+  why="$(head -1 "$ERRF")"
   if [ "$got" = "$(cat "$exp")" ]; then
     echo "  ok   $name -> $(printf '%s' "$got" | tr '\n' '/')"
   else
-    echo "  FAIL $name — expected [$(tr '\n' '/' < "$exp")] got [$(printf '%s' "$got" | tr '\n' '/')]"
+    # WITH THE REASON. Sending stderr to /dev/null made "the front refused this" and "the program
+    # printed the wrong thing" the same observation — an empty string either way.
+    echo "  FAIL $name — expected [$(tr '\n' '/' < "$exp")] got [$(printf '%s' "$got" | tr '\n' '/')]${why:+  ← $why}"
     fail=1
   fi
 done
+
+if [ "$unreadable" != 0 ]; then
+  echo
+  echo "  ✋ $unreadable fixture(s) COULD NOT BE READ IN THIS WORKING TREE, and were not run:"
+  echo "    $unreadable_names"
+  echo "     Marked \`.uniml-only\`; the uniml front is not registered here. Run"
+  echo "     \`v3/uniml-classpath.sh\`, then re-run. RED rather than skipped because a gate that goes"
+  echo "     green with fixtures unrun reports less than it claims — but nothing in the diff you are"
+  echo "     testing can fix it, so do not read it as a defect in the code."
+  fail=1
+fi
 
 echo
 echo "── programs the front must REFUSE, with a position ─────────────────────"
