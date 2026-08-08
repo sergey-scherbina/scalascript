@@ -5,7 +5,7 @@ started: 2026-08-08T14:00:18Z
 heartbeat: 2026-08-08T14:00:18Z
 status: claimed-before-planning
 items: custom-jsemitter-signal-list-literal
-paths: file:frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala file:v2/BUGS.md
+paths: file:frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala file:v2/BUGS.md file:frontend/custom/src/test/scala/scalascript/frontend/custom/SignalListLiteralTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
