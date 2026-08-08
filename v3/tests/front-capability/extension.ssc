@@ -1,0 +1,5 @@
+```scalascript
+extension (x: Int)
+  def double: Int = x * 2
+println(3.double)
+```

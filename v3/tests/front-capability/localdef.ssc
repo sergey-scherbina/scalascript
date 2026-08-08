@@ -1,0 +1,6 @@
+```scalascript
+def outer(): Int =
+  def inner(x: Int): Int = x + 1
+  inner(41)
+println(outer())
+```

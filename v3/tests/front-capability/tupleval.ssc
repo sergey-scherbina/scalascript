@@ -1,0 +1,6 @@
+```scalascript
+val r =
+  val (a, b) = (1, 2)
+  a + b
+println(r)
+```

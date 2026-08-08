@@ -1,0 +1,4 @@
+```scalascript
+def f(using x: Int): Int = summon[Int]
+println(1)
+```

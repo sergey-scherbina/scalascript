@@ -1,0 +1,5 @@
+```scalascript
+trait T:
+  val id: String
+println(1)
+```

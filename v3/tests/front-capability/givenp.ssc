@@ -1,0 +1,4 @@
+```scalascript
+given x: Int = 5
+println(1)
+```

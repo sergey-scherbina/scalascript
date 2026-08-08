@@ -1,0 +1,4 @@
+```scalascript
+def f(x: Int)(using y: Int): Int = x
+println(1)
+```

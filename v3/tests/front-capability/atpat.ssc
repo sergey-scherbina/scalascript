@@ -1,0 +1,6 @@
+```scalascript
+val r = List(1,2) match
+  case xs @ Cons(h, t) => h
+  case _ => 0
+println(r)
+```

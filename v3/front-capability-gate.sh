@@ -33,7 +33,12 @@ SSC3="v3/ssc3"
 # which is the gate doing its job: it went red saying "no longer diverges; drop it from KNOWN_v3 in
 # this commit", and this is that commit.
 declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
-declare -a KNOWN_UNIML_ONLY=(type-lambda-native) # uniml accepts, v3 refuses
+# `absval`: a trait with `val id: String`. UniML's projection ACCEPTS it and drops the member
+# silently (`case _ => Nil` in the trait-member fold); v3's own front refuses it by name. Declared
+# rather than fixed here because the fix is a decision — refuse it in the projection too, or teach
+# v3's front to carry abstract vals — and this gate's job is to make sure the choice is not made by
+# accident.
+declare -a KNOWN_UNIML_ONLY=(type-lambda-native absval) # uniml accepts, v3 refuses
 
 available="$($SSC3 front 2>/dev/null | sed -n 's/^available: //p')"
 case "$available" in
@@ -58,7 +63,15 @@ v3_only=""
 uniml_only=""
 checked=0
 
-for f in bench/corpus/*.ssc; do
+# TWO SOURCES, and the second is the one that found anything. The corpus is 36 real programs and
+# exercises the constructs those programs happen to use; a front gap in something none of them
+# writes is invisible to it. `v3/tests/front-capability/` is one small file per construct the
+# PROJECTION explicitly refuses (`UniFront.scala`'s `no(...)` list) — the fronts' own statement of
+# what they do not do, turned into something that can disagree.
+#
+# Measured when the probes were added: 14 constructs, 13 agree, and the one that did not —
+# an abstract `val` in a trait — is invisible to the corpus entirely.
+for f in bench/corpus/*.ssc v3/tests/front-capability/*.ssc; do
   n="$(basename "$f" .ssc)"
   checked=$((checked + 1))
   a3=1; au=1
@@ -87,7 +100,7 @@ check_set() { # $1 label, $2 declared (space list), $3 actual (space list)
   done
 }
 
-echo "── front capability: $checked corpus files, both fronts ────────────────"
+echo "── front capability: $checked programs (corpus + probes), both fronts ──────"
 check_set "v3"    "${KNOWN_V3_ONLY[*]}"    "$v3_only"
 check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 

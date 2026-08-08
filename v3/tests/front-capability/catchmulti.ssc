@@ -1,0 +1,8 @@
+```scalascript
+def f(): Int =
+  try 1
+  catch
+    case a: RuntimeException => 2
+    case b => 3
+println(f())
+```

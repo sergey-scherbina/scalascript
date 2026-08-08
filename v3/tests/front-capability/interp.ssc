@@ -1,0 +1,4 @@
+```scalascript
+val n = 2
+println(f"n=$n")
+```

@@ -1,0 +1,5 @@
+```scalascript
+val a = Array(1,2)
+a(0) = 9
+println(a(0))
+```

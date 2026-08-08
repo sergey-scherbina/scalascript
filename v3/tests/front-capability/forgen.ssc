@@ -1,0 +1,4 @@
+```scalascript
+val ps = List((1,2))
+for (a, b) <- ps do println(a + b)
+```
