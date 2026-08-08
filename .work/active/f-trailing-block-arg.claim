@@ -1,0 +1,11 @@
+slug: f-trailing-block-arg
+branch: feature/f-trailing-block-arg
+agent: claude-code
+started: 2026-08-08T18:47:24Z
+heartbeat: 2026-08-08T18:47:24Z
+status: claimed-before-planning
+items: f-drops-a-trailing-block-argument-without-running-it
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-trailing-block-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
