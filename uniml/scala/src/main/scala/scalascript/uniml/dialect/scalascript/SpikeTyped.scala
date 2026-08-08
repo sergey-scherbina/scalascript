@@ -186,13 +186,17 @@ object SpikeTyped:
     var tpe: Option[TypeRef] = None
     var dflt: Option[Expr] = None
     var isUsing = false
-    def flush(): Unit = cur.foreach((nm, sp) => out += Param(nm, tpe, dflt, isUsing, sp))
+    var byName = false
+    def flush(): Unit = cur.foreach((nm, sp) => out += Param(nm, tpe, dflt, isUsing, sp, byName))
     kids(n).foreach { (role, c) =>
       role match
         case Some(r) if r == nameRole =>
-          flush(); cur = Some((lex(c), span(c))); tpe = None; dflt = None; isUsing = false
+          flush(); cur = Some((lex(c), span(c))); tpe = None; dflt = None; isUsing = false; byName = false
         case Some(r) if typeRoles.contains(r) =>
           tpe = Some(typeRef(c)); if r.endsWith("usingtype") then isUsing = true
+        // The arrow the grammar now keeps. It arrives BEFORE the type, which is why it is read as
+        // its own role rather than inferred from `tpe`.
+        case Some(r) if r.endsWith("byname") => byName = true
         case Some(r) if r == dfltRole => dflt = Some(expr(c))
         case _                        => ()
     }

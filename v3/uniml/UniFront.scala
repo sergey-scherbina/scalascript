@@ -317,19 +317,15 @@ object UniFront:
 
   private def param(p: U.Param): Param =
     if p.using_ then no("a `using` parameter", p.span)
-    // BY-NAME IS NOT RECOVERABLE HERE, and the attempt is recorded rather than left as dead code.
+    // BY-NAME, carried since 2026-08-08, and one field only because the grammar was fixed first.
     //
-    // `Param.byName` drives the lowering's `rewriteByName` (SSC3-7s), so a by-name argument through
-    // THIS front is evaluated EAGERLY while the same source through v3's own front is not — one
-    // language, two semantics, decided by which tree the working directory happened to register.
-    // Measured: `def twice(x: => Int) = x + x` with a counting argument gives 3 on v3's front and 2
-    // here.
-    //
-    // It cannot be read off the type, because `ScalaSpike` CONSUMES the arrow and says so —
-    // "A BY-NAME parameter … Erased with the type" — so `TypeRef.text` is `Int`, not `=> Int`. The
-    // fix belongs in the GRAMMAR: keep the `=>` as a marked leaf so this projection can see it.
-    // (BUGS.md v3-uniml-front-drops-by-name.)
-    Param(p.name, pos(p.span), p.default.map(expr))
+    // Until then `ScalaSpike` consumed the arrow before the type was captured — its own comment said
+    // "Erased with the type" — so `TypeRef.text` was `Int`, never `=> Int`, and no test here could
+    // recover it. `Param.byName` drives the lowering's `rewriteByName` (SSC3-7s), so the erasure
+    // escaped the front: `def twice(x: => Int) = x + x` on a counting argument gave 3 through v3's
+    // own parser and 2 through this one. One language, two evaluation orders, chosen by which front
+    // the working tree happened to register. (BUGS.md v3-uniml-front-drops-by-name.)
+    Param(p.name, pos(p.span), p.default.map(expr), p.byName)
 
   /** A top-level or block element as v3 STATEMENTS. `ValDef` and the destructuring `TupleVal`
     * expand to several; everything else is one expression statement. */

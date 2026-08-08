@@ -803,7 +803,19 @@ object SpikeParse:
           // A BY-NAME parameter — `(block: => Unit)`. The `=>` comes BEFORE the type, so the
           // type parser met an arrow where it wanted a name. `v1/runtime/std/http.ssc:89`,
           // `extern def httpClient(baseUrl: String)(block: => Unit)`. Erased with the type.
-          if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance()
+          // KEPT, with a role, since 2026-08-08. It used to be `c.advance()` — dropped on the floor
+          // with the comment "Erased with the type" — and that erasure escaped the front: v3's
+          // `Param.byName` drives a lowering rewrite, so a by-name argument coming through THIS
+          // dialect was evaluated EAGERLY while the same source through v3's own parser was not.
+          // `def twice(x: => Int) = x + x` on a counting argument gave 3 there and 2 here: one
+          // language, two evaluation orders, chosen by which front the working tree registered.
+          // (BUGS.md v3-uniml-front-drops-by-name.)
+          //
+          // A LEAF WITH A ROLE, not a flag on the type: the token is real source and the tree is the
+          // storage, so dropping it also broke reconstruction. Consumers that do not care ignore
+          // the role, exactly as they ignore `def.comma`.
+          if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
+            c.advance().foreach(t => kids += Node.Leaf(t, Some("def.byname")))
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
           else expectType(c, if usingClause then "def.usingtype" else "def.paramType").foreach(kids += _)
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)

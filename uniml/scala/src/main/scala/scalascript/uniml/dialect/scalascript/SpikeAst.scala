@@ -94,7 +94,10 @@ object SpikeAst:
   final case class AbstractVal(name: String, span: SourceSpan) extends Decl
   final case class UnsupportedDecl(kind: String, span: SourceSpan) extends Decl
 
-  final case class Param(name: String, tpe: Option[TypeRef], default: Option[Expr], using_ : Boolean, span: SourceSpan)
+  /** `byName` marks `x: => A`. Defaulted so every existing construction site compiles untouched —
+    * only a `def`'s parameter list can carry the arrow. */
+  final case class Param(name: String, tpe: Option[TypeRef], default: Option[Expr], using_ : Boolean, span: SourceSpan,
+                         byName: Boolean = false)
       extends Node
 
   sealed trait Expr extends Node
@@ -219,7 +222,7 @@ object SpikeAst:
     case While(c, b, _)           => walk(c) ++ walk(b)
     case Tuple(es, _)             => es.flatMap(walk)
     case Def(_, ps, rt, b, _)     => ps.flatMap(walk) ++ rt.toVector.flatMap(walk) ++ walk(b)
-    case Param(_, t, d, _, _)     => t.toVector.flatMap(walk) ++ d.toVector.flatMap(walk)
+    case Param(_, t, d, _, _, _)  => t.toVector.flatMap(walk) ++ d.toVector.flatMap(walk)
     case CaseClass(_, fs, _, ms, _) => fs.flatMap(walk) ++ ms.flatMap(walk)
     case EnumDecl(_, cs, _)       => cs.flatMap(walk)
     case TraitDecl(_, _, _, ms, _) => ms.flatMap(walk)
