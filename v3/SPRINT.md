@@ -1048,6 +1048,14 @@ would be scoring its own blind spot.
       Verified on four shapes — plain, capturing, recursive, and parameterless. **v1 answers
       `<closure>1` on the parameterless one**, so it does not auto-apply it; v3 does, which is
       Scala's rule and the fifth place v3 is ahead of the reference.
+
+      *Correction 2026-08-08:* v1 auto-applies it now — the sentence above was true when written and
+      is not any more, and it is left in place because the decision it explains was made on it. The
+      v1 defect is `parameterless-def-diverges-native-vs-interp` in the root `BUGS.md`, fixed by
+      making the missing parameter clause a `FunV` constructor field, since `params` is `Nil` for
+      both spellings. So this is no longer a place v3 is ahead of the reference; the count is one
+      lower, and js and v2 still lose a LOCAL parameterless def
+      (`parameterless-def-local-not-invoked-js-and-native`), which is the shape 20a is about.
 - [x] **20b — the three sites the compiler named.** Adding `Stmt.LocalDef` produced six
       exhaustiveness warnings, which is the check doing its job. Two were printers. The third is the
       block lowering, and it does NOT silently ignore a local def that reaches it: lifting runs
