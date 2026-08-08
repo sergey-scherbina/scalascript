@@ -243,9 +243,33 @@ one symptom bucket turned out to be a different construct than the obvious readi
       The LAST binder is the continuation and the ones before it are the operation's arguments.
       Nothing else could state that, so the code does.
 
-- [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
-      same message, different keyword. Separate from 7a because multi-shot resumption is a different
-      executor obligation, and closing 7a must not silently claim this.
+- [ ] **SSC3-7b — `multi effect X:` and continuation capture.** DESIGN DECIDED 2026-08-08, written
+      into `10-ssc-ir.md` §3 "Capturing a continuation"; implementation is the open part.
+
+      **`k` is a closure the LOWERING builds, not a machine the executor reifies.** The alternative
+      was measured first: `Exec.scala` is 1363 lines of STRUCTURED host recursion — eight recursive
+      `exec` sites, `Block`/`Loop`/`If`/`Switch` nested across host frames — so "the rest of the
+      computation" is a position in a tree plus every enclosing region, living on the host's stack.
+      Making that copyable is a rewrite of the largest file in the kernel.
+
+      v3 has had `MkClos`/`CallV`/`VClos` from the start, and a continuation that is a closure is
+      **multi-shot for free**: a closure may be called zero, one or many times and is not consumed by
+      being called. Multi-shot stops being a second feature after one-shot.
+
+      **The cost is real and named:** functions that can perform must be lowered in CPS, and the IR
+      is structured, so a `Loop` containing a `Perform` becomes a recursive function. `TailCall`
+      keeps that constant-stack. The transformation applies only to functions that TRANSITIVELY
+      perform — two programs in today's corpus.
+
+      **The executor's tail-resumptive path stays.** It is what a CPS-converted arm reduces to when
+      the arm resumes once as its last act, so it becomes an optimisation rather than the only thing
+      that works — and the structural refusal it carries stays honest until CPS lands.
+
+      *Order of work, each step gateable on its own:* (1) compute the transitively-performing set;
+      (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
+      (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal
+      for the cases CPS now covers, and let `effect-multishot` run.
+
 - [x] **SSC3-7c — `!` effect types in a signature.** DONE 2026-08-08. `skipType` continues past `!`
       exactly as it already did past `=>`, with the same safety argument: every caller is a
       DECLARATION position, never expression position, so consuming a `!` cannot eat a prefix

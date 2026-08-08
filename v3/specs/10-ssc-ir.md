@@ -171,6 +171,42 @@ continuation capture at all — `Perform` can run the arm and take the resumed v
 any call depth. That is an implementation strategy, not a restriction of this protocol; the protocol
 admits the general case whether or not a given executor does.
 
+#### Capturing a continuation: a CLOSURE, not a reified machine — decided 2026-08-08
+
+`k` is produced by the LOWERING, as an ordinary `VClos`. It is not built by the executor out of its
+own stack.
+
+**The alternative was measured and rejected.** The executor is 1363 lines of STRUCTURED host
+recursion — eight recursive `exec` sites, and `Block`/`Loop`/`If`/`Switch` regions nested inside one
+another across host frames. "The rest of the computation" there is not a program counter into a flat
+list; it is a position in a tree plus every enclosing region, spread over the host's own stack.
+Turning that into data means rewriting the machine: an explicit instruction pointer, an explicit
+region stack, an explicit call stack, all copyable. That is the design §1 describes when it says a
+frame is data, and it is a rewrite of the largest file in the kernel.
+
+**The cheaper design is available because v3 already has first-class closures.** `MkClos`, `CallV`
+and `VClos` have been in the instruction set from the start. A continuation that is a closure is:
+
+- **multi-shot for free** — a closure may be called zero times, once, or many, and nothing about it
+  is consumed by being called. Multi-shot is not a second feature after one-shot; it is what you get
+  when you stop pretending the continuation is a stack;
+- **storable** — §1's claim that a handler may "store, queue, or resume later from another thread" is
+  literally true of a `VClos` and is not true of a slice of the host stack;
+- **verifiable** — a closure is already covered by the verifier's rules, where a reified frame would
+  need new ones.
+
+**The cost, stated because it is not small.** Functions that can perform must be lowered in
+continuation-passing style, and the IR is structured: a `Loop` containing a `Perform` becomes a
+recursive function, since a loop's remainder cannot be a closure without one. v3 has `TailCall`, so
+those recursions are constant-stack rather than a new leak. The transformation applies only to
+functions that TRANSITIVELY perform — a set the lowering can compute, and which in the bench corpus
+today is two programs.
+
+**What does not change:** `Perform`, `Handle`, `Resume` and the arm protocol above. The executor's
+tail-resumptive fast path stays exactly as it is — it is what a CPS-converted arm reduces to when the
+arm resumes once as its last act, so it becomes an optimisation rather than the only thing that
+works.
+
 **Host boundary** — `Prim d, primId, args`
 
 The single door to everything the IR does not define: I/O, host interop, plugin SPI. This is what
