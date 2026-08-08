@@ -229,6 +229,22 @@ private def _jsonQuote(s: String): String =
     else sb.append(c)
     i += 1
   sb.append('"').toString
+/** ⚠️ THIS SHAPE IS MIRRORED ELSEWHERE. `StaticJsEmitter.jsLiteral` (frontend/custom) encodes the
+  * same Scala values for the browser and follows the rules below deliberately: map to object with
+  * stringified keys, other iterable to array, `Product` whose element names are all `_N` to array,
+  * otherwise object keyed by field name. Only the QUOTING differs — JSON needs `"`, a JS literal
+  * uses `'`.
+  *
+  * The two cannot share code: `frontend/custom` depends on `frontendCore` alone and the only common
+  * ancestor of the two module chains is `logger`, so unifying them means a new module plus an
+  * abstraction over quoting. That is recorded as its own slice under
+  * `custom-jsemitter-signal-list-literal` (`v2/BUGS.md`) and deliberately not done.
+  *
+  * So: **changing a rule here means changing it there**. There is no gate that will tell you — the
+  * JS side asserts these exact shapes in `SignalListLiteralTest`, but nothing compares the two, and
+  * a comment is what stands in for that. If you find yourself wanting one, the entry above is the
+  * argument for building the shared module instead.
+  */
 private def _toJsonValue(v: Any): String = v match
   case null              => "null"
   case b: Boolean        => b.toString
