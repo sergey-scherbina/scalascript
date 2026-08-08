@@ -21,6 +21,43 @@ Newest first.
 
 
 
+
+## coord-path-overlap-matches-a-SIBLING-directory-that-merely-shares-a-prefix
+
+<!-- status: open
+     lane: multi
+     area: build
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-08.** A claim on `v3/tests/front-capability/…` is refused as overlapping a claim
+on `v3/tests/front`:
+
+```
+✋ pre-push: path 'v3/tests/front-capability' falls inside 'v3/tests/front'
+```
+
+It does not. They are SIBLING directories. `.githooks/pre-push` compares with
+
+```sh
+case "$p_path" in "$q_path"*) …
+```
+
+— a bare prefix match with no path-separator boundary, so `front-capability` matches `front*` and
+every directory whose name merely BEGINS with another claimed directory's name is reported as inside
+it. `v1/lang/core` would block `v1/lang/core-bench`, which exists.
+
+**Why it matters more than the inconvenience.** The guard's whole value is that agents trust it. A
+false refusal teaches the one habit that makes it useless — reaching for `--no-verify` — and the
+next real overlap goes through on the same reflex. I stopped rather than override, which is why this
+entry exists instead of a silent push.
+
+**Smallest useful fix:** require the boundary. `case "$p_path" in "$q_path"|"$q_path"/*)` — equal, or
+followed by a slash. Both directions, since the containment test runs each way.
+
+**Note for whoever fixes it:** `file:` scopes are compared with the same rule, so a claim on
+`…/front.scala` would also be reported as containing `…/front.scala.bak`.
+
 ## v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF for six days
 
 <!-- status: fixed
