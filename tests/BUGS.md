@@ -1,3 +1,47 @@
+## scaffolded-projects-cannot-load-their-build
+
+<!-- status: open
+     lane: apparatus
+     area: cli
+     gate: none -->
+
+`ssc new <name> --template app` produces a project that fails on its first command. Reproduced, not
+inferred:
+
+```
+$ ssc-tools new demo --template app
+Created app project: /tmp/scaffold-check/demo
+$ cd demo && sbt compile
+[error] sbt.librarymanagement.ResolveException: Error downloading
+        org.scalascript:sbt-scalascript-interop;sbtVersion=1.0;scalaVersion=2.12
+[error]   Not found
+```
+
+**Five of six templates** (`app`, `web-app`, `wasm-app`, `lib`, `dsl`) both request the plugin in
+`project/plugins.sbt` and call `enablePlugins(ScalascriptInteropPlugin)` in `build.sbt`, so the
+dependency is real — removing the line would break the build differently. Only `plugin` is unaffected.
+
+**Three facts that do not line up:**
+
+| | |
+| --- | --- |
+| templates ask for | `org.scalascript % sbt-scalascript-interop % **0.1.0**` |
+| the plugin build produces | `0.1.0-SNAPSHOT` |
+| published anywhere | **nothing** — no workflow, no script publishes it |
+
+So aligning the version alone does not fix this: `0.1.0-SNAPSHOT` is equally unresolvable. The
+question underneath is whether this plugin is meant to be published at all, which is a product
+decision rather than a defect to patch.
+
+**Interim that would at least work for people who built ssc from source:** have `install.sh`
+`publishLocal` the plugin and have the templates name the version it produces. That fixes the
+scaffold for this repository's own users and leaves the publication question open.
+
+Related: this is the third site in the same family — `Main.scala`'s emitted coordinate and
+`uniml/build.sbt` were the other two, both fixed and now gated by
+`tests/e2e/emitted-coordinate-is-published.sh`. That gate deliberately does not cover the plugin,
+because until it publishes there is no correct version for it to name.
+
 ## sbt-plugin-fixtures-deleted-by-an-unrelated-commit-and-unrestorable
 
 <!-- status: fixed
