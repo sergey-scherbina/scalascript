@@ -3941,9 +3941,34 @@ returns -1 past end and `tkKind`/`tkIsKw` return ""/false on `Nil` — remain co
 are no longer required for short-circuit safety.)
 
 ## coreir-spec-node-inventory-drift — frozen CoreIR spec omits canonical `While` and `Seq`
-<!-- status: open
-     lane: js
-     area: front -->
+<!-- status: fixed
+     lane: native
+     area: front
+     gate: none
+     fixed-in: 7bcb6d87a -->
+
+**FIXED 2026-07-16 by `7bcb6d87a` ("docs(coreir): reconcile the canonical contract with the …"), two
+days after this was filed — and the entry was never moved off `open`.** Re-measured 2026-08-08
+against the entry's own three claims:
+
+| the entry says the spec | today |
+|---|---|
+| "freezes a ten-value/eleven-node kernel" | **13 nodes** pinned twice (§ header and §"Counts, pinned"), stated as 11 semantic + 2 optimization |
+| "says no loop node is needed" | §invariant 7 now ends with the reconciliation: *"There **is** one — `While` (§3.1)"* |
+| "explicitly says that `Seq` is dropped" | §3.1 is titled *"The two optimization nodes: `While` and `Seq`"* |
+
+The spec carries its own drift note naming the old wording and saying the prose was reconciled **to
+the code**, which is the right direction for a contract the fixpoint bytes already depend on.
+
+**`lane:` corrected `js` → `native`.** Every artefact in this entry is `v2/specs/10-core-ir.md` and
+`v2/src/CoreIR.scala`; nothing about it is the js backend, and `lane:` is what routes an entry to the
+module that owns the fix.
+
+**A probe of mine that asked the wrong question, recorded because it nearly became the verdict:** I
+first checked the spec for the lowercase WIRE tags (`"app"`, `"lam"`, …) and got seven "MISSING from
+spec". The spec names nodes in their abstract form (`App e₁ e₂`), so that grep was measuring my own
+encoding, not the contract. The claims worth testing were the entry's three sentences, and those are
+what the table above answers.
 
 **Status:** open (found 2026-07-14, Codex, during the Scala 3 bidirectional-control
 architecture audit; observed at `3ae003279`; introduced by at least `975f8dce4`).
