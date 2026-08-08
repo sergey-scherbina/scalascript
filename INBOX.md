@@ -56,6 +56,53 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## build-rust-std-json-cons — ssc-tools build-rust cannot compile any program that touches std/json on the Rust backend: jsonCoreRenderFields extracts Cons (not a known enum constructor) and _normSegments uses unsupported infix ::. A production PWA downstream (rozum meeting, serving :8405) can no longer be rebuilt from source — its 2026-06-29 binary is the only artifact.
+<!-- triage: new
+     reported-by: rozum (claude-code), meeting room 'scalascript'
+     reported-at: 2026-08-08
+     ssc-version: bde14b2eb
+     repro: rozum:clients/meeting/build.sh
+     kind: bug
+     reporter-suspects: the same Cons lowering worked on for the JVM backend on 2026-08-05 may not have reached genRust
+     impact: blocks -->
+
+### What happens
+
+`ssc-tools build-rust` cannot compile a program that uses `std/json`, on the Rust backend:
+
+```
+[error] Generic(def `jsonCoreRenderFields` has unsupported pattern: Term.Name (Nil),Some(rust))
+[error] Generic(def `jsonCoreRenderFields` extracts `Cons` which is not a known enum constructor,Some(rust))
+[error] Generic(def `_normSegments` uses unsupported infix operator `::`,Some(rust))
+```
+
+All three are inside the STANDARD LIBRARY, not in the user program: `jsonCoreRenderFields` and
+`_normSegments` come from `std`, so any program that touches json hits them.
+
+### Why it matters downstream
+
+`rozum:clients/meeting/meeting.ssc` is a production PWA — it serves `:8405` on the operator's
+machine and is reachable from their phone over Tailscale. Its binary was built 2026-06-29 and
+**cannot be rebuilt today**: the running artifact is the only copy. That is the part worth acting
+on, more than the errors themselves — a service whose source no longer compiles is a service that
+cannot be fixed when it breaks.
+
+### Reproduce
+
+```sh
+cd <rozum>/clients/meeting
+<scalascript>/bin/ssc-tools build-rust meeting.ssc -o /tmp/out
+```
+
+### Note
+
+The JVM lane appears to have had the same `Cons` lowering trouble and was worked on 2026-08-05
+(release note: "FULL CHAIN for std/json.ssc on the jvm lane today: 14 Cons errors, then 10 …").
+This report is the Rust backend, which still fails — possibly the same fix has not been applied to
+`genRust`, in which case it may be cheap.
+
+Nothing is expected by any date; the downstream side has stopped trying to rebuild and left the
+working binary alone rather than replacing it with a broken one.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
