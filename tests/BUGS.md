@@ -52,7 +52,7 @@ bisection — the section-level split above is the expensive part, and it is don
      reported-at: 2026-08-08
      ssc-version: 071ded545
      confirmed: yes
-     fixed-in: 5000242ac
+     fixed-in: 924adc86d
      gate: tests/e2e/f-trailing-block-gate.sh -->
 
 **FIXED in `ce140eb69`, and the block was never the cause.** F was treating a curried `extern def`
