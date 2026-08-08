@@ -101,6 +101,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # `v3/uniml-classpath.sh` builds an sbt project, and the runner does not ship sbt — the same
+      # omission as the missing coursier above, in the other job. `ci.yml` uses this exact action.
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
       # SEPARATE JOB because this one costs an sbt build. UniML is an sbt project and v3's kernel is
       # not; the second front is available only when its classpath file exists. Without this step the
       # gate reports that it cannot run and exits 1 on CI — deliberately, since a capability

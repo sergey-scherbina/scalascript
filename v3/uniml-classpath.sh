@@ -14,8 +14,19 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 out="$ROOT/v3/.jars/uniml.cp"
 mkdir -p "$ROOT/v3/.jars"
 log="$(mktemp)"
+# Say WHY, not where. Pointing at a temp file is useless on CI, which throws the runner away —
+# on 2026-08-08 this printed "sbt failed; see /tmp/tmp.5QpHWR382O" 0.02 s after the step began,
+# which is `sbt: command not found` wearing the costume of a build failure, and the log naming it
+# was gone before anyone could read it. Print the tail; a missing tool then reads as a missing tool.
+if ! command -v sbt >/dev/null 2>&1; then
+  echo "uniml-classpath: sbt is not on PATH — this script builds an sbt project." >&2
+  echo "  CI: add sbt/setup-sbt@v1 to the job, as .github/workflows/ci.yml does." >&2
+  echo "  Locally: see setup.sh." >&2
+  exit 1
+fi
 if ! (cd "$ROOT/uniml" && sbt -batch "export unimlScala/Compile/fullClasspath") > "$log" 2>&1; then
-  echo "uniml-classpath: sbt failed; see $log" >&2
+  echo "uniml-classpath: sbt failed. Last 20 lines:" >&2
+  tail -20 "$log" >&2
   exit 1
 fi
 cp="$(grep -oE '^/[^ ]*classes[^ ]*' "$log" | tail -1)"
