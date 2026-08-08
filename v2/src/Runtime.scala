@@ -931,7 +931,10 @@ object Compiler:
                 case MapV(m) => Done(m(v0))
                 case ForeignV(m: collection.mutable.Map[?, ?]) =>
                   Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](v0))
-                case DataV("Stub", _) => Done(DataV("Stub", Vector.empty))
+                // Keep the breadcrumb. Blanking the fields here is why the repro printed a bare
+                // `Stub` instead of naming the method that was missing — the one piece of
+                // information anybody debugging this needs.
+                case s @ DataV("Stub", _) => Done(s)
                 case opv @ DataV("Op", _) =>
                   val avs1 = new Array[Value](1); avs1(0) = v0; Runtime.applyFallback(opv, avs1)
                 case DataV(_, fields) =>
@@ -3541,10 +3544,23 @@ object Prims:
 
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
-    // Stub breadcrumbs render as the bare tag in user-visible strings — the
-    // App-path flattens stub fields (line ~632) so most stubs arrive empty;
-    // un-flattened ones (methodOp propagation) must LOOK the same.
-    case DataV("Stub", _) => "Stub"
+    // A missing method must not become a STRING. This arm used to render the sentinel as the text
+    // "Stub" so that stubs looked uniform in user-visible output; the consequence is that a typo
+    // became data. rozum had `{"cell":{Stub}}` reach an HTTP response body with a 200 and not one
+    // line in the log — the missing method arrived at an end user as plausible JSON. String
+    // interpolation and `+` are the path it took, which is why this arm, not just Show, is fatal.
+    //
+    // Dispatch is untouched: `Stub` still exists as the soft landing for an unknown method. It is
+    // stopped where it would ESCAPE.
+    case DataV("Stub", fs) =>
+      val what = fs.headOption match
+        case Some(StrV(s)) => s"`$s`"
+        case _             => "a method that does not exist"
+      sys.error(
+        s"ssc: $what was called but does not exist, and the result reached output. " +
+        "This used to render as the text `Stub` and serialise as if it were data. " +
+        "Check the method name, or the receiver's type."
+      )
     // BEFORE IntV: CharV extends it, so the IntV arm would otherwise render the code point.
     case CharV(c)  => c.toString
     case IntV(n)   => n.toString
@@ -3946,6 +3962,20 @@ object Show:
     // Source tuples are TupleN → `(a, b)`. "Pair" (a -> b arrows, mira's own tuples)
     // keeps its `Pair(a, b)` rendering via the generic ctor case below.
     case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
+    // A missing method must not become OUTPUT. `Stub` is the graceful-dispatch sentinel for "no
+    // such method"; rendering it produced a plausible value that flowed onward and serialised —
+    // rozum had `{"cell":{Stub}}` reach an HTTP response body with a 200 and no log line, so a
+    // typo arrived at an end user as data. Dispatch keeps its soft landing; the boundary where the
+    // value would ESCAPE is where it stops.
+    case DataV("Stub", fs) =>
+      val what = fs.headOption match
+        case Some(StrV(s)) => s"`$s`"
+        case _             => "a method that does not exist"
+      sys.error(
+        s"ssc: $what was called but does not exist, and the result reached output. " +
+        "This used to print as `Stub` and serialise as if it were data. " +
+        "Check the method name, or the receiver's type."
+      )
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case SetV(elems) =>
       s"Set(${elems.iterator.map(show).mkString(", ")})"

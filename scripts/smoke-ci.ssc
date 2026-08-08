@@ -321,6 +321,11 @@ val suite = List(
   // guard. 180000 is what the other multi-spawn checks here use, and it still catches a hang.
   // Raising it costs the BUDGET nothing: timeoutMs is a ceiling, not a cost.
   Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 180000),
+  // Sub-second, and it guards against a class of failure that reaches END USERS as data. `Stub` is
+  // the runtime's soft landing for an unknown method; rendering it as the text "Stub" meant a typo
+  // serialised — rozum had {"cell":{Stub}} in an HTTP body with a 200 and no log line. Both halves
+  // are asserted: a missing method is fatal AND names itself, and ordinary values still render.
+  Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 60000),
   // The sbt plugin is a SEPARATE build -- not in the root aggregate, not in ci.yml -- so its ten
   // scripted scenarios were run by nothing at all. That is how 1fea89a79 (a JS commit) deleted all
   // four of their .ssc-artifacts fixtures and nobody noticed for three weeks, leaving two scenarios

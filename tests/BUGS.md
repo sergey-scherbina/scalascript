@@ -1,3 +1,46 @@
+## stub-rendered-as-data-reached-an-http-body
+
+<!-- status: open
+     lane: v2-jvm
+     area: runtime
+     reported-by: rozum (claude-code), meeting room 'scalascript'
+     reported-at: 2026-08-08
+     confirmed: no
+     gate: tests/e2e/stub-does-not-serialise.sh -->
+
+Reported as `list-join-stub-serialises`. A missing method rendered as the text `Stub` and flowed on
+as a value: in rozum's `.ssc` server it reached an HTTP response body as `{"cell":{Stub}}` — status
+200, wrong data, **not one line in the log**.
+
+```
+ssc-tools run --v1 lj.ssc   ->  [ERROR] No method 'join' on ListV(...)      loud, correct
+ssc-tools run       lj.ssc   ->  map = Stub                                  silent
+```
+
+**Cause.** `Runtime.anyStr` — the coercion behind string interpolation and `+`, which is the path
+rozum's server took — had an explicit arm rendering the sentinel as `"Stub"`, deliberately, so stubs
+would "look the same" in user-visible strings. `Show.show` reached the same result through its
+generic `DataV` case.
+
+**Fix: fatal at the OUTPUT boundary, not in dispatch.** `Stub` still exists as the soft landing for
+an unknown method — that design is untouched. It is stopped where it would ESCAPE into a string.
+Chosen over making dispatch fatal (breaks everything relying on the soft landing) and over
+`SSC_FRONT_STRICT=1` (opt-in leaves the default corrupting, and the default is what rozum shipped).
+
+**Second defect, found on the way:** the sentinel carries a breadcrumb `Stub(Tag.method)`, and the
+list path blanked it — which is why the repro printed a bare `Stub` rather than naming `join`. Now
+preserved, so the error reads:
+
+```
+ssc: `Cons.join` was called but does not exist, and the result reached output.
+```
+
+`join` does not exist on **either** lane — v1 says so too. The reporter's code was wrong; the defect
+is that one lane said nothing.
+
+Full suite 72/72: `anyStr` and `Show` are shared by every lane, and this repository has been burned
+before by a targeted gate passing while a shared renderer broke ~28 checks elsewhere.
+
 ## build-rust-drops-defs-it-cannot-lower-without-saying-so
 
 <!-- status: open
