@@ -44,6 +44,118 @@ is that one lane said nothing.
 Full suite 72/72: `anyStr` and `Show` are shared by every lane, and this repository has been burned
 before by a targeted gate passing while a shared renderer broke ~28 checks elsewhere.
 
+## f-assignment-headed-arm-body-drops-the-rest-and-returns-a-closure
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-08
+     ssc-version: 1f708ae22
+     confirmed: yes
+     gate: none -->
+
+Sibling of `f-ordered-match-arm-body-is-not-a-statement-sequence`, found while probing that fix for
+regressions, and **pre-existing** — measured identical before and after it, so it is not fallout.
+
+An arm body that STARTS with an assignment is parsed by `parseAssign`, which takes the assignment
+and nothing else, so the rest of the body is dropped:
+
+```
+def f(k: String): Int =
+  var acc = 0
+  k match
+    case "a" => acc = 5; acc
+    case _   => 0
+def main() = println(f("a"))
+
+F (native lane)          <closure>    <- wrong, and not even the right shape
+reference front (legacy) 5
+v1 interpreter           5
+```
+
+Another silent wrong answer, not a decline. It is deliberate as far as it goes — `armBodyExpr`
+routes an assign head away from the sequence path, and the comment at :1603 records why: the block
+form of a leading assign is `(seq ..)`, not `(let ..)`, so it is a different lowering rather than
+one more statement. What is missing is the CONTINUATION: after the `(seq ..)` the remaining
+statements still have to be parsed, and today they are discarded.
+
+Not fixed with its sibling on purpose: that claim was about `(global v)`, this needs the seq-form
+lowering reasoned through separately, and no corpus file currently hits it. Worth doing before any
+corpus file does, because the failure mode is a wrong answer rather than a refusal.
+
+## f-ordered-match-arm-body-is-not-a-statement-sequence
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-08
+     ssc-version: 59f2145df
+     confirmed: yes
+     fixed-in: 1f708ae22
+     gate: tests/e2e/f-global-v-gate.sh -->
+
+Front F treated the body of an **ordered-resolver** match arm as a single expression. Two defects
+followed from that one gap, and the quieter one is the worse one.
+
+**1. A multi-statement arm body silently returned its FIRST statement.** No decline, no diagnostic,
+wrong answer. Measured across three lanes on the same file:
+
+```
+def f(k: String): String = k match
+  case "a" => "xy".length; 3.toString
+  case _   => ""
+def main() = println(f("a"))
+
+F (native lane)          2      <- wrong
+reference front (legacy) 3
+v1 interpreter           3
+```
+
+**2. A `val` written inline in an arm body leaked out of the arm.** `parseExpr` consumed no `val`,
+so the remaining tokens were read by the TOP-LEVEL item parser as a top-level val. The entry then
+emitted `(prim cell.set (global n__cell) …)` while `collectTopVals` — which scans top level only,
+correctly — never declared that cell, and F declined the whole file over an unbound global **it had
+invented itself**.
+
+**The reported name never named the cause, and differed by initializer.** With a closed initializer
+(`val n = 1`) the invented cell surfaced: `unbound global (global n__cell)`. With an initializer
+mentioning an enclosing parameter (`val n = _lenOf(v, theme)`) that parameter is unbound at top
+level and surfaced *first*: `unbound global (global v)`. One mechanism, two symptoms, neither
+naming the construct at fault — and `v` is what the corpus reported, which is why this was filed
+against sixteen frontend examples that do not contain the construct at all.
+
+**Where it actually was: one module.** `runtime/std/ui/lower.ssc`, in `_propCss`:
+
+```
+case "paddingX" => val n = _lenOf(v, theme); s"padding-left:${n}px;padding-right:${n}px;"
+```
+
+Every frontend example imports it, so every one inherited the decline. Asking each module for its
+own `--front-report` verdict is what located it; the sixteen consumers were noise.
+
+**Why the first fix did nothing, and the lesson worth keeping.** The obvious repair — teach
+`armBodyExpr` about `val` — built clean, changed no behaviour whatsoever, and I nearly read that as
+"the mechanism story is wrong". It was not: `armBodyExpr` belongs to `parseCtorMatch`, and **which
+resolver a match uses is decided by its FIRST pattern** (`parseMatchArms` :1556). A string literal
+routes to `parseGenMatch`, whose ten arm-body sites each called a bare `parseExpr`. So `case "a" =>`
+and `case Some(n) =>` are the same construct through two parsers with two separate body handlers.
+Every test in the first version of the gate matched on a String and never reached the code I had
+edited — a green gate over an untouched path.
+
+**Fix:** the ordered resolver's arm bodies go through `armBodyExpr`, the ctor path's existing body
+parser, so the two families agree instead of drifting — `parseGenCtorPlain`, `parseGenInt`,
+`parseGenLit`, `parseGenUnit`, `parseGenVarPlain`, `parseGenVarGuard2`, `parseGenWildPlain`,
+`parseGenWildGuard2`, `parseTypedWild`, `parseTypedBind`. Guards are deliberately NOT sequences.
+A single-expression body is byte-unchanged (`armSeqCont` hits the arm boundary immediately). New
+`isArmValHead`/`parseArmVal` handle the val head, shaped after `parseDBlockVal` (:2441), and are
+wired into BOTH `armBodyExpr` and `armSeqStmt` — the second is the same construct one statement
+later (`a; val n = e; b`), and without it the leak survives behind a leading statement.
+
+The guard was taught a statement, not widened: an arm body naming something undefined is still
+refused, and now names it — before the fix the invented `n__cell` masked the real undefined name.
+
 ## build-rust-drops-defs-it-cannot-lower-without-saying-so
 
 <!-- status: open

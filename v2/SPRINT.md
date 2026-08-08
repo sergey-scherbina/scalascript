@@ -15,33 +15,51 @@ in its own worktree off `origin/main`.
 
 ## F coverage: the decline reasons left after 2026-08-08 (claim `f-underscore-global`)
 
-Measured, not guessed: `ssc info --front-report` over 140 corpus files after the binding-arm and
-`getOrElse` fixes landed — **38 F, 32 GAP, 64 BOTH-UNBOUND, 6 ERROR**. Ranking the names F reports:
+Measured, not guessed: `ssc info --front-report` over 140 corpus files. After the arm-body fix
+(`1f708ae22`): **53 F, 17 GAP, 65 BOTH-UNBOUND, 5 ERROR**, from 38/32/64/6 before it — 15 files
+GAP→F, one ERROR→BOTH-UNBOUND, and **no file regressed out of F**.
 
-    33  (global _)                 <- three times the next one
-     5  (global JsonCodec_derived)
+**Rank by GAP only.** The earlier ranking in this section counted every row, so it was topped by
+`(global _)` at 33 — but most of those are BOTH-UNBOUND rows, where the reference front declines
+too and the work is not ours. Ranked over GAP alone, which is what F actually owes, the top reason
+was `(global v)` at 16 of 32, and all 16 came from ONE module. A reason list that mixes the two
+verdicts ranks other people's problems above your own.
+
+Remaining, GAP only:
+
      4  (global Parser)
-     4  (global awaitClient)
-     4  (global _println)
-     3  (global self)
+     2  (global handler)
+     2  (global __u0)
+     1  each: row, multi, grade, effect, css, _ssc_frontend_name
 
-- [~] **`(global _)` — the top reason by a wide margin.** Cause NOT known. The obvious guess is
-      closed already: the shorthand lambda `xs.map(_ + 1)` lowers fine, so `_` is arriving from some
-      other position. Method that worked twice this week, in this order: ask each module for its own
-      decision (`--front-report` per file) to find where the reason originates rather than where it
-      surfaces; then diff the def names both fronts emit (`SSC_DUMP_DEFS`) to see whether F stops
-      emitting; then reduce BY DECLARATION, never by line — a line-level cut around a parse stop
-      moves the stop and cannot converge.
+- [x] **`(global v)` — 16 of the 32 GAP files, all frontend examples.** Cause: an ordered-resolver
+      arm body was parsed as a single expression, so an inline `val` leaked out of the arm and was
+      read as a top-level val — see `tests/BUGS.md`
+      `f-ordered-match-arm-body-is-not-a-statement-sequence`. It also silently returned the FIRST
+      statement of a multi-statement arm body, which is the worse half and had no diagnostic at all.
+      The 16 files never contained the construct: they import `runtime/std/ui/lower.ssc`, which does.
+      Gate: `tests/e2e/f-global-v-gate.sh`.
+- [ ] **`(global _)` still leads the BOTH-UNBOUND rows** and is NOT covered by the above. It stays
+      open, but it is not F coverage work until the census below says whose it is.
 - [ ] **Census the 64 `BOTH-UNBOUND`.** Both fronts agree there, so it is NOT an F gap; the earlier
       split was user-program errors versus plugin externs, and the extern half is now accepted by
       `validateNoReader`. What remains is unmeasured. This is a MEASUREMENT, and its useful outcome
       may well be "not our work" — which would change the coverage picture with no code at all.
-- [ ] The tail — `JsonCodec_derived`, `Parser`, `awaitClient`, `_println`, `self`. `Parser` is the
-      one whose reduction failed to transplant twice; start it from the closure, not the module.
+- [ ] The GAP tail, now the whole of it: `Parser` (4), `handler` (2), `__u0` (2), and six singles.
+      `Parser` is the one whose reduction failed to transplant twice; start it from the closure, not
+      the module. `__u0` is `runtime/std/ui/content.ssc`, which has a verified seven-line in-place
+      reduction where every line is load-bearing and eight hypotheses already eliminated.
 
 Rule this section exists to carry, learned the expensive way: **the name F reports is not
 necessarily where the fault is.** `Response` was three import levels from its cause and cost nine
-measurement runs. Ask each module for its OWN decision before chasing a name.
+measurement runs. `(global v)` was the same shape and cost none, because the first thing asked was
+each module's own `--front-report` verdict rather than the failing file's. Ask that first.
+
+Second rule, and this one cost a whole build: **which parser sees your construct is decided
+somewhere you are not looking.** A match routes to the ordered or the ctor resolver by its FIRST
+pattern, and the two have separate arm-body handlers. The fix to `armBodyExpr` was correct, built
+clean, and changed nothing at all, because every probe matched on a String and went to the other
+one. When a correct-looking fix moves no measurement, suspect the route before the reasoning.
 
 ## `package:` binds a namespace on the native lane (claim `native-package-namespace-impl`)
 
