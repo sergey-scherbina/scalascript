@@ -953,7 +953,7 @@ cells capture; if a cell here ever disagrees with a manual run again, start ther
      lane: native
      area: front
      gate: tests/conformance/curried-def-three-clauses.ssc
-     fixed-in: PENDING -->
+     fixed-in: 6d0066d14 -->
 
 Found 2026-08-04 while fixing `v2-front-curried-def-second-clause`, by adding a three-clause row to
 `tests/e2e/v2-front-coverage.sh` and watching it report `ERROR` instead of `F`:
