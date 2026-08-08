@@ -16,7 +16,7 @@ Newest first.
      lane: native
      area: front
      gate: tests/conformance/parameterless-def-local.ssc
-     fixed-in: PENDING -->
+     fixed-in: df5fe52f3 -->
 
 `def mk: Box = Box("loc")` declared INSIDE a body was not invoked at its mention on v2 / native,
 while the same declaration at top level was. v2 printed `<closure>` for **every** line and exited 0 —
