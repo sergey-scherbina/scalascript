@@ -3926,6 +3926,47 @@ JVM or Rust generators, which is how it was found. js passing while jvm+rust+was
 the two Scala-hosted generators rather than at the fixture or the VM. `wasm` shares the Rust
 generator, so it is likely one cause and not three.
 
+---
+
+**DIAGNOSED 2026-08-08, and the cause is not what the fixture's name suggests.** Still reproducing
+on `ed503b818`: jvm, rust and wasm fail identically, js passes.
+
+    Exception in thread "main" java.lang.RuntimeException: unknown prim2: __eq__
+      at R$.prim2(Gen.scala:294)
+      at Gen$package$.isEven$lzyINIT1$1$$anonfun$1(Gen.scala:458)
+
+**`__eq__` is not implemented in the JVM generator, and the program dies on the first call.** The
+output is not missing a line — there is no output at all, and the exit status is 1.
+
+**The harness turned a crash into a silent blank, which is why it read as a lost line.** `run_jvm`
+and its neighbours are `scli run … > "$2" 2>/dev/null`, so a generator whose program throws is
+indistinguishable from one that ran and printed nothing. The entry's own wording — "the expected
+line `1000` is simply absent" — is that artefact. Anyone reopening this should drop the `2>/dev/null`
+first; it cost nothing to find once the stderr was visible.
+
+**Nothing to do with mutual recursion or the trampoline.** `isEven`/`isOdd` come out of ssc1c as
+top-level `(def … (lam 1 …))` calling each other through `(app (global …))`, not as a `letrec`
+group — so `isSafeMutualTailRecGroup` and the `_mutual_<d>` dispatcher are never reached. The
+fixture is named for what it is meant to exercise; the defect sits upstream of that, in `n == 0`.
+
+**The entry's own guess that it is one cause and not three was right.**
+
+    v2/backend/js/JsBackend.scala:440    case "__eq__" => s"$$eq(${a(0)},${a(1)})"     ← why js passes
+    v2/backend/jvm/JvmBackend.scala:508  case _ => throw new RuntimeException(…)       ← falls through
+    v2/backend/rust/                     no occurrence of __eq__ at all                 ← wasm shares this
+
+**WHY THE FIX IS NOT ONE LINE, measured rather than assumed.** js's `$eq` (JsBackend.scala:611) is
+structural: identity first, then a bigint/number cross-type arm, then tag-and-field-wise recursion
+over constructor values, then element-wise over lists. On the JVM lane a constructor value is a
+`(tag: String, fields: Array[V])` pair and `V = Any`, so `a0 == a1` compares the field ARRAY BY
+REFERENCE and would answer `false` for equal data. A numbers-only `__eq__` would make this fixture
+green and diverge from js on the first structural comparison anywhere else — the parity harness
+exists to catch exactly that, so a partial implementation is worse than the current loud failure.
+
+So the work is: mirror `$eq` in `JvmBackend.prim2` and again in the Rust emitter, then re-run
+`v2/backend/check.sh` whole — the js output is the reference for every case, which is what makes
+"mirror it" checkable rather than a matter of taste.
+
 ## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
 <!-- status: fixed
      lane: v2-jvm
