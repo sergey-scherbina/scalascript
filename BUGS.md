@@ -1299,11 +1299,31 @@ just measured, so any sha written before it is stale by construction; and if a p
 forces another rebase, the sha has to be rewritten again.
 
 ## ssc-tools-swallows-piped-stdin — every command except lsp/repl reads stdin to EOF before the program runs
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: cli
      kind: bug
-     gate: none -->
+     gate: tests/e2e/stdin-belongs-to-the-program.sh
+     fixed-in: b44ff45ce -->
+
+**FIXED — and BOTH of the options this entry offered were taken, in order.** `--secrets-file <path>`
+landed first (S1) so there was a replacement before anything was removed, then a warning (S2), then
+the implicit slurp became opt-in behind `SSC_SOPS_STDIN=1` (S3, `b44ff45ce`). Tracked as
+`ssc-tools-stdin-belongs-to-the-program`; this entry is the report and was simply never closed.
+
+Measured 2026-08-08 on the same program the report used, all three paths:
+
+    printf 'ada\n' | bin/ssc run prompt.ssc                        -> reaches the program
+    printf 'ada\n' | bin/ssc-tools run --v1 prompt.ssc             -> reaches the program  (was: swallowed)
+    printf 'ada\n' | SSC_SOPS_STDIN=1 bin/ssc-tools run --v1 …     -> swallowed, as designed
+
+The third line is why the middle one is trustworthy: the escape hatch still consumes stdin, so the
+gate distinguishes two states rather than observing one. `tests/e2e/stdin-belongs-to-the-program.sh`
+PASSES and pins all three, including `--secrets-file` accepting a process substitution.
+
+The fork below is left as written. It was a real fork, it went to the room as P-5 requires, and the
+answer was option 4 with option 2 as the safety net — which is worth more on record than a tidy
+"fixed".
 
 **Found 2026-07-31 while verifying the fix for `std-has-no-stdin-primitive`** — which is the only
 reason it was findable: nothing could read stdin before, so nothing could notice that stdin was gone.
