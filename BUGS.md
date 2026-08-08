@@ -703,7 +703,7 @@ before the decision would freeze whichever answer runs today.
      lane: multi
      area: conformance
      kind: bug
-     fixed-in: PENDING-SHA
+     fixed-in: 565079c54b7c81cbc819b59e6a75b06193f6c7e7
      gate: - -->
 
 **FIXED 2026-08-08 — the three `@side = server` lines are gone, and removing them did more than
