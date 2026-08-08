@@ -1,0 +1,12 @@
+slug: front-diff-refusal-is-not-agreement
+branch: feature/front-diff-refusal-is-not-agreement
+agent: claude-code
+started: 2026-08-08T17:09:34Z
+heartbeat: 2026-08-08T17:09:34Z
+status: in-progress
+items: front-diff-passes-while-comparing-nothing
+paths: file:v3/front-diff.sh
+scope: |
+  50 refusals and exit 0. A refused case is a measurement that did not happen, not a
+  case that agreed, and must not count toward passing.
+next: make refusals fail, verify both directions
