@@ -2002,3 +2002,30 @@ Fixed here.
 **Measured:** N = 186 on both v3 lanes, DIFF 0 and CRASH 0 (the corpus grew to 366 cases). Fixtures
 50/50. Seven of eight gates green; `front-diff` is red on the pre-existing by-name divergence,
 identically to `origin/main`.
+
+## 39 · A file claim beats a module claim, and I was on the wrong side of that
+
+`ssc3-effect-protocol` was opened today at 09:42 with FILE claims on `Lower.scala`, `Parser.scala`,
+`Exec.scala`, `Ast.scala`, `AstText.scala`, `Loader.scala`, `Main.scala`, `Text.scala`,
+`TailCalls.scala`, `Verify.scala` and `Ir.scala` — eleven of the sixteen files in `v3/src`. My own
+`ssc3-core` held `v3` as a MODULE scope and I kept editing them: boxing in `Lower.scala`, the infix
+rule in `Parser.scala`, `__isTag__` and ranges in `Exec.scala`.
+
+`specs/claim-mutex.md` says a file scope is finer than a module scope, so theirs is the one that
+holds. **Neither the pre-push guard nor either of us noticed** — the first visible symptom was a
+merge conflict in `Lower.scala`, where their by-name/effects work and my boxing pass met. I resolved
+it keeping both, which was right, but resolving a collision is not the same as not having one.
+
+- [x] **39a — `ssc3-core` is narrowed to what they do not hold**: `v3/uniml`, `v3/specs`,
+      `v3/tests/front`, the five `v3/src` files outside their set (`BridgeV2`, `Front`, `Lexer`,
+      `Source`, `project`), the driver, the gates and the board files. The module scope is gone.
+
+- [x] **39b — the red gate on main stays theirs, and that is the point of saying so.** `front-diff`
+      reads 234 of 263 with 29 disagreements on `origin/main` itself — measured in a clean worktree,
+      not inferred — because by-name is implemented in two places: UniML's projection emits the
+      thunk and `rewriteByName` wraps eagerly in the lowering. Filed in `v3/BACKLOG.md` under their
+      claim. Fixing it would mean choosing where by-name lives, which is their decision to make.
+
+**What is left in my scope, honestly:** the UniML projection, the driver, the gates, the specs, and
+five kernel files that are mostly leaves. The next language work in `v3/src` belongs to whoever
+holds those files until that claim is released.
