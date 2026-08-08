@@ -139,7 +139,13 @@ uniml_classpath() {
   local ucp out tc
   ucp="$(cat "$UNIML_CP_FILE")"
   tc="$(toolchain)" || return 1
-  out="$(classes_for uniml "$ucp" "$ROOT/v3/src" "$ROOT/v3/uniml")" || return 1
+  # `alphabet/src` belongs here for the same reason it is in the kernel's unit on line ~109: since
+  # the two copies of the lexical alphabet were merged into one shared source directory,
+  # `v3/src/Lexer.scala` references `scalascript.alphabet.Alphabet`, so compiling `v3/src` WITHOUT
+  # it fails. The kernel's unit was updated by that refactor and this one was not, so the second
+  # front stopped compiling — and the driver's fallback is silent by design, which turned a compile
+  # error into "only these fronts are registered: none" two layers away.
+  out="$(classes_for uniml "$ucp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml")" || return 1
   printf '%s' "$out:$ucp:$tc"
 }
 
