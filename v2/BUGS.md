@@ -4141,6 +4141,52 @@ reports perf as TIMEOUT noise trains people to ignore it — which is how this o
 **Not attempted here** because it is neither the stale-baseline bookkeeping this claim took on nor
 a change I can justify without CI-side timing data.
 
+**RE-MEASURED 2026-08-08 — the recorded row is green and the nightly is red for a DIFFERENT one.**
+Latest run (`1016d087e`, 08-08 04:46): shard 0/4, 2/4 and 3/4 **success**; only 1/4 fails, with
+
+    ✗ 1 REGRESSION row(s) in rostered cases:
+        ui-remote-table  v2  FAIL
+
+`scljet-jdbc` is the row this entry names and it sits in shard 3/4, which passed. Kept OPEN rather
+than closed: a TIMEOUT is load-dependent, this workflow has failed on most nights (one success on
+08-06 in the last eight runs), and one green shard is not proof the timeout cannot recur. What is
+now recorded is that **it is not the reason the nightly is red**, so anyone chasing that red should
+start at the row below and not here.
+
+`ui-remote-table v2 FAIL` has NO entry of its own. The one entry naming that case,
+`v21-runtime-taxonomy-ui-remote-table-stale`, is `fixed` since 2026-07-11 and is about a stale
+manifest classification, not about the v2 lane failing the case. So the nightly's actual red is
+unrecorded — filed as `corpus-contract-ui-remote-table-v2-unrecorded` below.
+
+## corpus-contract-ui-remote-table-v2-unrecorded — the nightly's actual red row has no entry
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: regression
+     gate: .github/workflows/corpus-contract.yml
+     fixed-in: - -->
+
+**Found 2026-08-08 while re-measuring `corpus-contract-scljet-jdbc-v2-timeout`**, which turned out
+to name a row that now passes. The Corpus Contract nightly is red, and this is why:
+
+    Corpus Contract shard 1/4 (int/js/v2 differential)
+    ✗ 1 REGRESSION row(s) in rostered cases:
+        ui-remote-table  v2  FAIL
+
+Shards 0, 2 and 3 pass. The workflow has been red on seven of its last eight nights (one success,
+08-06), so this is not a one-off.
+
+**Not covered by the existing entry for that case.** `v21-runtime-taxonomy-ui-remote-table-stale` is
+`fixed` (2026-07-11, `4cdca959c`) and is about the case being ABSENT from a blocking manifest after
+it started passing — the opposite direction from a v2 lane failure, and about the taxonomy script
+rather than the contract.
+
+**Not diagnosed.** The next step is the row itself: run the case on the v2 lane and on int, and see
+what the differential actually reports. This entry exists so that whoever looks at the red nightly
+starts from the row that is failing rather than from a stale one — which is what cost the time that
+produced it.
+
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
 <!-- status: fixed
      lane: native
