@@ -5,7 +5,7 @@ started: 2026-08-08T18:00:00Z
 heartbeat: 2026-08-08T18:00:00Z
 status: implementing
 items: sbt-plugin-real-ssc
-paths: file:v1/tools/sbt-plugin file:BACKLOG.md
+paths: file:v1/tools/sbt-plugin file:BACKLOG.md file:tests/e2e/sbt-plugin-scripted.sh
 scope: |
   All 13 scripted scenarios run against MOCKS. They prove the wiring and prove nothing about the
   real toolchain — the same gap that let `ssc new` emit a well-formed coordinate for an artifact
