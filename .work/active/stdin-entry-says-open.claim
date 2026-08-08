@@ -1,0 +1,11 @@
+slug: stdin-entry-says-open
+branch: feature/stdin-entry-says-open
+agent: claude-code
+started: 2026-08-08T07:34:41Z
+heartbeat: 2026-08-08T07:34:41Z
+status: claimed-before-planning
+items: ssc-tools-swallows-piped-stdin is fixed and gated but its entry still reads open with gate none
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
