@@ -1,0 +1,19 @@
+# Three facts, in one run. Counting invocations rather than timing: on a shared host a stopwatch
+# measures the host, and this has to be true on a busy machine too.
+#   1. a second compile with nothing changed does NOT fork ssc  (it forked twice before this work)
+#   2. editing a .ssc source DOES fork it again
+#   3. changing sscBackends DOES too — nothing under src/ moves, so a source-only cache key would
+#      keep yesterday's targets and call them fresh
+> resetCalls
+> compile
+> compile
+> expectBuilds 1
+> touchSource
+> compile
+> expectBuilds 2
+# 4, not 3: two backends mean two `ssc build` invocations, one per target. The first run of this
+# scenario expected 3 and the count said 4 — the expectation was wrong, not the plugin, and a
+# counter is what made that distinguishable from a cache miss.
+> set sscBackends := Seq("jvm", "js")
+> compile
+> expectBuilds 4

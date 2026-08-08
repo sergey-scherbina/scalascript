@@ -152,6 +152,10 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       val artifactDir = (Compile / sscArtifactDir).value
       val backends = sscBackends.value
       val log = streams.value.log
+      // Hoisted: sbt's macro forbids `.value` inside the cached closure below.
+      val binary = sscBinary.value
+      val extraArgs = sscExtraArgs.value
+      val cacheStore = streams.value.cacheDirectory / "ssc-compile"
       if (sourceDirs.isEmpty) {
         log.info("[ssc] no .ssc sources found")
         Seq.empty[File]
@@ -160,26 +164,50 @@ object ScalascriptInteropPlugin extends AutoPlugin {
         // single backend writes to the flat artifactDir (backward-compatible);
         // multiple backends each write to artifactDir/<backend>/ so outputs
         // don't collide.
-        backends.flatMap { backend =>
-          val outDir = if (backends.lengthCompare(1) <= 0) artifactDir else artifactDir / backend
-          IO.createDirectory(outDir)
-          sourceDirs.foreach { dir =>
-            SscRunner.run(
-              binary = sscBinary.value,
-              args = Seq(
-                "build",
-                "--incremental",
-                dir.getAbsolutePath,
-                "--artifact-dir",
-                outDir.getAbsolutePath,
-                "--backend",
-                backend
-              ) ++ sscExtraArgs.value,
-              log = log
-            )
-          }
-          (outDir ** "*").get().filter(_.isFile).toSeq
-        }.distinct
+        // Wrapped in sbt's change tracking. Measured before this: two `sbt compile` runs with
+        // nothing edited forked `ssc build` TWICE. ssc is incremental internally, but that happens
+        // where sbt cannot see it — sbt knew neither the inputs nor the outputs, so it could not
+        // skip the task nor invalidate what depends on it. A build tool that reruns the compiler on
+        // every no-op command is the difference between used and merely tolerated.
+        //
+        // The backend list is part of the key, via a stamp file: change `sscBackends` and nothing
+        // under src/ moves, so a source-only key would keep yesterday's targets and call it fresh.
+        // The cache lives under streams' cacheDirectory, i.e. below target/, so `sbt clean` clears
+        // it — which is what a user means by clean.
+        // Written only when it CHANGES. Rewriting it unconditionally updates its mtime on every
+        // invocation, so a lastModified-keyed cache misses every time — which is exactly what the
+        // first attempt did, and the invocation-counting scenario said `saw 2` rather than letting
+        // it look like it worked.
+        val backendStamp = artifactDir / ".ssc-backends"
+        IO.createDirectory(artifactDir)
+        val backendsText = backends.mkString("\n")
+        val currentStamp = if (backendStamp.exists()) IO.read(backendStamp) else null
+        if (currentStamp != backendsText) IO.write(backendStamp, backendsText)
+        val inputs = sourceDirs.flatMap(dir => (dir ** "*.ssc").get()).toSet + backendStamp
+        val build = FileFunction.cached(cacheStore, FilesInfo.lastModified, FilesInfo.exists) {
+          (_: Set[File]) =>
+            backends.flatMap { backend =>
+              val outDir = if (backends.lengthCompare(1) <= 0) artifactDir else artifactDir / backend
+              IO.createDirectory(outDir)
+              sourceDirs.foreach { dir =>
+                SscRunner.run(
+                  binary = binary,
+                  args = Seq(
+                    "build",
+                    "--incremental",
+                    dir.getAbsolutePath,
+                    "--artifact-dir",
+                    outDir.getAbsolutePath,
+                    "--backend",
+                    backend
+                  ) ++ extraArgs,
+                  log = log
+                )
+              }
+              (outDir ** "*").get().filter(_.isFile).toSeq
+            }.distinct.toSet
+        }
+        build(inputs).toSeq
       }
     },
 

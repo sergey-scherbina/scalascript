@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Counts its own invocations. The point of the incremental scenario is not how LONG a build takes
+# but how MANY times ssc is forked: timing on a shared dev host is noise, a count is not.
+set -euo pipefail
+# Log beside the script: no env plumbing needed, and the scenario reads the same path.
+echo "$*" >> "$(dirname "$0")/calls.log"
+if [ "$1" = "build" ]; then
+  art=""
+  while [ $# -gt 0 ]; do
+    [ "$1" = "--artifact-dir" ] && art="$2"
+    shift
+  done
+  [ -n "$art" ] || exit 1
+  mkdir -p "$art"
+  printf '{"magic":"SSCART","moduleName":"demo"}\n' > "$art/demo.scim"
+  exit 0
+fi
+[ "$1" = "generate-facade" ] && exit 0
+[ "$1" = "link" ] && exit 0
+exit 0
