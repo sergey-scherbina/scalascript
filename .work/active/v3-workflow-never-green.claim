@@ -1,0 +1,11 @@
+slug: v3-workflow-never-green
+branch: feature/v3-workflow-never-green
+agent: claude-code
+started: 2026-08-08T16:07:20Z
+heartbeat: 2026-08-08T16:07:20Z
+status: claimed-before-planning
+items: v3-ci-workflow-red-since-introduction
+paths: file:.github/workflows/v3.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
