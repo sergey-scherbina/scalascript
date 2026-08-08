@@ -17,6 +17,8 @@ import scalascript.frontend.*
  */
 class SignalListLiteralTest extends AnyFunSuite:
 
+  private final case class Todo(title: String, done: Boolean)
+
   private def emit(initial: Any): String =
     val backend = new CustomFrameworkBackend
     val sig     = new ReactiveSignal[Any]("items", initial)
@@ -51,13 +53,39 @@ class SignalListLiteralTest extends AnyFunSuite:
     assert(!js.contains("['plain']"), "a scalar was wrapped in an array")
   }
 
-  // The BOUNDARY, asserted rather than left implicit: a case-class instance is still refused, and
-  // the refusal must SAY that it is a decision not yet taken rather than look like an oversight.
-  // `frontend/custom` depends on `frontendCore` only — it cannot see the interpreter's value type —
-  // so encoding instances is a question of where the encoder lives, not of what it prints.
-  test("an unsupported value is still refused, and the message names the open decision") {
-    final case class Todo(title: String)
-    val thrown = intercept[IllegalArgumentException](emit(Todo("x")))
+  // ── case classes, maps and tuples ───────────────────────────────────────────
+  // The shape is MIRRORED from `RestRuntime._toJsonValue`, which already answers this question for
+  // this language. These assertions are what stops the two drifting apart silently.
+
+  test("a case class encodes as a JS object keyed by field name") {
+    val js = emit(Todo("write", true))
+    assert(js.contains("""{'title':'write','done':true}"""), s"got:\n$js")
+  }
+
+  test("a list of case classes encodes through") {
+    val js = emit(List(Todo("a", false), Todo("b", true)))
+    assert(js.contains("""[{'title':'a','done':false},{'title':'b','done':true}]"""), s"got:\n$js")
+  }
+
+  test("a tuple is an array, because _1 and _2 name nothing a consumer can use") {
+    assert(emit((1, "x")).contains("""[1,'x']"""))
+  }
+
+  test("a map is a JS object with stringified keys") {
+    assert(emit(Map("a" -> 1)).contains("""{'a':1}"""))
+  }
+
+  // Recorded as an assertion rather than left to be discovered: `Some` is a Product whose element
+  // is named `value`, so it encodes as an object — the SAME as the REST side. Agreeing with the
+  // existing convention beats being separately clever, and if either side changes this fails.
+  test("Option follows the same rule as the REST encoder, deliberately") {
+    assert(emit(Some(3)).contains("""{'value':3}"""))
+  }
+
+  // The BOUNDARY still exists, just further out, and the refusal must keep pointing at the entry
+  // that owns the decision rather than reading as an oversight.
+  test("a value with no shape rule is still refused, and the message names the entry") {
+    val thrown = intercept[IllegalArgumentException](emit(new Object))
     assert(thrown.getMessage.contains("jsLiteral"))
     assert(thrown.getMessage.contains("custom-jsemitter-signal-list-literal"),
       s"the refusal should point at the entry that owns the decision, got: ${thrown.getMessage}")

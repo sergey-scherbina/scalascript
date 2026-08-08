@@ -1230,17 +1230,38 @@ private[custom] object StaticJsEmitter:
     // time — the whole program, not just that signal (`custom-jsemitter-signal-list-literal`).
     // Note `ReactiveSignalList` is a different type with its own path; this is the plain signal
     // whose value happens to be a sequence.
+    // A MAP is a JS object; its keys are stringified, values encoded.
+    case m: Map[?, ?]  =>
+      m.iterator.map { (k, v) =>
+        val ks = k match { case s: String => s; case other => String.valueOf(other) }
+        s"${jsString(ks)}:${jsLiteral(v)}"
+      }.mkString("{", ",", "}")
     case xs: Iterable[?] => xs.map(jsLiteral).mkString("[", ",", "]")
     case xs: Array[?]    => xs.map(jsLiteral).mkString("[", ",", "]")
+    // A case-class instance is a JS object keyed by field name; a TUPLE is an array, because its
+    // synthetic `_1`/`_2` names carry no meaning a consumer could use.
+    //
+    // MIRRORED, NOT INVENTED. `RestRuntime._toJsonValue` (v1/runtime/http-server) already answers
+    // this exact question for this language — map to object, other iterable to array, product with
+    // all-`_N` names to array, otherwise object by field name — and two subsystems of one language
+    // encoding the same value differently is the shape this repository has paid for repeatedly.
+    // The two cannot SHARE the code (`frontend/custom` depends on `frontendCore` alone and must not
+    // reach into the http-server tree), so this is a deliberate duplicate with its source named;
+    // unifying them is recorded in `custom-jsemitter-signal-list-literal`.
+    //
+    // A consequence worth seeing rather than discovering: `Some(x)` is a Product named `value`, so
+    // it encodes as `{"value":x}` — the same as the REST side. Agreeing beats being separately
+    // clever.
+    case p: Product if p.productArity > 0 =>
+      val names = p.productElementNames.toList
+      val vals  = (0 until p.productArity).map(p.productElement).toList
+      if names.forall(_.matches("_[0-9]+")) then vals.map(jsLiteral).mkString("[", ",", "]")
+      else names.iterator.zip(vals.iterator).map((k, v) => s"${jsString(k)}:${jsLiteral(v)}").mkString("{", ",", "}")
     case other         => throw new IllegalArgumentException(
       s"jsLiteral: unsupported value type ${other.getClass.getName} ($other).  " +
-      "Supported: String / Int / Long / Double / Float / Boolean / null, and sequences of those.  " +
-      // NOT an oversight, and the message says so: a case-class instance needs a decision about
-      // WHERE the encoder lives, not about what it prints. `frontend/custom` depends on
-      // `frontendCore` alone and cannot see the interpreter's value type, so encoding instances
-      // means either lifting an abstraction into core or reflecting here — that is the open slice
-      // recorded under `custom-jsemitter-signal-list-literal` in `v2/BUGS.md`.
-      "A case-class instance is deliberately still refused: see custom-jsemitter-signal-list-literal."
+      "Supported: String / Int / Long / Double / Float / Boolean / null, sequences and maps of " +
+      "those, and case classes (by field name) / tuples (as arrays).  " +
+      "See custom-jsemitter-signal-list-literal if you need another shape."
     )
 
   /** JS-encoded string literal — escapes the four characters

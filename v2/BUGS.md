@@ -7208,14 +7208,27 @@ recursively encode `List`/`InstanceV`/`Map` values, which is its own slice).
 `jsLiteral` gained a recursive `Iterable`/`Array` arm, so a `Signal[List[_]]` of scalars seeds a JS
 array and the program emits. `frontendCustom/test` is 72/72.
 
-**The instance half is a decision about WHERE the encoder lives, not about what it prints**, and
-that is the part the original entry called "its own slice" without saying why. `frontend/custom`
-depends on `frontendCore` ALONE — it cannot see the interpreter's value type at all — so encoding
-`InstanceV` means either lifting an abstraction into core or reflecting here. The refusal message
-now names this entry, so the next person meets the decision instead of reading it as an oversight.
+**FINISHED 2026-08-08 — case classes, maps and tuples encode too.** `frontendCustom/test` 77/77.
 
-`Map` is deliberately NOT encoded either: a JS object needs string keys, and what a non-string key
-should become is the same open question.
+**The decision was not mine to make: this repository had already made it.** The open question was
+what a case-class instance, a tuple and a map should look like in JS, and
+`RestRuntime._toJsonValue` (`v1/runtime/http-server`) answers exactly that for exactly this
+language — map to object with stringified keys, other iterable to array, `Product` whose element
+names are all `_N` to array, otherwise object keyed by field name. `jsLiteral` now MIRRORS that
+shape. Two subsystems of one language encoding the same value differently is the shape this
+repository has paid for repeatedly; agreeing with the existing answer beat inventing a second one.
+
+A consequence is asserted rather than left to be discovered: `Some(x)` is a `Product` whose element
+is named `value`, so it encodes as `{"value":x}` — the same as the REST side. If either side ever
+changes that, the test fails.
+
+**What is genuinely left is the DUPLICATION, not the shape.** The two encoders cannot share code —
+`frontend/custom` depends on `frontendCore` alone and must not reach into the http-server tree — so
+this is a deliberate copy with its source named in the code. Lifting one encoder both can use is
+the real remaining slice, and it is smaller and better-defined than the question this entry opened
+with. `InstanceV` never needed handling here after all: the value reaching `jsLiteral` on this path
+is a plain Scala value, and the content-plugin bridge that builds signals from a `.ssc` program
+refuses non-scalars outright.
 
 Reproduced before fixing: three list shapes threw
 `unsupported value type scala.collection.immutable.$colon$colon`, and the scalar control passed
