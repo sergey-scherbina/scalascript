@@ -596,6 +596,42 @@ is misleading, and the corpus coverage picture is better than the numbers sugges
 files run correctly — the reference front compiles and executes them, it is only the static
 pre-check that objects.
 
+### CENSUS, 2026-08-08 — and it CORRECTS the paragraph above
+
+"These files run correctly" was asserted, not measured. Measured now, by running all 65 of them:
+
+    20 of 65   run cleanly            -> the static pre-check refused them WRONGLY
+    45 of 65   do not run
+
+So the claim holds for **less than a third**. The 45 break down as:
+
+    21  unbound global AT RUNTIME     -> the pre-check was RIGHT: nothing binds the name in this lane
+    10  unhandled runtime effect      -> needs a handler/plugin; unrelated to the check
+     2  native TLS server             -> environment
+    12  other, incl. partial output
+
+The runtime-unbound names are the same family the entry above calls "names the RUNTIME binds" —
+`graphqlQuery`, `htmlToPdfBase64`, `Cluster_connect`, `RdfCodec_derived`, `_println`,
+`contentToolkitBlock`, `_ssc_frontend_name`. For 21 files the runtime does **not** bind them. That
+does not make the label "user error" right either; it makes it a missing PLUGIN in this lane. But it
+does mean a registry of runtime-bound names, the fix this entry points at, would have accepted
+programs that then die anyway — which is worth knowing before building it.
+
+**What the census does settle, and it is the useful part:** none of the 65 is an F LOWERING gap.
+Neither front's decision is at issue in any of them, so they do not belong in F's denominator:
+
+    140 corpus files
+    -65 BOTH-UNBOUND   not F's decision either way
+    = 75 files where F's lowering decides the outcome — 53 F, 17 GAP, 5 ERROR
+
+**F handles 53 of the 75 files that are actually its responsibility — 71%, not the 38% that
+53-of-140 suggests.** Quote the 75 denominator, or F's coverage reads as half of what it is.
+
+The classifier that was tried first and thrown away: grepping each unbound NAME for its origin
+(declared extern / runner-synthesised / runtime). Names like `s`, `db`, `doc` and `self` match
+almost any file, so it answered confidently and wrongly for a third of the list. Running the program
+is unambiguous and costs the same.
+
 **ONE MECHANISM WAS AUTHORISED, IMPLEMENTED, MEASURED AND REVERTED — record it so it is not tried
 again.** The idea: since `BOTH-UNBOUND` means the REFERENCE front fails the same check, F's program
 is "no worse" and should be kept instead of delegating. It is wrong, and cheaply so.

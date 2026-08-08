@@ -76,10 +76,15 @@ Remaining, GAP only:
       Gate: `tests/e2e/f-global-v-gate.sh`.
 - [ ] **`(global _)` still leads the BOTH-UNBOUND rows** and is NOT covered by the above. It stays
       open, but it is not F coverage work until the census below says whose it is.
-- [ ] **Census the 64 `BOTH-UNBOUND`.** Both fronts agree there, so it is NOT an F gap; the earlier
-      split was user-program errors versus plugin externs, and the extern half is now accepted by
-      `validateNoReader`. What remains is unmeasured. This is a MEASUREMENT, and its useful outcome
-      may well be "not our work" — which would change the coverage picture with no code at all.
+- [x] **Censused the 65 `BOTH-UNBOUND`, 2026-08-08 — and the useful outcome WAS "not our work".**
+      Ran all 65: **20 run cleanly** (the static pre-check refused them wrongly) and 45 do not — 21
+      on an unbound global at RUNTIME, where the pre-check was right and the name is bound nowhere in
+      this lane, 10 on an unhandled runtime effect, 2 on TLS, 12 other. That CORRECTS
+      `tests/BUGS.md` `both-unbound-is-mostly-plugin-intrinsics-not-user-error`, which asserted these
+      files run correctly: true for less than a third.
+      **The denominator is the payoff.** None of the 65 turns on F's lowering, so F's real scope is
+      140 − 65 = **75 files, of which F handles 53 — 71%, not the 38% that 53-of-140 suggests.**
+      Quote the 75, or F's coverage reads as half of what it is. Achieved with no code at all.
 - [ ] The GAP tail, now the whole of it: `Parser` (4), `handler` (2), `__u0` (2), and six singles.
       `Parser` is the one whose reduction failed to transplant twice; start it from the closure, not
       the module. `__u0` is `runtime/std/ui/content.ssc`, which has a verified seven-line in-place
