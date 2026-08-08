@@ -102,6 +102,22 @@ object ScalascriptInteropPlugin extends AutoPlugin {
       *
       *  A classifier rather than the main artifact: the plain jar carries the Scala facades that
       *  `sscGenerateFacade` generates and sbt compiles, so the two are different things. */
+    val sscDistDir = settingKey[File](
+      "Where distribution outputs go (executable JAR, native binary). Defaults to target/ssc-dist."
+    )
+    val sscMainSource = settingKey[Option[File]](
+      "The single .ssc entry point for distributions that need exactly one. `ssc build-rust` takes " +
+      "ONE file, unlike `build-jvm` which takes many, so this is required for sscBuildRust and " +
+      "ignored by sscBuildJvm. Left as None the task fails with the list of candidates rather " +
+      "than picking one."
+    )
+    val sscBuildJvm = taskKey[File](
+      "Build a compiler-free executable JAR via `ssc build-jvm` into sscDistDir."
+    )
+    val sscBuildRust = taskKey[File](
+      "Build a native binary via `ssc build-rust` (rust backend + cargo) into sscDistDir."
+    )
+
     val SscClassifier = "ssc"
 
     val sscManagedDependencies = settingKey[Seq[ModuleID]](
@@ -130,6 +146,56 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     Test / sscSourceDirectories := Seq((Test / sourceDirectory).value / "scalascript"),
     Compile / sscArtifactDir := (Compile / target).value / "ssc-artifacts",
     Compile / sscLinkedJar := (Compile / sscArtifactDir).value / "linked.jar",
+    Compile / sscDistDir := (Compile / target).value / "ssc-dist",
+    Compile / sscMainSource := None,
+
+    // Distributions. These are NOT `build --backend` under another name -- checked against
+    // `ssc --help`: build-jvm produces a compiler-free executable JAR and build-rust a native
+    // binary via cargo, neither of which the cross-build path can make. That is why the plugin's
+    // existing multi-backend support did not already cover them.
+    Compile / sscBuildJvm := {
+      val sources = (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
+      val out = (Compile / sscDistDir).value / (moduleName.value + ".jar")
+      val log = streams.value.log
+      if (sources.isEmpty) sys.error("sscBuildJvm: no .ssc sources under " +
+        (Compile / sscSourceDirectories).value.mkString(", "))
+      IO.createDirectory(out.getParentFile)
+      SscRunner.run(
+        binary = sscBinary.value,
+        args = Seq("build-jvm", "-o", out.getAbsolutePath) ++
+          sources.map(_.getAbsolutePath) ++ sscExtraArgs.value,
+        log = log
+      )
+      out
+    },
+
+    // `ssc build-rust` takes EXACTLY ONE .ssc file, unlike build-jvm. Rather than pick a file for
+    // the user -- silently building the wrong entry point is worse than not building -- an ambiguous
+    // project is told what to set and which candidates it has.
+    Compile / sscBuildRust := {
+      val sources = (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
+      val chosen = (Compile / sscMainSource).value.orElse {
+        // lengthCompare, not sizeCompare: sbt plugins compile on Scala 2.12, where the latter
+        // does not exist. The file already uses lengthCompare a few lines up for the same reason.
+        if (sources.lengthCompare(1) == 0) sources.headOption else None
+      }
+      val entry = chosen.getOrElse(sys.error(
+        if (sources.isEmpty) "sscBuildRust: no .ssc sources found"
+        else "sscBuildRust: `ssc build-rust` builds ONE entry point and this project has " +
+             sources.size + ". Set `Compile / sscMainSource := Some(file(\"...\"))`. Candidates: " +
+             sources.map(_.getName).sorted.mkString(", ")
+      ))
+      val out = (Compile / sscDistDir).value / moduleName.value
+      IO.createDirectory(out.getParentFile)
+      SscRunner.run(
+        binary = sscBinary.value,
+        args = Seq("build-rust", "-o", out.getAbsolutePath, entry.getAbsolutePath) ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+      out
+    },
     Test / sscTestResultsDir := (Test / target).value / "ssc-test-results",
     sscArtifactDir := (Compile / sscArtifactDir).value,
     sscLinkedJar := (Compile / sscLinkedJar).value,

@@ -1,0 +1,10 @@
+# build-jvm takes many sources; build-rust takes exactly one and must not choose for the user.
+> sscBuildJvm
+> checkJvmCall
+# Two candidates and no sscMainSource: refuse, and say which files it saw.
+-> sscBuildRust
+> checkRustRefused
+# Told which one, it builds that one and only that one.
+> set Compile / sscMainSource := Some((baseDirectory.value / "src" / "main" / "scalascript" / "demo.ssc"))
+> sscBuildRust
+> checkRustCall

@@ -15,7 +15,7 @@ Measured surface: 7 of 67 CLI commands (`build`, `link`, `test`, `run`, `repl`, 
 `generate-facade`), every one of them exercised by a scripted scenario. The gap is surface, not
 coverage. Multi-backend already works (`sscBackends`, exercised by `cross-build`).
 
-### S1 — the linked jar reaches sbt's artifacts
+### S1 — the linked jar reaches sbt's artifacts — DONE
 
 `sscLink` produces a runnable JAR and hands it to nobody: `packagedArtifacts`, `artifacts`,
 `addArtifact` and `publish` appear nowhere in the plugin. So a ScalaScript library cannot be
@@ -24,7 +24,7 @@ install a build-tool plugin in the first place.
 
 Do the wiring only. Publishing anywhere is the owner's action, not this task's.
 
-### S2 — sbt must see the compile's inputs and outputs
+### S2 — sbt must see the compile's inputs and outputs — DONE
 
 `sscCompile` has no `FileFunction.cached`, no `lastModified` check, nothing: **every** `sbt compile`
 forks `ssc build --incremental` unconditionally. The incrementality lives inside ssc, where sbt
@@ -33,7 +33,7 @@ cannot see it, so sbt can neither skip the task nor invalidate what depends on i
 Measure before and after rather than asserting an improvement — the claim "this is slow" is mine
 from reading the code, not from a stopwatch.
 
-### S3 — the distribution family
+### S3 — the distribution family — build-jvm and build-rust DONE
 
 Not one command but several, and they differ in kind. Checked against `ssc --help`, these are NOT
 aliases of `build --backend`, so the existing multi-backend support does not cover them:
@@ -46,7 +46,15 @@ aliases of `build --backend`, so the existing multi-backend support does not cov
 | `build --target ios\|macos` | a SwiftUI Swift package |
 | `emit-spa`, `emit-lib`, `bundle`, `package`, `install` | the rest of the ship set |
 
-Start with `build-jvm` and `build-rust`; the rest by demand.
+`sscBuildJvm` and `sscBuildRust` landed, with `sscDistDir` (default `target/ssc-dist`) and
+`sscMainSource`. The two commands differ in a way worth stating: **build-jvm takes many sources,
+build-rust takes exactly one**. Rather than pick an entry point, `sscBuildRust` refuses when a
+project has several and lists the candidates — silently building the wrong entry is worse than not
+building. Scenario `distributions` asserts all three: jvm receives BOTH sources, rust REFUSES with
+two candidates, and once told, builds that one and not the other.
+
+Remaining by demand: `build --target desktop|ios|macos`, `emit-spa`, `emit-lib`, `bundle`,
+`package`, `install`.
 
 ### Deliberately out of scope
 

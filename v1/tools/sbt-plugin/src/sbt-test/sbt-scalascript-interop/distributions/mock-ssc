@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Records the argv of every call so the scenario can assert WHAT was asked for, not just that
+# something happened, and writes whatever -o names so the task's output file exists.
+set -euo pipefail
+echo "$*" >> "$(dirname "$0")/calls.log"
+out=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "-o" ] && out="$a"
+  prev="$a"
+done
+case "$1" in
+  build-jvm|build-rust)
+    [ -n "$out" ] || { echo "[mock-ssc] $1: no -o" >&2; exit 1; }
+    mkdir -p "$(dirname "$out")"
+    printf 'mock-%s-artifact' "$1" > "$out"
+    ;;
+esac
+exit 0
