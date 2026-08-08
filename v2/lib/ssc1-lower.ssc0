@@ -2514,6 +2514,17 @@ def resolveE = (expr) =>
         }
       else if #seq(tag, "block") then
         -- KC9: resolve each block item
+        -- A parenless def declared INSIDE this block is a parameterless method just as a top-level one
+        -- is, but `parameterlessDefsCell` is filled once per module from `collectParameterlessDefs`
+        -- over the TOP-LEVEL statement list, which never descends into a body. So `def mk: Box` in a
+        -- body was never registered and legacy printed `<closure>`, exit 0 — a plausible wrong answer
+        -- rather than a failure. This has to be on the RESOLVE side: a def body is resolved by
+        -- `resolveE` before `lowerBlock` ever sees it.
+        --
+        -- Saved and restored around the walk rather than added globally: the cell is one flat list, so
+        -- a local name left in it would auto-apply a same-named top-level `def f()` that legitimately
+        -- takes parens. Same shape as `prevCtx`/`prevHR` further down.
+        -- (v2/BUGS.md legacy-front-local-parameterless-def-not-invoked.)
         let rec resolveBlock = (ss) =>
           match ss {
             case Nil => Nil
@@ -2583,7 +2594,11 @@ def resolveE = (expr) =>
                   else Cons(s, resolveBlock(rest))
               }
           } in
-        Pair("block", resolveBlock(data))
+        let prevPd = #cell.get(parameterlessDefsCell) in
+        let _setPd = #cell.set(parameterlessDefsCell, appendL(collectParameterlessDefs(data), prevPd)) in
+        let resolved = Pair("block", resolveBlock(data)) in
+        let _rstPd = #cell.set(parameterlessDefsCell, prevPd) in
+        resolved
       else
         expr
   }
@@ -2685,7 +2700,11 @@ def lowerE = (scope, rawExpr) =>
       else if #seq(tag, "bool") then
         IrLit(IrBool(if #seq(data, "true") then true else false))
       else if #seq(tag, "parameterless_app") then
-        IrApp(IrGlobal(data), Nil)
+        -- `lookupVar`, not `IrGlobal`: with half 1 above, a LOCAL parenless def now reaches here too,
+        -- and forcing it as a global produced `unbound global: mk` — which is what half 1 alone
+        -- measured, and what made the registration look like it had not fired at all. lookupVar falls
+        -- back to IrGlobal when the name is not in scope, so the top-level case is unchanged.
+        IrApp(lookupVar(scope, data), Nil)
       else if #seq(tag, "summon_tc") then
         -- summon[TC] in VALUE position (val m = summon[TC]) — a given is a set of globals, not a
         -- single value; emit a loud unbound so it fails visibly rather than silently miscompiling.

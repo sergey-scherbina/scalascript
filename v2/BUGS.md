@@ -49,28 +49,31 @@ parenless `def mk: Int` prints 5, and `next` mentioned twice prints 1 then 2 rat
 
 ## legacy-front-local-parameterless-def-not-invoked — the same defect, one front over
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     gate: none -->
+     gate: tests/e2e/legacy-front-parameterless-gate.sh
+     fixed-in: PENDING -->
 
-`SSC_FRONT=legacy` still prints `<closure>` for a local parenless def; F is fixed. Same repro as the
-entry above.
+`SSC_FRONT=legacy` printed `<closure>` for a local parenless def, and exited 0, after F was fixed.
 
-**Two thirds of the work is already done and recorded there.** The registration site is
-`resolveE`'s `"block"` arm in `v2/lib/ssc1-lower.ssc0` — around its `let rec resolveBlock` walk,
-saving and restoring `parameterlessDefsCell` the way `prevCtx`/`prevHR` do a few hundred lines down;
-that has to be on the resolve side because a def body is resolved by `resolveE` before `lowerBlock`
-ever sees it. Measured: with exactly that in place, legacy goes from `<closure>` to
-`unbound global: mk`.
+**Both halves, and the second is why the first looked like a dead end.** Half one registers a block's
+own parenless defs while its statements are RESOLVED — `resolveE`'s `"block"` arm, saving and
+restoring `parameterlessDefsCell` the way `prevCtx`/`prevHR` do; it has to be on the resolve side
+because a def body is resolved before `lowerBlock` sees it. That alone turned `<closure>` into
+`unbound global: mk`, which reads like a regression and is in fact progress: the registration fires,
+the mention is rewritten to `parameterless_app`, and **that node lowered to `IrApp(IrGlobal(data),
+Nil)` unconditionally** — right for a top-level def, wrong for a local binder. Half two is one line:
+`IrApp(lookupVar(scope, data), Nil)`, the same resolution the `"var"` arm two cases down already
+uses, which falls back to `IrGlobal` when the name is not in scope so the top-level path is unchanged.
 
-**What is missing is the second half.** `resolveE`'s `"var"` arm rewrites a registered name to
-`parameterless_app`, and that lowers to `(app (global n))` — right for a top-level def, wrong for a
-local binder, hence the unbound global. It needs a local-aware forcing node, which is precisely what
-F does with `(app (local i))`.
-
-No gate: `tests/conformance/parameterless-def-local.ssc` exercises the DEFAULT front, so it is green
-and cannot see this. A gate would have to set `SSC_FRONT=legacy` explicitly.
+**The gate had to be an e2e one.** `tests/conformance/parameterless-def-local.ssc` pins this rule for
+the DEFAULT front and is structurally blind here — a corpus case cannot set `SSC_FRONT`. That
+blindness is the whole reason this half outlived the F fix: the corpus went green while one front
+still answered `<closure>`, silently. The new gate carries three rows and was verified in BOTH
+directions against the pre-fix binary: the defect row goes red (`<closure>` ×3), the control row goes
+half-red (`7|<closure>` — the `()`-declared spelling still correct, the parenless one not), and the
+top-level row stays GREEN in both states, so it cannot be passing merely because something ran.
 
 ## f-placeholder-in-a-call-argument-stays-a-bare-name — `unbound global: (global _)`
 
