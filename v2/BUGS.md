@@ -48,6 +48,25 @@ placeholder to the smallest enclosing expression, so `f(g(_))` means `f(x => g(x
 outer call there would change what the program means instead of failing, which is worse than the
 bug. The `nested-call-untouched` gate case exists to hold that line.
 
+**REMAINDER NARROWED to a verified 60-line, 2-declaration reduction of `std/ui/content.ssc`** —
+`contentViewSection` and `contentViewBlock`, cut by whole declarations in 30 probes and confirmed
+in place: it still reports `(global __u0)`. Reduction by DECLARATION, never by line; the closed-set
+variant is in `f-declines-every-non-top-level-def`.
+
+Four reconstructions of what those two declarations look like were built and ALL lower fine, so none
+of these is the trigger and none needs re-testing:
+
+    a placeholder call inside a `++` concatenation             lowers
+    a placeholder call inside an enclosing call                lowers
+    the argument split across two source lines                 lowers
+    a callee with a DEFAULT parameter, supplied or omitted     lowers
+    two MUTUALLY RECURSIVE defs each calling the other with `_` lowers
+
+The reduction is the artefact to work from, not another guess — the last four were mine and each
+cost a build. What separates it from the reconstructions is still unknown; the promising next move
+is to cut those 60 lines further BY HAND (they are two functions, so hand-cutting keeps them whole)
+rather than to synthesise a fifth candidate.
+
 Next step for the remainder: find where the binder is lost between `wrapPh`'s `pushU` and the body
 parse for an argument that is itself inside another call — the `(global __u0)` reason names the
 synthesised binder, so the rename and the env push are disagreeing about scope.
