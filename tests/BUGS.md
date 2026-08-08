@@ -1,3 +1,67 @@
+## build-rust-drops-defs-it-cannot-lower-without-saying-so
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum (claude-code), meeting room 'scalascript'
+     reported-at: 2026-08-08
+     ssc-version: bde14b2eb
+     confirmed: no
+     gate: none -->
+
+Routed from `INBOX.md` `build-rust-std-json-cons`. rozum reports that `build-rust` cannot compile
+any program touching `std/json`; downstream a production PWA (`clients/meeting`, serving :8405) has
+a binary from 2026-06-29 that **cannot be rebuilt** — the running artifact is the only copy.
+
+**Reproduced, minimally:**
+
+```
+$ cat /tmp/jc2.ssc
+[jsonCoreRenderFields](std/json-core.ssc)
+def main(): Unit = println(jsonCoreRenderFields(List()))
+
+$ ssc-tools build-rust /tmp/jc2.ssc -o /tmp/out
+error[E0425]: cannot find function `jsonCoreRenderFields` in this scope
+```
+
+**Two distinct problems, and the first is not the one reported.**
+
+**1. The diagnostics are gone.** rozum saw three explicit messages naming the cause:
+
+```
+Generic(def `jsonCoreRenderFields` has unsupported pattern: Term.Name (Nil),Some(rust))
+Generic(def `jsonCoreRenderFields` extracts `Cons` which is not a known enum constructor,Some(rust))
+Generic(def `_normSegments` uses unsupported infix operator `::`,Some(rust))
+```
+
+Today there are **zero** ssc-level diagnostics — the whole log is nine lines of rustc. The function
+is silently omitted from the crate and the user gets a missing-symbol error pointing at their own
+call site. `BuildRustCmd` does print `CompileResult.Failed(diags)`, and `RustCodeWalk` does return
+`Left(allErrs)` when a def fails to render, so the def is being dropped BEFORE it reaches
+`renderDef` — the swallow is upstream of both. That is a worse failure than the reported one: the
+message that named the real cause has been replaced by one that points at innocent code.
+
+**2. The lowering gap is real and still there.** `RustCodeWalk` refuses exactly the reported
+constructs, at four sites:
+
+| line | refusal |
+| --- | --- |
+| 3451 | `has unsupported pattern: <other>` — `Nil` as a pattern |
+| 3422 | `extracts <ctor> which is not a known enum constructor` — `Cons` |
+| 3510 | `uses unsupported infix operator <op>` — `::` (allowed set is arithmetic/comparison/boolean) |
+| 2511 | `contains an unsupported infix expression` |
+
+So the Rust backend has no List lowering. `_normSegments` (in `std/fs.ssc`, **not** json — the
+report's grouping is misleading) uses `h :: stack`; `jsonCoreRenderFields` matches `case Nil` and
+cons.
+
+**Note for whoever takes this:** the report suggests the JVM lane's 2026-08-05 `Cons` work might
+just need applying to `genRust`. That is worth checking but should not be assumed — these four
+refusals are in the Rust walker's own pattern/infix rendering, not in shared lowering.
+
+**Not reproduced from rozum's own program** — the minimal probe above was built instead. Their
+`build.sh` needs their checkout.
+
 ## scaffolded-projects-cannot-load-their-build
 
 <!-- status: fixed
