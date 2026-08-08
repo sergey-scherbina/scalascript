@@ -169,7 +169,13 @@ object Parser:
     // A FUNCTION type continues past the arrow: `f: Int => Int`. Safe here because every caller is
     // a declaration position — a parameter, a field, a `val`, a return type — never a match arm,
     // where a `=>` separates the pattern from the body and must survive.
-    if isOp(peek(ts), "=>") then skipType(ts.tail) else ts
+    //
+    // An EFFECT type continues past `!`: `def compute(n: Int): Int ! Logger`. Same reasoning as the
+    // arrow and the same safety argument — `!` is prefix negation in an EXPRESSION, and no caller of
+    // this function is in expression position. Without it the type ended at `Int`, the `! Logger`
+    // was then read as an expression, and `effect-pure.ssc` failed pointing at the `=` that follows
+    // — a diagnostic about the body of a `def` whose actual problem was its return type.
+    if isOp(peek(ts), "=>") || isOp(peek(ts), "!") then skipType(ts.tail) else ts
 
   /** Consume a balanced `[…]` if one is here. Type arguments and type parameters are DISCARDED at
     * Tier 0 for the same reason annotations are: there is no checker, and half-reading them would
@@ -404,6 +410,27 @@ object Parser:
               (endLine < 0 || Lexer.posOf(peek(ts)).line == endLine) then
         val (as, t) = parseArgs(ts.tail)
         e = Expr.Apply(e, as, Expr.posOf(e)); ts = t
+      // A BRACE BLOCK as the argument: `runLogger { compute(10000) }`, `handle(e) { case … }`.
+      // `.map { x => … }` has worked for a while; the same form on a bare name or after an argument
+      // list did not, so `effect-pure.ssc` and `effect-stream.ssc` failed pointing at the `{`.
+      // (SSC3-7e.)
+      //
+      // ON THE SAME LINE, and that guard is not decoration — it is the `(` case's lesson two
+      // branches up, which this would otherwise repeat exactly. A block body ends by consuming its
+      // DEDENT, so a `{` opening the next line becomes adjacent to whatever came before it, and
+      // `while … do <block>` followed by a brace statement would read as applying the while's result
+      // to a block.
+      else if isPunct(peek(ts), "{") &&
+              (endLine < 0 || Lexer.posOf(peek(ts)).line == endLine) then
+        val (arg, t) = parseBody(ts)
+        // A BARE NAME becomes a `Call`, not an `Apply`. `f(x)` already produces `Call`, and the
+        // lowering resolves a function by name there; `Apply(Name("take"), …)` reached it as an
+        // unbound NAME and reported `unknown name 'take'` — a message about a function that is
+        // defined three lines up. Two spellings of one call must not build two different nodes.
+        e = e match
+          case Expr.Name(n, p) => Expr.Call(n, List(arg), p)
+          case other           => Expr.Apply(other, List(arg), Expr.posOf(other))
+        ts = t
       // A LEADING-DOT continuation: the chain goes on, on the next and more deeply indented line.
       //
       //     (Bench.opaque(1) to 10)
