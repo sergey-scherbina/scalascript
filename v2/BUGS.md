@@ -80,6 +80,19 @@ list, a default parameter, `s"…${…}"` interpolation, a `val` whose RHS is on
 `[…]` list literal, and a self-recursive placeholder call. So the trigger is a COMBINATION, which is
 exactly why six synthetic reconstructions missed it and why the cut had to be mechanical.
 
+**AND THAT DELETION SWEEP IS DONE — every one of the seven flips it.** Removing ANY single line
+makes F lower the file, so no line is "the" construct and the trigger is the SHAPE of the whole
+function. The obvious reading of that — that it is a slot-counting error sensitive to how many
+binders precede the placeholder — was tested and is WRONG: 0, 1, 2, 3 and 4 preceding `val`s before
+a placeholder call all lower fine.
+
+Seven synthetic reconstructions have now missed this symptom. Recorded as a warning about method:
+this one does not yield to building candidates up, and the productive direction left is the def-name
+diff that cracked `Response` — lower the seven-line file with F and with `SSC_FRONT=legacy`
+(`SSC_DUMP_DEFS=1`), and compare what each emits, rather than asking which source construct is to
+blame. The symptom is a synthesised binder `__u0` going unbound, so the two fronts' output for that
+one function should differ visibly in one place.
+
 Whoever takes this: start by deleting ONE line at a time from the seven and watching which flips it,
 then reintroduce that line alone into a fresh file. Do not synthesise a seventh candidate — that
 approach has now failed six times on this one symptom.
