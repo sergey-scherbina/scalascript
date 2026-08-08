@@ -4182,10 +4182,35 @@ Shards 0, 2 and 3 pass. The workflow has been red on seven of its last eight nig
 it started passing — the opposite direction from a v2 lane failure, and about the taxonomy script
 rather than the contract.
 
-**Not diagnosed.** The next step is the row itself: run the case on the v2 lane and on int, and see
-what the differential actually reports. This entry exists so that whoever looks at the red nightly
-starts from the row that is failing rather than from a stale one — which is what cost the time that
-produced it.
+**DIAGNOSED 2026-08-08 to the throwing line; the remaining question is narrow.**
+
+    int   examples/ui-remote-table.ssc  ->  remote-table:ok        exit 0
+    v2    examples/ui-remote-table.ssc  ->  ssc: fetchUrlSignal(name, url, refresh[, headers])  exit 1
+
+That string is unique to `v2/runtime/std/ui-plugin/.../UiNativePlugin.scala:539`:
+
+    if args.length != 3 && args.length != 4 then throw new RuntimeException("fetchUrlSignal(...)")
+
+**The case is not at fault.** It calls `fetchUrlSignal("status", "/control/status", tick)` — three
+arguments, which that very check accepts. A four-line program doing nothing but that call fails
+identically, so the `remoteTable` path above it is irrelevant.
+
+**It is not an off-by-one.** Two, three and four arguments all fail with the same message, so the
+handler never sees an acceptable count — the number is not shifted, it is something else entirely.
+
+**The plugin IS loaded.** `signal("tick", 0)` in the same program succeeds, and `signal` is
+registered through `native`; only `fetchUrlSignal` goes through `siteNative`.
+
+**So the narrow question is `siteNative`'s DUAL registration** (`UiNativePlugin.scala:127`). It
+registers the plain name, passing `args` straight through, AND
+`NativeUiSites.internalName(name)`, which expects `StrV(site) :: source :: rest` and passes only
+`rest`. Whichever of the two the native lane actually resolves determines what `args.length` is at
+line 539. The next step is to print `args` there — or to find where the front chooses between the
+two names — rather than to adjust the arity test, which is very likely correct as written.
+
+**Toolchain caveat, checked not assumed:** measured with a build from `7eecad50a`. `v2/src` has not
+changed since, so the v2 side is current; `v1/runtime/backend/interpreter` HAS changed, so the int
+side may not be — that matters only if someone re-reads the int column, not for the v2 failure.
 
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
 <!-- status: fixed
