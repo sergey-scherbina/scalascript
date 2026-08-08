@@ -1,0 +1,11 @@
+slug: jsliteral-encodes-products
+branch: feature/jsliteral-encodes-products
+agent: claude-code
+started: 2026-08-08T15:43:54Z
+heartbeat: 2026-08-08T15:43:54Z
+status: claimed-before-planning
+items: custom-jsemitter-signal-list-literal
+paths: file:frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala file:frontend/custom/src/test/scala/scalascript/frontend/custom/SignalListLiteralTest.scala file:v2/BUGS.md file:v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
