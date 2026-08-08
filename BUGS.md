@@ -18,6 +18,43 @@ Newest first.
 
 
 
+## rust-toplevel-val-calling-an-intrinsic-does-not-compile
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+A top-level `val` whose initializer calls a `std` intrinsic emits an UNROUTED call, and the crate
+does not compile:
+
+```text
+[exists](std/fs.ssc)
+val ok = exists("/tmp")
+def main(): Unit = println("ok " + ok.toString)
+```
+
+    error[E0425]: cannot find function `exists` in this scope
+    help: use std::fs::exists;
+
+The same call inside a def BODY routes correctly to `crate::runtime::_exists`. So the gap is the
+`topVals` path — `contentTopVals` renders `v.rhs` with a context built for `<given>`, and intrinsic
+routing does not happen there.
+
+**Independent of the top-level-entry synthesis, and that was checked rather than assumed.** Found
+while measuring the Rust column of `specs/std-fs-os.md` §2.1 through a synthesized entry, so the
+first suspicion was that the synthesis caused it; the case above has an EXPLICIT `def main()` and no
+synthesis is involved. What the synthesis changed is only that such a program now reaches cargo at
+all — before, it emitted a `[lib]` and never got there.
+
+**Second gap found in the same run, and it is separate:** `.toString` on a `List[String]` emits
+`format!("{}", Vec<String>)`, and `Vec` has no `Display`:
+
+    error[E0277]: `Vec<String>` doesn't implement `std::fmt::Display`
+
+
 ## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
 
 <!-- status: fixed

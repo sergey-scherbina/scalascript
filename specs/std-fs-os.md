@@ -141,8 +141,21 @@ blocked it, both worth knowing:
 1. the Rust backend rejects `try`/`catch` outright — `def show contains an unsupported expression:
    Term.Try` — so the *question* "does it raise" has no answer expressible in a program on that
    target; there is nothing to catch with;
-2. `run-rust` produced no binary for a hello-world on this toolchain (`expected binary not found`),
-   so the lane could not be exercised at all. Filed separately — it is not a `std.fs` matter.
+2. ~~`run-rust` produced no binary for a hello-world~~ — **that was my misdiagnosis, corrected
+   2026-08-08.** The lane worked; the backend emitted a `[lib]` because the program had no entry
+   point it recognised, and the runner reported a missing FILE. `def main()` and bare top-level
+   statements are entry points now, so the lane runs ordinary programs.
+
+**What is measurable today, and it is one row.** `listDir` on a missing path **panics and aborts**:
+
+    thread 'main' panicked at src/runtime/mod.rs:
+    listDir(/tmp/…/does-not-exist): No such file or directory (os error 2)
+
+Which is the whole answer this column can give while (1) holds: with no `try`/`catch`, "raises" on
+this target means "aborts", and a caller cannot tell a missing path from a wrong type because it
+cannot observe either. The rest of the column stays blank for TWO further reasons, both filed:
+a top-level `val` calling an intrinsic does not compile, and `.toString` on a `List[String]` emits
+`format!("{}", Vec<String>)`, which has no `Display` — so the natural probe cannot be written yet.
 
 **Permission denial is also unmeasured** and is deliberately left blank rather than guessed: it
 needs a mode-000 fixture, and a probe that runs as root silently measures nothing. The three
