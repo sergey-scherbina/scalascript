@@ -10,7 +10,13 @@ for a in "$@"; do
   prev="$a"
 done
 case "$1" in
-  build-jvm|build-rust)
+  emit-lib)
+    # emit-lib writes a DIRECTORY, not a file — the task must return a path that exists as one.
+    [ -n "$out" ] || { echo "[mock-ssc] emit-lib: no -o" >&2; exit 1; }
+    mkdir -p "$out"
+    printf 'mock-lib\n' > "$out/manifest.txt"
+    ;;
+  bundle|build-jvm|build-rust)
     [ -n "$out" ] || { echo "[mock-ssc] $1: no -o" >&2; exit 1; }
     mkdir -p "$(dirname "$out")"
     printf 'mock-%s-artifact' "$1" > "$out"

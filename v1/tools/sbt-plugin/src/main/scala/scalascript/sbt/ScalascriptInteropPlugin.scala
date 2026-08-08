@@ -114,6 +114,12 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     val sscBuildJvm = taskKey[File](
       "Build a compiler-free executable JAR via `ssc build-jvm` into sscDistDir."
     )
+    val sscBundle = taskKey[File](
+      "Package .ssc sources into an .sscpkg via `ssc bundle`, into sscDistDir."
+    )
+    val sscEmitLib = taskKey[File](
+      "Emit a host-native library via `ssc emit-lib`, into sscDistDir."
+    )
     val sscBuildRust = taskKey[File](
       "Build a native binary via `ssc build-rust` (rust backend + cargo) into sscDistDir."
     )
@@ -173,6 +179,40 @@ object ScalascriptInteropPlugin extends AutoPlugin {
     // `ssc build-rust` takes EXACTLY ONE .ssc file, unlike build-jvm. Rather than pick a file for
     // the user -- silently building the wrong entry point is worse than not building -- an ambiguous
     // project is told what to set and which candidates it has.
+    // `ssc bundle <file.ssc>... [-o name.sscpkg]` — many sources, one package, like build-jvm.
+    Compile / sscBundle := {
+      val sources = (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
+      if (sources.isEmpty) sys.error("sscBundle: no .ssc sources found")
+      val out = (Compile / sscDistDir).value / (moduleName.value + ".sscpkg")
+      IO.createDirectory(out.getParentFile)
+      SscRunner.run(
+        binary = sscBinary.value,
+        args = Seq("bundle") ++ sources.map(_.getAbsolutePath) ++
+          Seq("-o", out.getAbsolutePath) ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+      out
+    },
+
+    // `ssc emit-lib ... -o <dir> --version <semver>` — a DIRECTORY, not a file, and it carries a
+    // version, so the project's own `version` is passed rather than letting the CLI default to
+    // 0.1.0 and quietly disagreeing with what sbt publishes.
+    Compile / sscEmitLib := {
+      val sources = (Compile / sscSourceDirectories).value
+        .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())
+      if (sources.isEmpty) sys.error("sscEmitLib: no .ssc sources found")
+      val out = (Compile / sscDistDir).value / (moduleName.value + "-lib")
+      IO.createDirectory(out.getParentFile)
+      SscRunner.run(
+        binary = sscBinary.value,
+        args = Seq("emit-lib") ++ sources.map(_.getAbsolutePath) ++
+          Seq("-o", out.getAbsolutePath, "--version", version.value) ++ sscExtraArgs.value,
+        log = streams.value.log
+      )
+      out
+    },
+
     Compile / sscBuildRust := {
       val sources = (Compile / sscSourceDirectories).value
         .filter(_.isDirectory).flatMap(dir => (dir ** "*.ssc").get())

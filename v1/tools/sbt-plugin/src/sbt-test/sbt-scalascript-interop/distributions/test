@@ -8,3 +8,9 @@
 > set Compile / sscMainSource := Some((baseDirectory.value / "src" / "main" / "scalascript" / "demo.ssc"))
 > sscBuildRust
 > checkRustCall
+# bundle takes many sources like build-jvm; emit-lib writes a DIRECTORY and must carry the
+# project's version rather than the CLI's 0.1.0 default.
+> sscBundle
+> checkBundleCall
+> sscEmitLib
+> checkEmitLibCall

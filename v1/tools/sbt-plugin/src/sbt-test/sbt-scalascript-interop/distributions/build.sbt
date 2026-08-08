@@ -26,3 +26,23 @@ TaskKey[Unit]("checkRustCall") := {
   if (!line.contains("demo.ssc") || line.contains("other.ssc"))
     sys.error(s"build-rust got the wrong entry point: $line")
 }
+
+TaskKey[Unit]("checkBundleCall") := {
+  val calls = IO.readLines(baseDirectory.value / "calls.log")
+  val line = calls.find(_.startsWith("bundle")).getOrElse(sys.error("ssc bundle was never called"))
+  if (!line.contains("demo.ssc") || !line.contains("other.ssc"))
+    sys.error(s"bundle did not receive both sources: $line")
+  val pkg = (Compile / sscDistDir).value / (moduleName.value + ".sscpkg")
+  if (!pkg.exists()) sys.error(s"no .sscpkg at $pkg")
+}
+
+TaskKey[Unit]("checkEmitLibCall") := {
+  val calls = IO.readLines(baseDirectory.value / "calls.log")
+  val line = calls.find(_.startsWith("emit-lib")).getOrElse(sys.error("ssc emit-lib was never called"))
+  // The project's own version must be passed: letting the CLI default to 0.1.0 would ship a lib
+  // whose version disagrees with what sbt publishes.
+  if (!line.contains("--version " + version.value))
+    sys.error(s"emit-lib did not receive the project version ${version.value}: $line")
+  val dir = (Compile / sscDistDir).value / (moduleName.value + "-lib")
+  if (!dir.isDirectory) sys.error(s"emit-lib produced no directory at $dir")
+}

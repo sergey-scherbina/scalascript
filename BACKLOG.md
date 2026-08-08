@@ -53,8 +53,26 @@ project has several and lists the candidates — silently building the wrong ent
 building. Scenario `distributions` asserts all three: jvm receives BOTH sources, rust REFUSES with
 two candidates, and once told, builds that one and not the other.
 
-Remaining by demand: `build --target desktop|ios|macos`, `emit-spa`, `emit-lib`, `bundle`,
-`package`, `install`.
+`sscBundle` and `sscEmitLib` landed too. `emit-lib` writes a DIRECTORY rather than a file and takes
+a `--version`, so the project's own `version` is passed — letting the CLI default to 0.1.0 would ship
+a library whose version disagrees with what sbt publishes.
+
+**Two entries in the original list were wrong, and checking the signatures is what caught it:**
+
+- `install` installs the TOOLCHAIN (`ssc install [--prefix <dir>]`), not the user's project. It has
+  no business being a per-project sbt task.
+- `package` is a **cluster** subcommand (`ClusterCommands`), not a distribution command at all.
+
+Both are struck from this family rather than wrapped.
+
+**`emit-spa` is deferred, deliberately.** It has no output flag — its parser takes files,
+`--frontend` and `--server-url` and nothing else — so an sbt task cannot name the artifact it
+produced without inventing a location. Wrapping it would mean guessing where its output lands, and a
+task whose result path is a guess is worse than no task. Wants a look at where it actually writes
+before it gets a wrapper.
+
+Genuinely remaining: `build --target desktop|ios|macos`, and `emit-spa` once its output is
+understood.
 
 ### Deliberately out of scope
 
