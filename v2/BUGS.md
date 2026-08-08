@@ -4929,9 +4929,11 @@ the true signed maximum, start an empty table at 1, and choose an unused
 positive fallback when the maximum cannot be incremented.
 
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
-<!-- status: open
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded
+     gate: scripts/native-release-qualify -->
 
 **Status:** OPEN (found 2026-07-27 by `native-release-qualification` against
 `origin/main@6919b46db`; no release run exists yet).
@@ -4960,6 +4962,38 @@ making that privileged job reachable from dispatch.
 The tag path also accepted non-SemVer `v*.*.*` matches and used
 `gh release upload --clobber` without per-ref concurrency, allowing concurrent
 or failed reruns to mix or delete non-reproducible native assets.
+
+**CLOSED 2026-08-08 — all five of its claims re-measured, and none of them still holds.** No
+single commit fixed it; the release path was rebuilt around it, so `fixed-in` is `unrecorded`.
+
+| the entry said | measured today |
+|---|---|
+| no release run exists; the workflow is tag-only | **two runs, both `success`** — the v0.1.0 and v0.1.1 tags |
+| the x86_64 macOS leg uses the retired `macos-13` | the matrix is `ubuntu-latest`, `macos-latest`, `macos-15-intel`; no `macos-13` |
+| each archive holds only `ssc`, the plugin-host jar and a README | **160 entries**, including `bin/lib/standard/native-front/{tower,runtime}` |
+| not relocatable — an extracted product cannot run `.ssc` without borrowing the checkout | **it can** (below) |
+| it never executes the compressed artifact | it does — `scripts/native-release-qualify`, 689 lines |
+
+**The relocatability claim was tested against the SHIPPED BYTES, not the build.** Downloaded
+`ssc-macos-arm64.tar.gz` from the v0.1.1 release, `shasum -c` against its published sidecar: OK.
+Extracted into a scratch directory outside any checkout and ran
+
+    env -i HOME=$HOME PATH=/usr/bin:/bin ./ssc run hello.ssc
+
+on a three-line program using `List`, `map` and `sum` — printed `12`, exit 0. Nothing borrowed from
+the repository, because the environment carried nothing that could point at it.
+
+**And the release path checks this itself.** The `Qualify isolated shipped bytes` step copies the
+archive to an isolated directory, **hides** the checkout's `native-front` layouts so a native image
+carrying a captured root must fail, and runs `scripts/native-release-qualify`, which extracts and
+then executes `--version`, `run --v2 --interpret`, `run --v1`, `compile-jvm` and
+`run --v2 --bytecode` against a probe, asserting exit codes and output.
+
+**My own intermediate conclusion here was wrong, and it is worth recording why.** I grepped the
+workflow for `tar xzf|extract|smoke`, found nothing, and was about to file "the archive is never
+executed" as the one surviving claim. The execution lives in the script the workflow CALLS. A grep
+answers only the question it asked — reading the step is what corrected it, before it reached the
+board.
 
 **Fix acceptance.** A credential-safe `workflow_dispatch` run must build,
 archive, isolate, and execute Linux x86_64, macOS arm64, and macOS x86_64
