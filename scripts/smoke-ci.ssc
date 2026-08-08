@@ -466,6 +466,11 @@ val suite = List(
   // itself on every commit. Its refusal path is mutation-proven in the commit that added it (the
   // 2026-07-30 outage state reproduced, exit 1) — that evidence does not need re-earning per push.
   Check(".", "inbox-queue", "tests/e2e/inbox-gate.sh", List("--self-test"), 60000),
+  // The queue has TWO tools and only one was gated. `inbox-route`'s self-test routes a real report
+  // in a scratch repo and asserts the reporter fields ARRIVED — a refusals-only self-test passes on
+  // a tool that refuses everything, which is a mistake this repository has made before. 352 ms
+  // measured, against a 420 s budget.
+  Check(".", "inbox-route", "scripts/inbox-route", List("--self-test"), 60000),
   Check("v1/runtime/backend/js", "json-number-policy-js", "tests/e2e/json-number-policy-js-gate.sh", List(), 60000),
   // JsGen has TWO function-emission paths and self-TCO was on only one of them, so the SAME
   // tail-recursive function looped at top level and recursed for real inside an `object` — a

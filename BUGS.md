@@ -727,9 +727,17 @@ exercised by `emit-spa`, not by `ssc run`, and `run --v1` on it fails at RUNTIME
 callable`) even with the parse fixed, because a frontend example is not a program. The entry's
 framing, "no gate RUNS it", was looking for the wrong kind of gate.
 
-⚠ **STILL OWED: the file is not in `tests/conformance/contract-roster.tsv`.** Adding it needs that
-file, which is held by the live claim `v2-three-param-clauses`, so it is left rather than taken. The
-gate that fits is an emit comparison, not a run.
+~~STILL OWED: the file is not in `contract-roster.tsv`~~ — **that debt was wrong, and I wrote it.**
+The file is out of the corpus contract's scope BY CONSTRUCTION, not by omission: `contract.sc`
+collects with `os.list(dir)`, which is not recursive, so it walks `examples/*.ssc` and never
+`examples/frontend/*/*.ssc`. Measured 2026-08-08: **zero of the six frontend examples are in the
+roster**, and adding this one alone would make it the only runnable-by-nothing case in a corpus of
+programs the contract RUNS.
+
+Which is the same point the paragraph above already makes and I then contradicted a line later: the
+gate that fits a `frontend: react` file is an emit comparison. Widening the corpus to
+`examples/*/*.ssc` would pull in every frontend example, none of them runnable — a decision about
+corpus scope, not a bookkeeping debt.
 
 `examples/frontend/data-table/data-table.ssc` writes `@side = server` three times. The language
 has no such construct: it appears in `specs/electron-jvm-rest-backend.md` §288 as something

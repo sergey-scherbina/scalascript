@@ -89,10 +89,10 @@ in for them pointed AT `INBOX.md` rather than carrying `reported-by` — which i
 set is derived from, so they were invisible from both ends. The tool refuses `--status fixed`
 without `--fixed-in`, and refuses a slug already on a board.
 
-⚠ **`inbox-route --self-test` is NOT in the smoke suite yet** — `scripts/smoke-ci.ssc` is held by
-the live claim `smoke-guard-sized-by-ci`, so the one line that registers it is left for whoever
-holds that file. It costs 352 ms against a 420 s budget. Until then the self-test exists and passes
-but nothing runs it, which is the state `inbox-gate` was in before it was registered.
+`inbox-route --self-test` runs in the smoke suite, registered 2026-08-08 once `scripts/smoke-ci.ssc`
+came free. It costs 352 ms against a 420 s budget. It was left unregistered for a day because that
+file was held by another claim — the note that said so is replaced by this one rather than deleted,
+since "the gate exists and nothing runs it" is the state worth being able to recognise.
 
 **Why a separate place at all, when P-3.8 says subtype is a field.** Inbound is not a subtype, it is
 a STATE BEFORE ROUTING. Every other record in this repo is born routed: `lane:` and `area:` are
