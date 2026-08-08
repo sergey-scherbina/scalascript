@@ -1,0 +1,11 @@
+slug: both-unbound-census
+branch: feature/both-unbound-census
+agent: claude-code
+started: 2026-08-08T19:19:30Z
+heartbeat: 2026-08-08T19:19:30Z
+status: claimed-before-planning
+items: both-unbound-census
+paths: file:v2/SPRINT.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
