@@ -7148,11 +7148,30 @@ than assumed:
   entry was opened while validating Core IR as the persisted `SavedContinuation` capsule format,
   which is exactly where a caller-influenced name arrives.
 
-Five verbatim emission sites, all in `IrEncode`: `(def ${d.name}`, `(global …`, `(ctor $tag`,
-`(prim $op`, `(arm ${m.tag}`. One `sym()` helper applied at those five is the whole change. **Not
-done here** — it puts a `throw` on a kernel path that has no direct test harness (`v2/src` has no
-unit suite; `check.sh` exercises the generators, not `coreir.encode`), and adding one deserves its
-own slice rather than the tail of another.
+**DONE 2026-08-08.** `Writer.sym()` guards all five verbatim sites — `(def …`, `(global …`,
+`(ctor …`, `(prim …`, `(arm …` — refusing an empty atom or one holding a delimiter, and naming the
+offending code point.
+
+**The harness objection was the reason to defer, so it is what got built first.** `v2/conformance/
+coreir-name-guard.sh` runs the REAL `Writer` and the REAL `Reader` through scala-cli against
+`v2/src`: 27 checks — five accepted shapes that must also ROUND TRIP, five delimiters x four term
+positions, plus the def-name and empty-name sites.
+
+**The A/B proves the hazard, not just the guard.** Against the pre-guard `CoreIR.scala` the same
+file reports 22 rows NOT-REFUSED, and for each one it decodes the emitted text and prints the
+failure: `not a term: Atom(b)`, `unterminated list`, `bad global`, `bad arm`. So the old Writer was
+emitting text its own Reader cannot read — that is the round trip breaking, observed rather than
+argued.
+
+`str->i` is an ACCEPT row on purpose: it is the control for the SYMBOL-versus-delimiter distinction,
+so a later "tightening" back to the old grammar turns this gate red.
+
+Two corrections to my own work, both caught by running it: the first probe referenced `_sel_map`
+without defining it and read the Reader's VALIDATOR complaint as an encoder failure; and the gate
+reported the shape check before the real failures, so a genuine regression read as "the probe
+changed shape". Both fixed before landing.
+
+No regression: `v2/backend/check.sh` is ALL GREEN, 10 fixtures x 4 backends, 38 ok.
 
 **Reproduce:** inspect the exact compiler/runtime sources and contract:
 

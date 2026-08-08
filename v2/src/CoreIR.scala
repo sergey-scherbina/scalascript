@@ -353,25 +353,59 @@ object Reader:
 
 object Writer:
   import Term.*
+
+  /** A name, tag or opcode, checked to survive the round trip.
+    *
+    * These five positions are emitted VERBATIM — there is no quoting for them in the canonical
+    * form — so a value holding a DELIMITER would make `Reader.readAtom` stop early and re-parse the
+    * remainder as structure. The delimiters are exactly `Reader.isDelim`: whitespace, `(`, `)`,
+    * `;`, `"`.
+    *
+    * NOT the `SYMBOL` grammar, and that distinction is the point. `12-ir-format.md` used to spell
+    * `SYMBOL` as `[A-Za-z_][A-Za-z0-9_.]*`, which is NARROWER than what this Writer legitimately
+    * emits: `(prim str->i …)` appears in ordinary generated IR from the ssc1c prelude, and the
+    * Reader reads it back happily. Checking the old spelling would have rejected correct output;
+    * the grammar was widened to match instead (`coreir-symbol-grammar-drift`). What is left to
+    * enforce is the round trip, which is strictly the delimiter set.
+    *
+    * WHY IT IS WORTH ENFORCING AT ALL, since the compiler cannot produce such a name — `ssc1c`
+    * refuses an operator-named `def` outright. `coreir.encode` serialises a `Data` tree its CALLER
+    * built, and Core IR is the persisted `SavedContinuation` capsule format, so this is the
+    * boundary where a caller-influenced name arrives. Failing loudly here beats emitting text that
+    * decodes into a different program.
+    */
+  private def sym(kind: String, s: String): String =
+    if s.isEmpty then sys.error(s"Core IR $kind is empty — the canonical form has no empty atom")
+    else
+      s.find(c => c.isWhitespace || c == '(' || c == ')' || c == ';' || c == '"') match
+        case Some(c) =>
+          val shown = f"U+${c.toInt}%04X"
+          sys.error(
+            s"Core IR $kind [$s] contains the delimiter $shown — it would not survive a decode: " +
+            "the Reader stops an atom at a delimiter and reads the rest as structure. Names, tags " +
+            "and opcodes are emitted verbatim (specs/12-ir-format.md)."
+          )
+        case None => s
+
   def program(p: Program): String =
-    val defs = if p.defs.isEmpty then "(defs)" else s"(defs ${p.defs.map(d => s"(def ${d.name} ${term(d.body)})").mkString(" ")})"
+    val defs = if p.defs.isEmpty then "(defs)" else s"(defs ${p.defs.map(d => s"(def ${sym("def name", d.name)} ${term(d.body)})").mkString(" ")})"
     s"(program $defs (entry ${term(p.entry)}))"
 
   def term(t: Term): String = t match
     case Lit(c)          => s"(lit ${const(c)})"
     case Local(i)        => s"(local $i)"
-    case Global(n)       => s"(global $n)"
+    case Global(n)       => s"(global ${sym("global name", n)})"
     case Lam(a, b)       => s"(lam $a ${term(b)})"
     case App(fn, as)     => s"(app ${term(fn)}${as.map(a => " " + term(a)).mkString})"
     case Let(r, b)       => s"(let (${r.map(term).mkString(" ")}) ${term(b)})"
     case LetRec(l, b)    => s"(letrec (${l.map(term).mkString(" ")}) ${term(b)})"
     case If(c, t, e)     => s"(if ${term(c)} ${term(t)} ${term(e)})"
-    case Ctor(tag, fs)   => s"(ctor $tag${fs.map(f => " " + term(f)).mkString})"
-    case Prim(op, as)    => s"(prim $op${as.map(a => " " + term(a)).mkString})"
+    case Ctor(tag, fs)   => s"(ctor ${sym("ctor tag", tag)}${fs.map(f => " " + term(f)).mkString})"
+    case Prim(op, as)    => s"(prim ${sym("prim op", op)}${as.map(a => " " + term(a)).mkString})"
     case While(c, b)     => s"(while ${term(c)} ${term(b)})"
     case Seq(ts)         => s"(seq${ts.map(t => " " + term(t)).mkString})"
     case Match(s, arms, d) =>
-      val a = arms.map(m => s"(arm ${m.tag} ${m.arity} ${term(m.body)})").mkString(" ")
+      val a = arms.map(m => s"(arm ${sym("arm tag", m.tag)} ${m.arity} ${term(m.body)})").mkString(" ")
       val dd = d.map(x => s" (default ${term(x)})").getOrElse("")
       s"(match ${term(s)} ($a)$dd)"
 
