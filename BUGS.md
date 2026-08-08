@@ -104,32 +104,42 @@ declaration.
 
 ## v3-bridge-cannot-apply-a-lifted-capture — `app: not a function`
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: codegen
      kind: bug
      gate: v3/exec-gate.sh -->
 
-`v3/tests/front/captured-function-parameter.ssc` on the two lanes:
+**FIXED 2026-08-08, one line in `BridgeV2.MkClos`.** A closure's captures are emitted as a v2
+`(let (e0 e1 …) (lam k …))`, and every capture expression read the executor frame at the SAME
+de Bruijn depth `sh`:
+
+```scala
+val capBinds = caps.map(c => read(c, sh)).mkString(" ")          // before
+val capBinds = caps.zipWithIndex.map((c, i) => read(c, sh + i))  // after
+```
+
+v2's `let` binds **sequentially** — `Runtime.appendOne(e, v)` per rhs — so the i-th expression is
+evaluated in an env already extended by the i before it, and `Local(i)` is `env(env.length - 1 - i)`.
+Capture i was therefore off by i. Capture 0 was always right, which is the whole reason this
+survived: **one capture cannot expose it.**
 
 ```
-executor   42 / 42 / 42 / 42
-bridge     42 / 42   then  java.lang.RuntimeException: app: not a function: 2
+def mk(g: Int => Int): Int => Int   = x => g(x)          one capture   — worked
+def comp(f, g): Int => Int          = x => f(g(x))       two captures  — app: not a function: 2
+def tri(f, g, h): Int => Int        = x => f(g(h(x)))    three         — off by two
 ```
 
-The third case is `def comp(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))`. v3 lifts the
-lambda to a top-level function taking its captures as leading parameters; the v2 bridge then applies
-a value that is not a function — the `2` in the message is an argument, not a closure — so the
-lifted form is not being reconstructed the way v2 applies closures.
+**Measured before and after, both lanes**, and the fixture reverted to watch it fail: with the shift
+removed the bridge prints `42/42` and dies on the third line exactly as reported; with it, both
+lanes print five 42s. `v3/tests/front/captured-function-parameter.ssc` now carries the three-capture
+case as well, because a two-capture fixture pins the case that broke rather than the rule.
 
-**Exposed on 2026-08-08 by `290e784b6`, and it is NOT a regression of anything that worked.** Before
-that fix this program did not lower at all (`call to unknown function 'g'` — `freeVars` dropped the
-callee), so nothing ever reached the bridge with it. The executor is right and matches the reference
-front; the bridge is the lane that cannot.
-
-Found only because the differential was repaired the same day — see
-`v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`. With the gate in its broken shape
-this fixture printed `(both lanes agree)`.
+**It existed the whole time and nothing could see it.** The program that exposes it only began
+lowering on 2026-08-08 (`290e784b6`, `freeVars` dropped the callee), and `exec-gate.sh` was
+comparing the executor with itself until the same day — so the defect needed BOTH a new front
+capability and a repaired differential before anything could report it. There is exactly one
+`(let (` emission site in `BridgeV2.scala`, so this has no twin.
 
 ## v3-exec-gate-and-front-gate-report-the-WORKING-TREE-and-blamed-a-sibling-for-it
 
