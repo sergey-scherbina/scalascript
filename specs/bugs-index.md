@@ -40,7 +40,7 @@ for every agent. A template that carries its own enums is copied WITH them.
 ```markdown
 ## v2-front-curried-def-second-clause — F drops the second clause of a curried def
 <!-- status: open        · open | fixed | wontfix | duplicate | unknown
-     lane: native        · native | int | js | jvm | v2-jvm | v2-rust | apparatus | multi | n/a
+     lane: native        · native | int | js | jvm | v2-jvm | v2-rust | v3 | apparatus | multi | n/a
      area: front         · front | runtime | codegen | cli | conformance | build | docs | plugin | other
      gate: tests/e2e/v2-front-coverage.sh -->
 ```
@@ -64,7 +64,7 @@ safely is not a template.
 | field | required | values |
 |---|---|---|
 | `status` | always | `open` · `fixed` · `wontfix` · `duplicate` · `unknown` |
-| `lane` | always | `native` · `int` · `js` · `jvm` · `v2-jvm` · `v2-rust` · `apparatus` · `multi` · `n/a` |
+| `lane` | always | `native` · `int` · `js` · `jvm` · `v2-jvm` · `v2-rust` · `v3` · `apparatus` · `multi` · `n/a` |
 | `area` | always | `front` · `runtime` · `codegen` · `cli` · `conformance` · `build` · `docs` · `plugin` · `other` |
 | `fixed-in` | when `status: fixed` | a commit sha that resolves in this repository, or `unrecorded` |
 | `gate` | recommended | the path that would catch a regression; `none` if there is not one yet |

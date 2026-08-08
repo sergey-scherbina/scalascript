@@ -291,6 +291,7 @@ so they bind even before you open the index:
   | `js` | `v1/runtime/backend/js/BUGS.md` |
   | `jvm` | `v1/runtime/backend/jvm/BUGS.md` |
   | `native` · `v2-jvm` · `v2-rust` | `v2/BUGS.md` |
+  | `v3` | root `BUGS.md` — there is no `v3/BUGS.md` yet; create one and change this row when v3 has enough entries to want its own |
   | `apparatus` (+`area: conformance` / `build`) | `tests/BUGS.md` (`tests/conformance/` / `scripts/`) |
   | `multi` · `n/a` | root `BUGS.md` — genuinely more than one implementation, NOT a leftovers bin |
 

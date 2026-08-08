@@ -51,7 +51,7 @@ SHALLOW = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
                          capture_output=True, text=True).stdout.strip() == "true"
 
 STATUS = {"open", "fixed", "wontfix", "duplicate", "unknown"}
-LANE   = {"native","int","js","jvm","v2-jvm","v2-rust","apparatus","multi","n/a"}
+LANE   = {"native","int","js","jvm","v2-jvm","v2-rust","v3","apparatus","multi","n/a"}
 AREA   = {"front","runtime","codegen","cli","conformance","build","docs","plugin","other"}
 
 entries, cur, buf = [], None, []

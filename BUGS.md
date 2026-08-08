@@ -723,7 +723,7 @@ but it belongs in a commit that is already refreshing the baseline.
      area: front
      kind: divergence
      gate: tests/e2e/multi-name-val-gate.sh
-     fixed-in: 7fa903f57 -->
+     fixed-in: 7eb8f1ec1 -->
 
 **FIXED on int and js; the two SILENT WRONG answers are gone.** The table now reads:
 
