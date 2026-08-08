@@ -67,6 +67,7 @@ object UniFront:
     var classes: List[ClassDef] = Nil
     var objects: List[ObjectDef] = Nil
     var traits: List[TraitDef] = Nil
+    var effects: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
     subs.foreach { s =>
       SpikeTyped.module(s).decls.foreach { d =>
@@ -75,11 +76,12 @@ object UniFront:
           case Sorted.C(x) => classes = classes ++ x
           case Sorted.O(x) => objects = objects :+ x
           case Sorted.T(x) => traits = traits :+ x
+          case Sorted.E(x) => effects = effects :+ x
           case Sorted.S(x) => top = top ++ x
           case Sorted.Skip => ()
       }
     }
-    Program(defs, top, classes, objects, traits)
+    Program(defs, top, classes, objects, traits, effects)
 
   /** v3 sorts declarations into five buckets and UniML does not, so the projection has to say which
     * bucket each one lands in. An enum becomes SEVERAL classes, and a `TopExpr` becomes statements,
@@ -94,6 +96,9 @@ object UniFront:
     case C(cs: List[ClassDef])
     case O(o: ObjectDef)
     case T(t: TraitDef)
+    /** An `effect` declaration. Its own case rather than reusing `T`: v3 keeps effects in their
+      * own `Program` field because a trait's methods are DISPATCHED and an effect's are PERFORMED. */
+    case E(t: TraitDef)
     case S(s: List[Stmt])
     case Skip
 
@@ -194,7 +199,29 @@ object UniFront:
     case U.NoOpDecl(_)            => Sorted.Skip
     case U.Given(_, _, _, s)       => no("`given`", s)
     case U.GivenObject(_, _, _, s) => no("`given … with`", s)
-    case U.EffectDecl(_, _, _, s)  => no("`effect`", s)
+    // `effect Bump:` — projected, not refused, since 2026-08-08. UniML's grammar has parsed this
+    // since it was written (`ScalaSpike.parseEffectDecl`); only this projection said no, so the
+    // whole of SSC3-7a worked on v3's own front and was ABSENT on the default one. That gap is what
+    // `front-capability-gate.sh` was built to see.
+    //
+    // An effect declaration is a name and a list of operation SIGNATURES, which is the same shape a
+    // trait body has, so the ops are projected exactly as `U.TraitDecl` projects its members —
+    // including `NotImplemented` becoming `__abstract__`, since an operation never has a body.
+    //
+    // `multi effect` is REFUSED, deliberately. v3's own front does not parse it either (SSC3-7b),
+    // and the executor implements only tail-resumptive handlers; accepting the keyword here would
+    // make the two fronts differ in the OTHER direction, which is the thing being fixed.
+    case U.EffectDecl(n, multi, ops, s) =>
+      if multi then no("`multi effect` (the executor implements only tail-resumptive handlers)", s)
+      else
+        Sorted.E(TraitDef(n, ops.toList.flatMap { m => m match
+          case dd: U.Def =>
+            val b = dd.body match
+              case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
+              case other                => expr(other)
+            List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
+          case _ => Nil
+        }, Nil, pos(s)))
     case U.Extension(_, _, s)      => no("`extension`", s)
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 

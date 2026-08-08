@@ -29,7 +29,10 @@ SSC3="v3/ssc3"
 # KNOWN divergences, declared so this gate is green today and FAILS THE DAY ONE CLOSES. A declared
 # gap that quietly becomes a closed one is a permanent exemption for a fixed bug, which this
 # repository has shipped before and written down.
-declare -a KNOWN_V3_ONLY=(effect-oneshot)      # v3 accepts, uniml refuses
+# `effect-oneshot` was here until 2026-08-08 and came out the same day the projection landed —
+# which is the gate doing its job: it went red saying "no longer diverges; drop it from KNOWN_v3 in
+# this commit", and this is that commit.
+declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
 declare -a KNOWN_UNIML_ONLY=(type-lambda-native) # uniml accepts, v3 refuses
 
 available="$($SSC3 front 2>/dev/null | sed -n 's/^available: //p')"
