@@ -19,6 +19,40 @@ Newest first.
 
 
 
+
+## v3-uniml-front-drops-by-name — one language, two evaluation orders, decided by the working tree
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     gate: v3/front-diff.sh -->
+
+**Measured 2026-08-08.** `def twice(x: => Int): Int = x + x`, called with an argument that counts its
+own evaluations:
+
+```
+SSC3_FRONT=v3        3     the argument is evaluated twice — by-name
+default (uniml)      2     evaluated once — EAGER
+```
+
+`Param.byName` drives the lowering's `rewriteByName` (SSC3-7s). v3's own parser sets it;
+`UniFront.param` never did, so the flag is `false` for every parameter this front produces and the
+rewrite never fires. Which semantics a program gets depends on whether `v3/uniml-classpath.sh` has
+been run in that tree.
+
+**It cannot be fixed in the projection, which is why this is an entry and not a commit.** The type
+would be the obvious place to read it from, and `ScalaSpike` consumes the arrow before the type is
+captured — its own comment says so: *"A BY-NAME parameter … Erased with the type."* `TypeRef.text` is
+therefore `Int`, never `=> Int`. **The fix belongs in the grammar:** keep the `=>` as a marked leaf,
+then the projection is one field.
+
+**Both differentials were blind to it, and one no longer is.** `front-diff.sh` compares AST TEXT and
+`AstText` did not print the flag, so the two fronts printed identical trees for a program they
+execute differently; `front-capability-gate.sh` compares accept/refuse and both fronts ACCEPT. The
+printer now prints `(p "x" byname)`, so front-diff will see this one — which is how the divergence
+was finally confirmed rather than argued about.
+
 ## v3-two-fronts-differ-in-CAPABILITY and every gate compares only OUTPUT
 
 <!-- status: open

@@ -49,10 +49,15 @@ object AstText:
     out.append(")\n")
     out.toString
 
+  /** A parameter. `byName` is PRINTED, and that is not cosmetic: it changes evaluation, it is set by
+    * one front and was silently absent from the other, and `front-diff.sh` compares this text. A
+    * field that alters semantics and does not appear here is a difference the differential cannot
+    * see — which is exactly how the UniML front came to drop by-name unnoticed. */
   private def param(x: Param): String =
+    val head = if x.byName then List(q(x.name), "byname") else List(q(x.name))
     x.default match
-      case None    => sx("p", List(q(x.name)))
-      case Some(d) => sx("p", List(q(x.name), expr(d)))
+      case None    => sx("p", head)
+      case Some(d) => sx("p", head :+ expr(d))
 
   private def dfn(d: Def): String =
     sx("def", q(d.name) :: sx("params", d.params.map(param)) :: List(expr(d.body)))
