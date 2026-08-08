@@ -1,4 +1,4 @@
-# generation: 1229
+# generation: 1230
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:BUGS.md file:uniml/BACKLOG.md file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeAst.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/Ssc3ProjectionCensusSpec.scala file:setup.sh
 scaffold-loads-its-build	claude-code	2026-08-08T05:10:00Z	scaffolded-projects-cannot-load-their-build	file:install.sh file:v1/tools/cli/src/main/resources/templates file:tests/e2e/scaffold-loads-its-build.sh file:scripts/smoke-ci.ssc
@@ -6,3 +6,4 @@ parameterless-def-int-lane	claude-code	2026-08-08T07:36:53Z	parameterless-def-di
 f-getorelse-arity	claude-code	2026-08-08T07:38:30Z	native-getOrElse-on-a-case-class-field-passes-the-receiver	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md
 uniml-yaml-alias-source-order	claude-code	2026-08-08T07:41:49Z	uniml-yaml-alias-resolution-last-wins	file:uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlProjection.scala file:uniml/yaml/src/test/scala/scalascript/uniml/dialect/yaml/YamlDialectSpec.scala
 ssc3-effect-protocol	claude-code	2026-08-08T07:42:54Z	SSC3-7a SSC3-7b SSC3-7c	file:v3/specs/10-ssc-ir.md file:v3/src/Ir.scala file:v3/src/Verify.scala file:v3/src/Text.scala file:v3/src/TailCalls.scala file:v3/src/Main.scala file:v3/tests/sample.ssir file:v3/src/Exec.scala
+gate-field-on-an-open-entry	claude-code	2026-08-08T07:44:23Z	a green gate on an open entry is not evidence the entry is stale, and nothing says so	file:specs/bugs-index.md
