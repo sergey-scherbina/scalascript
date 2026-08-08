@@ -7,6 +7,102 @@ grepping for status.
 
 Newest first.
 
+## v3-ci-workflow-red-on-every-run-since-it-was-added — two causes, and the message named neither
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: .github/workflows/v3.yml
+     fixed-in: 1b20e4f1a -->
+
+**FIXED 2026-08-08.** `.github/workflows/v3.yml` had failed on **all ten of its runs**, from the
+commit that introduced it. Not a regression from anyone's later work — the job arrived red, so
+there was no green run to compare against and nothing said "this never worked".
+
+**What it printed was true of nothing:**
+
+    FAIL the canonical form changed; review the diff and re-freeze deliberately
+    ssc3: coursier ('cs') is needed to fetch the Scala 3.8.3 compiler — see setup.sh
+    0a1,70
+
+`0a1,70` is "expected empty, got 70 lines" — the frozen side was empty because `v3/ssc3` never
+ran. Nothing about the canonical form had moved. **A gate that cannot tell "the tool is missing"
+from "the output changed" sends the next reader to re-freeze a baseline that is fine.**
+
+### Cause 1 — a misread invariant, not a missing line
+
+The workflow installed only the JDK, with the comment *"the kernel builds with the JDK and nothing
+else — invariant I-1 — so nothing is installed for these"*. `v3/specs/00-charter.md` defines I-1 as
+an empty `libraryDependencies` and no kernel import outside `java.*`/`scala.*` — a property of the
+ARTIFACT. It says nothing about build tooling and cannot: the kernel is written in Scala, so
+compiling it needs a Scala compiler however dependency-free the result is. Installing `cs` does not
+weaken I-1; the gate for I-1 is the dependency-list check the charter itself names.
+
+The project had already recorded the answer — `v3/SPRINT.md` item 31e: `cs` became a first-class
+requirement when v3 stopped going through `scala-cli`, and `setup.sh` installs it. The new step
+mirrors that script's Linux branch rather than adding an action, so CI and a fresh checkout get it
+the same way. The comment is replaced with this reasoning so the misreading does not recur.
+
+### Cause 2 — a BSD-only `mktemp`, in seven places
+
+Clearing cause 1 moved the red one step, to `mktemp: too few X's in template 'ssc3x'`. GNU requires
+at least three trailing `X`; macOS does not. **This is why local verification could not have caught
+it, and it is exactly `emulate-the-other-host-in-the-gate`.** Seven sites, all `mktemp -t <name>`:
+`exec-gate.sh` (x2), `bridge-gate.sh`, `front-report-gate.sh`, `selftest.sh`, `toolchain-gate.sh`
+and — the one that mattered most — `v3/ssc3` itself, the driver every gate runs through.
+
+Now `mktemp "${TMPDIR:-/tmp}/<name>.XXXXXX"`, which is portable and drops `-t` entirely.
+
+**The driver's site hid behind a redirect.** `parity-gate` went red under the emulation while
+reporting ZERO mktemp errors, because it calls the driver with `2>/dev/null` — the same masking
+that made the v2 backend harness report "the expected line is absent" for a crash this morning.
+Two harnesses, one habit.
+
+**Verified against the other host without waiting for it.** A GNU-strict `mktemp` shim on `PATH`
+reproduces the CI failure exactly: the pre-fix `exec-gate.sh` emits 7 of the CI error under it, the
+fixed one emits 0 and is GREEN over 58 cases; all six gates the job runs are GREEN under the shim.
+
+### Causes 4 and 5 — the OTHER job, which I had not read
+
+`front-capability` runs `v3/uniml-classpath.sh`, which builds an sbt project; the runner ships no
+sbt, and the script reported `sbt failed; see /tmp/tmp.XXXXXX` **0.02 s after the step began** —
+`command not found` wearing the costume of a build failure, naming a log the runner then threw
+away. It now checks for sbt by name, says which action to add, and on a real failure prints the
+last 20 lines. Verified by running it with sbt off `PATH`.
+
+Then the gate still said *"only these fronts are registered: none"*. Cause 5: the kernel is built
+from `v3/src` **plus `alphabet/src`**, and the second front from `v3/src` plus `v3/uniml` — without
+the alphabet. When the two copies of the lexical alphabet were merged into one shared directory,
+the kernel's compilation unit was updated and this one was not, so `Lexer.scala`'s reference to
+`scalascript.alphabet.Alphabet` stopped resolving. **A compile error arrived three layers later as
+a missing registration**, because the driver's fallback is silent by design and the gate reads
+`ssc3 front` through `2>/dev/null`.
+
+### And one that was mine
+
+I added the coursier step to ONE job. The second failed the same way, on the message I had just
+fixed next door. Both jobs have it now, with a comment saying so.
+
+**FOUR OF THE FIVE HID BEHIND A `2>/dev/null`.** That is the through-line, not the individual bugs:
+"the canonical form changed" was a missing compiler, "the bridge did NOT overflow" was an overflow,
+"sbt failed, see /tmp/…" was sbt absent with the log already gone, "registered: none" was a compile
+error two layers down. Every one reported an interpretation instead of an observation, and every
+one cost a round-trip through CI.
+
+**VERDICT, from CI rather than from me.** On `3702149f4`, which carries all of the above:
+`the two fronts accept the same programs` — **success**; `v3 gates` — one FAIL, and it is not this
+entry's: `object-nested-class`, added by `c71b58e28`, ships an `.uniml-only` marker and needs the
+second front, which that job deliberately does not build (the sbt cost is why it was split out).
+Reported to its author in the room rather than patched — whether to skip the fixture or give that
+job the build is their design call.
+
+**Worth doing and not done here:** keeping the GNU-strict `mktemp` shim as a standing gate would
+stop the next BSD-only assumption reaching CI. It is a separate slice — this entry is the evidence
+that it would pay. Three of the five causes needed Linux and one needed a pipe larger than 64 KB;
+none could be seen on the developer host.
+
+
 
 ## a-shared-board-file-has-no-guard-against-a-stale-copy-overwrite
 
