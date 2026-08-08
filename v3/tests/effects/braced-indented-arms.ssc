@@ -1,0 +1,6 @@
+```scalascript
+val r = 5 match {
+  case x => x + 1
+}
+println(r)
+```

@@ -479,10 +479,25 @@ object Parser:
     // arm's body from whatever follows the match. Skipping DEDENTs indiscriminately made
     // `val r = p match … ` swallow the next statement into the final arm.
     var braced = false
+    var bracedIndent = false
     var indented = false
     if isPunct(peek(skipNewlines(ts)), "{") then
       braced = true
       ts = skipNewlines(ts).tail
+      // A braced block whose arms are ALSO indented — the ordinary way anyone writes a handler:
+      //
+      //     handle(e) {
+      //       case Op(k) => k(1)
+      //     }
+      //
+      // The lexer emits an INDENT after the `{`, and `skipNewlines` does not remove one, so the
+      // loop below asked for `case` and found `<indent>`. Consumed here, and its DEDENT taken back
+      // at the `}` — an unmatched DEDENT ends the enclosing block one statement early, which is the
+      // same bookkeeping every other layout-crossing construct in this file has to do.
+      ts = skipNewlines(ts)
+      if peek(ts).isInstanceOf[Tok.TIndent] then
+        bracedIndent = true
+        ts = ts.tail
     else
       val t = skipNewlines(ts)
       if peek(t).isInstanceOf[Tok.TIndent] then
@@ -493,7 +508,11 @@ object Parser:
     var go = true
     while go do
       ts = skipNewlines(ts)
-      if braced && isPunct(peek(ts), "}") then
+      if braced && bracedIndent && peek(ts).isInstanceOf[Tok.TDedent] &&
+         isPunct(peek(skipNewlines(ts.tail)), "}") then
+        ts = skipNewlines(ts.tail).tail
+        go = false
+      else if braced && isPunct(peek(ts), "}") then
         ts = ts.tail
         go = false
       else if indented && peek(ts).isInstanceOf[Tok.TDedent] then

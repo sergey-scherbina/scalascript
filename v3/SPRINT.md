@@ -301,6 +301,22 @@ one symptom bucket turned out to be a different construct than the obvious readi
       The frozen sample was edited MINIMALLY — its arm gains `(params 1)` and `(k 7)`, nothing else —
       because the selftest checks that `fmt` of the file equals the file, not that it equals
       `ssc3 sample`; replacing it wholesale would have swept in unrelated drift.
+      **Front progress 2026-08-08, none of it enough to turn a row green — said plainly because
+      three separate parser gaps closed and the corpus number did not move.** A braced match block
+      whose arms are ALSO indented — the ordinary way anyone writes a handler —
+
+          handle(e) {
+            case Op(k) => k(1)
+          }
+
+      failed with `expected 'case', found <indent>`: the lexer emits an INDENT after the `{` and
+      `skipNewlines` does not remove one. Fixed, with its DEDENT taken back at the `}`
+      (`v3/tests/effects/braced-indented-arms.ssc`).
+
+      What 7a still needs, measured rather than estimated: the `effect X:` declaration itself (same
+      shape as a `trait` body, so `parseMembers` covers it), an op-id table, `Bump.tick()` lowering
+      to `Perform`, and the `handle` form lowering to `Handle` with the arm's `resume` binder as its
+      `k`. The executor half and the protocol are already done, so this is front work only.
 
 - [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
       same message, different keyword. Separate from 7a because multi-shot resumption is a different
