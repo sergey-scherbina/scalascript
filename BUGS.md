@@ -243,7 +243,7 @@ but it belongs in a commit that is already refreshing the baseline.
      lane: multi
      area: front
      kind: divergence
-     gate: none
+     gate: tests/e2e/multi-name-val-gate.sh
      fixed-in: - -->
 
 Found 2026-08-06 while writing a control for `uniml-block-stops-at-comma`: the control needed a
@@ -280,10 +280,35 @@ comma — that is what surfaced this.
 the form, so the likely answer is that it should parse". The oracle disagrees with itself across
 lanes, so "what the reference front does" was not an answer here; the measurement was.
 
-**No gate names this.** Neither the conformance corpus nor the examples corpus uses a multi-name
-`val`, which is why a construct that silently mis-binds on two lanes has never been noticed. A fix
-should land the four-lane row above as a conformance case, since an output comparison is exactly
-what catches `<native:a>`.
+**GATED 2026-08-08** by `tests/e2e/multi-name-val-gate.sh`. Neither the conformance corpus nor the
+examples corpus uses a multi-name `val`, which is why a construct that silently mis-binds on two
+lanes went unnoticed for so long.
+
+**RE-MEASURED before gating rather than inherited**, because an entry two days old had already
+turned out to be a stale source once this week. The substance holds; two details moved. js on
+`println(b)` now gives a clean `ReferenceError: b is not defined` rather than crashing Node, and
+native refuses with `rejected incomplete parse` rather than the CoreIR sentinel message. Both are
+the same behaviour under a different string.
+
+**jvm is UNMEASURED and the gate says so out loud** at every run rather than omitting the lane.
+`bin/ssc run-jvm` needs the optional tools/compatibility component, which a plain
+`./install.sh --dev` does not install, so the one lane this entry records as CORRECT is the one that
+cannot be confirmed here. A missing lane nobody mentions reads as a lane that passed.
+
+**The gate asserts the silence separately from the values.** The three rows would still pass if a
+lane began printing a placeholder *and* reporting failure — but exit 0 is what makes this travel, so
+`int` and `js` returning 0 while printing `<native:a>` / `<function>` is its own check.
+
+**Its own A/B found a defect in it, which is why the check functions are split in two.** Asserting
+"native prints 1" with a substring match passed against native's REFUSAL, because the temp path in
+that message contains a `1`. Rows claiming a lane got it RIGHT now compare the whole output; rows
+claiming a lane FAILS in a particular way still match a substring, since a diagnostic legitimately
+carries paths and line numbers. Verified by planting each drift in turn — native accepting, int no
+longer leaking, and both single-`val` controls — all red, baseline green.
+
+A conformance case remains the eventual home for the four-lane row, in a commit already refreshing
+the paired freeze; the cost of doing it alone is recorded under
+`an-undefined-name-in-a-pattern-means-three-different-things`.
 
 ## package-root-import-needs-an-exports-entry-on-int — and needs nothing on native
 
