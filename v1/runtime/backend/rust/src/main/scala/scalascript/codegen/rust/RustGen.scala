@@ -3,6 +3,8 @@ package scalascript.codegen.rust
 import scalascript.backend.spi.*
 import scalascript.ir
 import scalascript.transform.Denormalize
+import scala.meta as m
+import scalascript.ast
 
 /** Emits Cargo crate assets for a `NormalizedModule`.
  *
@@ -41,7 +43,7 @@ object RustGen:
     val version   = module.manifest.flatMap(_.version).getOrElse(DefaultVersion)
     val descr     = module.manifest.flatMap(_.description).filter(_.nonEmpty)
     val hasMain   = moduleDeclaresMain(module)
-    val astModule = Denormalize(module)
+    val astModule = synthesizeTopLevelEntry(Denormalize(module))
     // R.3.2 — IR walk: which crypto intrinsics does the program reach?
     // Drives both the conditional Cargo deps and the conditional
     // runtime-helper emit so a hello-world stays dep-free.
@@ -470,6 +472,86 @@ object RustGen:
    *  / `ssc` fenced blocks textually.  A real AST walk lands in the
    *  hello-code-walk slice; for R.1 the text scan is enough to decide
    *  bin vs lib in `Cargo.toml`. */
+  /** Bare top-level statements ARE a program, and every other lane runs them.
+    *
+    * This backend walks only top-level `def`s, so a source that is just statements produced an
+    * EMPTY generated module and a `[lib]` crate — `run-rust` then had nothing to run. Rather than
+    * teach the walker a second shape, the statements become the body of a synthesized
+    * `def main(): Unit`, so entry detection, `[[bin]]`, `src/main.rs` and top-val inlining all
+    * apply unchanged.
+    *
+    * ONLY WHEN THE PROGRAM HAS NO ENTRY POINT OF ITS OWN. A file with `@main` or a zero-argument
+    * `def main` keeps it; synthesizing a second one would emit two candidates and pick by accident.
+    *
+    * TOP-LEVEL `val`s ARE LEFT ALONE, deliberately. They are already collected as `topVals` and
+    * inlined into every def that references them, so moving them inside the synthetic `main` would
+    * take them away from the other defs — the statements move, the bindings do not.
+    */
+  private[rust] def synthesizeTopLevelEntry(module: ast.Module): ast.Module =
+    def topStats(node: ast.ScalaNode): List[m.Tree] = node.tree match
+      case m.Source(stats)     => stats.toList
+      case m.Term.Block(stats) => stats.toList
+      case single              => List(single)
+
+    def isEntry(t: m.Tree): Boolean = t match
+      case d: m.Defn.Def =>
+        d.mods.exists {
+          case m.Mod.Annot(m.Init.After_4_6_0(m.Type.Name("main"), _, _)) => true
+          case _                                                          => false
+        } || (d.name.value == "main" && d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty)
+      case _ => false
+
+    // A STATEMENT here is a term that is not a declaration: `println(x)`, `xs.foreach(…)`, an `if`
+    // used for effect. Definitions, imports and package wrappers are not.
+    def isStatement(t: m.Tree): Boolean = t match
+      case _: m.Defn | _: m.Decl | _: m.Import | _: m.Pkg => false
+      case _: m.Term                                      => true
+      case _                                              => false
+
+    val blocks = module.sections.flatMap(sectionBlocks)
+    if blocks.exists(b => b.tree.exists(n => topStats(n).exists(isEntry))) then module
+    else
+      val statements = blocks.flatMap(b => b.tree.toList.flatMap(topStats)).filter(isStatement)
+      if statements.isEmpty then module
+      else
+        val body = m.Term.Block(statements.collect { case t: m.Term => t })
+        val synthetic = m.Defn.Def(
+          mods = Nil,
+          name = m.Term.Name("main"),
+          paramClauseGroups = List(m.Member.ParamClauseGroup(m.Type.ParamClause(Nil), List(m.Term.ParamClause(Nil)))),
+          decltpe = Some(m.Type.Name("Unit")),
+          body = body,
+        )
+        var appended = false
+        def rewriteBlock(b: ast.Content): ast.Content = b match
+          case cb: ast.Content.CodeBlock if !appended && cb.tree.exists(n => topStats(n).exists(isStatement)) =>
+            cb.tree match
+              case Some(node) =>
+                appended = true
+                // Keep the statements where they are AND add the entry: the walker ignores bare
+                // statements, so leaving them costs nothing and keeps the block's source honest.
+                cb.copy(tree = Some(ast.ScalaNode(m.Source(topStats(node).collect { case s: m.Stat => s } :+ synthetic))))
+              case None => cb
+          case other => other
+        module.copy(sections = module.sections.map(rewriteSection(_, rewriteBlock)))
+
+  private def sectionBlocks(section: ast.Section): List[ast.Content.CodeBlock] =
+    section.content.collect { case cb: ast.Content.CodeBlock if isScalaFence(cb.lang) => cb } ++
+      section.subsections.flatMap(sectionBlocks)
+
+  private def rewriteSection(section: ast.Section, f: ast.Content => ast.Content): ast.Section =
+    section.copy(
+      content = section.content.map {
+        case cb: ast.Content.CodeBlock if isScalaFence(cb.lang) => f(cb)
+        case other                                             => other
+      },
+      subsections = section.subsections.map(rewriteSection(_, f)),
+    )
+
+  private def isScalaFence(lang: String): Boolean =
+    val l = lang.trim.toLowerCase
+    l == "scala" || l == "scalascript" || l == "ssc" || l.isEmpty
+
   private[rust] def moduleDeclaresMain(module: ir.NormalizedModule): Boolean =
     module.sections.exists(sectionDeclaresMain)
 

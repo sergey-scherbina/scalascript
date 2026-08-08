@@ -70,6 +70,29 @@ class RustGenCargoTomlTest extends AnyFunSuite:
     assert(!toml.contains("[lib]"))
     assert(toml.contains("""path = "src/main.rs""""))
 
+  test("bare top-level statements get a synthesized entry — every other lane runs them"):
+    // This backend walks only top-level `def`s, so a program that is just statements produced an
+    // EMPTY generated module and a `[lib]` crate with nothing to run. The statements now become the
+    // body of a synthesized `def main(): Unit`, so entry detection, `[[bin]]`, `src/main.rs` and
+    // top-val inlining all apply unchanged instead of the walker learning a second shape.
+    val toml = cargoToml(compile(moduleWith(
+      sources = List("val x = 41\nprintln(x + 1)")
+    )))
+    assert(toml.contains("[[bin]]"))
+    assert(!toml.contains("[lib]"))
+
+  test("a program with its own entry point does NOT get a second one"):
+    // Synthesizing beside an existing `@main` would emit two candidates and pick by accident, so
+    // the synthesis is conditional. Asserted in both spellings, since either could be the one that
+    // regresses.
+    Vector(
+      "@main def run(): Unit = println(\"a\")\nprintln(\"top level too\")",
+      "def main(): Unit = println(\"a\")\nprintln(\"top level too\")"
+    ).foreach { src =>
+      val toml = cargoToml(compile(moduleWith(sources = List(src))))
+      assert(toml.contains("[[bin]]"), s"lost the binary target for:\n$src")
+    }
+
   test("a `main` that TAKES ARGUMENTS is not an entry point"):
     // `renderMainRs` emits `fn main() { generated::<crate>::<entry>(); }`, so a `main` with
     // parameters would generate a call missing its arguments — a Rust compile error at the end of a
