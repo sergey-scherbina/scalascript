@@ -1,0 +1,13 @@
+slug: sbt-plugin-build-tool-parity
+branch: feature/sbt-plugin-build-tool-parity
+agent: claude-code
+started: 2026-08-08T11:00:00Z
+heartbeat: 2026-08-08T11:00:00Z
+status: implementing
+items: sbt-plugin-build-tool-parity
+paths: file:v1/tools/sbt-plugin file:BACKLOG.md
+scope: |
+  Make the plugin behave like an sbt plugin, then widen its surface. Order set with Sergiy:
+  artifacts/publishing wiring, then incrementality, then the distribution family. NOTHING is to be
+  published to Maven -- only the wiring so publishLocal/publish work when the owner chooses.
+next: S1 artifacts wiring, with a scripted scenario per slice
