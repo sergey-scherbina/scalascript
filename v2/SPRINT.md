@@ -13,6 +13,36 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## F coverage: the decline reasons left after 2026-08-08 (claim `f-underscore-global`)
+
+Measured, not guessed: `ssc info --front-report` over 140 corpus files after the binding-arm and
+`getOrElse` fixes landed — **38 F, 32 GAP, 64 BOTH-UNBOUND, 6 ERROR**. Ranking the names F reports:
+
+    33  (global _)                 <- three times the next one
+     5  (global JsonCodec_derived)
+     4  (global Parser)
+     4  (global awaitClient)
+     4  (global _println)
+     3  (global self)
+
+- [~] **`(global _)` — the top reason by a wide margin.** Cause NOT known. The obvious guess is
+      closed already: the shorthand lambda `xs.map(_ + 1)` lowers fine, so `_` is arriving from some
+      other position. Method that worked twice this week, in this order: ask each module for its own
+      decision (`--front-report` per file) to find where the reason originates rather than where it
+      surfaces; then diff the def names both fronts emit (`SSC_DUMP_DEFS`) to see whether F stops
+      emitting; then reduce BY DECLARATION, never by line — a line-level cut around a parse stop
+      moves the stop and cannot converge.
+- [ ] **Census the 64 `BOTH-UNBOUND`.** Both fronts agree there, so it is NOT an F gap; the earlier
+      split was user-program errors versus plugin externs, and the extern half is now accepted by
+      `validateNoReader`. What remains is unmeasured. This is a MEASUREMENT, and its useful outcome
+      may well be "not our work" — which would change the coverage picture with no code at all.
+- [ ] The tail — `JsonCodec_derived`, `Parser`, `awaitClient`, `_println`, `self`. `Parser` is the
+      one whose reduction failed to transplant twice; start it from the closure, not the module.
+
+Rule this section exists to carry, learned the expensive way: **the name F reports is not
+necessarily where the fault is.** `Response` was three import levels from its cause and cost nine
+measurement runs. Ask each module for its OWN decision before chasing a name.
+
 ## `package:` binds a namespace on the native lane (claim `native-package-namespace-impl`)
 
 Spec: [`../specs/native-package-namespace.md`](../specs/native-package-namespace.md).
