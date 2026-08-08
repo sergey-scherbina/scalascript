@@ -1,0 +1,11 @@
+slug: parameterless-def-local-js
+branch: feature/parameterless-def-local-js
+agent: claude-code
+started: 2026-08-08T11:27:50Z
+heartbeat: 2026-08-08T11:27:50Z
+status: claimed-before-planning
+items: parameterless-def-local-not-invoked-js-and-native
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
