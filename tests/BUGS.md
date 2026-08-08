@@ -44,6 +44,59 @@ is that one lane said nothing.
 Full suite 72/72: `anyStr` and `Show` are shared by every lane, and this repository has been burned
 before by a targeted gate passing while a shared renderer broke ~28 checks elsewhere.
 
+## f-multi-parameter-clause-def-is-not-lowered
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-08
+     ssc-version: 1f708ae22
+     confirmed: yes
+     gate: none -->
+
+Front F does not lower a `def` with two parameter clauses. **Pre-existing** — measured identical on
+the pre-fix binary — but newly REACHABLE, and that is why it is filed now: it used to be masked by
+an unrelated decline, and half of its failure modes are silent.
+
+```
+def v(gap: Int = 0)(children: String*): Int = gap + children.toList.length
+def main(): Unit = println(v(gap = 24)("a"))
+
+                                             F                        reference
+default + varargs, named arg                 ssc: arity: 2 expected   25
+varargs, named arg (no default)              24<closure>              25
+default, plain second clause                 ssc: arity: 2 expected   25
+default + varargs, positional arg            24<closure>              25
+```
+
+Two of the four are **silent wrong answers**: F applies the first clause, never applies the second,
+and stringifies the resulting closure into the result.
+
+**How it surfaced, and the one regression it caused.** Fixing
+`f-ordered-match-arm-body-is-not-a-statement-sequence` (`1f708ae22`) flipped
+`runtime/std/ui/lower.ssc` from GAP to F. A decline is program-scoped, so before that flip EVERY
+program importing that module went to the reference front — which is what had been hiding this.
+Of the 15 corpus files that moved GAP→F, 14 fail identically under both fronts (they are demos that
+want a server, not `ssc run`), and **one regressed from working to failing**:
+`examples/frontend/std-ui/smoke-test.ssc` printed `smoke:ok` and now reports
+`ssc: arity: 2 expected, 1 given`, because `std/ui/layout.ssc` declares
+`def vstack(gap: Int = 0)(children: TkNode*)`.
+
+Five std modules declare curried defs: `ui/content.ssc`, `ui/reactive.ssc`, `ui/display.ssc`,
+`ui/containers.ssc`, `ui/layout.ssc`.
+
+**The question this raises is not "fix the arity error" but a policy one, and it is the owner's:**
+should F REFUSE a file whose closure contains a construct it cannot lower, the way
+`validateNoReader` already refuses an unbound global? That would restore the fallback for
+`smoke-test.ssc`, convert the two silent-wrong-answer rows above into honest declines, and LOWER the
+F coverage number — trading a metric for a guarantee. The alternative is implementing multi-clause
+lowering in F, which is feature-sized work and overlaps the area of the active
+`v2-three-param-clauses` claim on the reference front.
+
+Not decided here on purpose. What is decided: leaving a construct that F answers WRONGLY reachable
+without a written record would repeat the mistake this file exists to prevent.
+
 ## f-assignment-headed-arm-body-drops-the-rest-and-returns-a-closure
 
 <!-- status: open
