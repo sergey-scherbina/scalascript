@@ -28,7 +28,7 @@ if $SC check v3/tests/sample.ssir; then echo "  ok   check accepts the sample"; 
 
 # A file the verifier must REFUSE, so layer 2 is not green in both directions. `br 0` at the top
 # level of a function leaves a region that does not enclose it.
-bad=$(mktemp -t ssc3bad); trap 'rm -f "$bad"' EXIT
+bad=$(mktemp "${TMPDIR:-/tmp}/ssc3bad.XXXXXX"); trap 'rm -f "$bad"' EXIT
 cat > "$bad" <<'EOF'
 (module
   (consts (int 1))

@@ -184,7 +184,7 @@ case "$cmd" in
     [ $# -ge 2 ] || { echo "usage: ssc3 run [--bridge] <file.ssc>" >&2; exit 2; }
     if [ "$2" = "--bridge" ]; then
       [ $# -ge 3 ] || { echo "usage: ssc3 run --bridge <file.ssc>" >&2; exit 2; }
-      ir="$(mktemp -t ssc3run)"
+      ir="$(mktemp "${TMPDIR:-/tmp}/ssc3run.XXXXXX")"
       trap 'rm -f "$ir"' EXIT
       # The build step's diagnostics go to stderr and its exit code decides. Running a program the
       # front refused would be worse than not running it at all.

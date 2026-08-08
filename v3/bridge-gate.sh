@@ -27,7 +27,7 @@ for f in v3/tests/bridge/*.ssir; do
   exp="v3/tests/bridge/$name.expected"
   [ -f "$exp" ] || continue
   ran=$((ran + 1))
-  ir="$(mktemp -t ssc3ir)"
+  ir="$(mktemp "${TMPDIR:-/tmp}/ssc3ir.XXXXXX")"
   if ! $SSC3 emit-v2 "$f" > "$ir" 2>/dev/null; then
     echo "  FAIL $name — the bridge refused a case it is supposed to translate"
     fail=1; rm -f "$ir"; continue

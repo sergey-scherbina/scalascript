@@ -28,7 +28,7 @@ for f in v3/tests/bridge/*.ssir; do
   [ -f "v3/tests/bridge/$name.expected" ] || continue
   ran=$((ran + 1))
   own="$($SSC3 exec "$f" 2>/dev/null)"
-  ir="$(mktemp -t ssc3x)"; $SSC3 emit-v2 "$f" > "$ir" 2>/dev/null
+  ir="$(mktemp "${TMPDIR:-/tmp}/ssc3x.XXXXXX")"; $SSC3 emit-v2 "$f" > "$ir" 2>/dev/null
   via="$($V2 run-ir "$ir" 2>/dev/null)"; rm -f "$ir"
   exp="$(cat "v3/tests/bridge/$name.expected")"
   if [ "$own" = "$via" ] && [ "$own" = "$exp" ]; then
@@ -95,7 +95,7 @@ fi
 # The hand-written `.ssir` contrast still holds, and it is worth saying why: a `.ssir` is read
 # straight into the IR and NO pass runs on it, so its raw `TailCall` reaches the bridge intact. That
 # is what still distinguishes a backend that honours TailCall from one that does not.
-ir="$(mktemp -t ssc3x)"; $SSC3 emit-v2 v3/tests/tail-call.ssir > "$ir" 2>/dev/null
+ir="$(mktemp "${TMPDIR:-/tmp}/ssc3x.XXXXXX")"; $SSC3 emit-v2 v3/tests/tail-call.ssir > "$ir" 2>/dev/null
 # Capture FIRST, then match. Under `set -o pipefail` the pipeline takes java's exit status, and java
 # exits non-zero precisely BECAUSE it overflowed — so `… | grep -q` reported failure exactly when
 # the thing being looked for had happened. The check inverted itself.

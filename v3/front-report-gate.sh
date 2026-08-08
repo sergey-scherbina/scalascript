@@ -75,7 +75,7 @@ fi
 # print identical Asts, so the only thing that can distinguish them is a construct exactly one of
 # them supports. `""" … """` reached v3's lexer only on 2026-08-07; before that it was UniML's
 # alone. Any such construct works — what matters is that this line is a REAL execution.
-probe="$(mktemp -t ssc3front).ssc"
+probe="$(mktemp "${TMPDIR:-/tmp}/ssc3front.XXXXXX").ssc"
 trap 'rm -f "$probe"' EXIT
 printf 'println("ok-front")\n' > "$probe"
 out="$("$SSC3" run "$probe" 2>&1)"

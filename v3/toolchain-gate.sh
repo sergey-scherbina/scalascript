@@ -78,7 +78,7 @@ fi
 
 # The BRIDGE too — `v2/src` is the other tree v3 compiles, and it is the one with `-Xss512m` and a
 # different entry point, so "the kernel works" says nothing about it.
-probe="$(mktemp -t ssc3tc).ssc"
+probe="$(mktemp "${TMPDIR:-/tmp}/ssc3tc.XXXXXX").ssc"
 cleanup() { rm -rf "$SHIM" "$probe"; }
 printf 'println(6 * 7)\n' > "$probe"
 if [ "$(PATH="$NOSCLI" v3/ssc3 run --bridge "$probe" 2>&1)" = "42" ]; then
