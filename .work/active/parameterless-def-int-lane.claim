@@ -1,0 +1,11 @@
+slug: parameterless-def-int-lane
+branch: feature/parameterless-def-int-lane
+agent: claude-code
+started: 2026-08-08T07:36:53Z
+heartbeat: 2026-08-08T07:36:53Z
+status: claimed-before-planning
+items: parameterless-def-diverges-native-vs-interp
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
