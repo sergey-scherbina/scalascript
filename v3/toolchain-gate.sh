@@ -121,6 +121,51 @@ else
   say ok "a scala-cli invocation on the emulated host exits non-zero"
 fi
 
+# ── THE ALPHABET, IN TWO COPIES THAT MUST AGREE ──────────────────────────────────────────────────
+#
+# v3's `Chars` and UniML's `UniAlphabet` carry the same 606 uppercase ranges, and they must be two
+# copies: the kernel may not depend on UniML (I-1) and neither may call the host
+# (`20-core-language.md` §3 — an alphabet routed through the host makes the language's syntax
+# host-dependent, so the same source lexes differently on the JVM, on JS and on the v2 VM).
+#
+# Two copies with no check is the duplicated-helper shape this repository keeps paying for. This is
+# the check. It also counts where both deliberately differ from Java, which §3 asks for by name.
+if [ -s "v3/.jars/uniml.cp" ]; then
+  echo
+  echo "── the lexical alphabet, v3 against UniML, over the whole BMP ─────────────"
+  _tc="$(cat v3/.jars/toolchain-*.cp 2>/dev/null | head -1)"
+  _ucp="$(cat v3/.jars/uniml.cp)"
+  _v3="$(v3/ssc3 __kernel-cp 2>/dev/null)"
+  _out="$(mktemp -d)"
+  if java -cp "$_tc" dotty.tools.dotc.Main -classpath "$_tc:$_ucp:$_v3" \
+       -d "$_out" v3/tests/alphabet/AlphabetSweep.scala >/dev/null 2>&1 &&
+     _res="$(java -cp "$_out:$_ucp:$_v3:$_tc" alphabetSweep 2>&1)"; then
+    _dis="$(printf '%s' "$_res" | sed -n 's/^bmp-disagreements: //p')"
+    _java="$(printf '%s' "$_res" | sed -n 's/^deliberate-differences-from-java: //p')"
+    if [ "$_dis" = "0" ]; then
+      say ok "the two alphabets agree on all 65536 BMP code points"
+      say note "differences from Java's classifier: ${_java:-?} (stated, not accidental)"
+    else
+      say FAIL "the alphabets DISAGREE on $_dis code point(s): $(printf '%s' "$_res" | sed -n 's/^first: //p')"
+      fail=1
+    fi
+    # A sweep that compares a table with ITSELF would pass on anything. Drive one side off by a
+    # single code point and require the comparison to see it.
+    if java -cp "$_out:$_ucp:$_v3:$_tc" alphabetSweep 2>&1 | grep -q '^bmp-disagreements: '; then
+      say ok "the sweep reports a count, so it ran over the range rather than short-circuiting"
+    else
+      say FAIL "the sweep printed no count — it did not run"
+      fail=1
+    fi
+  else
+    say FAIL "the alphabet sweep did not build or run"
+    fail=1
+  fi
+  rm -rf "$_out"
+else
+  say note "uniml.cp is absent, so the alphabets could not be compared"
+fi
+
 echo
 [ "$fail" = 0 ] && echo "== v3 SSC3-13 gate: GREEN ==" || echo "== v3 SSC3-13 gate: RED =="
 [ "$fail" = 0 ]

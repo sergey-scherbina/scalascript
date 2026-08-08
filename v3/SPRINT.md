@@ -1929,3 +1929,50 @@ it keeping both, which was right, but resolving a collision is not the same as n
 **What is left in my scope, honestly:** the UniML projection, the driver, the gates, the specs, and
 five kernel files that are mostly leaves. The next language work in `v3/src` belongs to whoever
 holds those files until that claim is released.
+
+## 40 · The alphabet was routed through the host for one day — and the spec had banned it
+
+Sergiy asked what the problem with the copy of the alphabet in `v3/Chars` is. Reading
+`20-core-language.md` §3 to answer it turned up that the problem was mine: **§3 bans host character
+classification by name** — `java.lang.Character` — and `Chars.isUpperStart` had called
+`Character.isUpperCase` since §35b.
+
+The ban is not tidiness. Route an alphabet through the host and the same source lexes differently on
+the JVM, on JS and on the v2 VM, so the language's SYNTAX becomes host-dependent. And the
+measurement I justified the host call with — "agrees with UniML's table on every BMP code point" —
+was taken on one JVM, which is exactly the guarantee the rule says not to rely on.
+
+- [x] **40a — the 606 ranges are copied into `Chars`, and the copy is deliberate.** Reaching into
+      UniML would break I-1: the kernel builds and runs with UniML absent, and every gate depends on
+      it. So there are two copies, which is the duplicated-helper shape this repository keeps paying
+      for — unless there is a check.
+
+- [x] **40b — the one-comparison rule was the other candidate, and it was rejected on a cost the
+      author pays directly.** `A`–`Z` or anything ≥ U+0080 mirrors `isIdStart`, needs no table, and
+      errs LOUD (an unknown constructor rather than a binder that matches everything). It also makes
+      `case имя =>` a constructor, so Cyrillic and Greek names stop binding in patterns. A language
+      that cannot bind a Russian name is worse than 606 ranges of data.
+
+- [x] **40c — `toolchain-gate.sh` sweeps all 65536 BMP code points** comparing the two alphabets,
+      and reports how many differ from Java's — which is the check §3 asks for in as many words.
+      Observed failing on a ONE code point drift: `U+00D8 v3=false uniml=true`.
+
+- [x] **40d — an `enum` case could not carry a FUNCTION type.** `case L(step: () => Option[(V, V)])`
+      stopped at the `(` with `expected type, found '('`, while the identical field in a `case class`
+      parsed — because the two used different type readers, one taking an identifier and the other
+      the full type text. One reader now. It is `Exec.scala:55` in v3's own kernel, so it is one of
+      the nine files self-hosting still trips on.
+
+- [x] **40e — a multi-arm `catch` is WRITTEN AND NOT LANDED, and the measurement says why.** The
+      projection ignored the type on a single typed arm — `case e: IllegalStateException =>` caught
+      everything, where the reference answers `match: no matching case`. Making the type mean
+      something turned a shared wrong answer into a LANE DIVERGENCE, because
+      `Exec.scala:482` binds `VStr(e.message)` where the bridge binds the thrown value. Measured with
+      the change in: N 186 → 185, DIFF 0 → 1, CRASH 0 → 1. `Exec.scala` belongs to
+      `ssc3-effect-protocol` and `Try` is what that claim is redesigning, so it is filed
+      (`v3-executor-catches-a-string-where-the-bridge-catches-the-value`) with the order of
+      operations: fix the one line, then the projection stops ignoring the type in one move.
+
+**Measured:** N = 186 on the exec lane, CRASH 0. **DIFF 1 is not mine** — `parameterless-def-local`
+fails identically with my changes reverted, so it arrived with main; checked rather than assumed.
+Fixtures 50/50, seven gates green, `install.sh --dev` clean, smoke-ci 72/72.

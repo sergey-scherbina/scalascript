@@ -1014,8 +1014,12 @@ object SpikeParse:
         if fn.isEmpty then more = false
         else
           expect(c, "spike.colon", "ec.fieldColon", "':'").foreach(kids += _)
-          expectType(c, "ec.fieldType").foreach(kids += _)
-          skipTypeTail(c) // generic field type `List[T]` (erased, head kept)
+          // THE SAME TYPE READER A `case class` USES. This expected an IDENTIFIER and then skipped a
+          // generic tail, so an enum case field whose type opens with a paren — a FUNCTION type,
+          // `case L(step: () => Option[(V, V)])` — stopped at the `(` with `expected type, found
+          // '('`. The `case class` twin has read the full type text all along, which is why the
+          // same field parsed in one declaration form and not the other.
+          kids += captureType(c, "ec.fieldType")
           // a field default `case Square(side: Int = 2)` — captured (ec.dflt) so the case's ctor can
           // synthesise `Square()` → `Square(2)`; without consuming it the `= 2` leaked, ending the enum
           // early and spuriously lowering the last case as a stray case class (a phantom `__mirror_*`).

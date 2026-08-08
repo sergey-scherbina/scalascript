@@ -337,6 +337,54 @@ Filed at the root as `lane: rust` rather than under a backend directory because 
 no `BUGS.md`; move it if one appears.
 
 
+## v3-executor-catches-a-string-where-the-bridge-catches-the-value
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: divergence
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-08 while giving the UniML projection a multi-arm `catch`. The two v3 lanes bind
+DIFFERENT THINGS to the caught name:
+
+    v3/src/Exec.scala:482    regs(x) = Value.VStr(e.message)     the MESSAGE, as a string
+    the bridge (v2)          the thrown VALUE                     a DataV, as thrown
+
+So a typed arm works on one lane and not the other:
+
+    case class Boom(msg: String)
+    def risky(k: Int): String =
+      try (if k == 1 then throw Boom("b") else "none")
+      catch
+        case e: Boom  => "caught-boom"
+        case e: Other => "caught-other"
+
+    reference (bin/ssc)   none / caught-boom / caught-other
+    v3 bridge             none / caught-boom / caught-other
+    v3 executor           none / **Boom(b)** — no arm matched, so the rethrow arm fired
+
+`__isTag__` is asked whether a `VStr("Boom(b)")` is a `Boom`, and it correctly says no.
+
+**It was invisible until now, and that is the interesting part.** A single `catch case e: T =>` used
+to project as "bind the name and run the handler for anything", ignoring the type — so both lanes
+answered the same and both were wrong, which no gate here can see. Making the type mean something
+turned a shared wrong answer into a lane divergence, which the corpus CAN see.
+
+The fix is one line in `Exec.scala` — bind the value, not its rendering — but that file belongs to
+`ssc3-effect-protocol`, and `Try`/`Perform`/`Handle` are exactly what that claim is redesigning.
+Filed rather than reached into.
+
+**And the projection change that would exercise it is WRITTEN AND NOT LANDED,** because landing it
+alone costs more than it gives. Measured on the corpus with the multi-arm/typed `catch` in place:
+N 186 → 185, DIFF 0 → 1 and CRASH 0 → 1, the crash being
+`try-catch-exception-delivery` failing with `/ by zero` — the arm that should have caught it no
+longer matches, because the caught value is a string. So the order is: fix `Exec.scala:482` first,
+then the projection can stop ignoring the type in one move. The diff is small — replace the
+single-arm shortcut with a `match` on the caught value plus a rethrow arm.
+
+
 ## v3-loses-a-mutation-to-a-captured-var — both v3 lanes answer 0 where the reference answers 6
 
 <!-- status: open

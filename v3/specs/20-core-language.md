@@ -114,8 +114,31 @@ tables**, and this is a language decision rather than an implementation problem:
 | identifier start | `a`–`z`, `A`–`Z`, `_`, `$`, **or any code point ≥ U+0080** |
 | identifier part | identifier start, or digit |
 | operator character | `+ - * / % < > = ! & \| ^ ~ : # @ ?` |
+| **uppercase start** | `A`–`Z`, or a code point in the 606 Unicode uppercase RANGES |
 
-Every line is a range comparison. There is no table, on any host.
+Every line but the last is a range comparison. There is no table on any host — the last line is a
+table IN THE SOURCE, which is a different thing, and it is the one class that could not be decided
+away. Why it exists and why it is not one comparison:
+
+**It decides constructor from binder.** `case Foo =>` tests a constructor; `case foo =>` binds. Get
+it wrong toward "constructor" and an unknown name is a LOUD refusal; get it wrong toward "binder"
+and the pattern silently matches EVERYTHING. Those are not symmetric, and the second is the failure
+this section's own philosophy is arranged to avoid.
+
+**So why not `A`–`Z` or ≥ U+0080, matching identifier-start?** One comparison, no table, and it errs
+loud — but it makes every non-ASCII lowercase name a constructor, so `case имя =>` stops binding.
+A language whose patterns cannot bind a Russian or Greek name is a worse outcome than 606 ranges of
+data, and this project's author writes Russian.
+
+**Two copies, and a gate rather than a hope.** UniML carries the same ranges (`UniAlphabet`), and it
+must: the kernel may not depend on UniML (I-1) and neither may call the host.
+`v3/toolchain-gate.sh` sweeps all 65536 BMP code points comparing the two, and reports how many
+differ from Java's classifier — which is the check this section asks for two paragraphs down.
+Observed failing on a one-code-point drift.
+
+**Recorded because it was got wrong first:** for one day `Chars.isUpperStart` called
+`Character.isUpperCase`, justified by measuring agreement with UniML over the BMP. That measurement
+was taken on one JVM, which is exactly the guarantee this section says not to rely on.
 
 **Why "any code point ≥ U+0080" rather than a Unicode letter test.** It is one comparison instead
 of a table, and it accepts identifiers written in any script — Cyrillic, Greek, CJK — which a letter
