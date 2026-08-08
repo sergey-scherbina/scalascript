@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## routing-authority-is-declared-but-not-implemented — `fixed-in` outranks `lane` on paper only, and nothing checks either
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: none
+     fixed-in: - -->
+
+Two findings, one cause: `POLICY.md` §P-3.3 describes a routing contract that no code implements.
+
+**1 · `bugs-split` never reads `fixed-in`.** P-3.3 sets the authority order as *"`fixed-in` (a
+resolvable sha) > a field a human declared > keyword extraction (NEVER)"*. `scripts/bugs-split`
+routes on `lane:` alone — `grep fixed-in scripts/bugs-split` is empty. Its own comment says *"the
+lane says which implementation misbehaves, which is the module where the fix goes"*, and that
+premise is false whenever a defect is FILED against the lane where the symptom appeared and FIXED
+somewhere else.
+
+Concrete instance, and how this was found: `uniml-yaml-alias-resolution-last-wins` carries
+`lane: js` and a `fixed-in` naming a commit that changed `uniml/yaml`. By P-3.2 it belongs to
+`uniml`; by the tool it belongs to the js board, where it still sits. There is no lane that would
+move it — see 2.
+
+**2 · Six modules have no lane at all.** `tests/fixtures/modules.tsv` gives `-` to `v1/lang`,
+`tests/conformance`, `scripts`, `scljet`, `uniml` and `payments`, and the `lane:` enum in
+`specs/bugs-index.md` has no value for any of them. A defect whose fix lives in one of those six
+cannot be routed there by lane, only placed by hand.
+
+**3 · "the gate catches it" — no gate does.** P-3.3 closes with *"An entry whose location and
+`lane:` disagree is a tracking bug, and the gate catches it."* `tests/e2e/bugs-index-gate.sh` (240
+lines) never reads `modules.tsv` and never compares a lane to the file it is in. Measured today:
+**69 entries disagree**, most of them a specific lane (`native`, `int`, `v2-rust`) sitting in the
+ROOT board, which `modules.tsv` reserves for `multi` and `n/a`.
+
+**Deliberately NOT fixed here, and the reason is the number.** A gate asserting the rule would go
+red on 69 pre-existing entries the moment it landed — the "arrived red" shape that
+`v3-ci-workflow-red-on-every-run-since-it-was-added` above is about. Whoever takes this has to
+decide first whether those 69 are misfiled or whether the rule is wrong about them, and that is a
+judgement, not a sweep. The cheap half is 2: adding the six missing lanes costs a row each and
+makes the other two answerable.
+
+
 ## v3-ci-workflow-red-on-every-run-since-it-was-added — two causes, and the message named neither
 
 <!-- status: fixed
