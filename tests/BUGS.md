@@ -5,12 +5,12 @@
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
-     ssc-version: 241d67402
+     ssc-version: 1a13d17ea
      confirmed: yes
      gate: none -->
 
 Three separate gaps that `examples/frontend/std-ui/smoke-test.ssc` reaches now that F lowers its
-curried and vararg calls (`f-multi-parameter-clause-def-is-not-lowered`, fixed in `241d67402`).
+curried and vararg calls (`f-multi-parameter-clause-def-is-not-lowered`, fixed in `1a13d17ea`).
 **All three are pre-existing** — each measured identical on the pre-fix binary — and none is caused
 by that fix. Filed together because they are what stands between that corpus file and `smoke:ok`.
 
@@ -150,10 +150,10 @@ before by a targeted gate passing while a shared renderer broke ~28 checks elsew
      reported-at: 2026-08-08
      ssc-version: d7546f299
      confirmed: yes
-     fixed-in: 241d67402
+     fixed-in: 1a13d17ea
      gate: tests/e2e/f-curried-def-gate.sh -->
 
-**FIXED in `241d67402`,** and the fix turned out to be two constructs rather than one: the curried
+**FIXED in `1a13d17ea`,** and the fix turned out to be two constructs rather than one: the curried
 clauses AND varargs, which the four measured forms below had confounded. Varargs were missing
 ENTIRELY — `def f(xs: String*)` called `f("a")` answered `<closure>` with no currying involved.
 Defaults across clauses, named arguments, an omitted first clause (`vstack()(children)`, which
