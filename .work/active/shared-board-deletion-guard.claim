@@ -1,0 +1,11 @@
+slug: shared-board-deletion-guard
+branch: feature/shared-board-deletion-guard
+agent: claude-code
+started: 2026-08-08T16:43:05Z
+heartbeat: 2026-08-08T16:43:05Z
+status: claimed-before-planning
+items: a shared board file has no guard against a stale-copy overwrite
+paths: file:.githooks/commit-msg file:scripts/BUGS.md file:specs/worktree-guardrail.md file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
