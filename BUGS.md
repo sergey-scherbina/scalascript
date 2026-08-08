@@ -2126,9 +2126,34 @@ changes only 6CK3; the corrected baseline/category SHA-256 values are
 `cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`.
 
 ## uniml-yaml-projection-reorders-invalid-cst — semantic projection sorts tokens instead of validating source order
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     kind: bug
+     gate: uniml/yaml/src/test/scala/scalascript/uniml/dialect/yaml/YamlProjectionCstSpec.scala
+     fixed-in: 44bf646c2 -->
+
+**FIXED 2026-08-08 in `44bf646c2`.** `.sortBy(_.id)` is gone; the traversal order IS the source order
+and is VALIDATED. `validateCst` runs before the tree is flattened and refuses with
+`uniml.yaml.projection-invalid-cst` on any of: two source identities, duplicate ids, traversal order
+disagreeing with ids, or spans that overlap or run backwards.
+
+**Each invariant is separate on purpose, and the spec shows why.** Ids ascending does not imply spans
+do — the overlapping-span case has ASCENDING ids, so only the span check catches it. One combined
+predicate would have let it through.
+
+**What is NOT checked, stated rather than implied:** this entry's "source slices" criterion. The
+original text is not available to the projection, so a token's lexeme cannot be compared against a
+slice of it. Span contiguity is the structural stand-in — a gap or an overlap means the tree is not a
+partition of the source, which is the condition that made the old `sortBy` reachable at all.
+
+**Falsifiability shown, and my first attempt at it was worthless.** Planting `.sortBy(_.id)` back did
+not COMPILE — `validateCst` became unused and `-Werror` rejected it — so that run proved nothing.
+Planted inside the validator instead: exactly the four refusal tests fail and both controls stay
+green, the well-formed tree still projecting and an empty CST still not called invalid.
+
+`JsonProjection` already refused rather than repaired, so this was the second decision site of one
+rule and the wrong one. uniml green: 15 projects, yaml 61 tests including the official corpus gate.
 
 **Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
 
