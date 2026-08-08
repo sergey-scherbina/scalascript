@@ -1,0 +1,11 @@
+slug: multi-name-val-int-and-js
+branch: feature/multi-name-val-int-and-js
+agent: claude-code
+started: 2026-08-08T17:18:34Z
+heartbeat: 2026-08-08T17:18:34Z
+status: claimed-before-planning
+items: multi-name-val-binds-garbage-and-says-nothing
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
