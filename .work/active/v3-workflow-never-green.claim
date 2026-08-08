@@ -5,7 +5,7 @@ started: 2026-08-08T16:07:20Z
 heartbeat: 2026-08-08T16:07:20Z
 status: claimed-before-planning
 items: v3-ci-workflow-red-since-introduction
-paths: file:.github/workflows/v3.yml file:v3/exec-gate.sh file:v3/bridge-gate.sh file:v3/front-report-gate.sh file:v3/selftest.sh file:v3/toolchain-gate.sh
+paths: file:.github/workflows/v3.yml file:v3/exec-gate.sh file:v3/bridge-gate.sh file:v3/front-report-gate.sh file:v3/selftest.sh file:v3/toolchain-gate.sh file:v3/ssc3
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
