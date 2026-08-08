@@ -86,6 +86,26 @@ function. The obvious reading of that — that it is a slot-counting error sensi
 binders precede the placeholder — was tested and is WRONG: 0, 1, 2, 3 and 4 preceding `val`s before
 a placeholder call all lower fine.
 
+**DEF-NAME DIFF RUN, and it points somewhere specific.** Lowering the seven-line module with both
+fronts and comparing emitted def names (`SSC_DUMP_DEFS=1`): F emits 294, the reference 300, and of
+the six only three are not `__pkgref_` aliases —
+
+    main
+    std_ui_content___pkg
+    std_ui_content_contentViewSection
+
+So the reference front emits the function under a PACKAGE-PREFIXED name, `std_ui_content_<name>`,
+and F does not. `std/ui/content.ssc` declares `package: std.ui.content` in its front matter, and F's
+own `curObj`/package handling is the area that
+`native-package-namespace-impl` covers. That is a far better lead than any of the seven construct
+guesses: the placeholder binder `__u0` may be going unbound because the enclosing def is registered
+under a different name than the one the placeholder's lambda is emitted into.
+
+Check that first: whether the same seven lines in a module WITHOUT a `package:` front-matter key
+still reproduce. If they do not, this is package-name mangling and not placeholders at all — which
+would also explain why every synthetic reconstruction, none of which declared a package, lowered
+fine.
+
 Seven synthetic reconstructions have now missed this symptom. Recorded as a warning about method:
 this one does not yield to building candidates up, and the productive direction left is the def-name
 diff that cracked `Response` — lower the seven-line file with F and with `SSC_FRONT=legacy`
