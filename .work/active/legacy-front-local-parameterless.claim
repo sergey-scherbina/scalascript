@@ -5,7 +5,7 @@ started: 2026-08-08T15:18:53Z
 heartbeat: 2026-08-08T15:18:53Z
 status: claimed-before-planning
 items: legacy-front-local-parameterless-def-not-invoked
-paths: file:v2/lib/ssc1-lower.ssc0
+paths: file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/legacy-front-parameterless-gate.sh file:.github/workflows/ci.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
