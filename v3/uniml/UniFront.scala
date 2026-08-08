@@ -370,8 +370,16 @@ object UniFront:
 
     case U.LocalDef(_, s)          => no("a `def` nested inside a `def`", s)
     case U.TupleVal(_, _, s)       => no("a destructuring `val` in expression position", s)
-    case U.CompoundAssign(_, o, _, s) => no("the compound assignment '" + o + "'", s)
-    case U.RangeOp(o, _, _, s)     => no("the range operator '" + o + "'", s)
+    // `n += 1` is `n = n + 1`. The operator carries the `=`, so the binary one is its first
+    // character run — `+=` gives `+`, `++=` gives `++`.
+    case U.CompoundAssign(n, o, v, s) =>
+      val binOp = o.substring(0, o.length - 1)
+      Expr.Assign(n, Expr.Bin(binOp, Expr.Name(n, pos(s)), expr(v), pos(s)), pos(s))
+    // `0 until n` / `1 to n` — an ordinary BINARY OPERATOR in the tree, which is what the source
+    // says and what v3's own front already produces. The desugaring into a list belongs in the
+    // lowering, one implementation for both fronts; emitting the desugared form HERE made the two
+    // fronts print different trees for `js-compound-assign` and the differential said so.
+    case U.RangeOp(o, from, to, s) => Expr.Bin(o, expr(from), expr(to), pos(s))
     case U.Summon(_, s)            => no("`summon`", s)
     case U.Quote(_, s)             => no("a quote", s)
     case U.Splice(_, s)            => no("a splice", s)

@@ -1204,12 +1204,11 @@ object Exec:
     case (BinOp.Le, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) <= 0)
     case (BinOp.Gt, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) > 0)
     case (BinOp.Ge, Value.VStr(x), Value.VStr(y))    => Value.VBool(x.compareTo(y) >= 0)
-    // A char is an integer on both lanes, so it orders as one — and mixed `Char`/`Int` comparison
-    // is ordinary once that is true.
-    case (BinOp.Lt, Value.VChar(x), Value.VChar(y))  => Value.VBool(x < y)
-    case (BinOp.Le, Value.VChar(x), Value.VChar(y))  => Value.VBool(x <= y)
-    case (BinOp.Gt, Value.VChar(x), Value.VChar(y))  => Value.VBool(x > y)
-    case (BinOp.Ge, Value.VChar(x), Value.VChar(y))  => Value.VBool(x >= y)
+    // NO CHAR ARMS HERE. I wrote four and the compiler called them unreachable: two arms further
+    // down already normalise a `VChar` to a `VInt` before dispatching, so chars have ordered
+    // correctly all along. Recorded rather than silently deleted — an arm added where one already
+    // existed is the same misreading as an arm missing where one is needed, and the compiler is
+    // the only reason this one cost nothing.
     case (BinOp.Eq, x, y)                            => Value.VBool(eq(x, y))
     case (BinOp.Ne, x, y)                            => Value.VBool(!eq(x, y))
     case (BinOp.BAnd, Value.VInt(x), Value.VInt(y))  => Value.VInt(x & y)
@@ -1333,6 +1332,32 @@ object Exec:
             case _                => false
           prim && (arity < 0 || arity == 0)
       Value.VBool(yes)
+    // `0 until n` / `1 to n`. The reference builds a cons LIST rather than a lazy range
+    // (`v2/src/Runtime.scala:2978`), so `for i <- 0 until n` is an ordinary list walk on both
+    // lanes and `.map`/`.filter` on the result behave as they do anywhere else.
+    //
+    // Only the two range names. `__arith__` is v2's whole binary-operator door and v3 reaches it
+    // for nothing else — every other operator is a real `Bin` instruction here — so answering the
+    // rest would be inventing a second arithmetic path that nothing uses and nothing tests.
+    case "__arith__" =>
+      val op = args.head match
+        case Value.VStr(x) => x
+        case v             => throw ExecError("__arith__ expects an operator name, got " + show(v))
+      val lo = args(1) match
+        case Value.VInt(x) => x
+        case v             => throw ExecError("a range bound must be an Int, got " + show(v))
+      val hi = args(2) match
+        case Value.VInt(x) => x
+        case v             => throw ExecError("a range bound must be an Int, got " + show(v))
+      if op != "to" && op != "until" then
+        throw ExecError("the operator '" + op + "' is not implemented by v3's executor")
+      val last = if op == "to" then hi else hi - 1
+      var xs: List[Value] = Nil
+      var i = last
+      while i >= lo do
+        xs = Value.VInt(i) :: xs
+        i = i - 1
+      listIn(m, xs)
     case "__throw__" =>
       throw ExecError(if args.isEmpty then "throw" else showV(m, args.head))
     case other => throw ExecError("unknown primitive '" + other + "'")

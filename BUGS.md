@@ -150,6 +150,48 @@ Filed at the root as `lane: rust` rather than under a backend directory because 
 no `BUGS.md`; move it if one appears.
 
 
+## v3-loses-a-mutation-to-a-captured-var — both v3 lanes answer 0 where the reference answers 6
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: wrong-answer
+     gate: none
+     fixed-in: - -->
+
+Found 2026-08-08 while adding `to`/`until` to v3 — `for i <- 0 until 5 do n = n + i` printed 0, and
+the range was not the cause.
+
+    def main(): Unit =
+      var n = 0
+      List(1, 2, 3).foreach { i =>
+        n = n + i
+      }
+      println("foreach: " + n)
+
+    lane                    result
+    reference (bin/ssc)     foreach: 6
+    v3 executor             foreach: 0
+    v3 bridge               foreach: 0
+
+**BOTH v3 LANES AGREE, AND BOTH ARE WRONG** — so neither the lane parity gate nor the front
+differential can see it. Agreement is not correctness; what caught it was the reference.
+
+The cause is not `for`. v3's lambda lifting passes captures as leading PARAMETERS, so a captured
+`var` is copied and the assignment inside the lambda mutates the copy. `for … do` desugars to
+`foreach`, which is why the range work surfaced it, but any lambda assigning to an outer `var` has
+it. The reference lane captures the environment by reference.
+
+**A fix is not small.** A captured mutable variable has to become a CELL — v2 already exposes
+`cell.new` / `cell.get` / `cell.set`, so the vocabulary exists on both lanes — and the lowering has
+to decide which locals need boxing (those assigned inside a lambda that captures them) rather than
+boxing every capture, which would cost every closure. Filed rather than attempted at the end of a
+long session.
+
+**No gate names this.** It belongs as a conformance case, since only an output comparison against
+another lane can distinguish "mutated" from "did not".
+
+
 ## an-undefined-name-in-a-pattern-means-three-different-things — two lanes ignore it, one throws
 
 <!-- status: open

@@ -222,6 +222,16 @@ object Lower:
     // `&&` and `||` SHORT-CIRCUIT, so they lower to `If` and never to a `Bin`. The IR spec makes
     // this a rule rather than a preference: a strict binary operator here would silently evaluate
     // the right side, and nothing downstream could tell that it should not have.
+    // `1 to 3` / `0 until n` — a LIST of ints, which is what the reference lane builds
+    // (`v2/src/Runtime.scala:2978`, a `Cons` chain, not a lazy range). Routed through `__arith__`
+    // because that is the prim v2 already answers for these two names, so the bridge lane costs
+    // nothing and the executor implements the identical vocabulary rather than a parallel one.
+    //
+    // Desugared HERE and not in a front: both fronts parse it as the binary operator it looks
+    // like, and a desugaring written twice is two things that will disagree.
+    case Expr.Bin(o, l, r, p) if o == "to" || o == "until" =>
+      lower(Expr.Prim("__arith__", List(Expr.StrLit(o, p), l, r), p), fns, classes, zeroArity, st0)
+
     case Expr.Bin("&&", l, r, p) =>
       val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
       val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)

@@ -48,6 +48,18 @@ object Loader:
     var acc = acc0
     var i = 0
     val l = raw
+    // AN IMPORT LINE BEGINS WITH ITS LINK. Anything else on a line — a doc comment mentioning a
+    // module, a `.ssc` path inside a STRING LITERAL — is not an import, and reading it as one
+    // produced `cannot find the import 'one.ssc'` for four corpus cases whose only sin was a
+    // markdown sample in a string, plus `v3/src/Loader.scala:44`, where this very comment's own
+    // example was read as an import of a file that does not exist.
+    //
+    // MEASURED before changing the rule: of 382 import lines across the corpus and the standard
+    // library, every one starts with `[`. The lines that do not are prose and string literals —
+    // exactly the false positives. Several links on one line still work, because the line still
+    // begins with the first of them.
+    val lead = l.dropWhile(c => c == ' ' || c == '\t')
+    if !lead.startsWith("[") then return acc
     while i < l.length do
       if l.charAt(i) == '[' then
         val close = l.indexOf("](", i)

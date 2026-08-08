@@ -525,6 +525,16 @@ object Parser:
 
   /** A pattern, with the infix cons form `h :: t` folded into the ordinary `Cons(h, t)`. It is
     * spelled differently and means the same thing, so it becomes the same node. */
+  /** `+=`, `-=`, `*=`, `/=`, `%=`, `++=` — an operator whose last character is `=` and which is
+    * not a COMPARISON. `==`, `<=`, `>=` and `!=` end in `=` too and mean something else entirely,
+    * which is why this is a list of what qualifies rather than a test on the last character. */
+  private def isCompoundAssign(t: Tok): Boolean = t match
+    case Tok.TOp(o, _) =>
+      o.length >= 2 && o.endsWith("=") &&
+        o != "==" && o != "<=" && o != ">=" && o != "!=" && o != "=>" &&
+        o.dropRight(1).forall(c => Chars.isOpChar(c))
+    case _ => false
+
   private def parsePat(ts0: List[Tok]): (Pat, List[Tok]) =
     val (first, tsA) = parseConsPat(ts0)
     // `A | B | C`. Collected here rather than in `parsePatAtom` so that `h :: t` binds tighter,
@@ -1117,6 +1127,17 @@ object Parser:
     case Tok.TId(n, p) if !keywords.contains(n) && isOp(peek(ts.tail), "=") =>
       val (e, t) = parseBody(ts.tail.tail)
       (List(Stmt.Exp(Expr.Assign(n, e, p))), t)
+    // `n += 1` is `n = n + 1`. The lexer takes operator characters by maximal munch, so `+=`
+    // arrives as ONE operator token and reached the expression parser as a BINARY operator: v3
+    // printed `(bin "+=" (name "acc") (name "i"))`, which is not a thing that can run. The front
+    // differential caught it the moment UniML learned the construct — `js-compound-assign`, and it
+    // is the reason that gate grew a ceiling on disagreements yesterday.
+    case Tok.TId(n, p) if !keywords.contains(n) && isCompoundAssign(peek(ts.tail)) =>
+      val op = peek(ts.tail) match
+        case Tok.TOp(o, _) => o.substring(0, o.length - 1)
+        case _             => throw ParseFail(p, "expected a compound assignment operator")
+      val (e, t) = parseBody(ts.tail.tail)
+      (List(Stmt.Exp(Expr.Assign(n, Expr.Bin(op, Expr.Name(n, p), e, p), p))), t)
     case _ =>
       val (e, t) = parseExpr(ts)
       (List(Stmt.Exp(e)), t)

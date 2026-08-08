@@ -1800,3 +1800,49 @@ line 136, and 113 corpus cases import that module without going near it. Each fi
 Every defect here was a WRONG READING rather than a missing feature — a field read taken for a
 method call, a method resolved by name without its arity, a comparison that silently had no arm.
 The corpus found them only because each earlier fix let the next one be reached.
+
+## 37 · Self-hosting: 0 of 16 files → 7, then the daily constructs. N 182 → 186
+
+The corpus's single-cause blockers are gone — the top name is now `Dataset` at 12, then 5, 5, 3 —
+so the next measurement worth taking is the one about writing v3 IN v3. It moved a long way:
+**v3 reads 7 of its own 16 kernel files, where it read 0.** The nine that fail name small things,
+and three of them are what a person writes daily.
+
+- [x] **37a — an import link had to BEGIN its line.** The scanner read `[a](std/x.ssc)` anywhere,
+      including inside a doc comment and inside a STRING LITERAL — so four corpus cases failed with
+      `cannot find the import 'one.ssc'` over a markdown sample in a string, and `Loader.scala:44`
+      was refused because this very comment's own example was read as an import.
+
+      **Measured before changing the rule:** of 382 import lines across the corpus and the standard
+      library, every one starts with `[`. The lines that do not are prose and string literals —
+      exactly the false positives.
+
+- [x] **37b — `n += 1`, and it needed BOTH fronts.** UniML has a `CompoundAssign` node; v3's own
+      lexer takes operator characters by maximal munch, so `+=` arrived as one operator token and
+      reached the expression parser as a BINARY operator — `(bin "+=" …)`, which is not a thing that
+      can run. The differential caught it the moment UniML learned the construct, which is what the
+      ceiling added in §35d is for.
+
+- [x] **37c — `1 to n` / `0 until n` are a BINARY OPERATOR in the tree.** My first version emitted
+      the desugared prim from the projection, and the fronts printed different trees at once: v3's
+      own front already reads `to` as the operator it looks like. The desugaring belongs in the
+      lowering — one implementation for two fronts — and it builds the same cons LIST the reference
+      does rather than a lazy range.
+
+- [x] **37d — four arms I added were already there.** The compiler called my `VChar` comparison
+      arms unreachable: two arms further down already normalise a char to an integer, so chars had
+      ordered correctly all along. Recorded rather than quietly deleted — an arm added where one
+      exists is the same misreading as an arm missing where one is needed, and the compiler is the
+      only reason this one cost nothing.
+
+- [x] **37e — AND IT FOUND A WRONG ANSWER ON BOTH LANES.** `List(1,2,3).foreach { i => n = n + i }`
+      leaves `n` at 0 where the reference says 6. v3's lambda lifting passes captures as leading
+      PARAMETERS, so a captured `var` is copied and the assignment mutates the copy. **Both v3
+      lanes agree and both are wrong**, so neither the parity gate nor the front differential can
+      see it — the reference is what caught it. Filed as
+      `v3-loses-a-mutation-to-a-captured-var`: the fix needs captured mutable locals boxed into
+      cells (v2 already exposes `cell.new`/`get`/`set`, so the vocabulary is on both lanes) and an
+      analysis of which locals need it, which is not end-of-session work.
+
+**Measured:** N = 186 on both v3 lanes (was 182), DIFF 0 and CRASH 0. Front agreement 49/49 fixtures
+and 228/228 corpus, floor raised. Eight gates green, `install.sh --dev` clean, smoke-ci 71/71.
