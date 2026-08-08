@@ -2,10 +2,10 @@ slug: build-rust-silent-drop
 branch: feature/build-rust-silent-drop
 agent: claude-code
 started: 2026-08-08T18:47:36Z
-heartbeat: 2026-08-08T18:50:35Z
+heartbeat: 2026-08-08T18:58:44Z
 status: investigating
 items: build-rust-drops-defs-it-cannot-lower-without-saying-so
-paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala file:scripts/smoke-ci.ssc
 scope: |
   build-rust emits a crate MISSING the defs it could not lower, then lets rustc blame the user's own
   call site. rozum's downstream binary (clients/meeting, :8405) cannot be rebuilt. Three ssc-level
