@@ -1348,6 +1348,9 @@ ${pad}    }));\n"""
       case "__math_obj__" => """V::Fn(Rc::new(move |_args: Vec<V>| { panic!("math object not supported in Rust backend"); }))"""
       // runLogger (effects infra)
       case "runLogger"   => s"call_fn($a0, vec![])"
+      // Structural equality; see `v_eqb` in the runtime for why the VM and not js is the reference.
+      // There is no `__ne__` prim anywhere — `!=` arrives through `__arith__` with the op string.
+      case "__eq__"      => s"v_eq($a0, $a1)"
       case unknown =>
         // emit a runtime panic for unknown primitives
         s"""{ panic!("unimplemented prim: {}", ${rustStrLit(unknown)}); }"""
@@ -1711,6 +1714,43 @@ fn v_ineg(a: V) -> V {
         other => V::Int(-as_int(other)),
     }
 }
+
+// Structural equality — the semantics of `__eq__`, which this emitter did not implement at all
+// until 2026-08-08 (`backend-check-mutual-recursion-drops-output`). Any program containing `==`
+// died on its first comparison, and wasm shares this generator.
+//
+// THE REFERENCE IS THE VM. `Runtime.scala` answers `__eq__` with Scala `==` over its Value ADT
+// wrapped in `liftArith`, and `liftArith` is an EFFECT lift — it diverts only when an argument is
+// `DataV("Op", _)` — not a numeric one. So there is deliberately NO cross-type numeric arm here:
+// on the VM `IntV(1) == FloatV(1.0)` is false, because they are different case classes. The JS
+// backend's `$eq` DOES carry such an arm; js is a passing example, not the specification.
+//
+// Which arms are structural and which are identity follows the VM's own ADT rather than taste:
+// `DataV`, `BoolV`, `StrV`, `BytesV`, `FloatV` are case classes and compare structurally, `IntV`
+// overrides `equals` to compare its `Long`, and the handle-like values (`ClosV`, `MapV`, cells)
+// are plain classes, so `==` on them is reference identity — `Rc::ptr_eq` is that same rule here.
+//
+// `v_eqb` returns a bool so the recursion does not allocate a `V` per element.
+fn v_eqb(a: &V, b: &V) -> bool {
+    match (a, b) {
+        (V::Unit, V::Unit)             => true,
+        (V::Bool(x), V::Bool(y))       => x == y,
+        (V::Int(x), V::Int(y))         => x == y,
+        (V::Float(x), V::Float(y))     => x == y,
+        (V::Str(x), V::Str(y))         => x == y,
+        (V::Bytes(x), V::Bytes(y))     => x == y,
+        (V::Data(t1, f1), V::Data(t2, f2)) =>
+            t1 == t2 && f1.len() == f2.len() && f1.iter().zip(f2.iter()).all(|(x, y)| v_eqb(x, y)),
+        (V::Fn(x), V::Fn(y))           => Rc::ptr_eq(x, y),
+        (V::Cell(x), V::Cell(y))       => Rc::ptr_eq(x, y),
+        (V::LCell(x), V::LCell(y))     => Rc::ptr_eq(x, y),
+        (V::Map(x), V::Map(y))         => Rc::ptr_eq(x, y),
+        (V::Arr(x), V::Arr(y))         => Rc::ptr_eq(x, y),
+        _ => false,
+    }
+}
+
+fn v_eq(a: V, b: V) -> V { V::Bool(v_eqb(&a, &b)) }
 
 fn v_ieq(a: V, b: V) -> V {
     match (a, b) {
