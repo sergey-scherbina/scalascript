@@ -5,7 +5,7 @@ started: 2026-08-08T15:07:29Z
 heartbeat: 2026-08-08T15:07:29Z
 status: claimed-before-planning
 items: an anonymous given with a fully-qualified type stops at the = — the last breadth diagnostic
-paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeGivenSpec.scala
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/dialect/scalascript/SpikeGivenSpec.scala file:uniml/scala/src/test-jvm/scala/scalascript/uniml/ssc/SscBreadthSpec.scala file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
