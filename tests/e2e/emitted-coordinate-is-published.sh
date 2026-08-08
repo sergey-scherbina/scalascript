@@ -37,8 +37,32 @@ for f in "${emit_sites[@]}"; do
         failed=1
         ;;
     esac
-  done < <(grep -nE 'val +version +=  *"[^"]+"|addSbtPlugin\(.*scalascript|using dep io\.scalascript' "$f" 2>/dev/null || true)
+  done < <(grep -nE 'val +version +=  *"[^"]+"|using dep io\.scalascript' "$f" 2>/dev/null || true)
 done
+
+# The sbt plugin is EXEMPT from the no-SNAPSHOT rule, and replaced by a stricter one.
+#
+# That rule says an emitted coordinate must name a PUBLISHED release. For sbt-scalascript-interop
+# there is no published release at all -- nothing publishes it anywhere -- so the rule is not merely
+# unmet, it is unsatisfiable, and a gate that cannot be satisfied stops being a gate. install.sh
+# publishLocals it so `ssc new` produces a project that loads (tests/BUGS.md
+# scaffolded-projects-cannot-load-their-build); whether it should be published for real is open.
+#
+# What IS checkable, and is the defect that actually shipped: the templates named "0.1.0" while the
+# plugin build produced "0.1.0-SNAPSHOT", so even a local publish did not match. So: the templates
+# must name exactly what that build produces.
+plugin_version=$(grep -m1 '^ThisBuild / version' "$ROOT/v1/tools/sbt-plugin/build.sbt" | sed 's/.*:= *"\(.*\)".*/\1/')
+while IFS= read -r line; do
+  f=${line%%:*}
+  asked=$(printf '%s' "$line" | sed -n 's/.*sbt-scalascript-interop" *% *"\([^"]*\)".*/\1/p')
+  [[ -n $asked ]] || continue
+  if [[ $asked != "$plugin_version" ]]; then
+    echo "emitted-coordinate: FAILED — ${f#"$ROOT"/} asks for sbt-scalascript-interop '$asked'," >&2
+    echo "    but v1/tools/sbt-plugin builds '$plugin_version'. A scaffolded project cannot resolve" >&2
+    echo "    a version that build never produces, local publish or not." >&2
+    failed=1
+  fi
+done < <(grep -rn 'addSbtPlugin.*sbt-scalascript-interop' "$ROOT/v1/tools/cli/src/main/resources/templates" 2>/dev/null || true)
 
 # The build itself must NOT be at a plain release version between releases: that is how an
 # intermediate build calls itself the release. Its whole point is to differ from the emitted one.
