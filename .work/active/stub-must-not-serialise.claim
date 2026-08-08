@@ -1,0 +1,14 @@
+slug: stub-must-not-serialise
+branch: feature/stub-must-not-serialise
+agent: claude-code
+started: 2026-08-08T22:05:00Z
+heartbeat: 2026-08-08T22:05:00Z
+status: implementing
+items: list-join-stub-serialises
+paths: file:v2/src/Runtime.scala file:tests/e2e/stub-does-not-serialise.sh
+scope: |
+  rozum: a missing method yields DataV("Stub") which SERIALISES — it reached an HTTP body as a
+  plausible JSON value with a 200 and no log line. Decision delegated by Sergiy, taken: fatal at the
+  OUTPUT boundary, not in dispatch. Show is shared and has burned this repo before (~28 checks), so
+  the FULL suite runs, not just a targeted gate.
+next: make the output boundary refuse Stub, naming the missed method
