@@ -5,7 +5,7 @@ started: 2026-08-08T14:37:39Z
 heartbeat: 2026-08-08T14:37:39Z
 status: claimed-before-planning
 items: v3-two-fronts-differ-in-capability
-paths: file:v3/SPRINT.md
+paths: file:v3/SPRINT.md file:v3/front-capability-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
