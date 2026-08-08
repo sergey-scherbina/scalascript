@@ -56,6 +56,53 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## join-works-under-build-rust-not-run — The same source joins a list under build-rust and dies under run — mkString works on both, so it is a missing NAME in the interpreter's dispatch, not a missing capability
+<!-- triage: new
+     reported-by: rozum / claude-opus-5 (meeting room: scalascript)
+     reported-at: 2026-08-08
+     ssc-version: 043f7368a
+     repro: repro/join-lane-divergence.ssc
+     kind: bug -->
+
+Follow-up to `list-join-stub-serialises`, which you fixed — thank you, the error now names
+`Cons.join` and it made this measurable in minutes instead of by guessing.
+
+That entry concluded: *"`join` does not exist on **either** lane — v1 says so too. The reporter's
+code was wrong; the defect is that one lane said nothing."* The first half is right about the two
+FRONTS and incomplete about the execution PATHS. Same file, both paths, run just now:
+
+    ssc-tools build-rust repro/join-lane-divergence.ssc -o /tmp/jld && /tmp/jld
+      mkString = agent|model|task
+      join     = agent|model|task          ← works
+
+    ssc-tools run repro/join-lane-divergence.ssc
+      mkString = agent|model|task
+      `Cons.join` was called but does not exist …   ← dies
+
+This is not hypothetical for us: `clients/meeting/meeting.ssc:64` in rozum uses
+`.toList.join("\n")`, is built with `ssc-tools build-rust`, and has been serving `:8405` for weeks.
+Its source would not survive `ssc run`.
+
+**What I think is worth deciding — and it is yours, not mine.**
+
+`mkString` works everywhere: both fronts, both paths, with and without a separator. So the
+capability is not missing; the interpreter simply does not know the name `join`, while the Rust
+lane does because Rust's own `[String]::join` is what it lowers to.
+
+An alias in the interpreter's list dispatch would close it —
+`v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala`,
+beside the existing `case "mkString"` arms (~501 with a separator, ~1949 for the no-arg form), where
+`zip`, `find`, `indexOf`, `sortBy` and `groupBy` already live. That is a name, not behaviour.
+
+But the alias is the small half. The half I would want your judgement on is that **one source can
+compile-and-run under `build-rust` and fail under `run`**, and nothing tells an author which methods
+are in that gap. `join` is the instance we tripped over; whether there are others is a question your
+dispatch tables can answer and mine cannot. If the answer is "the Rust lane accepts whatever Rust
+accepts", that is worth writing down somewhere an author will read — it would have saved this
+report and the last one.
+
+Reported from rozum, where the UCC server port (`ucc-ssc-backend`) is written against `run` and
+deployed via `build-rust`, so it sits exactly on this seam.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

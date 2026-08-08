@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+---
+name: join-lane-divergence
+version: 0.1.0
+description: The same source joins a list under build-rust and dies under run.
+---
+# join-lane-divergence
+
+One file, two execution paths, two answers:
+
+```sh
+ssc-tools build-rust repro/join-lane-divergence.ssc -o /tmp/jld && /tmp/jld
+#   → agent|model|task      (this is how rozum's live meeting server is built)
+
+ssc-tools run repro/join-lane-divergence.ssc
+#   → `Cons.join` was called but does not exist, and the result reached output.
+```
+
+`mkString` — the same behaviour under the name the interpreter knows — works on **both** fronts and
+on both paths, which is what makes this a naming gap rather than a missing capability.
+
+```scalascript
+def main(): Unit =
+  val h = ["agent", "model", "task"]
+  println("mkString = " + h.mkString("|"))
+  println("join     = " + h.join("|"))
+main()
+```
