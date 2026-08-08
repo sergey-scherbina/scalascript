@@ -1468,9 +1468,10 @@ them have now bitten in one day. When adding an emitter that names a user symbol
 the same change.
 
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: dd56c4b8d -->
 
 **Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`). The Mirror now carries the constructor as
 a FOURTH field, pre-shaped to take the argument list (`(xs) => T(xs(0), …)`), and `fromProduct` is

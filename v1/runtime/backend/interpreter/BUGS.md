@@ -1158,9 +1158,10 @@ named-arg change on purpose: that change is confined to the path where a name is
 one has no named args at all, so a single commit would have made the A/B unreadable.
 
 ## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
-<!-- status: open
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: 1e3b5223c -->
 
 **Status: FIXED 2026-07-30** in `1e3b5223c` (`v2-doc-only-noop`). `bin/ssc run --v2 examples/deploy.ssc` now exits
 **0** with stdout byte-identical to the v1 reference (both empty).
