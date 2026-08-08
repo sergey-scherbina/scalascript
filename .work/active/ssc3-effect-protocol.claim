@@ -5,7 +5,7 @@ started: 2026-08-08T07:42:54Z
 heartbeat: 2026-08-08T07:42:54Z
 status: in-progress
 items: SSC3-7a SSC3-7b SSC3-7c
-paths: file:v3/specs/10-ssc-ir.md file:v3/src/Ir.scala file:v3/src/Verify.scala file:v3/src/Text.scala file:v3/src/TailCalls.scala file:v3/src/Main.scala file:v3/tests/sample.ssir file:v3/src/Exec.scala mod:v3/tests/effects
+paths: file:v3/specs/10-ssc-ir.md file:v3/src/Ir.scala file:v3/src/Verify.scala file:v3/src/Text.scala file:v3/src/TailCalls.scala file:v3/src/Main.scala file:v3/tests/sample.ssir file:v3/src/Exec.scala mod:v3/tests/effects file:v3/src/Parser.scala file:v3/src/Ast.scala file:v3/src/Lower.scala file:v3/src/AstText.scala
 scope: |
   Decide and WRITE DOWN the effect dispatcher protocol: how Perform arguments and the
   continuation reach a HandlerArm. Chosen shape: explicit registers, because the
