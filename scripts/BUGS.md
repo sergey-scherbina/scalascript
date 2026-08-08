@@ -1119,6 +1119,37 @@ evidence — generated state has not drifted here, hand-maintained state has:
 2. the module sprint becomes DERIVED from the claims, exactly as the root board now is, and `[~]`/`[x]`
    stop being written by hand at all.
 
+**MEASURED 2026-08-08, and it is worse than "nobody writes it": nobody CLEARS it either.** Fourteen
+items sit at `[~]` across the module sprints, and **not one is held by a live claim**. At least eight
+say DONE in their own text while still marked in progress — `J-2 — DONE except…`, `J-3 — DONE:`,
+`J-3b DONE`, `J-3c DONE`, `J-3d DONE`, `J-8 DONE`, `J-9 DONE`, `K38 DONE`. So `[~]` does not mean
+in-progress; it means "someone wrote a line here once".
+
+**Option 1 as written is not available, and the reason is a deliberate guard.** `coord-release` runs
+in the SHARED checkout, where `.githooks/pre-commit` refuses any staged path outside `.work/` — the
+script says so in its own comment, and that confinement is what keeps a release to one reviewable
+shape. A release commit therefore cannot carry a module `SPRINT.md`. Writing the item would mean
+either weakening that guard or doing it in a second commit from a worktree, which is the manual step
+again under another name.
+
+**DONE instead, because it costs nothing and removes the wish half of the problem:** `coord-release`
+now NAMES the line — `STILL BY HAND: mark it [x] — scripts/SPRINT.md:56` — by searching the module
+sprints for a `[~]` line matching the slug or any of the claim's `items:`, and when there is none it
+says *"no module SPRINT item names this slug or its items — nothing to mark"*. That last case is the
+common one: work arriving from a `BUGS.md` entry has no sprint item at all, and the old blanket
+instruction fired anyway, every single time. An instruction that is usually unactionable is how a
+step becomes a wish — this is the same argument the entry already makes about the board row, applied
+to the message rather than to the writing.
+
+Verified in three directions: slug matches an item, `items:` matches an item while the slug does not,
+and neither matches. The `items:` are read while the claim file still exists, since `coord-release`
+`git rm`s it well before this point.
+
+**Still open**, because the measurement above is the actual defect and it is untouched: fourteen
+stale `[~]` markers, and nothing stops a fifteenth. Option 2 — deriving the module sprint from the
+claims, as the root board already is — is the one this project's evidence supports, and it would make
+both the writing and the clearing impossible to forget rather than merely easier to remember.
+
 ## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
 <!-- status: open
      lane: apparatus

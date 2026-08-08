@@ -92,6 +92,9 @@ claim=".work/active/${slug}.claim"
 # remember, the failure is silent, and the damage lands on a board everyone reads. This guard does
 # not depend on anyone remembering.
 branch="$(sed -n 's/^branch: *//p' "$claim" | head -1)"
+# Read while the claim still exists — it is `git rm`ed further down, and the module SPRINT lookup at
+# the end needs the work ids, not just the slug. (scripts/BUGS.md module-sprint-item-written-by-nobody.)
+claim_items="$(sed -n 's/^items: *//p' "$claim" | head -1)"
 if [ -z "$branch" ]; then
   # An old single-line claim carries no branch. Say so rather than passing quietly: a check that
   # cannot run must not look like a check that ran.
@@ -146,7 +149,27 @@ msg="release-claim: ${slug} [evidence: level ${level}]"
 git commit -q -m "${msg} [skip ci]"
 if git push -q origin main; then
   echo "✓ released ${slug}: claim file and ledger row, one commit"
-  echo "  STILL BY HAND: mark the finished item [x] in its module SPRINT.md"
+  # The item cannot be written HERE: `.githooks/pre-commit` refuses paths outside `.work/` in the
+  # shared checkout, which is what keeps a release to one reviewable shape. So this NAMES the line to
+  # mark, and when there is none it says so — most work arrives from a BUGS entry and has no sprint
+  # item at all, and a standing instruction that is usually unactionable is how this step became a
+  # wish. MEASURED 2026-08-08: 14 items sit at `[~]` across the module sprints, not one of them held
+  # by a live claim, and at least eight say DONE in their own text.
+  # scripts/BUGS.md module-sprint-item-written-by-nobody.
+  sprint_hit=""
+  for _f in $(git ls-files '*/SPRINT.md' 2>/dev/null); do
+    [ -f "$_f" ] || continue
+    for _needle in "$slug" $claim_items; do
+      _line="$(grep -n '^- \[~\]' "$_f" 2>/dev/null | grep -F "$_needle" | head -1 | cut -d: -f1)"
+      if [ -n "$_line" ]; then sprint_hit="$_f:$_line"; break; fi
+    done
+    [ -n "$sprint_hit" ] && break
+  done
+  if [ -n "$sprint_hit" ]; then
+    echo "  STILL BY HAND: mark it [x] — $sprint_hit"
+  else
+    echo "  no module SPRINT item names this slug or its items — nothing to mark"
+  fi
   echo "  (nothing to do for the in-flight list — scripts/board derives it from .work/active/)"
 else
   echo "coord-release: push refused; main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2
