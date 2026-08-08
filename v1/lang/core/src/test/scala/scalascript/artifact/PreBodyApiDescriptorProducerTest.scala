@@ -1454,6 +1454,29 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     val actualJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(withLocalEffect)))
     assert(actualJson == expectedJson)
 
+  test("a comment before an effect does not change the verdict"):
+    // `descriptor-v3-effect-header-evidence-misbinding`: "inserting `/* effect Phantom: */` before a
+    // valid `effect Real` changes a successful projection into UNSUPPORTED_PUBLIC_DECLARATION, so
+    // comments/body text are not invariant."
+    //
+    // The assertion is INVARIANCE, not a verdict. Which way the projection goes is a separate
+    // question the entry does not settle; what it reports is that a COMMENT moved it, and a test
+    // pinning one of the two outcomes would go red the day that question is answered and say
+    // nothing about this one.
+    //
+    // The only entry of the four re-measured on 2026-08-08 that this suite did not already cover —
+    // the other three are the private-nominal-owner test below, the `as jl` import tests, and the
+    // `Array[Byte]` shadow tests.
+    val body = "effect Real:\n  def read(): Int\n"
+    val shape: Either[DescriptorError, ApiDescriptor] => String =
+      case Left(error) => s"Left(${error.code})"
+      case Right(_)    => "Right"
+    val without = PreBodyApiDescriptorProducer.descriptor(parse(source(body, List("Real"))))
+    val commented = PreBodyApiDescriptorProducer.descriptor(
+      parse(source(s"/* effect Phantom: */\n$body", List("Real"))))
+    assert(shape(without) == shape(commented),
+      s"a comment changed the verdict: without=${shape(without)} commented=${shape(commented)}")
+
   test("nested identities under private nominal owners cannot fall back external"):
     val declarations = Vector(
       """private class Hidden:

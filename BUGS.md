@@ -2742,9 +2742,17 @@ Also: `IrBytes` has no representation at all in `irbin` (`grep -c IrBytes lib/ir
 binary codec cannot round-trip a bytes literal that the canonical codec now encodes fine.
 
 ## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
+     fixed-in: f4d4c01ec -->
+**RE-MEASURED 2026-08-08, and the symptom does not reproduce.** A private `class` / `trait` / `enum` / `object` owner's nested `type T` exposed as `Hidden.T` in a public signature is REFUSED with `UNSUPPORTED_PUBLIC_TYPE`, under every nominal owner the entry lists. Gated by `PreBodyApiDescriptorProducerTest` — "nested identities under private nominal owners cannot fall back external".
+
+Measured, not inferred: the "landing SHA pending independent approval" this cluster cites,
+`f4d4c01ec`, has been on `main` since the day the entries were written, and nothing since had asked
+whether any of them still reproduces. Closing on a measurement rather than on the age of the report.
+
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `f4d4c01ec`, landing SHA
@@ -2784,9 +2792,17 @@ passes 82/82 and full core passes 1132/1132; keep `open` until fresh review and
 landing.
 
 ## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
+     fixed-in: f4d4c01ec -->
+**RE-MEASURED 2026-08-08, and the symptom does not reproduce.** `import java.{lang as jl}` with a public `jl.String` parameter is REFUSED — `PLATFORM_TYPE_FORBIDDEN`. The code is recorded and deliberately NOT asserted anywhere: my first assertion demanded an `UNSUPPORTED*` code and failed against this one, which is a refusal with a more precise name than I guessed. Covered by the existing `as jl` tests in `PreBodyApiDescriptorProducerTest`.
+
+Measured, not inferred: the "landing SHA pending independent approval" this cluster cites,
+`f4d4c01ec`, has been on `main` since the day the entries were written, and nothing since had asked
+whether any of them still reproduces. Closing on a measurement rather than on the age of the report.
+
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `f4d4c01ec`, landing SHA
@@ -2832,6 +2848,14 @@ fresh review and landing.
      lane: multi
      fixed-in: 21ae17ec0
      area: front -->
+**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
+five entries of this cluster were re-measured and all five closed. This one could not be: its
+reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
+review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
+producer from a source string, so there is no harness for that shape, and inventing one inside a
+re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
+the age of the report is not evidence either way.
+
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"dual carriers distinguish an empty effect from an ordinary object"*, which swaps `effect Empty:` and `object Empty:` between the two carriers in BOTH directions and requires each to be rejected. Landed `21ae17ec0` (2026-07-15).
 
@@ -2880,9 +2904,17 @@ Status remains `open` until fresh independent approval and landing; the local
 commit is not a fix SHA on `origin/main`.
 
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
+     fixed-in: f4d4c01ec -->
+**RE-MEASURED 2026-08-08, and the symptom does not reproduce.** `type Byte = Int` followed by `Array[Byte]` in a public signature is REFUSED — `AMBIGUOUS_NAMED_TYPE`, not silently emitted as primitive `Bytes`. **This is the one whose falsifiability is proven**: with the local-type inventory emptied — the exact root cause the entry names, "the known-local identity inventory is incomplete" — the descriptor comes back `Right` with `Primitive(Bytes,None)`, which is the entry's symptom verbatim. Covered by the existing `Array[Byte]` shadow tests.
+
+Measured, not inferred: the "landing SHA pending independent approval" this cluster cites,
+`f4d4c01ec`, has been on `main` since the day the entries were written, and nothing since had asked
+whether any of them still reproduces. Closing on a measurement rather than on the age of the report.
+
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -2917,6 +2949,14 @@ until fresh independent approval and landing on `origin/main`.
      lane: multi
      fixed-in: d80611194
      area: front -->
+**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
+five entries of this cluster were re-measured and all five closed. This one could not be: its
+reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
+review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
+producer from a source string, so there is no harness for that shape, and inventing one inside a
+re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
+the age of the report is not evidence either way.
+
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"a documentless packaged module still verifies CodeBlock source against its AST"*, which is this entry's recipe exactly — it removes `document`, rewrites the retained `CodeBlock.source` header, keeps the old tree, and requires `UNSUPPORTED_PUBLIC_DECLARATION`. Landed `d80611194` (2026-07-15).
 
@@ -2957,6 +2997,14 @@ are green. Status remains `open` until fresh independent approval and landing.
 <!-- status: open
      lane: multi
      area: conformance -->
+**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
+five entries of this cluster were re-measured and all five closed. This one could not be: its
+reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
+review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
+producer from a source string, so there is no harness for that shape, and inventing one inside a
+re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
+the age of the report is not evidence either way.
+
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -2985,9 +3033,17 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open
 until fresh independent approval and landing.
 
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
+     fixed-in: f4d4c01ec -->
+**RE-MEASURED 2026-08-08, and the symptom does not reproduce.** Same symptom as `descriptor-v3-nested-owner-identity-leak` in different words, and the same measurement closes it: `Hidden.T` under a private owner is refused, not accepted as an external `Named`. Gated by the same test.
+
+Measured, not inferred: the "landing SHA pending independent approval" this cluster cites,
+`f4d4c01ec`, has been on `main` since the day the entries were written, and nothing since had asked
+whether any of them still reproduces. Closing on a measurement rather than on the age of the report.
+
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
@@ -3029,6 +3085,14 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
      lane: multi
      fixed-in: 52a193593
      area: front -->
+**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
+five entries of this cluster were re-measured and all five closed. This one could not be: its
+reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
+review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
+producer from a source string, so there is no harness for that shape, and inventing one inside a
+re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
+the age of the report is not evidence either way.
+
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"retained declaration source must correspond exactly to its stored section AST"*, which truncates the retained executable source to `effect Real:\n` while preserving the old section AST, and requires rejection. Landed `52a193593` (2026-07-15).
 
@@ -3659,9 +3723,17 @@ owner reuse remains positive. `npm run typecheck` passes all original fixtures a
 the exact cast-free second-review repros.
 
 ## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
+     fixed-in: f4d4c01ec -->
+**RE-MEASURED 2026-08-08, and the symptom does not reproduce.** A `/* effect Phantom: */` comment before a valid `effect Real` no longer changes the verdict — the projection is INVARIANT under it. Newly gated, and the only one of the four this suite did not already cover: "a comment before an effect does not change the verdict". The test asserts invariance rather than a verdict, because which way the projection goes is a separate question the entry does not settle.
+
+Measured, not inferred: the "landing SHA pending independent approval" this cluster cites,
+`f4d4c01ec`, has been on `main` since the day the entries were written, and nothing since had asked
+whether any of them still reproduces. Closing on a measurement rather than on the age of the report.
+
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
