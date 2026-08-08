@@ -2189,3 +2189,26 @@ it is on the self-hosting path as well as being something a person writes.
 
 **Measured:** UniML 218/218, seven v3 gates green, fixture half 51 of 52 with one declared
 uniml-only, N = 187 of 368 with CRASH 0.
+
+## 45 · A partial function in an ARGUMENT LIST — self-hosting 9 → 10
+
+`f(a, { case P => … })` did not parse at all. The trailing form `xs.map { case … }` has always
+worked, because it goes through `parseBlockArg`; inside an argument list the same braces reached
+`parseExpr`, which reads `{` as a BLOCK, and a block cannot begin with `case`. **The whole call
+failed** — not the argument, the call.
+
+One position having a construct while another does not is the kind of difference nobody can
+predict from the outside, and `v3/src/Ir.scala:180` is exactly the shape:
+`scan(fn.body, { case Instr.Perform(…) => found = true; case _ => () })`.
+
+- [x] **45a — found by walking the SELF-HOSTING list, not the corpus.** No conformance case writes
+      it. The corpus is a good oracle for what the language is used for; v3's own kernel is a good
+      oracle for what a person writing a compiler reaches for, and they are not the same set.
+
+- [x] **45b — the `;` work from §44 is what made it visible.** `Ir.scala` reported the semicolon
+      first; behind it stood this. Each of those five files is a small stack of blockers, which is
+      why the file count moves slower than the construct count.
+
+**Measured:** self-hosting **9 → 10 of 17**, N = 187 → **188 of 368** with CRASH 0, UniML 218/218,
+seven v3 gates green, fixture half 52 of 53 with one declared uniml-only, `install.sh --dev` clean,
+smoke-ci **76/76**. The three DIFFs are unchanged and all belong to the effects work.

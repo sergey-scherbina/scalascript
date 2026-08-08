@@ -2420,6 +2420,14 @@ object SpikeParse:
         val v = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
         kids += Node.Frame("spike.narg", None,
           Vector(Node.Leaf(nameTok, Some("narg.name")), v.withRole("narg.val"))).withRole("call.arg")
+      // `f(a, { case P => … })` — a PARTIAL FUNCTION inside the argument list. It reached
+      // `parseExpr`, which reads `{` as a block, and a block cannot begin with `case`: the whole
+      // call failed to parse. The trailing form `xs.map { case … }` has always worked because it
+      // goes through `parseBlockArg`; this is the same argument in a different position, and one
+      // position having the construct while another does not is a difference nobody can predict.
+      // `v3/src/Ir.scala:180` is the shape — `scan(fn.body, { case Instr.Perform(…) => … })`.
+      else if c.peekKind == "spike.lbrace" && c.peek2Lexeme == "case" then
+        kids += parseBlockArg(c).withRole("call.arg")
       else parseExpr(c, 1) match
         case Some(a) => kids += a.withRole("call.arg")
         case None =>
