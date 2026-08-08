@@ -1,8 +1,9 @@
 ## scaffolded-projects-cannot-load-their-build
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: cli
+     fixed-in: 6979fd870a189a6d71dd92756c0a31e125bbae63
      gate: tests/e2e/scaffold-loads-its-build.sh -->
 
 `ssc new <name> --template app` produces a project that fails on its first command. Reproduced, not
