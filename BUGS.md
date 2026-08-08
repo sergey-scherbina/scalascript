@@ -20,6 +20,47 @@ Newest first.
 
 
 
+
+## front-diff-passes-while-comparing-nothing — 50 refusals, exit 0
+
+<!-- status: open
+     lane: multi
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**Measured 2026-08-08 on clean `origin/main`:**
+
+```
+$ v3/front-diff.sh ; echo $?
+  refused assign-body — [E008] Not Found Error: …
+  … 50 of these …
+0
+```
+
+**Fifty refusals and it exits 0.** Every case is refused because the UniML front does not compile —
+`v3/src/Lexer.scala:67 — value alphabet is not a member of scalascript`, a package collision with
+UniML's own `scalascript` package once its jars are on the classpath — so `ssc3` falls back to v3's
+own front and the differential has one front to compare with itself.
+
+**This is not a surprise to the gate; it is written in its own header:** *"WHAT THIS GATE IS TODAY,
+said plainly: there is ONE front. It therefore compares nothing."* That was honest when only one
+front existed. It is now a gate that passes in the one state it was built to detect — the second
+front being unusable — and a green tick is exactly the wrong signal for it.
+
+**Why this is worse than red.** A red gate gets looked at. This one reports success while the
+comparison it exists to perform did not happen, which is the shape this repository has paid for
+twice already this week: `@scalascript/control-direct`, 496 lines of tests nothing invoked, and the
+v3 gates themselves, run only by hand until 2026-08-08.
+
+**Smallest useful fix:** refuse to pass when a case is REFUSED rather than compared. A refusal is a
+measurement that did not happen, not a case that agreed. If the second front is legitimately absent
+the gate should say so and exit non-zero on CI, the way `front-capability-gate.sh` does — it cannot
+run either, and it says which fronts it found and stops.
+
+Related: the compile failure itself arrived in `2705c32a7` (`refactor(alphabet)`); that is a separate
+defect and belongs to whoever owns it. This entry is about the gate not noticing.
+
 ## v3-uniml-front-drops-by-name — one language, two evaluation orders, decided by the working tree
 
 <!-- status: open
