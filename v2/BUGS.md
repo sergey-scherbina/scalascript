@@ -4139,11 +4139,14 @@ reports perf as TIMEOUT noise trains people to ignore it — which is how this o
 a change I can justify without CI-side timing data.
 
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
-<!-- status: open
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     gate: v2/backend/check.sh
+     fixed-in: 21616191a711bb2b2c3036aa7472cba4ffa88dab -->
 
-**Status:** OPEN, **pre-existing** (found 2026-07-28 by `v2-backend-matrix-gaps` while verifying an
+**Status:** FIXED 2026-08-08 — `check.sh` is ALL GREEN, 10 fixtures x 4 backends, 38 ok / 0 fail.
+Was: OPEN, **pre-existing** (found 2026-07-28 by `v2-backend-matrix-gaps` while verifying an
 unrelated change; **proven not caused by it** — the gate fails identically on a control build with
 that change reverted).
 
@@ -4225,11 +4228,19 @@ Also checked rather than assumed: there is no `__ne__` prim anywhere — `!=` re
 through `__arith__` with the op string — so the sibling case I had started to add was deleted as
 dead code before it shipped.
 
-**REMAINING: the same in the Rust emitter** (`RustBackend.scala`, and wasm shares it). Note for
-whoever takes it: `V` there derives only `Clone`, not `PartialEq` — it cannot, since it holds
-`V::Fn(Rc<dyn Fn…>)` — so this needs a hand-written recursive `v_eq` over the enum, with
-`V::Data(tag, fields)` as the structural arm. I read the `#[derive(… PartialEq …)]` three lines
-above `enum V` as belonging to it and it belongs to `struct VKey`; do not repeat that.
+**DONE, both halves.** The Rust emitter got a hand-written recursive `v_eqb` over the enum — `V`
+there derives only `Clone` and cannot derive `PartialEq`, since it holds `V::Fn(Rc<dyn Fn…>)`.
+`check.sh` is ALL GREEN: 10 fixtures x 4 backends, 38 ok, 0 fail, up from 3 failures.
+
+Which arms are structural and which are identity follows the VM's ADT rather than taste: `DataV`,
+`BoolV`, `StrV`, `BytesV` and `FloatV` are case classes and compare structurally, `IntV` overrides
+`equals` to compare its `Long`, and the handle-like values (`ClosV`, `MapV`, the cells) are plain
+classes whose `==` is reference identity — `Rc::ptr_eq` is that same rule in Rust.
+
+**Stated rather than implied: the fixture set does not exercise every arm.** Ten fixtures agreeing
+is evidence for the arms they reach, not a proof of the whole table; the `Map`/`Arr`/`Cell` identity
+arms in particular are reasoned from the VM's ADT and not measured. If a later divergence lands on
+one of them, that reasoning is where to look first — it is written down here for exactly that.
 
 ## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
 <!-- status: fixed
