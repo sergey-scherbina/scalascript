@@ -1,0 +1,25 @@
+// `(a, b) ++ (c, d)` is a Tuple4. Pinned on BOTH lanes because the way this failed was not a
+// refusal: v2's runtime answered with a `Stub` placeholder and exited 0, so the bridge printed
+// `StubStub` where the executor printed 5 and nothing announced that a lane had no implementation.
+def main(): Unit =
+  val t = (1, 2) ++ (3, 4)
+  println(t._1 + t._4)
+
+  // Both halves, and an element from the middle — a Stub for the right operand alone would still
+  // have satisfied a check that only read `_1`.
+  println(t._1 + t._2 + t._3 + t._4)
+
+  // Concatenation of unequal widths, so the arity is computed rather than doubled.
+  val u = (1, 2, 3) ++ (4, 5)
+  println(u._3 + u._5)
+
+  // A carried value on the left, so neither lane can fold the whole thing to a constant.
+  var s = 7
+  var acc = 0
+  var i = 0
+  while i < 3 do
+    val v = (s, 2) ++ (3, 4)
+    acc = acc + v._1 + v._4
+    s = s + 1
+    i = i + 1
+  println(acc)

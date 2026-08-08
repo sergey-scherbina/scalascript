@@ -36,6 +36,7 @@ $SSC3 selftest >/dev/null 2>&1   # compile once; a compile racing the first case
 uniml=0
 $SSC3 fronts 2>/dev/null | grep -qx uniml && uniml=1
 unreadable=0; unreadable_names=""
+diverging=0; diverging_names=""
 ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
 
 echo "── differential: v3 executor vs the v2 bridge ──────────────────────────"
@@ -70,10 +71,28 @@ for f in v3/tests/front/*.ssc; do
   ran=$((ran + 1))
   own="$($SSC3 exec "$f" 2>"$ERRF")"
   why="$(head -1 "$ERRF")"
-  via="$(v3/ssc3 run "$f" 2>/dev/null)"
+  # `run --bridge`, NOT `run`. THIS LINE READ `v3/ssc3 run "$f"` FROM 2026-08-02 TO 2026-08-08 AND
+  # THE WHOLE `.ssc` HALF OF THIS DIFFERENTIAL COMPARED THE EXECUTOR WITH ITSELF, printing "(both
+  # lanes agree)" for every case while only one lane ran. It was written when `ssc3 run` MEANT the
+  # bridge; `5cdf4a3c5` repointed `run` at v3's own runtime, updated `parity-gate.sh`, which uses
+  # the same command — and did not touch this file. A gate can be broken by a commit that never
+  # names it, and this one broke into a shape that says the opposite of the truth.
+  via="$(v3/ssc3 run --bridge "$f" 2>/dev/null)"
   want="$(cat "$exp")"
   if [ "$own" = "$via" ] && [ "$own" = "$want" ]; then
-    echo "  ok   $name -> $(printf '%s' "$own" | tr '\n' '/')  (both lanes agree)"
+    if [ -f "v3/tests/front/$name.bridge-diverges" ]; then
+      # A declaration that no longer applies is worse than none: it silences a real future
+      # divergence. Removing it is the fix, so the gate demands it.
+      echo "  FAIL $name is declared \`.bridge-diverges\` but the lanes now AGREE — delete the marker"
+      fail=1
+    else
+      echo "  ok   $name -> $(printf '%s' "$own" | tr '\n' '/')  (both lanes agree)"
+    fi
+  elif [ "$own" = "$want" ] && [ -f "v3/tests/front/$name.bridge-diverges" ]; then
+    # The executor is right and the bridge is known not to run this. DECLARED, so it is counted and
+    # printed rather than hidden — an undeclared divergence below is still a failure.
+    diverging=$((diverging + 1)); diverging_names="$diverging_names $name"
+    echo "  I-3  $name — executor [$(printf '%s' "$own" | tr '\n' '/')] but the bridge does not run it: $(cat "v3/tests/front/$name.bridge-diverges")"
   else
     # The REASON, not just the empty string it produced. Discarding stderr here is what made an
     # unreadable fixture and a wrong answer look identical.
@@ -81,6 +100,14 @@ for f in v3/tests/front/*.ssc; do
     fail=1
   fi
 done
+
+if [ "$diverging" != 0 ]; then
+  echo
+  echo "  $diverging fixture(s) run on the executor and NOT on the v2 bridge — I-3, declared:"
+  echo "   $diverging_names"
+  echo "     Each carries a \`.bridge-diverges\` file naming its BUGS.md entry. They are COUNTED so"
+  echo "     the set cannot grow quietly, and the gate goes red if one of them starts agreeing."
+fi
 
 if [ "$unreadable" != 0 ]; then
   echo
@@ -118,7 +145,10 @@ fi
 # recursion into a loop IN THE IR, so both lanes get it. The gate now asserts the stronger property
 # — they AGREE — instead of the contrast it asserted while only the executor could do it. It went
 # red the moment that changed, which is what an expiring assertion is for.
-bridge_mut="$(v3/ssc3 run v3/tests/mutual-recursion.ssc 2>/dev/null)"
+# `--bridge` here too: this line CLAIMED "the bridge completes it too now" while running the
+# executor, so the assertion it exists to make was never made. The claim happens to be true —
+# measured — but a check that cannot fail is not evidence that it is.
+bridge_mut="$(v3/ssc3 run --bridge v3/tests/mutual-recursion.ssc 2>/dev/null)"
 if [ "$bridge_mut" = "$(cat v3/tests/mutual-recursion.expected)" ]; then
   echo "  ok   the bridge completes it too now — mutual recursion is a loop in the IR, not a lane trick"
 else

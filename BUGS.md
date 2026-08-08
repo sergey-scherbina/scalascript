@@ -21,6 +21,78 @@ Newest first.
 
 
 
+## v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF for six days
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     kind: apparatus
+     gate: v3/exec-gate.sh -->
+
+**FIXED 2026-08-08.** `v3/exec-gate.sh` line 73 read
+
+```sh
+via="$(v3/ssc3 run "$f" 2>/dev/null)"      # labelled "the v2 bridge"
+```
+
+and `ssc3 run <file>` is `exec "${SSC3[@]}" exec "$2"` — **v3's own executor**. The bridge needs
+`run --bridge`. So the entire `.ssc` half of a gate whose first line of documentation is *"every
+fixture runs on BOTH lanes … two independent implementations agreeing is evidence neither can
+produce alone"* ran ONE lane and printed `(both lanes agree)` for every case. The `.ssir` half was
+never affected: it uses `$V2 run-ir` and is a real differential.
+
+**It was not written wrong — it ROTTED, and the commit that broke it never named it.**
+
+| | |
+|---|---|
+| `2d270276a`, 2026-08-02 | wrote the `.ssc` differential. `ssc3 run` MEANT the bridge then. |
+| `5cdf4a3c5`, 2026-08-07 | *"ssc3 run is v3's own runtime — self-sufficiency, on a measurement"*. Touched `v3/ssc3` and `v3/parity-gate.sh`, **which uses the same command** — and not `v3/exec-gate.sh`. |
+
+One caller of the repointed command was updated and the other was missed. From 08-07 the gate
+asserted the opposite of the truth.
+
+**A second assertion in the same file had the same defect and made a POSITIVE claim on it:**
+`bridge_mut="$(v3/ssc3 run v3/tests/mutual-recursion.ssc)"`, printing *"the bridge completes it too
+now — mutual recursion is a loop in the IR, not a lane trick"*. Its own comment says *"It went red
+the moment that changed, which is what an expiring assertion is for"* — but it could not go red for
+the bridge, because it never ran it. Measured with `--bridge`: **the claim is true**. A check that
+cannot fail is not evidence that the thing it claims is so.
+
+**What the corrected gate sees — the first real reading of this differential since 08-07:** of 54
+`.ssc` fixtures, **52 agree and 2 diverge**. Both are declared with a `.bridge-diverges` file naming
+their entry, so they are COUNTED and printed rather than hidden, and the gate now goes red BOTH
+ways: an undeclared divergence fails, and a declared one that starts agreeing fails as a stale
+declaration.
+
+## v3-bridge-cannot-apply-a-lifted-capture — `app: not a function`
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: v3/exec-gate.sh -->
+
+`v3/tests/front/captured-function-parameter.ssc` on the two lanes:
+
+```
+executor   42 / 42 / 42 / 42
+bridge     42 / 42   then  java.lang.RuntimeException: app: not a function: 2
+```
+
+The third case is `def comp(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))`. v3 lifts the
+lambda to a top-level function taking its captures as leading parameters; the v2 bridge then applies
+a value that is not a function — the `2` in the message is an argument, not a closure — so the
+lifted form is not being reconstructed the way v2 applies closures.
+
+**Exposed on 2026-08-08 by `290e784b6`, and it is NOT a regression of anything that worked.** Before
+that fix this program did not lower at all (`call to unknown function 'g'` — `freeVars` dropped the
+callee), so nothing ever reached the bridge with it. The executor is right and matches the reference
+front; the bridge is the lane that cannot.
+
+Found only because the differential was repaired the same day — see
+`v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`. With the gate in its broken shape
+this fixture printed `(both lanes agree)`.
+
 ## v3-exec-gate-and-front-gate-report-the-WORKING-TREE-and-blamed-a-sibling-for-it
 
 <!-- status: fixed
@@ -481,40 +553,48 @@ Supporting laziness in v2 is a much larger question and can stay open; a stack t
 **Invariant:** I-3, a program that works on one lane and not the other. Recorded rather than fixed
 because `v3/src/BridgeV2.scala` was outside the claim that found it.
 
-## v3-bridge-tuple-concat-emits-Stub — a wrong answer that does not announce itself
+## v3-bridge-tuple-concat — v2 has no tuple `++`, and for six days no gate could see it
 
 <!-- status: open
      lane: multi
      area: codegen
      kind: bug
-     gate: none -->
+     gate: v3/exec-gate.sh -->
 
-**Found 2026-08-07 by a corpus differential, not by reading either lane.** `SSC3-7o` made
-`(a, b) ++ (c, d)` work on v3's executor. Running the same program on the two lanes then disagreed:
+**RE-MEASURED 2026-08-08, and the entry was stale in BOTH directions — one half fixed by someone
+else for another reason, the other half worse than reported.**
+
+**The silence is gone, and not because of this entry.** `3d1d92bbd` — *"a missing method must not
+become output — it reached an HTTP body as data"* — turned the placeholder into a named error. The
+bridge now says so instead of printing `Stub`:
 
 ```
-val t = (1, 2) ++ (3, 4)
-println(t._1 + t._4)
-
-  v3 executor   5
-  v2 bridge     StubStub
+java.lang.RuntimeException: a method that does not exist was called but does not exist, and the
+result reached output. This used to render as the text `Stub` and serialise as if it were data.
 ```
 
-`bench/corpus/tuple-monoid.ssc` gives `401280` on the executor and `0` followed by a hundred
-thousand `Stub`s on the bridge. **The bridge does not fail.** It prints `Stub` where a value should
-be and exits successfully, so a reader sees output and assumes a result. A refusal naming the
-construct would be strictly better — that is the standard the executor is already held to, and the
-whole reason its "not implemented on this lane" messages name the method.
+That is this entry's own "smallest useful fix", delivered from a different symptom. It is still a
+Java stack trace rather than a positioned diagnostic — that is
+`v3-bridge-lazylist-crashes-with-a-java-stack-trace`, same shape, and this one now joins it.
 
-**Pre-existing, not a regression:** the same output appears with `SSC3-7o` stashed. Before it, the
-executor refused this program, so nothing ever reached the bridge with it.
+**The DIVERGENCE is real and unchanged.** v2's runtime has no tuple `++`. The path is not the method
+table at all — it is the `sconcat` PRIM, whose `DataV`/`DataV` arm builds `Tuple$n`; two more sites
+build the same thing. `(1,2) ++ (3,4)` answers 5 on the executor and throws on the bridge.
 
-**Invariant:** this is I-3 — a program that works on one lane and not the other. The unusual part is
-that it does not present as a lane gap at all, because the failing lane is the one that returns.
+**The original repro no longer reproduces AS WRITTEN, and the reason is worth keeping.** This entry
+said `bench/corpus/tuple-monoid.ssc` gives `401280` on the executor and `Stub`s on the bridge. That
+file defines only `def workload(seed: Long)` and no `main`, so `ssc3 exec` on it prints NOTHING and
+exits 0 — the numbers came from a harness that calls `workload`. Driven with a `main`, both lanes
+now answer 401280, because `ssc3 run` is the executor twice over. Through `--bridge` it throws.
 
-**Smallest useful fix:** whatever `BridgeV2` emits for an unsupported method must be a diagnostic,
-not a placeholder value. Support for tuple `++` in v2 is the larger question and can stay open; a
-silent `Stub` cannot.
+**Why nobody noticed: `v3/exec-gate.sh` was not running the bridge.** Its `.ssc` differential called
+`ssc3 run` without `--bridge` from 2026-08-07, so it compared the executor with itself and printed
+`(both lanes agree)`. See `v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`. The
+fixture `v3/tests/front/tuple-concat.ssc` now pins this on both lanes and carries a
+`.bridge-diverges` declaration, so the divergence is counted and cannot grow back quietly.
+
+**Invariant:** I-3. **Still the smallest useful fix:** a `Tuple`/`Tuple` arm wherever v2 answers
+`++`, or a positioned refusal naming the construct instead of a JVM trace.
 
 ## rust-lane-rejects-try-catch — both entry-point halves are fixed; this one is not
 

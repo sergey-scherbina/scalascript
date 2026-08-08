@@ -2,7 +2,21 @@
 # v3 SSC3-4 gate — the front, end to end on real `.ssc` source.
 #
 # For each `v3/tests/front/*.ssc` with an `.expected`: `v3/ssc3 run` lexes, parses, lowers to SSC
-# IR, VERIFIES, bridges to v2 Core IR and executes it, and the verdict is the program's OUTPUT.
+# IR, VERIFIES and executes it on V3'S OWN EXECUTOR, and the verdict is the program's OUTPUT.
+#
+# THIS PARAGRAPH USED TO SAY "bridges to v2 Core IR and executes it", AND THAT STOPPED BEING TRUE ON
+# 2026-08-07 WITHOUT ANYONE EDITING THIS FILE. `5cdf4a3c5` repointed `ssc3 run` from the bridge to
+# v3's own runtime and updated `parity-gate.sh`, which uses the same command; this gate and
+# `exec-gate.sh` were missed. There the consequence was severe — a two-lane differential silently
+# comparing one lane with itself, see BUGS.md
+# `v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`.
+#
+# Here it is only the description that was wrong, and the description is what changed rather than
+# the command: `exec-gate.sh` now runs every one of these fixtures through `run --bridge` AND
+# compares the two lanes, which is strictly more than this gate could say by running the bridge
+# alone. Running them through it twice would cost minutes and add nothing. What this gate is for is
+# the FRONT — that a real `.ssc` program lexes, parses, lowers, verifies and produces the right
+# answer, and that a program it must refuse is refused with a position.
 #
 # Output, never the exit code — v2 fails by printing a sentinel at exit 0.
 #
