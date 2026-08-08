@@ -1,0 +1,11 @@
+slug: coreir-encode-refuses-delimiters
+branch: feature/coreir-encode-refuses-delimiters
+agent: claude-code
+started: 2026-08-08T14:58:06Z
+heartbeat: 2026-08-08T14:58:06Z
+status: claimed-before-planning
+items: coreir-canonical-codec-contract
+paths: file:v2/src/CoreIR.scala file:v2/conformance/coreir-name-guard.sh file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
