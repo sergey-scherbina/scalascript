@@ -18,41 +18,6 @@ Newest first.
 
 
 
-## parameterless-def-local-not-invoked-js-and-native — a local parameterless def, and v2 answers silently
-
-<!-- status: open
-     lane: multi
-     area: runtime
-     gate: tests/conformance/parameterless-def-local.ssc -->
-
-`def mk: Box = Box("loc")` declared INSIDE a body is not invoked at its mention on two lanes, while
-the same declaration at top level is invoked on all four. Found while fixing the interpreter half of
-`parameterless-def-diverges-native-vs-interp` (below), by measuring five declaration positions
-instead of the one the report named.
-
-```scalascript
-case class Box(v: String)
-def main(): Unit =
-  def mk: Box = Box("loc")
-  println(mk.v)
-```
-
-| lane | result |
-| --- | --- |
-| int | `loc` |
-| jvm | `loc` |
-| js | `Method not found: v on <function>` (exit 1) |
-| v2 / native | **`<closure>`, exit 0** |
-
-**The v2 half is the one to fix first, because it does not fail.** `.v` on the closure yields
-something that prints as `<closure>` and the program exits 0, so a mis-invoked local def produces a
-plausible wrong answer rather than an error — a program can carry this for a long time. js at least
-names the shape it has (`<function>`).
-
-The interpreter had the same defect and the fix there is a template: the distinction is not visible
-in the parameter list (both spellings give none), so it has to be carried on the def and consulted
-where a bare name is resolved — and there was more than one such place.
-
 ## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
 
 <!-- status: fixed

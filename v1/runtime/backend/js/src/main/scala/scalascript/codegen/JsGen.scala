@@ -3911,7 +3911,7 @@ class JsGen(
 
   // Returns true if term contains a call to fname NOT in tail position.
 
-  private def genFunctionBody(stats: List[Stat]): Unit =
+  private def genFunctionBody(stats: List[Stat]): Unit = withLocalParenlessDefs(stats) {
     if stats.isEmpty then
       line("return undefined;")
     else
@@ -3944,6 +3944,7 @@ class JsGen(
           case stat =>
             genStat(stat)
       }
+  }
 
   // ── Generator / coroutine body helpers ───────────────────────────────
   // The parser wraps `{ () => body }` in a Term.Block; this helper unwraps
@@ -4266,7 +4267,7 @@ class JsGen(
     val prefix = if hoists.nonEmpty then hoists + " " else ""
     s"$prefix while ($twCond) { $twBody; }"
 
-  private def genBlockAsIife(stats: List[Stat]): String =
+  private def genBlockAsIife(stats: List[Stat]): String = withLocalParenlessDefs(stats) {
     if stats.isEmpty then "undefined"
     else if stats.length == 1 then
       stats.head match
@@ -4301,6 +4302,7 @@ class JsGen(
       }
       inner.append("})()")
       inner.toString
+  }
 
   private[codegen] def genStatInline(stat: Stat): String = stat match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
@@ -6034,6 +6036,32 @@ class JsGen(
     case "Some"    => "_Some"
     case "None"    => "_None"
     case other     => paramRenames.getOrElse(other, emittedName(other))
+
+  /** `zeroParamFns` is filled by the top-level pre-pass only, and the comment at the `Term.Name`
+   *  case said so. A LOCAL `def mk: Box = …` therefore emitted `_dispatch(mk, 'v', [])` — the
+   *  function object, not its value — where the identical top-level declaration correctly emits
+   *  `_dispatch(mk(), 'v', [])`. The rule was right and its input was incomplete.
+   *
+   *  Scans one statement list for parenless defs and registers them for the duration of that list,
+   *  restoring exactly what was there before — so a same-named binding in a sibling scope, or a
+   *  top-level def of the same name that DOES take parens, is unaffected. Pre-scanned rather than
+   *  registered as each statement is emitted, because a local def may be referenced from a def
+   *  declared earlier in the same block, which is legal.
+   *
+   *  The `explicitGroups` test is copied verbatim from the top-level pre-pass: `def f()` has one
+   *  explicit empty clause and must NOT be registered, only a def with no clause at all.
+   *  (parameterless-def-local-not-invoked-js-and-native.) */
+  private def withLocalParenlessDefs[A](stats: List[Stat])(f: => A): A =
+    val names = stats.collect {
+      case d: Defn.Def if d.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).isEmpty =>
+        d.name.value
+    }
+    if names.isEmpty then f
+    else
+      val alreadyThere = names.filter(zeroParamFns.contains).toSet
+      zeroParamFns ++= names
+      try f
+      finally names.foreach(n => if !alreadyThere(n) then zeroParamFns -= n)
 
   private[codegen] def withParamRenames[A](renames: Map[String, String])(f: => A): A =
     val saved = renames.keysIterator.map(k => k -> paramRenames.get(k)).toMap
