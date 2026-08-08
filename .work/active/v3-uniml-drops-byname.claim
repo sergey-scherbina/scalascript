@@ -1,0 +1,14 @@
+slug: v3-uniml-drops-byname
+branch: feature/v3-uniml-drops-byname
+agent: claude-code
+started: 2026-08-08T16:45:24Z
+heartbeat: 2026-08-08T16:45:24Z
+status: in-progress
+items: SSC3-7s-on-uniml
+paths: file:v3/uniml/UniFront.scala file:v3/src/AstText.scala
+scope: |
+  UniFront.param never sets byName, so on the UniML front a by-name argument is
+  evaluated EAGERLY and the semantics are silently lost. Invisible to both gates:
+  front-diff omits the flag from its text, and the capability gate sees both fronts
+  ACCEPT. Set it in the projection, and print it so the differential can see it.
+next: set byName from the TypeRef text, print it, verify once the front compiles
