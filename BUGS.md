@@ -699,11 +699,37 @@ before the decision would freeze whichever answer runs today.
 
 ## an-example-uses-a-syntax-the-language-does-not-have-and-no-gate-runs-it
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: conformance
-     fixed-in: -
+     kind: bug
+     fixed-in: PENDING-SHA
      gate: - -->
+
+**FIXED 2026-08-08 — the three `@side = server` lines are gone, and removing them did more than
+silence a diagnostic.** The directive made the whole BACKEND fence fail to parse, so its three
+routes were invisible to the emitter. Measured by diffing `emit-spa --frontend react` before and
+after:
+
+    without the directive   `_ssc_typedRouteClients` with getApiEmployees,
+                            postApiEmployeesDelete, postApiEmployeesPromote
+    with the directive      absent — 16 KB smaller, no API clients at all
+
+So the example was emitting a React frontend whose backend calls did not exist, at exit 0. That is
+the cost of the invalid syntax, and it is not what the entry expected to find.
+
+**The author's decision, taken 2026-08-08:** delete the directive, keep the example. `@side` remains
+described in `specs/electron-jvm-rest-backend.md` §288 as something later phases may introduce; what
+is removed is a use of it in code, three years ahead of the implementation.
+
+**Not a runner's job, which is why no gate ever ran it.** The file is `frontend: react` — it is
+exercised by `emit-spa`, not by `ssc run`, and `run --v1` on it fails at RUNTIME (`Instance is not
+callable`) even with the parse fixed, because a frontend example is not a program. The entry's
+framing, "no gate RUNS it", was looking for the wrong kind of gate.
+
+⚠ **STILL OWED: the file is not in `tests/conformance/contract-roster.tsv`.** Adding it needs that
+file, which is held by the live claim `v2-three-param-clauses`, so it is left rather than taken. The
+gate that fits is an emit comparison, not a run.
 
 `examples/frontend/data-table/data-table.ssc` writes `@side = server` three times. The language
 has no such construct: it appears in `specs/electron-jvm-rest-backend.md` §288 as something

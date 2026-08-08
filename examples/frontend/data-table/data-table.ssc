@@ -13,7 +13,6 @@ POST action ("Promote"), and a SetFieldToSignal action ("Select").
 ## Backend
 
 ```scalascript
-@side = server
 route("GET", "/api/employees") { _ =>
   val rows = List(
     Map("id" -> "1", "name" -> "Alice", "department" -> "Engineering", "salary" -> "120000"),
@@ -22,12 +21,10 @@ route("GET", "/api/employees") { _ =>
   Response.json(rows)
 }
 
-@side = server
 route("POST", "/api/employees/delete") { req =>
   Response.status(204)
 }
 
-@side = server
 route("POST", "/api/employees/promote") { req =>
   Response.status(204)
 }
