@@ -1225,9 +1225,22 @@ private[custom] object StaticJsEmitter:
     case f: Float      => f.toDouble.toString
     case b: Boolean    => b.toString
     case null          => "null"
+    // A SEQUENCE seeds a JS array, recursively. `registerSignal` calls this to seed a signal's
+    // initial value, and a `Signal[List[_]]` targeted by any handler used to throw here at emit
+    // time — the whole program, not just that signal (`custom-jsemitter-signal-list-literal`).
+    // Note `ReactiveSignalList` is a different type with its own path; this is the plain signal
+    // whose value happens to be a sequence.
+    case xs: Iterable[?] => xs.map(jsLiteral).mkString("[", ",", "]")
+    case xs: Array[?]    => xs.map(jsLiteral).mkString("[", ",", "]")
     case other         => throw new IllegalArgumentException(
       s"jsLiteral: unsupported value type ${other.getClass.getName} ($other).  " +
-      "Supported: String / Int / Long / Double / Float / Boolean / null."
+      "Supported: String / Int / Long / Double / Float / Boolean / null, and sequences of those.  " +
+      // NOT an oversight, and the message says so: a case-class instance needs a decision about
+      // WHERE the encoder lives, not about what it prints. `frontend/custom` depends on
+      // `frontendCore` alone and cannot see the interpreter's value type, so encoding instances
+      // means either lifting an abstraction into core or reflecting here — that is the open slice
+      // recorded under `custom-jsemitter-signal-list-literal` in `v2/BUGS.md`.
+      "A case-class instance is deliberately still refused: see custom-jsemitter-signal-list-literal."
     )
 
   /** JS-encoded string literal — escapes the four characters

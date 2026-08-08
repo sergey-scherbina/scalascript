@@ -7143,6 +7143,23 @@ here (out of scope: it's a `frontend/custom/StaticJsEmitter.scala` gap, not
 UI-widget-specific, and a real fix means deciding how `jsLiteral` should
 recursively encode `List`/`InstanceV`/`Map` values, which is its own slice).
 
+**PARTLY FIXED 2026-08-08 — sequences encode; a case-class instance is still refused, now loudly.**
+`jsLiteral` gained a recursive `Iterable`/`Array` arm, so a `Signal[List[_]]` of scalars seeds a JS
+array and the program emits. `frontendCustom/test` is 72/72.
+
+**The instance half is a decision about WHERE the encoder lives, not about what it prints**, and
+that is the part the original entry called "its own slice" without saying why. `frontend/custom`
+depends on `frontendCore` ALONE — it cannot see the interpreter's value type at all — so encoding
+`InstanceV` means either lifting an abstraction into core or reflecting here. The refusal message
+now names this entry, so the next person meets the decision instead of reading it as an oversight.
+
+`Map` is deliberately NOT encoded either: a JS object needs string keys, and what a non-string key
+should become is the same open question.
+
+Reproduced before fixing: three list shapes threw
+`unsupported value type scala.collection.immutable.$colon$colon`, and the scalar control passed
+throughout — so the new arm is the only behaviour that moved.
+
 **Symptom:** `ssc run <file>.ssc` (both the documented default — v2 VM,
 `custom` frontend — and `--v1`) throws
 `jsLiteral: unsupported value type ... List(...). Supported: String / Int /
