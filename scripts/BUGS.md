@@ -7,6 +7,54 @@ grepping for status.
 
 Newest first.
 
+
+## launchers-not-dead-red-in-every-fresh-worktree — the gate refuses on an empty bin/, by design, every time
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: tests/e2e/launchers-are-not-dead-on-arrival.sh -->
+
+`scripts/new-worktree` gives a checkout whose `bin/` holds five entries and none of the delegating
+launchers. The gate discovers zero subjects and FAILS rather than passing vacuously — which is the
+property it was built with, and correct: an empty subject list makes every assertion below it
+meaningless.
+
+The consequence is that **every smoke run from a fresh worktree is red on this one check**, and it
+has been in roughly fifteen of my own runs over three days. A red that appears unconditionally is
+one people learn to skip, and the next real failure goes with it.
+
+The fix is not to let an empty list pass. The distinction the gate is missing is between "installed
+and dead" and "never installed": the launcher sources are tracked under
+`v1/tools/scripts/launchers/`, so if those exist and `bin/` has none, the checkout is partially
+built and the honest verdict is SKIP with that reason — the same shape other gates already use for
+`$ssc not built`. If `bin/` has some launchers but discovery finds none, that is still a hard fail.
+
+Filed late, and that is the point worth recording: I hit it on 2026-08-05 and mentioned it in
+commit messages perhaps fifteen times without ever filing it, because each time it was "the known
+one" and not the thing I was working on. An audit for exactly that — observed repeatedly, filed
+never — is what surfaced it.
+
+## url-import-flakes-under-suite-load — green standalone, red inside the smoke suite
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: tests/e2e/url-import-smoke.sh -->
+
+Seen 2026-08-08: `url-import` FAILED inside a full smoke run and PASSES when the same script is run
+directly on the same tree, seconds later, with no rebuild in between. All four of its cases report
+`[PASS]` standalone, including the `SSC_NO_NETWORK=1` refusal case.
+
+So it is load- or timing-sensitive rather than broken, and the suite is where it manifests. Not
+narrowed further — recorded because an intermittent red that only appears in the suite is the kind
+that gets attributed to whatever change happened to be pushed, and this one is not caused by any of
+mine.
+
+Worth pairing with `smoke-check-guards-sized-by-local-time` in tests/BUGS.md: the same suite already
+has two checks whose guards were sized against a dev host, and a fetch-shaped check under a loaded
+runner is the same class of problem.
+
 ## coord-release-does-not-check-the-work-landed — a claim can be released, and its record written, over a branch that was never pushed
 
 <!-- status: fixed
