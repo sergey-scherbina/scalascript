@@ -2,10 +2,10 @@ slug: ssc-tools-raw-stacktrace
 branch: feature/ssc-tools-raw-stacktrace
 agent: claude-code
 started: 2026-08-08T16:43:52Z
-heartbeat: 2026-08-08T16:46:45Z
+heartbeat: 2026-08-08T16:49:44Z
 status: implementing
 items: ssc-tools-raw-stacktrace
-paths: file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala file:tests/e2e/cli-errors-are-messages.sh file:.github/workflows/ci.yml file:v1/tools/cli/src/main/scala/scalascript/cli/CliFailure.scala
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala file:tests/e2e/cli-errors-are-messages.sh file:.github/workflows/ci.yml file:v1/tools/cli/src/main/scala/scalascript/cli/CliFailure.scala file:scripts/smoke-ci.ssc
 scope: |
   `@main def ssc` (bin/ssc-tools) has no top-level catch, so every runtime error reaches the user as
   `Exception in thread "main" java.lang.RuntimeException: ...` plus a stack trace. bin/ssc has had
@@ -15,4 +15,4 @@ scope: |
   A trace must stay REACHABLE: SSC_STACKTRACE=1 on BOTH launchers, or the fix trades a bad error
   message for an undebuggable compiler.
 next: wrap the entry, mirror the hatch into StandardMain, gate both launchers
-note: scripts/smoke-ci.ssc is held by 'shared-board-deletion-guard'; the gate registers in ci.yml
+note: smoke-ci.ssc was held by 'shared-board-deletion-guard' and freed 2026-08-08; the gate registers there
