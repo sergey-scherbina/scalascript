@@ -2787,8 +2787,24 @@ class JsGen(
           // Tuple/pattern destructuring
           val patJs = genPatDestructure(pat)
           line(s"const $patJs = ${genExpr(rhs)};")
-        case _ =>
-          line(s"/* multi-pat val */")
+        case several =>
+          // `val a, b = e`. This emitted a COMMENT — the shape was recognised and then dropped, so
+          // `println(a)` printed `<function>` (JS resolved the bare name to something else) and
+          // `println(b)` crashed Node, both at exit 0 for the emit itself. Scala evaluates the
+          // right-hand side ONCE PER NAME (`val p1, …, pn = e` is `val p1 = e; …; val pn = e`), which
+          // the jvm lane gets by emitting the form verbatim; measured there first: `val a, b =
+          // bump()` gives a=1, b=2 with the counter at 2. So this emits one `const` per name with its
+          // own evaluation, NOT one shared temporary.
+          // BUGS.md multi-name-val-binds-garbage-and-says-nothing.
+          several.foreach {
+            case Pat.Var(n) =>
+              if !rebindNumericEvidence(n.value, rhs, declT) && isTupleExpr(rhs) then tupleVars += n.value
+              declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
+                .foreach(e => listElemType(n.value) = e)
+              line(s"const ${emittedName(n.value)} = ${genExpr(rhs)};")
+            case pat =>
+              line(s"const ${genPatDestructure(pat)} = ${genExpr(rhs)};")
+          }
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), declT, rhs) =>
       rebindNumericEvidence(n.value, rhs, declT)

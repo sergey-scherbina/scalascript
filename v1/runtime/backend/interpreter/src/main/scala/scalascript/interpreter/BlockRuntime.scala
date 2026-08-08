@@ -258,6 +258,31 @@ private[interpreter] object BlockRuntime:
           // `Defn.Val(_, pats, _, rhs)` unapply, which allocates a `Some` + `Tuple4` per
           // statement — hot on the per-resume continuation re-eval path (effect-vm-cont-p3b:
           // `Tuple4` ~89 JFR samples in `step` across 3125 multi-shot paths).
+          // `val a, b = e` — SEVERAL patterns on one val, which both `case _` arms below drop
+          // silently: nothing is bound, so `a` falls through to whatever else answers to that name
+          // (a plugin extern — the program printed `<native:a>`, an internal placeholder, at exit 0)
+          // and `b` is Undefined. Scala evaluates the right-hand side ONCE PER NAME, which the jvm
+          // lane gets for free by emitting the form verbatim; measured there before implementing:
+          // `val a, b = bump()` gives a=1, b=2 with the counter at 2, so binding one shared value
+          // would be the wrong fix. Handled in its own arm so the single-`Pat.Var` fast path below —
+          // which exists for the multi-shot continuation re-walk — is untouched.
+          // BUGS.md multi-name-val-binds-garbage-and-says-nothing.
+          case dv: Defn.Val if dv.pats.lengthCompare(1) > 0 =>
+            def bindOne(p: Pat, v: Value): Unit = p match
+              case Pat.Var(n) => local(n.value) = v
+              case other =>
+                val patEnv = PatternRuntime.matchPat(other, v, localView, interp)
+                if patEnv == null then interp.located("Val pattern match failed")
+                else PatternRuntime.patVarNames(other).foreach { k =>
+                  val bound = patEnv.getOrElse(k, null)
+                  if bound != null then local(k) = bound
+                }
+            def evalEach(remaining: List[Pat]): Computation =
+              remaining match
+                case Nil        => step(rest, Value.UnitV)
+                case p :: more  => FlatMap(interp.eval(dv.rhs, localView), { v => bindOne(p, v); evalEach(more) })
+            evalEach(dv.pats.toList)
+
           case dv: Defn.Val =>
             val pats = dv.pats
             // effect-cps-continuation slice 1: a single `val x = <pure expr>` (the arithmetic
@@ -564,6 +589,26 @@ private[interpreter] object BlockRuntime:
         FlatMap(interp.eval(rhs, cur), { monadValue =>
           liftBindValue(monadValue, tag, _ => step(rest, cur), cur, interp)
         })
+
+      // `val a, b = e` inside a block: SEVERAL patterns, which the `case _` below used to drop on
+      // the floor — binding nothing, silently. Scala evaluates the right-hand side once per name,
+      // measured on the jvm lane (a=1, b=2, counter 2), so each name gets its own evaluation rather
+      // than a shared value. Threaded through `interp.eval` per name to keep effects in order.
+      // BUGS.md multi-name-val-binds-garbage-and-says-nothing.
+      case Defn.Val(_, pats, _, rhs) :: rest if pats.lengthCompare(1) > 0 =>
+        def bindEach(remaining: List[Pat], env0: Env): Computation =
+          remaining match
+            case Nil => step(rest, env0)
+            case p :: more =>
+              FlatMap(interp.eval(rhs, env0), { v =>
+                p match
+                  case Pat.Var(n) => bindEach(more, FrameMap.one(n.value, v, env0))
+                  case other =>
+                    val patEnv = PatternRuntime.matchPat(other, v, env0, interp)
+                    if patEnv == null then interp.located("direct block: val pattern match failed")
+                    else bindEach(more, env0 ++ patEnv)
+              })
+        bindEach(pats.toList, cur)
 
       case Defn.Val(_, pats, _, rhs) :: rest =>
         FlatMap(interp.eval(rhs, cur), { v =>

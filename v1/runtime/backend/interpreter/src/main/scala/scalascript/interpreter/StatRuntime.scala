@@ -243,7 +243,32 @@ private[interpreter] object StatRuntime:
                 env(k) = v
                 interp.valNames += k
             }
-        case _ => ()
+        // `val a, b = e` — SEVERAL patterns on one val. This used to bind NOTHING and say nothing,
+        // so `a` fell through to whatever else answered to that name (a plugin extern: the program
+        // printed `<native:a>`, an internal placeholder, at exit 0) and `b` was simply Undefined.
+        // Scala evaluates the right-hand side ONCE PER NAME — `val p1, …, pn = e` is `val p1 = e; …;
+        // val pn = e` — which the jvm lane already gets because it emits the form verbatim to Scala.
+        // MEASURED there before implementing: `val a, b = bump()` gives a=1, b=2, and the counter
+        // reaches 2, so a single shared evaluation would be the wrong fix.
+        // BUGS.md multi-name-val-binds-garbage-and-says-nothing.
+        case several =>
+          several.foreach {
+            case Pat.Var(n) =>
+              val v = disambiguateValBinding(decltpe, rhs, Computation.run(interp.eval(rhs, envView)), interp)
+              rememberShadowedAlternative(env, n.value, v, interp)
+              env(n.value) = v
+              interp.valNames += n.value
+            case pat =>
+              val v = disambiguateValBinding(decltpe, rhs, Computation.run(interp.eval(rhs, envView)), interp)
+              val patEnv = PatternRuntime.matchPat(pat, v, envView, interp)
+              if patEnv == null then interp.located(s"Val pattern match failed")
+              else PatternRuntime.patVarNames(pat).foreach { k =>
+                val bound = patEnv.getOrElse(k, null)
+                if bound != null then
+                  env(k) = bound
+                  interp.valNames += k
+              }
+          }
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       env(n.value) = Computation.run(interp.eval(rhs, envView))

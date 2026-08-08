@@ -96,47 +96,47 @@ exact "OK       " "native" "1" "$("$BIN/ssc" run "$WORK/single.ssc" 2>&1)"
 exact "OK       " "js"     "1" "$("$BIN/jssc" "$WORK/single.ssc" 2>&1)"
 
 # ── the FIRST name ────────────────────────────────────────────────────────────
+# These were KNOWN-RED rows pinning `<native:a>` on int and `<function>` on js — internal
+# placeholders leaking into user output at exit 0. Both lanes bind properly now, so the rows are
+# DELETED and replaced by the assertion, which is what this gate's own message demanded rather than
+# loosening them.
 echo "val a, b = 1 — println(a):"
-int_a="$("$BIN/ssc-tools" run --v1 "$A" 2>&1)"
-row "KNOWN-RED" "int"    "<native:a>" "$int_a"
-exact "OK       " "native" "1"          "$("$BIN/ssc" run "$A" 2>&1)"
-js_a="$("$BIN/jssc" "$A" 2>&1)"
-row "KNOWN-RED" "js"     "<function>" "$js_a"
+exact "OK       " "int"    "1" "$("$BIN/ssc-tools" run --v1 "$A" 2>&1)"
+exact "OK       " "native" "1" "$("$BIN/ssc" run "$A" 2>&1)"
+exact "OK       " "js"     "1" "$("$BIN/jssc" "$A" 2>&1)"
 
-# ── the SECOND name, a separate axis: it may not exist at all ─────────────────
+# ── the SECOND name, a separate axis: it used not to exist at all ─────────────
 echo "val a, b = 1 — println(b):"
-row "KNOWN-RED" "int"    "Undefined: b"            "$("$BIN/ssc-tools" run --v1 "$B" 2>&1)"
+exact "OK       " "int"    "1" "$("$BIN/ssc-tools" run --v1 "$B" 2>&1)"
+exact "OK       " "js"     "1" "$("$BIN/jssc" "$B" 2>&1)"
+# native still declines the whole file, which is the one DEFENSIBLE wrong answer of the original
+# four: it refuses loudly instead of binding something and carrying on. Kept as a declared red.
 row "KNOWN-RED" "native" "rejected incomplete parse" "$("$BIN/ssc" run "$B" 2>&1)"
-row "KNOWN-RED" "js"     "ReferenceError: b is not defined" "$("$BIN/jssc" "$B" 2>&1)"
 
-# ── what actually makes this dangerous, asserted on its own ───────────────────
-# The rows above would still pass if a lane started printing a placeholder AND reporting failure.
-# The defect is the silence: a wrong value with exit 0 is what travels.
-echo "the silence — a wrong value must not arrive with a success status:"
-"$BIN/ssc-tools" run --v1 "$A" >/dev/null 2>&1; int_rc=$?
-"$BIN/jssc" "$A" >/dev/null 2>&1; js_rc=$?
-for pair in "int:$int_rc" "js:$js_rc"; do
-  lane="${pair%%:*}"; rc="${pair##*:}"
-  if [ "$rc" -eq 0 ]; then
-    echo "  KNOWN-RED $lane: exit 0 while printing a placeholder"
-  else
-    echo "  NOTE $lane now exits $rc — it reports the failure instead of hiding it."
-    echo "       That is an improvement; re-read the entry and update this gate deliberately."
-    fails=$((fails + 1))
-  fi
-done
+# ── the semantics nobody had pinned ───────────────────────────────────────────
+# Scala's `val p1, …, pn = e` is `val p1 = e; …; val pn = e` — the right-hand side is evaluated ONCE
+# PER NAME. A fix that bound one shared value would pass every row above and still be wrong, and it
+# is the obvious way to write it, so this row exists to reject it. The expected numbers were measured
+# on the jvm lane before the int and js fixes were written, not derived from the spec.
+printf 'var c = 0\ndef bump(): Int =\n  c = c + 1\n  c\ndef main() =\n  val a, b = bump()\n  println(a)\n  println(b)\n  println(c)\n' > "$WORK/pername.ssc"
+echo "the rhs is evaluated once per name (jvm-measured: 1, 2, 2):"
+# `exact` compares against the actual output with ALL whitespace stripped, so the three lines are
+# spelled `122` here — the same convention the single-value rows above use.
+exact "OK       " "int" "122" "$("$BIN/ssc-tools" run --v1 "$WORK/pername.ssc" 2>&1)"
+exact "OK       " "js"  "122" "$("$BIN/jssc" "$WORK/pername.ssc" 2>&1)"
 
-# ── jvm, named rather than omitted ────────────────────────────────────────────
-if "$BIN/ssc" run-jvm "$WORK/single.ssc" >/dev/null 2>&1; then
-  echo "  NOTE run-jvm is available here — the entry records jvm as the only lane that gets BOTH"
-  echo "       names right, and this gate does not yet check it. Worth adding now that it can run."
+# ── jvm, the reference this was fixed against ─────────────────────────────────
+# `$BIN/ssc run-jvm` is the STANDARD tier and refuses the subcommand; the jvm lane lives behind
+# ssc-tools. The old probe asked the wrong launcher and therefore always reported UNMEASURED.
+if "$BIN/ssc-tools" run-jvm "$WORK/single.ssc" >/dev/null 2>&1; then
+  exact "OK       " "jvm" "1" "$("$BIN/ssc-tools" run-jvm "$A" 2>&1 | grep -v '^ssc:')"
+  exact "OK       " "jvm" "1" "$("$BIN/ssc-tools" run-jvm "$B" 2>&1 | grep -v '^ssc:')"
 else
-  echo "  UNMEASURED jvm: run-jvm needs the optional tools/compatibility component (not installed)."
-  echo "             The entry records jvm as the only correct lane; this gate cannot confirm it."
+  echo "  UNMEASURED jvm: ssc-tools run-jvm not available in this checkout."
 fi
 
 if [ "$fails" -ne 0 ]; then
   echo "multi-name-val-gate: FAIL ($fails)"
   exit 1
 fi
-echo "multi-name-val-gate: OK — three lanes, three answers, all still as recorded"
+echo "multi-name-val-gate: OK — int, js and jvm agree; native still declines the file, loudly"
