@@ -29,6 +29,7 @@ fail=0
 ran=0
 agree=0
 disagree=0
+unimlonly=0
 
 # The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
 # corpus number carries, and for the same reason: a gate that is permanently red stops being read,
@@ -58,8 +59,17 @@ for f in v3/tests/front/*.ssc; do
       # The FIRST front is v3's own and must always print — a failure there is a real defect. A
       # second front refusing is expected work-in-progress and is counted, not failed.
       if [ "$fr" = "v3" ]; then
-        echo "  FAIL $name — the v3 front could not print an Ast: $(head -1 "$work/err")"
-        fail=1
+        # A fixture may exercise a construct ONLY the uniml front has — that is what the swap was
+        # for, and `object-nested-class` is the first: v3's own parser refuses a `case class` inside
+        # an `object`, and `v3/src/Parser.scala` belongs to another claim. Marked with a
+        # `.uniml-only` file beside it so the state is DECLARED rather than discovered, and counted
+        # so it cannot grow quietly — an unmarked refusal is still a failure.
+        if [ -f "v3/tests/front/$name.uniml-only" ]; then
+          unimlonly=$((unimlonly + 1))
+        else
+          echo "  FAIL $name — the v3 front could not print an Ast: $(head -1 "$work/err")"
+          fail=1
+        fi
       else
         echo "  refused $name — $(head -1 "$work/err" | sed 's/^ssc3: //' | cut -c1-70)"
         disagree=$((disagree + 1))
@@ -165,6 +175,13 @@ fi
 if [ "$nfronts" -ge 2 ]; then
   echo
   echo "  fronts AGREE on $agree of $ran fixture(s); $disagree still differ or are refused (floor $FLOOR)"
+  echo "  $unimlonly fixture(s) are declared uniml-only — v3's own front does not have the construct"
+  UOCEIL="${SSC3_FRONT_UNIML_ONLY_CEILING:-1}"
+  if [ "$unimlonly" -gt "$UOCEIL" ]; then
+    echo "  FAIL uniml-only fixtures rose to $unimlonly, above the ceiling $UOCEIL — the two fronts"
+    echo "       are drifting apart, which is the opposite of what this gate is for"
+    fail=1
+  fi
   if [ "$agree" -lt "$FLOOR" ]; then
     echo "  FAIL agreement REGRESSED below the floor — raise it only after a measurement, never before"
     fail=1

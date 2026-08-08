@@ -1,0 +1,12 @@
+object Text:
+  case class Cursor(text: String, pos: Int)
+
+  val prefix = "at "
+
+  def start(s: String): Cursor = Cursor(s, 0)
+  def show(c: Cursor): String = prefix + c.pos + " of " + c.text
+
+def main(): Unit =
+  val c = Text.start("hello")
+  println(Text.show(c))
+  println(Text.show(Cursor("bye", 2)))

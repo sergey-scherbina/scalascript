@@ -75,12 +75,26 @@ object UniFront:
           case Sorted.D(x) => defs = defs :+ x
           case Sorted.C(x) => classes = classes ++ x
           case Sorted.O(x) => objects = objects :+ x
+          case Sorted.OC(x, cs) => objects = objects :+ x; classes = classes ++ cs
           case Sorted.T(x) => traits = traits :+ x
           case Sorted.E(x) => effects = effects :+ x
           case Sorted.S(x) => top = top ++ x
           case Sorted.Skip => ()
       }
     }
+    // TWO CLASSES OF ONE NAME ARE REFUSED, not merged.
+    //
+    // Hoisting a nested `case class` gives it a plain top-level name, so an object's `Cursor` and
+    // another object's `Cursor` would now be two entries in one list. `Lower` resolves a
+    // constructor by NAME, so it would take whichever it found and the other's fields would be
+    // read off the wrong shape — a wrong answer with nothing to point at. The check is over every
+    // class, not only the hoisted ones, because an `enum` case can collide with a class just as
+    // easily and neither had anything watching.
+    val dupes = classes.map(_.name).groupBy(x => x).filter((_, g) => g.length > 1).keys.toList.sorted
+    if dupes.nonEmpty then
+      val victim = classes.find(c => c.name == dupes.head).get
+      throw ParseFail(victim.pos, "two classes named '" + dupes.head +
+        "' — a nested `case class` hoisted to the top level collides with another")
     Program(defs, top, classes, objects, traits, effects)
 
   /** v3 sorts declarations into five buckets and UniML does not, so the projection has to say which
@@ -95,6 +109,11 @@ object UniFront:
     // would have caught it for real.
     case C(cs: List[ClassDef])
     case O(o: ObjectDef)
+    /** An `object` AND the classes declared inside it, hoisted. v3 has no nested classes, so a
+      * `case class` written inside an object becomes a top-level one; the object keeps its `def`s
+      * and `val`s. Its own case rather than reusing `O`, because an arm that could only return one
+      * kind is what made the first version refuse the whole object. */
+    case OC(o: ObjectDef, cs: List[ClassDef])
     case T(t: TraitDef)
     /** An `effect` declaration. Its own case rather than reusing `T`: v3 keeps effects in their
       * own `Program` field because a trait's methods are DISPATCHED and an effect's are PERFORMED. */
@@ -160,14 +179,32 @@ object UniFront:
         // names that no longer existed, which fails at RUN time rather than at projection time.
         var ds: List[Def] = Nil
         var vs: List[Stmt.Val] = Nil
+        var cs: List[ClassDef] = Nil
         ms.foreach { m => m match
           case dd: U.Def =>
             ds = ds :+ Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
           case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
             vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
-          case other => no("a non-`def`, non-`val` member of an `object`", other.span)
+          // A `case class` declared INSIDE the object is HOISTED to the top level under its plain
+          // name. v3 has no nested classes, and an object is a namespace for `def`s and `val`s
+          // rather than a scope for types — so the nesting carries no meaning to preserve.
+          //
+          // The plain name is what makes it usable: every reference inside the object writes
+          // `Cursor`, and qualifying the declaration to `Text.Cursor` would mean rewriting those
+          // references in patterns and constructor calls, which is a great deal of machinery for
+          // a shape the corpus uses four times. What plain names cost is a COLLISION, and that is
+          // refused by name after the fold rather than resolved silently.
+          //
+          // Two files of v3's own kernel are held up by exactly this — `BridgeV2.scala` and
+          // `Text.scala`, whose `Cursor` and `Unsupported` live inside their objects.
+          case cc: U.CaseClass =>
+            cs = cs :+ ClassDef(cc.name, cc.fields.toList.map(param),
+                                cc.methods.toList.map(mm =>
+                                  Def(mm.name, mm.params.toList.map(param), expr(mm.body), pos(mm.span))),
+                                cc.parent.toList, pos(cc.span))
+          case other => no("a non-`def`, non-`val`, non-`case class` member of an `object`", other.span)
         }
-        Sorted.O(ObjectDef(n, ds, vs, pos(s)))
+        Sorted.OC(ObjectDef(n, ds, vs, pos(s)), cs)
 
     // A `trait` — it used to VANISH into `NoOpDecl`, invisible to every measurement UniML makes
     // about itself. `keyword` distinguishes `trait` from the other things the dialect routes here.

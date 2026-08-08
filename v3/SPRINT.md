@@ -2072,3 +2072,51 @@ Sergiy asked whether the table could be a single copy used by both. It can, and 
 
 **Measured:** UniML 213/213, seven v3 gates green, `install.sh --dev` clean, smoke-ci 72/72,
 `v3/src` + `alphabet/src` builds and runs with no UniML present.
+
+## 42 · A `case class` inside an `object` is hoisted — `BridgeV2.scala` reads
+
+`v3/src/BridgeV2.scala` and `Text.scala` both declare a `case class` inside their object, and the
+projection refused the whole file for it. v3 has no nested classes and an `object` is a namespace
+for `def`s and `val`s rather than a scope for types, so there is no nesting to preserve: the class
+is hoisted to the top level under its PLAIN name.
+
+- [x] **42a — the plain name is what makes it usable, and its cost is refused rather than
+      resolved.** Every reference inside the object writes `Cursor`; qualifying the declaration to
+      `Text.Cursor` would mean rewriting those references in patterns and constructor calls — a
+      great deal of machinery for a shape the corpus uses four times. What plain names cost is a
+      COLLISION, so two classes of one name are now a positioned refusal. `Lower` resolves a
+      constructor by name and would otherwise take whichever it found first, reading one class's
+      fields off the other's shape — a wrong answer with nothing to point at.
+
+      The check covers EVERY class, not only hoisted ones: an `enum` case can collide with a class
+      just as easily, and nothing was watching that either.
+
+- [x] **42b — the count did not move, and the reason is worth recording.** Self-hosting reads 9 of
+      17 before and after. `BridgeV2.scala` opened; `Ir.scala` closed, 31 minutes earlier, in
+      `e36d6e5df` — a sibling's `performing` uses `{ case … => …; case _ => () }`, so the file
+      joined the semicolon set. Checked with `git log -S` rather than assumed, because a flat number
+      hiding a +1 and a −1 is exactly how a regression gets attributed to whoever measured last.
+
+- [x] **42c — `Text.scala` moved one construct further** and now stops at a typed `catch` arm — the
+      change that is written and blocked on `Exec.scala:482` (§40e). So that one line unblocks a
+      kernel file as well as the corpus cases.
+
+- [x] **42d — the fixture broke the differential, and the fix is a DECLARATION rather than a
+      loosened rule.** `front-diff` requires v3's own front to print every fixture, which was right
+      while the two had the same coverage and is not any more: the uniml front is ahead BY DESIGN,
+      and `object-nested-class` is the first fixture only it can read. A `.uniml-only` marker beside
+      the fixture makes that state declared instead of discovered, an UNMARKED refusal is still a
+      failure, and the count carries its own ceiling — the two fronts drifting apart is the opposite
+      of what this gate is for.
+
+**Measured:** seven v3 gates green; the differential's fixture half is 50 of 51 with 1 declared
+uniml-only. N = 186 of 367 with CRASH 0 and DIFF 2 — `effects-handler` and
+`parameterless-def-local`, both from the effects claim's work and neither touching nested classes,
+checked by reverting my change rather than by reasoning about it.
+
+The differential's CORPUS half stays RED on `origin/main` at 234 of 270 — all 36 are the `actors-*`
+by-name family owned by `ssc3-effect-protocol`, and the count grows as their work lets more cases
+parse rather than because anything regressed. The ceiling was not raised to accommodate it.
+
+`smoke-ci` read 72/73 on the run alongside these measurements, on `ci-status-guard` — which passes
+standalone and queries CI status over the network. Recorded as a flake rather than claimed green.
