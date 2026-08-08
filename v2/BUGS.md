@@ -9,6 +9,44 @@ Newest first.
 
 
 
+
+## native-getOrElse-on-a-case-class-field-passes-the-receiver — `arity: 2 expected, 3 given`
+
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+Four lines, and the split is one intermediate `val`:
+
+    case class Req(session: Map[String, String])
+    val r = Req(Map("a" -> "1"))
+
+    r.session.getOrElse("a", "?")            ->  ssc: arity: 2 expected, 3 given
+    val s = r.session; s.getOrElse("a", "?") ->  1
+
+Calling a two-argument method DIRECTLY on a case-class field passes three arguments; binding the
+field to a local first is fine. Lanes, same file:
+
+    F                    arity: 2 expected, 3 given
+    reference front      arity: 2 expected, 3 given      <- BOTH native fronts
+    v1 interpreter       1
+    jvm                  1
+
+So this is a NATIVE LANE defect rather than an F coverage gap — the two fronts agree with each other
+and disagree with the two lanes that are right. `_sel_mapGetOrElse` is a three-parameter global
+(receiver, key, default) while `getOrElse` on an Option is two, and the field path appears to pick
+the wrong one; that is a reading of the preamble, not a measurement, and is where to start rather
+than what to believe.
+
+**Found while diagnosing why the binding half of `f-declines-every-non-top-level-def` breaks
+session-roundtrip**, and NOT yet proven to be the same defect. The session failure is
+`req.session.getOrElse("user", "<none>")` with the same message, but `Request` comes from
+`std/http.ssc` and the gate passed before F began lowering that module — which this repro alone does
+not explain, since it fails on both fronts today. Treat the identity as open: fix this one, then
+re-run session-roundtrip with the binding enabled and see whether it clears.
+
 ## f-malformed-import-blamed-on-downstream-constructor — F names an innocent class in another file
 
 <!-- status: open
