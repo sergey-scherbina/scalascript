@@ -47,7 +47,15 @@ private[interpreter] object EvalRuntime:
     term match
       case tn: Term.Name =>
         val ev = env.getOrElse(tn.value, null)
-        if ev != null then ev else interp.globals.getOrElse(tn.value, null)
+        val v  = if ev != null then ev else interp.globals.getOrElse(tn.value, null)
+        // A parameterless def must be INVOKED at every mention, and invoking is not something this
+        // lane can do — it returns a Value, not a Computation. Declining (null) routes the mention
+        // to the monadic `Term.Name` path, which invokes it. Without this the fix in that path
+        // reached only the positions this fast lane does not serve: `mk.v` came out right while
+        // `println(mk)` and `f(mk)` still handed over the closure, which is the SECOND decision site
+        // for the same question and the reason the first measurement looked like a partial fix.
+        if v != null && v.isInstanceOf[Value.FunV] && v.asInstanceOf[Value.FunV].parameterless
+        then null else v
       case lit: Lit =>
         cachedLiteralValue(lit, interp)
       case _ => null
@@ -3417,7 +3425,17 @@ private[interpreter] object EvalRuntime:
       // IntV / BoolV / Unit / Null / None / EmptyList / EmptyStr. Term.Name
       // is the hottest Pure-allocating eval path (JFR-2026-06-02 on
       // `recursiveEval` showed Pure as the top sampled allocator).
-      if v != null then Computation.purify(v)
+      if v != null then
+        // A def written with NO parameter clause is a parameterless METHOD: mentioning the name calls
+        // it. The MISS path below already says so for a sibling method of a class; a top-level or
+        // local def was FOUND here instead, so it came back as the closure itself and the caller saw
+        // `FunV` where the other three lanes had the result. Not gated on a program-level flag: an
+        // imported parameterless def arrives from a child `Interpreter`, so any per-run gate the
+        // importing program owns reads false and the check would be skipped exactly where the value
+        // came from somewhere else. The value itself is the authority.
+        if v.isInstanceOf[Value.FunV] && v.asInstanceOf[Value.FunV].parameterless
+        then interp.callValue0(v, env)
+        else Computation.purify(v)
       else
         // MISS path only — everything below runs where the answer was `Undefined: $name`, so it
         // cannot change a program that already worked, and costs nothing on the hot path.

@@ -37,7 +37,17 @@ object Value:
     defaults: List[Option[Term]] = Nil,
     paramTypes: List[String] = Nil,
     usingParams: List[(String, String)] = Nil,
-    returnsThrows: Boolean = false
+    returnsThrows: Boolean = false,
+    /** True when the def was written WITHOUT a parameter clause (`def mk: Box = …`) rather than with
+     *  an empty one (`def mk(): Box = …`). Scala calls the first a *parameterless method*: every
+     *  mention of the name invokes it. `params` is `Nil` for both spellings, so the distinction has
+     *  to be carried, and this is a CONSTRUCTOR field rather than a `var` like the two below on
+     *  purpose. A `var` is lost by `copy`, which the section/import path applies to every bound
+     *  function, and it does not survive the child `Interpreter` a module import runs in — measured
+     *  both ways: with the flag off the constructor, `def mk: Box` worked in one file and still
+     *  arrived as a closure through `[mk](lib.ssc)`. Carrying it here means every copy keeps it and
+     *  the value itself is the answer, wherever it travels. */
+    parameterless: Boolean = false
   ) extends ValueRest:
     /** Monomorphic inline cache for auto-resolved `using` / context-bound
      *  parameters (`GivenRuntime.resolveUsingAllCached`). Resolution depends only
@@ -266,7 +276,7 @@ object Value:
       val fields = inst.effectiveFields
       if fields.isEmpty then inst.typeName
       else fields.values.iterator.map(show).mkString(s"${inst.typeName}(", ", ", ")")
-    case FunV(ps, _, _, _, _, _, _, _) => s"<function(${ps.length})>"
+    case f: FunV => s"<function(${f.params.length})>"
     case NativeFnV(name, _)   => s"<native:$name>"
     case DocV(parts)          => parts.map(show).mkString("\n")
     case MarkupV(doc)         => scalascript.markup.PureMarkupCodec.serialize(doc)

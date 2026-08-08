@@ -64,7 +64,7 @@ class MountHandlerTest extends AnyFunSuite with Matchers with BeforeAndAfterEach
     val req = Value.InstanceV("Request", reqFields)
     // Detect 2-arg handler and pass mountCtx map
     val args: List[Value] = entry.handler match
-      case Value.FunV(ps, _, _, _, _, _, _, _) if ps.length >= 2 =>
+      case f: Value.FunV if f.params.length >= 2 =>
         val ctxMap = Value.MapV(entry.mountCtx.map { (k, v) =>
           (Value.StringV(k): Value) -> v
         })

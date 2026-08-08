@@ -1,0 +1,29 @@
+---
+name: parameterless-def-local
+description: "a parameterless def declared inside a body is invoked at its mention, like a top-level one"
+backends: [int, jvm, js, v2]
+known-red: "js, v2 — a LOCAL parameterless def is not invoked at its mention: v2 prints the closure and exits 0 (silent), js raises `Method not found: v on <function>`; remove when BUGS.md parameterless-def-local-not-invoked-js-and-native is fixed"
+---
+
+# The same rule inside a body
+
+Nothing about a parameterless method depends on where it is declared, and the top-level case is
+covered by `parameterless-def-mention`. This case exists because the two are separate code paths in
+every lane, and measuring them separately is what showed the top-level one green while the local one
+was not.
+
+The v2 half is the worse failure: it exits **0** and prints `<closure>`, so a program that
+mis-invokes here produces a plausible wrong answer instead of an error.
+
+```scalascript
+case class Box(v: String)
+def main(): Unit =
+  def mk: Box = Box("loc")
+  var n = 0
+  def next: Int =
+    n = n + 1
+    n
+  println(mk.v)
+  println(next)
+  println(next)
+```

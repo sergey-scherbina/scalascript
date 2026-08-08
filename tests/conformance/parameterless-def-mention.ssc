@@ -1,0 +1,49 @@
+---
+name: parameterless-def-mention
+description: "a def written without a parameter clause is INVOKED at every mention, and once per mention"
+backends: [int, jvm, js, v2]
+---
+
+# `def mk: Box` is a method, not a stored closure
+
+Scala distinguishes `def mk: Box = …` from `def mk(): Box = …`. The first is a *parameterless
+method*: writing `mk` calls it. The two are indistinguishable from the parameter list alone — both
+have none — so a lane that carries only the list treats a mention as a closure value, and the
+program does not fail where the mistake is. It fails later, at the use, saying the result type has
+no such member (`No method 'v' on FunV`), which reads as a wrong case class.
+
+The last four lines are the controls, and without them this case cannot tell a correct lane from one
+that simply invokes every zero-argument thing it finds:
+
+- `next` twice must print `1` then `2`. A lane that evaluated the body once and cached it — `val`
+  semantics — prints `1` twice and would otherwise pass every other line here.
+- `toFn` returns a *function*. Mentioning it must invoke the def and yield the lambda, so `toFn(3)`
+  is one call of each and not one call of the def with `3`. `val g = toFn` then `g(4)` splits those
+  two steps apart, which is the shape `v2/bin/ssc1-run.ssc0` relies on (`def sscLibRoot = () => …`
+  called as `sscLibRoot()`).
+
+The `()`-declared spelling cannot be exercised here: `val f = zero` for `def zero(): Int` is a
+compile error in real Scala 3, and the JVM lane — which compiles to Scala — is what said so when
+this case first tried to use it as a control.
+
+```scalascript
+case class Box(v: String)
+def mk: Box = Box("top")
+object O:
+  def mk: Box = Box("obj")
+class C:
+  def mk: Box = Box("cls")
+var n = 0
+def next: Int =
+  n = n + 1
+  n
+def toFn: Int => Int = x => x + 1
+println(mk.v)
+println(O.mk.v)
+println(C().mk.v)
+println(next)
+println(next)
+println(toFn(3))
+val g = toFn
+println(g(4))
+```

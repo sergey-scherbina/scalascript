@@ -1,0 +1,25 @@
+---
+name: parameterless-def-extension
+description: "a parameterless extension member is invoked at its mention on the receiver"
+backends: [int, jvm, js, v2]
+---
+
+# `extension (s: String) def boxed: Box`
+
+An extension member declared without a parameter clause takes exactly one thing — the receiver —
+and mentioning it on a receiver is the call. All four lanes agree here.
+
+This case was first written with a `known-red` for v2, on the strength of a probe that failed there.
+The probe differed from this case in two ways at once — it used the single-line `extension (s) def m`
+spelling and wrapped its call in `def main()` — and BOTH are needed to reproduce; neither has
+anything to do with the missing parameter clause this case is about. The harness said so by failing
+the declaration as STALE the first time it ran. That defect is `extension-call-in-a-def-body`.
+
+```scalascript
+case class Box(v: String)
+extension (s: String)
+  def boxed: Box = Box(s)
+  def shout: String = s + "!"
+println("L".boxed.v)
+println("hi".shout)
+```

@@ -302,6 +302,14 @@ jobs:
       - name: "Gates without a home — the package: keyword across four lanes"
         run: tests/e2e/package-keyword-smoke.sh
 
+      # A parameterless def across a module import. This one cannot live in tests/conformance/: every
+      # import in that corpus points into `std/`, and the shape needs a fixture pair the case writes
+      # itself. It is also the only place the defect is visible — the single-file cases in
+      # `parameterless-def-*.ssc` stayed green through two implementations that a module import
+      # still handed a closure. Two rows, ~4 s.
+      - name: Gates without a home — a parameterless def across a module import
+        run: tests/e2e/parameterless-def-import-gate.sh
+
   conformance:
     name: Conformance shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest

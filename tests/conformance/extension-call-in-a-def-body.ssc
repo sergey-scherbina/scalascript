@@ -1,0 +1,34 @@
+---
+name: extension-call-in-a-def-body
+description: "a single-line `extension (r) def m` is callable from a def body with nothing above it"
+backends: [int, jvm, js, v2]
+known-red: "v2 — a SINGLE-LINE `extension (r) def m …` called from inside a def body dies with `arity: 1 expected, 0 given` when no top-level statement appears above that def; remove when BUGS.md v2-extension-member-call-inside-a-def-body-fails-by-arity is fixed"
+---
+
+# Two conditions, and the case is written to meet both
+
+The declaration below is the **single-line** form and there is **no top-level statement above the
+`def`**. Both are required to reproduce, which is why three earlier drafts of this case were green on
+v2 and had their `known-red` correctly rejected as stale. Ten probes:
+
+| extension form | statement above the def? | call site | v2 |
+| --- | --- | --- | --- |
+| single-line | — | top level | ✅ |
+| single-line | yes, uses the member | def body | ✅ |
+| single-line | yes, touches no extension | def body | ✅ |
+| single-line | yes, but BELOW the def | def body | ❌ |
+| single-line | no | def body | ❌ **this case** |
+| single-line | no | `def main` directly | ❌ |
+| block form | no | def body | ✅ |
+| block form | yes, uses another member | def body | ✅ |
+
+int, jvm and js answer in every row. A member *with* a parameter fails identically on the red rows,
+so this is not the receiver being miscounted against a member that declares none — which is what the
+defect was first, wrongly, filed as.
+
+```scalascript
+case class Box(v: String)
+extension (s: String) def boxed: Box = Box(s)
+def inBody(): Unit = println("body-" + "a".boxed.v)
+def main(): Unit = inBody()
+```

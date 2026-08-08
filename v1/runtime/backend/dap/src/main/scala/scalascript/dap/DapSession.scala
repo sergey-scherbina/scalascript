@@ -224,9 +224,9 @@ final class DapSession(conn: Socket):
       case IValue.CharV(c)           => (s"'$c'", "Char")
       case IValue.UnitV              => ("()", "Unit")
       case IValue.NullV              => ("null", "Null")
-      case IValue.FunV(ps, _, _, n, _, _, _, _) =>
-        val nm = if n.nonEmpty then n else "<anon>"
-        (s"<function($nm/${ps.length})>", "Function")
+      case f: IValue.FunV =>
+        val nm = if f.name.nonEmpty then f.name else "<anon>"
+        (s"<function($nm/${f.params.length})>", "Function")
       case IValue.NativeFnV(nm, _)   => (s"<native:$nm>", "Function")
       case IValue.InstanceV(t, fs)   =>
         val preview = if fs.isEmpty then t else s"$t { ${fs.size} field(s) }"

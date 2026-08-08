@@ -74,7 +74,7 @@ final class InterpreterHttpHandler(
           // 2-arg FunV (Request, Map) => Response gets the mountCtx map as a
           // second argument; all other handlers get only the request.
           val handlerArgs: List[Value] = entry.handler match
-            case Value.FunV(ps, _, _, _, _, _, _, _) if ps.length >= 2 =>
+            case f: Value.FunV if f.params.length >= 2 =>
               val ctxMap = Value.MapV(entry.mountCtx.map { (k, v) =>
                 (Value.StringV(k): Value) -> v
               })

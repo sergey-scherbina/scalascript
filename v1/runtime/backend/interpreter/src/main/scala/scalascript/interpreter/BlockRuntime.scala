@@ -623,7 +623,8 @@ private[interpreter] object BlockRuntime:
             cur.foreachEntry { (k, v) => if interp.globals.getOrElse(k, null) != v then b(k) = v }
             b.toMap
         val rThrows2 = d.decltpe.exists(interp.isThrowsType)
-        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2, rThrows2)
+        val fn = Value.FunV(params2, d.body, capturedEnv, d.name.value, defaults2, paramTypes2, usingInfo2,
+                            rThrows2, parameterless = allClauses2.isEmpty)
         fn.declaredReturnType = d.decltpe.fold("")(interp.typeToString) // wide-jit C-4b: JIT RET-widening signal
         step(rest, FrameMap.one(d.name.value, fn, cur))
 

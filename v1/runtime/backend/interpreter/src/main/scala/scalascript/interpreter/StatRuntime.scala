@@ -308,7 +308,9 @@ private[interpreter] object StatRuntime:
         if env eq interp.globals then Map.empty
         else env.iterator.collect { case (k, v) if interp.globals.getOrElse(k, null) != v => k -> v }.toMap
       val rThrows = d.decltpe.exists(interp.isThrowsType)
-      val fn: Value.FunV = Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows)
+      val fn: Value.FunV =
+        Value.FunV(params, d.body, capturedEnv, d.name.value, defaults, paramTypes, usingInfo, rThrows,
+                   parameterless = allClauses.isEmpty)
       fn.declaredReturnType = d.decltpe.fold("")(interp.typeToString) // wide-jit C-4b: JIT RET-widening signal
       // busi-p3 — user-wins: a top-level def overwriting an already-installed
       // plugin intrinsic of the same bare name is allowed (user wins), but warn
