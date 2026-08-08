@@ -5,7 +5,7 @@ started: 2026-08-08T18:44:06Z
 heartbeat: 2026-08-08T18:44:06Z
 status: claimed-before-planning
 items: exec-gate RED: object-nested-class, executor and bridge both empty where hello/bye expected
-paths: file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/front BUGS.md
+paths: file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/tests/front BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
