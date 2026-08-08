@@ -5,7 +5,7 @@ started: 2026-08-08T05:10:00Z
 heartbeat: 2026-08-08T05:10:00Z
 status: implementing
 items: scaffolded-projects-cannot-load-their-build
-paths: file:install.sh file:v1/tools/cli/src/main/resources/templates file:tests/e2e/scaffold-loads-its-build.sh file:scripts/smoke-ci.ssc
+paths: file:install.sh file:v1/tools/cli/src/main/resources/templates file:tests/e2e/scaffold-loads-its-build.sh file:scripts/smoke-ci.ssc file:tests/e2e/emitted-coordinate-is-published.sh
 scope: |
   ssc new produces a project that fails on sbt compile: 5 of 6 templates need an sbt plugin nobody
   publishes. Sergiy chose publishLocal from install.sh with the templates naming the version the
