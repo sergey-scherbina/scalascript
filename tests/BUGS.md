@@ -1,3 +1,48 @@
+## f-std-ui-gaps-behind-the-curried-def-fix
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-08
+     ssc-version: 241d67402
+     confirmed: yes
+     gate: none -->
+
+Three separate gaps that `examples/frontend/std-ui/smoke-test.ssc` reaches now that F lowers its
+curried and vararg calls (`f-multi-parameter-clause-def-is-not-lowered`, fixed in `241d67402`).
+**All three are pre-existing** — each measured identical on the pre-fix binary — and none is caused
+by that fix. Filed together because they are what stands between that corpus file and `smoke:ok`.
+
+Bisected by widget section on the fixed build. **Four of seven sections now produce `smoke:ok`
+under F** — layout, reactive, display, data. The three that do not:
+
+```
+inputSection       ssc: unbound global: selectFromView
+containersSection  ssc: element children expected a valid List
+routingSection     ssc: duplicate native UI signal '__equality_…'
+```
+
+**1. `selectFromView` is not an F gap at all.** Reduced to a five-line program calling
+`selectFrom`, BOTH fronts fail identically with the same message — it is a runtime binding gap for an
+`extern def` declared in `std/ui/primitives.ssc`. What is unexplained, and is the actual question
+here, is why the reference front reaches `smoke:ok` on the whole file while F stops: the same call
+exists in both programs, so something differs in whether it is REACHED. That is the thread to pull.
+
+**2. `element children expected a valid List`** comes from `card`, measured directly:
+`card(text("a"))` fails under F and succeeds under the reference, identically before and after the
+vararg fix. `modal(open, title)(body*)` works, `card(body*)` and `cardWithHeader(header)(body*)` do
+not — and the distinguishing feature is not the vararg position but the body: the failing two build
+`CardNode(List(), body.toList, List())` and the working one `ModalNode(open, title, body.toList)`.
+An empty `List()` literal on its own lowers correctly under F (checked), so the fault is further in.
+
+**3. `duplicate native UI signal '__equality_…'`** is the same message the reference front produces
+on `examples/control-center-live.ssc`, so it is likely shared rather than F's.
+
+None fixed here on purpose: this claim was curried defs and varargs, all three are independent of it,
+and two of them are not even on F's side. Recorded so that the next person does not re-derive the
+bisection — the section-level split above is the expensive part, and it is done.
+
 ## f-drops-a-trailing-block-argument-without-running-it
 
 <!-- status: open
@@ -98,14 +143,29 @@ before by a targeted gate passing while a shared renderer broke ~28 checks elsew
 
 ## f-multi-parameter-clause-def-is-not-lowered
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
      ssc-version: d7546f299
      confirmed: yes
-     gate: none -->
+     fixed-in: 241d67402
+     gate: tests/e2e/f-curried-def-gate.sh -->
+
+**FIXED in `241d67402`,** and the fix turned out to be two constructs rather than one: the curried
+clauses AND varargs, which the four measured forms below had confounded. Varargs were missing
+ENTIRELY — `def f(xs: String*)` called `f("a")` answered `<closure>` with no currying involved.
+Defaults across clauses, named arguments, an omitted first clause (`vstack()(children)`, which
+`examples/frontend/ios-hello` writes) and a partially-supplied one are all in the gate.
+
+The owner's decision on the policy question this entry ends with, 2026-08-08: **F must be able to
+lower every construct that is needed** — so the alternative of teaching F to refuse what it cannot
+lower was not taken, and is not the plan of record.
+
+`examples/frontend/std-ui/smoke-test.ssc` still does not print `smoke:ok`: it now clears four of its
+seven widget sections under F and stops on three unrelated pre-existing gaps, recorded separately in
+`f-std-ui-gaps-behind-the-curried-def-fix`.
 
 Front F does not lower a `def` with two parameter clauses. **Pre-existing** — measured identical on
 the pre-fix binary — but newly REACHABLE, and that is why it is filed now: it used to be masked by
