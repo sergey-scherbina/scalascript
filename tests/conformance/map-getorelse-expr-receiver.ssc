@@ -2,7 +2,6 @@
 name: map-getorelse-expr-receiver
 description: "Map.getOrElse(k, default) works on any receiver, not only a bare variable"
 backends: [int, js, jvm, v2]
-known-red: "v2 — fixed on the LEGACY front, and F is the DEFAULT one. 560ce09e9 says 'legacy front' in its own subject; this lane still dies with `ssc: arity: 2 expected, 3 given`, a different symptom from the original Option-helper fall-through. v2/BUGS.md `v2-getorelse-two-arg-falls-into-option-helper`, REOPENED 2026-08-01. The repo already names this shape — `generic-ctor-and-array-alloc` says of these two fronts that fixing one is a half-fix. EXPIRES by itself: when v2 starts passing the suite FAILS until this line is deleted."
 ---
 
 # `getOrElse(k, default)` on a receiver that is not a bare variable
