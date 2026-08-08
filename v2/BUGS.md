@@ -10,6 +10,66 @@ Newest first.
 
 
 
+## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-08
+     ssc-version: bin/ssc-tools built from 7eecad50a
+     repro: none
+     impact: workaround -->
+
+Routed from `INBOX.md` on 2026-08-08. Everything below is the reporter's, in their words.
+
+`ProcessOptions(None, Map(), None)` — the three-argument form used by our live meeting server —
+emits Rust that does not compile:
+
+    error[E0063]: missing field `inheritEnv` in initializer of `ProcessOptions`
+
+`ProcessOptions` declares `inheritEnv: Boolean = true`, and `RustCapabilities` lists
+`Feature.DefaultParameters` with the comment "parsed but not yet used by the backend". The emitted
+struct literal simply omits the defaulted field.
+
+Passing all four arguments explicitly works. Found together with the import finding above, on
+`ssc-tools emit-rust` built from 7eecad50a (v1/runtime/backend/rust and v1/runtime/std unchanged
+since, so it reflects current code).
+
+**REPRODUCED end to end while triaging, from a minimal case I wrote — the report carried no repro.**
+
+```scalascript
+case class Opt(a: String, b: Int, c: Boolean = true)
+def main(): Unit =
+  val o = Opt("x", 1)
+  println(o.c)
+```
+
+`ssc-tools emit-rust` declares all three fields and then initialises two:
+
+```rust
+pub struct Opt { pub a: String, pub b: i64, pub c: bool }
+let o = Opt { a: "x".to_string(), b: 1i64 };
+```
+
+and `cargo build` on the emitted crate says `error[E0063]: missing field 'c' in initializer of 'Opt'` —
+the reporter's error, on a three-field case class rather than their four-field `ProcessOptions`, so
+the defect is the defaulted field itself and not anything about `ProcessOptions`.
+
+**It RUNS.** `bin/ssc run` on the same file prints `true`. So this is a lane divergence, not an
+unimplemented language feature: the default is applied everywhere except in the Rust struct literal,
+which is why it surfaces as a Rust compile error in a program that works.
+
+`RustCapabilities` lists `Feature.DefaultParameters` as "parsed but not yet used by the backend",
+which the reporter found and which matches: the value exists by the time the literal is emitted and
+is simply not written.
+
+Triaged on a toolchain built from **7eecad50a — the exact SHA the report names**, confirmed by the
+binary's own staleness banner rather than assumed.
+
 ## v2-local-parameterless-def-not-invoked — `<closure>`, exit 0, for every line
 
 <!-- status: fixed

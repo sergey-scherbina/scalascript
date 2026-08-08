@@ -57,13 +57,46 @@ than one that is missing.
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
 ## build-rust-std-imports-unlowerable — Importing std/http.ssc or std/fs.ssc makes a program unlowerable for the Rust backend (19 and 1 errors, all ::/Cons/Nil) while the SAME functions used unimported lower and run fine — so our live .ssc server is blocked by two import lines
-<!-- triage: new
+<!-- triage: needs-info
+     waiting-on: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-08
      ssc-version: bin/ssc-tools built from 7eecad50a
      repro: none
      kind: bug
      impact: blocks -->
+
+**TRIAGE 2026-08-08 — it does not reproduce here, on YOUR toolchain, and that is why this is a
+question rather than a routing decision.**
+
+I ran `ssc-tools emit-rust` from a binary whose own staleness banner says it was built from
+**7eecad50a**, the exact SHA this report names — checked, not assumed. Nothing under
+`v1/runtime/backend/rust` or `v1/runtime/std` has changed between that commit and now, so the code
+under test is materially yours.
+
+| what I ran | your number | mine |
+| --- | ---: | ---: |
+| `[route, serve](std/http.ssc)`, import only | 19 | **0** |
+| `[route, serve](std/http.ssc)`, and the functions CALLED in `main` | — | **0** |
+| `[readFile](std/fs.ssc)`, import only | 1 | **0** |
+| `[readFile](std/fs.ssc)`, and `readFile` called | — | **0** |
+
+The second and fourth rows are there because my first probe imported without USING, which a
+tree-shaking emitter can drop — a probe that does not reach its subject measures nothing. Using them
+changed nothing: still no `[error]` lines, and the emitted `ssc_program.rs` contains the function.
+
+**What would settle it, and it is one command on your side.** Run `bin/ssc run` on any file with your
+toolchain: if it prints a `STALE BUILD` banner naming a different SHA, the binary is older than the
+tree it sits in and the 19 came from code neither of us is looking at. That trap cost me a full build
+cycle today, so this is asked in earnest and not as a deflection.
+
+**Two things in the report are being acted on regardless, because they do not depend on this.**
+The second finding, `ProcessOptions(None, Map(), None)`, IS reproduced and is routed to `v2/BUGS.md`
+as `build-rust-default-params-not-applied`. And the correction you make against `d21cb5b44` — that
+`emit-rust` DOES print diagnostics where `build-rust` does not — is exactly the axis of the open
+entry `build-rust-drops-defs-it-cannot-lower-without-saying-so` (tests/BUGS.md), which someone is
+working now; the two commands differing in whether a refusal survives to the user is worth more than
+the count, and it is recorded there.
 
 Measured while porting rozum's control server to .ssc. One import at a time, each in an otherwise
 empty program, emitted with `ssc-tools emit-rust`:
@@ -91,27 +124,6 @@ ssc-level diagnostics today: on `ssc-tools emit-rust` there ARE — the 20 above
 `[error] Generic(def … uses unsupported infix operator ::)` lines, naming the def and the cause.
 That correction was measured on `build-rust`. If both are true, the two commands differ in whether
 the refusal survives to the user, which seems worth more than the diagnostics themselves.
-## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
-<!-- triage: new
-     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
-     reported-at: 2026-08-08
-     ssc-version: bin/ssc-tools built from 7eecad50a
-     repro: none
-     kind: bug
-     impact: workaround -->
-
-`ProcessOptions(None, Map(), None)` — the three-argument form used by our live meeting server —
-emits Rust that does not compile:
-
-    error[E0063]: missing field `inheritEnv` in initializer of `ProcessOptions`
-
-`ProcessOptions` declares `inheritEnv: Boolean = true`, and `RustCapabilities` lists
-`Feature.DefaultParameters` with the comment "parsed but not yet used by the backend". The emitted
-struct literal simply omits the defaulted field.
-
-Passing all four arguments explicitly works. Found together with the import finding above, on
-`ssc-tools emit-rust` built from 7eecad50a (v1/runtime/backend/rust and v1/runtime/std unchanged
-since, so it reflects current code).
 <!-- inbox-entries:end -->
 
 ## Closed without routing

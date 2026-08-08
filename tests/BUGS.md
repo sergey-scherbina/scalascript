@@ -385,6 +385,20 @@ refusals are in the Rust walker's own pattern/infix rendering, not in shared low
 **Not reproduced from rozum's own program** — the minimal probe above was built instead. Their
 `build.sh` needs their checkout.
 
+**A second report from the same reporter refines the diagnostics half, 2026-08-08.** rozum measured
+`ssc-tools emit-rust` and found the refusals ARE there — 20 lines of
+`[error] Generic(def … uses unsupported infix operator ::)`, naming the def and the cause — against
+`d21cb5b44`'s finding, measured on `build-rust`, that there are zero ssc-level diagnostics today.
+
+If both hold, **the two commands differ in whether the refusal survives to the user**, which is a
+sharper statement of "the diagnostics are gone" than a count of them: nothing needs to be written,
+only carried. Their own words: *"which seems worth more than the diagnostics themselves."*
+
+Recorded here rather than as a second entry, since it is this defect's first half seen from the other
+command. The rest of that report — the per-import error counts — did NOT reproduce during triage on
+the reporter's own stated SHA and is parked in `INBOX.md` as `needs-info`; the divergence above is
+the part that stands on its own.
+
 ## scaffolded-projects-cannot-load-their-build
 
 <!-- status: fixed

@@ -27,7 +27,8 @@ Newest first.
      lane: v3
      area: build
      kind: apparatus
-     gate: v3/exec-gate.sh v3/front-gate.sh -->
+     gate: v3/exec-gate.sh v3/front-gate.sh
+     fixed-in: 0b791be7b -->
 
 **FIXED 2026-08-08.** Both gates now detect whether the uniml front is registered, refuse to run a
 `.uniml-only` fixture without it, and say so in a line that names the cause and the command that
