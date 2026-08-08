@@ -401,6 +401,26 @@ object Cli:
           // construction and can never distinguish them. A gate that cannot see which of two
           // states it is in is not a gate; this repository has shipped that mistake and written it
           // down. `front-report-gate.sh` reads these two lines.
+          // Which functions can PERFORM — step 1 of SSC3-7b, and observable so the step can be
+          // checked on its own rather than only when CPS lands on top of it.
+          case "performs" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m =
+                if path.endsWith(".ssir") then Text.read(src)
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              val ps = Perform.performing(m)
+              // Printed in MODULE order, not set order: a set's iteration order is not stable across
+              // runs and a gate that diffs this output would flap for no reason.
+              m.funcs.filter(f => ps.contains(f.name)).foreach(f => println(f.name))
+              0
+            catch
+              case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "front" =>
             println("front: " + Front.default)
             println("available: " + Front.available.mkString(" "))

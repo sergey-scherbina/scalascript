@@ -149,6 +149,55 @@ final case class Module(
     entry: Int,
 )
 
+object Perform:
+  /** Functions that can PERFORM an effect — directly, or by calling one that can.
+    *
+    * ONE definition, on the IR, because `Instr.Perform` and `Instr.Call` are unambiguous here while
+    * the AST has two spellings of a call and an op id that is only resolved late. Step 1 of
+    * SSC3-7b (`specs/10-ssc-ir.md` §3, "Capturing a continuation"): a continuation is only needed
+    * where a perform can reach, and converting every function would pay for effects in programs
+    * that have none.
+    *
+    * CONSERVATIVE where it can be, and the two directions are not symmetric:
+    *
+    *   - a `Perform` inside the function's OWN `Handle` still counts. The handler catches it, so in
+    *     principle nothing is needed at the boundary — but deciding that means matching op ids
+    *     against arms through every nested handle, and being wrong loses a continuation silently.
+    *     Over-approximating is slower and right.
+    *   - a call through a VALUE (`CallV`) contributes nothing, because nothing here knows what it
+    *     calls. That is an UNDER-approximation and the one way this set can be wrong; it is the same
+    *     limit the lowering's `gapNames` walk records, for the same reason, and it is named rather
+    *     than left to be discovered.
+    *
+    * Fixed point, not one pass: `a` calls `b` calls `c`, and `c` performing must reach `a` whatever
+    * order the functions appear in.
+    */
+  def performing(m: Module): Set[String] =
+    def scan(body: List[Instr], f: Instr => Unit): Unit =
+      body.foreach { i => f(i); scan(Instr.children(i), f) }
+    def directly(fn: Func): Boolean =
+      var found = false
+      scan(fn.body, { case Instr.Perform(_, _, _) => found = true; case _ => () })
+      found
+    def calls(fn: Func): List[Int] =
+      var out: List[Int] = Nil
+      scan(fn.body, {
+        case Instr.Call(_, f, _)     => out = f :: out
+        case Instr.TailCall(f, _)    => out = f :: out
+        case _                       => ()
+      })
+      out
+    var acc = m.funcs.filter(directly).map(_.name).toSet
+    var changed = true
+    while changed do
+      changed = false
+      m.funcs.foreach { fn =>
+        if !acc.contains(fn.name) && calls(fn).exists(i => i >= 0 && i < m.funcs.length && acc.contains(m.funcs(i).name)) then
+          acc = acc + fn.name
+          changed = true
+      }
+    acc
+
 object Instr:
   /** Does this instruction leave the function or the enclosing region unconditionally?
     *

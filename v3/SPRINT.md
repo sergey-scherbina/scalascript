@@ -265,6 +265,20 @@ one symptom bucket turned out to be a different construct than the obvious readi
       the arm resumes once as its last act, so it becomes an optimisation rather than the only thing
       that works — and the structural refusal it carries stays honest until CPS lands.
 
+      **Step 1 DONE 2026-08-08.** `Perform.performing(m: Module)` computes the transitively-performing
+      set, and `ssc3 performs <file>` prints it so the step is checkable on its own rather than only
+      when CPS lands on top of it. `effect-oneshot` gives `loop` (performs directly) and `workload`
+      (reaches it through a call); a program with no effects gives nothing.
+
+      ONE definition, on the IR — `Instr.Perform` and `Instr.Call` are unambiguous there, while the
+      AST has two spellings of a call and an op id resolved late. Two implementations of one notion
+      is the trap this repository keeps paying for.
+
+      Conservative in the direction that costs speed (a `Perform` inside the function's own `handle`
+      still counts, since deciding otherwise means matching op ids through nested handles and being
+      wrong loses a continuation silently) and under-approximating in the one place it cannot help
+      (a call through a VALUE contributes nothing, the same limit the `gapNames` walk records).
+
       *Order of work, each step gateable on its own:* (1) compute the transitively-performing set;
       (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
       (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal

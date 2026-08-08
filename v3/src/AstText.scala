@@ -114,6 +114,14 @@ object AstText:
     case Expr.Call(fn, as, _)  => sx("call", q(fn) :: as.map(expr))
     case Expr.Prim(n, as, _)   => sx("prim", q(n) :: as.map(expr))
     case Expr.Perform(o, as, _) => sx("perform", o.toString :: as.map(expr))
+    // Printed because this text is what `front-diff.sh` compares. A node the printer cannot render
+    // is a node the differential cannot see — and `expr` was NOT exhaustive over these two until
+    // the compiler said so, which means `ssc3 ast` would have thrown on any program with a handler.
+    case Expr.Handle(b, arms, _) =>
+      sx("handle", expr(b) :: arms.map(a =>
+        sx("on", a.op.toString :: sx("params", a.params.map(q)) :: sx("k", List(q(a.k))) ::
+                 List(expr(a.body)))))
+    case Expr.Resume(k, v, _)   => sx("resume", List(q(k), expr(v)))
     case Expr.MethodCall(r, n, as, _) => sx("send", expr(r) :: q(n) :: as.map(expr))
     case Expr.NamedArg(n, v, _)  => sx("named", List(q(n), expr(v)))
     case Expr.Apply(f, as, _)    => sx("apply", expr(f) :: as.map(expr))
