@@ -115,7 +115,16 @@ object Lower:
     case Expr.Resume(_, v, _)     => freeVars(v, bound)
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
-    case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
+    // THE CALLEE IS A NAME TOO. This read `case Expr.Call(_, as, …)` and scanned only the ARGUMENTS,
+    // so a lambda calling a function it captured never recorded it as free — the capture was not
+    // passed, the lowering fell through to the top-level function table, and
+    // `def comp(f, g) = x => f(g(x))` failed with `call to unknown function 'g'` while `def ap(f, x)
+    // = f(x)` worked, because there `f` is a live register rather than a capture.
+    //
+    // Naming it here is safe because BOTH consumers filter: the lambda-lifting site keeps only names
+    // `st0.lookup` resolves, and the other keeps only names that are not top-level. So `println(x)`
+    // contributes nothing, and a function-valued parameter contributes itself.
+    case Expr.Call(fn, as, _)     => (if bound.contains(fn) then Nil else List(fn)) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.MethodCall(r, _, as, _) => freeVars(r, bound) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.Lambda(ps, b, _)    => freeVars(b, bound ++ ps.map(_.name))
     case Expr.Match(sc, arms, _) =>

@@ -1,0 +1,15 @@
+def ap(f: Int => Int, x: Int): Int = f(x)
+
+def mk(g: Int => Int): Int => Int = x => g(x)
+
+def comp(f: Int => Int, g: Int => Int): Int => Int = x => f(g(x))
+
+def dbl(x: Int): Int = x * 2
+
+def viaTopLevel(): Int => Int = x => dbl(x)
+
+def main(): Unit =
+  println(ap(y => y + 1, 41))
+  println(mk(y => y + 1)(41))
+  println(comp(a => a * 2, b => b + 1)(20))
+  println(viaTopLevel()(21))
