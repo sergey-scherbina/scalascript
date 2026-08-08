@@ -23,7 +23,10 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
-SSC3="$ROOT/v3/ssc3"
+# Overridable so this gate can be POINTED AT a deliberately broken front and shown to catch it.
+# A guard that cannot be made to fire is a guard nobody has checked, which is the thing this file
+# spent the day being an example of.
+SSC3="${SSC3:-$ROOT/v3/ssc3}"
 
 fail=0
 ran=0
@@ -45,6 +48,38 @@ nfronts="$(printf '%s\n' "$fronts" | grep -c .)"
 echo "── fronts declared runnable: $(printf '%s' "$fronts" | tr '\n' ' ') ──"
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+
+# EACH FRONT IS PROBED ONCE, BEFORE THE CORPUS, and a front that cannot print stops the gate here.
+#
+# `fronts` lists what is REGISTERED — a fact about the working tree. Whether a front COMPILES is a
+# different fact, and this gate used to discover it once per fixture. On 2026-08-08 the UniML front
+# stopped compiling (a package collision with its own `scalascript`); the run paid for the same
+# failing compile fifty times, was still going at forty minutes, and `timeout` killed it before it
+# printed a verdict. Two people read partial logs of that run and drew opposite conclusions — "red
+# with 36 disagreements" and "green while comparing nothing" — and neither was a reading of a
+# finished run. A gate nobody can read is not a slow gate.
+#
+# Failing here rather than warning: a differential with a front that cannot print is not a
+# comparison, and the one thing it must never do is produce a number anyway.
+# The probe is WRITTEN HERE, not taken from the fixtures. Picking `ls | head -1` was my first
+# version and it is wrong: some fixtures are legitimately refused by one front — `object-nested-class`
+# is declared uniml-only — so a probe that happens to land on one would fail the gate for a
+# construct, not for a broken front. A `println` neither front can refuse separates "this front does
+# not work" from "this front does not have that construct", which is the whole distinction.
+probe="$work/probe.ssc"
+printf '```scalascript\nprintln(1)\n```\n' > "$probe"
+if [ -n "$probe" ]; then
+  for fr in $fronts; do
+    if ! "$SSC3" ast "$probe" "$fr" > "$work/probe.$fr" 2>"$work/probe.$fr.err"; then
+      echo "  FAIL front '$fr' cannot print an Ast at all — it is registered but does not work:"
+      sed 's/^/         /' "$work/probe.$fr.err" | grep -v '^\s*$' | head -3
+      echo "       Every fixture below would refuse for this one reason. Fix the front, or"
+      echo "       unregister it; comparing what is left against itself is not a differential."
+      echo "== v3 SSC3-11 gate: RED (a declared front does not run) =="
+      exit 1
+    fi
+  done
+fi
 
 for f in v3/tests/front/*.ssc; do
   name="$(basename "$f" .ssc)"

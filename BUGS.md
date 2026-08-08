@@ -21,45 +21,51 @@ Newest first.
 
 
 
-## front-diff-passes-while-comparing-nothing — 50 refusals, exit 0
+## front-diff-cannot-finish-when-the-second-front-does-not-compile
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
      kind: apparatus
-     gate: none -->
+     gate: v3/front-diff.sh
+     fixed-in: 31fba8706 -->
 
-**Measured 2026-08-08 on clean `origin/main`:**
+**FIXED 2026-08-08.** Each declared front is probed ONCE, before the corpus, on a `println(1)` the
+gate writes itself; a front that cannot print stops the run immediately and says which one.
+
+**RETRACTED TWICE ON THE WAY THERE, and both retractions are the entry.** I read the same
+unfinished log twice and stated two contradictory things — "11 refusals, RED" and then "50 refusals,
+exit 0, green while comparing nothing". The run had exit code **124**: `timeout` killed it at forty
+minutes without a verdict. Neither statement was a reading of a finished run, and the second was
+filed here as a defect that did not exist.
+
+**What the finished run says**, and it vindicates the original report I had contradicted:
 
 ```
-$ v3/front-diff.sh ; echo $?
-  refused assign-body — [E008] Not Found Error: …
-  … 50 of these …
-0
+both fronts print: 269; they AGREE on 233, differ on 36
+== v3 SSC3-11 gate: RED ==            (exit 1)
 ```
 
-**Fifty refusals and it exits 0.** Every case is refused because the UniML front does not compile —
-`v3/src/Lexer.scala:67 — value alphabet is not a member of scalascript`, a package collision with
-UniML's own `scalascript` package once its jars are on the classpath — so `ssc3` falls back to v3's
-own front and the differential has one front to compare with itself.
+36 disagreements, every one `actors-*`, exactly as first reported. **The cause is not by-name**:
+v3's own front does not understand `import actors.Overflow` and leaks it into the program as
+`(do (name "import"))` plus `(do (send (name "actors") "Overflow"))`, while UniML handles it. That
+is a separate defect and belongs to v3's parser.
 
-**This is not a surprise to the gate; it is written in its own header:** *"WHAT THIS GATE IS TODAY,
-said plainly: there is ONE front. It therefore compares nothing."* That was honest when only one
-front existed. It is now a gate that passes in the one state it was built to detect — the second
-front being unusable — and a green tick is exactly the wrong signal for it.
+**The real apparatus defect was the RUNTIME.** When the second front does not compile — as it did
+not for a while today — the gate re-attempted the same failing compile once per fixture and was
+still going at forty minutes. Forty minutes without a verdict is not a slow gate; it is a gate
+nobody reads, and two people read it partially and drew opposite conclusions.
 
-**Why this is worse than red.** A red gate gets looked at. This one reports success while the
-comparison it exists to perform did not happen, which is the shape this repository has paid for
-twice already this week: `@scalascript/control-direct`, 496 lines of tests nothing invoked, and the
-v3 gates themselves, run only by hand until 2026-08-08.
+**Proved in both directions**, since a guard that cannot be made to fire is one nobody has checked:
+`SSC3` is now overridable, and pointing the gate at a shim whose `uniml` front always fails gives
+`FAIL front 'uniml' cannot print an Ast at all`; a healthy tree passes the probe untouched. The
+probe writes its own `println(1)` rather than borrowing a fixture — my first version took
+`ls | head -1`, and some fixtures are legitimately refused by one front (`object-nested-class` is
+declared uniml-only), so it would have failed the gate for a CONSTRUCT rather than a broken front.
 
-**Smallest useful fix:** refuse to pass when a case is REFUSED rather than compared. A refusal is a
-measurement that did not happen, not a case that agreed. If the second front is legitimately absent
-the gate should say so and exit non-zero on CI, the way `front-capability-gate.sh` does — it cannot
-run either, and it says which fronts it found and stops.
-
-Related: the compile failure itself arrived in `2705c32a7` (`refactor(alphabet)`); that is a separate
-defect and belongs to whoever owns it. This entry is about the gate not noticing.
+**Lesson, since it cost two wrong statements:** an exit code read from a wrapper ending in `echo` is
+the echo's, and a log with no verdict line is a log of a run that did not finish. Neither is evidence
+about a gate.
 
 ## v3-uniml-front-drops-by-name — one language, two evaluation orders, decided by the working tree
 
