@@ -1,0 +1,11 @@
+slug: launcher-gate-skip-when-never-installed
+branch: feature/launcher-gate-skip-when-never-installed
+agent: claude-code
+started: 2026-08-08T17:11:58Z
+heartbeat: 2026-08-08T17:11:58Z
+status: claimed-before-planning
+items: launchers-not-dead-red-in-every-fresh-worktree
+paths: file:tests/e2e/launchers-are-not-dead-on-arrival.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
