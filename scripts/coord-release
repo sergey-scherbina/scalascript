@@ -160,7 +160,12 @@ if git push -q origin main; then
   for _f in $(git ls-files '*/SPRINT.md' 2>/dev/null); do
     [ -f "$_f" ] || continue
     for _needle in "$slug" $claim_items; do
-      _line="$(grep -n '^- \[~\]' "$_f" 2>/dev/null | grep -F "$_needle" | head -1 | cut -d: -f1)"
+      # `|| true`: with `pipefail` (set at the top), a `grep` that matches NOTHING makes the whole
+      # pipeline non-zero, and under `set -e` the assignment then kills the script — which is exactly
+      # what shipped: the release committed and pushed, printed its first line, and died before the
+      # message this block exists to print. It went unnoticed because the run was piped through
+      # `tail`, which masks the exit code. No match is the ORDINARY case here, not an error.
+      _line="$(grep -n '^- \[~\]' "$_f" 2>/dev/null | grep -F "$_needle" | head -1 | cut -d: -f1 || true)"
       if [ -n "$_line" ]; then sprint_hit="$_f:$_line"; break; fi
     done
     [ -n "$sprint_hit" ] && break
