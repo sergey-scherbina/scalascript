@@ -218,29 +218,40 @@ def f(x: Any): Any =
 def afterIt(x: Int): Int = x * 2
 def main() = println(afterIt(21))'
 
-# THE CASE THAT NAMES THE REMAINING GAP. Using the binder is not supported yet — binding it to the
-# scrutinee slot regressed the native session path — but the failure is now HONEST: F declines on
-# the binder's own name in the file that has it, instead of dropping every declaration below and
-# reporting an innocent one three import levels away. Asserted so the day it starts lowering, this
-# case fails and gets updated rather than the gap going unnoticed.
-printf '%s\n' 'case class Ok(v: Int, n: Int)
+# The binder is USED in the body. This case asserted an honest DECLINE while only the parse half had
+# landed; the binding half makes it lower, and the case was updated rather than deleted — which is
+# the whole point of having written it that way.
+lowered_and_correct binding-arm-used 42 'case class Ok(v: Int, n: Int)
 def f(x: Any): Any =
   x match {
     case Ok(v, n) => v
     case error => error
   }
 def afterIt(x: Int): Int = x * 2
-def main() = println(afterIt(21))' > "$sandbox/binder-used.ssc"
-bu=$(SSC_FRONT_STRICT=1 timeout 200 "$ssc" run "$sandbox/binder-used.ssc" 2>&1)
-if grep -qF '(global error)' <<<"$bu"; then
-  echo "  ✓ binding-arm-used: declines on its OWN name, not on a later declaration"
-elif grep -qF '(global afterIt)' <<<"$bu"; then
-  echo "  ✗ binding-arm-used: reports 'afterIt' — the parser is desynchronising again"
-  fails=$((fails + 1))
-else
-  echo "  ✗ binding-arm-used: expected a decline naming 'error', got: $(head -1 <<<"$bu")"
-  fails=$((fails + 1))
-fi
+def main() = println(afterIt(21))'
+
+# The binder must carry the SCRUTINEE, not some other local. Without this the arm could bind the
+# wrong slot and every case above would still pass.
+lowered_and_correct binding-arm-value 7 'case class Ok(v: Int, n: Int)
+def f(x: Any): Any =
+  x match {
+    case Ok(v, n) => v
+    case error => error
+  }
+def main() = println(f(7))'
+
+# `getOrElse` is two shapes under one name — the Option form takes one argument, a Map takes two.
+# Routing both to the `lam 2` helper made the FIELD form arrive with three: `arity: 2 expected,
+# 3 given`. A map VARIABLE took an earlier branch, which is why only the field form failed.
+lowered_and_correct getOrElse-on-a-field 1 'case class Req(session: Map[String, String])
+def main() =
+  val r = Req(Map("a" -> "1"))
+  println(r.session.getOrElse("a", "?"))'
+
+lowered_and_correct getOrElse-option-form 5 'def main() =
+  val o = Some(5)
+  println(o.getOrElse(0))'
+
 
 echo
 if [[ $fails -eq 0 ]]; then

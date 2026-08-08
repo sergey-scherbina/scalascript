@@ -10,13 +10,36 @@ Newest first.
 
 
 
-## native-getOrElse-on-a-case-class-field-passes-the-receiver — `arity: 2 expected, 3 given`
+## f-getOrElse-on-a-case-class-field-passes-the-receiver — `arity: 2 expected, 3 given`
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: -
-     gate: - -->
+     fixed-in: PLACEHOLDER
+     gate: tests/e2e/f-bare-member-call-gate.sh -->
+
+**FIXED, and MY LANE COMPARISON ABOVE WAS WRONG — corrected here rather than left standing.** I
+reported "BOTH native fronts fail", having forced the reference front with `SSC_FRONT=default`.
+That is not a recognised value: the switch is `SSC_FRONT=legacy`, and anything else leaves F on
+(`frontIsF = !SSC_FRONT.equalsIgnoreCase("legacy")`). Re-measured:
+
+    F                    arity: 2 expected, 3 given
+    SSC_FRONT=legacy     1
+    SSC_FRONT=default    arity error — because it is still F
+
+So it is an F gap, not a native-lane defect, and the entry title changed with it. This is the second
+time in two days a flag VALUE fooled me (`SSC_FASTTIER=0` where only `off` disables), and both times
+the tell was the same: read the site that consumes the variable before believing a negative.
+
+The fix is the split `mkString` already had beside it and the reference lowerer already applied —
+one argument goes to the `lam 2` Option helper, anything else to `__method__`. ssc1-lower :1646-1656
+documents this exact bug and was fixed there long ago; F never was.
+
+It was also the blocker on the BINDING half of `f-declines-every-non-top-level-def`, which is now
+landed with it: seven files move GAP -> F on the 140-file sample (F 31 -> 38, GAP 39 -> 32), where
+the parse half alone had moved zero.
+
+
 
 Four lines, and the split is one intermediate `val`:
 
