@@ -302,6 +302,48 @@ one symptom bucket turned out to be a different construct than the obvious readi
       because the selftest checks that `fmt` of the file equals the file, not that it equals
       `ssc3 sample`; replacing it wholesale would have swept in unrelated drift.
 
+- [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
+      same message, different keyword. Separate from 7a because multi-shot resumption is a different
+      executor obligation, and closing 7a must not silently claim this.
+- [x] **SSC3-7c — `!` effect types in a signature.** DONE 2026-08-08. `skipType` continues past `!`
+      exactly as it already did past `=>`, with the same safety argument: every caller is a
+      DECLARATION position, never expression position, so consuming a `!` cannot eat a prefix
+      negation. Without it the type ended at `Int`, `! Logger` was read as an expression, and the
+      file failed pointing at the `=` that follows — a diagnostic about a `def`'s BODY whose real
+      problem was its return type.
+
+- [ ] **SSC3-7d — `given name: T with`.** `typeclass-fold.ssc:15:13` (`given intSum: Monoid[Int] with`)
+      and `typeclass-monoid.ssc:10:16` (`given intMonoid: IntMonoid with`) →
+      `expected an expression, found :`. Tier 2 in `specs/20-core-language.md §2`; queued here with
+      the measurement rather than left implicit in that deferral.
+- [x] **SSC3-7e — a block argument, `f { … }`.** DONE 2026-08-08. `.map { x => … }` had worked; the
+      same form on a bare name (`runLogger { … }`) or after an argument list (`handle(e) { … }`) had
+      not. SAME LINE only — the `(` case's lesson, not decoration, since a block body ends by
+      consuming its DEDENT. A bare name builds a `Call`, not an `Apply`: `f(x)` already produces
+      `Call` and the lowering resolves the function there, so `Apply(Name("take"), …)` arrived as an
+      unbound NAME and said `unknown name 'take'` for a function defined three lines up.
+
+      **It does not finish the two rows it came from.** `f { … }` passes the block as an ORDINARY,
+      EAGERLY EVALUATED argument, because v3 has no by-name parameters — measured:
+      `def once(x: => Int)` fails with `expected a name, found =>`. So `runLogger { body }` evaluates
+      `body` BEFORE the handler is installed and a perform inside finds no handler. See SSC3-7s.
+
+- [ ] **SSC3-7s — by-name parameters, `def f(x: => A)`.** Measured 2026-08-08:
+      `expected a name, found =>`. NOT on the "not in the language at all" list in
+      `20-core-language.md`, unlike `lazy val` and varargs, so this is a gap rather than a decision.
+      It is what an effect RUNNER needs: with eager arguments a handler cannot be installed before
+      the body it handles runs.
+
+- [x] **SSC3-7f — `Either` / `Right` / `Left`.** DONE, in two halves by two agents. `f1a82c9b8`
+      (a sibling) put `Right`/`Left` in the constructor table, which made them CONSTRUCTIBLE; nothing
+      could then be done with the value, so `either-chain` advanced one step and stopped at
+      `method 'map' on #6(3) is not implemented`. The executor half — `map`, `flatMap`, `fold`,
+      `isRight`/`isLeft`, `getOrElse` — is right-biased as Scala is, and `flatMap` returns the
+      function's result AS IS rather than re-wrapping it, which in an untyped executor would
+      silently build `Right(Right(x))`. Verified by DIFFERENTIAL: `663` on v3's executor, on the v2
+      bridge and on the v1 interpreter. `type-lambda-placeholder`, the second file this task named,
+      now stops at `unknown name 'type'` — a type alias, filed as SSC3-7q.
+
 - [x] **SSC3-7q — `type` aliases.** DONE. Consumed and DISCARDED, which is the whole of it: types
       are erased at Tier 0, which is why `skipType` exists and why `asInstanceOf` is the identity in
       the executor. An alias names a type; with no types at run time it names nothing, and every USE
