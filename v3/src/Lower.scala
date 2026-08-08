@@ -110,6 +110,9 @@ object Lower:
     case Expr.Apply(f, as, _)     => freeVars(f, bound) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.Prim(_, as, _)      => as.flatMap(a => freeVars(a, bound))
     case Expr.Perform(_, as, _)   => as.flatMap(a => freeVars(a, bound))
+    case Expr.Handle(b, arms, _)  =>
+      freeVars(b, bound) ++ arms.flatMap(a => freeVars(a.body, bound ++ a.params ++ List(a.k)))
+    case Expr.Resume(_, v, _)     => freeVars(v, bound)
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
@@ -676,6 +679,43 @@ object Lower:
     // hands the name to v2, which has its whole plugin fleet. Two lanes, two honest answers.
     // A performed operation. The op id was resolved by the rewrite in `programOf`; here it is an
     // ordinary instruction whose arguments are lowered like anyone else's.
+    // `handle(body) { … }`. The body is lowered INSIDE the Handle block — that is what makes the
+    // handler installed before it runs, and it is why `handle` cannot be an ordinary function: an
+    // ordinary call evaluates its argument first, and a perform in there would find no handler.
+    //
+    // Each arm's `params` and `k` get registers of THIS function's frame, which is what
+    // `specs/10-ssc-ir.md` §3 specifies, and they are bound by name for the arm's body only.
+    case Expr.Handle(bodyE, arms, _) =>
+      val (d, stD) = st0.fresh
+      var st = stD
+      var loweredArms: List[HandlerArm] = Nil
+      arms.foreach { a =>
+        var paramRegs: List[Int] = Nil
+        var armSt = st
+        a.params.foreach { pn =>
+          val (r, s2) = armSt.fresh
+          paramRegs = paramRegs :+ r
+          armSt = s2.bind(pn, r)
+        }
+        val (kr, s3) = armSt.fresh
+        armSt = s3.bind(a.k, kr)
+        val (ab, ar, s4) = lower(a.body, fns, classes, zeroArity, armSt)
+        // The arm's value IS the resume: the executor reads what `Resume` produced, and the arm
+        // must END in one for the tail-resumptive check to accept it.
+        loweredArms = loweredArms :+ HandlerArm(a.op, paramRegs, kr, ab)
+        st = s4
+      }
+      val (bi, br, stB) = lower(bodyE, fns, classes, zeroArity, st)
+      (List(Instr.Handle(d, bi :+ Instr.Move(d, br), loweredArms)), d, stB)
+
+    case Expr.Resume(k, vE, p) =>
+      val (vi, vr, st1) = lower(vE, fns, classes, zeroArity, st0)
+      st1.lookup(k) match
+        case None => throw LowerFail(p, "`" + k + "` is not a continuation in scope")
+        case Some(kr) =>
+          val (d, st2) = st1.fresh
+          (vi :+ Instr.Resume(d, kr, vr), d, st2)
+
     case Expr.Perform(op, argEs, _) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -1001,6 +1041,8 @@ object Lower:
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
+      case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
+      case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)
       case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
       case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
       case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
@@ -1453,6 +1495,8 @@ object Lower:
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
+      case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
+      case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)
       case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
       case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
       case Expr.Not(x, p)               => Expr.Not(go(x), p)
@@ -1803,6 +1847,53 @@ object Lower:
           Expr.Perform(effectOps(obj + "." + nm), as, xp)
         case other => other))
     val allDefsE = allDefs.map(resolvePerforms)
+    // `handle(body) { case E.op(a…, k) => … }` as the parser leaves it:
+    //   Apply(Call("handle", [body]), [Lambda(_, Match(_, arms))])
+    // because a braced block of `case` arms is parsed as a one-argument lambda that matches on it.
+    //
+    // The op is resolved BY OPERATION NAME, not by `E.op`: the pattern parser deliberately drops a
+    // qualifier, since `C.Red` and `Red` name the same constructor once an enum is split into one
+    // class per case. Rather than fight that, ambiguity is REFUSED — two effects declaring the same
+    // operation name is a program this front cannot read, and saying so is better than picking one.
+    val opsByPlainName: Map[String, List[Int]] =
+      p.effects.flatMap(e => e.methods.map(mm => (mm.name, effectOps(e.name + "." + mm.name))))
+       .groupBy(_._1).map((k, v) => (k, v.map(_._2)))
+    def resolveHandles(d: Def): Def =
+      if effectOps.isEmpty then d
+      else d.copy(body = mapDeep(d.body, x => x match
+        case Expr.Apply(Expr.Call("handle", List(hb), _), List(Expr.Lambda(_, Expr.Match(_, arms, _), _)), hp) =>
+          val hs = arms.map { arm =>
+            arm.pat match
+              case Pat.PCtor(nm, binders, pp) =>
+                opsByPlainName.get(nm) match
+                  case None => throw LowerFail(pp, "'" + nm + "' is not a declared effect operation")
+                  case Some(ids) if ids.length > 1 =>
+                    throw LowerFail(pp,
+                      "'" + nm + "' is declared by more than one effect; this front resolves a " +
+                      "handler arm by the operation name alone and cannot tell them apart")
+                  case Some(ids) =>
+                    val names = binders.map {
+                      case Pat.PBind(bn, _) => bn
+                      case other           => throw LowerFail(Pat.posOf(other),
+                        "a handler arm binds plain names only — the last is the continuation")
+                    }
+                    if names.isEmpty then
+                      throw LowerFail(pp, "a handler arm needs a continuation binder, as in `case " +
+                                          nm + "(resume) => resume(v)`")
+                    // The LAST binder is the continuation; the ones before it are the operation's
+                    // arguments. That order is the one the corpus writes and the one Scala's effect
+                    // proposals use, and it is stated here because nothing else can state it.
+                    val k = names.last
+                    HandleArm(ids.head, names.init, k,
+                              mapDeep(arm.body, y => y match
+                                case Expr.Call(cn, List(cv), cp) if cn == k => Expr.Resume(k, cv, cp)
+                                case other2 => other2), pp)
+              case other => throw LowerFail(Pat.posOf(other),
+                "a handler arm must match an effect operation, as in `case tick(resume) => …`")
+          }
+          Expr.Handle(hb, hs, hp)
+        case other => other))
+    val allDefsH = allDefsE.map(resolveHandles)
       .map { d =>
         val e0 = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)
         // Boxing runs LAST, on the tree every other pass has finished with: `expandPlaceholders`
@@ -1828,7 +1919,7 @@ object Lower:
     // at run time exactly as it did before; nothing gets worse, some things get better.
     val gapNames = p.defs.filter(isAbstract).map(d => d.name)
     if gapNames.nonEmpty then
-      val byName = allDefsE.map(d => (d.name, d)).toMap
+      val byName = allDefsH.map(d => (d.name, d)).toMap
       def callees(e: Expr): List[String] =
         var out: List[String] = Nil
         mapDeep(e, x => { x match { case Expr.Call(fn, _, _) => out = fn :: out; case _ => () }; x })
@@ -1856,8 +1947,8 @@ object Lower:
         }
       }
 
-    val zeroArityNames = allDefsE.filter(d => d.params.isEmpty).map(d => d.name)
-    val names = allDefsE.map(d => d.name)
+    val zeroArityNames = allDefsH.filter(d => d.params.isEmpty).map(d => d.name)
+    val names = allDefsH.map(d => d.name)
     val entry = names.indexOf(entryName)
 
     var consts: List[Lit] = Nil
@@ -1883,7 +1974,7 @@ object Lower:
       case _                    => Nil
     } ++ objectGlobals).distinct
     var funcs: List[Func] = Nil
-    allDefsE.foreach { d =>
+    allDefsH.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
       val (body, r, st) = lower(d.body, names, resolved ++ tupleClasses, zeroArityNames, st0)

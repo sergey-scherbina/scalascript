@@ -220,129 +220,29 @@ one symptom bucket turned out to be a different construct than the obvious readi
 > Left below verbatim rather than rewritten — the measurements they carry were true when taken, and
 > what changed is the front underneath them.
 
-- [ ] **SSC3-7a — `effect X:` declarations.** `effect-oneshot.ssc:18:12` — `effect Bump:` →
-      `expected an expression, found :`.
+- [x] **SSC3-7a — `effect X:` declarations.** DONE 2026-08-08, end to end. `effect-oneshot` runs and
+      agrees with the v1 interpreter on the value: **881 on both**. Corpus 29 -> 30.
 
-      **CORRECTION, measured 2026-08-07.** This entry said "the IR already reserves
-      `Perform`/`Handle`/`Resume`, so this is a front gap, not a representation gap". Half true, and
-      the wrong half is the expensive one. The representation exists and is verified; the EXECUTOR
-      does not run it:
+      The chain: `effect Bump:` parses with `parseTrait` (a name, a `:`, body-less `def`s — the same
+      shape), op ids are assigned in `Lower.programOf`, `Bump.tick()` becomes `Instr.Perform`, and
+      `handle(body) { case tick(resume) => resume(7) }` becomes `Instr.Handle` with the arm's binders
+      as `params` and its LAST binder as `k`, per the protocol decided in `10-ssc-ir.md` §3.
 
-          $ v3/ssc3 exec <a module containing one `perform`>
-          effects are not implemented in the executor yet
+      **The body is lowered INSIDE the Handle block**, which is what installs the handler before it
+      runs. That is also why `handle` cannot be an ordinary function: an ordinary call evaluates its
+      argument first, and a perform in there would find no handler.
 
-      `BridgeV2` contains zero references to any of the three. So the effect rows need a front AND
-      an executor, and the executor part is not small: `exec(m, body, regs)` walks a list with host
-      recursion and returns a `Signal`, so a general continuation capture means reifying the call
-      stack the spec says is data (`10-ssc-ir.md` §1) and the implementation currently keeps on the
-      host stack.
+      **Three things this front cannot do, refused by name rather than guessed:**
 
-      **The bounded version that fits, and what it gives up.** `case Bump.tick(resume) => resume(1)`
-      is TAIL-RESUMPTIVE: the arm resumes exactly once, with a value, and does nothing afterwards.
-      That class needs no continuation at all — `Perform` finds the nearest handler on a dynamic
-      handler stack, runs the arm, and uses its resumed value as the perform's result, at any nesting
-      depth. Multi-shot (`effect-multishot`) and any arm that resumes zero times or does work after
-      resuming are NOT that class and must be REFUSED BY NAME rather than silently mis-run.
+      - an arm is resolved by the OPERATION NAME alone, because the pattern parser deliberately drops
+        a qualifier (`C.Red` and `Red` are one constructor once an enum is split per case). Two
+        effects declaring the same operation name are REFUSED — picking one would be a wrong answer;
+      - an arm whose binders are not plain names is refused;
+      - an arm with no continuation binder is refused, naming the shape it wants.
 
-      **THE EXECUTOR HALF IS DONE (2026-08-08).** `Handle` pushes its arms and the frame they read;
-      `Perform` walks out to the nearest arm, runs it, and takes the resumed value as its result. No
-      continuation is captured, which is why this fits an executor that keeps its call stack on the
-      host's — for a tail-resumptive arm, "run the arm and use the value" and "capture the rest, hand
-      it over, resume it" are the same computation.
+      The LAST binder is the continuation and the ones before it are the operation's arguments.
+      Nothing else could state that, so the code does.
 
-      Outside that class they are NOT the same, so the shape is checked STRUCTURALLY before the arm
-      runs. A dynamic check cannot tell an arm that resumed and stopped from one that resumed and
-      then did work whose effect is already gone; the refusal has to arrive before anything is
-      observable. All three shapes refuse by name, with fixtures in `v3/tests/effects/`:
-
-          two resumes            -> not tail-resumptive
-          no resume at all       -> not tail-resumptive
-          work after the resume  -> not tail-resumptive
-
-      What remains for 7a/7c is the FRONT: `effect X:`, `Bump.tick()` as a perform, `handle(e) { … }`
-      and the `!` type. The corpus rows stay red until that lands — the executor being ready is not
-      the same fact, and this entry says both.
-
-      **AND THERE IS A BLOCKING DESIGN QUESTION AHEAD OF ALL OF IT, measured 2026-08-07.** The IR
-      reserves the three instructions but does NOT define the protocol between them:
-
-      - `Perform d, opId, args` carries argument registers. `HandlerArm(op, body)` has no parameter
-        list, so **nothing says which registers of the handler's frame those arguments land in.**
-      - `Resume d, k, v` reads `k` as "continuation". **Nothing puts a continuation in a register.**
-
-      `v3/tests/sample.ssir` does not settle it either — it is a coverage module, and its arm is
-      `(on 0 (const 7 1))`, an arbitrary write with no binding. `specs/10-ssc-ir.md` §3 describes the
-      dispatcher in prose ("hands `(opId, args)` plus the captured frame to the nearest enclosing
-      `Handle`") and stops before saying HOW.
-
-      So an implementer has to invent the convention, and inventing it silently is how the IR
-      acquires an unwritten rule that the verifier cannot check and the bridge will disagree with.
-      The two candidate shapes, with what each costs:
-
-      | shape | cost |
-      |---|---|
-      | `HandlerArm(op, params: List[Int], k: Int, body)` — explicit registers | changes the canonical text form, `Verify`, the frozen `sample.ssir`, `TailCalls` shifting, and the spec |
-      | fixed positions — args in `0..n-1`, `k` in `n`, of a fresh arm frame | no IR change, but an unwritten rule the verifier cannot state and a second frame convention alongside `Func`'s |
-
-      **DECIDED 2026-08-08 and written into `specs/10-ssc-ir.md` §3 "The protocol".** An arm is
-      `on op, params, k, body`: explicit registers of the HANDLING FUNCTION'S frame.
-
-      Explicit registers rather than fixed positions, and the reason is the verifier — the same
-      argument the table above priced. Rule 1 checks every register index against the enclosing
-      function's `nregs`; a second frame with its own numbering is an invariant the pass cannot
-      state. Named registers keep the arm inside the one frame the verifier already knows, so
-      `params` and `k` are checked by machinery that was already there. **Proved by making it fail:**
-      `(k 99)` gives `func kitchen #19: continuation r99 is outside the frame (nregs=8)` and
-      `(params 99)` the same for a param. An invariant that cannot go red is not an invariant.
-
-      Blast radius, measured before starting rather than discovered: `Ir`, `Text`, `Verify`,
-      `TailCalls`, `Main`(sample) — five files — plus the spec and the frozen `tests/sample.ssir`.
-      `BridgeV2` has ZERO references to any effect instruction, so it needed nothing; it refuses.
-      The frozen sample was edited MINIMALLY — its arm gains `(params 1)` and `(k 7)`, nothing else —
-      because the selftest checks that `fmt` of the file equals the file, not that it equals
-      `ssc3 sample`; replacing it wholesale would have swept in unrelated drift.
-      **Front progress 2026-08-08, none of it enough to turn a row green — said plainly because
-      three separate parser gaps closed and the corpus number did not move.** A braced match block
-      whose arms are ALSO indented — the ordinary way anyone writes a handler —
-
-          handle(e) {
-            case Op(k) => k(1)
-          }
-
-      failed with `expected 'case', found <indent>`: the lexer emits an INDENT after the `{` and
-      `skipNewlines` does not remove one. Fixed, with its DEDENT taken back at the `}`
-      (`v3/tests/effects/braced-indented-arms.ssc`).
-
-      What 7a still needs, measured rather than estimated: the `effect X:` declaration itself (same
-      shape as a `trait` body, so `parseMembers` covers it), an op-id table, `Bump.tick()` lowering
-      to `Perform`, and the `handle` form lowering to `Handle` with the arm's `resume` binder as its
-      `k`. The executor half and the protocol are already done, so this is front work only.
-
-      **2026-08-08 — the declaration and the PERFORM half work end to end.** `effect Bump:` parses
-      (`parseTrait` — the shape is a name, a `:` and body-less `def`s, identical to a trait), op ids
-      are assigned in `Lower.programOf` where the declarations are in scope, and `Bump.tick()`
-      lowers to `Instr.Perform`. The whole chain is verified by the one thing that proves it
-      reached the executor:
-
-          effect Bump:  def tick(): Int
-          def use(): Int = Bump.tick() + 1
-          use()                       ->  no handler for effect operation 0
-
-      Ids are POSITIONAL within a module — effects in declaration order, operations within each —
-      which is enough because ids are only ever compared inside one module, and is written down
-      because a second front would number them differently.
-
-      **`effect` is NOT a keyword**, and the control is checked: `val effect = 7` still prints 7. The
-      declaration is recognised by two tokens, `effect` followed by a plain name.
-
-      **A defaulted field cost an hour and is worth the warning.** `Program` gained `effects` with a
-      default, and `Loader.merge` rebuilds `Program` by hand — so every merged program silently had
-      NO effect declarations, and the symptom was `unknown name 'Bump'` in the LOWERING, three layers
-      from the cause. `merge` now lists every field explicitly.
-
-      What is left for 7a is the HANDLE form: `handle(e) { case Bump.tick(resume) => resume(1) }` →
-      `Instr.Handle`, with the arm's `resume` binder as its `k` and the pattern's binders as
-      `params`. `effect-oneshot` now stops there rather than at its declaration.
 - [ ] **SSC3-7b — `multi effect X:`.** `effect-multishot.ssc:19:20` — `multi effect NonDet:` →
       same message, different keyword. Separate from 7a because multi-shot resumption is a different
       executor obligation, and closing 7a must not silently claim this.

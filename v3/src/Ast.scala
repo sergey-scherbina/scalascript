@@ -53,6 +53,12 @@ enum Expr:
     * a fifth argument on `lower`, and a list that one consumer forgets to pass is how the front ends
     * up with two notions of the same program. */
   case Perform(op: Int, args: List[Expr], pos: Pos)
+  /** `handle(body) { case E.op(args…, k) => … }`, with op ids resolved and binder NAMES kept —
+    * registers are allocated by the lowering, which is the only place that knows the frame. */
+  case Handle(body: Expr, arms: List[HandleArm], pos: Pos)
+  /** `k(v)` inside a handler arm. A distinct node because `k` is not a function: it names the
+    * continuation register the protocol puts it in (`specs/10-ssc-ir.md` §3). */
+  case Resume(k: String, value: Expr, pos: Pos)
   /** `recv.name` and `recv.name(args)` alike — a getter is a call with no arguments, which is what
     * it is on every lane already. Keeping them one node means the lowering has one case, not two
     * that must agree. */
@@ -130,6 +136,8 @@ enum Stmt:
   * v3 implements by-name as a FRONT transformation, not a runtime feature: the call site wraps the
   * argument in a zero-argument lambda and each use in the body calls it. That is how Scala does it,
   * and it means the IR, the executor and the bridge need to know nothing about it. */
+final case class HandleArm(op: Int, params: List[String], k: String, body: Expr, pos: Pos)
+
 final case class Param(name: String, pos: Pos, default: Option[Expr] = None,
                        byName: Boolean = false)
 /** A `case class` declaration. Only the constructor SHAPE is kept: the field names and their
@@ -181,6 +189,8 @@ object Expr:
     case Call(_, _, p)    => p
     case Prim(_, _, p)    => p
     case Perform(_, _, p)  => p
+    case Handle(_, _, p)   => p
+    case Resume(_, _, p)   => p
     case MethodCall(_, _, _, p) => p
     case If(_, _, _, p)   => p
     case While(_, _, p)   => p

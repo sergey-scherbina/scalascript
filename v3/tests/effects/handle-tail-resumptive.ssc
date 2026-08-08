@@ -1,0 +1,19 @@
+```scalascript
+effect Bump:
+  def tick(): Int
+
+def loop(n: Int): Int =
+  var acc = 0
+  var i = 0
+  while i < n do
+    acc = acc + Bump.tick()
+    i = i + 1
+  acc
+
+def workload(): Int =
+  handle(loop(3)) {
+    case tick(resume) => resume(7)
+  }
+
+println(workload())
+```
