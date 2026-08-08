@@ -2848,13 +2848,13 @@ fresh review and landing.
      lane: multi
      fixed-in: 21ae17ec0
      area: front -->
-**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
-five entries of this cluster were re-measured and all five closed. This one could not be: its
-reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
-review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
-producer from a source string, so there is no harness for that shape, and inventing one inside a
-re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
-the age of the report is not evidence either way.
+**NOT INDEPENDENTLY RE-VERIFIED 2026-08-08.** This entry was already `status: fixed` when five of its
+cluster siblings were re-measured that day; it is recorded here only so a reader knows the difference
+between "measured today" and "marked fixed by whoever fixed it". Its reproduction needs a module whose
+RETAINED AST and RETAINED SOURCE disagree — the original review built that by parsing and then
+MUTATING the module, and `PreBodyApiDescriptorProducerTest` drives the producer from a source string,
+so there is no harness for the shape. Building one inside a re-measurement would have been a different
+piece of work done badly.
 
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"dual carriers distinguish an empty effect from an ordinary object"*, which swaps `effect Empty:` and `object Empty:` between the two carriers in BOTH directions and requires each to be rejected. Landed `21ae17ec0` (2026-07-15).
@@ -2949,13 +2949,13 @@ until fresh independent approval and landing on `origin/main`.
      lane: multi
      fixed-in: d80611194
      area: front -->
-**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
-five entries of this cluster were re-measured and all five closed. This one could not be: its
-reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
-review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
-producer from a source string, so there is no harness for that shape, and inventing one inside a
-re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
-the age of the report is not evidence either way.
+**NOT INDEPENDENTLY RE-VERIFIED 2026-08-08.** This entry was already `status: fixed` when five of its
+cluster siblings were re-measured that day; it is recorded here only so a reader knows the difference
+between "measured today" and "marked fixed by whoever fixed it". Its reproduction needs a module whose
+RETAINED AST and RETAINED SOURCE disagree — the original review built that by parsing and then
+MUTATING the module, and `PreBodyApiDescriptorProducerTest` drives the producer from a source string,
+so there is no harness for the shape. Building one inside a re-measurement would have been a different
+piece of work done badly.
 
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"a documentless packaged module still verifies CodeBlock source against its AST"*, which is this entry's recipe exactly — it removes `document`, rewrites the retained `CodeBlock.source` header, keeps the old tree, and requires `UNSUPPORTED_PUBLIC_DECLARATION`. Landed `d80611194` (2026-07-15).
@@ -2997,13 +2997,19 @@ are green. Status remains `open` until fresh independent approval and landing.
 <!-- status: open
      lane: multi
      area: conformance -->
-**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
-five entries of this cluster were re-measured and all five closed. This one could not be: its
-reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
-review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
-producer from a source string, so there is no harness for that shape, and inventing one inside a
-re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
-the age of the report is not evidence either way.
+**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** Five
+siblings in this cluster were re-measured that day and all five closed; three more were already
+`fixed`. **This is the one that is still `open`**, and it could not be measured: its reproduction
+needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original review built by
+parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the producer from a
+source string, so there is no harness for that shape, and inventing one inside a re-measurement would
+have been a different piece of work done badly. The age of the report is not evidence either way.
+
+⚠ The first version of this note was pasted onto all four un-measured entries and said each "stays
+open and unmeasured". Three of the four were already `status: fixed`, so on those it contradicted
+their own header. Corrected within the hour; the wrong claim is recorded rather than erased because
+it is the same mistake the rest of this cluster's notes are about — asserting a state instead of
+reading it.
 
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
@@ -3085,13 +3091,13 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
      lane: multi
      fixed-in: 52a193593
      area: front -->
-**NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** The other
-five entries of this cluster were re-measured and all five closed. This one could not be: its
-reproduction needs a module whose RETAINED AST and RETAINED SOURCE disagree, which the original
-review built by parsing and then MUTATING the module. `PreBodyApiDescriptorProducerTest` drives the
-producer from a source string, so there is no harness for that shape, and inventing one inside a
-re-measurement would have been a different piece of work done badly. It stays open and unmeasured —
-the age of the report is not evidence either way.
+**NOT INDEPENDENTLY RE-VERIFIED 2026-08-08.** This entry was already `status: fixed` when five of its
+cluster siblings were re-measured that day; it is recorded here only so a reader knows the difference
+between "measured today" and "marked fixed by whoever fixed it". Its reproduction needs a module whose
+RETAINED AST and RETAINED SOURCE disagree — the original review built that by parsing and then
+MUTATING the module, and `PreBodyApiDescriptorProducerTest` drives the producer from a source string,
+so there is no harness for the shape. Building one inside a re-measurement would have been a different
+piece of work done badly.
 
 
 **GATED AND FIXED — and I got this wrong yesterday.** `v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala` contains *"retained declaration source must correspond exactly to its stored section AST"*, which truncates the retained executable source to `effect Real:\n` while preserving the old section AST, and requires rejection. Landed `52a193593` (2026-07-15).
