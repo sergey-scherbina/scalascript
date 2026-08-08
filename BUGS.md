@@ -59,7 +59,7 @@ where a bare name is resolved — and there was more than one such place.
      lane: multi
      area: runtime
      gate: tests/e2e/parameterless-def-import-gate.sh
-     fixed-in: 14190447f -->
+     fixed-in: 7bcfdcadb -->
 
 **FIXED on the interpreter side.** Scala settles which lane was right: `def mk: Box = …` declares a
 *parameterless method*, so every mention invokes it and `mk()` is not how it is called. native, jvm
