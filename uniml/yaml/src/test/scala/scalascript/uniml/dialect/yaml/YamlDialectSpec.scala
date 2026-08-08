@@ -240,6 +240,35 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(mapping.entries(1).value.isInstanceOf[YamlValue.Sequence])
   }
 
+  test("an alias binds to the nearest PRECEDING anchor, not the last one in the document") {
+    // `uniml-yaml-alias-resolution-last-wins`. A duplicate anchor rebinds the name from that point
+    // ON; aliases written before it keep the earlier value. Resolution used to pre-collect every
+    // anchor in the document into a last-wins Map, so BOTH aliases below saw `two`.
+    //
+    // The document is deliberately the smallest thing that can tell the two algorithms apart: with
+    // one anchor definition, or with the duplicate placed after both aliases, source-order and
+    // last-wins agree and the test would pass either way.
+    val text   = "first: &slot one\nbefore: *slot\nsecond: &slot two\nafter: *slot\n"
+    val result = Yaml.project(parse(text), YamlProjectionOptions(aliases = AliasPolicy.Resolve))
+    // The duplicate anchor is a WARNING, not an error — resolution still has to produce a value.
+    assert(!result.diagnostics.exists(_.severity == Severity.Error), result.diagnostics.toString)
+    val mapping = documentValue(result.value.get.asInstanceOf[YamlValue.Stream]).asInstanceOf[YamlValue.Mapping]
+    def scalarAt(i: Int): String = mapping.entries(i).value.asInstanceOf[YamlValue.Scalar].value
+      .asInstanceOf[YamlScalar.StringValue].value
+    assert(scalarAt(1) == "one", s"`before: *slot` resolved to '${scalarAt(1)}', expected 'one'")
+    assert(scalarAt(3) == "two", s"`after: *slot` resolved to '${scalarAt(3)}', expected 'two'")
+
+    // The CONTROL, and it is what separates "source-ordered" from "off by one": a single anchor
+    // still resolves everywhere, so a fix that simply stopped seeing later anchors would fail here.
+    val single = Yaml.project(
+      parse("only: &slot one\nuse: *slot\n"),
+      YamlProjectionOptions(aliases = AliasPolicy.Resolve),
+    )
+    val m2 = documentValue(single.value.get.asInstanceOf[YamlValue.Stream]).asInstanceOf[YamlValue.Mapping]
+    val got = m2.entries(1).value.asInstanceOf[YamlValue.Scalar].value.asInstanceOf[YamlScalar.StringValue]
+    assert(got.value == "one", s"a single anchor must still resolve; got '${got.value}'")
+  }
+
   test("property-only values attach anchors to following nested nodes") {
     val text = "root: &root\n  child: value\nlist:\n  - &item\n    name: demo\n"
     val mapping = documentValue(projected(parse(text))).asInstanceOf[YamlValue.Mapping]

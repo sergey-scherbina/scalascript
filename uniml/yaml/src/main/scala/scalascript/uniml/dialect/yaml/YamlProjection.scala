@@ -74,9 +74,30 @@ object YamlProjection:
     var expansions = 0
     var nodes = 0
     stream.documents.foreach { document =>
-      val anchors = collectAnchors(document.value)
+      // SOURCE-ORDERED, which is what `validate` above already does and this did not. An alias binds
+      // to the nearest PRECEDING anchor: a duplicate `&name` rebinds from its own position onward
+      // and leaves earlier aliases pointing at the earlier value.
+      //
+      // This used to pre-walk the whole document into a last-wins `Map` before cloning anything, so
+      // in
+      //
+      //     first: &slot one
+      //     before: *slot
+      //     second: &slot two
+      //     after: *slot
+      //
+      // BOTH aliases resolved to `two`. The two halves of this file disagreed about the same rule
+      // while `validate` reported the duplicate as a warning and moved on — so the document was
+      // accepted and then resolved with the wrong graph
+      // (`uniml-yaml-alias-resolution-last-wins`).
+      //
+      // Registering at node ENTRY, rather than after the children, is what makes a recursive anchor
+      // (`&a [*a]`) still reachable from inside its own subtree; the `visiting` set is what stops it
+      // looping.
+      var anchors: Map[String, YamlValue] = Map.empty
 
       def cloneValue(value: YamlValue, visiting: Set[String]): Option[YamlValue] =
+        nodeAnchor(value).foreach(name => anchors = anchors + (name -> value))
         nodes += 1
         if nodes > options.maxExpandedNodes then
           diagnostics = diagnostics :+ diagnostic(
@@ -123,17 +144,6 @@ object YamlProjection:
       documents = documents :+ document.copy(value = resolved)
     }
     if diagnostics.nonEmpty then Left(diagnostics) else Right(YamlValue.Stream(documents))
-
-  private def collectAnchors(value: Option[YamlValue]): Map[String, YamlValue] =
-    var result: Map[String, YamlValue] = Map.empty
-    def visit(node: YamlValue): Unit =
-      nodeAnchor(node).foreach(name => result = result + (name -> node))
-      node match
-        case YamlValue.Mapping(entries, _, _) => entries.foreach { entry => visit(entry.key); visit(entry.value) }
-        case YamlValue.Sequence(values, _, _) => values.foreach(visit)
-        case _                                => ()
-    value.foreach(visit)
-    result
 
   private def sequence(values: Vector[Option[YamlValue]]): Option[Vector[YamlValue]] =
     var result: Vector[YamlValue] = Vector.empty
