@@ -183,7 +183,13 @@ object UniFront:
             case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
             case other                => expr(other)
           List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
-        case _ => Nil
+        // NOT `case _ => Nil`. A trait member that is not a `def` used to be DROPPED here, silently,
+        // and that made the two fronts disagree without either saying anything: `trait Named:` with
+        // `val id: String` is refused by name on v3's own front and accepted-minus-the-member on
+        // this one. `20-core-language.md` and the `AbstractVal` case twenty lines below both say
+        // v3's traits carry METHODS, NOT ABSTRACT STATE — so refusing is following the recorded
+        // design, not choosing a new one. (BUGS.md v3-two-fronts-differ-in-CAPABILITY, `absval`.)
+        case other => no("a `trait` member that is not a `def`", other.span)
       }
       Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
 
@@ -220,7 +226,11 @@ object UniFront:
               case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
               case other                => expr(other)
             List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
-          case _ => Nil
+          // Same reasoning as the trait fold above, and this one is MINE: I copied `case _ => Nil`
+          // into the effect projection an hour after the trait version diverged the two fronts. An
+          // effect declares OPERATIONS; anything else in its body is a program neither front should
+          // accept quietly.
+          case other => no("an `effect` member that is not a `def`", other.span)
         }, Nil, pos(s)))
     case U.Extension(_, _, s)      => no("`extension`", s)
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)

@@ -33,12 +33,11 @@ SSC3="v3/ssc3"
 # which is the gate doing its job: it went red saying "no longer diverges; drop it from KNOWN_v3 in
 # this commit", and this is that commit.
 declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
-# `absval`: a trait with `val id: String`. UniML's projection ACCEPTS it and drops the member
-# silently (`case _ => Nil` in the trait-member fold); v3's own front refuses it by name. Declared
-# rather than fixed here because the fix is a decision — refuse it in the projection too, or teach
-# v3's front to carry abstract vals — and this gate's job is to make sure the choice is not made by
-# accident.
-declare -a KNOWN_UNIML_ONLY=(type-lambda-native absval) # uniml accepts, v3 refuses
+# `absval` was here for one commit. The projection accepted a trait's non-`def` member and dropped it
+# SILENTLY; it now refuses, which is not a new decision — `20-core-language.md` and UniFront's own
+# `AbstractVal` case already said v3's traits carry methods, not abstract state. This gate went red
+# the moment that landed, which is the behaviour a declaration list is for.
+declare -a KNOWN_UNIML_ONLY=(type-lambda-native)        # uniml accepts, v3 refuses
 
 available="$($SSC3 front 2>/dev/null | sed -n 's/^available: //p')"
 case "$available" in
