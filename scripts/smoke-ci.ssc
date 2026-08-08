@@ -326,6 +326,11 @@ val suite = List(
   // serialised — rozum had {"cell":{Stub}} in an HTTP body with a 200 and no log line. Both halves
   // are asserted: a missing method is fatal AND names itself, and ordinary values still render.
   Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 60000),
+  // Under a second, and it covers the failure shape that cost a user a binary they could not
+  // rebuild: the Rust backend emitting a crate MISSING an imported def, leaving rustc to blame
+  // their own call site. Both directions -- both import forms must REACH the crate, and what the
+  // backend cannot lower must be a refusal that NAMES the def. Uses emit-rust, so no cargo.
+  Check("tests", "build-rust-refuses-loudly", "tests/e2e/build-rust-refuses-loudly.sh", List(), 60000),
   // Sibling of the check above, and it exists because that one taught the lesson: a gate that
   // asserts on message TEXT has to run BOTH launchers, since only `bin/ssc` wraps errors with
   // `ssc: ` while `bin/ssc-tools` used to hand the user the JVM's own report. Four `run`s, still

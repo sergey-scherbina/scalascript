@@ -2479,6 +2479,12 @@ object RustCodeWalk:
     case b: m.Term.Block =>
       renderBody(b, ctx, isUnit = false).map(inner => s"{ $inner }")
 
+    // `!cond` — Scala's unary `!` is Rust's, spelled the same. Scala 3 parses it as
+    // `Term.ApplyUnary`, which this walker had no arm for, so a plain negation was reported as an
+    // "unsupported expression" alongside the genuinely missing list support.
+    case m.Term.ApplyUnary(m.Term.Name("!"), arg) =>
+      renderTerm(arg, ctx).map(a => s"!($a)")
+
     case other =>
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"
@@ -2499,6 +2505,12 @@ object RustCodeWalk:
             }
           yield (l, rs)
         rendered.flatMap { case (l, rs) =>
+          // `h :: t` — a list is a `Vec<T>` here, so cons builds a new one. The tail is read by
+          // reference and cloned, because the same list is very often used again in the same arm
+          // (`case h :: t => f(t) ++ g(t)`), and consuming it would not compile.
+          if op == "::" && rs.size == 1 then
+            Right(s"{ let mut __cons = vec![$l]; __cons.extend((${rs.head}).iter().cloned()); __cons }")
+          else
           mapInfixOp(op, ctx.defName) match
             case Right(rustOp) if rs.size == 1 => Right(s"($l $rustOp ${rs.head})")
             case Right(_)                      => Left(List(unsupported(
@@ -3314,6 +3326,10 @@ object RustCodeWalk:
     val hasStringPat = cases1.exists(c => c.pat match
       case _: m.Lit.String => true
       case _               => false)
+    // A list pattern lowers to a SLICE pattern, and a slice pattern needs a slice subject. One
+    // `Nil`/cons arm anywhere in the match is enough to make the whole subject a slice — the arms
+    // of one match all see the same scrutinee.
+    val hasListPat = cases1.exists(c => isListPattern(c.pat))
     val caseRendered = cases1.map { c =>
       // A case guard `case p if cond =>` maps onto a Rust match-arm guard.
       // A boxed (recursive) field binds as `Box<T>`; deref-rebind it at the top of
@@ -3324,7 +3340,7 @@ object RustCodeWalk:
       val strRebind = (if hasStringPat then c.pat match
         case m.Pat.Var(m.Term.Name(n)) => s"let $n = $n.to_string(); "
         case _                         => "" else "")
-      val prefix = boxedFieldDerefs(c.pat, ctx) + strRebind
+      val prefix = boxedFieldDerefs(c.pat, ctx) + strRebind + listRebinds(c.pat)
       for
         pat   <- renderPattern(c.pat, ctx)
         guard <- c.cond match
@@ -3337,7 +3353,10 @@ object RustCodeWalk:
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
     subjRendered.flatMap { s0 =>
-      val s = if hasStringPat then s"($s0).as_str()" else s0
+      val s =
+        if hasStringPat    then s"($s0).as_str()"
+        else if hasListPat then s"($s0).as_slice()"
+        else s0
       if errs.nonEmpty then Left(errs.flatten)
       else
         val arms = ok.mkString("\n")
@@ -3400,7 +3419,62 @@ object RustCodeWalk:
   /** Lower a scalameta `Pat` to a Rust pattern.  R.2.3 covers the
    *  shapes the case-class fixture needs: extractor (`Pat.Extract`)
    *  against an enum constructor, var-bind, wildcard, literals. */
+  /** Is this a list pattern — `Nil`, `h :: t`, or `Cons(h, t)`?
+   *
+   * Kept beside `renderPattern`'s list arms on purpose: it decides whether the SUBJECT becomes a
+   * slice, and the two answering differently would emit a slice pattern against a `Vec` (or the
+   * reverse), which rustc rejects at the user's expense. */
+  private def isListPattern(p: m.Pat): Boolean = p match
+    case m.Term.Name("Nil")                                              => true
+    case m.Pat.ExtractInfix.After_4_6_0(_, m.Term.Name("::"), _)         => true
+    case m.Pat.Extract.After_4_6_0(m.Term.Name("Cons"), _)               => true
+    case _                                                               => false
+
+  /** Rebind a slice pattern's binders to the OWNED types the body expects.
+   *
+   * `match v.as_slice() { [h, t @ ..] => … }` binds `h: &T` and `t: &[T]`, while the body was
+   * written against `T` and `List[T]`. Without this the arm compiles only when the body happens to
+   * be reference-clean, which for real code it never is. */
+  private def listRebinds(p: m.Pat): String = p match
+    case m.Pat.ExtractInfix.After_4_6_0(h, m.Term.Name("::"), argClause) =>
+      (h :: argClause.values.toList).zipWithIndex.map {
+        case (m.Pat.Var(m.Term.Name(n)), 0) => s"let $n = $n.clone(); "
+        case (m.Pat.Var(m.Term.Name(n)), _) => s"let $n = $n.to_vec(); "
+        case _                              => ""
+      }.mkString
+    case m.Pat.Extract.After_4_6_0(m.Term.Name("Cons"), argClause) =>
+      argClause.values.toList.zipWithIndex.map {
+        case (m.Pat.Var(m.Term.Name(n)), 0) => s"let $n = $n.clone(); "
+        case (m.Pat.Var(m.Term.Name(n)), _) => s"let $n = $n.to_vec(); "
+        case _                              => ""
+      }.mkString
+    case _ => ""
+
   private def renderPattern(p: m.Pat, ctx: Ctx): Either[List[Diagnostic], String] = p match
+    // ── List patterns ──────────────────────────────────────────────────────
+    // A ScalaScript `List` is a Rust `Vec`, and a Vec has no constructor patterns — so these lower
+    // to SLICE patterns, which is why `renderMatch` switches the subject to `.as_slice()` as soon
+    // as it sees one of them (see `isListPattern` there; the two must stay in step).
+    // `Nil` arrives as a Term.Name, not a Pat, which is what the old diagnostic
+    // "has unsupported pattern: Term.Name (Nil)" was reporting.
+    case m.Term.Name("Nil")                                     => Right("[]")
+    case m.Pat.ExtractInfix.After_4_6_0(h, m.Term.Name("::"), argClause) =>
+      argClause.values match
+        case List(t) =>
+          for hp <- renderPattern(h, ctx); tp <- renderPattern(t, ctx)
+          yield s"[$hp, $tp @ ..]"
+        case _ => Left(List(unsupported(s"def `${ctx.defName}`: `::` pattern takes exactly one tail")))
+    // `case Cons(h, t)` — the same shape spelled as an extractor. Only when `Cons` is not a user
+    // enum constructor: a program that defines its OWN `Cons` means that one, and the ctorMap arm
+    // below is the right handler for it.
+    case m.Pat.Extract.After_4_6_0(m.Term.Name("Cons"), argClause)
+        if !ctx.ctorMap.contains("Cons") =>
+      argClause.values match
+        case List(h, t) =>
+          for hp <- renderPattern(h, ctx); tp <- renderPattern(t, ctx)
+          yield s"[$hp, $tp @ ..]"
+        case other => Left(List(unsupported(
+          s"def `${ctx.defName}`: `Cons` pattern takes a head and a tail, got ${other.size}")))
     case m.Pat.Wildcard()           => Right("_")
     case m.Pat.Var(m.Term.Name(n))  => Right(n)
     case m.Lit.Int(n)               => Right(s"${n}i64")

@@ -1537,9 +1537,18 @@ private def inlineImportsRust(
     seen:    scala.collection.mutable.Set[String]
 ): List[scalascript.ast.Section] =
   import scalascript.ast.{Section, Content}
+  // BOTH forms. A Markdown-LINK import reaches the AST as `Content.Import`; a bare `.ssc` — the
+  // whole file is code, fences optional since 2026-07-09 — keeps the identical line INSIDE the code
+  // block, where `Parser.inlineImports` finds it. Only the first was handled here, so `build-rust`
+  // silently produced a crate without the imported defs and let rustc blame the user's call site
+  // (`tests/BUGS.md build-rust-drops-defs-it-cannot-lower-without-saying-so`). Every other lane
+  // honours both forms; this one was the odd lane out.
   def importPaths(secs: List[Section]): List[String] =
     secs.flatMap(s =>
-      s.content.collect { case i: Content.Import => i.path } ++ importPaths(s.subsections))
+      s.content.collect { case i: Content.Import => i.path } ++
+      s.content.collect { case cb: Content.CodeBlock => cb }.flatMap(cb =>
+        Parser.inlineImports(cb.source).map(_.path)) ++
+      importPaths(s.subsections))
   importPaths(module.sections).flatMap { rawPath =>
     val resolved =
       try Some(scalascript.imports.ImportResolver.resolve(rawPath, baseDir))

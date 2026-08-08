@@ -10,28 +10,11 @@ import scala.meta.*
  */
 private[interpreter] object SectionRuntime:
 
-  private val inlineImportPat =
-    """^\s*// list-import: \[([^\]]+)\]\(([^)]+)\)\s*$""".r
-
+  // The scan this used to keep privately now lives in `Parser.inlineImports`, because a second
+  // consumer appeared and the copies would not have stayed equal: `build-rust` had NO copy, which
+  // is how a bare-file import came to be silently ignored on exactly one lane.
   private def runInlineImports(source: String, interp: Interpreter): Unit =
-    if !source.contains("](") then return
-    import scalascript.parser.Parser
-    val preprocessed = Parser.rewriteInlineImports(source)
-    if !preprocessed.contains("// list-import:") then return
-    val asPattern = """^([A-Za-z_]\w*)\s+as\s+([A-Za-z_]\w*)$""".r
-    preprocessed.linesIterator.foreach { line =>
-      inlineImportPat.findFirstMatchIn(line).foreach { m =>
-        val bindingStr = m.group(1)
-        val path       = m.group(2).trim
-        val bindings = bindingStr.split(",").map(_.trim).filter(_.nonEmpty).map { s =>
-          s.trim match
-            case asPattern(name, alias) => ImportBinding(name, alias = Some(alias))
-            case bare                   => ImportBinding(bare)
-        }.toList
-        if bindings.nonEmpty && path.nonEmpty then
-          runImport(Content.Import(path, bindings), interp)
-      }
-    }
+    scalascript.parser.Parser.inlineImports(source).foreach(runImport(_, interp))
 
   def runModuleSections(module: Module, interp: Interpreter): Unit =
     runSectionList(module.sections, module.document.map(_.sections).getOrElse(Nil), interp)

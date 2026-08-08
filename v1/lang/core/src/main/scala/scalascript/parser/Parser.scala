@@ -145,6 +145,44 @@ object Parser:
 
   def rewriteInlineImports(code: String): String = preprocessInlineImports(code)
 
+  /** The imports written INSIDE a code block, as `Content.Import`.
+   *
+   * `[a, b](std/x.ssc)` reaches the AST as a `Content.Import` only when it is a Markdown LINK —
+   * that is, when the file has prose and fences around it. Fences have been optional since
+   * 2026-07-09, and in a bare `.ssc` the whole file is code, so the identical line stays inside the
+   * code block and there is NO `Content.Import` anywhere in the module. `preprocessInlineImports`
+   * turns it into a `// list-import:` marker; recovering the import from that marker is what every
+   * consumer then has to do.
+   *
+   * It lives here because the alternative is a copy per consumer, and the copies do not stay equal:
+   * `build-rust` had no copy at all, so a bare-file import was silently ignored, the imported defs
+   * never reached the crate, and rustc blamed the user's own call site with
+   * `cannot find function …`. That shipped downstream as a binary that could not be rebuilt.
+   *
+   * The empty list means "no inline imports", which is the common case and is cheap to reach —
+   * `preprocessInlineImports` rejects on a substring test before doing any work. */
+  def inlineImports(code: String): List[Content.Import] =
+    if !code.contains("](") then return Nil
+    val preprocessed = preprocessInlineImports(code)
+    if !preprocessed.contains("// list-import:") then return Nil
+    val asPattern = """^([A-Za-z_]\w*)\s+as\s+([A-Za-z_]\w*)$""".r
+    preprocessed.linesIterator.flatMap { line =>
+      inlineImportMarker.findFirstMatchIn(line).flatMap { m =>
+        val path = m.group(2).trim
+        val bindings = m.group(1).split(",").map(_.trim).filter(_.nonEmpty).map {
+          case asPattern(name, alias) => ImportBinding(name, alias = Some(alias))
+          case bare                   => ImportBinding(bare)
+        }.toList
+        // Annotated: Scala 3 infers the ENUM type for a case constructor, so without this the
+        // result widens to List[Content] and the signature stops carrying what it promises.
+        val imported: Content.Import = Content.Import(path, bindings)
+        if bindings.nonEmpty && path.nonEmpty then Some(imported) else None
+      }
+    }.toList
+
+  private val inlineImportMarker =
+    """^\s*// list-import: \[([^\]]+)\]\(([^)]+)\)\s*$""".r
+
   // A source is "pure Scala" when it has no Markdown headings (# ...) or fences (```).
   // After shebang stripping, this reliably distinguishes plain scripts from .ssc documents.
   private def isPureScala(src: String): Boolean =

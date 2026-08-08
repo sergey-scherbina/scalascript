@@ -330,60 +330,51 @@ refused, and now names it — before the fix the invented `n__cell` masked the r
      reported-at: 2026-08-08
      ssc-version: bde14b2eb
      confirmed: no
-     gate: none -->
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
 
-Routed from `INBOX.md` `build-rust-std-json-cons`. rozum reports that `build-rust` cannot compile
-any program touching `std/json`; downstream a production PWA (`clients/meeting`, serving :8405) has
-a binary from 2026-06-29 that **cannot be rebuilt** — the running artifact is the only copy.
+Routed from `INBOX.md` `build-rust-std-json-cons`. `build-rust` could not compile any program
+touching `std/json`; downstream a production PWA (`clients/meeting`, :8405) has a binary from
+2026-06-29 that **cannot be rebuilt**.
 
-**Reproduced, minimally:**
+**The silent drop is FIXED. The reported program still does not compile, for a different and now
+visible reason.** Three findings, in the order they were reached:
 
-```
-$ cat /tmp/jc2.ssc
-[jsonCoreRenderFields](std/json-core.ssc)
-def main(): Unit = println(jsonCoreRenderFields(List()))
-
-$ ssc-tools build-rust /tmp/jc2.ssc -o /tmp/out
-error[E0425]: cannot find function `jsonCoreRenderFields` in this scope
-```
-
-**Two distinct problems, and the first is not the one reported.**
-
-**1. The diagnostics are gone.** rozum saw three explicit messages naming the cause:
+**1. The cause was not lowering at all — it was the import.** `[names](path.ssc)` reaches the AST as
+a `Content.Import` only when it is a Markdown LINK. Fences have been optional since 2026-07-09, so
+in a bare `.ssc` the whole file is code and that identical line stays INSIDE the code block, where
+`preprocessInlineImports` turns it into a `// list-import:` marker. Every other lane scans for that
+marker; `inlineImportsRust` looked only at `Content.Import`. Measured with a two-line probe that has
+nothing to do with json:
 
 ```
-Generic(def `jsonCoreRenderFields` has unsupported pattern: Term.Name (Nil),Some(rust))
-Generic(def `jsonCoreRenderFields` extracts `Cons` which is not a known enum constructor,Some(rust))
-Generic(def `_normSegments` uses unsupported infix operator `::`,Some(rust))
+lib.ssc:   def twice(n: Int): Int = n * 2
+bare.ssc:  [twice](lib.ssc)
+           def main(): Unit = println(twice(21))
+
+before:  crate contains `pub fn main` only  →  rustc: cannot find function `twice`
+after:   crate contains `pub fn twice` + `pub fn main`  →  binary prints 42
 ```
 
-Today there are **zero** ssc-level diagnostics — the whole log is nine lines of rustc. The function
-is silently omitted from the crate and the user gets a missing-symbol error pointing at their own
-call site. `BuildRustCmd` does print `CompileResult.Failed(diags)`, and `RustCodeWalk` does return
-`Left(allErrs)` when a def fails to render, so the def is being dropped BEFORE it reaches
-`renderDef` — the swallow is upstream of both. That is a worse failure than the reported one: the
-message that named the real cause has been replaced by one that points at innocent code.
+That also explains finding 2 of the original filing — the missing diagnostics. The defs never
+reached `renderDef`, so its refusals never ran. With the import fixed they print again, verbatim as
+rozum first saw them.
 
-**2. The lowering gap is real and still there.** `RustCodeWalk` refuses exactly the reported
-constructs, at four sites:
+**2. The list vocabulary now lowers.** `Nil`, `h :: t`, `Cons(h, t)` and unary `!` were four
+refusals; a `List` is a `Vec`, so the patterns lower to SLICE patterns with the subject switched to
+`.as_slice()` and the binders rebound to owned values (`h.clone()`, `t.to_vec()`) — a slice binds
+`&T`/`&[T]` and bodies are written against `T`/`List[T]`. Verified end-to-end through cargo, not
+just emitted: `sum(1 :: List(2, 3))` prints `6`.
 
-| line | refusal |
-| --- | --- |
-| 3451 | `has unsupported pattern: <other>` — `Nil` as a pattern |
-| 3422 | `extracts <ctor> which is not a known enum constructor` — `Cons` |
-| 3510 | `uses unsupported infix operator <op>` — `::` (allowed set is arithmetic/comparison/boolean) |
-| 2511 | `contains an unsupported infix expression` |
+**3. What is still open, measured rather than guessed.** `std/json-core.ssc` now produces **zero**
+ssc-level refusals — every def is emitted — and the emitted crate then fails `cargo build` with
+**150 rustc errors**. They are not in the new lowering: 33×`E0223` (ambiguous associated type),
+39×`E0599`, 58×`E0308`, and the first ones are `expected value, found struct JsonCoreNull` — a
+case-object rendered as a bare struct name. This is the walker's TYPE mapping (`mapType` falls back
+to `i64` for anything it does not recognise), not its pattern support, and it is a substantially
+bigger piece of work than this entry started as.
 
-So the Rust backend has no List lowering. `_normSegments` (in `std/fs.ssc`, **not** json — the
-report's grouping is misleading) uses `h :: stack`; `jsonCoreRenderFields` matches `case Nil` and
-cons.
-
-**Note for whoever takes this:** the report suggests the JVM lane's 2026-08-05 `Cons` work might
-just need applying to `genRust`. That is worth checking but should not be assumed — these four
-refusals are in the Rust walker's own pattern/infix rendering, not in shared lowering.
-
-**Not reproduced from rozum's own program** — the minimal probe above was built instead. Their
-`build.sh` needs their checkout.
+So rozum still cannot rebuild that binary, and the honest statement of why has changed: not "a def
+was silently dropped" but "the Rust backend cannot type `std/json-core.ssc`".
 
 **A second report from the same reporter refines the diagnostics half, 2026-08-08.** rozum measured
 `ssc-tools emit-rust` and found the refusals ARE there — 20 lines of
