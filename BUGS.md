@@ -223,7 +223,7 @@ that it does not present as a lane gap at all, because the failing lane is the o
 not a placeholder value. Support for tuple `++` in v2 is the larger question and can stay open; a
 silent `Stub` cannot.
 
-## rust-lane-top-level-statements-have-no-entry-point — and the lane rejects `try`/`catch` outright
+## rust-lane-rejects-try-catch — both entry-point halves are fixed; this one is not
 
 <!-- status: open
      lane: v2-rust
@@ -254,9 +254,26 @@ so a `main` with parameters would emit a call missing its arguments.
 **The message names the cause now**, since that is what cost the misfiling — it says the crate built
 as a library, lists the two forms that are entry points, and points here.
 
-**What remains, and it is the entry's real subject:** bare top-level statements have no entry point.
-Every other lane runs them. Closing it needs a SYNTHESIZED entry rather than a name lookup, which is
-why it was not bundled into the one-line rule change above.
+**The remaining half is FIXED too, 2026-08-08 (`4ac80898c`).** Bare top-level statements become the
+body of a synthesized `def main(): Unit`, so entry detection, `[[bin]]`, `src/main.rs` and top-val
+inlining all apply unchanged rather than the walker learning a second shape. Measured end to end on
+a rebuilt toolchain, all four forms:
+
+    val x = 41 / println(x + 1)      42          <- top-level, and the top-val inlining works
+    println("plain")                 plain
+    def main(): Unit                 named
+    @main def run()                  annotated
+
+**The synthesis is CONDITIONAL and that is gated in both spellings.** A file that already has
+`@main` or a zero-argument `def main` keeps it — synthesizing beside one would emit two candidates
+and pick by accident. Top-level `val`s are deliberately NOT moved into the synthetic body: they are
+collected as `topVals` and inlined into every def that references them, so moving them would take
+them away from the other defs. The 42 above is that inlining working, which is why it is the first
+row of the test rather than a bare println.
+
+**Still open, and it is now this entry's only subject:** the backend rejects `try`/`catch` outright
+(`def X contains an unsupported expression: Term.Try`). That is a real gap for a failure contract —
+on this target "raises" has no recoverable form — and the entry-point work does not touch it.
 
 Two independent things, both found 2026-08-07 while measuring the `std.fs` failure contract across
 lanes for `std-fs-failure-contract`, and both meaning the Rust column of `specs/std-fs-os.md` §2.1
