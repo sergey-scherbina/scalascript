@@ -1,0 +1,4 @@
+```scalascript
+def f(x: => Int): Int = x + x
+println(f { 21 })
+```

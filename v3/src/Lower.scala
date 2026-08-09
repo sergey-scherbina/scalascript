@@ -1007,7 +1007,20 @@ object Lower:
         case Expr.Call(fn, as, cp) if byNameParams.contains(fn) =>
           val ixs = byNameParams(fn)
           Expr.Call(fn, as.zipWithIndex.map { (a, i) =>
-            if ixs.contains(i) then Expr.Lambda(Nil, a, Expr.posOf(a)) else a
+            // ALREADY A THUNK — do not wrap it twice. `f { 21 }` where `f` takes `x: => Int`
+            // arrives from the UniML front as `f((() => 21))`, because that front makes a block
+            // argument a zero-argument lambda; wrapping again gave `x()` a LAMBDA instead of 21 and
+            // `x + x` reported `Add on function <closure 2> and function <closure 2>`. Broken on
+            // the DEFAULT front only, which is why neither differential caught it: front-diff saw a
+            // text difference it could not interpret, and the capability gate saw both fronts
+            // accept.
+            //
+            // Safe at Tier 0 because passing an actual `() => A` to a by-name parameter is a type
+            // error in Scala, so there is no program this guard silently changes.
+            a match
+              case Expr.Lambda(Nil, _, _)       => a
+              case _ if ixs.contains(i)         => Expr.Lambda(Nil, a, Expr.posOf(a))
+              case _                            => a
           }, cp)
         case other => other)
       // Each USE of a by-name parameter becomes a call of the thunk the call site now passes.
