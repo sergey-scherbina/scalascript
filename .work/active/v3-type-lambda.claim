@@ -1,0 +1,11 @@
+slug: v3-type-lambda
+branch: feature/v3-type-lambda
+agent: claude-code
+started: 2026-08-09T17:55:44Z
+heartbeat: 2026-08-09T17:55:44Z
+status: claimed-before-planning
+items: SSC3-7i type-lambda-native
+paths: file:v3/src/Parser.scala file:v3/tests/front/type-lambda.ssc file:v3/tests/front/type-lambda.expected file:v3/front-capability-gate.sh file:v3/SPRINT.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
