@@ -18,4 +18,4 @@ verify-scala-direct-family	claude-code	2026-08-09T14:29:56Z	11 scala-direct entr
 verify-js-control-direct	claude-code	2026-08-09T14:36:42Z	two js-control-direct entries cite repair candidates that are LANDED; verify and close what is fixed	file:v2/host/js/control-direct BUGS.md
 scljet-app-not-a-function	claude-code	2026-08-09T14:37:02Z	scljet-app-not-a-function-after-the-concat-fix	file:v2/src/Runtime.scala file:scljet/mutate.ssc
 rust-try-catch	claude-code	2026-08-09T14:40:21Z	the Rust backend rejects Term.Try: try/catch is an unsupported expression on that lane	file:v1/runtime/backend/rust BUGS.md
-ssc3-jit	claude-code	2026-08-09T14:53:55Z	SSC3-J0 SSC3-J1	file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml
+ssc3-jit	claude-code	2026-08-09T14:53:55Z	SSC3-J0 SSC3-J1	file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv
