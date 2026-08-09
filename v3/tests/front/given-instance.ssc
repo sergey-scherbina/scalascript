@@ -1,0 +1,22 @@
+# `given name: T with` is a named instance — SSC3-G1
+
+At Tier 0 an instance reached BY NAME is an `object`: the members are declared, `intMonoid.combine`
+finds them the way any object's members are found, and nothing new reaches the IR or the executor.
+
+The numbers are chosen so the expectation can be read rather than trusted: `empty` is 0,
+`combine(a, b)` is `a + b`, so combining 0, 7, 5 and 30 is **42**, and `label` shows that a
+non-`def` member of the instance is a member too.
+
+```scalascript
+trait Monoid:
+  def empty: Int
+  def combine(a: Int, b: Int): Int
+
+given intMonoid: Monoid with
+  val label: String = "sum"
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+println(intMonoid.combine(intMonoid.combine(intMonoid.combine(intMonoid.empty, 7), 5), 30))
+println(intMonoid.label)
+```

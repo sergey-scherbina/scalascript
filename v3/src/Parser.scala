@@ -738,6 +738,22 @@ object Parser:
     case Tok.TId("throw", p) =>
       val (e, t) = parseExpr(ts.tail)
       (Expr.Call("__throw__", List(e), p), t)
+    // `summon[T]` — REFUSED AT THE FRONT, in the same words the projection uses.
+    //
+    // Both fronts already declined this program; they declined it at different STAGES, and that is
+    // a capability divergence even though the outcome matched. v3 parsed `summon` as an ordinary
+    // name and failed in the lowering with `unknown name 'summon'`, while UniML refuses it in
+    // `parse`. `front-capability-gate.sh` compares `ssc3 ast`, which stops at the front, so it read
+    // v3 as ACCEPTING — and it went red the moment G1 stopped `given` from refusing the file first.
+    // The gate was right: a message that names the construct beats one that names a missing symbol.
+    //
+    // Tied to `[` rather than to the word, so a value called `summon` keeps working — there is no
+    // keyword here, and `a[…]` is unambiguously a type-argument list (arrays index with `a(0)`).
+    case Tok.TId("summon", p) if isPunct(peek(ts.tail), "[") =>
+      throw ParseFail(p,
+        "`summon` is outside SSC3 core Tier 0 — it asks which instance a TYPE selects, and Tier 0 " +
+        "erases types. A `given name: T with` instance can be used by name today; type-directed " +
+        "resolution is v3/SPRINT.md SSC3-G2")
     case Tok.TId(n, p) if !keywords.contains(n) =>
       // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,
       // like every other type at Tier 0 — there is no checker, and half-reading them would put an
@@ -1427,6 +1443,27 @@ object Parser:
     val (members, vals, t2) = parseMembers(ts, "object")
     (ObjectDef(name, members, vals, p), t2)
 
+  /** `given name: T with` and its members, as an `ObjectDef`.
+    *
+    * The shape is `name`, `:`, a type, then the word `with` and an indented block — so the type is
+    * consumed by `skipType` exactly as everywhere else, and `with` is required rather than
+    * optional. A `given name: T = expr` (an instance that is a VALUE, not a block of members) and
+    * an ANONYMOUS `given T with` both refuse here, by name: the first has no members to flatten
+    * and the second has no name to reference it by, which is the only thing G1 supports. */
+  private def parseGiven(ts0: List[Tok], p: Pos): (ObjectDef, List[Tok]) =
+    val (name, _, t0) = expectName(ts0)
+    var ts = t0
+    if !isPunct(peek(ts), ":") then
+      throw ParseFail(posOf(ts), "a `given` must declare its type — `given name: T with …`")
+    ts = skipType(ts.tail)
+    if !isId(peek(ts), "with") then
+      throw ParseFail(posOf(ts),
+        "only `given name: T with …` is supported at Tier 0 — an instance is reached BY NAME, so " +
+        "it needs members to reach. Type-directed resolution (`using`, `summon[T]`) is the next " +
+        "step and is not here yet; see v3/SPRINT.md SSC3-G2")
+    val (members, vals, t2) = parseMembers(ts.tail, "object")
+    (ObjectDef(name, members, vals, p), t2)
+
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
@@ -1590,6 +1627,22 @@ object Parser:
         ts = t
       else if isId(peek(ts), "object") then
         val (o, t) = parseObject(ts.tail, posOf(ts))
+        objects = o :: objects
+        ts = t
+      // `given name: T with` — A NAMED VALUE, and deliberately nothing more (SPRINT §52, G1).
+      //
+      // At Tier 0 an instance that is only ever referenced BY NAME is an `object`: `intMonoid`
+      // declares the members, `intMonoid.combine(a, b)` finds them the way any object's members
+      // are found, and nothing new reaches the IR, the executor or the bridge. The declared type
+      // is SKIPPED rather than recorded, because at Tier 0 nothing could consult it — the moment
+      // something can, it is G2's job to store it, and that is a change to this line.
+      //
+      // WHAT THIS IS NOT. It is not `given`/`using` resolution. `summon[T]` is still refused by
+      // name, and the two-token test below keeps the word ordinary: `given` is not a keyword, so a
+      // value called `given` must keep working, and only `given <name> :` is this declaration.
+      else if isId(peek(ts), "given") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) &&
+              ts.tail.tail.nonEmpty && isPunct(peek(ts.tail.tail), ":") then
+        val (o, t) = parseGiven(ts.tail, posOf(ts))
         objects = o :: objects
         ts = t
       else if isId(peek(ts), "trait") then

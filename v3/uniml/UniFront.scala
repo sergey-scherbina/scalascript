@@ -240,8 +240,36 @@ object UniFront:
         ClassDef(c.name, c.fields.toList.map(param), Nil, Nil, pos(c.span))))
     case U.ImportDecl(_, _, _, _) => Sorted.Skip   // §6: `Loader` builds the module graph, from TEXT
     case U.NoOpDecl(_)            => Sorted.Skip
-    case U.Given(_, _, _, s)       => no("`given`", s)
-    case U.GivenObject(_, _, _, s) => no("`given … with`", s)
+    // `given name: T = expr` — still refused, and for a reason rather than by omission: an instance
+    // written as a VALUE has no members to flatten, so nothing could answer `intMonoid.combine`
+    // without deciding it by TYPE. That is SSC3-G2's question. (v3/SPRINT.md §52.)
+    case U.Given(_, _, _, s)       => no("`given name: T = …` (only `given name: T with …`)", s)
+
+    // `given name: T with` — THE SAME NAMESPACE AN `object` IS, and projected here rather than
+    // refused since 2026-08-09 (SSC3-G1). At Tier 0 an instance reached BY NAME needs nothing else:
+    // `intMonoid.combine(a, b)` finds a member of `intMonoid` exactly as it would on an object, and
+    // no new IR, executor or bridge behaviour is involved.
+    //
+    // THE DECLARED TYPE IS DROPPED, deliberately. Nothing at Tier 0 can consult it — there is no
+    // resolution that would ask — and carrying an unread field is how a projection grows state that
+    // no gate can falsify. G2 is where it starts being read, and that is the commit that adds it.
+    //
+    // An ANONYMOUS `given T with` refuses, because the only way to use an instance here is to name
+    // it. `name.getOrElse` would invent one and make the program mean something it does not say.
+    case U.GivenObject(nameOpt, _, members, s) =>
+      nameOpt match
+        case None => no("an anonymous `given … with` — at Tier 0 an instance is reached BY NAME", s)
+        case Some(n) =>
+          var ds: List[Def] = Nil
+          var vs: List[Stmt.Val] = Nil
+          members.foreach { m => m match
+            case dd: U.Def =>
+              ds = ds :+ Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
+            case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
+              vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
+            case other => no("a non-`def`, non-`val` member of a `given … with`", other.span)
+          }
+          Sorted.O(ObjectDef(n, ds, vs, pos(s)))
     // `effect Bump:` — projected, not refused, since 2026-08-08. UniML's grammar has parsed this
     // since it was written (`ScalaSpike.parseEffectDecl`); only this projection said no, so the
     // whole of SSC3-7a worked on v3's own front and was ABSENT on the default one. That gap is what

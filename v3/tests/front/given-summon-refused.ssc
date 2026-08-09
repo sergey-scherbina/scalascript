@@ -1,0 +1,21 @@
+# `given name: T = expr` has no members to reach — REFUSED
+
+No `.expected`, so the front gate requires this to be refused.
+
+G1 supports exactly one spelling: `given name: T with` and a block of members. An instance written
+as a VALUE has nothing to flatten into an object, and accepting it would mean deciding what
+`intMonoid.combine` resolves to — which is the type-directed question G1 explicitly does not answer
+(`v3/SPRINT.md` SSC3-G2).
+
+Refused BY NAME rather than parsed into something plausible: before `given` was claimed at all, this
+line reached the parser as two expressions and stopped at the `:` with `expected an expression`, a
+message that names the punctuation instead of the construct.
+
+```scalascript
+trait Monoid:
+  def empty: Int
+
+given intMonoid: Monoid = Monoid()
+
+println("unreachable")
+```
