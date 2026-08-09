@@ -182,6 +182,53 @@ yours; I mention it only so the two are not merged by accident.
 Verified from the other direction as well: your `rust-list-methods` fix landed here —
 indexOf/find/zipWithIndex now build AND agree with `ssc run` byte for byte, including `Some(b)`.
 No deadline from us.
+## zipwithindex-result-is-not-indexable — Indexing the result of zipWithIndex lowers to a call — a literal list of tuples in the same file indexes fine, so the result type loses the is-a-list fact
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-09
+     ssc-version: 4a93c440c
+     repro: repro/zipwithindex-result-is-not-indexable.ssc
+     kind: bug -->
+
+Five lines, and it isolates cleanly against a control in the same file:
+
+    ssc run repro/zipwithindex-result-is-not-indexable.ssc
+      literal = a
+      zipWith = a
+
+    ssc-tools build-rust repro/zipwithindex-result-is-not-indexable.ssc
+      error[E0618]: expected function, found `Vec<(String, i64)>`
+         let zwi = ... .enumerate().map(|(__i, __e)| (__e, __i as i64)).collect::<Vec<_>>();
+         zwi(0)._1
+                ^^ `zwi` has type `Vec<(String, i64)>`
+
+The CONTROL in the same file is the point: a literal `[("a", 1), ("b", 2)]` indexes fine —
+`lit(0)._1` compiles and runs. Only the `zipWithIndex` result does not. So this is not "indexing a
+list of tuples"; the receiver type produced by `zipWithIndex` is not carrying the fact that it IS a
+list, and `zwi(0)` lowers to a CALL instead of an index. Plain `Vec<String>` indexing is fine too —
+`xs(0)` / `xs(2)` build and run.
+
+Adjacent to `rust-list-methods`, which landed `zipWithIndex` a few hours ago: the lowering is
+correct (the `(element, index)` order is right, and `._1` / `._2` on the element work), it is the
+RESULT TYPE that the walker stops recognising.
+
+**Two things I checked before filing, because both would have made this a bad report:**
+1. `first(0)` for tuple ELEMENT access is not a divergence — the interpreter refuses it too
+   (`app: not a function: ("a", 0)`). That was my own mistake in the file where I hit this, and it
+   is not what this entry is about. `._1` / `._2` is the form, and it works on both lanes.
+2. Plain list indexing is not affected, per the control above.
+
+Toolchain built from `4a93c440c`, stamp == tree, banner silent, detached worktree outside your
+checkout.
+
+Also seen in the same file and NOT minimised, so treat it as an observation rather than a report: a
+`match` on a `Value` binds its arms as `Value` again, so `l.iter()` and `m.get(&"token".to_string())`
+inside the arms do not resolve (3 errors). The borrow is correct there now — your fix shows — it is
+the receiver that is not narrowed by the arm. If that is already inside something you are holding,
+ignore it; I did not want to file a second entry on an unminimised symptom.
+
+Progress from our side, for calibration: rozum's `public-matrix.ssc` went 33 -> 29 -> 20 errors over
+today's three landings. No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

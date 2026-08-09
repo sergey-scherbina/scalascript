@@ -1,0 +1,14 @@
+#!/usr/bin/env ssc
+---
+name: idx-tuples
+version: 0.1.0
+description: Indexing a literal list of tuples vs the result of zipWithIndex.
+---
+```scalascript
+def main(): Unit =
+  val lit = [("a", 1), ("b", 2)]
+  println("literal = " + lit(0)._1)
+  val zwi = ["a", "b"].zipWithIndex
+  println("zipWith = " + zwi(0)._1)
+main()
+```
