@@ -254,9 +254,21 @@ object SpikeLex:
               val e = text.charAt(i + 1)
               sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
               advance('\\'); advance(e)
-            else if text.charAt(i) == '$' && i + 1 < n && text.charAt(i + 1) == '{' then
+            else if text.charAt(i) == '$' && i + 1 < n && text.charAt(i + 1) == '{' &&
+                    holeCloses(text, i + 2, n) then
               // copy a balanced `${ … }` verbatim so its inner quotes don't end the string
               // (matches ssc1-front scanStr → scanInterpEnd); the parts split later, in projection.
+              //
+              // ONLY WHEN THE HOLE ACTUALLY CLOSES, which `holeCloses` decides by LOOKING AHEAD.
+              // Without that guard this branch ran for EVERY string, and a plain `"${"` — two
+              // ordinary characters, in a program that is writing a hole rather than using one —
+              // sent the scan hunting a `}` that was not there. It ran to the END OF THE FILE.
+              //
+              // The symptom was six lines away and named the wrong construct:
+              // `v3/src/Lexer.scala:262` writes `raw = raw + "${"`, and the file was refused at
+              // line 268 with "expected statement, found 'then'". Worse where it happened to find
+              // a `}` later: `"${"` followed by `"}"` two lines down SILENTLY SWALLOWED the code
+              // between them and produced a well-formed tree of the wrong program.
               sb.append('$'); advance('$')
               sb.append('{'); advance('{')
               var depth = 1
@@ -367,6 +379,32 @@ private[scalascript] object SpikeOp:
   *
   * `\u` stays with each caller — the char form reads a fixed four digits from a known offset, the
   * string form scans — but the SIMPLE table is shared, so a new escape is added once. */
+/** Does a `${` at `from` close before the string does?
+  *
+  * A single-quoted string ends at its closing `"` or, being malformed, at a newline — so a hole
+  * that has not balanced by then is not a hole at all, just the two characters `$` and `{`. The
+  * lexer used to assume every `${` opened one and scanned to the end of the FILE looking for the
+  * match.
+  *
+  * Nesting is counted so `${ f(x) { y } }` still closes at the right brace, and a `\"` inside the
+  * hole does not end the search — an escaped quote is content. */
+private[scalascript] def holeCloses(text: String, from: Int, n: Int): Boolean =
+  var i = from
+  var depth = 1
+  var answer = false
+  var stop = false
+  while !stop && i < n do
+    val ch = text.charAt(i)
+    if ch == '\\' && i + 1 < n then i += 2
+    else
+      if ch == '{' then depth += 1
+      else if ch == '}' then
+        depth -= 1
+        if depth == 0 then { answer = true; stop = true }
+      else if ch == '\n' then stop = true
+      i += 1
+  answer
+
 private[scalascript] object SpikeEsc:
   def simple(e: Char): Char = e match
     case 'n'   => '\n'

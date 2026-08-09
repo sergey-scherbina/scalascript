@@ -2256,3 +2256,34 @@ gates green, fixture half 53 of 54 with one declared uniml-only.
 `v3-bridge-cannot-apply-a-lifted-capture`, a sibling's entry already on `origin/main` whose
 `status: fixed` carries no `fixed-in`; `std-ui-forms` fails on the JVM lane under contention and
 passes standalone twice, once with my change reverted and once with it in place.
+
+## 47 · A plain string containing `${` ate the rest of the file — self-hosting 11 → 12
+
+`v3/src/Lexer.scala` is a lexer, so it WRITES the characters other lexers read: `raw = raw + "${"`.
+UniML's string lexer, on `${`, scanned for a balanced `}` — **for every string, not only an
+interpolated one** — and when the match was not there it ran to the END OF THE FILE.
+
+- [x] **47a — the symptom named the wrong construct, six lines away.** The file was refused at
+      `Lexer.scala:268` with `expected statement, found 'then'`, and the cause was on 262. I chased
+      the `else if` chain, the `;` in the branch, and the `'"'` in the condition — three
+      reproductions that all PARSED — before bisecting the file itself, which found it in one step.
+      **The bisection should have come first**: a reproduction I write tests my theory, and the file
+      tests the code.
+
+- [x] **47b — and where it happened to find a `}` later, it was SILENT.** `"${"` followed two lines
+      down by `"}"` balanced, so the string token swallowed the code between them and produced a
+      well-formed tree of a different program. My first probe of this shape "passed" for exactly
+      that reason, which is how it survived being probed.
+
+- [x] **47c — the guard is a LOOK-AHEAD, not a rollback.** `holeCloses` answers whether the `${`
+      closes before the string does — counting nesting, skipping `\"`, and stopping at a newline,
+      since a single-quoted string cannot span lines. Only then does the scan run. Looking ahead
+      rather than scanning-and-undoing keeps the position and line/column bookkeeping untouched,
+      which is the part that would have gone wrong quietly.
+
+      Observed failing: with the guard replaced by `true`, the fixture stops parsing at line 7.
+
+**Measured:** self-hosting **11 → 12 of 17**, UniML 218/218, seven v3 gates green, N = 188 of 368
+with CRASH 0, fixture half 53 of 54 with one declared uniml-only. The corpus number does not move —
+no conformance case writes a `${` inside a plain string, which is the same reason the whole class
+survived: the corpus is written in the language, and this is a bug you only meet writing a compiler.

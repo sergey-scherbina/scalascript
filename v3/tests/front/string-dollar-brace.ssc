@@ -1,0 +1,10 @@
+def main(): Unit =
+  // A plain string may CONTAIN `${` — a program writing a hole rather than using one.
+  var raw = ""
+  raw = raw + "${"
+  raw = raw + "}"
+  println(raw)
+  println("a${b")
+  // And a real interpolation still works, on the same line as text either side.
+  val n = 7
+  println(s"x ${n} y")
