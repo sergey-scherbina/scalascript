@@ -13,5 +13,5 @@ coord-overlap-prefix-boundary	claude-code	2026-08-09T14:16:16Z	pre-push overlap:
 verify-scala-direct-family	claude-code	2026-08-09T14:29:56Z	11 scala-direct entries cite remediation commits that are LANDED on origin/main; verify and close what is fixed	file:v2/host/scala/control BUGS.md
 verify-js-control-direct	claude-code	2026-08-09T14:36:42Z	two js-control-direct entries cite repair candidates that are LANDED; verify and close what is fixed	file:v2/host/js/control-direct BUGS.md
 rust-try-catch	claude-code	2026-08-09T14:40:21Z	the Rust backend rejects Term.Try: try/catch is an unsupported expression on that lane	file:v1/runtime/backend/rust BUGS.md
-ssc3-jit	claude-code	2026-08-09T14:53:55Z	SSC3-J0 SSC3-J1	file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv
+ssc3-jit	claude-code	2026-08-09T14:53:55Z	SSC3-J0 SSC3-J1	file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv file:BUGS.md
 std-to-repo-root	claude-code	2026-08-09T15:38:06Z	std-to-repo-root	mod:v1/runtime/std mod:std file:build.sbt file:v1/lang/core/src/main/scala/scalascript/imports/ImportResolver.scala file:specs/project-partitioning.md file:specs/std-to-repo-root.md
