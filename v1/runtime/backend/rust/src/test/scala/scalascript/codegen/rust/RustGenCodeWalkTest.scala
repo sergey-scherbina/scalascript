@@ -98,10 +98,17 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     }, s"diags: $ds")
 
   test("Failed: unsupported expression in the body yields a structured diagnostic"):
-    // R.2 lowers infix arithmetic, so use something genuinely out of scope.
+    // R.2 lowers infix arithmetic, so use something genuinely out of scope. `throw` USED to be the
+    // example here and stopped being out of scope on 2026-08-09, when the Rust lane learned
+    // throw/try/catch — the second construct to vacate this slot. Whoever teaches this target
+    // `finally` should expect to pick the third: the test asserts the SHAPE of a refusal, and it
+    // needs one construct that still refuses.
     val src =
       """```scalascript
-      |def run(): Unit = throw new RuntimeException("nope")
+      |def run(): Unit =
+      |  try println("a")
+      |  catch case _ => println("b")
+      |  finally println("c")
       |```
       |""".stripMargin
     val ds = diagnostics(src)

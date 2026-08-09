@@ -2665,6 +2665,66 @@ object RustCodeWalk:
     case m.Term.ApplyUnary(m.Term.Name("!"), arg) =>
       renderTerm(arg, ctx).map(a => s"!($a)")
 
+    // `throw e` → a panic carrying the message as a `String` payload.
+    //
+    // ON THIS TARGET AN EXCEPTION IS ITS MESSAGE, and that is a deliberate narrowing rather than an
+    // oversight: Rust has no exception type to carry, and `specs/std-fs-os.md` already records that
+    // a contract saying "raises" reads as "aborts" here. `panic!("{}", …)` formats into a `String`
+    // payload, which is exactly what the `catch` arm below downcasts, so throw and catch agree by
+    // construction instead of by comment.
+    //
+    // `throw new SomeException("msg")` is the spelling the corpus uses, so the message is lifted out
+    // of the constructor: the class name has no meaning on a target with no class to name.
+    case m.Term.Throw(e) =>
+      val payload = e match
+        case m.Term.New(m.Init.After_4_6_0(_, _, List(m.Term.ArgClause(List(arg), _)))) => arg
+        case other                                     => other
+      renderTerm(payload, ctx).map(p => s"""panic!("{}", $p)""")
+
+    // `try b catch case e => h` → `catch_unwind`, with the payload downcast back to a `String`.
+    //
+    // `AssertUnwindSafe` is required and is honest here: the closure borrows locals, and the
+    // alternative — demanding `UnwindSafe` — would refuse every body that touches anything.
+    //
+    // REFUSED BY NAME, not half-supported: several catch arms, and `finally`. Several arms would
+    // need the payload's TYPE to choose between them and this target has erased it; `finally` needs
+    // the block to run on the unwinding path too, which is a second mechanism rather than a second
+    // line. Each refusal says which, so a reader is not left guessing what "unsupported" covered.
+    case m.Term.Try.After_4_9_9(body, Some(handler), None) if handler.cases.sizeIs == 1 =>
+      val arm  = handler.cases.head
+      val bind = arm.pat match
+        case m.Pat.Var(m.Term.Name(n))                    => Right(n)
+        case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _)    => Right(n)
+        case m.Pat.Wildcard()                             => Right("_")
+        case m.Pat.Typed(m.Pat.Wildcard(), _)             => Right("_")
+        case p => Left(List(unsupported(
+          s"def `${ctx.defName}`: this target catches into a single bound name; " +
+          s"`case ${p.syntax} =>` is a pattern it cannot decide without the exception's type")))
+      for
+        n <- bind
+        b <- renderBody(body, ctx, isUnit = false)
+        h <- renderBody(arm.body, ctx, isUnit = false)
+      yield
+        val bindLine =
+          if n == "_" then ""
+          else s"""let $n = __p.downcast_ref::<String>().cloned()
+             |          .or_else(|| __p.downcast_ref::<&str>().map(|s| s.to_string()))
+             |          .unwrap_or_else(|| "panic".to_string());
+             |        """.stripMargin
+        s"""{
+           |  match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { $b })) {
+           |    Ok(__v) => __v,
+           |    Err(__p) => { ${if n == "_" then "let _ = __p; " else bindLine}$h }
+           |  }
+           |}""".stripMargin
+
+    case m.Term.Try.After_4_9_9(_, handlerOpt, finallyOpt) =>
+      Left(List(unsupported(
+        s"def `${ctx.defName}`: " +
+        (if finallyOpt.nonEmpty then "`finally` is not supported on this target — it needs the block to run on the unwinding path as well"
+         else s"this target supports one `catch` arm and this has ${handlerOpt.map(_.cases.size).getOrElse(0)} — choosing between them needs the exception's type, which this target erases")
+      )))
+
     case other =>
       Left(List(unsupported(
         s"def `${ctx.defName}` contains an unsupported expression: ${other.productPrefix} (${other.syntax})"

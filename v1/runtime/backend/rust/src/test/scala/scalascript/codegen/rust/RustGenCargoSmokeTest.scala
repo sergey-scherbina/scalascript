@@ -91,3 +91,32 @@ class RustGenCargoSmokeTest extends AnyFunSuite:
       "30", "70", "70", "30", "100", "6", "1",
       "a-b-c", "true", "true", "true", "b", "3", "demo|rozum"
     ), s"unexpected program output:\n${lines.mkString("\n")}")
+
+  /** `try`/`catch` and `throw`, COMPILED AND RUN — the only evidence that matters for this pair.
+   *
+   *  A string-match test can confirm `catch_unwind` appears; it cannot confirm the closure borrows
+   *  legally, that `AssertUnwindSafe` is actually required where it is written, or that the payload
+   *  downcast finds the `String` a `panic!("{}", …)` really produces. Each of those is a compile or
+   *  run failure in Rust that valid-LOOKING generated code hides, which is this suite's stated
+   *  reason for existing. */
+  test("try/catch and throw compile and run end-to-end via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    val lines = runCrate(
+      """```scalascript
+        |def risky(fail: Boolean): String =
+        |  if fail then throw new RuntimeException("bang") else "fine"
+        |
+        |def guarded(fail: Boolean): String =
+        |  try risky(fail)
+        |  catch case e: Throwable => "caught:" + e
+        |
+        |def ignored(): String =
+        |  try throw "boom"
+        |  catch case _ => "recovered"
+        |
+        |@main def run(): Unit =
+        |  println(guarded(false))   // fine        — the Ok arm returns the body's value
+        |  println(guarded(true))    // caught:bang — the payload came back as its message
+        |  println(ignored())        // recovered   — a wildcard arm discards the payload
+        |```""".stripMargin)
+    assert(lines == List("fine", "caught:bang", "recovered"), lines)
