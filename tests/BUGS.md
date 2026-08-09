@@ -1,3 +1,83 @@
+## reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-09
+     ssc-version: 6b9fc4352
+     confirmed: yes
+     gate: none -->
+
+**The REFERENCE front is the wrong one here, and F is right** — worth saying plainly, because every
+other entry filed this week runs the other way.
+
+A plain (non-interpolated) string literal containing `${` is lexed as if the interpolation had
+started, and the literal runs on past its closing quote:
+
+```
+def h(s: String): String = "${" + s + "}"
+def main(): Unit = println(h("x"))
+
+F                 ${x}                    correct
+reference front   ${" + s + "}            swallowed the rest of the expression as text
+
+def main(): Unit = println("${")
+
+F                 ${                      correct
+reference front   ${")                    swallowed the quote and the paren
+```
+
+Found while reducing `runtime/std/ui/content.ssc`, whose `ContentInline.Expr` arm renders an
+un-evaluated expression exactly this way: `textNode("${" + source + "}")`. Any program that prints a
+literal `${` is affected on the default lane.
+
+Not fixed here: this claim was an F gap and this is the reference front's lexer, which is a different
+subsystem and a different owner's area.
+
+## f-placeholder-u0-reduced-but-not-solved
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-09
+     ssc-version: 6b9fc4352
+     confirmed: yes
+     gate: none -->
+
+`(global __u0)` is **F's own** decline reason on 11 corpus files — 2 `GAP` and 9 where the reference
+declines for its own, different reason (`__yamlSection__`). It originates in one module,
+`runtime/std/ui/content.ssc`, which is `GAP` on its own. `__u0` is the name F's placeholder machinery
+invents when it renames `_` in a call argument, so the file is being refused over a name the user
+never wrote.
+
+**NOT SOLVED. What is banked, so the next attempt starts here rather than at the beginning:**
+
+A **well-formed** minimal reproducer, reached by reducing whole DECLARATIONS and then whole `case`
+ARMS — never by line:
+
+    19 defs  -> 5:  contentViewSection, contentViewBlock, contentInlineView (mutually recursive),
+                    tableCellStyle, contentComputed
+    20 arms  -> 1:  case ContentInline.Expr(source) => textNode("${" + source + "}")
+
+124 lines, still `GAP` with `__u0`. That single arm is load-bearing: with it removed the verdict
+changes.
+
+**TEN HYPOTHESES REFUTED BY MEASUREMENT**, all of these lower correctly under F and agree with the
+reference: `xs.map(g(_, o))`; two such maps joined by `++`; three operands with a list literal first;
+the same through `val` bindings; a `_` wildcard PATTERN in the same arm as a `_` placeholder
+argument, and each of those alone; a placeholder as first or second argument; a nested call; and the
+`"${" …` literal itself, alone, before a placeholder, after one, and in the same def as one.
+
+**A METHOD FAILURE WORTH MORE THAN THE HYPOTHESES.** The first reduction ran line by line and
+converged on a MALFORMED file — `items.map { item => }` with an empty body, an unterminated parameter
+list — because the predicate (F says `GAP` with `__u0`) is satisfied by a gutted module, and gutting
+is always the smaller change. Three of the ten refuted hypotheses came from reading that garbage.
+The rule this repository already had written down is exact: **reduce by declaration, never by line.**
+Re-run at declaration and arm granularity, the reduction converged on something real in a quarter of
+the checks.
+
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
 <!-- status: open

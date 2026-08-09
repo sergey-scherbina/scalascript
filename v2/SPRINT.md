@@ -143,6 +143,14 @@ Remaining, GAP only:
       `two-examples-import-a-sibling-by-a-path-that-cannot-resolve`.
 - [ ] The GAP tail, now the whole of it AND the whole of the remaining work: `Parser` (4),
       `handler` (2), `__u0` (2), and six singles.
+- [~] **`__u0` — reduced to a well-formed 124-line reproducer, NOT solved.** F's own reason on 11
+      files, from `runtime/std/ui/content.ssc`; reducing by DECLARATION then by whole `case` ARM
+      leaves 5 defs and ONE arm, `case ContentInline.Expr(source) => textNode("${" + source + "}")`.
+      Ten hypotheses refuted; three of them came from a line-by-line reduction that converged on a
+      MALFORMED file, because the predicate is satisfied by a gutted module and gutting is always
+      the smaller change. `tests/BUGS.md` `f-placeholder-u0-reduced-but-not-solved`.
+      Found on the way and filed separately: the REFERENCE front mis-lexes `${` inside a plain
+      string literal and F is the correct one — `reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal`.
       `Parser` is the one whose reduction failed to transplant twice; start it from the closure, not
       the module. `__u0` is `runtime/std/ui/content.ssc`, which has a verified seven-line in-place
       reduction where every line is load-bearing and eight hypotheses already eliminated.
