@@ -491,29 +491,52 @@ Verified on a two-struct probe independent of json: pre-fix, cargo rejects the e
 4 errors; post-fix it builds and prints 7. **Any program with a case class could not be compiled by
 `build-rust`** — a much wider break than the report that surfaced it.
 
-**4. What is still open, and it is a DESIGN decision rather than a defect.**
+**4. `Any` now carries a case class — option A, chosen by the project owner and implemented.**
 
-`std/json-core.ssc` types its parser as `Any` — `case class JsonCoreArray(items: List[Any])`,
-functions returning `Any` — and the Rust target maps `Any` to `crate::value::Value`, a CLOSED enum
-(`Unit|Bool|Int|Double|Str|Tuple|List|Signal`) with no variant that can hold a user struct. So after
-the fixes above the count is 160 errors, and 105 of them are one sentence: `expected Value, found
-JsonCoreOk` / `JsonCoreErr` / `JsonCoreNumber` / … The structural classes are gone (E0223 33 -> 0,
-E0423 8 -> 0); what remains is that single question.
+`Any` still maps to `crate::value::Value`; that enum gains one variant, `Obj(name, fields)`, and a
+case-class value crossing into an `Any` becomes one. The reason A was first rejected — "reading a
+value back binds every field as `Value` while bodies use them as `i64`, and coercing needs types
+the walker does not have" — was WRONG, and it is worth writing down why, because the correction is
+the whole design:
 
-Three ways out were considered and none is a patch:
+**the types are declared.** `case class JsonCoreOk(value: Any, next: Int)` says what field 1 is;
+`def f(x: Int): Any` says what its parameter and result are. The walker never has to infer what an
+expression IS — only what the place it is going to WANTS, and that is always written down.
 
-- add a `Value::Obj(name, fields)` variant plus generated `From<Struct>`: the CONVERSION is easy,
-  but reading a value back binds every field as `Value`, and bodies use them as `i64`/`String`.
-  Coercing there needs the types the walker does not have. This is the one that looks bounded and
-  is not.
-- map `Any` to a generated enum of all standalone case classes: right for this module, wrong for
-  every program where `Any` legitimately holds an `Int`.
-- map `Any` to `Rc<dyn Any>` with downcasts: gives up interop with the runtime intrinsics that take
-  `Value`.
+The second half is making the coercions TOTAL, so even that much knowledge is not needed at the
+source end: `Value::from(x)` is the identity when `x` is already a `Value` (std's reflexive `From`),
+and `x.ssc_int()` is implemented for `Value` AND for `i64`. So the same emitted call compiles
+whichever side of the boundary the expression was on.
 
-All three are decisions about what `Any` MEANS in the Rust target, which belongs in
-`specs/rust-backend.md` and to the project owner, not to a walker patch. Until then: **rozum still
-cannot rebuild `clients/meeting`**, and the reason is that its dependency is written in `Any`.
+Five boundaries, each measured separately:
+
+| boundary | rustc errors on `std/json-core.ssc` |
+| --- | --- |
+| (start, after the case-class fixes) | 160 |
+| `match` on an `Any` → `ssc_is`/`ssc_field` chain | 98 |
+| return of an `Any`-returning def | 68 |
+| tail positions inside it (`if` branches, match arms) | 56 |
+| call arguments | 52 |
+| case-class construction | **41** |
+
+The tail-position step is the one worth explaining: `if p then JsonCoreOk(…) else JsonCoreErr(…)`
+is two different Rust structs, so the `if` does not typecheck and wrapping the whole body in
+`Value::from` never gets a chance. In Scala the expression's type is `Any`; in Rust it has to BECOME
+a `Value` in each branch.
+
+Proven end to end, not just emitted — construct into an `Any`, return it through both branches of
+an `if`, match it back out, and compare against the DEFAULT lane rather than against expected text:
+
+```
+case class Ok(value: Any, next: Int) / case class Err(message: String)
+rust:  ok:42 / err:no      bin/ssc:  ok:42 / err:no
+```
+
+**Still 41 errors on `std/json-core.ssc`, and they are a long tail rather than a class.** The
+largest group is 8 × `expected &str, found String`, which is a borrow question unrelated to `Any`;
+the rest are single-site shapes (a `val` bound to two different case classes, `Vec<i64>` against
+`Vec<Value>` at a nested position). rozum cannot rebuild `clients/meeting` yet. What changed is
+that the remaining work is now a list of individual sites rather than a design question.
 
 ## scaffolded-projects-cannot-load-their-build
 

@@ -200,6 +200,36 @@ if [[ $rc7 -ne 0 ]]; then
   failed=1
 fi
 
+# ── 6a. A case class can live in an `Any`, and come back out ─────────────────
+# `Any` maps to `crate::value::Value`, a closed enum with no variant for a user struct, so code
+# written against `Any` — which is most of std/json-core — could not be lowered at all. `Value` now
+# has an `Obj(name, fields)` variant, and the coercions are driven by DECLARED types: a case-class
+# field, a def parameter, a return type. Checked against the default lane, not against expected
+# text I wrote, because the point is that both lanes agree.
+cat > "$tmp/anyrt.ssc" <<'SSC'
+case class Ok(value: Any, next: Int)
+case class Err(message: String)
+
+def describe(r: Any): String = r match
+  case Ok(v, n) => "ok:" + n
+  case Err(m) => "err:" + m
+
+def make(good: Boolean): Any =
+  if good then Ok(1, 42) else Err("no")
+
+def main(): Unit =
+  println(describe(make(true)))
+  println(describe(make(false)))
+SSC
+set +e
+out9=$("$SSC" emit-rust "$tmp/anyrt.ssc" -o "$tmp/anyrt-crate" 2>&1); rc9=$?
+set -e
+if [[ $rc9 -ne 0 || $out9 == *"Generic("* ]]; then
+  echo "build-rust-refuses-loudly: FAILED — a case class in an Any is refused" >&2
+  echo "--- output: $out9" >&2
+  failed=1
+fi
+
 # ── 6. charAt / substring are UTF-16 code units ──────────────────────────────
 # They had no arm and came out as Rust String methods that do not exist (32 + 5 errors on a
 # six-line program). The kernel is `IntV(s.charAt(i.toInt).toLong)` — an Int, a CODE UNIT — so the
@@ -248,6 +278,25 @@ if command -v cargo >/dev/null 2>&1; then
     failed=1
   elif [[ $sran != *"7"* ]]; then
     echo "build-rust-refuses-loudly: FAILED — the case-class program gave '$sran', wanted 7" >&2
+    failed=1
+  fi
+
+  # The `Any` round-trip, against the default lane: construct a case class into an `Any`, return it
+  # from an `Any`-returning def through both branches of an `if`, then match it back out. Every one
+  # of those is a separate boundary in the walker, and a coercion missing at any of them shows up
+  # here as a cargo failure or a different answer.
+  set +e
+  abin=$("$SSC" build-rust "$tmp/anyrt.ssc" -o "$tmp/anyrtbin" 2>&1); arc=$?
+  any_rust=$("$tmp/anyrtbin" 2>&1)
+  any_ref=$("$ROOT/bin/ssc" run "$tmp/anyrt.ssc" 2>/dev/null)
+  set -e
+  if [[ $arc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — cargo rejected the Any round-trip" >&2
+    echo "--- output: $abin" >&2
+    failed=1
+  elif [[ "$any_rust" != "$any_ref" || -z "$any_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on the Any round-trip" >&2
+    echo "--- rust: $(printf '%s' "$any_rust" | tr '\n' '|')   ssc: $(printf '%s' "$any_ref" | tr '\n' '|')" >&2
     failed=1
   fi
 

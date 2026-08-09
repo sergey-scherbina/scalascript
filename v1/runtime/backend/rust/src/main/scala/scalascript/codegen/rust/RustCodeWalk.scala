@@ -85,7 +85,19 @@ object RustCodeWalk:
     val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap ++
-      structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames, isStruct = true)).toMap
+      structOk.map(s =>
+        s.structName -> EnumCtor(s.structName, s.fieldNames, isStruct = true, fieldTypes = s.fieldTypes)).toMap
+    // Signatures, for the `Any` boundary. Unresolvable types fall back to the empty string, which
+    // reads as "no opinion" at the call site and leaves the argument untouched.
+    _paramTypes = defs.map { d =>
+      d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
+        p.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
+      }
+    }.toMap
+    _returnTypes = defs.map { d =>
+      d.name.value -> d.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
+    }.toMap
+
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
     val baseTopVals = collectTopVals(module, ctorMap)
@@ -184,6 +196,13 @@ object RustCodeWalk:
       |//! One `pub fn` per ScalaScript top-level `def`.  Calls to console
       |//! intrinsics (`println`, `print`) route to `crate::runtime::_*`.
       |//! `rust` fence blocks from the source are appended verbatim.
+      |
+      |// The `Any` boundary. Everywhere else this file uses fully-qualified paths, but a TRAIT
+      |// method needs its trait in scope, and these are what make a coercion total — `.ssc_int()`
+      |// compiles whether the receiver is a `Value` or already an `i64`, which is what lets the
+      |// generator emit it knowing only the DECLARED target type.
+      |#[allow(unused_imports)]
+      |use crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal};
       |""".stripMargin
 
   // ── Defn.Given collection (R.6 typeclasses) ──────────────────────────
@@ -409,6 +428,14 @@ object RustCodeWalk:
    *  fills them, since Rust has no default parameters. */
   private var _defaultsMap: Map[String, List[Option[m.Term]]] = Map.empty
 
+  /** def name → its parameters' DECLARED Rust types, and its declared return type.
+   *
+   * The `Any` boundary reads target types from here. It is the same trick as the case-class field
+   * types: the walker never infers what an expression IS, only what the place it is going to
+   * WANTS, and that is always written down. */
+  private var _paramTypes: Map[String, List[String]] = Map.empty
+  private var _returnTypes: Map[String, String] = Map.empty
+
   /** User-declared effects: effect name → its ops, each `(opName, rustParamTypes, rustRetType)`.
    *  Drives the trait emission, `Eff.op` dispatch, and the `handle` handler-struct impl. (R.4.2) */
   private var _effectOps: Map[String, List[(String, List[String], String)]] = Map.empty
@@ -564,12 +591,25 @@ object RustCodeWalk:
         else s""" {
                 |$fields,
                 |}""".stripMargin
+      // Lift into an `Any`. `Any` maps to `crate::value::Value`, so a case-class value that has to
+      // live in one — `case class JsonCoreArray(items: List[Any])` — becomes `Value::Obj(name,
+      // fields)`, positionally. Generating `From` rather than emitting the conversion at each site
+      // is what lets the walker write `Value::from(expr)` everywhere without knowing what `expr` is:
+      // std's reflexive `impl<T> From<T> for T` covers the case where it is ALREADY a Value.
+      val lift =
+        val fieldLifts = ok.map((n, _) => s"crate::value::Value::from(x.$n)").mkString(", ")
+        s"""impl From<$name> for crate::value::Value {
+           |    fn from(x: $name) -> crate::value::Value {
+           |        crate::value::Value::Obj("$name", vec![$fieldLifts])
+           |    }
+           |}
+           |""".stripMargin
       val render =
         s"""#[allow(dead_code)]
            |#[derive($derives)]
            |pub struct $name$body
-           |""".stripMargin
-      Right(GeneratedStruct(render, name, ok.map(_._1)))
+           |$lift""".stripMargin
+      Right(GeneratedStruct(render, name, ok.map(_._1), ok.map(_._2)))
 
   /** Collect each `sealed trait` and all `case class` extending it in source order. */
   private def collectSealedTraitEnums(module: ast.Module): List[SealedTraitEnum] =
@@ -821,7 +861,13 @@ object RustCodeWalk:
       resumeClosure: Option[String] = None,
       // Tier-3 unbounded multi-shot (§11.2): `resume(v)` lowers to `__run(<closure>(Value::from(v)))`
       // — re-run the reified `MComp` continuation through the interpreter (perform-in-recursion/loop).
-      resumeViaComp: Boolean = false
+      resumeViaComp: Boolean = false,
+      // Names known to hold an `Any`, i.e. a `crate::value::Value`: params declared `Any`, and
+      // binders taken out of an `Any`-typed case-class field. A `match` on one of these cannot use
+      // Rust patterns — the value is a `Value::Obj`, not the struct — so it lowers to an
+      // `ssc_is`/`ssc_field` chain instead. This is the ONLY type knowledge the boundary needs, and
+      // it comes from declarations, never from inference.
+      anyNames: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -841,7 +887,12 @@ object RustCodeWalk:
       // (E0223), which was 33 of the 150 errors `std/json-core.ssc` produced. The flag exists
       // rather than comparing `enumName == ctor`, because `enum X { case X }` is legal and would
       // read as a struct under that test.
-      isStruct:    Boolean = false
+      isStruct:    Boolean = false,
+      // The DECLARED Rust type of each field, in order. This is what makes the `Any` boundary
+      // work without type inference: when a value crosses into or out of a `Value`, the walker
+      // reads the type off the `case class` declaration instead of trying to infer the
+      // expression's own type. Empty for enum ctors, which do not cross that boundary.
+      fieldTypes:  List[String] = Nil
   )
 
   /** A rendered Rust `enum` block + its ctor table. */
@@ -854,7 +905,8 @@ object RustCodeWalk:
   private case class GeneratedStruct(
       render:     String,
       structName: String,
-      fieldNames: List[String]
+      fieldNames: List[String],
+      fieldTypes: List[String] = Nil
   )
 
   /** Extract a single string argument from `@annotName("...")` in a list of mods.
@@ -902,9 +954,15 @@ object RustCodeWalk:
       val (lseqs, larrays) = collectLocalSeqs(d.body)
       val paramSeqs = collectSeqParams(d)
       val lstrings = collectLocalStrings(d.body)
+      // Params declared `Any` hold a `crate::value::Value`. Read off the signature — the boundary
+      // never guesses.
+      val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect { case p if p.decltpe.exists { case m.Type.Name("Any") => true; case _ => false } => p.name.value }
+        .toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
-                        localSignals = collectLocalSignals(d.body))
+                        localSignals = collectLocalSignals(d.body),
+                        anyNames = anyParams)
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -913,6 +971,7 @@ object RustCodeWalk:
                    else            renderParams(d, ctx, effName)
         ret     <- renderReturnType(d, ctx)
         bodyRs  <- if useTCO then renderTCOBody(name, pNames, d.body, ctx, isUnit = ret.isEmpty)
+                   else if ret == "crate::value::Value" then renderValueTail(d.body, ctx)
                    else            renderBody(d.body, ctx, isUnit = ret.isEmpty)
       yield
         val signature = if ret.isEmpty then s"pub fn ${rustIdent(name)}($params)"
@@ -921,9 +980,16 @@ object RustCodeWalk:
         val topValPreamble =
           if referencedTopVals.isEmpty then ""
           else referencedTopVals.map { case (n, init) => s"let $n = $init;" }.mkString("\n") + "\n"
+        // A def declared to return `Any` returns a `Value`, and its body very often ends in a case
+        // class — `def jsonCoreParse(...): Any = JsonCoreOk(v, n)`. Lifting at the RETURN is the
+        // one place that covers every path through the body at once, and `Value::from` is the
+        // identity when the body already produced a `Value` (std's reflexive `From`), so this
+        // cannot double-wrap. Applied only to `Any`-returning defs, so everything else emits
+        // byte-identically to before.
+        val bodyOut = bodyRs
         val src =
           s"""$signature {
-             |${indent(topValPreamble + bodyRs)}
+             |${indent(topValPreamble + bodyOut)}
              |}
              |""".stripMargin
         GeneratedDef(name = name, render = src, isMain = isEntryPoint(d, name))
@@ -1450,6 +1516,39 @@ object RustCodeWalk:
       case None                       => Right("")    // inferred — treat as Unit
       case Some(m.Type.Name("Unit"))  => Right("")
       case Some(other)                => mapType(other, ctx.defName, ctx.enumNames)
+
+  /** Render a body whose value must be a `Value`, lifting at every TAIL position.
+   *
+   * Wrapping the whole body is not enough and the difference is the point:
+   * `if p then JsonCoreOk(…) else JsonCoreErr(…)` is two different Rust structs, so the `if`
+   * itself does not typecheck and `Value::from(<that>)` never gets a chance. In Scala the
+   * expression's type is `Any`; in Rust it has to BECOME `Value` in each branch. So the lift
+   * follows the tails — through `if`, blocks and match arms — and `Value::from` is the identity
+   * where a branch already produced one. */
+  private def renderValueTail(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] = t match
+    case m.Term.If.After_4_4_0(cond, thenp, elsep, _) =>
+      for
+        c <- renderTerm(cond, ctx)
+        a <- renderValueTail(thenp, ctx)
+        b <- renderValueTail(elsep, ctx)
+      yield s"if $c { $a } else { $b }"
+    case b: m.Term.Block if b.stats.nonEmpty =>
+      val (initStats, tail) = b.stats.splitAt(b.stats.length - 1)
+      val initRendered = initStats.map(renderStmt(_, ctx))
+      val (errs1, initOk) = initRendered.partitionMap(identity)
+      tail.head match
+        case tt: m.Term =>
+          renderValueTail(tt, ctx) match
+            case Left(e)  => Left(errs1.flatten ++ e)
+            case Right(r) =>
+              if errs1.nonEmpty then Left(errs1.flatten)
+              else Right(((initOk :+ r).filter(_.nonEmpty)).mkString("\n"))
+        case other => Left(List(unsupported(
+          s"def `${ctx.defName}` body tail is a non-expression: ${other.productPrefix}")))
+    case mt: m.Term.Match =>
+      renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx, arm => s"crate::value::Value::from($arm)")
+    case other =>
+      renderTerm(other, ctx).map(r => s"crate::value::Value::from($r)")
 
   private def renderBody(
       body:   m.Term,
@@ -2429,7 +2528,22 @@ object RustCodeWalk:
             val (_, okFills) = fills.partitionMap(identity)
             if okFills.size == fills.size then renderedArgsBase ++ okFills else renderedArgsBase
           case _ => renderedArgsBase
-        val joined = renderedArgs.mkString(", ")
+        // The `Any` boundary at a CALL. Only touches arguments that can actually be on the wrong
+        // side of it — a name known to hold an `Any`, a call to an `Any`-returning def, or a case
+        // class going into an `Any` parameter. Everything else is emitted byte-identically, which
+        // is what keeps the existing goldens meaningful.
+        val coercedArgs = fn match
+          case m.Term.Name(fname) if _paramTypes.contains(fname) =>
+            val want = _paramTypes(fname)
+            argTerms.zip(renderedArgs).zipWithIndex.map { case ((argTerm, rendered), i) =>
+              want.lift(i) match
+                case Some(target) if target.nonEmpty && needsAnyCoercion(argTerm, target, ctx) =>
+                  if target == "crate::value::Value" then s"crate::value::Value::from($rendered)"
+                  else coerceFromValue(rendered, target)
+                case _ => rendered
+            }
+          case _ => renderedArgs
+        val joined = coercedArgs.mkString(", ")
         // User-defined struct/enum ctors take priority over stdlib names (e.g. user Vec vs List[Vec]).
         val userCtorName = fn match
           case m.Term.Name(n) if ctx.ctorMap.contains(n) => Some(n)
@@ -2837,12 +2951,19 @@ object RustCodeWalk:
               case _              => None
             plainName.flatMap { n =>
               ctx.ctorMap.get(n).map { ec =>
-                val fields = ec.fieldNames.zip(renderedArgs)
+                val fields = ec.fieldNames.zip(renderedArgs).zipWithIndex
                 val body   =
                   if fields.isEmpty then ""
-                  else " { " + fields.map { (fn, a) =>
+                  else " { " + fields.map { case ((fn, a), i) =>
+                    // A field declared `Any` holds a `Value`, so whatever is handed to it is lifted
+                    // here — `Ok(1, 42)` with `value: Any` means `Value::Int(1)`. This is the
+                    // construction side of the boundary; `Value::from` is the identity when the
+                    // argument is already one.
+                    val lifted =
+                      if ec.fieldTypes.lift(i).contains("crate::value::Value")
+                      then s"crate::value::Value::from($a)" else a
                     // Box-wrap a recursive field's argument at construction.
-                    val av = if ec.boxedFields.contains(fn) then s"Box::new($a)" else a
+                    val av = if ec.boxedFields.contains(fn) then s"Box::new($lifted)" else lifted
                     s"$fn: $av"
                   }.mkString(", ") + " }"
                 // Struct: enumName == n (standalone case class) → `StructName { fields }`
@@ -3367,8 +3488,120 @@ object RustCodeWalk:
    *  Each case's pattern is lowered via `renderPattern`; the body is
    *  rendered as a non-Unit expression (the match itself is an
    *  expression). */
+  /** Is this argument on the wrong side of the `Any` boundary for `target`?
+   *
+   * Deliberately narrow. Coercing everything would be correct — the helpers are total — but it
+   * would rewrite every emitted call in the repository for the benefit of the few that cross this
+   * boundary, and the goldens are how the Rust backend is reviewed. */
+  private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =
+    val argIsValue = arg match
+      case m.Term.Name(n) => ctx.anyNames.contains(n)
+      case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) => _returnTypes.get(f).contains("crate::value::Value")
+      case _ => false
+    val argIsCaseClass = arg match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(c), _) => ctx.ctorMap.get(c).exists(_.isStruct)
+      case _ => false
+    if target == "crate::value::Value" then argIsCaseClass || argIsValue
+    else argIsValue
+
+  /** Coerce an expression that is a `Value` into `rustType`, using the DECLARED type only.
+   *
+   * Total by construction: `ssc_int` and friends are implemented for `Value` AND for the concrete
+   * type, so this is safe to emit even where the expression was already concrete. That is the
+   * property that removes the need for type inference in the walker. */
+  private def coerceFromValue(expr: String, rustType: String): String = rustType match
+    case "i64"                  => s"($expr).ssc_int()"
+    case "f64"                  => s"($expr).ssc_f64()"
+    case "bool"                 => s"($expr).ssc_bool()"
+    case "String"               => s"($expr).ssc_str()"
+    case "crate::value::Value"  => expr
+    case t if t.startsWith("Vec<") && t.endsWith(">") =>
+      val inner = t.drop(4).dropRight(1)
+      if inner == "crate::value::Value" then s"crate::value::ssc_vec($expr)"
+      else s"crate::value::ssc_vec($expr).into_iter().map(|__e| ${coerceFromValue("__e", inner)}).collect::<Vec<$inner>>()"
+    // A field declared as another case class stays a `Value` — inside `Any`-typed code that is
+    // what the body passes around anyway. If a body genuinely needs the struct, rustc says so;
+    // guessing a conversion here is how a coercion layer starts lying.
+    case _                      => expr
+
+  /** `match` where the SUBJECT is an `Any`.
+   *
+   * The value is a `Value::Obj(name, fields)`, so Rust patterns cannot see it — `case
+   * JsonCoreOk(v, n)` has to become a name test plus positional reads. Emitted as an if/else
+   * chain rather than a `match` with guards, because each arm binds different things and a guard
+   * cannot introduce bindings. */
+  private def renderAnyMatch(
+      subject: m.Term, cases: List[m.Case], ctx: Ctx, wrapArm: String => String
+  ): Either[List[Diagnostic], String] =
+    val subj = renderTerm(subject, ctx)
+    val arms = cases.map { c =>
+      c.pat match
+        case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), argClause) if ctx.ctorMap.contains(ctor) =>
+          val ec    = ctx.ctorMap(ctor)
+          val binds = argClause.values.zipWithIndex.map {
+            // `case JsonCoreOk(value, next)` and `case JsonCoreOk(value: Any, next: Int)` are the
+            // same thing here: the ascription restates the field's declared type, which is what
+            // the coercion already reads off the `case class`. Drop it and keep the binder — the
+            // typed path in `renderPattern` does the same.
+            case (m.Pat.Var(m.Term.Name(n)), i) =>
+              val ft = ec.fieldTypes.lift(i).getOrElse("crate::value::Value")
+              Right(s"let $n = ${coerceFromValue(s"""crate::value::ssc_field(&__any, "$ctor", $i)""", ft)}; ")
+            case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _), i) =>
+              val ft = ec.fieldTypes.lift(i).getOrElse("crate::value::Value")
+              Right(s"let $n = ${coerceFromValue(s"""crate::value::ssc_field(&__any, "$ctor", $i)""", ft)}; ")
+            case (m.Pat.Wildcard(), _) => Right("")
+            case (other, _) => Left(List(unsupported(
+              s"def `${ctx.defName}`: matching an `Any` against `$ctor` supports plain binders, not ${other.productPrefix}")))
+          }
+          val (bErrs, bOk) = binds.partitionMap(identity)
+          // A binder taken from an `Any`-typed FIELD is itself an `Any`, and the body will very
+          // likely pass it on — `case JsonCoreOk(value, next) => jsonCoreRender(value)`. Without
+          // recording that, the call boundary below cannot see it and the coercion stops one hop
+          // short of where the value actually goes.
+          val anyBinders = argClause.values.zipWithIndex.collect {
+            case (m.Pat.Var(m.Term.Name(n)), i)
+                if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value") => n
+            case (m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), _), i)
+                if ec.fieldTypes.lift(i).forall(_ == "crate::value::Value") => n
+          }.toSet
+          val armCtx = ctx.copy(anyNames = ctx.anyNames ++ anyBinders)
+          if bErrs.nonEmpty then Left(bErrs.flatten)
+          else
+            for
+              guard <- c.cond match
+                         case Some(g) => renderTerm(g, armCtx).map(gr => s" && ($gr)")
+                         case None    => Right("")
+              body  <- renderTerm(c.body, armCtx)
+            yield (s"""crate::value::ssc_is(&__any, "$ctor")$guard""", bOk.mkString + wrapArm(body))
+        case m.Pat.Var(m.Term.Name(n)) =>
+          for body <- renderTerm(c.body, ctx)
+          yield ("true", s"let $n = __any.clone(); ${wrapArm(body)}")
+        case m.Pat.Wildcard() =>
+          renderTerm(c.body, ctx).map(body => ("true", wrapArm(body)))
+        case other =>
+          Left(List(unsupported(
+            s"def `${ctx.defName}`: an `Any` match supports constructor, binder and `_` patterns, not ${other.productPrefix} (${other.syntax})")))
+    }
+    val (errs, ok) = arms.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else subj.map { s =>
+      val chain = ok.map { case (cond, body) =>
+        if cond == "true" then s"{ $body }" else s"if $cond { $body }"
+      }.mkString(" else ")
+      // No arm matched and no catch-all: panic naming the value, rather than falling through to a
+      // default. A JSON parser that silently returns 0 for an unrecognised node is the failure this
+      // whole family of bugs has been about.
+      val fallthrough =
+        if ok.exists(_._1 == "true") then ""
+        else s""" else { panic!("no case matched {} in `${ctx.defName}`", __any.show()) }"""
+      s"{ let __any = $s; $chain$fallthrough }"
+    }
+
   private def renderMatch(
-      subject: m.Term, cases: List[m.Case], ctx: Ctx
+      subject: m.Term, cases: List[m.Case], ctx: Ctx,
+      // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
+      // position that must produce a `Value` — see `renderValueTail`.
+      wrapArm: String => String = identity
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
     // An identity catch-all (`case x => x`, no guard) trailing a sealed-enum match is the
@@ -3387,6 +3620,17 @@ object RustCodeWalk:
       if hasCtorArm && cases.lastOption.exists(isIdentityCatchAll)
       then cases.filterNot(isIdentityCatchAll)
       else cases
+    // An `Any` subject holds a `Value::Obj`, not a struct, so Rust patterns cannot see into it.
+    // Only diverts when BOTH are true — the subject is known to be an `Any` (from a declaration)
+    // and some arm destructures a standalone case class. Anything else keeps the typed path, which
+    // is the one that gives exhaustiveness checking.
+    val subjectIsAny = subject match
+      case m.Term.Name(n) => ctx.anyNames.contains(n)
+      case _              => false
+    val hasStructCtorArm = cases1.exists(_.pat match
+      case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), _) => ctx.ctorMap.get(ctor).exists(_.isStruct)
+      case _                                               => false)
+    if subjectIsAny && hasStructCtorArm then return renderAnyMatch(subject, cases1, ctx, wrapArm)
     // A `String` subject must be matched as `&str` for string-literal patterns
     // (`match s.as_str() { "x" => … }`) — Rust won't match `String` against `&str`.
     val hasStringPat = cases1.exists(c => c.pat match
@@ -3414,8 +3658,9 @@ object RustCodeWalk:
                    case None    => Right("")
         bod   <- renderTerm(c.body, ctx)
       yield
-        if prefix.isEmpty then s"$pat$guard => $bod,"
-        else s"$pat$guard => { $prefix$bod },"
+        val bodW = wrapArm(bod)
+        if prefix.isEmpty then s"$pat$guard => $bodW,"
+        else s"$pat$guard => { $prefix$bodW },"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)
     subjRendered.flatMap { s0 =>

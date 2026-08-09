@@ -13,6 +13,13 @@
       |    List(Vec<Value>),
       |    // A reactive signal: its name (for client-side `data-ssc-*` wiring) + current value.
       |    Signal(String, Box<Value>),
+      |    // A case-class value living inside an `Any`: constructor name + fields in DECLARATION
+      |    // order. ScalaScript code written against `Any` (std/json-core is the reason this exists:
+      |    // `case class JsonCoreArray(items: List[Any])`) needs somewhere to put a user struct, and
+      |    // this enum is what `Any` maps to. Positional, not named: the walker knows the field
+      |    // order from the `case class` declaration, and carrying names would double the size of
+      |    // every node for information it already has.
+      |    Obj(&'static str, Vec<Value>),
       |}
       |
       |// ── Reactive signal store + computed-signal recompute (live server state) ──────
@@ -68,6 +75,13 @@
       |            Value::Tuple(xs)  => render_seq("(", ")", xs),
       |            Value::List(xs)   => render_seq("List(", ")", xs),
       |            Value::Signal(_, v) => v.show(),
+      |            // `JsonCoreOk(1, 2)` — the same shape Scala's case-class toString gives, so a
+      |            // `println` of a value that happens to live in an `Any` reads the same as one
+      |            // that does not.
+      |            Value::Obj(name, fs) => {
+      |                if fs.is_empty() { format!("{}()", name) }
+      |                else { format!("{}{}", name, render_seq("(", ")", fs)) }
+      |            }
       |        }
       |    }
       |    // Unwrap a signal to its current value (or itself if not a signal). Takes
@@ -139,3 +153,80 @@
       |    format!("{}{}{}", open, parts.join(", "), close)
       |}
       |
+      |// ── Coercion across the `Any` boundary ────────────────────────────────────────
+      |//
+      |// These exist so the CODE GENERATOR never has to know the type of an expression it is
+      |// passing — only the type of the place it is passing it TO, which is always declared (a
+      |// `case class` field, a `def` parameter, a return type). That asymmetry is the whole reason
+      |// this design is tractable without type inference in the walker.
+      |//
+      |// Both directions are TOTAL:
+      |//   * into an `Any`   — `Value::from(x)`, and `impl<T> From<T> for T` in std makes it the
+      |//                       identity when `x` is already a `Value`;
+      |//   * out of an `Any` — `x.ssc_int()` etc., implemented for `Value` AND for the concrete
+      |//                       type, so the same emitted call compiles either way.
+      |//
+      |// Getting it wrong is a PANIC naming both types, not a silent default: a JSON parser that
+      |// reads a string as 0 produces plausible garbage, which is the failure mode this whole
+      |// family of bugs has been about.
+      |
+      |// The scalar `From`s are declared further up (they predate this block, for signals); only the
+      |// ones this boundary adds are here. A duplicate impl is a hard error, not a warning.
+      |impl From<()> for Value { fn from(_: ()) -> Value { Value::Unit } }
+      |impl<T: Into<Value>> From<Vec<T>> for Value {
+      |    fn from(xs: Vec<T>) -> Value { Value::List(xs.into_iter().map(|x| x.into()).collect()) }
+      |}
+      |
+      |#[allow(dead_code)]
+      |fn ssc_wrong(want: &str, got: &Value) -> ! {
+      |    panic!("expected {} but found {} ({})", want, match got {
+      |        Value::Unit => "Unit", Value::Bool(_) => "Boolean", Value::Int(_) => "Int",
+      |        Value::Double(_) => "Double", Value::Str(_) => "String", Value::Tuple(_) => "a tuple",
+      |        Value::List(_) => "a List", Value::Signal(_, _) => "a Signal", Value::Obj(n, _) => n,
+      |    }, got.show())
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub trait SscInt  { fn ssc_int(self) -> i64; }
+      |#[allow(dead_code)]
+      |pub trait SscF64  { fn ssc_f64(self) -> f64; }
+      |#[allow(dead_code)]
+      |pub trait SscBool { fn ssc_bool(self) -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscStr  { fn ssc_str(self) -> String; }
+      |#[allow(dead_code)]
+      |pub trait SscVal  { fn ssc_val(self) -> Value; }
+      |
+      |impl SscInt for Value { fn ssc_int(self) -> i64 { match self { Value::Int(n) => n, other => ssc_wrong("Int", &other) } } }
+      |impl SscInt for i64   { fn ssc_int(self) -> i64 { self } }
+      |impl SscF64 for Value { fn ssc_f64(self) -> f64 { match self { Value::Double(f) => f, Value::Int(n) => n as f64, other => ssc_wrong("Double", &other) } } }
+      |impl SscF64 for f64   { fn ssc_f64(self) -> f64 { self } }
+      |impl SscBool for Value { fn ssc_bool(self) -> bool { match self { Value::Bool(b) => b, other => ssc_wrong("Boolean", &other) } } }
+      |impl SscBool for bool  { fn ssc_bool(self) -> bool { self } }
+      |impl SscStr for Value  { fn ssc_str(self) -> String { match self { Value::Str(s) => s, other => ssc_wrong("String", &other) } } }
+      |impl SscStr for String { fn ssc_str(self) -> String { self } }
+      |impl SscStr for &str   { fn ssc_str(self) -> String { self.to_string() } }
+      |// `ssc_val` is the identity on Value and the lift on everything else, so a call argument
+      |// declared `Any` can be emitted the same way regardless of what it is given.
+      |impl<T: Into<Value>> SscVal for T { fn ssc_val(self) -> Value { self.into() } }
+      |
+      |// A `List[T]` crossing the boundary: `Vec<Value>` out of a `Value::List`, then elementwise.
+      |#[allow(dead_code)]
+      |pub fn ssc_vec(v: Value) -> Vec<Value> {
+      |    match v { Value::List(xs) => xs, Value::Tuple(xs) => xs, other => ssc_wrong("a List", &other) }
+      |}
+      |
+      |// Read field `i` of a case-class value that is living in an `Any`. The name is checked, so a
+      |// pattern that expects `JsonCoreOk` and meets a `JsonCoreErr` says which it got.
+      |#[allow(dead_code)]
+      |pub fn ssc_field(v: &Value, ctor: &str, i: usize) -> Value {
+      |    match v {
+      |        Value::Obj(name, fs) if *name == ctor => fs[i].clone(),
+      |        other => ssc_wrong(ctor, other),
+      |    }
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn ssc_is(v: &Value, ctor: &str) -> bool {
+      |    matches!(v, Value::Obj(name, _) if *name == ctor)
+      |}
