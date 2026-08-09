@@ -2357,9 +2357,18 @@ lazy val cli = project
         IO.createDirectory(dest.getParentFile)
         IO.copyFile(src, dest)
       }
-      val stdSourceRoot = root / "v1" / "runtime" / "std"
+      // `std-to-repo-root` (2026-08-09): the shared `.ssc` standard library moved out of
+      // `v1/runtime/std` to the repo-root `std/`. Only the 42 Scala plugin modules stayed
+      // behind, and none of them holds a `.ssc` — so left pointing at the old directory this
+      // glob would match ZERO files and stage an EMPTY standard library, with no compile
+      // error anywhere to say so. The count assertion below exists because of that failure
+      // mode. Staged destination is unchanged (`runtime/std/`) — installed layout is a
+      // separate contract from source layout. See specs/std-to-repo-root.md.
+      val stdSourceRoot = root / "std"
       val stagedStdRoot = nativeFrontDir / "runtime" / "std"
       val nativeStdFiles = (stdSourceRoot ** "*.ssc").get.filter(_.isFile)
+      if nativeStdFiles.isEmpty then
+        sys.error(s"native std staging matched no .ssc under $stdSourceRoot — the std source root is wrong")
       nativeStdFiles.foreach { src =>
         val rel = IO.relativize(stdSourceRoot, src).getOrElse(sys.error(s"cannot relativize native std source: $src"))
         val dest = stagedStdRoot / rel

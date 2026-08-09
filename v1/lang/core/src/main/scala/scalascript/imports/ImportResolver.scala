@@ -74,7 +74,15 @@ object ImportResolver:
       var found: Option[os.Path] = None
       var continue = true
       while continue && found.isEmpty do
-        if os.exists(cur / "runtime" / "std") then found = Some(cur / "runtime")
+        // `std-to-repo-root` (2026-08-09): the 108 shared `.ssc` modules now live at the
+        // repo-root `std/`, so probe that FIRST.  The `runtime/std` arm stays as the
+        // fallback — an installed tree still stages them to `<root>/runtime/std/`, and so
+        // does any checkout predating the move.  Order matters rather than merely being
+        // tidy: after the move `v1/runtime/std` still EXISTS (42 Scala modules live there)
+        // but holds no `.ssc`, so the old arm would match a directory that resolves
+        // nothing and report success.
+        if os.exists(cur / "std") then found = Some(cur)
+        else if os.exists(cur / "runtime" / "std") then found = Some(cur / "runtime")
         else if cur.segmentCount == 0 then continue = false  // reached filesystem root
         else cur = cur / os.up
       found
@@ -83,10 +91,17 @@ object ImportResolver:
       // `.filter(hasStd)`, like rules 4 and 6 — this function's contract, stated one docstring up,
       // is "returns the directory that CONTAINS a `std/` subdirectory". Unfiltered, rule 3 accepted
       // whatever the launcher passed as `-Dssc.lib.path`, which every `bin/ssc*` sets to the REPO
-      // ROOT: a dev tree keeps its std at `v1/runtime/std`, so the root does NOT contain `std/`,
+      // ROOT: a dev tree kept its std at `v1/runtime/std`, so the root did NOT contain `std/`,
       // and this returned it anyway. `stdPath` was therefore identical to `libPath` in every
       // dev-tree run, and rules 4-6 were unreachable — including rule 5, the `runtime/std`
       // ancestor walk that exists for exactly this layout.
+      //
+      // `std-to-repo-root` (2026-08-09) INVERTED the premise of that sentence: a dev tree now
+      // keeps its `.ssc` std at the repo-root `std/`, so the root DOES contain `std/` and rule
+      // 3 legitimately matches it. The filter stays — it is what makes rule 3 a real check
+      // rather than "whatever the launcher passed" — but in a moved dev tree it now passes on
+      // purpose. An installed tree is unchanged: its std is staged at `<root>/runtime/std`,
+      // the root has no `std/`, and resolution still falls through to rule 5.
       //
       // The tests never caught it because every one of them builds `lib` with `withStd("lib")`:
       // the only shape exercised was the one where the distinction cannot show.
