@@ -5,7 +5,7 @@ started: 2026-08-09T17:04:34Z
 heartbeat: 2026-08-09T17:04:34Z
 status: claimed-before-planning
 items: SSC3-G1 given-with-as-syntax SSC3-G2 type-checker-mandatory
-paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/tests/front/given-instance.ssc file:v3/tests/front/given-instance.expected file:v3/tests/front/given-summon-refused.ssc file:v3/SPRINT.md file:v3/BACKLOG.md file:BUGS.md
+paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/tests/front/given-instance.ssc file:v3/tests/front/given-instance.expected file:v3/tests/front/given-summon-refused.ssc file:v3/SPRINT.md file:v3/BACKLOG.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
