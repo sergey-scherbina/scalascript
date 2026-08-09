@@ -4275,7 +4275,25 @@ def main() =
 So the receiver is somewhere in `buildTableDatabase`'s call tree (`scljet/write.ssc:541`), not in
 the read path and not in the example.
 
-**Two searches that came back empty, recorded so nobody repeats them.** `.isEmpty` appears 196
+**FOUR searches came back empty, and together they say the receiver is not scljet's.** Recorded in
+full so nobody repeats them:
+
+1. No `.isEmpty` in `scljet/*.ssc` is on a name bound to a four-tuple LITERAL.
+2. Neither `buildTableDatabase` nor `readRowids` calls `.isEmpty` directly.
+3. No function in `scljet/*.ssc` has a four-tuple RETURN type.
+4. **All 68 distinct `.isEmpty` receivers in `scljet/*.ssc` are declared `Option`, `List` or
+   `String`** — not one is a four-field record.
+
+Two suspects were excluded by reading rather than guessed at: `ByteError` has THREE fields, not
+four, and v2 DOES implement `Option.isEmpty` (`Runtime.scala:2515-2516`, `Some` and `None`), so
+neither the `failure: Option[ByteError]` receivers nor a missing Option method explains it.
+
+**So the `Tuple4` is not a value scljet declares — it is a value scljet RECEIVES.** Something the
+build path calls returns a differently-shaped value on v2 than on int, and it lands where an
+`Option` or a `List` is expected. That is the same "two lanes disagree about a value's type"
+conclusion, now with the whole of scljet ruled out as the source.
+
+**Old note, kept because the searches under it are still the ones not to repeat:** `.isEmpty` appears 196
 times in `scljet/*.ssc` and NONE of them is on a name bound to a four-tuple literal — so the
 receiver arrives from a function return, not a local. And neither `buildTableDatabase` nor
 `readRowids` calls `.isEmpty` directly; it is deeper.
