@@ -4234,8 +4234,35 @@ runs at all (the only commits matching scljet in that range are claim and releas
 Four cases of one family regressing together with no change to that family points at something
 shared: the v2 lane itself, or the runner, across the 389 commits between the two nightlies.
 
-**Next step, and it is a bisect not a read**: 389 commits is too many to eyeball, but four rows
-moving together means one cause, and the family is small enough to run locally on the v2 lane.
+**CAUSE FOUND the same day, and no bisect was needed — running the four locally answered it.** All
+four fail identically on `bin/ssc run --v2`, while int runs them (`columns: 3 (id, name, salary)`):
+
+    ssc: `Tuple4.isEmpty` was called but does not exist, and the result reached output.
+    This used to print as `Stub` and serialise as if it were data.
+
+**These cases were never correct on v2. They passed because a missing method was SILENT.**
+`3d1d92bbd` (08-08 17:28, "runtime: a missing method must not become output — it reached an HTTP
+body") landed between the two nightlies and made an unresolved method loud instead of returning
+`Stub`. It did not break the four rows; it revealed them. The regression in the report is a
+regression in visibility, and the change that caused it is a good one — it found four real defects
+in one night.
+
+**What is actually wrong is upstream of the message.** `v2/src/Runtime.scala` implements `isEmpty`
+for `StrV`, `Nil` and `Cons` and not for tuples — but `.isEmpty` on a four-tuple is not a method
+anyone should want. The scljet sources call it on values named like results and options
+(`failure.isEmpty`, `vbError.isEmpty` — `scljet/address.ssc:257`, `bytes.ssc:61`,
+`freelist.ssc:64`), so the real question is why that receiver IS a `Tuple4` on the v2 lane when int
+gives something with an `isEmpty`. Implementing `Tuple4.isEmpty` would silence the message without
+answering it — the same shape as widening an arity to swallow a parameter.
+
+**So the next step is the receiver, not the method**: print what `failure` actually is on each lane
+at one of those three sites. Two lanes disagreeing about the type of a value is the defect; the
+missing method is how it surfaced.
+
+**Also worth recording for the entry above it:** `scljet-jdbc` on v2 additionally prints
+`--bytecode fell back to the VM lane [class-size-limit] (MethodTooLargeException)` before failing —
+that is `scljet-jdbc-facade-bytecode-class-too-large`, still live, and the fallback is working as
+designed.
 
 ---
 
