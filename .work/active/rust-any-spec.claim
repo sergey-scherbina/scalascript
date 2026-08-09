@@ -1,0 +1,15 @@
+slug: rust-any-spec
+branch: feature/rust-any-spec
+agent: claude-code
+started: 2026-08-09T15:05:51Z
+heartbeat: 2026-08-09T15:05:51Z
+status: implementing
+items: rust-any-spec
+paths: file:specs/rust-backend.md
+scope: |
+  What `Any` MEANS in the Rust target is now decided (option A) and implemented, and the record of
+  it lives in a BUGS entry -- which is where a defect goes, not where a language decision goes.
+  Write it into specs/rust-backend.md: the representation, the five boundaries, and the two
+  properties that make it work without type inference.
+  Scoped to the spec ALONE on purpose: `mod:v1/runtime/backend/rust` is held by `rust-try-catch`.
+next: write the section
