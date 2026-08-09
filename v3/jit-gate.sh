@@ -278,6 +278,68 @@ check_identity() {
   return $fail
 }
 
+# ── COMPILES: the size check's proxy, replaced by the observation itself ─────────────────────────
+#
+# `--sizes` asserts a method is under 8000 bytecodes. That is a PROXY for what actually matters,
+# which is whether HotSpot compiles it — and a proxy is exactly what this repository has been
+# burned by. `java -XX:+PrintCompilation` says so directly, costs one run, and is DETERMINISTIC:
+# it settled SSC3-J0b on a host at load 72, where no wall-clock A/B could resolve anything.
+#
+# It is also the only check here that would notice a JVM whose limits differ from the ones written
+# at the top of this file — a different vendor, a flag in JAVA_TOOL_OPTIONS, a future default.
+# `--sizes` would stay green through all of those while being wrong.
+#
+# PROVEN TO DISCRIMINATE against the real defect, 2026-08-09, and not by a plant: run against the
+# class directory built one commit earlier, where `invoke` was still 13415 bytecodes, the same
+# workload produced 1373 compilation events and
+#
+#     ssc3.Exec$::invoke     NEVER COMPILED   <- this check goes RED
+#     ssc3.Exec$::step       compiled
+#     ssc3.Exec$::callFunc   compiled
+#     ssc3.Exec$::binOp      compiled
+#
+# One method red and three green, on the same run: the check separates the defect from the
+# background rather than reacting to the whole build.
+check_compiles() {
+  local dir="$1" quiet="${2:-}" fail=0
+  local tc; tc="$(cat "$ROOT"/v3/.jars/toolchain-*.cp 2>/dev/null | head -1)"
+  [ -n "$tc" ] || { echo "  ✋ no toolchain classpath cached — run v3/ssc3 selftest first"; return 2; }
+  local log; log="$(mktemp "${TMPDIR:-/tmp}/ssc3jitc.XXXXXX")"
+
+  [ -n "$quiet" ] || echo "── compiles: does HotSpot actually compile the executor? ───────────────"
+  # A method-call-heavy workload, warmed well past the tier thresholds. `list-fold` is a fold, and a
+  # fold is method calls, which is what `invoke` is.
+  java -XX:+PrintCompilation -cp "$dir:$tc" ssc3.ssc3 bench --warmup 200 --reps 3 \
+       "$ROOT/bench/corpus/list-fold.ssc" > "$log" 2>&1
+
+  # The flag is ON and the run was long enough to compile anything at all. Without this, every
+  # assertion below would pass vacuously on a run that produced no log.
+  local total; total="$(grep -cE '^ *[0-9]+ +[0-9]+ ' "$log")"
+  if [ "${total:-0}" -lt 100 ]; then
+    echo "  ✋ only ${total:-0} compilation events — the run did not warm up, so this proves nothing"
+    rm -f "$log"; return 2
+  fi
+
+  local meth
+  for meth in 'ssc3.Exec$::invoke' 'ssc3.Exec$::step' 'ssc3.Exec$::callFunc' 'ssc3.Exec$::binOp'; do
+    # The trailing ` (` matters: without it `…::invoke` also matches `invokeRest` and
+    # `invoke$$anonfun$56`, and the lambda IS compiled in a build where the method is not — which is
+    # precisely the false green this check exists to avoid. Measured: that is what the 13415-byte
+    # build printed.
+    if grep -qF "$meth (" "$log"; then
+      [ -n "$quiet" ] || echo "  ok   $meth is compiled"
+    else
+      echo "  FAIL $meth is NEVER JIT-COMPILED in this build."
+      echo "       Over -XX:DontCompileHugeMethods (8000) it is skipped for the life of the"
+      echo "       process and runs at the JVM's own interpreter speed. Check its size:"
+      echo "       v3/jit-gate.sh --sizes"
+      fail=1
+    fi
+  done
+  rm -f "$log"
+  return $fail
+}
+
 # ── THE SELF-TEST — a gate is only a gate if it can go red ───────────────────────────────────────
 #
 # Both rules are exercised against the REAL measurement of this tree, by perturbing the declaration
@@ -358,19 +420,46 @@ self_test() {
   fi
   rm -rf "$tmp"
 
+  # Rule 4 — the `--compiles` matcher must not match everything. Its whole risk is the opposite of
+  # the other checks': a `grep` that is too loose reports every method as compiled and can never go
+  # red. A name that cannot exist must come back absent.
+  #
+  # This is the WEAKER half of that check's evidence, and deliberately so. The strong half is
+  # recorded at `check_compiles` itself: run against the build one commit earlier, `invoke` came
+  # back NEVER COMPILED while `step`, `callFunc` and `binOp` came back compiled, on one run. That
+  # one cannot be reproduced from a fresh clone, which has no earlier class directory — so it is
+  # written down there and this rule guards the part that can be checked anywhere.
+  local tc; tc="$(cat "$ROOT"/v3/.jars/toolchain-*.cp 2>/dev/null | head -1)"
+  local plog; plog="$(mktemp "${TMPDIR:-/tmp}/ssc3jits.XXXXXX")"
+  java -XX:+PrintCompilation -cp "$dir:$tc" ssc3.ssc3 bench --warmup 60 --reps 2 \
+       "$ROOT/bench/corpus/list-fold.ssc" > "$plog" 2>&1
+  if grep -qF 'ssc3.Exec$::noSuchMethodAnywhere (' "$plog"; then
+    echo "  FAIL rule 4: the compiles matcher found a method that does not exist — it matches"
+    echo "       anything, so its green means nothing."
+    fails=$((fails + 1))
+  elif ! grep -qF 'ssc3.Exec$::step (' "$plog"; then
+    echo "  FAIL rule 4 control: the matcher did not find ssc3.Exec\$::step either, so the absence"
+    echo "       above proves nothing about the matcher."
+    fails=$((fails + 1))
+  else
+    echo "  ok   rule 4 fires: the compiles matcher finds a real method and not an invented one"
+  fi
+  rm -f "$plog"
+
   echo
-  [ "$fails" = 0 ] && echo "  self-test: the gate discriminates (3 rules, all proven to fire)" \
+  [ "$fails" = 0 ] && echo "  self-test: the gate discriminates (4 rules, all proven to fire)" \
                    || echo "  self-test: $fails rule(s) DID NOT FIRE — do not trust a green from this gate"
   return "$fails"
 }
 
-want_sizes=0; want_spec=0; want_ident=0; want_self=0
-if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; want_ident=1; fi
+want_sizes=0; want_spec=0; want_ident=0; want_comp=0; want_self=0
+if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; want_ident=1; want_comp=1; fi
 for a in "$@"; do
   case "$a" in
     --sizes)      want_sizes=1 ;;
     --specialize) want_spec=1 ;;
     --identity)   want_ident=1 ;;
+    --compiles)   want_comp=1 ;;
     --self-test)  want_self=1 ;;
     *) echo "v3/jit-gate.sh: unknown flag $a" >&2; exit 2 ;;
   esac
@@ -394,6 +483,7 @@ rc=0
 [ "$want_sizes" = 1 ] && { check_sizes "$DIR" || rc=1; }
 [ "$want_spec"  = 1 ] && { echo; check_specialize "$DIR" "$ROOT/v3/tests/jit" || rc=1; }
 [ "$want_ident" = 1 ] && { echo; check_identity || rc=1; }
+[ "$want_comp"  = 1 ] && { echo; check_compiles "$DIR" || rc=1; }
 [ "$want_self"  = 1 ] && { self_test  "$DIR" || rc=1; }
 
 echo
