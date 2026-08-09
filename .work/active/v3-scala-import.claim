@@ -5,7 +5,7 @@ started: 2026-08-09T15:48:55Z
 heartbeat: 2026-08-09T15:48:55Z
 status: in-progress
 items: v3-has-no-scala-style-import
-paths: file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/src/Source.scala file:v3/tests/scala-import file:v3/BUGS.md file:v3/SPRINT.md
+paths: file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/src/Source.scala mod:v3/tests/front file:BUGS.md file:v3/SPRINT.md
 scope: |
   `import a.b.C` maps onto the markdown-link module mechanism instead of being refused.
   MEASURED FIRST: of 10 lines in corpus+std that begin with `import`, 7 are a bare dotted path
