@@ -187,6 +187,31 @@ jobs:
       - name: Verify TASK/ generated regions agree with the module boards
         run: tests/e2e/task-views-gate.sh --self-test
 
+      # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
+      # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
+      # also checks that a bug sits in a board owning the code it names.
+      #
+      # TIER 2, deliberately not smoke. This runs a repo-wide walk over every BUGS.md and every
+      # code directory: right for the nightly and for a PR, too slow for the per-push budget
+      # smoke already exceeds. Sergiy's call, 2026-08-09.
+      #
+      # It was red on origin/main for an unknown length of time before this — and the reason is
+      # the point of adding it: it lived nowhere in CI, so only a hand invocation ever saw it.
+      # Ten board-ownership misfilings had accumulated and one baselined row had gone stale.
+      # The baseline was refreshed rather than the entries refiled, which is what the baseline
+      # is for and says so in its own header: "a check that is red on arrival gets ignored, and
+      # an ignored check is worse than none." Refiling ten other people's bugs would mean
+      # guessing which board owns each, and a wrong guess writes a false record onto a durable
+      # board — worse than the drift. The frozen rows stay visible and each one is somebody's
+      # to fix.
+      #
+      # Verified to still discriminate after the refresh, three arms: as landed it PASSES;
+      # delete one baseline row (a new misfiling) and it FAILS naming it; add a bogus row (a
+      # stale one) and it FAILS naming that. A refreshed baseline that no longer fails is just
+      # a blindfold with a green tick.
+      - name: Verify the path→area map is total and each board owns its bugs' code
+        run: tests/e2e/area-map-gate.sh
+
       # POLICY.md is the single source for the process rules; the specs keep mechanism and evidence.
       # This catches the two things that are decidable — a rule copied verbatim into a second
       # document, and an entry point that stopped linking here. It cannot detect a paraphrase, and
