@@ -2404,3 +2404,64 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       after that claim releases rather than rebased into it; asked in the rozum room 2026-08-09/13.
       *Note the ordering consequence:* until `invoke` is under 8000, every measurement of every later
       tier is taken against a baseline HotSpot refuses to compile.
+
+## 50 · Tier 2, un-deferred — and the first thing to establish is that it is not ONE thing
+
+Sergiy lifted the Tier 2 deferral. Before planning anything, the charter's own grouping needed
+checking, and **it groups two constructs that need different things**:
+
+- **`extension`** — `extension (x: T) def m(a) = b`, then `v.m(a)`. Resolution is by NAME: if no
+  class declares `m`, the extension's `m` applies with the receiver first. v3's method dispatch is
+  already name-and-arity based, precisely because there is no type checker. **So `extension` needs
+  no types at all**, and the charter listing it beside `given`/`using` overstated its cost.
+- **`given` / `using`** — needs to pick an instance by TYPE. This is the one the charter is right
+  about: there is nothing in a value's runtime tag that says which `Monoid[A]` a call wants.
+
+**The plan, staged so each step is measurable on its own.**
+
+1. **`extension`, projection-only.** The projection sees every declaration in `parse`, so it can
+   collect the extension method names, emit each as a top-level `def` with the receiver as its
+   first parameter, and rewrite `MethodCall(v, m, args)` to `Call(m, v :: args)` — but ONLY where
+   no class declares `m`, so a real method always wins. Nothing outside `v3/uniml`.
+2. **`using` parameters and `given` declarations, resolved by DECLARED TYPE TEXT.** A `using`
+   parameter becomes an ordinary one; a `given` becomes a top-level `val`. At a call, if exactly
+   ONE given's declared type text matches the `using` parameter's, pass it. **Ambiguity and generic
+   instances are REFUSED by name** — this is a syntactic match, not inference, and calling it
+   inference would be the kind of overstatement this file exists to avoid.
+3. **Measure, then decide whether more is wanted.** Step 2 covers the shape typeclass code actually
+   uses; whether the remainder is worth a type checker is a question for numbers, not for now.
+
+**What blocks what, checked rather than assumed.** `ssc3-effect-protocol` released 24 hours ago, so
+`Exec.scala` and `Lower.scala` are no longer its. They are now held by four OTHER claims
+(`v3-dataset-vertical-slice`, `v3-calls-a-captured-function-parameter`, `v3-bridge-lifted-capture`,
+`ssc3-cps-split`), and `Parser.scala` by a fifth. Step 1 needs none of them.
+
+## 51 · Tier 2 stage 1, attempted and REVERTED — the measurement corrected the plan
+
+§50's plan called `extension` "projection-only", on the reading that it resolves by NAME and so
+needs no types. **The name part is right and the placement was wrong**, and it cost two
+measurements to find out — both worth more than the feature.
+
+- [x] **50a — a name-based rewrite broke 131 cases.** `v.m(a)` → `m(v, a)` wherever `m` is an
+      extension name and no class in the module declares it: **N 188 → 130, CRASH 0 → 131**. An
+      extension named `map` or `join` rewrote every `.map(…)` and `.join(…)` in the program,
+      including the ones on lists. The projection knows what a module DECLARES and nothing about
+      the built-in vocabulary — and adding that list is not the fix, because **which method a
+      receiver has is a fact about its runtime value, not its syntax**.
+
+- [x] **50b — refusing at the call site cannot cover it either.** `UniFront.parse` runs once per
+      FILE, so an extension declared in an imported module is invisible where it is called. Two
+      cases went from a clean UNSUPPORTED to an unpositioned CRASH for that reason. Turning a
+      positioned refusal into an unpositioned failure is a regression even for a program that was
+      never going to run.
+
+- [x] **50c — reverted to the refusal, floors restored**: N = 188 of 368, CRASH 0. The work is
+      filed in `v3/BACKLOG.md` with both measurements and the design conclusion: an extension is one
+      more fallback in `Lower`'s dynamic `Invoke` default, tried after every class arm and the
+      built-in table have missed — the only point where the merged program AND the receiver's
+      runtime tag are both known.
+
+**So Tier 2 is un-deferred and BLOCKED, which is a different thing from un-deferred and done.** Both
+stages need `v3/src/Lower.scala`: stage 1 for the dispatch fallback, stage 2 because `given`
+resolution has the same per-file blindness and additionally rewrites call sites. That file is held
+by four claims, one of them active eleven minutes before this was written.

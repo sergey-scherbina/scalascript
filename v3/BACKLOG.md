@@ -4,6 +4,39 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## `extension` belongs in `Lower`'s dispatch, and the projection CANNOT do it — measured 2026-08-09
+
+Tier 2 was un-deferred and the plan's first stage was "`extension`, projection-only" — on the
+reading that it resolves by NAME and therefore needs no types. The name part is right. Doing it in
+the projection is not, and two measurements say so.
+
+**A name-based rewrite breaks the built-ins.** Turning `v.m(a)` into `m(v, a)` wherever `m` is an
+extension name and no class in the module declares it took **N from 188 to 130 with CRASH 131**: an
+extension named `map` or `join` rewrote every `.map(…)` and `.join(…)` in the program, including
+the ones on lists. The projection knows the members a module DECLARES and nothing about the
+built-in vocabulary — and adding that list is not the fix, because which method a receiver has is a
+fact about its runtime VALUE, not its syntax.
+
+**And refusing at the call site cannot cover it either.** `UniFront.parse` runs once per FILE
+(`Loader.closureWith`), so an extension declared in an imported module is invisible where it is
+called. Two corpus cases went from a clean UNSUPPORTED to an unpositioned CRASH for exactly that
+reason — `collection-join` and `js-parser-combinator-choice`.
+
+**Where it goes.** `Lower` already has the dispatch this needs: a `Switch` per declaring class with
+a dynamic `Invoke` default, over the MERGED program. An extension is one more fallback in that
+default, tried after every class arm and after the built-in table have missed — which is the only
+point where both the whole program and the receiver's runtime tag are known. The projection's half
+is small and uncontroversial: an extension method is a top-level `def` with the receiver as its
+first parameter.
+
+Blocked on `v3/src/Lower.scala`, held by `ssc3-cps-split` (active 11 minutes ago),
+`v3-dataset-vertical-slice`, `v3-calls-a-captured-function-parameter` and `v3-bridge-lifted-capture`.
+
+**`given`/`using` has the same shape of problem and is NOT the same problem.** Its stage-2 plan —
+match a `using` parameter's declared type TEXT against the `given`s in scope — has the same
+per-file blindness, and additionally needs the call site rewritten. It waits on the same file.
+
+
 ## DATASET — the second decision v3 has not made, measured 2026-08-08
 
 Not a task, and taken off the queue after measuring it rather than after starting it. `Dataset` is
