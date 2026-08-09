@@ -13,7 +13,7 @@ Newest first.
 ## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 6758f3d64
      lane: v2-rust
      area: codegen
      kind: bug
