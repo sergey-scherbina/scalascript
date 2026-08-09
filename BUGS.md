@@ -1695,6 +1695,35 @@ pin is a design question rather than a regression.
 
 
 
+**ONE OF THE TWO OPTIONS IS UNSAFE, established 2026-08-09 by reading the runtime rather than by
+trying it.** This entry offers *"synthesising a partial-application wrapper when a call supplies
+fewer arguments than the arity"* as the alternative that would not disturb `curried-def-clauses.ssc`.
+**It cannot be done in the runtime**, and the reason is structural:
+
+    final class ClosV(var env: Env, val arity: Int, val code: Code)     Runtime.scala:114
+
+A closure carries a TOTAL arity and nothing else. Both application sites — the trampoline's
+`case Call(c, args)` and `completeStep` — see only `c.arity` against `args.length`. Since a curried
+def lowers at its total arity and its call site flattens (this entry's own first paragraph), the
+runtime cannot tell
+
+    def two(a: Int)(b: Int)     called as `two(1)`   — legal in Scala, wants a closure
+    def add(a: Int, b: Int)     called as `add(1)`   — NOT legal, wants an arity error
+
+apart: both arrive as an arity-2 closure with one argument. A wrapper synthesised there would turn
+every genuine arity error in the language into a silently returned closure — the fail-open shape,
+traded for a feature.
+
+**So the wrapper has to be synthesised where curried-ness is still known — in the FRONT.** That does
+not make it the same as the other option (lowering to nested lambdas), and it does not disturb what
+`curried-def-clauses.ssc` pins, so the decision still has two live answers. It has one fewer place to
+put one of them.
+
+**Not implemented.** I took this expecting an additive runtime change, found it was not additive, and
+stopped rather than ship the unsafe version. Recorded here so the next person does not spend the same
+hour discovering it.
+
+
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed
      lane: multi
