@@ -1,0 +1,17 @@
+# A Scala-style import names a module in the standard library
+
+`import credential.credentialEnv` means what `[credentialEnv](std/credential.ssc)` means: the
+LAST segment is a member and the rest is the module, so this loads `v1/runtime/std/credential.ssc`
+and every definition in it — Tier 0 has no namespaces to hide the rest behind.
+
+The module is a real one rather than a fixture written for this test, because the mapping's whole
+job is to land on the standard library as it is actually laid out.
+
+```scalascript
+import credential.credentialEnv
+
+val c = credentialEnv("API_TOKEN")
+println(c.kind)
+println(c.source)
+println(c.scheme)
+```

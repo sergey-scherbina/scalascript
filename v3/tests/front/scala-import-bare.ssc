@@ -1,0 +1,14 @@
+# A single bare name is not an import — REFUSED
+
+No `.expected`, so the front gate requires this to be refused.
+
+`import credential` has no member to drop, so no module path can be derived from it. The refusal is
+what keeps it from becoming an ordinary NAME: before the keyword was claimed, `import credential`
+parsed as two statements and failed much later with `unknown name 'import'`, in a file and at a
+line the reader did not write.
+
+```scalascript
+import credential
+
+println("unreachable")
+```

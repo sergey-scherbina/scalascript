@@ -34,11 +34,73 @@ object Loader:
     val lines = text.split("\n", -1).toList
     var out: List[(String, Int)] = Nil
     var ln = 0
+    // FENCE STATE, for the second spelling only. A markdown link is prose and is scanned wherever
+    // it appears — that is unchanged. A Scala-style `import` is CODE, and counting one outside a
+    // fence would import a documentation example: `std/actors.ssc` and `std/nodes.ssc` each show
+    // `import actors.ChildSpec` inside a ```text block, and `std/geo.ssc` shows `import std.geo.*`
+    // inside a ```scalascript one. Only the third is code. The first two are invisible to this
+    // scanner because of `inCode`, and they are the reason it exists — both happen to name their
+    // own file, so a wrong reading would have been a no-op and would have survived review.
+    var inCode = false
     lines.foreach { raw =>
       ln = ln + 1
+      if inCode then
+        if Source.isFenceClose(raw) then inCode = false
+        else
+          Source.scalaImportPath(raw) match
+            case Some(p) => out = (scalaImportTarget(p), ln) :: out
+            // AN UNSUPPORTED SPELLING IS REFUSED HERE, IN THE LOADER, AND NOT IN A PARSER.
+            //
+            // There are two fronts, and putting the refusal in `Parser.scala` puts it in one of
+            // them: the uniml front drops an `import` line it does not understand, so `import
+            // credential` ran and printed on the default front while v3's own front refused it —
+            // measured on this exact fixture before this branch existed. That is invariant I-3, a
+            // program that behaves differently on the two lanes, and the module graph is the one
+            // place both fronts already go through.
+            case None if startsImport(raw) =>
+              throw ParseFail(Pos(ln, 1),
+                "an `import` line must be a dotted path and nothing else — `import std.geo.*` or " +
+                "`import actors.Overflow`, which name a module in the standard library. Renaming " +
+                "(`as`), selector lists (`{a, b}`) and a single bare name have no meaning here, " +
+                "because an import brings the WHOLE module either way; for a module beside this " +
+                "file, write a markdown link — `[name](./other.ssc)`")
+            case None => ()
+      else if Source.isCodeFenceOpen(raw) then inCode = true
       out = scanLine(raw, ln, out)
     }
     out.reverse
+
+  /** The line opens with the WORD `import`, whatever follows it.
+    *
+    * The whitespace test is the whole of it: `importCount = 3` starts with those six letters and is
+    * an ordinary assignment, and refusing it would be this rule breaking programs to enforce itself.
+    */
+  private def startsImport(l: String): Boolean =
+    val t = l.trim
+    t.startsWith("import") && t.length > 6 && (t.charAt(6) == ' ' || t.charAt(6) == '\t')
+
+  /** The link target a Scala-style import means: `import actors.Overflow` is `std/actors.ssc`.
+    *
+    * THE LAST SEGMENT IS A MEMBER, not a directory — `Overflow` is an enum inside
+    * `v1/runtime/std/actors.ssc`, so the module is the path WITHOUT it. `.*` is the same shape with
+    * the member left unnamed, so it drops identically.
+    *
+    * `std/` IS PREPENDED when the path does not already start with it, and that is the whole of the
+    * mapping's opinion: a dotted name resolves in the standard library, while anything relative to
+    * the importing file keeps saying so with a link, where a `../` can be written and a dotted path
+    * cannot. Both real spellings land right — `actors.Overflow` on `std/actors.ssc`, `std.geo.*` on
+    * `std/geo.ssc` — and `candidates` then does the searching, so nothing here knows about
+    * `SSC_STD` or the layout.
+    *
+    * WHAT IT DOES NOT DO: the member name is not checked, and importing one name brings the whole
+    * module, because Tier 0 has no namespaces to hide the rest behind. That is a real difference
+    * from Scala and it is written here rather than discovered: `import actors.Overflow` gives you
+    * every definition in `std/actors.ssc`, exactly as the equivalent link would. */
+  def scalaImportTarget(dotted: String): String =
+    val segs = dotted.split("\\.", -1).toList
+    val mod  = segs.dropRight(1)
+    val full = if mod.headOption.contains("std") then mod else "std" :: mod
+    full.mkString("/") + ".ssc"
 
   /** ALL links on a line, not the first. The corpus writes
     * `[a](std/x.ssc) [b](std/y.ssc) [c](std/z.ssc)` on one line, and taking from the first `](` to
@@ -143,7 +205,12 @@ object Loader:
       if !seen.contains(canon) then
         seen = canon :: seen
         val text = read(path)
-        importsOf(text).foreach { (t, ln) => visit(resolve(t, path, ln)) }
+        // INSIDE the same guard as the parse, because `importsOf` now refuses an unsupported
+        // `import` spelling and that refusal carries a line number with no file attached to it.
+        val imports =
+          try importsOf(text)
+          catch case e: ParseFail => throw LoadError(path + ":" + e.getMessage)
+        imports.foreach { (t, ln) => visit(resolve(t, path, ln)) }
         // A parse failure inside an IMPORTED unit must name THAT unit. Without this the message
         // carried the ROOT file's path with the imported file's line number — pointing at a line
         // that has nothing to do with the error, in a file the reader did not write. Measured on

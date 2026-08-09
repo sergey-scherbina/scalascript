@@ -1500,23 +1500,28 @@ object Parser:
       // The two-token test matters. `effect` is not a keyword in this language, so a program with a
       // value called `effect` must keep working; requiring a NAME after it is what separates the
       // declaration from any other use of the word.
-      // `import a.b.c` — REFUSED BY NAME, because v3 has no such keyword and never did.
+      // `import …` — THE PARSER ONLY EVER SEES THE FORMS THAT ARE NOT SUPPORTED.
       //
-      // Modules are composed through MARKDOWN LINKS here, read by `Loader.importsOf`. Nothing
-      // claimed the word `import`, so the parser read it as an ordinary name and the file became
-      // `(do (name "import"))` followed by `(do (send (name "actors") "Overflow"))` — a program
-      // silently turned into two meaningless statements, which then failed somewhere in the
-      // lowering with `unknown name 'import'`, far from the line that caused it. Four conformance
-      // cases are written this way and none of them lowered.
+      // A supported import — a whole line that is `import` followed by a dotted path of identifiers,
+      // optionally ending `.*` — never reaches here: `Source.blankIfImport` replaces it with an empty
+      // line, exactly as it does a markdown link, because both are DECLARATIONS read by
+      // `Loader.importsOf` rather than expressions. So what is left at this branch is `import a`,
+      // `import a.{b, c}`, `import a.b as c` — and refusing them by NAME is the point.
       //
-      // A refusal rather than support, and the entry it comes from names both as acceptable:
-      // teaching the keyword and mapping it onto links is the OTHER way out, and belongs to whoever
-      // owns v3's module story. This does not foreclose it — when that lands, this branch goes.
+      // The refusal it replaces covered every spelling, and the message it gave ("v3 has no `import`
+      // keyword") is now false, which is the more dangerous kind of stale diagnostic: a reader would
+      // have deleted a line that works. Nothing claimed the word before that refusal, so `import
+      // actors.Overflow` parsed as `(do (name "import"))` and `(do (send (name "actors")
+      // "Overflow"))` — two meaningless statements that failed in the lowering with `unknown name
+      // 'import'`, far from the line that caused it. That is the failure mode to keep out, and it is
+      // why the leftovers are refused here rather than left to become names.
       // (BUGS.md v3-has-no-scala-style-import.)
       else if isId(peek(ts), "import") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
         throw ParseFail(posOf(ts),
-          "v3 has no `import` keyword — modules are composed with markdown links, and a `.ssc` " +
-          "file names its imports in the prose around the fence, not inside it")
+          "an `import` line must be a dotted path and nothing else — `import std.geo.*` or " +
+          "`import actors.Overflow`, which name a module in the standard library. Renaming " +
+          "(`as`), selector lists (`{a, b}`) and a single bare name have no meaning here; for a " +
+          "module beside this file, write a markdown link — `[name](./other.ssc)`")
       // `multi effect X:` — the same declaration, and the `multi` says the handler may resume more
       // than once. Since CPS landed the executor can, so this is carried rather than refused; the
       // word is dropped because nothing downstream needs it — multi-shot is not a mode, it is what

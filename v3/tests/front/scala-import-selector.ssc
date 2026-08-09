@@ -1,0 +1,14 @@
+# A selector list has no meaning here — REFUSED
+
+No `.expected`, so the front gate requires this to be refused.
+
+`import a.{b, c}` imports two names and nothing else, which is a statement about NAMESPACING —
+and Tier 0 has none: an import brings the whole module either way. Accepting the spelling would
+mean accepting a promise the language cannot keep, so it is refused BY NAME rather than parsed
+into something that quietly does more than it says.
+
+```scalascript
+import credential.{credentialEnv, credentialFile}
+
+println("unreachable")
+```

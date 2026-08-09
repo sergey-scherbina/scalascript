@@ -63,14 +63,50 @@ object Source:
     }
     out.reverse
 
-  /** An import link is a DECLARATION handled by `Loader`, not an expression. It is replaced by an
+  /** An import is a DECLARATION handled by `Loader`, not an expression. It is replaced by an
     * empty line rather than deleted for the same reason prose is: line numbers are what a
-    * diagnostic points at. */
+    * diagnostic points at.
+    *
+    * TWO SPELLINGS, one meaning. `[name](std/x.ssc)` is v3's own, and `import std.x.name` is the
+    * one people write out of habit — `Loader.scalaImportTarget` maps the second onto the first, so
+    * blanking them here is the same act for the same reason. */
   private def blankIfImport(l: String): String =
     val t = l.trim
     val close = t.indexOf("](")
     if t.startsWith("[") && close > 0 && t.endsWith(")") && t.substring(close + 2, t.length - 1).trim.endsWith(".ssc")
-    then "" else l
+    then ""
+    else if scalaImportPath(l).isDefined then ""
+    else l
+
+  /** The dotted path of a Scala-style `import` line, when the line is EXACTLY that and nothing else.
+    *
+    * STRICT ON PURPOSE, and the strictness was measured rather than guessed. Ten lines in the corpus
+    * and the standard library begin with the word `import`; three of them are prose —
+    * `` import ("No method 'empty' …") ``, `import resolves; the call always takes …` — and reading
+    * those as imports is the same false positive the link scanner already learned about one comment
+    * up. Requiring the whole line to be a dotted path of identifiers (optionally ending in `.*`)
+    * rejects all three, and the caller only ever asks INSIDE a code fence, which rejects the four
+    * that sit in ```` ```text ```` documentation blocks.
+    *
+    * `import a` with no dot returns None deliberately: there is no member to drop, so no module can
+    * be derived from it, and the parser refuses it BY NAME rather than this silently ignoring it. */
+  def scalaImportPath(l: String): Option[String] =
+    val t = l.trim
+    if !t.startsWith("import") then None
+    else
+      val rest = t.substring(6)
+      if rest.isEmpty || !(rest.charAt(0) == ' ' || rest.charAt(0) == '\t') then None
+      else
+        val p = rest.trim
+        val segs = p.split("\\.", -1).toList
+        val ok = segs.length >= 2 && segs.zipWithIndex.forall { (s, i) =>
+          if s == "*" then i == segs.length - 1 else isIdent(s)
+        }
+        if ok then Some(p) else None
+
+  private def isIdent(s: String): Boolean =
+    s.nonEmpty && (s.charAt(0).isLetter || s.charAt(0) == '_') &&
+      s.forall(c => c.isLetterOrDigit || c == '_')
 
   private def trimmed(l: String): String = l.trim
 
@@ -80,7 +116,11 @@ object Source:
     * `standard-scala-mixed-runnable` is the case that says otherwise: it interleaves ```` ```scala ````
     * and ```` ```scalascript ```` blocks and expects both to run, in source order. Its name says so.
     * ```sql / ```yaml stay excluded, and those really are data. */
-  private def isCodeFenceOpen(l: String): Boolean =
+  // NOT private, and the reason is worth a line: `Loader.importsOf` has to ask the same question —
+  // a Scala-style import counts only inside a code fence — and a second copy of this predicate is a
+  // second answer to "what is code". `@doc` and the attribute handling below are exactly what a
+  // divergent copy would omit first.
+  def isCodeFenceOpen(l: String): Boolean =
     // The info string may carry ATTRIBUTES — ```` ```scalascript @id=defs ```` — and matching it
     // whole skipped the fence entirely, so `fence-attr-code` compiled with two of its three blocks
     // missing and no diagnostic. Only the first word names the language.
@@ -97,4 +137,4 @@ object Source:
       val doc = info.split(Array(' ', '\t')).exists(a => a == "@doc" || (a.startsWith("@doc=") && a != "@doc=false"))
       !doc && (lang == "scalascript" || lang == "ssc" || lang == "scala")
 
-  private def isFenceClose(l: String): Boolean = trimmed(l) == "```"
+  def isFenceClose(l: String): Boolean = trimmed(l) == "```"

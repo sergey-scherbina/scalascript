@@ -1,0 +1,18 @@
+# An `import` inside a documentation fence is not an import
+
+THIS IS THE CONTROL, and it fails loudly rather than silently: the module named below DOES NOT
+EXIST, so if the scanner ever stops caring which fence a line sits in, `Loader.resolve` throws
+`cannot find the import 'std/no-such-module.ssc'` and this file stops running.
+
+Written because the standard library already contains four such lines — `std/actors.ssc` and
+`std/nodes.ssc` each show `import actors.ChildSpec` in a ```` ```text ```` block — and every one
+of them happens to name its OWN file, so reading them as imports would have been a harmless no-op
+that nothing could have detected.
+
+```text
+import no_such_module.Thing
+```
+
+```scalascript
+println("doc fence is prose")
+```
