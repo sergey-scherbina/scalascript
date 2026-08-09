@@ -1,0 +1,11 @@
+slug: front-diff-normalises-generated-names
+branch: feature/front-diff-normalises-generated-names
+agent: claude-code
+started: 2026-08-09T13:37:38Z
+heartbeat: 2026-08-09T13:37:38Z
+status: claimed-before-planning
+items: front-diff-compares-generated-names
+paths: file:v3/front-diff.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
