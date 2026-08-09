@@ -25,7 +25,7 @@ Newest first.
 ## v2-conformance-uses-FIXED-temp-filenames — a green suite goes red when a sibling runs it
 
 <!-- status: open
-     lane: v2
+     lane: apparatus
      area: build
      kind: apparatus
      gate: v2/conformance/check.sh -->
@@ -644,6 +644,7 @@ because `v3/src/BridgeV2.scala` was outside the claim that found it.
 ## v3-bridge-tuple-concat — v2 has no tuple `++`, and for six days no gate could see it
 
 <!-- status: fixed
+     fixed-in: 28a7b2a15
      lane: multi
      area: codegen
      kind: bug
