@@ -335,13 +335,22 @@ val suite = List(
   // rebuild: the Rust backend emitting a crate MISSING an imported def, leaving rustc to blame
   // their own call site. Both directions -- both import forms must REACH the crate, and what the
   // backend cannot lower must be a refusal that NAMES the def. Uses emit-rust, so no cargo.
-  Check("tests", "build-rust-refuses-loudly", "tests/e2e/build-rust-refuses-loudly.sh", List(), 60000),
+  // 180s, from measurement rather than from taste: 55.9-74.8 s standalone depending on host load,
+  // against a 60 s guard it TIMED OUT on twice. It runs five cargo builds (one pulling serde_json)
+  // because the semantic half compiles and RUNS the emitted crates — emission alone would not have
+  // caught the contract mismatch where `jsonParse` returned a String on this lane and a value on
+  // every other. Sharing one CARGO_TARGET_DIR would cut ~15 s and breaks the CLI's binary lookup;
+  // the gate says so at the top.
+  Check("tests", "build-rust-refuses-loudly", "tests/e2e/build-rust-refuses-loudly.sh", List(), 180000),
   // Sibling of the check above, and it exists because that one taught the lesson: a gate that
   // asserts on message TEXT has to run BOTH launchers, since only `bin/ssc` wraps errors with
   // `ssc: ` while `bin/ssc-tools` used to hand the user the JVM's own report. Four `run`s, still
   // under a second. It also guards the escape hatch — SSC_STACKTRACE=1 must still produce frames,
   // or the "fix" would just be deleting the diagnostics.
-  Check("tests", "cli-errors-are-messages", "tests/e2e/cli-errors-are-messages.sh", List(), 60000),
+  // 180s: measured 83.6 s standalone — over its old 60 s guard even on an idle host, which is why
+  // it timed out rather than failed. Six JVM launches (both launchers x error/trace/working), and
+  // a JVM start is ~10 s here.
+  Check("tests", "cli-errors-are-messages", "tests/e2e/cli-errors-are-messages.sh", List(), 180000),
   // The sbt plugin is a SEPARATE build -- not in the root aggregate, not in ci.yml -- so its ten
   // scripted scenarios were run by nothing at all. That is how 1fea89a79 (a JS commit) deleted all
   // four of their .ssc-artifacts fixtures and nobody noticed for three weeks, leaving two scenarios

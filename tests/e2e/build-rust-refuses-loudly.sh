@@ -32,6 +32,13 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/rust-loud.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 failed=0
 
+# NOTE on cost, so the next person does not re-derive it: this gate runs five cargo builds, one of
+# which pulls `serde_json`, and each crate is emitted into its own temp dir — so the dependency tree
+# is compiled more than once. Measured 74.8 s standalone. Setting CARGO_TARGET_DIR to share one
+# target dir cuts it to 60.7 s and BREAKS the gate: `build-rust` computes the produced binary's path
+# as `<crate>/target/<profile>/<name>` itself, so the binary is then not where the CLI looks. The
+# timeout in scripts/smoke-ci.ssc carries the measurement instead.
+
 # ── 1. A bare-file import must reach the crate ───────────────────────────────
 # No prose, no fences — the form this backend used to ignore. `twice` lives in another file and
 # must appear in the emitted Rust.
