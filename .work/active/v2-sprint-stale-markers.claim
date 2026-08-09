@@ -1,0 +1,11 @@
+slug: v2-sprint-stale-markers
+branch: feature/v2-sprint-stale-markers
+agent: claude-code
+started: 2026-08-09T12:33:09Z
+heartbeat: 2026-08-09T12:33:09Z
+status: claimed-before-planning
+items: module-sprint-item-written-by-nobody
+paths: file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
