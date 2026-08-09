@@ -21,7 +21,7 @@ if find "$JARS" -maxdepth 1 -type f \( \
 fi
 
 for parser in json-core yaml-core markdown-core; do
-  source="$ROOT/v1/runtime/std/$parser.ssc"
+  source="$ROOT/std/$parser.ssc"
   if grep -En '^[[:space:]]*extern[[:space:]]+def|java[.]util[.]regex|matchPrefix' \
       "$source" >/dev/null; then
     echo "pure parser uses a host intrinsic/regex route: $parser" >&2

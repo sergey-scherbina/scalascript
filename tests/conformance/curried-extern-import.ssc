@@ -13,7 +13,7 @@ native, so the v1 interpreter left it unbound and it never landed in
 StatRuntime now registers a placeholder global for such block-form externs so the
 import resolves; the call always takes the special-form path, never the placeholder.
 
-[httpClient, httpTimeout, httpRetry](../../v1/runtime/std/http.ssc)
+[httpClient, httpTimeout, httpRetry](../../std/http.ssc)
 
 ```scalascript
 def main(): Unit =

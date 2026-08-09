@@ -42,7 +42,7 @@ echo "── an extern call site passes through verbatim"
 ssc_usable_or_skip f-trailing-block-gate "$ssc"
 
 # The probes live under examples/ because the ones that touch std/http import it by a RELATIVE path
-# (`../v1/runtime/std/http.ssc`), exactly as examples/_bug1b.ssc does; from a temp dir that import
+# (`../std/http.ssc`), exactly as examples/_bug1b.ssc does; from a temp dir that import
 # does not resolve and every case fails for a reason that has nothing to do with the front.
 #
 # THE DIRECTORY IS UNIQUE PER RUN, and it was not at first: a fixed `examples/_ftb_probe` meant two
@@ -73,7 +73,7 @@ runs_as() {
 }
 
 # THE ORIGINAL: the block must run, and run BEFORE the statement after it.
-runs_as extern-curried-block 'inside-block|after|' '[httpClient](../../v1/runtime/std/http.ssc)
+runs_as extern-curried-block 'inside-block|after|' '[httpClient](../../std/http.ssc)
 def main(): Unit =
   httpClient("http://example.invalid") {
     println("inside-block")
@@ -82,13 +82,13 @@ def main(): Unit =
 
 # Single-line spelling of the same thing — the block shape was the first thing I suspected and it
 # was never the cause, so both spellings stay pinned.
-runs_as extern-curried-block-inline 'inside-block|after|' '[httpClient](../../v1/runtime/std/http.ssc)
+runs_as extern-curried-block-inline 'inside-block|after|' '[httpClient](../../std/http.ssc)
 def main(): Unit =
   httpClient("http://example.invalid") { println("inside-block") }
   println("after")'
 
 # Several statements in the block, which is what examples/_bug1b.ssc actually writes.
-runs_as extern-curried-block-multi 'inside-block|after|' '[httpClient, httpTimeout, httpRetry](../../v1/runtime/std/http.ssc)
+runs_as extern-curried-block-multi 'inside-block|after|' '[httpClient, httpTimeout, httpRetry](../../std/http.ssc)
 def main(): Unit =
   httpClient("http://example.invalid") {
     println("inside-block")

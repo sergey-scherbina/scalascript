@@ -28,6 +28,7 @@ v2/backend	codegen
 v2/backend-jvm-bytecode	codegen
 v1/runtime/std	plugin
 v2/runtime/std	plugin
+std	plugin
 v2/plugin-spi	plugin
 v1/runtime	runtime
 v2/runtime	runtime
