@@ -1,0 +1,11 @@
+slug: v3-scala-import
+branch: feature/v3-scala-import
+agent: claude-code
+started: 2026-08-09T15:48:55Z
+heartbeat: 2026-08-09T15:48:55Z
+status: claimed-before-planning
+items: v3-has-no-scala-style-import
+paths: file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/tests/front-capability file:v3/BUGS.md file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
