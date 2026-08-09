@@ -2365,3 +2365,42 @@ DIFFs that all belong to the effects claim. The remaining work in my scope is: t
 waiting on one line in `Exec.scala:482`, one on `finally` in `Ast.scala`, one on a pattern `val`
 that is not worth it yet — and on the corpus side, library surface in `Exec.scala`, `extension` in
 `Lower.scala`, and Tier 2. **All of it is either another claim's file or charter-deferred.**
+
+## 49 · Speed: the executor is ~900× off, and one cause needs no benchmark (claim `ssc3-jit`)
+
+Design and the full ladder: [`../specs/ssc3-jit.md`](../specs/ssc3-jit.md). Only the in-flight slice
+is a row here; J2/J3 and the parked alternatives live in that spec, which is written so a fresh agent
+can pick this up cold.
+
+Measured 2026-08-09 on a host at load ~43 — order of magnitude, not a ratio to defend:
+`bench/corpus/arith-loop.ssc` **226.99 ms** against v1's 0.244, `list-fold.ssc` **60.06** against
+0.0062. Both answers correct, so this is the cost of being right slowly.
+
+The second row needs no benchmark at all. `javap` over the classes the driver had just built:
+`Exec$.invoke` is **13 415 bytecodes**, and HotSpot's `DontCompileHugeMethods` cuts off at **8000** —
+so it is never JIT-compiled, and every method call any v3 program makes runs in the JVM's own
+bytecode interpreter for the life of the process. `step` (5478) and `binOp` (4352) do compile but are
+past `FreqInlineSize` (325), so neither ever inlines into the dispatch loop. The v2 runtime had the
+same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did not carry over is that
+**nothing in the build looks at method size**, which is why the first thing built here is the gate.
+
+- [~] **SSC3-J1 — the specializer, plus the gate that will judge it.** `Ir.scala` says the `kind`
+      field exists so "the specializer rewrites the field in place"; measured, `Lower.scala` emits
+      `NumKind.Dyn` at all nine of its sites and `Exec.step` matches it as `_`. The lever the IR was
+      designed around is emitted blank and read nowhere.
+      *Building:* `v3/jit-gate.sh` (`--sizes` bytecode-size check, `--specialize` per-instruction
+      kind fixtures, `--identity` corpus byte-equality) and `v3/src/Specialize.scala`
+      (`Specialize.module(m): Module`, pure, runs AFTER `Verify` per I-4, unproved stays `Dyn`).
+      *Done when:* `--sizes` is RED on `main` and named as such in the commit (P-6.1 — the failing
+      state is the starting state), `--specialize` is proven able to fail by reverting the rewrite,
+      and `v3/corpus-report.sh --exec` has not moved (I-5).
+      **`--identity` is asleep until `Exec` reads `kind`, and the spec says so in §4** — while the
+      field is ignored, that gate would pass a specializer assigning `F64` to string concatenation.
+
+- [~] **SSC3-J0 — executor hygiene. BLOCKED, deliberately, not forgotten.** Split `invoke`/`step`/
+      `binOp` under the limits; materialize the constant pool once (`Instr.Const` builds a fresh
+      `Value` on *every execution* today); `List[Instr]` → `Array[Instr]` at load; small-int cache.
+      All of it is `v3/src/Exec.scala`, which `ssc3-cps-split` holds (SSC3-7b-step2). Sequenced
+      after that claim releases rather than rebased into it; asked in the rozum room 2026-08-09/13.
+      *Note the ordering consequence:* until `invoke` is under 8000, every measurement of every later
+      tier is taken against a baseline HotSpot refuses to compile.
