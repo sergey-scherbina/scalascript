@@ -13,6 +13,21 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## `a ++ b ++ c` on lists answered a tuple (claim `scljet-tuple4-instrumentation`)
+
+- [x] `sconcat` read a `Cons` CELL as a pair, so the OUTER concat of a three-way list chain
+  returned a `TupleN`: `List(1,2) ++ List(3) ++ List(4,5)` printed `(1, List(2, 3), 4, List(5))` on
+  the v2 VM and `--bytecode` lanes, silently, exit 0. Three copies fixed (the prim, its binary
+  fast-path twin, and the `JvmBackend` preamble); `tests/e2e/list-concat-chain-gate.sh` is wired
+  into smoke as `v2/list-concat-chain` and was verified RED on the unpatched toolchain.
+- [x] The front's part is left alone deliberately: `isConcatCode` reads `++` as evidence of a
+  String, which is what routes a list chain into `sconcat` at all. Once the prim is total that
+  inference costs nothing when wrong, and narrowing it would de-type real string chains.
+- Downstream and NOT done — `scljet-crud`/`full`/`jdbc` now fail further in on
+  `app: not a function: 0` (`v2/BUGS.md scljet-app-not-a-function-after-the-concat-fix`);
+  `scljet-write-table` passes. Two more lanes carry a concat defect and are filed, one measured
+  (js) and one inferred from source (rust).
+
 ## F coverage: the decline reasons left after 2026-08-08 (claim `f-underscore-global`)
 
 Measured, not guessed: `ssc info --front-report` over 140 corpus files. After the arm-body fix

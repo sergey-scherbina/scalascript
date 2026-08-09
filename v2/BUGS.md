@@ -4307,6 +4307,105 @@ sites, and the answer is one `printf` away once someone rebuilds `v2/src`.
 a method anyone should want; the question the instrumentation answers is why that receiver is a
 tuple on v2 when int gives something with an `isEmpty`.
 
+### ANSWERED 2026-08-09 — the instrumentation ran, and the cause is not scljet's
+
+The `printf` the note above asked for is now a permanent, env-gated hook (`SSC_STUB_TRACE=1`,
+`Runtime.stubMiss`), because a breadcrumb that names WHAT was called and not what it was called ON
+costs this much every time. One run of the six-line snippet:
+
+```text
+[stub] Tuple4.isEmpty  receiver = (6, List(23, 15, 15, 1, 63), 116, List(97, 98, 108, 101, …))
+```
+
+Read that value: `6` is a record header length, `[23,15,15,1,63]` its five serial-type varints, and
+the fourth component is the record body — `"able" "tt" 2 "CREATE TABLE t(n INTEGER)"`, with the
+`116` (`'t'`) that should begin `"table"` sitting OUTSIDE it as the third component. It is not a
+data structure at all. It is **two `Cons` cells flattened into one tuple**: `Cons(6, [23,15,15,1,63])
+++ Cons(116, [97,98,…])`. The receiver is `encodeRecord`'s
+
+```scalascript
+val record = byteSliceToList(encodeVarint(headerLen.toLong)) ++ fields.serialBytes ++ fields.body
+```
+
+**REDUCED TO FIVE LINES WITH NO SCLJET AT ALL, and it is silent — no error, exit 0:**
+
+```scalascript
+def main() =
+  val a = List(1, 2)
+  val b = List(3)
+  val c = List(4, 5)
+  println(a ++ b ++ c)
+```
+
+    int   ->  List(1, 2, 3, 4, 5)
+    v2    ->  (1, List(2, 3), 4, List(5))
+    --bytecode -> (1, List(2, 3), 4, List(5))
+
+**So this was never four scljet rows. Every three-or-more-way list concatenation on the v2 native
+and bytecode lanes returned a tuple, and did so quietly.** The scljet family is simply where a
+tuple eventually met a `.isEmpty` — and only after `3d1d92bbd` made a missing method fatal. Before
+that, the wrong value flowed on with a `Stub` in it.
+
+**Cause, in two parts, and the second is where the fix goes.**
+
+1. **The front types `++` by its left operand's IR prefix, and reads `++` itself as String.**
+   `isConcatCode` (`specs/v2.2-p6.5-fsub.ssc:378`) admits `(prim __arith__ (lit (str "++"` into
+   `isStrExprCode`, so `emitPlus`/`emitConcat` lower the OUTER concat of a chain to
+   `(prim sconcat …)`. That inference is sound for strings and false for every other `++`-able
+   type. It also explains why no existing test could see this: `a ++ b` alone lowers to the
+   dynamic `(prim __arith__ "++")`, which is correct — it takes THREE operands before the front
+   has a `++` on its left to mis-type.
+2. **`sconcat` then treated a `Cons` CELL as a pair.** Its arm was
+   `case (DataV(_, f1), DataV(_, f2)) => DataV(s"Tuple${f1.length + f2.length}", f1 ++ f2)` — any
+   two DataVs, no tuple guard. A v2 list is `DataV("Cons", [head, tail])`, a two-field DataV. The
+   comment on the *method* arm at `Runtime.scala:2451` claimed "the `sconcat` prim has the
+   identical arm"; it did not — the method arm guards `lt.startsWith("Tuple")` and the prim did
+   not.
+
+**FIXED in the prim, not the front.** `sconcat` now delegates to `arithOp("++")`
+when the left operand is a list, which is exactly what the SAME expression lowers to when the front
+cannot type it — reproducing the dynamic path rather than approximating it, so the two cannot
+disagree about the same operands. The front's inference stays as it is: once the prim is total,
+"String" is merely a hint that costs nothing when wrong.
+
+**THREE COPIES, and all three were the same defect.** Fixing one would have left the others:
+
+| copy | lane | state |
+|---|---|---|
+| `v2/src/Runtime.scala` `resolve("sconcat")` | v2 VM | fixed |
+| `v2/src/Runtime.scala` `resolve2("sconcat")` — the binary fast path | v2 VM (JIT) | fixed |
+| `v2/backend/jvm/JvmBackend.scala` preamble `prim2` | `--bytecode` | fixed |
+
+The fast-path table's own header names `sconcat` as the lesson for why a fast path stricter than
+the general table diverges — and it had drifted from the general table again, in the other
+direction.
+
+**Two more lanes carry it and are NOT fixed here** — measured with the same seven-row file, not
+inferred:
+
+- `v2/backend/rust/RustBackend.scala` `fn v_sconcat` has the identical unguarded `Data++Data` arm.
+  Filed as `rust-sconcat-treats-a-cons-cell-as-a-pair`.
+- `bin/jssc` gets the LISTS right and breaks the STRINGS: `"x" ++ "y" ++ "z"` prints `(x, y, z)`.
+  The mirror image, and a separate cause. Filed as `js-string-concat-chain-answers-a-tuple`.
+
+**Gate: `tests/e2e/list-concat-chain-gate.sh`**, wired into `scripts/smoke-ci` as
+`v2/list-concat-chain`. Seven rows over three lanes; rows 3 and 5 are controls (strings and tuples
+already chained correctly, so a fix that repairs lists by breaking either is caught). Verified in
+BOTH states: red on the unpatched toolchain naming both v2 and `--bytecode`, green after.
+
+**What this fixes and what it does NOT.** Of the four rostered cases, `scljet-write-table` now
+passes on v2 (`wrote 1024 bytes, 2 pages, schema format 4, 3 rows in table nums`). The other three
+advance past the tuple and fail further in, with a DIFFERENT message:
+
+    scljet-crud   v2 -> ssc: app: not a function: 0
+    scljet-full   v2 -> ssc: app: not a function: 0
+    scljet-jdbc   v2 -> prints `-- insert two more rows --`, then the same
+
+That is the next defect down, not this one, and not a regression: on the unpatched toolchain those
+three die earlier, at `Tuple4.isEmpty`. Filed as `scljet-app-not-a-function-after-the-concat-fix`.
+**This entry stays OPEN** until those rows are green — the roster row it is named for is
+`scljet-jdbc`, and `scljet-jdbc` still fails.
+
 **Also worth recording for the entry above it:** `scljet-jdbc` on v2 additionally prints
 `--bytecode fell back to the VM lane [class-size-limit] (MethodTooLargeException)` before failing —
 that is `scljet-jdbc-facade-bytecode-class-too-large`, still live, and the fallback is working as
@@ -10292,3 +10391,107 @@ active from other routes/middleware, or the specific
 `{"content":[...],"isError":false}` JSON-wrapping around the tool result)
 that a small dispatcher didn't capture. Found 2026-07-09 by busi (fable),
 same session as `v2-req-form-type-collision`.
+
+## scljet-app-not-a-function-after-the-concat-fix — three scljet cases fail further in, on `app: not a function: 0`
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     gate: tests/conformance/contract-roster.tsv
+     fixed-in: - -->
+
+**Status:** OPEN (found 2026-08-09, immediately downstream of the `sconcat` fix in
+`corpus-contract-scljet-jdbc-v2-timeout`).
+
+**Not a regression, and the control is recorded.** On the UNPATCHED toolchain these three die
+EARLIER, at `` `Tuple4.isEmpty` was called but does not exist ``. Fixing the three-way list concat
+lets them run past that point and reach this:
+
+    scljet-crud         v2  ->  ssc: app: not a function: 0
+    scljet-full         v2  ->  ssc: app: not a function: 0
+    scljet-jdbc         v2  ->  prints `-- insert two more rows --`, then the same
+    scljet-write-table  v2  ->  PASSES (`wrote 1024 bytes, 2 pages, schema format 4, 3 rows …`)
+
+All four run correctly on the int lane; `scljet-crud` prints four rowid lines there.
+
+**Not narrowed yet, and the cheap end has NOT been tried.** `scljet-write-table` passing while the
+other three do not is the split worth exploiting: whatever the three share and it does not is a
+much smaller surface than the read path. `scljet-jdbc` reaching its second insert before failing
+narrows it further — the failure is in the INSERT path, not in database construction, which the
+`buildTableDatabase` six-line snippet already exercises green.
+
+**`app: not a function: 0` means a call landed on a non-callable**, and the `0` is the value's
+rendering, i.e. an `IntV(0)` in function position. A sibling entry with the same message on a
+different lane — `v3-bridge-lifted-capture`, "app: not a function on a lambda lifted with captures"
+— is worth reading before starting, but it is the v3 bridge and this is the v2 VM, so treat the
+resemblance as a lead and not as a cause.
+
+## rust-sconcat-treats-a-cons-cell-as-a-pair — the Rust backend carries the v2 concat defect verbatim
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: - -->
+
+**Status:** OPEN (found 2026-08-09 while fixing the same arm on the VM and bytecode lanes —
+`corpus-contract-scljet-jdbc-v2-timeout`).
+
+`v2/backend/rust/RustBackend.scala`, the emitted `fn v_sconcat`:
+
+```rust
+        // tuple/ADT concat: any two Data values concatenate their fields
+        (V::Data(_t1, f1), V::Data(_t2, f2)) => { … V::Data(format!("Tuple{}", n), fields) }
+```
+
+**"Any two Data values" includes two lists**, and a list is `V::Data("Cons", [head, tail])` — two
+fields, read as a pair. The front emits `sconcat` for the outer `++` of a chain (it types `++` by
+its left operand's IR prefix and reads `++` itself as String), so `a ++ b ++ c` on lists produces a
+`TupleN` here exactly as it did on the VM lane, where it printed `(1, List(2, 3), 4, List(5))` for
+`List(1,2) ++ List(3) ++ List(4,5)`.
+
+**NOT MEASURED ON THIS LANE — the code is identical, the behaviour is inferred.** That distinction
+is the whole reason this is a separate entry rather than a line in the other one: `bin/jssc` looked
+like the same defect from the source and turned out to fail the OPPOSITE row
+(`js-string-concat-chain-answers-a-tuple`). Run the seven-row subject in
+`tests/e2e/list-concat-chain-gate.sh` against the Rust lane before fixing; a Rust toolchain is
+present on the machine this was found on (`~/.cargo/bin/cargo`).
+
+**The fix is the one already landed twice**: a list arm ahead of the Data++Data arm, concatenating
+as lists. On the VM lane it delegates to the dynamic `++` rather than reimplementing it, so that
+the typed and untyped paths cannot disagree; the Rust equivalent is whatever `v_*` helper serves
+`(prim __arith__ "++")`.
+
+## js-string-concat-chain-answers-a-tuple — `"x" ++ "y" ++ "z"` prints `(x, y, z)` on the js lane
+
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/e2e/list-concat-chain-gate.sh
+     fixed-in: - -->
+
+**Status:** OPEN (found 2026-08-09 by running the v2 concat subject on every lane —
+`corpus-contract-scljet-jdbc-v2-timeout`).
+
+MEASURED, not inferred. Seven rows, `bin/jssc`:
+
+    List(1, 2, 3, 4, 5)        ok
+    List(1, 2, 3, 4, 5, 6)     ok
+    (x, y, z)                  <- WRONG; int and v2 both print `xyz`
+    List(p, q, r, s)           ok
+    (1, 2, 3, 4, 5, 6)         ok
+    List(1, 2, 3)              ok
+    List(1, 2, 3)              ok
+
+**It is the MIRROR of the v2 defect, not the same one.** v2 got the lists wrong and the strings
+right; js gets the lists right and the strings wrong. So the cause cannot be the shared `sconcat`
+shape — `JsBackend.scala`'s `sconcat` is `(''+(a)+(b))`, which would answer `xyz`. Something on
+this lane routes a string `++` chain into a tuple concat instead, and finding what is the first
+step; do not start from the Rust/VM diagnosis.
+
+**Recorded as a separate entry deliberately.** Reading the two backends' source suggested one
+defect in three places. Running the subject found two different defects, and this row is the one
+that would have been "fixed" by copying the v2 patch to a lane that did not have the v2 bug.
