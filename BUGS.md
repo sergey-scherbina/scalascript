@@ -24,42 +24,51 @@ Newest first.
 
 ## v2-conformance-uses-FIXED-temp-filenames — a green suite goes red when a sibling runs it
 
-<!-- status: open
-     lane: apparatus
+<!-- status: fixed
+     lane: v2
      area: build
      kind: apparatus
-     gate: v2/conformance/check.sh -->
+     gate: v2/conformance/check.sh
+     fixed-in: 4e03966b5 -->
 
-**Measured 2026-08-09 by running the suite three times around one unrelated change.** `check.sh`
-scopes its LOG directory by PID — `LOGDIR="$TMPBASE/ssc-conformance-logs-$$"` — and then writes
-**857 scratch paths that are not scoped at all**: `${TMPDIR:-/tmp}/tp.rs`, `k51p.coreir`, `so-bin`,
-`hm-fact.js` … roughly 200 distinct fixed names, in a directory every process on the machine shares.
+**FIXED 2026-08-09, one line.** `check.sh` scoped its LOG directory by PID and then wrote **857
+scratch paths under about 200 FIXED names** in the directory every process shares:
+`${TMPDIR:-/tmp}/tp.rs`, `k51p.coreir`, `so-bin`, `hm-fact.js`. Two runs at once overwrote each
+other's files between the write and the read.
 
-Two runs at once overwrite each other's files between the write and the read. What that looks like
-is NOT a race — it looks like a defect in whatever you happen to be holding:
+`TMPDIR="$LOGDIR/tmp"` redirects all 857 at once, because every one of them already reads
+`${TMPDIR:-/tmp}`. Rewriting 200 names by hand would have been the risky way to do the same thing.
+It sits under `LOGDIR` so it inherits that directory's kept-not-cleaned policy, which puts the
+scratch beside the stderr logs a failing run already points the reader at.
+
+**PROVED BY RUNNING TWO SUITES CONCURRENTLY, before and after** — the experiment the defect is
+about. A sequential re-run could never show it:
+
+| | run A | run B |
+|---|---|---|
+| before, concurrent | **rc=1, 635 ok** | **rc=1, 636 ok** |
+| after, concurrent | rc=0, **645 ok** | rc=0, **645 ok** |
+
+645 is exactly the sequential baseline, so the fixed pair is indistinguishable from two runs that
+never met. The failures before it are worth quoting, because not one of them looks like a race:
 
 ```
-FAIL ssc-run-ir exit=1
-  java.lang.RuntimeException: unexpected EOF        ← reading a .coreir another run is writing
-    at ssc.Reader$P.sexpr(CoreIR.scala:151)
-FAIL rustc exit=1
-  error[E0601]: `main` function not found in crate `k51p`   ← its .rs was overwritten mid-compile
+FAIL hm-length     got [] want [3]
+FAIL hm-map JS     got []
+FAIL hm-map Rust   got [(rustc err)]
+FAIL json Rust     got [(rustc err)]
 ```
 
-**It cost a wrong verdict, and only the control caught it.** Testing a one-arm change to
-`v2/src/Runtime.scala`, the suite came back rc=1 with those two failures. Reverting the change gave
-rc=0, which reads as conclusive: *green without it, red with it.* Re-running the SAME change gave
-**rc=0 and 645 ok — the baseline's exact count.** The first run had simply overlapped with someone
-else. This repository has 92 worktrees and three other live claims as of that hour, one of them
-`rust-type-mapping`, which needs exactly this lane.
+**It cost a wrong verdict the day before, and only a re-run caught it.** Testing a one-arm change to
+`v2/src/Runtime.scala`, the suite came back rc=1; reverting gave rc=0 — green-without, red-with,
+which reads as conclusive. Re-running the SAME change gave rc=0 and 645. The repository had 92
+worktrees and three live claims that hour, one of them `rust-type-mapping`, on the very lane whose
+failures appeared.
 
-**A single A/B is not evidence here.** Any conclusion drawn from one red and one green run of this
-suite is a coin flip in disguise, and it points at the change under test because that is the
-difference the experimenter was holding in mind.
-
-**The fix is one line, because every scratch path is already spelled `${TMPDIR:-/tmp}/…`:** point
-`TMPDIR` itself at a per-run directory near the top, beside `LOGDIR`, and all 857 uses become
-per-run with no other edit. Rewriting 200 names by hand would be the risky way to do it.
+**The general rule this is an instance of:** before believing any red/green flip on a suite that is
+supposed to be deterministic, run the failing side twice. A deterministic suite disagreeing with
+itself is telling you the harness is not deterministic — and the failure will always appear to
+indict the change you happen to be holding, because that is the difference you have in mind.
 
 ## coord-path-overlap-matches-a-SIBLING-directory-that-merely-shares-a-prefix
 
