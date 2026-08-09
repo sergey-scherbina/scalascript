@@ -2314,6 +2314,33 @@ bin/ssc-tools run --v1  →  INSERT
 bin/ssc run             →  737883698284
 ```
 
+**RE-MEASURED 2026-08-09 ON ALL FOUR LANES, and the framing below is wrong where it says the two
+lanes cannot both be right.**
+
+| lane | `charAt(i).toString` over `"INSERT"` |
+| --- | --- |
+| int | `INSERT` |
+| **jvm** | `INSERT` |
+| js | `INSERT` |
+| native | `737883698284` |
+| v2 bridge | `737883698284` |
+
+The jvm lane compiles to real Scala, where `charAt` returns a `Char` and `Char.toString` is the
+character — there is nothing ambiguous about it at the LANGUAGE level, and three lanes including that
+oracle agree. So this is not "two lanes cannot both be right, so it needs a language decision"; it is
+**one lane wrong against the oracle**, three to two. The earlier note compared int against native
+only, which is why the question looked open.
+
+**What IS a decision — and the entry is right that it is one — is the COST.** `v2/src/Runtime.scala`
+models a char as its code on purpose: line 2110 is
+`case (StrV(s), "charAt", List(IntV(i))) => IntV(s.charAt(i.toInt).toLong)`, and the comment at line
+73 says so plainly ("`s.charAt(i) == 34`"). Without a Char representation the runtime cannot tell an
+`Int` that came from `charAt` from any other `Int`, so `.toString` has nothing to dispatch on. The
+open question is therefore how v2 represents `Char`, not which answer is correct.
+
+Left open and not attempted here: `v2/src/Runtime.scala` is under another agent's claim, and the
+change is a kernel representation decision rather than a patch.
+
 Classified `open` rather than `unknown` on that evidence. Worth restating why it is not a small
 divergence: it is **silent wrong data with a zero exit code**, so nothing that checks a status sees
 it, and the shape of the wrongness hides it — an already-uppercase string comes back as digits while
