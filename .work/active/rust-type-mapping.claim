@@ -1,0 +1,16 @@
+slug: rust-type-mapping
+branch: feature/rust-type-mapping
+agent: claude-code
+started: 2026-08-09T12:26:46Z
+heartbeat: 2026-08-09T12:26:46Z
+status: investigating
+items: build-rust-drops-defs-it-cannot-lower-without-saying-so
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+scope: |
+  The remaining half. std/json-core.ssc now passes the walker with ZERO refusals and fails cargo
+  with 150 rustc errors -- 33 E0223, 39 E0599, 58 E0308, first being `expected value, found struct
+  JsonCoreNull` (a case object rendered as a bare struct name). This is mapType/type inference, not
+  patterns. Target: rozum can rebuild clients/meeting. Work by ERROR CLASS with a count after each
+  step, so progress is measured rather than asserted; if it does not reach zero, the remainder is
+  filed with numbers.
+next: classify the 150 errors, largest class first
