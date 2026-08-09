@@ -288,13 +288,37 @@ object JvmByteGen:
 
     // install(): compiled ClosV for every top-level Lam def (overrides the
     // VM-compiled version in Emit.globalsRef; value defs stay VM-compiled)
-    val installMv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "install", "()V", null, null)
+    //
+    // SPLIT INTO CHUNKS, because a JVM method body is capped at 64 KB and this one INLINES the body
+    // of every value def (`gen(valueBody, vctx)` below). A program with enough top-level values —
+    // the scljet examples, which merge a whole SQLite engine plus the JDBC facade — overflowed it,
+    // ASM threw `MethodTooLargeException`, and the CLI fell back to the VM lane
+    // (v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large).
+    //
+    // NOT the class split that entry proposes. The entry was written when ASM reported
+    // `ClassTooLarge`; today it reports `MethodTooLarge`, and the oversized thing is this ONE
+    // method, not the class. Splitting the class would mean threading an owner through every
+    // internal `INVOKESTATIC ssc/gen/Entry.<m>` — the emitter hardcodes that owner in a dozen
+    // places and says so at `emitLam`. Chunking a single method needs none of it.
+    //
+    // ORDER IS SEMANTICS, not tidiness: "the VM runs CDefs in order; the bytecode lane does it
+    // here, in def order, before entry." Chunks are emitted in def order and `install` calls them
+    // in order, so the sequence a program observes is byte-for-byte the one it had.
+    //
+    // This does NOT rescue a single def whose own body exceeds 64 KB — that is one indivisible
+    // `gen` call and needs a different fix. Chunking removes the aggregate limit only.
+    val InstallChunkDefs = 24
+    val installChunks = p.defs.zipWithIndex.grouped(InstallChunkDefs).toVector
+    val installChunkNames = installChunks.indices.map(k => s"install$$$k").toVector
+
+    installChunks.zip(installChunkNames).foreach { (chunk, chunkName) =>
+    val installMv = cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, chunkName, "()V", null, null)
     installMv.visitCode()
     // slot 0 = empty frame (value-def bodies may materialize chains)
     installMv.visitInsn(Opcodes.ICONST_0)
     installMv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
     installMv.visitVarInsn(Opcodes.ASTORE, 0)
-    p.defs.zipWithIndex.foreach { (d, i) =>
+    chunk.foreach { (d, i) =>
       d.body match
         case _: Term.Lam => ()
         case valueBody =>
@@ -330,6 +354,17 @@ object JvmByteGen:
           installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "registerGlobal", s"(Ljava/lang/String;L$VAL;)V", false)
         case _ => () // non-lam defs remain VM-compiled in globalsRef
     }
+    installMv.visitInsn(Opcodes.RETURN)
+    installMv.visitMaxs(0, 0); installMv.visitEnd()
+    }
+
+    // install() itself is now just the ordered call sequence. It stays PUBLIC and keeps its name and
+    // `()V` descriptor: `main` above emits `INVOKESTATIC ssc/gen/Entry.install ()V`, the persisted
+    // artifact runner calls it by name, and both must keep working unchanged.
+    val installMv = cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "install", "()V", null, null)
+    installMv.visitCode()
+    installChunkNames.foreach(chunkName =>
+      installMv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chunkName, "()V", false))
     installMv.visitInsn(Opcodes.RETURN)
     installMv.visitMaxs(0, 0); installMv.visitEnd()
 

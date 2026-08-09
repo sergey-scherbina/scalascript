@@ -611,7 +611,13 @@ object RunNativeV2:
         // (v21-plugin-backend-isolation). RuntimeException is already loaded; these ASM size exceptions
         // are IndexOutOfBoundsException (⊂ RuntimeException), so this catches them without the reference.
         case e: RuntimeException if isAsmSizeLimit(e) =>
-          noteBytecodeFallback("class-size-limit", e.getClass.getName)
+          // The MESSAGE, not just the class name. ASM says "Method too large: ssc/gen/Entry.install ()V"
+          // — it names WHICH method blew the 64 KB limit, which is the whole question when deciding
+          // what to split, and the class name alone says only that something did. Reported for two
+          // days as `(org.objectweb.asm.MethodTooLargeException)`, which sent a reader to the
+          // CLASS-splitting fix when the method is the thing that is oversized
+          // (v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large).
+          noteBytecodeFallback("class-size-limit", asmSizeDetail(e))
           None
     bytecode match
       case None =>
@@ -661,6 +667,13 @@ object RunNativeV2:
   private def isAsmSizeLimit(e: Throwable): Boolean =
     val n = e.getClass.getName
     n == "org.objectweb.asm.MethodTooLargeException" || n == "org.objectweb.asm.ClassTooLargeException"
+
+  /** `<simple name>: <message>` — the message is what names the oversized member. Same
+   *  class-name-only discipline as `isAsmSizeLimit`: nothing here references an ASM type. */
+  private def asmSizeDetail(e: Throwable): String =
+    val n = e.getClass.getName
+    val simple = n.substring(n.lastIndexOf('.') + 1)
+    Option(e.getMessage).filter(_.nonEmpty).map(m => s"$simple: $m").getOrElse(simple)
 
   private def containsErrorSentinel(program: _root_.ssc.Program): Boolean =
     program.defs.exists(definition => containsErrorSentinel(definition.body)) ||

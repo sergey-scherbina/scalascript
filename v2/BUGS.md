@@ -6782,6 +6782,61 @@ failure for ANY OTHER reason, or one where the VM ALSO failed, still surfaces as
 programs need no per-example churn. The real fix is splitting the monolithic `ssc/gen/Entry` across
 multiple classes/methods in the v2 bytecode backend (v2 kernel work, out of scope for the gate).
 
+### 2026-08-09 — the METHOD wall is gone; the CLASS wall is what binds now
+
+**`install()` was the oversized member, and it is split.** The bytecode backend emitted one
+`install()` that INLINES the body of every top-level value def (`gen(valueBody, vctx)`), so a
+program merging enough of them overflowed the JVM's 64 KB method limit. It now emits ordered
+`install$N()` chunks (24 defs each) and `install()` is just the call sequence.
+
+**Measured, not argued — the exception CHANGED:**
+
+    scljet-hello, before  ->  org.objectweb.asm.MethodTooLargeException
+    scljet-hello, after   ->  org.objectweb.asm.ClassTooLargeException
+
+So this entry's ORIGINAL diagnosis is now the live one again: the class, not the method. The two
+limits are independent and `install()` was hiding the second.
+
+**`install` keeps its name, `()V` descriptor and `ACC_PUBLIC`** — `main` emits
+`INVOKESTATIC ssc/gen/Entry.install ()V` and the persisted-artifact runner calls it by name.
+Chunks are `ACC_PRIVATE` and internal. Def ORDER is preserved, which is semantics here and not
+tidiness: the VM runs CDefs in order and the bytecode lane must match.
+
+**Deliberately NOT the class split.** That needs an owner threaded through every internal
+`INVOKESTATIC ssc/gen/Entry.<m>`; the emitter hardcodes it in about a dozen places and says so at
+`emitLam`. Chunking one method needs none of that, and it removes a limit that will bind for any
+large program whether or not the class split ever happens.
+
+**NO REGRESSION, and this is the number that mattered** — `scripts/bc-parity-sweep` over the whole
+corpus with the change installed:
+
+```text
+total: 214  identical: 66  mismatch: 0  bytecode-error: 0  vm-error: 0  both-fail: 5  skipped: 131
+```
+
+The risk this sweep existed to catch was the opposite of the fix: more chunk methods means more
+constant-pool entries, so a program sitting just under the CLASS limit could have been pushed over
+by the very change that removes the method limit. `bytecode-error: 0` says none was.
+
+**The five `both-fail` rows are NOT this change, and the control says so rather than the reasoning.**
+They are `scljet-crud`, `-full`, `-hello`, `-jdbc`, `-unique-index`, and they are `both-fail` rather
+than the `skipped-bytecode-fallback` this entry recorded because the VM lane now fails them too —
+`app: not a function: 0`, `scljet-app-not-a-function-after-the-concat-fix`. Run on a build WITHOUT
+the install split (`main`'s launcher), `scljet-hello` and `scljet-unique-index` fail identically. The
+sweep's capacity-skip classification needs `vm_rc=0`, so these will return to `skipped` on their own
+once that defect is fixed — no baseline edit is needed or wanted.
+
+**Also landed: the fallback message now carries ASM's own text.** It reported
+`(org.objectweb.asm.MethodTooLargeException)` — the class of the exception and nothing else — for
+two days. ASM's message is `Method too large: ssc/gen/Entry.install ()V`, which NAMES the oversized
+member, and that name is the entire question when deciding what to split. Reading the class name
+alone sent me to this entry's class-splitting fix when the method was what had overflowed.
+
+**Still OPEN**, and now for a reason that is measured rather than inherited: the generated class
+exceeds the JVM class limit for these five examples. The next step is the owner-threading split
+this entry has always described — or reducing what the class carries, which is worth a look first,
+since 66 identical rows compile comfortably and only the scljet family does not.
+
 **Related — `scljet-file.ssc` (added later).** A THIRD scljet example, but a different class: it is a
 **tools-tier** example (`#!/usr/bin/env ssc-tools run --v1`, `backends: [int]`) that needs the JVM VFS
 host (`jvmVfs*`), an external `sqlite3` CLI, and process `exec` — none available in the standard-only
