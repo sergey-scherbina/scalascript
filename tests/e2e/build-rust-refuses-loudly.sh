@@ -123,6 +123,45 @@ if [[ $rc4 -ne 0 || $out4 == *"Generic("* ]]; then
   failed=1
 fi
 
+# ── 4. A case class must produce Rust that is Rust ───────────────────────────
+# `case class Marker()` emitted `pub struct Marker {\n,\n}` — a stray comma where the fields would
+# be, which is not valid Rust at any level — and every case-class PATTERN came out as
+# `Point::Point { x, y }`, an ambiguous associated type (E0223). Together that meant no program
+# using a case class could build on this backend at all; it surfaced as 41 of the 150 errors from
+# `std/json-core.ssc`, but the two-struct probe below is enough to show it.
+cat > "$tmp/structs.ssc" <<'SSC'
+case class Marker()
+case class Point(x: Int, y: Int)
+
+def describe(p: Point): Int = p match
+  case Point(x, y) => x + y
+
+def main(): Unit =
+  val m = Marker()
+  println(describe(Point(3, 4)))
+SSC
+set +e
+out5=$("$SSC" emit-rust "$tmp/structs.ssc" -o "$tmp/structs-crate" 2>&1); rc5=$?
+set -e
+gen="$tmp/structs-crate/src/generated"
+if [[ $rc5 -ne 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — emit-rust rejected a plain case-class program" >&2
+  echo "--- output: $out5" >&2
+  failed=1
+else
+  # A field-less struct is a UNIT struct. The old output is caught precisely: a line that is a
+  # lone comma inside the struct body.
+  if grep -rqE '^\s*,\s*$' "$gen" 2>/dev/null; then
+    echo "build-rust-refuses-loudly: FAILED — a struct body is a bare comma; that is not Rust" >&2
+    grep -rn -B2 -A1 -E '^\s*,\s*$' "$gen" >&2 || true
+    failed=1
+  fi
+  if grep -rqE '\bPoint::Point\b' "$gen" 2>/dev/null; then
+    echo "build-rust-refuses-loudly: FAILED — a standalone case class is matched as an enum variant" >&2
+    failed=1
+  fi
+fi
+
 # Does it MEAN the right thing? Emission proves only that nothing was refused, and a wrong slice
 # pattern emits happily. Needs cargo, so it is conditional — and says so when it skips, because a
 # check that silently becomes a no-op is worse than one that is absent.
@@ -137,6 +176,18 @@ if command -v cargo >/dev/null 2>&1; then
     failed=1
   elif [[ $ran != *"6"* || $ran != *"true"* ]]; then
     echo "build-rust-refuses-loudly: FAILED — the list program ran but gave '$ran', wanted 6 / true" >&2
+    failed=1
+  fi
+  set +e
+  sbin=$("$SSC" build-rust "$tmp/structs.ssc" -o "$tmp/structsbin" 2>&1); src=$?
+  sran=$("$tmp/structsbin" 2>&1)
+  set -e
+  if [[ $src -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — cargo rejected the emitted case-class code" >&2
+    echo "--- output: $sbin" >&2
+    failed=1
+  elif [[ $sran != *"7"* ]]; then
+    echo "build-rust-refuses-loudly: FAILED — the case-class program gave '$sran', wanted 7" >&2
     failed=1
   fi
 else

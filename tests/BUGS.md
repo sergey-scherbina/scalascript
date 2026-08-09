@@ -392,30 +392,45 @@ refusals; a `List` is a `Vec`, so the patterns lower to SLICE patterns with the 
 `&T`/`&[T]` and bodies are written against `T`/`List[T]`. Verified end-to-end through cargo, not
 just emitted: `sum(1 :: List(2, 3))` prints `6`.
 
-**3. What is still open, measured rather than guessed.** `std/json-core.ssc` now produces **zero**
-ssc-level refusals — every def is emitted — and the emitted crate then fails `cargo build` with
-**150 rustc errors**. They are not in the new lowering: 33×`E0223` (ambiguous associated type),
-39×`E0599`, 58×`E0308`, and the first ones are `expected value, found struct JsonCoreNull` — a
-case-object rendered as a bare struct name. This is the walker's TYPE mapping (`mapType` falls back
-to `i64` for anything it does not recognise), not its pattern support, and it is a substantially
-bigger piece of work than this entry started as.
+**3. Case classes were broken on this backend entirely — not just in json.** Two emission
+defects, found by following the remaining errors:
 
-So rozum still cannot rebuild that binary, and the honest statement of why has changed: not "a def
-was silently dropped" but "the Rust backend cannot type `std/json-core.ssc`".
+- `case class Marker()` (no fields) emitted `pub struct Marker {` / `,` / `}` — a body consisting
+  of one comma. That is not Rust at any level. Field-less case classes are UNIT structs
+  (`pub struct Marker;`), which is also the shape the rest of the walker already assumed: it
+  renders the value as the bare name.
+- every standalone case-class PATTERN came out as `Point::Point { x, y }` — an ambiguous
+  associated type (E0223). A standalone `case class` is its own struct, not a variant of anything;
+  only a real enum variant is qualified. `EnumCtor` now carries `isStruct` rather than comparing
+  `enumName == ctor`, because `enum X { case X }` is legal and would read as a struct.
 
-**A second report from the same reporter refines the diagnostics half, 2026-08-08.** rozum measured
-`ssc-tools emit-rust` and found the refusals ARE there — 20 lines of
-`[error] Generic(def … uses unsupported infix operator ::)`, naming the def and the cause — against
-`d21cb5b44`'s finding, measured on `build-rust`, that there are zero ssc-level diagnostics today.
+Verified on a two-struct probe independent of json: pre-fix, cargo rejects the emitted crate with
+4 errors; post-fix it builds and prints 7. **Any program with a case class could not be compiled by
+`build-rust`** — a much wider break than the report that surfaced it.
 
-If both hold, **the two commands differ in whether the refusal survives to the user**, which is a
-sharper statement of "the diagnostics are gone" than a count of them: nothing needs to be written,
-only carried. Their own words: *"which seems worth more than the diagnostics themselves."*
+**4. What is still open, and it is a DESIGN decision rather than a defect.**
 
-Recorded here rather than as a second entry, since it is this defect's first half seen from the other
-command. The rest of that report — the per-import error counts — did NOT reproduce during triage on
-the reporter's own stated SHA and is parked in `INBOX.md` as `needs-info`; the divergence above is
-the part that stands on its own.
+`std/json-core.ssc` types its parser as `Any` — `case class JsonCoreArray(items: List[Any])`,
+functions returning `Any` — and the Rust target maps `Any` to `crate::value::Value`, a CLOSED enum
+(`Unit|Bool|Int|Double|Str|Tuple|List|Signal`) with no variant that can hold a user struct. So after
+the fixes above the count is 160 errors, and 105 of them are one sentence: `expected Value, found
+JsonCoreOk` / `JsonCoreErr` / `JsonCoreNumber` / … The structural classes are gone (E0223 33 -> 0,
+E0423 8 -> 0); what remains is that single question.
+
+Three ways out were considered and none is a patch:
+
+- add a `Value::Obj(name, fields)` variant plus generated `From<Struct>`: the CONVERSION is easy,
+  but reading a value back binds every field as `Value`, and bodies use them as `i64`/`String`.
+  Coercing there needs the types the walker does not have. This is the one that looks bounded and
+  is not.
+- map `Any` to a generated enum of all standalone case classes: right for this module, wrong for
+  every program where `Any` legitimately holds an `Int`.
+- map `Any` to `Rc<dyn Any>` with downcasts: gives up interop with the runtime intrinsics that take
+  `Value`.
+
+All three are decisions about what `Any` MEANS in the Rust target, which belongs in
+`specs/rust-backend.md` and to the project owner, not to a walker patch. Until then: **rozum still
+cannot rebuild `clients/meeting`**, and the reason is that its dependency is written in `Any`.
 
 ## scaffolded-projects-cannot-load-their-build
 

@@ -85,7 +85,7 @@ object RustCodeWalk:
     val (enumErrs, enumOk)     = enumRendered.partitionMap(identity)
     val (structErrs, structOk) = structRendered.partitionMap(identity)
     val ctorMap = enumOk.flatMap(_.ctors).toMap ++
-      structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames)).toMap
+      structOk.map(s => s.structName -> EnumCtor(s.structName, s.fieldNames, isStruct = true)).toMap
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
     val baseTopVals = collectTopVals(module, ctorMap)
@@ -523,12 +523,19 @@ object RustCodeWalk:
       val fields = ok.map((n, t) => s"    pub $n: $t").mkString(",\n")
       val allCopy = ok.forall((_, t) => Set("i64", "f64", "bool").contains(t))
       val derives = if allCopy then "Debug, Clone, Copy" else "Debug, Clone"
+      // `case class Foo()` — no fields. The braced form emitted a body of just `,`, which is not
+      // Rust at all; a UNIT struct is both valid and the shape the rest of the walker already
+      // assumes, since it renders the value as the bare name `Foo` (E0423 otherwise) and the
+      // pattern as `Foo`. `std/json-core.ssc` opens with `case class JsonCoreNull()`.
+      val body =
+        if ok.isEmpty then ";"
+        else s""" {
+                |$fields,
+                |}""".stripMargin
       val render =
         s"""#[allow(dead_code)]
            |#[derive($derives)]
-           |pub struct $name {
-           |$fields,
-           |}
+           |pub struct $name$body
            |""".stripMargin
       Right(GeneratedStruct(render, name, ok.map(_._1)))
 
@@ -796,7 +803,13 @@ object RustCodeWalk:
       // Fields whose type is the enum itself (direct recursion) — emitted as
       // `Box<EnumName>`, so they're `Box::new(...)`-wrapped at construction and
       // deref'd (`*field`) at a `match` binding.
-      boxedFields: Set[String] = Set.empty
+      boxedFields: Set[String] = Set.empty,
+      // A standalone `case class` becomes its own Rust STRUCT, not a variant of anything, so its
+      // pattern is `Name { … }` — writing `Name::Name { … }` is an "ambiguous associated type"
+      // (E0223), which was 33 of the 150 errors `std/json-core.ssc` produced. The flag exists
+      // rather than comparing `enumName == ctor`, because `enum X { case X }` is legal and would
+      // read as a struct under that test.
+      isStruct:    Boolean = false
   )
 
   /** A rendered Rust `enum` block + its ctor table. */
@@ -3510,7 +3523,9 @@ object RustCodeWalk:
                          else " { " + fieldBinds.map { case (f, p) =>
                            if f == p then f else s"$f: $p"
                          }.mkString(", ") + " }"
-              Right(s"${ec.enumName}::$ctor$body")
+              // A standalone case class is its own struct; only a real enum variant is qualified.
+              if ec.isStruct then Right(s"$ctor$body")
+              else Right(s"${ec.enumName}::$ctor$body")
     // Tuple pattern `(a, b)` → Rust tuple pattern.
     case m.Pat.Tuple(args) =>
       val ps = args.map(renderPattern(_, ctx))
