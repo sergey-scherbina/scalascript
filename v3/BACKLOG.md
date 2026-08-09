@@ -4,6 +4,21 @@ Work that can wait, and **alternatives that were considered and parked with thei
 (P-4.2). A parked alternative costs nothing and is there the day it becomes right; the same
 alternative held as "I should ask about this someday" is lost at the next reboot.
 
+## v3's own front cannot lex `@` — two fixtures are uniml-only because of it
+
+`annotation-own-line` and `object-nested-class` are the two fixtures `front-diff.sh` counts as
+declared uniml-only, and the ceiling is at 2 because of them. The annotation one is the cheaper:
+v3's lexer refuses `@` with `unexpected character`, and the skip itself belongs where UniML's is —
+one loop before the declaration dispatch.
+
+`v3/src/Lexer.scala` is `ssc3-core`'s and `v3/src/Parser.scala` is `ssc3-multi-effect`'s, so the
+pair has to land together; tokenising `@` on its own changes nothing observable and would just move
+the refusal one layer down.
+
+The reference front parses these files (`ssc1-front-annotation-before-declaration` was ITS bug and
+is fixed there), so this is v3's own gap rather than a compatibility question.
+
+
 ## `extension` belongs in `Lower`'s dispatch, and the projection CANNOT do it — measured 2026-08-09
 
 Tier 2 was un-deferred and the plan's first stage was "`extension`, projection-only" — on the

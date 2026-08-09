@@ -2577,3 +2577,43 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
       where the checker begins; BOTH fronts must then agree on typing, which widens I-3 from
       "same output" to "same judgements"; and `N` may fall for the first time, which I-5 forbids
       quietly — so G2 lands behind a gate that reports the corpus number before and after.
+
+## 53 · The spike mirrored a reference BUG that the reference had already fixed
+
+A sweep of the uniml front over 120 files of `examples/` and the standard library — a wider oracle
+than the corpus and than v3's own kernel — refused 41. The largest cause I could act on was
+`spike.error` in 8 files, and every one was an ANNOTATION on its own line: `@graphLabel("Module")`,
+`@rdfClass(…)`, `@tailrec` above the declaration they annotate.
+
+`ScalaSpike` emitted an error node there deliberately, and its comment said why, citing
+`ssc1-front.ssc0:2499`. **So I read the reference instead of the comment**, and the reference says:
+
+> An annotation is almost always written on its OWN line, so after skipping `@Name(args)` the next
+> token is the `;` the layout pass inserted, not the annotated declaration — `parseOneStmt` saw `;`
+> and emitted `_err`. … BUGS `ssc1-front-annotation-before-declaration`. F has no such gap.
+
+…and its code now reads `parseOneStmt(skipSemis(skipAnn(toks)))`. **The reference had filed this as
+its own bug and fixed it.** The spike was faithful to a version that no longer exists.
+
+- [x] **52a — so this was a catch-up, not a divergence**, which is the opposite of the framing I
+      took it to Sergiy with. Fidelity to an oracle means fidelity to what it does NOW, and that is
+      a thing to re-read rather than remember.
+
+- [x] **52b — AND I HUNG THE PARSER DOING IT.** Removing the vestigial `if false then () else`
+      pulled the entire declaration dispatch INSIDE the `while isAnnotationStart` loop — in a
+      language with an offside rule, deleting a branch moves everything its `else` held. A file with
+      no annotation then parsed nothing and the outer `while !c.eof` spun forever.
+
+      The symptom lied twice: the test suite timed out, then a single parse did, and "the machine is
+      busy with the background job" is a PLAUSIBLE explanation that is also wrong. What settled it
+      was a three-line program: `rc=124` on that cannot be contention.
+
+- [x] **52c — the fixture is uniml-only, and the ceiling caught the second one.** v3's own front
+      refuses `@` in the LEXER. Raising the ceiling from 1 to 2 is recorded with its reason and its
+      way back — `Lexer.scala` is mine, `Parser.scala` is another claim's, and tokenising `@` alone
+      would just move the refusal one layer down. Filed in `v3/BACKLOG.md`.
+
+**Measured:** UniML 218/218, seven v3 gates green, N = 188 of 368 with CRASH 0. DIFF is 4, and none
+is mine — `effects`, `effects-handler`, `head-field-effect-shadow`, `parameterless-def-local`
+contain no annotation at all (`^@` count zero), so a change that only touches annotation handling
+cannot reach them. Attribution by construction rather than by re-running.
