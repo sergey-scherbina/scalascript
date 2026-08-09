@@ -55,6 +55,7 @@ bound). Those now announce themselves by name instead of arriving as rustc error
      reported-at: 2026-08-09
      ssc-version: 6b9fc4352
      confirmed: yes
+     fixed-in: 7d172273e
      gate: none -->
 
 **The REFERENCE front is the wrong one here, and F is right** — worth saying plainly, because every
