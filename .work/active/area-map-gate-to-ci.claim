@@ -1,0 +1,11 @@
+slug: area-map-gate-to-ci
+branch: feature/area-map-gate-to-ci
+agent: claude-code
+started: 2026-08-09T17:59:04Z
+heartbeat: 2026-08-09T17:59:04Z
+status: claimed-before-planning
+items: area-map-gate-to-ci
+paths: file:.github/workflows/ci.yml file:tests/fixtures/board-ownership-baseline.tsv file:tests/e2e/area-map-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
