@@ -4255,9 +4255,39 @@ anyone should want. The scljet sources call it on values named like results and 
 gives something with an `isEmpty`. Implementing `Tuple4.isEmpty` would silence the message without
 answering it — the same shape as widening an arity to swallow a parameter.
 
-**So the next step is the receiver, not the method**: print what `failure` actually is on each lane
-at one of those three sites. Two lanes disagreeing about the type of a value is the defect; the
-missing method is how it surfaced.
+**NARROWED TO SIX LINES — `buildTableDatabase` alone reproduces it, and `readRowids` is
+exonerated.** The corpus case prints four lines on int and NOTHING on v2, so the failure precedes
+all output; halving from there gives:
+
+```scalascript
+[ByteSlice, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+
+def main() =
+  buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER)",
+    List(List(SqlInteger(1L)))) match
+    case Left(e) => println("build-error")
+    case Right(db) => println("built ok")
+```
+
+    int  ->  built ok
+    v2   ->  ssc: `Tuple4.isEmpty` was called but does not exist
+
+So the receiver is somewhere in `buildTableDatabase`'s call tree (`scljet/write.ssc:541`), not in
+the read path and not in the example.
+
+**Two searches that came back empty, recorded so nobody repeats them.** `.isEmpty` appears 196
+times in `scljet/*.ssc` and NONE of them is on a name bound to a four-tuple literal — so the
+receiver arrives from a function return, not a local. And neither `buildTableDatabase` nor
+`readRowids` calls `.isEmpty` directly; it is deeper.
+
+**The next step is instrumentation, and it is now cheap because the repro is six lines**: print the
+receiver in the v2 runtime's method dispatch where the "does not exist" message is raised, then run
+the snippet above. That names the value in one run. Reading further is not worth it — 196 call
+sites, and the answer is one `printf` away once someone rebuilds `v2/src`.
+
+**Still: implementing `Tuple4.isEmpty` would be the wrong fix.** `.isEmpty` on a four-tuple is not
+a method anyone should want; the question the instrumentation answers is why that receiver is a
+tuple on v2 when int gives something with an `isEmpty`.
 
 **Also worth recording for the entry above it:** `scljet-jdbc` on v2 additionally prints
 `--bytecode fell back to the VM lane [class-size-limit] (MethodTooLargeException)` before failing —
