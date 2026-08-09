@@ -597,7 +597,14 @@ object McpServerCore:
 
   /** One request → one wire-ready response frame (with trailing `\n`).
    *  Exposed for tests so they can drive dispatch without spinning a
-   *  reader/writer pair. */
+   *  reader/writer pair.
+   *
+   *  DUAL-ERA (MCP 2026-07-28).  This is the fork between the two
+   *  revisions we serve.  A request whose `params._meta` carries
+   *  `io.modelcontextprotocol/protocolVersion` is MODERN — it is validated
+   *  against the versions we support and its result is stamped with
+   *  `resultType` + server identity.  Anything else is LEGACY and takes
+   *  the path it always took, byte for byte.  `specs/mcp-2026-07-28.md`. */
   def dispatch(
     builder:       McpServerBuilder,
     method:        String,
@@ -606,7 +613,69 @@ object McpServerCore:
     serverName:    String = "ssc-mcp-server",
     serverVersion: String = "1.0.0"
   ): String =
+    val ctx = McpProtocol.parseRequestMeta(params)
+    rejectModern(ctx, id) match
+      case Some(errorFrame) => errorFrame
+      case None =>
+        val frame = dispatchCore(builder, method, params, id, serverName, serverVersion)
+        if ctx.isModern then stampFrame(frame, serverName, serverVersion) else frame
+
+  /** Validate the modern per-request metadata, returning the error frame to
+   *  send instead of dispatching — or `None` to proceed.
+   *
+   *  A context with no `protocolVersion` is a LEGACY request, not a
+   *  malformed modern one: a dual-era server cannot reject a client for
+   *  omitting fields its own revision never defined. */
+  private def rejectModern(ctx: McpProtocol.RequestContext, id: ujson.Value): Option[String] =
+    ctx.protocolVersion match
+      case None => None
+      case Some(v) if !McpProtocol.SupportedProtocolVersions.contains(v) =>
+        Some(JsonRpc.encodeError(
+          id, McpProtocol.ErrorCode.UnsupportedProtocolVersion,
+          "Unsupported protocol version",
+          Some(McpProtocol.unsupportedVersionData(v))
+        ))
+      case Some(_) if ctx.clientCapabilities.isEmpty =>
+        // Spec marks clientCapabilities REQUIRED on every modern request;
+        // a request missing a required `_meta` field is malformed, and the
+        // spec names -32602 for it (not one of the -3202x codes).
+        Some(invalidParams(id, s"missing required _meta field: ${McpProtocol.MetaKey.ClientCapabilities}"))
+      case Some(_) => None
+
+  /** Add `resultType` + `io.modelcontextprotocol/serverInfo` to an already
+   *  encoded success frame; pass error frames through untouched.
+   *
+   *  Re-parsing our own output is the deliberate trade: the alternative is
+   *  threading the request context through fifteen envelope builders and
+   *  eight private helpers, which would make the legacy path a diff rather
+   *  than an identity.  Doing it here keeps "legacy bytes are unchanged" a
+   *  property the gate can assert instead of a claim.  Modern path only.
+   *  P3 restructures dispatch for MRTR and this goes away with it. */
+  private def stampFrame(frame: String, serverName: String, serverVersion: String): String =
+    try
+      val js = ujson.read(frame.trim)
+      js.obj.get("result") match
+        case None => frame   // an error frame carries no result to stamp
+        case Some(result) =>
+          js.obj("result") = McpProtocol.stampComplete(result, serverName, serverVersion)
+          js.render() + "\n"
+    catch case _: Throwable => frame
+
+  private def dispatchCore(
+    builder:       McpServerBuilder,
+    method:        String,
+    params:        ujson.Value,
+    id:            ujson.Value,
+    serverName:    String,
+    serverVersion: String
+  ): String =
     method match
+      case McpProtocol.Method.ServerDiscover =>
+        // Answered in BOTH eras on purpose: besides being the modern
+        // capability query, this is the probe a dual-era client sends over
+        // stdio to find out which era it is talking to.
+        JsonRpc.encodeResult(id, McpProtocol.discoverResult(serverName, serverVersion))
+
       case McpProtocol.Method.Initialize =>
         // v1.17.x — record the client's advertised capabilities so user
         // code can guard server→client requests like `listRoots()` /

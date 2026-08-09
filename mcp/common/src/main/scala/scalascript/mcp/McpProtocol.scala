@@ -12,7 +12,16 @@ package scalascript.mcp
  *
  *  Out of scope (deferred — would need bidirectional sampling, log
  *  notifications, progress callbacks): the `notifications`, `sampling`,
- *  `logging`, and `roots` method namespaces. */
+ *  `logging`, and `roots` method namespaces.
+ *
+ *  DUAL-ERA (MCP 2026-07-28).  Everything above describes the LEGACY era,
+ *  which is still served unchanged.  Alongside it this object carries the
+ *  stateless revision: `server/discover`, the reserved `_meta` keys that
+ *  replace the handshake (`MetaKey`), the spec-allocated error codes
+ *  (`ErrorCode`), and `stampComplete` — the single site that turns a
+ *  legacy envelope into a modern one.  Which era a request belongs to is
+ *  decided by whether it carries `MetaKey.ProtocolVersion`.
+ *  Design and phasing: `specs/mcp-2026-07-28.md`. */
 object McpProtocol:
 
   /** Spec-locked method names — string-keyed because JSON-RPC dispatches by
@@ -54,6 +63,34 @@ object McpProtocol:
     // `ref` discriminating prompt vs resource and the current partial
     // value; server replies with up to 100 suggestions.
     val CompletionComplete    = "completion/complete"
+    // MCP 2026-07-28 — the one method a stateless server MUST implement.
+    // Answers supported versions + capabilities + identity in a single
+    // round trip, and doubles as the stdio probe a dual-era client uses
+    // to tell a modern server from a legacy one.
+    val ServerDiscover        = "server/discover"
+
+  /** MCP 2026-07-28 — reserved `_meta` keys.  The revision moved protocol
+   *  version, client identity and client capabilities out of the
+   *  `initialize` handshake and onto every individual request, keyed
+   *  under the reserved `io.modelcontextprotocol/` prefix. */
+  object MetaKey:
+    val ProtocolVersion    = "io.modelcontextprotocol/protocolVersion"
+    val ClientInfo         = "io.modelcontextprotocol/clientInfo"
+    val ClientCapabilities = "io.modelcontextprotocol/clientCapabilities"
+    val LogLevel           = "io.modelcontextprotocol/logLevel"
+    val ServerInfo         = "io.modelcontextprotocol/serverInfo"
+    val SubscriptionId     = "io.modelcontextprotocol/subscriptionId"
+
+  /** MCP 2026-07-28 — the codes the spec allocates to itself.  The
+   *  revision partitions JSON-RPC's implementation-defined server-error
+   *  range: -32000..-32019 is grandfathered legacy, -32020..-32099 is
+   *  the spec's, and an implementation MUST NOT emit a code from the
+   *  latter that the spec has not defined.  These three are all of them
+   *  as of this revision. */
+  object ErrorCode:
+    val HeaderMismatch                  = -32020
+    val MissingRequiredClientCapability = -32021
+    val UnsupportedProtocolVersion      = -32022
 
   /** Syslog levels per MCP spec, ordered by severity (low to high). */
   val LogLevels: List[String] = List(
@@ -64,9 +101,122 @@ object McpProtocol:
    *  through `notifyMessage`; lower ranks are filtered. */
   def logLevelRank(level: String): Int = LogLevels.indexOf(level)
 
-  /** Protocol version we advertise.  MCP spec uses a date-stamped version
-   *  string; bump when we add notification/sampling/etc. support. */
+  /** The version the LEGACY `initialize` handshake answers with.
+   *
+   *  Deliberately still `2024-11-05` — see `specs/mcp-2026-07-28.md` §4.1.
+   *  Three sites in `McpIntrinsics.scala` and one in `McpNativePlugin.scala`
+   *  read this constant to build their own `initialize` result, and none of
+   *  them negotiates against the client's requested version.  Raising the
+   *  number here would change what those servers claim to speak without
+   *  giving them the logic to back it up.  P1b bumps it to the honest
+   *  `2025-06-18` and teaches all four sites to negotiate, in one commit. */
   val ProtocolVersion = "2024-11-05"
+
+  /** MCP 2026-07-28 — the stateless revision, and what we prefer to speak.
+   *  There is no handshake in this era: a client states this version in the
+   *  `_meta` of every request. */
+  val ModernProtocolVersion = "2026-07-28"
+
+  /** Every revision this server will accept on a modern request, newest
+   *  first.  A request naming anything else is rejected with
+   *  `UnsupportedProtocolVersion` carrying this list, which is how a client
+   *  discovers what to retry with. */
+  val SupportedProtocolVersions: List[String] =
+    List(ModernProtocolVersion, "2025-06-18", "2025-03-26", ProtocolVersion)
+
+  /** True iff `v` is a revision that uses per-request `_meta` rather than an
+   *  `initialize` handshake.  Version strings are ISO dates, so a lexical
+   *  compare is a chronological one. */
+  def isModernVersion(v: String): Boolean = v >= ModernProtocolVersion
+
+  // ─── MCP 2026-07-28 — per-request protocol metadata ─────────────────
+
+  /** What a modern request carries in `params._meta` in place of the
+   *  handshake that used to establish it once per session.
+   *
+   *  `protocolVersion` is the era discriminator: the spec says a request
+   *  carrying modern per-request `_meta` is served statelessly, and an
+   *  `initialize` request selects legacy semantics.  Its absence therefore
+   *  means "legacy", never "malformed" — a dual-era server cannot reject a
+   *  legacy client for failing to send fields its revision never had. */
+  case class RequestContext(
+    protocolVersion:    Option[String]      = None,
+    clientInfo:         Option[ujson.Value] = None,
+    clientCapabilities: Option[ujson.Value] = None,
+    logLevel:           Option[String]      = None
+  ):
+    def isModern: Boolean = protocolVersion.isDefined
+
+  /** Read `params._meta` into a `RequestContext`.  Defensive by design: a
+   *  missing, non-object or otherwise malformed `_meta` yields the empty
+   *  context, i.e. the request is treated as legacy.  Never throws. */
+  def parseRequestMeta(params: ujson.Value): RequestContext =
+    try
+      params.objOpt.flatMap(_.get("_meta")).flatMap(_.objOpt) match
+        case None => RequestContext()
+        case Some(meta) =>
+          RequestContext(
+            protocolVersion    = meta.get(MetaKey.ProtocolVersion).flatMap(_.strOpt),
+            clientInfo         = meta.get(MetaKey.ClientInfo),
+            clientCapabilities = meta.get(MetaKey.ClientCapabilities),
+            logLevel           = meta.get(MetaKey.LogLevel).flatMap(_.strOpt)
+          )
+    catch case _: Throwable => RequestContext()
+
+  /** `data` payload for `UnsupportedProtocolVersion` (-32022): the versions
+   *  we do support, and the one that was asked for, so the client can pick
+   *  an intersection and retry rather than just fail. */
+  def unsupportedVersionData(requested: String): ujson.Value =
+    ujson.Obj(
+      "supported" -> ujson.Arr.from(SupportedProtocolVersions.map(ujson.Str(_))),
+      "requested" -> requested
+    )
+
+  /** `data` payload for `MissingRequiredClientCapability` (-32021). */
+  def missingCapabilityData(required: List[String]): ujson.Value =
+    ujson.Obj("requiredCapabilities" -> ujson.Arr.from(required.map(ujson.Str(_))))
+
+  /** Stamp a legacy-shaped result envelope with the two things every modern
+   *  result carries: `resultType` and the server's identity under
+   *  `_meta`.
+   *
+   *  Post-processing rather than a parameter on each builder is the whole
+   *  point — there are fifteen builders and one of these, so the legacy
+   *  bytes are unchanged BY CONSTRUCTION and a gate can assert it.  An
+   *  existing `_meta` is merged into, not replaced: a builder that already
+   *  wrote one keeps its keys. */
+  def stampComplete(
+    result:        ujson.Value,
+    serverName:    String,
+    serverVersion: String,
+    resultType:    String = "complete"
+  ): ujson.Value =
+    result match
+      case obj: ujson.Obj =>
+        obj("resultType") = resultType
+        val meta = obj.value.get("_meta") match
+          case Some(m: ujson.Obj) => m           // merge — keep what the builder wrote
+          case _                  => ujson.Obj()
+        meta(MetaKey.ServerInfo) = ujson.Obj("name" -> serverName, "version" -> serverVersion)
+        obj("_meta") = meta
+        obj
+      case other => other   // non-object result: nothing to stamp onto
+
+  /** `server/discover` result — supported versions, capabilities, identity.
+   *  Reuses the capability block the legacy `initialize` result advertises
+   *  so the two can never disagree about what this server can do.
+   *
+   *  `instructions` is omitted (we have no server-level instructions field);
+   *  `ttlMs`/`cacheScope` arrive with the rest of `CacheableResult` in P2. */
+  def discoverResult(serverName: String, serverVersion: String): ujson.Value =
+    val capabilities = initializeResult(serverName, serverVersion)("capabilities")
+    stampComplete(
+      ujson.Obj(
+        "supportedVersions" -> ujson.Arr.from(SupportedProtocolVersions.map(ujson.Str(_))),
+        "capabilities"      -> capabilities
+      ),
+      serverName, serverVersion
+    )
 
   /** `initialize` result — what the server tells the client about itself
    *  and which capabilities it offers.  All three primitive categories
