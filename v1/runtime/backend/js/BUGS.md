@@ -1538,7 +1538,7 @@ drove an `if`. A gate keying on exit status sees success.
      lane: js
      area: front
      gate: tests/conformance/native-import-in-fence.ssc
-     fixed-in: PENDING -->
+     fixed-in: 0796774ad -->
 
 **FIXED — all four lanes now load an in-fence import.** `tests/conformance/native-import-in-fence.ssc`
 prints `25 / 27 / 720` on int, js and jvm, so its `known-red: js,jvm` is gone along with the
