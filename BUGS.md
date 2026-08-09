@@ -22,6 +22,45 @@ Newest first.
 
 
 
+## v2-conformance-uses-FIXED-temp-filenames — a green suite goes red when a sibling runs it
+
+<!-- status: open
+     lane: v2
+     area: build
+     kind: apparatus
+     gate: v2/conformance/check.sh -->
+
+**Measured 2026-08-09 by running the suite three times around one unrelated change.** `check.sh`
+scopes its LOG directory by PID — `LOGDIR="$TMPBASE/ssc-conformance-logs-$$"` — and then writes
+**857 scratch paths that are not scoped at all**: `${TMPDIR:-/tmp}/tp.rs`, `k51p.coreir`, `so-bin`,
+`hm-fact.js` … roughly 200 distinct fixed names, in a directory every process on the machine shares.
+
+Two runs at once overwrite each other's files between the write and the read. What that looks like
+is NOT a race — it looks like a defect in whatever you happen to be holding:
+
+```
+FAIL ssc-run-ir exit=1
+  java.lang.RuntimeException: unexpected EOF        ← reading a .coreir another run is writing
+    at ssc.Reader$P.sexpr(CoreIR.scala:151)
+FAIL rustc exit=1
+  error[E0601]: `main` function not found in crate `k51p`   ← its .rs was overwritten mid-compile
+```
+
+**It cost a wrong verdict, and only the control caught it.** Testing a one-arm change to
+`v2/src/Runtime.scala`, the suite came back rc=1 with those two failures. Reverting the change gave
+rc=0, which reads as conclusive: *green without it, red with it.* Re-running the SAME change gave
+**rc=0 and 645 ok — the baseline's exact count.** The first run had simply overlapped with someone
+else. This repository has 92 worktrees and three other live claims as of that hour, one of them
+`rust-type-mapping`, which needs exactly this lane.
+
+**A single A/B is not evidence here.** Any conclusion drawn from one red and one green run of this
+suite is a coin flip in disguise, and it points at the change under test because that is the
+difference the experimenter was holding in mind.
+
+**The fix is one line, because every scratch path is already spelled `${TMPDIR:-/tmp}/…`:** point
+`TMPDIR` itself at a per-run directory near the top, beside `LOGDIR`, and all 857 uses become
+per-run with no other edit. Rewriting 200 names by hand would be the risky way to do it.
+
 ## coord-path-overlap-matches-a-SIBLING-directory-that-merely-shares-a-prefix
 
 <!-- status: open
@@ -604,46 +643,53 @@ because `v3/src/BridgeV2.scala` was outside the claim that found it.
 
 ## v3-bridge-tuple-concat — v2 has no tuple `++`, and for six days no gate could see it
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen
      kind: bug
      gate: v3/exec-gate.sh -->
 
-**RE-MEASURED 2026-08-08, and the entry was stale in BOTH directions — one half fixed by someone
-else for another reason, the other half worse than reported.**
+**FIXED 2026-08-09 in `v2/src/Runtime.scala`, one arm.** v2 ALREADY concatenated tuples — just not
+from the method dispatcher. The `sconcat` prim carries the identical arm (`arithRest` reaches it),
+so `(a, b) ++ (c, d)` written where v2 reads an OPERATOR worked, while the same concat arriving as a
+METHOD died in `methodOp` with *"a method that does not exist was called"*.
 
-**The silence is gone, and not because of this entry.** `3d1d92bbd` — *"a missing method must not
-become output — it reached an HTTP body as data"* — turned the placeholder into a named error. The
-bridge now says so instead of printing `Stub`:
+v3 lowers `++` to `Ir.Invoke`, which is dynamic dispatch by design: Tier 0 erases types, so the
+front cannot know the receiver is a tuple and pick the other spelling. The fix is the one place the
+two paths disagreed — a `Tuple`/`Tuple` arm beside the list `++` arm, mirroring `sconcat` exactly:
+
+```scala
+case (DataV(lt, lf), "++", List(DataV(rt, rf)))
+    if lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+  val combined = lf ++ rf
+  DataV(s"Tuple${combined.length}", combined)
+```
+
+**Not a new capability — a SECOND SPELLING of one v2 already had.** That is the argument for putting
+it in the kernel rather than teaching the bridge a special case: the alternative was for `BridgeV2`
+to recognise tuple receivers, which it cannot do, since the types are gone by then.
+
+**Both lanes, before and after**, on `v3/tests/front/tuple-concat.ssc` (tuple concat, all four
+elements read, unequal widths, and a loop-carried left operand so neither lane can fold it):
 
 ```
-java.lang.RuntimeException: a method that does not exist was called but does not exist, and the
-result reached output. This used to render as the text `Stub` and serialise as if it were data.
+before   executor 5/10/8/36     bridge  java.lang.RuntimeException: a method that does not exist …
+after    executor 5/10/8/36     bridge  5/10/8/36
 ```
 
-That is this entry's own "smallest useful fix", delivered from a different symptom. It is still a
-Java stack trace rather than a positioned diagnostic — that is
-`v3-bridge-lazylist-crashes-with-a-java-stack-trace`, same shape, and this one now joins it.
+The `.bridge-diverges` declaration is deleted, which the gate requires — a declaration that no
+longer applies silences a real future divergence. **This was the last declared I-3 divergence in
+`exec-gate.sh`.**
 
-**The DIVERGENCE is real and unchanged.** v2's runtime has no tuple `++`. The path is not the method
-table at all — it is the `sconcat` PRIM, whose `DataV`/`DataV` arm builds `Tuple$n`; two more sites
-build the same thing. `(1,2) ++ (3,4)` answers 5 on the executor and throws on the bridge.
-
-**The original repro no longer reproduces AS WRITTEN, and the reason is worth keeping.** This entry
-said `bench/corpus/tuple-monoid.ssc` gives `401280` on the executor and `Stub`s on the bridge. That
-file defines only `def workload(seed: Long)` and no `main`, so `ssc3 exec` on it prints NOTHING and
-exits 0 — the numbers came from a harness that calls `workload`. Driven with a `main`, both lanes
-now answer 401280, because `ssc3 run` is the executor twice over. Through `--bridge` it throws.
-
-**Why nobody noticed: `v3/exec-gate.sh` was not running the bridge.** Its `.ssc` differential called
-`ssc3 run` without `--bridge` from 2026-08-07, so it compared the executor with itself and printed
-`(both lanes agree)`. See `v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`. The
-fixture `v3/tests/front/tuple-concat.ssc` now pins this on both lanes and carries a
-`.bridge-diverges` declaration, so the divergence is counted and cannot grow back quietly.
-
-**Invariant:** I-3. **Still the smallest useful fix:** a `Tuple`/`Tuple` arm wherever v2 answers
-`++`, or a positioned refusal naming the construct instead of a JVM trace.
+**History worth keeping, because the entry was wrong in both directions before this.** It was filed
+as *"emits Stub — a wrong answer that does not announce itself"*. The silence was fixed separately by
+`3d1d92bbd` (*"a missing method must not become output — it reached an HTTP body as data"*), from an
+unrelated symptom, so the bridge had been throwing rather than printing a placeholder for some time.
+And the original repro no longer reproduced as written: `bench/corpus/tuple-monoid.ssc` defines only
+`workload` with no `main`, so it prints nothing at exit 0 — the numbers in the entry came from a
+harness. Meanwhile nobody could see the real divergence at all, because `exec-gate.sh` compared the
+executor with itself from 2026-08-07 until it was repaired
+(`v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF`).
 
 ## rust-lane-rejects-try-catch — both entry-point halves are fixed; this one is not
 
