@@ -1,0 +1,11 @@
+slug: rust-sconcat-cons-cell
+branch: feature/rust-sconcat-cons-cell
+agent: claude-code
+started: 2026-08-09T15:40:02Z
+heartbeat: 2026-08-09T15:40:02Z
+status: claimed-before-planning
+items: rust-sconcat-treats-a-cons-cell-as-a-pair
+paths: file:v2/backend/rust/RustBackend.scala file:tests/e2e/list-concat-chain-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
