@@ -5,7 +5,7 @@ started: 2026-08-09T13:54:12Z
 heartbeat: 2026-08-09T13:54:12Z
 status: claimed-before-planning
 items: js-jvm-codegen-in-fence-imports-not-followed
-paths: file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
+paths: file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:tests/conformance/native-import-in-fence.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
