@@ -1,0 +1,11 @@
+slug: mcp-2026-07-28
+branch: feature/mcp-2026-07-28
+agent: claude-code
+started: 2026-08-09T14:05:59Z
+heartbeat: 2026-08-09T14:05:59Z
+status: claimed-before-planning
+items: mcp-2026-07-28 P1
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpClientCore.scala file:specs/mcp-2026-07-28.md file:examples/mcp-server-tools.js
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
