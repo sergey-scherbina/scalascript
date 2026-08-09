@@ -1,3 +1,53 @@
+## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
+
+<!-- status: open
+     lane: v2-rust
+     area: runtime
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-09
+     confirmed: yes
+     gate: none -->
+
+Found while clearing the last error out of rozum's six-line repro, and it is worse than the error
+it was hiding: **the two rust JSON intrinsics implement a different contract from the language.**
+
+```
+[jsonParse](std/json.ssc)
+val v = jsonParse("[1,2]"); println(v)
+
+build-rust  ->  [1,2]        a String
+bin/ssc     ->  List(1, 2)   a List
+```
+
+Both compile. Both run. Nothing is reported. A program that then does `v(0)` gets a character on
+one lane and an element on the other.
+
+`std/json.ssc` declares `def jsonParse(s: String): Any` and `def jsonStringify(v: Any): String`.
+The rust intrinsics (`RustIntrinsics.scala`, `JsonRs`) are `_json_parse(&str) -> String` — parse and
+re-emit compact — and `_json_stringify(&str) -> String` — pretty-print. That is a JSON *formatter*,
+not the language's parse/render pair. `jsonStringify(Map("a" -> "b"))` does not even typecheck, which
+is how this surfaced; `jsonParse` is the dangerous half because it compiles.
+
+**The reference shape, measured on the other lanes** — an object is a `Map`:
+
+```
+jsonParse("{\"a\": 1, \"b\": [true, null, 2.5]}")
+bin/ssc            Map(a -> 1, b -> List(true, None, 2.5))
+ssc-tools --v1     Map(a -> 1, b -> List(true, (), 2.5))
+```
+
+(Those two disagree about `null` — `None` against `()` — which is a second, smaller divergence
+worth its own look.)
+
+**What it needs:** the emitted `Value` has no `Map` variant, so making the intrinsics faithful means
+adding one (`specs/rust-backend.md` §7 lists a `Map` in the DESIGN enum already), then
+`_json_parse -> Value` and `_json_stringify(Value) -> String` over it. Bounded, but it is a runtime
+type change rather than a codegen patch, so it is filed rather than done in the same pass as the
+reachability work that surfaced it.
+
+This is what still stands between rozum and `clients/meeting`: their slice 1 reads a field out of a
+parsed JSON file, and on this lane parsing gives them a string.
+
 ## two-examples-import-a-sibling-by-a-path-that-cannot-resolve
 
 <!-- status: fixed

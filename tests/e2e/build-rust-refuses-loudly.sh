@@ -168,6 +168,49 @@ else
   fi
 fi
 
+# ── 4a. Emit what the entry REACHES — and only when there IS an entry ────────
+# An import pulls in a whole module and the backend used to lower all of it, so a six-line program
+# importing `std/json` failed to build on hundreds of lines it never calls. Two directions, and the
+# second is the one that would hurt: a BIN prunes, a LIB must not — a lib's defs are called by
+# someone this walker cannot see, and dropping one reproduces the `cannot find function` at a
+# user's own call site that this whole gate exists for.
+cat > "$tmp/unused.ssc" <<'SSC'
+def neverCalled(n: Int): Int = n * 3
+def alsoCalled(n: Int): Int = n + 1
+def main(): Unit = println(alsoCalled(1))
+SSC
+set +e
+out10=$("$SSC" emit-rust "$tmp/unused.ssc" -o "$tmp/reach-crate" 2>&1); rc10=$?
+set -e
+gen2="$tmp/reach-crate/src/generated"
+if [[ $rc10 -ne 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — emit-rust rejected a plain program" >&2
+  echo "--- output: $out10" >&2
+  failed=1
+else
+  if grep -rqE '^(pub )?fn neverCalled' "$gen2" 2>/dev/null; then
+    echo "build-rust-refuses-loudly: FAILED — an unreachable def was emitted into a bin crate" >&2
+    failed=1
+  fi
+  if ! grep -rqE '^(pub )?fn alsoCalled' "$gen2" 2>/dev/null; then
+    echo "build-rust-refuses-loudly: FAILED — a REACHABLE def was pruned; that is the bug this guards" >&2
+    failed=1
+  fi
+fi
+
+# The lib direction: no `main`, so nothing may be dropped.
+cat > "$tmp/lib.ssc" <<'SSC'
+def exported(n: Int): Int = n * 3
+SSC
+set +e
+out11=$("$SSC" emit-rust "$tmp/lib.ssc" -o "$tmp/lib-crate" 2>&1); rc11=$?
+set -e
+if [[ $rc11 -ne 0 ]] || ! grep -rqE '^(pub )?fn exported' "$tmp/lib-crate/src/generated/" 2>/dev/null; then
+  echo "build-rust-refuses-loudly: FAILED — a lib crate lost a def it exports" >&2
+  echo "--- output: $out11" >&2
+  failed=1
+fi
+
 # ── 5. An extern with no Rust side must say so, and only when it is CALLED ───
 # An `extern def` without `@rust(...)` renders to nothing on purpose — an extern nobody calls needs
 # no Rust side. But the CALL was still emitted, so importing std/json gave the user

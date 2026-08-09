@@ -116,7 +116,48 @@ object RustCodeWalk:
       (g.instanceName, givenInitExpr(g.instanceName))
     }
     val topVals = baseTopVals ++ givenTopVals
-    val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
+    // ── Emit what the entry point REACHES ────────────────────────────────────
+    //
+    // A `.ssc` import pulls in a whole module, and `build-rust` then lowers every def it brought.
+    // rozum's six-line program imports `std/json`, and the entire `std/json-core.ssc` comes with
+    // it — hundreds of lines that the program never calls, and that the walker cannot yet lower,
+    // so the build failed on code nobody asked for.
+    //
+    // TWO RULES, and the second is what makes this work at all:
+    //   1. reachability from the entry point;
+    //   2. **a name that resolves to an INTRINSIC is not a reference to the user def of that
+    //      name.** `jsonParse`/`jsonStringify` are intrinsics on this lane
+    //      (`RustIntrinsics.scala`), and `renderCall` already gives the intrinsic precedence — so
+    //      reachability has to agree with the call site, or it keeps a body that is never called.
+    //
+    // ONLY when there IS an entry point. A lib crate exposes its defs to a caller this walker
+    // cannot see, so nothing may be dropped there. And dropping a def that IS needed reproduces
+    // exactly the `cannot find function` at a user's own call site that this file has spent the
+    // day removing — so every root below is deliberate, and the verbatim `rust` blocks are scanned
+    // as TEXT because their contents are opaque to us.
+    val entryDefs = defs.filter(d => isEntryPoint(d, d.name.value))
+    val defsToRender =
+      if entryDefs.isEmpty then defs
+      else
+        val byName = defs.map(d => d.name.value -> d).toMap
+        // A def named inside a verbatim `rust` block, or reached from a `given` instance body, is
+        // a root: neither is visible to the reference walk below.
+        val rustBlockRoots = defs.map(_.name.value).filter(n => rustBlocks.exists(_.contains(n)))
+        val givenRoots = givens.flatMap(_.methods).flatMap(mm =>
+          mm.body.collect { case m.Term.Name(n) if byName.contains(n) => n })
+        def refs(d: m.Defn.Def): Set[String] =
+          d.body.collect {
+            // Rule 2: an intrinsic shadows the def of the same name.
+            case m.Term.Name(n) if byName.contains(n) && !intrinsics.contains(QualifiedName(n)) => n
+          }.toSet
+        var seen = (entryDefs.map(_.name.value) ++ rustBlockRoots ++ givenRoots).toSet
+        var frontier = seen
+        while frontier.nonEmpty do
+          val next = frontier.flatMap(n => byName.get(n).map(refs).getOrElse(Set.empty)) -- seen
+          seen = seen ++ next
+          frontier = next
+        defs.filter(d => seen.contains(d.name.value))
+    val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
     val (errors, ok) = results.partitionMap(identity)
     // An `extern def` with no `@rust` and no intrinsic renders to NOTHING, deliberately — an extern
     // nobody calls needs no Rust side. But when something DOES call it the call is still emitted,
@@ -127,7 +168,7 @@ object RustCodeWalk:
     // Same disease as the two before it: the backend omitting what it cannot provide and letting
     // rustc do the talking. Refuse, and name the def — an unreferenced extern still costs nothing.
     val unimplementedExterns: Set[String] =
-      defs.filter(d => isExternBody(d.body) && extractRustAnnotArg(d.mods, "rust").isEmpty)
+      defsToRender.filter(d => isExternBody(d.body) && extractRustAnnotArg(d.mods, "rust").isEmpty)
         .map(_.name.value)
         .filterNot(n => intrinsics.contains(QualifiedName(n)))
         .toSet
@@ -135,7 +176,7 @@ object RustCodeWalk:
       if unimplementedExterns.isEmpty then Nil
       else
         val callers = scala.collection.mutable.SortedMap.empty[String, scala.collection.mutable.SortedSet[String]]
-        defs.filterNot(d => isExternBody(d.body)).foreach { d =>
+        defsToRender.filterNot(d => isExternBody(d.body)).foreach { d =>
           def walkT(t: m.Tree): Unit =
             t match
               case m.Term.Name(n) if unimplementedExterns.contains(n) =>

@@ -110,7 +110,7 @@ counted as a passing row — it is counted here instead.
 ## rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
 
 <!-- status: fixed
-     fixed-in: 932723a63
+     fixed-in: c19cfbc0c
      lane: v2-rust
      area: codegen
      kind: bug
