@@ -1,0 +1,220 @@
+# SSC3 — execution performance and the tier ladder
+
+> What v3's executor costs today, why the answer is **not** a port of v1's JIT, and the order the
+> tiers have to arrive in. Design context: [`../v3/specs/10-ssc-ir.md`](../v3/specs/10-ssc-ir.md)
+> §1–§3 and [`../v3/specs/00-charter.md`](../v3/specs/00-charter.md) invariants I-1 … I-5.
+
+Status: **J0 queued**. Nothing here is implemented yet; `v3/SPRINT.md` carries the queue.
+
+## 1 · The measurements, and what each one is worth
+
+Two runs, `2026-08-09`, on a host at load ~43 with sibling agents building. Recorded in
+`bench/history.tsv`. A contended host does not report contention, it reports a defect
+(`00-charter.md`), so these are **order-of-magnitude facts, not ratios to defend**:
+
+```bash
+./v3/ssc3 bench --warmup 300 --reps 5 bench/corpus/arith-loop.ssc   # BENCH_MS: 226.9897834
+./v3/ssc3 bench --warmup  50 --reps 5 bench/corpus/list-fold.ssc    # BENCH_MS:  60.0569834
+```
+
+Both answers are correct — `VInt(499999500000)` and `VInt(550000)` — so this is the cost of being
+right slowly, not of being wrong fast.
+
+| workload | v3 exec | v1 `ssc` | `jvm` | order |
+|---|---|---|---|---|
+| `arith-loop` | 226.99 ms | 0.244 | 0.241 | ~900× |
+| `list-fold` | 60.06 ms | 0.0062 | 0.000338 | ~10 000× |
+
+The v1/`jvm` columns are `bench/BASELINE.md`, captured 2026-06-15 on a different machine state, and
+the v1 column is **already JIT-compiled**. Comparing across sessions is why the last column says
+"order" rather than a number — re-measure both arms alternating before quoting a ratio anywhere
+(`.agents/plugins/performance`).
+
+### 1.1 · The static fact, which needs no benchmark at all
+
+`javap -c -p` over the classes the driver had just built
+(`v3/.jars/ssc3-a5781bce769e56fa/ssc3/Exec$.class`), highest bytecode offset per method:
+
+```
+13415  Exec$.invoke(Module, String, Value, List[Value])
+ 5478  Exec$.step(Module, Instr, Value[])
+ 4352  Exec$.binOp(Module, BinOp, Value, Value)
+ 2551  Exec$.prim(Module, String, List[Value])
+```
+
+HotSpot's `-XX:DontCompileHugeMethods` threshold is **8000 bytecodes**. `Exec.invoke` is 13 415, so
+**HotSpot never compiles it**: every `xs.map`, `s.length`, `.foldLeft`, every method call any v3
+program makes, is executed by the JVM's own bytecode interpreter for the life of the process, at
+roughly interpreter speed, forever. That is the second row of the table.
+
+`step` at 5478 does compile, but both it and `binOp` are far past `-XX:FreqInlineSize` (325), so
+neither is ever inlined into `exec` — the dispatch loop pays a megamorphic call per instruction.
+
+This is a repeat, not a discovery: the v2 runtime had a 49 384-bytecode method on its call path, and
+splitting it was worth 2.4–10.8×. The lesson that did not carry over is that **nothing in the build
+looks at method size**, so the next one will also arrive silently. §4 fixes that.
+
+**Order-of-work consequence.** Until `invoke` is under the limit, every measurement of every later
+tier is taken against a baseline that HotSpot refuses to compile. That makes J0 a prerequisite for
+*measuring* J1–J3, not merely the cheapest win.
+
+## 2 · Why this is not a port of v1's JIT
+
+v1's JIT is `VmCompiler` (65 KB) + `AsmJitBackend` (5131 lines) + `JavacJitBackend` (4476), and
+[`vm-jit-spec.md`](vm-jit-spec.md) §2 says what nearly all of it is for: **getting a register machine
+out of a scalameta tree** — "why a register VM (not stack)", the register-window stack, the
+per-register type inference, the Int/Double domain classification.
+
+**v3's `Ir.scala` is that machine already.** A linear instruction sequence over a fixed-size register
+frame, structured control flow, an explicit `TailCall`, and a `kind` field on every arithmetic
+instruction placed there for exactly this purpose. Porting v1 would mean building a layer v3 owns by
+construction. What must be ported is the *lessons*, and there are four:
+
+**L1 — v1 is a bail architecture, and v3 must not be.** A narrow compilable subset; everything else
+falls back to the tree-walker permanently (`JitRuntime` sets `disabled` after one failed compile).
+[`jit-completeness.md`](jit-completeness.md) exists to chase the bail list one reason at a time —
+310 disabled functions, `201 call: no compilable target`, `54 unsupported: Term.Select`. The list is
+open-ended because its input is an AST. **v3's opcode set is closed and finite** (~30 cases in
+`Instr`), so full coverage is a reachable state rather than a treadmill, and any tier that cannot
+handle an opcode is a hole with a name rather than a shape nobody enumerated.
+
+**L2 — per-unit state must not be keyed on identity.** v1 keys a synchronized `IdentityHashMap` on
+`FunV` instances and documents the resulting leak (`vm-jit-spec.md` §6.1, "a long-running process
+that mints many distinct named closures would accumulate entries"). v2 fixed it by making the counter
+*be* the code node (`JitSite extends (Env => Step)`). **v3 can do better than both**: the unit is a
+`Func`, and a `Func` is a stable index into `Module.funcs`. Per-function state is an `Array[Int]`
+indexed by function id — no map, no identity, no synchronization, no leak, and it is in the portable
+subset.
+
+**L3 — loops need their own counter, and in v3 they are visible.** v1 patched hot `while` loops with
+eager compilation plus `WhileJitEntry` because a loop body never re-enters the call path, so a
+call counter cannot see it. v2 gave loops a separate site with a separate threshold (256 vs 8).
+v3's `Instr.Loop` is an explicit region: back edges are in the data, and the counter has somewhere
+obvious to live.
+
+**L4 — the four operational rules v2 paid for.** (a) Compiling is not something the program should
+*wait* for: v2 measured ~187 ms of compile in a hello-world run and found the threshold to be the
+wrong lever — the right one is to keep running interpreted and swap when the unit is ready. (b)
+Arming is decided once, before the first unit; with the JIT off the counting node is **absent**, not
+cheap. (c) Statistics go to **stderr, never stdout**, or the parity gate compares a program against
+itself. (d) An absent backend is a supported configuration, never a failure.
+
+## 3 · The tier ladder
+
+Each tier is separately shippable and separately measurable. Tiers J0–J2 are **inside the portable
+subset** ([`../v3/specs/30-portable-subset.md`](../v3/specs/30-portable-subset.md)) and therefore run
+on both hosts, which is the property v1 and v2 could never have: the self-hosting lane gets the speed
+too. J3 is the only tier that needs a decision about the charter, and it is deliberately last.
+
+### J0 · The executor stops being slow — no JIT involved
+
+Not optimization in the interesting sense; removing work that is pure overhead.
+
+1. **Split the huge methods** so no `Exec` method exceeds 8000 bytecodes, and the hot ones
+   (`step`'s arithmetic and register cases) come in under 325 so they can inline. `invoke` splits by
+   receiver kind — the `Value` case it dispatches on is already the natural seam.
+2. **Materialize the constant pool once.** `Instr.Const` today calls `constOf(m.consts(k))`, which
+   builds a fresh `Value` on *every execution*. A `Array[Value]` built at load makes it a load.
+3. **`List[Instr]` → `Array[Instr]` per region**, built at load. The dispatch loop stops chasing
+   cons cells and `.tail`-ing through the hot path.
+4. **Small-integer cache** for `Value.VInt`, the loop-counter case.
+
+*Blocked on `ssc3-cps-split`*, which holds `v3/src/Exec.scala`. Sequenced after it releases rather
+than rebased into it.
+
+### J1 · The specializer — a rewrite of DATA
+
+`Ir.scala` says what this is for in as many words: *"the front emits `Dyn` unless it can prove the
+operand type, and the specializer rewrites the field in place. Optimization is then a rewrite of
+data, not a change of representation."*
+
+Measured today: `Lower.scala` emits `NumKind.Dyn` at **all nine** of its `Bin`/`Un` sites and `I64`
+at none, and `Exec.step` matches `case Instr.Bin(op, _, d, a, b)` — the underscore is the `kind`
+field. **The lever the IR was designed around is emitted blank and read nowhere.**
+
+1. `Specialize.module(m: Module): Module` — a pure pass. Propagate what is provable (literal kinds
+   through the const pool, parameters whose every call site agrees, results of already-specialized
+   instructions) and rewrite `Dyn` → `I64` / `F64` / `Big` where proved. Unproved stays `Dyn`;
+   there is no failure mode, only a less specialized module.
+2. `Exec` dispatches on `kind` **first**, so an `I64` add is a `long` add against two known-shape
+   registers rather than a 40-arm tuple match in `binOp`.
+3. **`Invoke` name → id at load.** `Invoke` carries a constant-pool index naming an `LStr`; resolving
+   it once to a small integer (plus a per-call-site monomorphic inline cache keyed on the receiver's
+   shape) takes the 13 415-bytecode string match off the hot path entirely, which J0 has by then
+   already split but not made cheap.
+4. **Superinstructions** — `Bin(Lt,…); BrIf` and `Const; Bin` fused. The classic interpreter win.
+
+**Superinstructions and specialized opcodes are RUNTIME-ONLY.** The serialized `.ssir` and its text
+form stay exactly what `10-ssc-ir.md` §3 defines. The alternative — new `Instr` cases — touches the
+instruction set, the verifier's five rules, the canonical text form, the bridge to v2 Core IR and
+every differential gate that compares them, in exchange for nothing the runtime form does not
+already give. Parked with that trade-off rather than rejected.
+
+### J2 · Closure compilation — still portable
+
+Convert each `Func` body once into a tree of closures. Instruction decode disappears: operand
+indices are captured, and the dispatch switch becomes a call. This is the rung neither v1 nor v2 has,
+and being in the portable subset it is the one that makes v3 fast *as a self-hosted compiler* and not
+only as a JVM program.
+
+### J3 · Host bytecode behind a by-name seam — a separate decision
+
+The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,
+resolves it once on the first hot unit, and a `null` answer means the unit stays interpreted. The
+kernel never mentions ASM, never loads it, and a build without the backend is a supported
+configuration. What is *not* settled is whether v3 wants a host-specific artifact at all, given I-1
+and I-2 — and that question is worth answering with J0–J2's numbers in hand rather than before.
+
+## 4 · The gates — and the one that is green by construction
+
+**Build the gate before the feature** (`00-charter.md`), and plant the defect it exists to catch.
+
+| gate | proves | how it is proven able to fail |
+|---|---|---|
+| `v3/jit-gate.sh --sizes` | no `Exec` method over 8000 bytecodes, hot ones under 325 | **it is RED on `main` today**: `invoke` is 13 415. The failing state is the starting state, which is the strongest form of P-6.1 evidence there is |
+| `v3/jit-gate.sh --specialize` | `Specialize.module` assigns the kinds a hand-checked fixture must get | fixtures assert the `kind` field directly, per instruction, via the text form |
+| `v3/jit-gate.sh --identity` | output of the corpus is byte-identical with the pass on and off | revert the specializer's rewrite and the fixtures in row 2 go red |
+
+**Row 3 is green by construction until J1 step 2 lands, and saying so is the point.** While `Exec`
+ignores `kind`, a pass that rewrites `kind` cannot change output *whatever it writes there* — so the
+identity gate would pass a specializer that assigned `F64` to every string concatenation. It is
+evidence about tiers J0/J2 and about J1 only *after* the executor reads the field. Until then, row 2
+is the only check with an opinion. This is the repository's most expensive recurring failure
+(`AGENTS.md` §"measurement apparatus must COMPARE, never PRE-JUDGE") and the way to not repeat it is
+to name which gate is asleep and when it wakes up.
+
+Two more that already exist and must keep working: `v3/parity-gate.sh` compares `run` against
+`run --bridge` — a JIT that made it compare the executor against itself would be the exact failure
+it was fixed for in August. And stats go to stderr, or the parity gate's stdout comparison becomes a
+lie (v2 paid for this with `BytecodeFallbackMarker`).
+
+## 5 · Invariants
+
+- **I-1 (zero external dependencies)** — J0–J2 add no dependency; J3 adds none *to the kernel*, by
+  construction of the seam.
+- **I-2 (portable subset)** — J0–J2 use `Array`, `while`, `var`, closures and pattern matching, all
+  in §1 of the subset spec. J3 is host-only and outside the kernel.
+- **I-3 (the two hosts agree)** — a specialized module is still a `Module`; `portable-diff.sh`
+  compares emitted `.ssir` and the pass runs on the executor's side of that boundary.
+- **I-4 (nothing runs unverified)** — `Specialize` runs **after** `Verify.module`, and its output is
+  re-verified in the gate so a rewrite that broke a validation rule cannot hide.
+- **I-5 (compatibility is a number)** — `v3/corpus-report.sh --exec` must not move. Speed that costs
+  `N` is not a win.
+
+## 6 · Parked alternatives, with the trade-off that parked them
+
+- **Port `AsmJitBackend` directly.** ~5k lines against an AST-shaped input v3 does not have, and it
+  brings the bail architecture (L1) with it.
+- **New `Instr` cases for specialized ops.** §3, J1: touches the instruction set, verifier, text
+  form, bridge and every differential gate; the runtime-only form gives the same speed for none of it.
+- **NaN-boxing the register file.** Needs host bit-twiddling the portable subset does not have.
+  Revisit only if J1's two-bank `Array[Long]` + `Array[Value]` measurably falls short.
+- **Threshold tuning as the answer to compile latency.** v2 measured it and it is not: raising the
+  threshold 256× removed 75 % of units but only 41 % of the cost, because the expensive units are the
+  hot ones. Off-thread compilation is the lever.
+
+## 7 · Order
+
+J0 (blocked on `ssc3-cps-split`) → measure → J1 → measure → J2 → measure → decide J3. Every arrow is
+an alternating A/B recorded in `bench/history.tsv` with the `scripts/bench` or `ssc3 bench` command
+that produced it, because on this host one run is a hypothesis.
