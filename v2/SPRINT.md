@@ -31,6 +31,23 @@ worse than the reference on 1 of the 53 files it claims**, down from 3. The rema
 `smoke-test.ssc`, held by the three std/ui gaps in
 `f-std-ui-gaps-behind-the-curried-def-fix` — none of them F's lowering.
 
+**It is a GATE now, not a thing I ran by hand** — `tests/e2e/f-output-agreement-gate.sh`, wired into
+`ci.yml` along with the four F gates, which until 2026-08-09 were invoked by no workflow and no
+suite. They are in the full suite rather than smoke because they cost ~414 s against smoke's ~233 s
+of headroom. The new gate freezes three numbers: **F-worse ≤ 1** (tight — it can only shrink under
+load), agreement ≥ 38 and subjects ≥ 68 (slack, so a busy runner does not turn it red for being
+busy). Verified it can FAIL, not only pass.
+
+Two lessons from building it, both cheap to repeat and expensive to discover:
+
+- **A timeout is not a verdict.** The first version reported 8 files where F is worse; seven were
+  slow files killed by a 15 s cap under `-P 4`, one of them with byte-identical output on both
+  sides. A gate whose answer depends on how busy the host is gets believed on a quiet machine.
+- **`-x bin/ssc` does not mean the toolchain runs.** A fresh worktree has the launcher and no jars,
+  and all four F gates reported FAIL rather than SKIP there. `tests/e2e/lib/ssc-usable.sh` probes
+  functionally instead; verified in both states, because a guard that skips everywhere is how a gate
+  goes quiet.
+
 **The instrument, which should have existed first.** Bootstrap F0 the way
 `specs/v2.2-p6.5-corpus.sh` does and dump F's OWN IR beside the oracle's for a three-line program:
 
