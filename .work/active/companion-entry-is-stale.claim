@@ -1,0 +1,11 @@
+slug: companion-entry-is-stale
+branch: feature/companion-entry-is-stale
+agent: claude-code
+started: 2026-08-09T12:56:40Z
+heartbeat: 2026-08-09T12:56:40Z
+status: claimed-before-planning
+items: int-v1-lane-loses-a-builtin-companion-to-its-own-case-class
+paths: file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
