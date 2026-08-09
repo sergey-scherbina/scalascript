@@ -307,7 +307,12 @@ object Cli:
           // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
           // tail call and a frame is data.
           case "exec" if args.length >= 2 =>
-            val path = args(1)
+            // The first NON-FLAG argument, not `args(1)`. `exec` is the one subcommand that takes a
+            // flag (`--no-specialize`, the OFF arm of every J1 measurement), and positional `args(1)`
+            // read the flag AS THE PATH: `ssc3 exec --no-specialize f.ssc` died with
+            // `cannot read '--no-specialize': NoSuchFileException`. Found by `jit-gate.sh --identity`
+            // on its first run, which is the gate catching its own author's change.
+            val path = args.tail.find(a => !a.startsWith("--")).getOrElse(args(1))
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
             try
               val m = prepared(

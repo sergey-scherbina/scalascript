@@ -208,6 +208,77 @@ check_specialize() {
   return $fail
 }
 
+# ── IDENTITY: specializing must not change what a program PRINTS ─────────────────────────────────
+#
+# This check was deliberately NOT written until 2026-08-09, and the reason is worth keeping. While
+# `Exec` ignored the `kind` field, running a program with the pass on and off produced identical
+# output WHATEVER the pass wrote — it would have certified a specializer that marked string
+# concatenation `f64`. `v3/jit-gate.sh --identity` printed a refusal saying so.
+#
+# SSC3-J1b made `Exec.step` dispatch on the field. The two arms are now genuinely different
+# executions of the same program, so this comparison finally has an opinion, and the self-test's
+# rule 4 proves it by planting a specializer that lies.
+check_identity() {
+  local quiet="${1:-}" fail=0 ran=0
+  [ -n "$quiet" ] || echo "── identity: --no-specialize must print the same bytes ─────────────────"
+  local f
+  for f in "$ROOT"/v3/tests/front/*.ssc "$ROOT"/v3/tests/jit/*.ssc; do
+    [ -f "$f" ] || continue
+    local name on off
+    name="$(basename "$f" .ssc)"
+    # `.uniml-only` fixtures need a front this checkout may not have registered; exec-gate.sh owns
+    # that diagnosis, and repeating it here would report the state of the checkout twice.
+    [ -f "${f%.ssc}.uniml-only" ] && continue
+    ran=$((ran + 1))
+    on="$(v3/ssc3 exec "$f" 2>&1)"
+    off="$(v3/ssc3 exec --no-specialize "$f" 2>&1)"
+    if [ "$on" = "$off" ]; then
+      [ -n "$quiet" ] || echo "  ok   $name"
+    else
+      echo "  FAIL $name — specializing CHANGED the output:"
+      diff <(printf '%s\n' "$off") <(printf '%s\n' "$on") | sed 's/^/         /'
+      fail=1
+    fi
+  done
+  if [ "$ran" = 0 ]; then echo "  ✋ NO PROGRAMS RAN"; return 2; fi
+  # The count, and a verdict that cannot contradict the lines above it. The first version of this
+  # line said "both arms identical" unconditionally and printed it directly under four FAILs.
+  if [ "$fail" = 0 ]; then
+    [ -n "$quiet" ] || echo "  $ran program(s), both arms identical"
+  else
+    echo "  $ran program(s) compared, and the arms DIFFER above"
+  fi
+
+  # THE KIND IS A CLAIM, NOT A GUARANTEE — the other half of the identity property, and the one an
+  # on/off comparison cannot reach. `wrong-kind.ssir` is a hand-edited module in which two STRINGS
+  # are added under an `i64` annotation: a lie no pass would emit, and exactly what a future
+  # specializer bug looks like from the executor's side. `Exec.binI64` must honour the values and
+  # fall back, so the program still prints `ab`.
+  #
+  # PROVEN TO DISCRIMINATE, 2026-08-09, not argued: with `binI64`'s `case _ => binOp(...)` arm
+  # replaced by a throw and the kernel rebuilt, this fixture fails
+  # (`PLANTED: binI64 fallback removed`); restored, it prints `ab` again. Without that arm a
+  # specializer defect would be a WRONG ANSWER rather than a slow one.
+  local wk="$ROOT/v3/tests/jit/wrong-kind.ssir"
+  if [ -f "$wk" ]; then
+    local got want
+    got="$(v3/ssc3 exec "$wk" 2>&1)"
+    want="$(cat "${wk%.ssir}.expected")"
+    if [ "$got" = "$want" ]; then
+      [ -n "$quiet" ] || echo "  ok   wrong-kind — a lying \`i64\` on two strings still prints [$got]"
+    else
+      echo "  FAIL wrong-kind — expected [$want] got [$got]"
+      echo "       A kind the executor TRUSTS instead of checking turns a specializer defect into a"
+      echo "       wrong answer. The fallback arm in Exec.binI64/binF64 is what this asserts."
+      fail=1
+    fi
+  else
+    echo "  FAIL v3/tests/jit/wrong-kind.ssir is missing — the fallback is unasserted"
+    fail=1
+  fi
+  return $fail
+}
+
 # ── THE SELF-TEST — a gate is only a gate if it can go red ───────────────────────────────────────
 #
 # Both rules are exercised against the REAL measurement of this tree, by perturbing the declaration
@@ -294,20 +365,14 @@ self_test() {
   return "$fails"
 }
 
-want_sizes=0; want_spec=0; want_self=0
-if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; fi
+want_sizes=0; want_spec=0; want_ident=0; want_self=0
+if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; want_ident=1; fi
 for a in "$@"; do
   case "$a" in
     --sizes)      want_sizes=1 ;;
     --specialize) want_spec=1 ;;
+    --identity)   want_ident=1 ;;
     --self-test)  want_self=1 ;;
-    --identity)
-      # Named rather than silently accepted, and with the reason, because `specs/ssc3-jit.md` §4
-      # lists it: it is green BY CONSTRUCTION until `Exec.step` dispatches on the `kind` field.
-      # While the field is ignored, a corpus byte-equality check would pass a specializer that
-      # marked string concatenation `f64`. Writing it now would add a green light that means nothing.
-      echo "v3/jit-gate.sh: --identity is not built yet, deliberately — see specs/ssc3-jit.md §4"
-      exit 2 ;;
     *) echo "v3/jit-gate.sh: unknown flag $a" >&2; exit 2 ;;
   esac
 done
@@ -329,6 +394,7 @@ fi
 rc=0
 [ "$want_sizes" = 1 ] && { check_sizes "$DIR" || rc=1; }
 [ "$want_spec"  = 1 ] && { echo; check_specialize "$DIR" "$ROOT/v3/tests/jit" || rc=1; }
+[ "$want_ident" = 1 ] && { echo; check_identity || rc=1; }
 [ "$want_self"  = 1 ] && { self_test  "$DIR" || rc=1; }
 
 echo

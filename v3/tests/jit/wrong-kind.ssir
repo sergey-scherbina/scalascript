@@ -1,0 +1,26 @@
+(module
+  (consts
+    (str "a")
+    (str "b"))
+  (types
+    (type "Cons" 2)
+    (type "Nil" 0)
+    (type "Some" 1)
+    (type "None" 0)
+    (type "Tuple2" 2)
+    (type "Pair" 2)
+    (type "Right" 1)
+    (type "Left" 1))
+  (globals)
+  (prims
+    (prim "io.println"))
+  (funcs
+    (func "main" 0 4
+      (const 0 0)
+      (const 1 1)
+      (bin add i64 2 0 1)
+      (prim 3 0 2)
+      (ret 3))
+    (func "__ssc3_entry__" 0 1
+      (tailcall 0)))
+  (entry 1))
