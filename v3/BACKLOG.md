@@ -184,6 +184,15 @@ version coordinate is on its fourth declaration
 An identifier alphabet that disagrees between the front and the language it compiles does not
 produce a build error; it produces two parses of one file.
 
+## THE TYPE CHECKER — DECIDED 2026-08-09: v3 gets one. See `v3/SPRINT.md` §52
+
+⚠ **This section is now HISTORY, kept for the reasoning.** Sergiy took the decision on 2026-08-09
+against the numbers below: `given … with` as plain syntax first (2 rows, no inference), and **the
+checker itself as mandatory work rather than an open question** — `tagless-*` is a goal in its own
+right. The queue entries are `SSC3-G1` and `SSC3-G2` in `v3/SPRINT.md` §52; the alternative that
+resolves instances by spelling was rejected there on `tagless-resolution`, which declares
+`Show[Int]` and `Show[String]` and cannot be told apart without types.
+
 ## THE TYPE CHECKER — the decision v3 has not made, framed 2026-08-08
 
 Not a task. A decision, with what is known about it, so that whoever makes it is not starting from a

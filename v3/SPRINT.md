@@ -2519,3 +2519,61 @@ measurements to find out — both worth more than the feature.
 stages need `v3/src/Lower.scala`: stage 1 for the dispatch fallback, stage 2 because `given`
 resolution has the same per-file blindness and additionally rewrites call sites. That file is held
 by four claims, one of them active eleven minutes before this was written.
+
+## 52 · The type checker is DECIDED and MANDATORY — `given` syntax now, inference next (claim `v3-given-syntax`)
+
+**The decision was taken by Sergiy on 2026-08-09, against measured numbers, and it is not "if" but
+"when".** §50 left it as *"a question for numbers, not for now"*, and §8 said `given`/`using`
+*"genuinely needs types, and it stays refused"*. That is now settled: **both halves get built, in
+this order**, and the second is not conditional on the first paying off.
+
+**The numbers it was taken against** — `v3/corpus-report.sh`, 2026-08-09, on a rebuilt tree:
+
+    N = 188 / 368        (166 / 367 on 2026-08-08)
+    UNSUPPORTED = 174, of which
+      49 unknown name + 34 unknown function + 26 host fn not on this lane = 109  (63%, library)
+      9 extension · 8 non-`def` trait member · 5 `given … with` · 2 abstract `val`  ≈ 24  (typing)
+
+Of the seven files that declare `given … with`, **two reference the instance BY NAME** —
+`typeclass-monoid` and `typeclass-extension` — and **five need inference**:
+`tagless-{context-bounds,multi-file,program,resolution}` and `typeclass-fold`, all through
+`summon[T]` inside a function generic in its element type.
+
+**Only ONE of the two by-name rows is G1's, and the correction is worth recording.** Framing this
+section I wrote "2 rows" from that split; reading the files says otherwise.
+`typeclass-extension` declares `trait Functor[F[_]]` whose sole member is
+`extension [A](fa: F[A]) def fmap[B](f: A => B)`, so it needs a higher-kinded parameter and an
+extension INSIDE a trait — §51's territory, and §51 is a revert. Referencing by name is necessary
+for G1 and not sufficient; the row that G1 actually turns is `typeclass-monoid`.
+
+**A syntactic shortcut was considered and REJECTED on evidence.** "One instance per trait in
+scope" would pick wrong on `tagless-resolution`, which declares `Show[Int]` AND `Show[String]` —
+one trait, two instances, separable only by a type argument. It would print a plausible number,
+which is this repository's most expensive failure mode. §50 step 2's variant survives that
+objection only because it REFUSES ambiguity instead of guessing; anything that guesses is out.
+
+- [x] **G1 — `given name: T with` parses, as a NAMED VALUE and nothing more.** The declaration
+      becomes what `object name` already becomes, so no new IR, executor or bridge behaviour is
+      involved. **It buys ONE row — `typeclass-monoid` — and must not be sold as more**;
+      `summon[T]` stays refused, by name, with a message that says inference is coming rather than
+      that it is impossible.
+      **Done 2026-08-09, and the capability gate found the one real defect in it.** Both fronts
+      needed the edit — the refusal lived in the UniML projection, so a parser-only change would
+      have made the DEFAULT lane accept what v3's own front refused. Then `typeclass-fold` came up
+      as *accepted only by v3*: both fronts declined it, at DIFFERENT STAGES — UniML in `parse`,
+      v3 later in the lowering with `unknown name 'summon'` — and `given` had been masking that by
+      refusing the file first. `summon[T]` now refuses in v3's parser too, same position, same
+      words, tied to the `[` so a value named `summon` keeps working.
+- [ ] **G2 — the type checker. MANDATORY, not opportunistic.** Sergiy's words: every feature is to
+      exist in the end, and **`tagless-*` is a goal in its own right**, not a side effect worth
+      having only if cheap. So this is queued as work, not as a decision to revisit. What it has to
+      answer is `summon[T]` where `T` mentions a function's own type parameter — that is the whole
+      of the ask, and the five rows above are its acceptance set.
+      **Read §51 before starting.** Stage 1 was attempted by NAME and reverted: `N 188 → 130,
+      CRASH 0 → 131`, because an extension called `map` rewrote every `.map` in the program.
+      The lesson transfers directly — *which instance a call needs is a fact about types, not
+      about spelling*, and a checker is the thing that knows it.
+      **Cost, stated up front so it is not discovered later:** the erasure bargain of Tier 0 ends
+      where the checker begins; BOTH fronts must then agree on typing, which widens I-3 from
+      "same output" to "same judgements"; and `N` may fall for the first time, which I-5 forbids
+      quietly — so G2 lands behind a gate that reports the corpus number before and after.
