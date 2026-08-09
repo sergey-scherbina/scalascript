@@ -5,7 +5,7 @@ started: 2026-08-09T18:29:38Z
 heartbeat: 2026-08-09T18:29:38Z
 status: claimed-before-planning
 items: decided: a package root is a namespace not a member; the interpreter must stop gating it on exports
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala BUGS.md
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/PackageRootImportTest.scala BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
