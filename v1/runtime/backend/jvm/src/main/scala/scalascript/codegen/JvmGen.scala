@@ -1885,7 +1885,17 @@ class JvmGen(
           // virtual block), `lineOffset` defaults to 0 and the block
           // contributes nothing to the SMAP.
           val origStart = cb.lineOffset
-          cb.tree.map(t => JvmGen.Block(t, cb.source, origStart, currentContentSectionIndex)).toList
+          // An in-fence `[names](path.ssc)` is the same import as one above the fence; commonmark
+          // reads it as literal text so it never reaches the `Content.Import` arm below, and the
+          // emitted program lacked the module — `Not found: square`, far from the import. Inlined
+          // BEFORE this block, as a link above the fence would be; `inlineImport` dedups by resolved
+          // path, so declaring it both ways does not inline twice.
+          // v1/runtime/backend/js/BUGS.md js-jvm-codegen-in-fence-imports-not-followed.
+          val inFence = scalascript.parser.Parser.inlineImports(cb.source).flatMap { imp =>
+            val (blocks, importedPkg) = inlineImport(imp.path)
+            blocks ++ aliasBlock(imp.bindings, importedPkg).toList
+          }
+          inFence ++ cb.tree.map(t => JvmGen.Block(t, cb.source, origStart, currentContentSectionIndex)).toList
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           // Reserve a position in the eventual emission order so the
           // String val lands between the surrounding parsed blocks.
@@ -3030,10 +3040,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     val exported = module.manifest.toList.flatMap(_.exports).toSet
     if exported.isEmpty then return Map.empty
 
+    // BOTH surfaces — see Parser.sectionImports: an in-fence `[names](path.ssc)` is the same import.
     def importsIn(sections: List[Section]): List[Content.Import] =
       sections.flatMap { section =>
-        section.content.collect { case imp: Content.Import => imp } ++
-          importsIn(section.subsections)
+        // `sectionImports` already walks subsections, so this must NOT recurse again — doing both
+        // returns every nested import twice, which I did on the first pass.
+        scalascript.parser.Parser.sectionImports(section)
       }
 
     val out = mutable.LinkedHashMap.empty[String, ReExportTarget]

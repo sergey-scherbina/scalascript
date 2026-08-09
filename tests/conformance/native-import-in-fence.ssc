@@ -2,7 +2,6 @@
 name: native-import-in-fence
 description: A module import link written INSIDE a code fence must load the module on every lane
 backends: [int, js, jvm, v2]
-known-red: "js,jvm — v1 JsGen/JvmGen do not follow an in-fence import either; the INT lane does. Remove when BUGS.md js-jvm-codegen-in-fence-imports-not-followed is fixed"
 ---
 
 # Import link inside a code fence

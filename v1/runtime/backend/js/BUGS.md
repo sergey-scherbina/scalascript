@@ -1534,10 +1534,39 @@ drove an `if`. A gate keying on exit status sees success.
 
 
 ## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: front
-     gate: tests/conformance/native-import-in-fence.ssc -->
+     gate: tests/conformance/native-import-in-fence.ssc
+     fixed-in: PENDING -->
+
+**FIXED — all four lanes now load an in-fence import.** `tests/conformance/native-import-in-fence.ssc`
+prints `25 / 27 / 720` on int, js and jvm, so its `known-red: js,jvm` is gone along with the
+baseline row and the paired digest.
+
+**The scan already existed; nobody called it.** `Parser.inlineImports` recovers the in-fence form —
+commonmark reads a `[names](path.ssc)` line inside a fence as literal text, never a link, so it never
+becomes a `Content.Import`. `SectionRuntime` called it, which is the whole reason INT worked, and so
+did `build-rust` after its own version of this bug. JsGen and JvmGen did not.
+
+**One collector, because there were FIVE call sites.** `Parser.sectionImports` now returns both
+surfaces for a section and the five sites route through it — three in JsGen, two in JvmGen. Five
+copies of a two-line `collect` is five chances for the walks to disagree, which is how a surface goes
+missing in the first place; the entry's own fix direction asked for exactly this.
+
+Collecting the path is not enough — the module has to reach the OUTPUT. JsGen emits `genImport` for
+each in-fence import before the block's own code, and JvmGen prepends `inlineImport`'s blocks plus
+the alias block, in both cases in the position a link above the fence would have occupied.
+
+**Three controls, measured, not assumed:**
+
+- the above-the-fence twin `modules.ssc` still passes on all three lanes — the working surface is
+  untouched;
+- a file importing the SAME module both ways prints `36` on all three lanes and defines the function
+  **exactly once** in the js bundle, so `inlineImport`'s dedup covers the new caller. That claim was
+  in my comment before it was measured, and measuring it is what makes it a comment worth keeping;
+- the second fence in the case still sees the module imported by the first, which is the case's own
+  reason for having two.
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while fixing the native half,
 `v2-native-front-in-fence-imports-not-followed`). Declared `known-red: js,jvm` on

@@ -180,6 +180,25 @@ object Parser:
       }
     }.toList
 
+  /** Every import a section carries, in BOTH surfaces: the Markdown-LINK form, which reaches the AST
+   *  as `Content.Import`, and the IN-FENCE form, where the identical `[names](path.ssc)` line sits
+   *  inside a code block and commonmark reads it as literal text rather than a link.
+   *
+   *  The two surfaces are one language feature — "a link is an import wherever it stands" — and every
+   *  consumer that collected only the first silently produced a program with a missing module graph,
+   *  whose first symptom is an unbound name far from the import. `build-rust` had it
+   *  (`tests/BUGS.md build-rust-drops-defs-it-cannot-lower-without-saying-so`) and so did JsGen and
+   *  JvmGen (`v1/runtime/backend/js/BUGS.md js-jvm-codegen-in-fence-imports-not-followed`); the
+   *  interpreter did not, because `SectionRuntime` already called `inlineImports`.
+   *
+   *  It lives HERE, next to the scan it wraps, because the js and jvm generators had FIVE separate
+   *  collection sites between them: five copies of a two-line `collect` is five chances for the
+   *  walks to disagree, which is how one surface goes missing in the first place. */
+  def sectionImports(section: scalascript.ast.Section): List[Content.Import] =
+    section.content.collect { case imp: Content.Import => imp } ++
+      section.content.collect { case cb: Content.CodeBlock => cb }.flatMap(cb => inlineImports(cb.source)) ++
+      section.subsections.flatMap(sectionImports)
+
   private val inlineImportMarker =
     """^\s*// list-import: \[([^\]]+)\]\(([^)]+)\)\s*$""".r
 

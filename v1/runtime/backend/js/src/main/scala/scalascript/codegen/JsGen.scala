@@ -1347,8 +1347,8 @@ class JsGen(
       s.content.collect {
         case cb: Content.CodeBlock if cb.isProgramCode => cb.source
       } ++ s.subsections.flatMap(collectSources)
-    def collectImports(s: Section): List[Content.Import] =
-      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(collectImports)
+    // BOTH surfaces — Parser.sectionImports also recovers an in-fence `[names](path.ssc)`.
+    def collectImports(s: Section): List[Content.Import] = scalascript.parser.Parser.sectionImports(s)
     val sources = module.sections.flatMap(collectSources)
     val allText = sources.mkString("\n")
     val hasStdUiImport = module.sections.flatMap(collectImports).exists { imp =>
@@ -1736,8 +1736,8 @@ class JsGen(
   private def importedTypeclassObjects(module: Module): Set[String] =
     val found   = scala.collection.mutable.Set.empty[String]
     val visited = scala.collection.mutable.Set.empty[String]
-    def imports(s: Section): List[Content.Import] =
-      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(imports)
+    // BOTH surfaces — Parser.sectionImports also recovers an in-fence `[names](path.ssc)`.
+    def imports(s: Section): List[Content.Import] = scalascript.parser.Parser.sectionImports(s)
     def resolve(path: String, dir: os.Path): Option[os.Path] =
       val initial =
         try scalascript.imports.ImportResolver.resolve(path, dir, moduleDeps, lockPath)
@@ -2069,8 +2069,8 @@ class JsGen(
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
 
-    def collectImports(s: Section): List[Content.Import] =
-      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(collectImports)
+    // BOTH surfaces — Parser.sectionImports also recovers an in-fence `[names](path.ssc)`.
+    def collectImports(s: Section): List[Content.Import] = scalascript.parser.Parser.sectionImports(s)
 
     // Resolve an import to a file path, mirroring genImport's resolution.
     def resolveImport(path: String, dir: os.Path): Option[os.Path] =
@@ -2232,6 +2232,14 @@ class JsGen(
           ()
         case cb: Content.CodeBlock if cb.isProgramCode =>
           flushScala()
+          // A `[names](path.ssc)` line INSIDE the fence is the same import as one above it, but
+          // commonmark reads it as literal text, so it never becomes a `Content.Import` and the arm
+          // below never fires. Only the interpreter followed it, which made this a silent lane
+          // divergence: the emitted bundle simply lacked the module and the first symptom was
+          // `ReferenceError: square is not defined`, far from the import.
+          // Emitted BEFORE the block's own code, as a link above the fence would be.
+          // v1/runtime/backend/js/BUGS.md js-jvm-codegen-in-fence-imports-not-followed.
+          scalascript.parser.Parser.inlineImports(cb.source).foreach(genImport)
           withContentCurrentSection(sectionIndex) {
             cb.tree.foreach(genScalaNode)
           }
