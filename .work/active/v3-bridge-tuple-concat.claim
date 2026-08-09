@@ -1,0 +1,11 @@
+slug: v3-bridge-tuple-concat
+branch: feature/v3-bridge-tuple-concat
+agent: claude-code
+started: 2026-08-09T12:25:57Z
+heartbeat: 2026-08-09T12:25:57Z
+status: claimed-before-planning
+items: the last declared I-3 divergence: (a,b) ++ (c,d) answers on the executor and throws on the bridge
+paths: file:v3/src/BridgeV2.scala file:v3/src/Lower.scala file:v3/tests/front BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
