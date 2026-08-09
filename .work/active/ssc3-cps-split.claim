@@ -5,7 +5,7 @@ started: 2026-08-09T14:05:51Z
 heartbeat: 2026-08-09T14:05:51Z
 status: claimed-before-planning
 items: SSC3-7b-step2
-paths: file:v3/src/Cps.scala file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/SPRINT.md
+paths: file:v3/src/Cps.scala file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
