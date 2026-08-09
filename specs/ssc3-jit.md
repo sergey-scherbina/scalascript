@@ -215,6 +215,36 @@ lie (v2 paid for this with `BytecodeFallbackMarker`).
 
 ## 7 · Order
 
-J0 (blocked on `ssc3-cps-split`) → measure → J1 → measure → J2 → measure → decide J3. Every arrow is
-an alternating A/B recorded in `bench/history.tsv` with the `scripts/bench` or `ssc3 bench` command
-that produced it, because on this host one run is a hypothesis.
+J0 → measure → J1 → measure → J2 → measure → decide J3. Every arrow is an alternating A/B recorded
+in `bench/history.tsv` with the command that produced it, because on this host one run is a
+hypothesis.
+
+## 8 · What the first day actually taught, 2026-08-09
+
+J1 and J0 both landed. **Neither produced a wall-clock number worth reporting, and that is the
+finding**, not a footnote to it.
+
+**Four A/Bs were run and all four were inconclusive.** J1b: 10 alternating pairs, "on" faster in 5
+of 10. J0a: 6 pairs per workload, 4 of 6 and 3 of 6. Median differences were 2.7 to 15.5 ms against
+pooled standard deviations of 22 to 43. Within-arm spread ran 1.6× to 3.9× at host loads of 45 to
+72. **The resolution floor of this host, measured rather than assumed, is about 2×** — every change
+in this ladder except a tier that eliminates the interpreter is smaller than that.
+
+Two consequences, both cheap and both worth adopting before the next tier:
+
+1. **Prefer evidence with a THRESHOLD in it.** `java -XX:+PrintCompilation` settled J0b in one run
+   at load 72: at 13415 bytecodes `ssc3.Exec$::invoke` never appears in the compilation log; at
+   6912 it does. That is the entire claim of that change, checked deterministically, for free. Ask
+   of every proposed optimization *what discrete thing does this make true* — compiled vs not,
+   allocated vs not, one pass vs O(n) — and check THAT, then measure the wall clock when a quiet
+   machine exists.
+2. **Two class directories are a legitimate A/B rig.** `v3/ssc3` keys its build directory on a
+   digest of the sources, so a pre-change and post-change build coexist and can be alternated in
+   one loop, on one host, in one JVM version: `java -cp v3/.jars/ssc3-<digest>:<toolchain>
+   ssc3.ssc3 bench …`. No stashing, no rebuild between arms, and no chance of measuring the wrong
+   binary — which is a failure this repository has recorded more than once.
+
+**What is NOT concluded:** that these changes do not help. An inconclusive A/B is not a negative
+result, and `invoke` moving from never-compiled to compiled is not something a reasonable person
+expects to be free. The measurement is owed, on a quiet machine, and the exact commands are in the
+`bench/history.tsv` rows.

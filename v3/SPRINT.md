@@ -2430,13 +2430,34 @@ site of a function, leave anything a `CallV` can reach at `Dyn` — is the next 
 is a strictly larger analysis, so it waits until J1b has shown that the proved third is worth
 anything at run time. Proving more of a field nobody reads is not progress.
 
-- [~] **SSC3-J0 — executor hygiene. BLOCKED, deliberately, not forgotten.** Split `invoke`/`step`/
-      `binOp` under the limits; materialize the constant pool once (`Instr.Const` builds a fresh
-      `Value` on *every execution* today); `List[Instr]` → `Array[Instr]` at load; small-int cache.
-      All of it is `v3/src/Exec.scala`, which `ssc3-cps-split` holds (SSC3-7b-step2). Sequenced
-      after that claim releases rather than rebased into it; asked in the rozum room 2026-08-09/13.
-      *Note the ordering consequence:* until `invoke` is under 8000, every measurement of every later
-      tier is taken against a baseline HotSpot refuses to compile.
+- [x] **SSC3-J0a/J0b — `invoke` is JIT-compiled for the first time.** `21d250b4c`.
+      *J0a, the derived tables.* `Module` holds its pools as `List` and **`List.apply` is
+      O(index)** — `m.consts(k)` walked k cons cells on EVERY execution, and `arith-loop` has two
+      `Const` in its loop body, so a million iterations paid a million walks for a value that never
+      changes. Same per call for `m.funcs(fi)`, per host call for `m.prims(p)`, per METHOD call for
+      the `Invoke` name. All four are arrays now, and the constant pool holds VALUES so `constOf`
+      stops allocating per execution (safe only because it produces immutable cases — stated in the
+      source, because it would NOT be safe for `VData`/`VArr`/`VMap`).
+      *J0b, the split.* `invoke` 13415 → **6912**, `invokeRest` 5379, both under
+      `DontCompileHugeMethods`. A pure extraction of the final `case _` arm: no arm reordered, no
+      guard changed.
+      **PROVEN WITHOUT A STOPWATCH**, `java -XX:+PrintCompilation` on both builds, same workload:
+      at 13415 `ssc3.Exec$::invoke` never appears in the compilation log at all; at 6912 both it
+      and `invokeRest` are compiled. On a host at load 66–72 that is the only kind of evidence
+      available, and it happens to be the stronger kind.
+      **Wall clock says nothing yet and is recorded saying nothing:** 6 alternating pairs per
+      workload across two class directories of the same tree — 4 of 6 on `arith-loop` (ratio 1.02,
+      2.7 ms against a pooled sd of 36.4) and 3 of 6 on `list-fold` (0.91, 3.9 against 21.9).
+      *The gate deleted its own declaration*, which is the two-way rule earning its place: with
+      `invoke` at 6912 the `--sizes` check went RED **on the method that had just been fixed**,
+      demanding the stale line go. A one-way threshold would have gone quietly green.
+
+**What is left in J0, and it is not blocked — it is unmeasurable here.** `List[Instr]` → an array
+per region, a small-integer cache for `Value.VInt`, and `step` (5867) under `FreqInlineSize`. Each
+is a plausible win and NONE of them can be told apart from noise on this host today: the resolution
+floor measured across four A/Bs this session is roughly 2×. **Do them when there is a quiet machine,
+and take the PrintCompilation-style evidence whenever the change has a threshold in it** — that
+evidence cost nothing and survived a load of 72.
 
 ## 50 · Tier 2, un-deferred — and the first thing to establish is that it is not ONE thing
 
