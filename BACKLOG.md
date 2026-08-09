@@ -185,6 +185,43 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## mcp-2026-07-28 — speak the stateless MCP revision, dual-era
+
+Spec: [`specs/mcp-2026-07-28.md`](specs/mcp-2026-07-28.md). Cross-module by construction —
+`mcp/common`, `v1/runtime/std/mcp-plugin`, the jvm/js runtimes and `v2/runtime/providers/mcp-plugin`
+all speak the protocol, which is why this sits in the root backlog and not a module's.
+
+We advertise `2024-11-05` while implementing roughly the `2025-06-18` feature set. Upstream
+`2026-07-28` drops the `initialize` handshake entirely and moves version, identity and
+capabilities into per-request `_meta`. Decision: serve **both** eras off one server — the spec
+names that configuration "dual-era" and gives it a passing row in its own compatibility matrix.
+A cutover would break every currently-shipping client for the sake of one constant.
+
+Free by accident: `Mcp-Session-Id` and SSE resumability are the revision's two hardest removals
+and we never built either (grep, 2026-08-09, zero hits repo-wide).
+
+- [~] **P1 — core stateless envelope.** `server/discover`; `_meta` request context and its
+  validation (`-32022` unsupported version, `-32602` missing `clientCapabilities`); `resultType`
+  + `serverInfo` stamped by ONE post-processing site so the legacy path stays byte-identical and
+  the gate can prove it.
+- [ ] **P1b — version honesty.** Legacy `initialize` echoes the client's version when supported;
+  bump the legacy constant to `2025-06-18` at all four call sites at once, after auditing that we
+  really implement it. Split out of P1 deliberately: three of those sites are in files P1 does not
+  claim, and bumping the shared constant without the matching negotiation is the
+  second-decision-site trap.
+- [ ] **P2 — caching + headers.** `ttlMs`/`cacheScope` on the five `CacheableResult` results;
+  deterministic `tools/list` order; `Mcp-Method`/`Mcp-Name` + `-32020`; `x-mcp-header`;
+  `MCP-Protocol-Version` header.
+- [ ] **P3 — MRTR.** `InputRequiredResult`; migrate elicitation and roots off server-initiated
+  requests. Largest semantic change — `McpServerBuilder.request(...)` stops being the mechanism.
+- [ ] **P4 — `subscriptions/listen`.** Replaces `resources/subscribe`/`unsubscribe` and the GET
+  stream; opt-in notification types; `subscriptionId` tagging.
+- [ ] **P5 — deprecations, extensions, auth.** Roots/Sampling/Logging marked deprecated; Tasks
+  extension; RFC 9207 `iss`; `application_type` on DCR; credentials keyed by issuer; Client ID
+  Metadata Documents.
+
+Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
+
 ## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
 
 <!-- status: open
