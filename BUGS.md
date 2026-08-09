@@ -1385,11 +1385,12 @@ the paired freeze; the cost of doing it alone is recorded under
 
 ## package-root-import-needs-an-exports-entry-on-int — and needs nothing on native
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: divergence
-     gate: none
+     gate: sbt backendInterpreter/testOnly *PackageRootImportTest*
+     fixed-in: fa9249f0e
      fixed-in: - -->
 
 Found 2026-08-05 while implementing `native-front-has-no-package-namespace`, checking whether the
@@ -1443,6 +1444,25 @@ The decision is recorded so whoever holds that file next does not have to re-ope
 always importable"* and *"declare what you export, including the root"* are both defensible; picking
 one silently in a lane fix is how the two lanes drifted in the first place. No gate: writing one
 before the decision would freeze whichever answer runs today.
+
+**IMPLEMENTED 2026-08-09 in `fa9249f0e`.** `runImport` exempts a binding whose name is the child's
+package root — `childPkg.headOption.contains(sourceName)`, the same root `packageMembers` walks from,
+so the two agree by construction. Every other binding stays gated exactly as before.
+
+`PackageRootImportTest` pins both directions, and the second test is the one that matters: an
+ordinary non-exported member is STILL refused, so the exemption is the root and nothing else. Proved
+to discriminate — disabling the exemption fails the first test and leaves the second green.
+
+**Pre-existing red, stated so this is not misread:** `backendInterpreter/test` is 1854 passing and
+**14 failing both before and after**, verified by removing the change and the new file and re-running
+the four that could plausibly have been mine — the two content-toolkit transitive-import tests and
+the JS/JVM "directly imported Markdown content namespaces" pair all fail on a clean tree, as do nine
+money/currency ones. None is caused by this change and none is filed here.
+
+**The hole this did NOT close, restated because it is now the only thing left in this area:** a
+package path reaches non-exported members on BOTH lanes. `exports:` never restricted that, and this
+change did not make it worse. It deserves its own entry.
+
 
 ## an-example-uses-a-syntax-the-language-does-not-have-and-no-gate-runs-it
 
