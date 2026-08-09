@@ -1,0 +1,20 @@
+// A default on an `enum` case parameter. The `case class` field parser has always called
+// `parseDefault`; the enum-case loop went straight from the type annotation to `,` or `)`, so the
+// same declaration one keyword away was a parse error.
+enum Shape:
+  case Circle(radius: Int = 1)
+  case Rect(w: Int = 2, h: Int = 3)
+  // A case with NO parameters at all, beside ones that have them — the loop must still leave it be.
+  case Point
+
+// A default that references an EARLIER parameter of the same case, which is the other half of the
+// default machinery and had no coverage on this path at all.
+enum Span:
+  case Range(lo: Int, hi: Int = 99)
+
+def main(): Unit =
+  println(Circle().radius)      // 1  — every argument defaulted
+  println(Rect(9).h)            // 3  — trailing default, leading argument given
+  println(Rect(9, 8).h)         // 8  — no default used
+  println(Range(4).hi)          // 99
+  println(Range(4, 5).hi)       // 5

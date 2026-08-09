@@ -1309,7 +1309,15 @@ object Parser:
                 if isId(peek(t2), "val") || isId(peek(t2), "var") then t2 = t2.tail
                 val (fn, fp, t3) = expectName(t2)
                 t2 = skipTypeAnn(t3)
-                fields = Param(fn, fp) :: fields
+                // `parseDefault`, the SAME helper the `case class` field loop above calls. This loop
+                // went straight from the type annotation to `,` or `)`, so `case Circle(radius: Int
+                // = 1)` died with `expected ')', found =` while `case class Circle(radius: Int = 1)`
+                // — the same declaration one keyword away — worked. `Ast.Param` has carried
+                // `default` for both spellings all along and its comment names them both; only one
+                // of the two parsers filled it in.
+                val (dflt2, t4) = parseDefault(t2)
+                t2 = t4
+                fields = Param(fn, fp, dflt2) :: fields
                 if isPunct(peek(t2), ",") then t2 = t2.tail else g2 = false
             t2 = expectPunct(t2, ")")
           out = ClassDef(n, fields.reverse, Nil, Nil, np) :: out
