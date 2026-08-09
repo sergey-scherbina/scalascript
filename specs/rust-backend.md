@@ -363,6 +363,73 @@ Monomorphisation (phase R.6) replaces `Value` with the inferred Rust
 type on call sites where the IR has full type information; the boxed
 shape stays as the fallback path.
 
+### 7.1 `Any`, and how a case class lives in one
+
+**Decided 2026-08-09 by the project owner, after three options were weighed; implemented the same
+day.** `Any` maps to `Value`, and `Value` carries a variant for a user case class:
+
+```rust
+Obj(&'static str, Vec<Value>),   // constructor name + fields in DECLARATION order
+```
+
+Before this, `Any` mapped to a `Value` that had nowhere to put a user struct, so a program written
+against `Any` could not be lowered at all — which is most of `std/json-core.ssc`
+(`case class JsonCoreArray(items: List[Any])`). Positional rather than named: the walker knows the
+field order from the `case class`, and carrying names would double every node for information it
+already has.
+
+**Two properties make this work without type inference in the walker**, and they are the reason
+this option was chosen over the alternatives in §7.2:
+
+1. **The target type is always DECLARED.** A case-class field, a `def` parameter, a return type —
+   every place a value can land says what it wants. The walker never asks what an expression *is*;
+   it asks what the place it is going to *wants*. That is the asymmetry the whole design rests on.
+2. **The coercions are TOTAL.** `Value::from(x)` is the identity when `x` is already a `Value`
+   (std's reflexive `impl<T> From<T> for T`), and `x.ssc_int()` is implemented for `Value` **and**
+   for `i64`. So the same emitted call compiles whichever side of the boundary the expression was
+   on, and property 1 is enough on its own.
+
+Five boundaries cross it, and all five are needed — each was measured separately against
+`std/json-core.ssc` (rustc error count after each):
+
+| boundary | lowering | errors after |
+| --- | --- | --- |
+| — | (starting point) | 160 |
+| `match` on an `Any` | `ssc_is` / `ssc_field` chain, not a Rust pattern | 98 |
+| return of an `Any`-returning def | lift at the tail | 68 |
+| tail positions inside it | `if` branches and match arms lift individually | 56 |
+| call arguments | coerce to the declared parameter type | 52 |
+| case-class construction | lift into an `Any`-declared field | 41 |
+
+The fourth row is the one that is easy to get wrong: `if p then Ok(…) else Err(…)` is two different
+Rust structs, so the `if` itself does not typecheck and wrapping the whole body in `Value::from`
+never gets a chance. In Scala that expression's type is `Any`; in Rust it has to BECOME a `Value`
+in each branch.
+
+**Cost, stated plainly.** `Obj` carries a name and positions, so a constructor mismatch is a
+runtime panic naming both sides rather than a compile error. That is inherent to code written
+against `Any`. Statically typed case classes — no `Any` in sight — stay ordinary Rust structs with
+ordinary Rust checking; nothing about them changes.
+
+**Not finished:** `std/json-core.ssc` still produces 41 rustc errors, a tail of individual sites
+(the largest group is 8 borrow mismatches, `&str` against `String`, unrelated to `Any`). Tracked in
+`tests/BUGS.md json-core-emitted-rust-does-not-compile`.
+
+### 7.2 Rejected alternatives for `Any`
+
+- **A generated enum of all standalone case classes.** Right for `json-core`, wrong for every
+  program where `Any` legitimately holds an `Int` — `Value` already models those, and a second
+  universal type would have to be reconciled with it at every intrinsic.
+- **`Rc<dyn Any>` with downcasts.** Gives up interop with every intrinsic that takes a `Value` —
+  `println`, the whole HTTP runtime, the UI runtime — for dynamism that is not needed.
+
+### 7.3 Drift notice for §7
+
+The enum listed in §7 above is the DESIGN, and the emitted one differs today: it has no `Map`,
+`Closure` or `Computation`, and it has `Signal(String, Box<Value>)` plus the `Obj` described here.
+`v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs` is the emitted source
+and the thing to read when the answer has to be right.
+
 ## 8. Capability negotiation
 
 R.1 declares:
