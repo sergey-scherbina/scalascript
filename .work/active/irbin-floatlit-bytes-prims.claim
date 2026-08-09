@@ -5,7 +5,7 @@ started: 2026-08-09T15:38:33Z
 heartbeat: 2026-08-09T15:38:33Z
 status: claimed-before-planning
 items: irbin -0.0 collapses and IrBytes has no representation; both need kernel prims that do not exist
-paths: file:v2/src/Runtime.scala file:v2/lib/irbin.ssc0 file:v2/examples/irbin-failclosed.ssc0 BUGS.md
+paths: file:v2/src/Runtime.scala file:v2/lib/irbin.ssc0 file:v2/examples/irbin-failclosed.ssc0 file:v2/conformance/check.sh BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
