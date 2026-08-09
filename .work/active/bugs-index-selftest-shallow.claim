@@ -1,0 +1,15 @@
+slug: bugs-index-selftest-shallow
+branch: feature/bugs-index-selftest-shallow
+agent: claude-code
+started: 2026-08-09T18:31:08Z
+heartbeat: 2026-08-09T18:31:08Z
+status: implementing
+items: bugs-index-selftest-fails-on-a-shallow-clone
+paths: file:tests/e2e/bugs-index-gate.sh
+scope: |
+  main is RED on every push and has been for an hour. The new stale-open report is guarded with
+  `not SHALLOW` -- correct, it needs `merge-base --is-ancestor` -- but the SELF-TEST asserts the
+  report fires unconditionally. CI checks out with actions/checkout@v4 and no fetch-depth, i.e.
+  SHALLOW, so the assertion can never hold there. Not mine; my commits are just the pushes that ran
+  it. Reproduced in a `git clone --depth 1`, which is the control this needs.
+next: make the assertion conditional on the same SHALLOW the check uses, and prove it in both clones
