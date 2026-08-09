@@ -1,0 +1,11 @@
+slug: verify-scala-direct-family
+branch: feature/verify-scala-direct-family
+agent: claude-code
+started: 2026-08-09T14:29:56Z
+heartbeat: 2026-08-09T14:29:56Z
+status: claimed-before-planning
+items: 11 scala-direct entries cite remediation commits that are LANDED on origin/main; verify and close what is fixed
+paths: file:v2/host/scala/control BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
