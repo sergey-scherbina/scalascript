@@ -215,7 +215,8 @@ object McpProtocol:
     result:        ujson.Value,
     serverName:    String,
     serverVersion: String,
-    resultType:    String = "complete"
+    resultType:    String        = "complete",
+    cache:         Option[CacheHints] = None
   ): ujson.Value =
     result match
       case obj: ujson.Obj =>
@@ -225,8 +226,69 @@ object McpProtocol:
           case _                  => ujson.Obj()
         meta(MetaKey.ServerInfo) = ujson.Obj("name" -> serverName, "version" -> serverVersion)
         obj("_meta") = meta
+        cache.foreach { c =>
+          obj("ttlMs")      = ujson.Num(c.ttlMs.toDouble)
+          obj("cacheScope") = c.cacheScope
+        }
         obj
       case other => other   // non-object result: nothing to stamp onto
+
+  // ─── MCP 2026-07-28 — CacheableResult ───────────────────────────────
+
+  /** `ttlMs` + `cacheScope`, which the revision makes MANDATORY on the six
+   *  cacheable operations' `resultType: "complete"` results.
+   *
+   *  `ttlMs` is a freshness hint in milliseconds and the spec requires it to
+   *  be `>= 0`; `0` means "immediately stale". `cacheScope` is `"public"` (no
+   *  user-specific data, any shared proxy may serve it to anyone) or
+   *  `"private"` (reusable only within the same authorization context). */
+  case class CacheHints(ttlMs: Long, cacheScope: String):
+    require(ttlMs >= 0, s"ttlMs must be >= 0, got $ttlMs")
+    require(cacheScope == "public" || cacheScope == "private", s"bad cacheScope: $cacheScope")
+
+  /** The six operations the spec names. Anything else carries no hints —
+   *  and MUST NOT, since a client would then cache something the spec never
+   *  said was cacheable. */
+  val CacheableMethods: Set[String] = Set(
+    Method.ServerDiscover, Method.ToolsList, Method.PromptsList,
+    Method.ResourcesList, Method.ResourcesTemplatesList, Method.ResourcesRead
+  )
+
+  /** Default freshness for a catalogue that only changes when the server
+   *  mutates its own registry — one minute.
+   *
+   *  Not plucked from nothing: our servers advertise `listChanged: true` on
+   *  tools, resources and prompts, and the spec blesses TTL and notifications
+   *  together — the notification is an immediate invalidation, the TTL just
+   *  saves refetches in between. A minute is short enough that a client which
+   *  MISSES a notification is wrong only briefly. */
+  val DefaultListTtlMs: Long = 60_000
+
+  /** `resources/read` defaults to 0 — immediately stale.
+   *
+   *  Deliberately the conservative end. A resource's content is produced by a
+   *  user handler we know nothing about; it may be a file, a query, a clock.
+   *  Guessing a lifetime for it would make the server assert a freshness it
+   *  cannot know, and the failure mode is a client serving stale data with no
+   *  way to tell. Servers that DO know set it per-registration. */
+  val DefaultReadTtlMs: Long = 0
+
+  /** Cache hints for `method`, or `None` when it is not a cacheable operation.
+   *
+   *  `authenticated` decides the scope, and it is the one bit of information
+   *  we actually have rather than a guess: with a token validator registered,
+   *  every result is produced in some caller's authorization context and
+   *  MUST NOT be shared across contexts, so `private`. With auth off there is
+   *  only one context and the catalogue is identical for everyone, so
+   *  `public`. Over-sharing here leaks between callers, so the ambiguous case
+   *  resolves to `private`. */
+  def cacheHintsFor(method: String, authenticated: Boolean, listTtlMs: Long = DefaultListTtlMs,
+                    readTtlMs: Long = DefaultReadTtlMs): Option[CacheHints] =
+    if !CacheableMethods.contains(method) then None
+    else
+      val scope = if authenticated then "private" else "public"
+      val ttl   = if method == Method.ResourcesRead then readTtlMs else listTtlMs
+      Some(CacheHints(ttl, scope))
 
   /** `server/discover` result — supported versions, capabilities, identity.
    *  Reuses the capability block the legacy `initialize` result advertises

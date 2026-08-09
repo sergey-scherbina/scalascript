@@ -618,7 +618,7 @@ object McpServerCore:
       case Some(errorFrame) => errorFrame
       case None =>
         val frame = dispatchCore(builder, method, params, id, serverName, serverVersion)
-        if ctx.isModern then stampFrame(frame, serverName, serverVersion) else frame
+        if ctx.isModern then stampFrame(builder, method, frame, serverName, serverVersion) else frame
 
   /** Validate the modern per-request metadata, returning the error frame to
    *  send instead of dispatching — or `None` to proceed.
@@ -651,13 +651,26 @@ object McpServerCore:
    *  than an identity.  Doing it here keeps "legacy bytes are unchanged" a
    *  property the gate can assert instead of a claim.  Modern path only.
    *  P3 restructures dispatch for MRTR and this goes away with it. */
-  private def stampFrame(frame: String, serverName: String, serverVersion: String): String =
+  private def stampFrame(
+    builder:       McpServerBuilder,
+    method:        String,
+    frame:         String,
+    serverName:    String,
+    serverVersion: String
+  ): String =
     try
       val js = ujson.read(frame.trim)
       js.obj.get("result") match
         case None => frame   // an error frame carries no result to stamp
         case Some(result) =>
-          js.obj("result") = McpProtocol.stampComplete(result, serverName, serverVersion)
+          // MCP 2026-07-28 CacheableResult: ttlMs + cacheScope are MANDATORY on the
+          // six cacheable operations and MUST NOT appear on anything else — a client
+          // told a result is cacheable will cache it. `authenticated` is read from
+          // whether a token validator is registered, which is the one fact we have
+          // rather than a guess: with auth on, every result belongs to some caller's
+          // authorization context and may not be shared across contexts.
+          val hints = McpProtocol.cacheHintsFor(method, authenticated = builder.tokenValidator.isDefined)
+          js.obj("result") = McpProtocol.stampComplete(result, serverName, serverVersion, cache = hints)
           js.render() + "\n"
     catch case _: Throwable => frame
 

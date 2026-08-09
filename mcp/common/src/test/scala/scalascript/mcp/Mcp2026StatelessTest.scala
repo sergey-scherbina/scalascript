@@ -225,3 +225,61 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     McpProtocol.SupportedProtocolVersions should not contain "2025-06-18"
     McpProtocol.ProtocolVersion shouldBe "2025-03-26"
     McpProtocol.SupportedProtocolVersions.head shouldBe McpProtocol.ModernProtocolVersion
+
+  // ── P2: CacheableResult — ttlMs + cacheScope on exactly six operations ──
+
+  private def modernResult(b: McpServerBuilder, method: String, params: ujson.Obj = modernParams()) =
+    ujson.read(McpServerCore.dispatch(b, method, params, ujson.Num(30), "srv", "9.9.9").trim)("result")
+
+  test("the six cacheable operations carry ttlMs and cacheScope"):
+    val b = twoToolServer()
+    b.resource("mem://a", None, None, u => ResourceHandlerResult(u, Nil))
+    for m <- McpProtocol.CacheableMethods.toList.sorted do
+      val params = if m == McpProtocol.Method.ResourcesRead then modernParams("uri" -> ujson.Str("mem://a"))
+                   else modernParams()
+      val r = modernResult(b, m, params)
+      withClue(s"$m: ") {
+        r.obj.keySet should contain ("ttlMs")
+        r.obj.keySet should contain ("cacheScope")
+        r("ttlMs").num should be >= 0.0            // spec: servers MUST provide ttlMs >= 0
+        r("cacheScope").str should (be ("public") or be ("private"))
+      }
+
+  test("a NON-cacheable operation carries no hints — the spec names exactly six"):
+    // Over-hinting is not harmlessly generous: a client told a result is
+    // cacheable will cache it, and tools/call is not cacheable at any TTL.
+    val b = new McpServerBuilder
+    b.tool("echo", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    val r = modernResult(b, McpProtocol.Method.ToolsCall,
+      modernParams("name" -> ujson.Str("echo"), "arguments" -> ujson.Obj()))
+    r.obj.keySet should not contain "ttlMs"
+    r.obj.keySet should not contain "cacheScope"
+    McpProtocol.CacheableMethods should have size 6
+
+  test("cacheScope follows whether the server authenticates, not a guess"):
+    val open = twoToolServer()
+    modernResult(open, McpProtocol.Method.ToolsList)("cacheScope").str shouldBe "public"
+    val guarded = twoToolServer()
+    guarded.setTokenValidator(Some(_ => McpAuth.AuthResult.Invalid("invalid_token", "no")))
+    modernResult(guarded, McpProtocol.Method.ToolsList)("cacheScope").str shouldBe "private"
+
+  test("legacy results carry no cache hints at all"):
+    // Same reason the legacy path carries no resultType: these fields are part
+    // of a revision the legacy client never agreed to speak.
+    val b = twoToolServer()
+    val r = ujson.read(McpServerCore.dispatch(
+      b, McpProtocol.Method.ToolsList, ujson.Obj(), ujson.Num(31)).trim)("result")
+    r.obj.keySet should not contain "ttlMs"
+    r.obj.keySet should not contain "cacheScope"
+
+  test("resources/read defaults to immediately stale, lists do not"):
+    McpProtocol.DefaultReadTtlMs shouldBe 0L
+    McpProtocol.DefaultListTtlMs should be > 0L
+    McpProtocol.cacheHintsFor(McpProtocol.Method.ResourcesRead, authenticated = false).get.ttlMs shouldBe 0L
+    McpProtocol.cacheHintsFor(McpProtocol.Method.ToolsList, authenticated = false).get.ttlMs shouldBe
+      McpProtocol.DefaultListTtlMs
+    McpProtocol.cacheHintsFor("tools/call", authenticated = false) shouldBe None
+
+  test("CacheHints refuses a negative ttl and an unknown scope"):
+    an [IllegalArgumentException] should be thrownBy McpProtocol.CacheHints(-1, "public")
+    an [IllegalArgumentException] should be thrownBy McpProtocol.CacheHints(0, "shared")
