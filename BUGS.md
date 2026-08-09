@@ -2886,9 +2886,11 @@ relieve, and it restores the property that broke here: **the commit that breaks 
 commit the check reports on.**
 
 ## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     gate: sbt unimlYaml/testOnly *YamlOfficialCorpusSpec*
+     fixed-in: 024d80524 -->
 
 **Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; upstream
 `yaml/yaml-test-suite#9` remains open).
@@ -2943,6 +2945,32 @@ post-compare classifier guarded by the exact 6CK3 mismatch. The 402-row diff
 changes only 6CK3; the corrected baseline/category SHA-256 values are
 `563ec95401acfb8fab062b11408b5be8e5397a61c5d54676fff04865170fff95` and
 `cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`.
+
+**VERIFIED FIXED 2026-08-09 — and it was fixed the same DAY this entry was written.**
+`024d80524`, *"fix(uniml-yaml): compare percent tags before corpus classification"*, is an ancestor
+of `origin/main`. The measurement defect this entry reports — calling a normalising function on the
+actual event before comparison, so `%21` equalled `!` — is gone, and the acceptance is pinned by a
+test rather than by a number:
+
+```
+test("6CK3 compares the normative percent-preserving tag before oracle classification")
+  expectedTag  tag:example.com,2000:app/tag!      (the vendored oracle, unchanged)
+  actualTag    tag:example.com,2000:app/tag%21    (normative, percent preserved)
+  assert(!outcome.semanticsExact); assert(!outcome.strictExact)
+  classification = oracle-discrepancy yaml/yaml-test-suite#9 (%21 decoded to ! in pinned test.event)
+```
+
+It also asserts the classification does NOT appear when the source differs, and not when a
+deliberate extra event is spliced in — so the discrepancy label cannot be handed out to a genuine
+failure. `sbt unimlYaml/testOnly *YamlOfficialCorpusSpec*`: **20 tests, 20 pass.**
+
+**THE CENSUS IN THIS ENTRY LOOKS WRONG AND IS NOT, WHICH IS WHY THE NUMBER ALONE COULD NOT CLOSE
+IT.** The entry predicts semantics **137**, strict **125**; the pinned baseline today reads **138**
+and **126**. Both are correct, three weeks apart: `git log -S` on the baseline shows `024d80524`
+landing exactly the predicted 137/125, and the LATER feature `74c722c13` (*"UPR-2a.2 —
+parser-context tag/anchor property syntax"*) raising each by one on its own merits. A frozen expected
+count is evidence with a shelf life; the test that names the property is not.
+
 
 ## uniml-yaml-projection-reorders-invalid-cst — semantic projection sorts tokens instead of validating source order
 <!-- status: fixed
