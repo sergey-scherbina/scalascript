@@ -2400,14 +2400,28 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       *Gate:* `v3/jit-gate.sh --specialize`, four fixtures each failing for a DIFFERENT wrong
       analysis, plus a three-rule `--self-test` that plants each failure and requires RED.
 
-- [~] **SSC3-J1b — `Exec.step` dispatches on `kind`. BLOCKED on the same file as J0.** Until this
-      lands the field is written and still not read, so the win is 0 and the `--identity` gate stays
-      unwritten: while `kind` is ignored, a corpus byte-equality check would pass a specializer that
-      marked string concatenation `f64`. `--specialize` is the only check with an opinion until then,
-      and `v3/jit-gate.sh` says so in its own output rather than only in the spec.
-      *Note for whoever writes it:* `Div`/`Rem` by zero must keep throwing `ExecError("/ by zero")`
-      on the `I64` path — the generic arm does, and a fast path that let the host's
-      `ArithmeticException` out would change the message the corpus compares.
+- [x] **SSC3-J1b — `Exec.step` dispatches on `kind`, and it bought NOTHING. Measured.**
+      `ssc3-cps-split` released `Exec.scala`, so this was no longer blocked.
+      **10 alternating A/B pairs, same binary, `--no-specialize` as the OFF arm, load 45→54:**
+      on median 138.0 ms, off 122.4 — **"on" faster in 5 of 10 pairs**, a 15.5 ms median difference
+      against a 42.7 ms pooled sd, within-arm spread 2.4×. There is no effect here in either
+      direction, and the 1.13 ratio is noise rather than a regression.
+      **The reason needs no benchmark:** `binI64` is **895** bytecodes and `binF64` 578, both far
+      over `FreqInlineSize` (325), so neither is inlined into `step` — which is 5918 and never
+      inlined into `exec` either. The fast path swaps a tuple match for a CALL and leaves the
+      per-operation `Value.VInt` allocation untouched. Found by the size gate, on its author.
+      *Not doing:* shrinking `binI64` under 325. The measurement does not implicate it, and
+      optimizing what the evidence has not named is how a day goes missing.
+      *Landed anyway,* because a specializer whose field nobody reads is a strictly worse state,
+      and because J0 and J2 need this seam. `--no-specialize` is now the OFF arm of every later
+      measurement — and `ssc3 exec` took its path positionally, so that flag was unusable in that
+      argument order until `--identity` caught it.
+
+- [x] **The `--identity` gate exists now, and it is no longer green by construction.** 65 programs
+      run with and without the pass, output compared byte for byte, plus `wrong-kind.ssir` — two
+      strings added under a LYING `i64` annotation, which the executor must survive by honouring the
+      values. **Proven to discriminate by removing `binI64`'s fallback arm and rebuilding**, not by
+      argument.
 
 **The follow-up, recorded here rather than as a third row** — a module sprint has two states and
 "not started" is not one of them. The 133 instructions still `Dyn` are mostly PARAMETERS, which an
