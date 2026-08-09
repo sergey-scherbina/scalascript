@@ -2,10 +2,10 @@ slug: rust-emit-reachable
 branch: feature/rust-emit-reachable
 agent: claude-code
 started: 2026-08-09T15:43:42Z
-heartbeat: 2026-08-09T15:56:38Z
+heartbeat: 2026-08-09T16:43:21Z
 status: implementing
 items: json-core-emitted-rust-does-not-compile jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
-paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:scripts/smoke-ci.ssc
 scope: |
   Emit only what the entry point REACHES. rozum's six-line program imports std/json, and the whole
   of json-core's .ssc comes with it and fails to lower -- while `jsonParse`/`jsonStringify` are
