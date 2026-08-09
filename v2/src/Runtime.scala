@@ -2447,6 +2447,16 @@ object Prims:
         case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", collection.immutable.ArraySeq(v, ls))
         case (ls, ":+" | "appended", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
         case (ls, "++", List(other)) if isList(ls) => listOf(unlist(ls) ++ unlist(other))
+        // `(a, b) ++ (c, d)` = `(a, b, c, d)`. v2 ALREADY DID THIS — just not from here. The
+        // `sconcat` prim has the identical arm (and `arithRest` reaches it), so a tuple concat
+        // written as an operator worked while the same concat arriving as a METHOD died in this
+        // dispatcher with "a method that does not exist". v3 lowers `++` to `Invoke`, which is
+        // dynamic dispatch by design — Tier 0 erases types, so the front cannot know the receiver
+        // is a tuple and pick the other spelling. This arm is the one place the two paths disagreed.
+        case (DataV(lt, lf), "++", List(DataV(rt, rf)))
+            if lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
+          val combined = lf ++ rf
+          DataV(s"Tuple${combined.length}", combined)
         case (ls, "splitAt", List(IntV(n))) if isList(ls) =>
           val (a, b) = unlist(ls).splitAt(n.toInt)
           DataV("Tuple2", collection.immutable.ArraySeq(listOf(a), listOf(b)))
