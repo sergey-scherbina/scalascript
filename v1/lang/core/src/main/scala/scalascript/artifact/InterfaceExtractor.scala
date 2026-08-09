@@ -356,12 +356,30 @@ object InterfaceExtractor:
     //
     // Inner stats are also fed back into `allDefs` so they appear in the
     // exports list with the right `fqn` (joined via `_` by `fqn(name)`).
+    // THE NAME IS NOT THE WRAPPER. This matched on `obj.name.value == head` alone and then descended,
+    // so ANY object with the right name was accepted as the synthetic shell — including one carrying
+    // a header the generator never writes. `wrapSectionInPackage` emits exactly
+    // `object a { object b { <body> } }`: no modifiers, no parents, no derives, no self type.
+    // (Early initialisers are not checked: `Template.early` is deprecated in scalameta 4.9.9 and the
+    // construct does not exist in the Scala 3 syntax this front parses, so there is nothing to forge.) A stored AST reading `object demo extends Serializable: object
+    // api: …` therefore passed while meaning something else entirely, and because the inner
+    // declarations were identical the comparison downstream reported agreement
+    // (BUGS.md descriptor-v3-package-wrapper-header-forgery).
+    //
+    // Checked BEFORE descending, so a forged shell is rejected at the shell rather than surviving to
+    // an inner-declaration comparison that cannot see it.
+    def isPlainWrapper(obj: Defn.Object): Boolean =
+      obj.mods.isEmpty &&
+      obj.templ.inits.isEmpty &&
+      obj.templ.derives.isEmpty &&
+      obj.templ.body.selfOpt.isEmpty
+
     def unwrapPackage(stats: List[Stat], remaining: List[String]): List[Stat] =
       remaining match
         case Nil => stats
         case head :: tail =>
           stats.collectFirst {
-            case obj: Defn.Object if obj.name.value == head =>
+            case obj: Defn.Object if obj.name.value == head && isPlainWrapper(obj) =>
               unwrapPackage(obj.templ.body.stats, tail)
           }.getOrElse(Nil)
 

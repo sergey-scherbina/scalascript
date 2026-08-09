@@ -1659,3 +1659,41 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       s"overload IDs collided: ${intOverload.overloadId}")
     assert(intOverload.stableSymbolId != longOverload.stableSymbolId,
       s"symbol IDs collided: ${intOverload.stableSymbolId}")
+
+  // ── package-wrapper header forgery (BUGS.md descriptor-v3-package-wrapper-header-forgery) ──────
+  //
+  // THE HARNESS THIS ENTRY SAID DID NOT EXIST. Every other test here drives the producer from a
+  // SOURCE STRING, and a forged wrapper cannot be written as source: `wrapSectionInPackage` builds
+  // the shell itself, plainly, from the manifest's `package:`. The forgery only exists in a module
+  // whose retained AST and retained source DISAGREE — so this parses a normal module and then
+  // replaces the retained tree of its code block with a re-parsed forged one, which is exactly the
+  // shape the original review built by mutation.
+  private def withForgedTree(module: scalascript.ast.Module, forged: String): scalascript.ast.Module =
+    import scala.meta.XtensionParseInputLike
+    val tree = scalascript.ast.ScalaNode(forged.parse[scala.meta.Source].get)
+    module.copy(sections = module.sections.map { sec =>
+      sec.copy(content = sec.content.map {
+        case cb: scalascript.ast.Content.CodeBlock if cb.isProgramCode => cb.copy(tree = Some(tree))
+        case other => other
+      })
+    })
+
+  test("a package wrapper carrying a header the generator never writes is not a wrapper"):
+    val plain  = "object demo { object api { def visible(): Int = 1 } }"
+    val forged = "object demo extends Serializable { object api { def visible(): Int = 1 } }"
+    val src    = source("def visible(): Int = 1", List("visible"))
+    val base   = parse(src)
+
+    // Control FIRST: with the plain wrapper the inner declaration IS surfaced, so a later
+    // assertion that it is absent means the FORGERY was rejected and not that this harness
+    // surfaces nothing at all.
+    val plainIface = InterfaceExtractor.extract(
+      withForgedTree(base, plain), src.getBytes(StandardCharsets.UTF_8))
+    assert(plainIface.exports.exists(_.name == "visible"), plainIface.exports.map(_.name))
+
+    // `extends Serializable` on the shell: structurally still "one object named demo containing one
+    // object named api", and the inner declarations are IDENTICAL — which is why comparing them
+    // reported agreement. The shell must be rejected before that comparison is reached.
+    val forgedIface = InterfaceExtractor.extract(
+      withForgedTree(base, forged), src.getBytes(StandardCharsets.UTF_8))
+    assert(!forgedIface.exports.exists(_.name == "visible"), forgedIface.exports.map(_.name))
