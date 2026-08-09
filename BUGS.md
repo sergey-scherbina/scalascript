@@ -1393,7 +1393,27 @@ name. `SectionRuntime.runImport` checks every binding against `child.exportedNam
 `[p]` binds the MODULE, whose name here is the package root — not a member, so the check rejects it.
 Real code mostly binds member names (`[jsonStringify](std/json.ssc)`), which is why nobody hit it.
 
-**Not decided, deliberately.** A package name is a namespace rather than a member, so *"the root is
+**DECIDED 2026-08-09 by Sergiy — a package name is a NAMESPACE, so the native lane is right and
+the interpreter is wrong.** You export names IN a namespace; you do not export the namespace. The
+interpreter must stop requiring the package ROOT in `exports:`.
+
+**Where it goes:** `SectionRuntime.runImport` checks every binding against `child.exportedNames`
+(`SectionRuntime.scala:481`). The root is available beside it as `childPkg.head` — `childPkg` is
+`child.exportedPkg`, already in scope at line 446 for `lookupExport`. Exempt a binding whose name is
+that root; leave every other binding gated exactly as now.
+
+**One measurement belongs with the decision, because it removes the strongest argument for the other
+side.** This entry already records that adding `p` to `exports:` makes BOTH lanes print
+`shown / hidden` — the non-exported member included. So `exports:` does not restrict what is
+reachable through the package path either way; the interpreter's check gates only the ACT OF
+ENTERING, not the contents. Choosing "the root is always importable" therefore gives up no
+protection that exists today. It would be worth a separate entry that a package path bypasses
+`exports:` on both lanes — that is the real hole, and it is not this one.
+
+**Not implemented here:** `SectionRuntime.scala` is held by the live claim `v1-runtime-std-rename`.
+The decision is recorded so whoever holds that file next does not have to re-open the question.
+
+**Superseded reasoning, kept:** A package name is a namespace rather than a member, so *"the root is
 always importable"* and *"declare what you export, including the root"* are both defensible; picking
 one silently in a lane fix is how the two lanes drifted in the first place. No gate: writing one
 before the decision would freeze whichever answer runs today.
@@ -1973,6 +1993,34 @@ form's selector restricts. `import std.middleware.withTiming` and `[withTiming](
 both leave `withRequestId` — a different name in the same module — bound. Selection appears to be
 documentation at module granularity in both surfaces. If that is intended, it is worth saying so in
 `docs/user-guide.md`, since `import p.{a}` reads as a restriction to every Scala user.
+
+**DECIDED 2026-08-09 by Sergiy: `import a.b.c` that maps to no file must say "not found", and
+programs relying on the silence are to be fixed.** Recorded here with the measurement that changes
+what "fixed" means, because taking the decision literally would break correct code.
+
+**The rule cannot apply to every keyword import.** Of 192 keyword-form import lines in `.ssc` across
+the repo, most name host namespaces — `scala.concurrent.Await`, `java.*`, `org.*`, `sttp.*` — which
+map to no file BY DEFINITION and must stay silent. What can be held to "not found" is the namespace
+the repository actually ships as modules: `std.`. There are **seven distinct `std.*` keyword
+imports; five resolve and two do not.**
+
+**And the two that do not are not the programs' fault.** `std.pdf.*` (three examples) and
+`std.payments.swift.*` (one) name modules that do not exist — while the functions they bring in DO:
+`pdfPageCount` / `pdfToMarkdown` come from `v1/runtime/std/pdf-plugin`. Every other plugin in this
+repository has a matching declaring module — `std/actors`, `std/auth`, `std/bench`, `std/content`,
+`std/dstreams`, `std/fs`, `std/graphql`, `std/http`, `std/json`, `std/mcp` are all present. **Counted:
+39 plugins, 20 with a `std/` module, 19 without** — `cache clock deploy env fetch frontend graph
+logger oauth pdf random request retry scljet-jdbc scljet-vfs sql state swing ws`.
+
+So the imports in those four examples are RIGHT and the `std/` tree has a hole; the silence is what
+hid it for as long as it has been there. Turning on the diagnostic first would make correct code red
+and teach people to delete correct imports.
+
+**Order this implies:** write the missing declaring modules for the names actually imported (`pdf`,
+`payments/swift`) → then the diagnostic, scoped to `std.` → then update
+`tests/e2e/keyword-import-missing-module.sh`, which already says in its own header that this is how
+it expects to be retired, and this entry with it.
+
 
 ## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
 <!-- status: fixed
