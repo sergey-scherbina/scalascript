@@ -223,6 +223,26 @@ So that row is 1, not 2, and this section's own suspicion about `typeclass-monoi
 anywhere (a bare namespace) and 9 have exactly one, where there is nothing to choose between.
 Counted over implementation sites, `extends` and `given … with` together.
 
+⚠ **RE-VERIFIED 2026-08-09 on a rebuilt tree, and both `given` rows now refuse at the SYNTAX.**
+Re-run because effects and Scala-style imports landed in between, and because this section's own
+rule is that a decision of this weight is taken against the current number. `v3/ssc3 run`:
+
+| row | what it does with its instance | refusal today |
+|---|---|---|
+| `typeclass-monoid` | `intMonoid.combine(…)` — reference BY NAME | `` `given … with` `` at 10:1 |
+| `typeclass-fold` | `summon[Monoid[A]]` inside a `foldLeft` generic in `A` | `` `given … with` `` at 15:1 |
+
+**So the split is confirmed and it is sharper than "one of the two".** Neither row reaches
+resolution at all — both stop at the declaration form. Teaching `given name: T with` to parse as a
+named value implementing `T` is enough for `typeclass-monoid` and NOT enough for `typeclass-fold`,
+which still needs `summon[Monoid[A]]` answered where `A` is a type parameter. The prize for the
+syntax alone is 1 row; the prize for the checker is the other.
+
+**Measured the same day, and it is not evidence for a checker:** `effect-multishot` and
+`type-lambda-native` both exit 0 with empty output — correct, not a defect, because each is a bench
+workload with no `println`; `ssc3 bench` is their instrument. `effect-pure` and `effect-stream`
+still refuse on an unknown name, which is a library gap and not a typing one.
+
 **What this does and does not change.** The decision is not wrong: a checker is still the only thing
 that reaches `summon[T]` in a generic, and everything below about the erasure bargain, lane
 agreement (I-3) and `N` rising only (I-5) stands. What changed is the SIZE OF THE PRIZE it was being

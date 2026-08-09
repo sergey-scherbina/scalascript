@@ -316,6 +316,44 @@ comparing the executor with itself until the same day — so the defect needed B
 capability and a repaired differential before anything could report it. There is exactly one
 `(let (` emission site in `BridgeV2.scala`, so this has no twin.
 
+## v3-uniml-jar-goes-stale-and-breaks-the-kernel-build — it does not, and the real cost is a Scala compile error printed OVER the diagnostic
+
+<!-- status: open
+     lane: v3
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**THE TITLE IS THE FIRST FRAMING AND IT IS WRONG, kept because the correction is the entry.**
+`v3/.jars/uniml.cp` is not invalidated when UniML's sources change, so a tree whose classpath
+predates a change to `SpikeAst` no longer satisfies `v3/uniml/UniFront.scala`. Seen twice on
+2026-08-09, in a worktree and then in the shared checkout, after `Param.byName` landed:
+
+    -- [E008] Not Found Error: v3/uniml/UniFront.scala:327:54
+    value byName is not a member of …SpikeAst.Param
+
+I read that as "the kernel does not compile" and stopped to rebuild. **Reproduced deliberately
+before filing** — `printf '/nonexistent/stale-uniml.jar' > v3/.jars/uniml.cp` — and it is not what
+happens. `ssc3 front` answers `front: v3  available: v3` and **exits 0**; `ssc3 ast <file> v3` exits
+0 and is correct. The fallback works. What a stale classpath actually does is print the compiler's
+full error to stderr on every invocation, where it sits ABOVE the tool's own one-line
+`the uniml front is present but did not compile — using v3's own front`.
+
+**The cost is a masked diagnostic, and it is not hypothetical.** Reading the first stderr line of
+`ssc3 run bench/corpus/typeclass-monoid.ssc`, I recorded "the build is broken" and threw away a
+measurement round. The run had in fact refused correctly, and after rebuilding, the same command
+gives the real message: `` bench/corpus/typeclass-monoid.ssc:10:1: `given … with` ``. Same exit
+code, same refusal, different first line — so anything reading stderr top-down, a person or a
+script, gets the compiler's complaint instead of the program's.
+
+**Two things to decide, both small:** route the second front's compile output to a log file and
+keep only the one-line notice on stderr; and give `uniml.cp` a staleness check against the sources
+it was built from, so the notice says *rebuild* rather than leaving it to be inferred.
+
+Distinct from `v3-exec-gate-and-front-gate-report-the-WORKING-TREE-and-blamed-a-sibling-for-it`
+below, which is about a classpath being ABSENT and the silent front swap that follows; this is a
+classpath being PRESENT and unusable, where the swap is the same but the noise is new.
+
 ## v3-exec-gate-and-front-gate-report-the-WORKING-TREE-and-blamed-a-sibling-for-it
 
 <!-- status: fixed
