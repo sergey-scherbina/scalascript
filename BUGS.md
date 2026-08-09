@@ -2022,6 +2022,41 @@ and teach people to delete correct imports.
 it expects to be retired, and this entry with it.
 
 
+⚠ **CORRECTION 2026-08-09, same day: the measurement above used PATHS and the answer changes.** I
+checked whether `std/pdf.ssc` or a `std/pdf/` directory existed. A package is not a path here — it is
+declared in a file's front-matter and the file may sit anywhere. `std.pdf` IS declared, by
+`std/pdf-gen.ssc`. So the three examples importing `std.pdf.*` are correct and nothing needs writing
+for them.
+
+**Re-measured against DECLARED packages** (`grep -rh '^package:' --include='*.ssc'`), which is the
+set that actually exists:
+
+    std.crypto  ok      std.geo  ok       std.graphql  ok    std.mapreduce  ok
+    std.mime    ok      std.pdf  ok       std.payments.swift  MISSING
+
+**One import in one file** — `examples/international-bank-rails.ssc`. That is the whole
+compatibility cost of the decision, not four files and not a tree of missing modules.
+
+The plugin count changes the same way and is restated rather than deleted: 39 plugins, 20 with a
+declared `std.<name>` package, 19 without — `cache clock deploy env fetch frontend graph logger
+oauth random request retry scljet-jdbc scljet-vfs sql state swing uuid ws`. **The 20/19 split is
+identical to the path-based count by coincidence; the LIST is not** — `pdf` left it and `uuid`
+entered. A number that survives a corrected method is not thereby confirmed.
+
+**THE RULE, in the owner's words and now checkable:** an `import a.b.c` is "not found" only when
+NOTHING provides `a.b.c` — not a declared `.ssc` package, and not a host package. That needs two
+sources of truth, and the second is what keeps `scala.concurrent.Await`, `java.*` and `org.*` silent:
+they resolve on the JVM classpath. **A plugin is NOT a third source** — measured: plugins register
+BARE names (`QualifiedName("pdfPageCount")`, `appendFile`, `httpDelete`), never package-qualified
+ones. The namespace comes from the `.ssc` module that declares `package: std.json`; the plugin only
+supplies the implementation behind it. So "the plugin exports into that package" is not a case that
+occurs, and the rule needs only the two.
+
+**Order, corrected:** no missing modules block this. Implement the diagnostic against declared
+packages plus host resolution, fix the single import in `international-bank-rails.ssc`, then retire
+`tests/e2e/keyword-import-missing-module.sh` as its own header describes.
+
+
 ## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
 <!-- status: fixed
      lane: multi
