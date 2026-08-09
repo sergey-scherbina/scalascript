@@ -24,6 +24,6 @@ bugs-index-stale-open-report	claude-code	2026-08-09T17:18:58Z	the index gate che
 record-import-decisions	claude-code	2026-08-09T17:41:03Z	both import questions now have an owner decision; the entries still say undecided	BUGS.md
 correct-keyword-import-measurement	claude-code	2026-08-09T17:50:07Z	my std-module measurement used paths not declared packages and was wrong twice	BUGS.md
 ref-front-dollar-brace	claude-code	2026-08-09T17:52:06Z	reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal	file:v2/lib/ssc1-front.ssc0 file:tests/e2e/ref-front-string-literal-gate.sh file:tests/BUGS.md
-ci-toolchain-cache-and-build-slot	claude-code	2026-08-09T17:55:07Z	parallel-agents-contend-on-builds-not-tests	file:install.sh file:scripts/build-slot
+ci-toolchain-cache-and-build-slot	claude-code	2026-08-09T17:55:07Z	parallel-agents-contend-on-builds-not-tests	file:install.sh file:scripts/build-slot file:tests/conformance/run.sc
 v3-type-lambda	claude-code	2026-08-09T17:55:44Z	SSC3-7i type-lambda-native	file:v3/src/Parser.scala file:v3/tests/front/type-lambda.ssc file:v3/tests/front/type-lambda.expected file:v3/front-capability-gate.sh file:v3/SPRINT.md file:BUGS.md
 area-map-gate-to-ci	claude-code	2026-08-09T17:59:04Z	area-map-gate-to-ci	file:.github/workflows/ci.yml file:tests/fixtures/board-ownership-baseline.tsv file:tests/e2e/area-map-gate.sh
