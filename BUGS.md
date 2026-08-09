@@ -23,6 +23,42 @@ Newest first.
 
 
 
+## v3-ci-gates-job-has-never-been-green — one red gate hid five others on every run
+
+<!-- status: open
+     lane: v3
+     area: build
+     gate: .github/workflows/v3.yml -->
+
+**Measured 2026-08-09**: `gh run list --workflow v3.yml --limit 60` lists **48 runs and 0
+successes**, back to at least 2026-08-08T14:47. The `v3 gates` job fails at its second gate on every
+single run.
+
+**Root cause, and it is two defects that compound.**
+
+1. The job never registers the UniML front. `v3/exec-gate.sh` and `v3/front-gate.sh` both carry
+   `.uniml-only` fixtures — programs v3's own parser refuses — and both go RED rather than skip when
+   the front is absent. That refusal is deliberate and correct (a gate that goes green with fixtures
+   unrun reports less than it claims), and on CI the front was *always* absent: the
+   `Register the UniML front` step exists only in the second job, `front-capability`, whose comment
+   reads "SEPARATE JOB because this one costs an sbt build". **That cost was never priced.** On run
+   31321407887 the step takes 0.8 min, against a `gates` job that died at 2.2.
+2. A failing step ends the job, so `bridge`, `parity`, `front`, `front report` and both `jit gate`
+   steps **have never run at all**. Their results were not red; they were absent, on every run since
+   each was added. A gate registered in a job that dies before reaching it is a gate nobody has.
+
+Found while wiring `v3/jit-gate.sh` into this workflow (claim `ssc3-jit`): the new steps came back
+`skipped`, which is what sent me to look at the job rather than at my own change.
+
+**Fix (this commit):** register the front in the `gates` job — it is needed by two of its gates, so
+the separation was not a saving — and put `if: ${{ !cancelled() }}` on every gate step so one red
+gate reports without silencing the rest. The job is still red if any gate is red; what changes is
+that all of them now say so.
+
+**Not yet confirmed.** `status: open` until a run of `v3.yml` on a SHA carrying this change reports
+the later gates with a conclusion of their own. The fix is a workflow change, and a workflow change
+that has not run is a hypothesis.
+
 ## v3-handle-has-no-return-clause — `effect-multishot` runs and answers 0
 
 <!-- status: open
