@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# verify-scope — which conformance LANES a change actually needs.
+#
+# The corpus runs four lanes over ~366 cases. A change to `v1/runtime/backend/js` cannot affect the
+# interpreter, the jvm codegen or the native front, yet the reflex is to run everything — I ran all
+# four lanes for a js/jvm import fix on 2026-08-09, on a host already at load 78. Multiply that by
+# one agent per worktree and most of the machine's day is spent re-proving lanes nobody touched.
+#
+#   scripts/verify-scope                     # lanes needed for the working tree vs origin/main
+#   scripts/verify-scope --flag              # prints `--lanes int,js` (empty when all are needed)
+#   scripts/verify-scope --self-test
+#
+# FAIL-SAFE BY CONSTRUCTION: anything the map does not recognise widens to ALL lanes. A scoping tool
+# that guesses narrow is worse than no tool, because the lane it drops is exactly the one nobody
+# thought about. Every rule below is an ALLOW-list of paths whose blast radius is known; the default
+# is everything.
+set -uo pipefail
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+ALL="int,js,jvm,v2"
+
+lanes_for() {  # $1 = one path
+  case "$1" in
+    # Board and prose changes cannot reach a lane at all.
+    *BUGS.md|*SPRINT.md|*BACKLOG.md|*CHANGELOG.md|*MILESTONES.md|*README.md|.work/*) echo "" ;;
+    docs/*|site/*|specs/*.md|*/specs/*.md)                                            echo "" ;;
+
+    # One backend each.
+    v1/runtime/backend/interpreter/*)  echo "int" ;;
+    v1/runtime/backend/js/*)           echo "js"  ;;
+    v1/runtime/backend/jvm/*)          echo "jvm" ;;
+
+    # The native/v2 family: the F front, the tower, the kernel.
+    v2/*|specs/v2.2-p6.5-fsub.ssc)     echo "v2"  ;;
+
+    # SHARED FRONT — parser, typer, transforms, the AST. Every lane reads it.
+    v1/lang/core/*)                    echo "$ALL" ;;
+
+    # The standard library and the corpus itself are compiled by every lane.
+    std/*|v1/runtime/std/*|tests/conformance/*) echo "$ALL" ;;
+
+    # Anything else: unknown blast radius.
+    *)                                 echo "$ALL" ;;
+  esac
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  fail=0
+  check() {  # check <path> <expected>
+    got="$(lanes_for "$1")"
+    if [ "$got" = "$2" ]; then echo "  ok   $1 -> [${got}]"
+    else echo "  FAIL $1 -> [${got}], expected [${2}]"; fail=1; fi
+  }
+  echo "verify-scope --self-test"
+  check "v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala" "js"
+  check "v1/runtime/backend/interpreter/src/main/scala/x.scala"                "int"
+  check "v2/src/Runtime.scala"                                                 "v2"
+  check "specs/v2.2-p6.5-fsub.ssc"                                             "v2"
+  # The load-bearing rows: shared code and unknown paths must WIDEN, never narrow.
+  check "v1/lang/core/src/main/scala/scalascript/parser/Parser.scala"          "$ALL"
+  check "tests/conformance/modules.ssc"                                        "$ALL"
+  check "some/path/nobody/mapped.scala"                                        "$ALL"
+  check "v1/runtime/backend/js/BUGS.md"                                        ""
+  check "docs/whatever.md"                                                     ""
+  [ "$fail" -eq 0 ] && { echo "verify-scope: PASS"; exit 0; }
+  echo "verify-scope: FAIL"; exit 1
+fi
+
+changed="$(git diff --name-only origin/main...HEAD 2>/dev/null; git diff --name-only; git diff --name-only --cached)"
+changed="$(printf '%s\n' "$changed" | grep -v '^$' | sort -u)"
+[ -n "$changed" ] || { echo "verify-scope: no changes against origin/main" >&2; [ "${1:-}" = "--flag" ] && echo ""; exit 0; }
+
+need=""
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  l="$(lanes_for "$f")"
+  [ -n "$l" ] && need="$need,$l"
+done <<< "$changed"
+
+need="$(printf '%s' "$need" | tr ',' '\n' | grep -v '^$' | sort -u | paste -sd, -)"
+
+if [ "${1:-}" = "--flag" ]; then
+  # Every lane needed → no flag at all, so the caller runs the default (all lanes) and nothing is
+  # silently dropped if the map ever grows a hole.
+  [ -z "$need" ] && exit 0
+  [ "$(printf '%s' "$need" | tr ',' '\n' | wc -l | tr -d ' ')" -ge 4 ] && exit 0
+  echo "--lanes $need"
+  exit 0
+fi
+
+echo "changed files: $(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
+if [ -z "$need" ]; then
+  echo "lanes needed:  NONE — nothing here can reach a backend lane"
+else
+  echo "lanes needed:  $need"
+fi

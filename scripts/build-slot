@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# build-slot — run a command holding one of N host-wide BUILD slots.
+#
+# WHY THIS EXISTS, measured 2026-08-09. Test EXECUTION was already bounded: `scripts/conformance`
+# takes a machine-shared slot (`SSC_CONFORMANCE_MAX`, default 1) and says so in its own header.
+# Builds were bounded by nothing. With one worktree per agent and `./install.sh --dev` in each, the
+# host carried 16 concurrent java/scala-cli processes at load 110 — at which point a conformance
+# shard that fits in 580 s at load 42 does not fit at all, and every timing guard in the repo
+# becomes a coin flip. The tests were never the problem; N full Scala builds of the same sources
+# were.
+#
+# Two builds finish sooner in WALL CLOCK than eight, because eight thrash memory and the machine
+# swaps. That is the whole argument, and it is the same one `scripts/conformance` already makes.
+#
+#   scripts/build-slot ./install.sh --dev      # waits for a slot, then builds
+#   SSC_BUILD_MAX=4 scripts/build-slot …       # widen it
+#   SSC_BUILD_NO_GUARD=1 scripts/build-slot …  # bypass (a deliberate A/B, or a one-agent host)
+#
+# The semaphore is a counting mkdir slot, not `flock`: mkdir is atomic on every filesystem this
+# project runs on and `flock` is absent on macOS. Copied in shape from `scripts/conformance` rather
+# than shared with it on purpose — the two bound DIFFERENT resources and one MAX for both would make
+# a build wait on a test run, which is not the intent.
+set -uo pipefail
+
+MAX="${SSC_BUILD_MAX:-2}"
+WAIT_SECS="${SSC_BUILD_WAIT:-5400}"          # a cold build is ~8 min; a queue of 6 must not time out
+STALE_SECS="${SSC_BUILD_STALE:-3600}"        # reclaim a slot whose owner died or hung
+SEM_DIR="${SSC_BUILD_SEMDIR:-${TMPDIR:-/tmp}/ssc-build-sem}"
+
+[ $# -gt 0 ] || { echo "usage: scripts/build-slot <command> [args…]" >&2; exit 2; }
+
+SLOT=""
+release() { [ -n "$SLOT" ] && rm -rf "$SLOT" 2>/dev/null; return 0; }
+trap release EXIT INT TERM
+
+acquire() {
+  [ "${SSC_BUILD_NO_GUARD:-0}" = 1 ] && return 0
+  mkdir -p "$SEM_DIR" 2>/dev/null
+  local deadline=$(( SECONDS + WAIT_SECS )) announced=0
+  while :; do
+    # Reap slots whose owner is gone or which are older than STALE_SECS. Without this one killed
+    # build wedges every future one — the failure mode a semaphore is most likely to have.
+    for s in "$SEM_DIR"/slot.*; do
+      [ -d "$s" ] || continue
+      local owner age
+      owner="$(cat "$s/pid" 2>/dev/null || echo 0)"
+      age=$(( $(date +%s) - $(cat "$s/at" 2>/dev/null || echo 0) ))
+      if [ "$owner" -gt 0 ] 2>/dev/null && kill -0 "$owner" 2>/dev/null && [ "$age" -lt "$STALE_SECS" ]; then
+        continue
+      fi
+      rm -rf "$s" 2>/dev/null
+    done
+    local i
+    for i in $(seq 1 "$MAX"); do
+      if mkdir "$SEM_DIR/slot.$i" 2>/dev/null; then
+        SLOT="$SEM_DIR/slot.$i"
+        echo "$$"          > "$SLOT/pid"
+        date +%s           > "$SLOT/at"
+        printf '%s\n' "$*" > "$SLOT/cmd" 2>/dev/null
+        echo "build-slot: slot $i/$MAX acquired"
+        return 0
+      fi
+    done
+    if [ "$announced" -eq 0 ]; then
+      echo "build-slot: all $MAX slots busy — waiting (load $(uptime | sed -E 's/.*averages?: ([0-9.]+).*/\1/'))"
+      announced=1
+    fi
+    [ "$SECONDS" -ge "$deadline" ] && {
+      echo "build-slot: no slot after ${WAIT_SECS}s — running anyway rather than failing the build" >&2
+      return 0
+    }
+    sleep 5
+  done
+}
+
+acquire
+"$@"

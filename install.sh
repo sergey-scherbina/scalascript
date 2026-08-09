@@ -102,6 +102,48 @@ if [ -d "$SKILLS_SRC" ]; then
 fi
 
 echo ""
+
+# ── content-addressed toolchain cache, shared across worktrees ────────────────────────────────────
+#
+# MEASURED 2026-08-09: 82 worktrees on this host, each with its own 176 MB `bin/`, each built
+# separately from the SAME sources. That is where the contention comes from — test EXECUTION is
+# already bounded by `scripts/conformance`'s host-wide slot, builds were bounded by nothing, and 16
+# concurrent build JVMs put the machine at load 110, where a conformance shard that fits in 580 s at
+# load 42 does not fit at all.
+#
+# CI has solved this for a year: `.github/workflows/smoke.yml` caches `bin` keyed on
+# `scripts/launcher-input-digest`, whose whole purpose is "a content digest of everything that can
+# affect the staged toolchain". Locally nothing did. This is that same key, one directory up.
+#
+# COPIED, NEVER HARD-LINKED, and that is deliberate: the tower `.ssc0` files under
+# `bin/lib/*/native-front/tower/` are READ AT RUNTIME, and editing a staged copy is the standard
+# way to iterate on the front without a rebuild — I did it twice today. Under hard links that would
+# silently rewrite the shared cache for every other worktree. A 176 MB copy costs seconds against a
+# build that costs minutes.
+#
+# Restore is atomic by rename, so a reader never sees a half-populated entry, and the entry is only
+# published AFTER the build's own witness check has passed — a cache of a failed build is worse than
+# no cache.
+CACHE_ROOT="${SSC_TOOLCHAIN_CACHE:-$HOME/.cache/ssc-toolchain}"
+_digest=""
+if [ "${SSC_TOOLCHAIN_CACHE_OFF:-0}" != 1 ] && [ -x "$ROOT/scripts/launcher-input-digest" ]; then
+  _digest="$($ROOT/scripts/launcher-input-digest 2>/dev/null || true)"
+fi
+_cache_entry=""
+[ -n "$_digest" ] && _cache_entry="$CACHE_ROOT/$_digest"
+
+if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ]; then
+  echo "Toolchain cache HIT ($_digest) — restoring bin/lib instead of building."
+  echo "  from: $_cache_entry"
+  rm -rf "$LIB"
+  mkdir -p "$BIN"
+  cp -R "$_cache_entry/lib" "$LIB"
+  # The witness below asserts a build RAN; a restore is not a build, so it is skipped rather than
+  # faked. What replaces it is the same assertion the build path makes afterwards: the four staged
+  # artefacts must be present, and they are checked for both paths further down.
+  echo "  restored $(du -sh "$LIB" 2>/dev/null | cut -f1) — skipping sbt cli/installBin"
+else
+  [ -n "$_digest" ] && echo "Toolchain cache MISS ($_digest) — building."
 echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 # WITNESS THAT THE BUILD RAN, not that its output exists. The checks below assert the staged files
 # are PRESENT, and they are present after any previous successful build — `bin/ssc` is tracked and
@@ -117,7 +159,14 @@ echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 _stamp="$LIB/.build-stamp"
 _stamp_before=""
 [ -f "$_stamp" ] && _stamp_before="$(_stat_mtime "$_stamp")"
-(cd "$ROOT" && sbt -no-colors cli/installBin)
+# Through the host-wide build slot when it is available: a cache MISS is the expensive path and the
+# only one worth queueing. A cache HIT never reaches here, so restoring costs no wait — which is the
+# composition that matters, since most agents on a shared base will hit.
+if [ -x "$ROOT/scripts/build-slot" ]; then
+  (cd "$ROOT" && "$ROOT/scripts/build-slot" sbt -no-colors cli/installBin)
+else
+  (cd "$ROOT" && sbt -no-colors cli/installBin)
+fi
 _stamp_after=""
 [ -f "$_stamp" ] && _stamp_after="$(_stat_mtime "$_stamp")"
 if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
@@ -125,6 +174,31 @@ if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
     echo "  $_stamp was not rewritten, so nothing was staged and bin/lib is whatever it was before." >&2
     echo "  Anything measured with this tree would be the OLD toolchain." >&2
     exit 1
+fi
+
+# Publish AFTER the witness: a cached failed build would be served to every other worktree.
+if [ -n "$_cache_entry" ] && [ ! -d "$_cache_entry/lib" ]; then
+  _tmp="$CACHE_ROOT/.tmp.$$"
+  rm -rf "$_tmp"; mkdir -p "$_tmp"
+  if cp -R "$LIB" "$_tmp/lib" 2>/dev/null; then
+    # The ENTRY DIRECTORY MAY ALREADY EXIST WITHOUT `lib`: the conformance memo lives at
+    # `<entry>/conformance-memo.txt`, so a test run creates the entry before any build fills it.
+    # `mv "$_tmp" "$_cache_entry"` then moves the temp dir INSIDE it instead of becoming it, the
+    # cache is never populated, and every later install misses forever — measured, after which the
+    # log showed "MISS" for a digest whose directory plainly existed.
+    # Renaming `lib` itself is the atomic step that actually matters: a reader tests `-d entry/lib`,
+    # so it sees no lib or a complete one, never a partial copy.
+    mkdir -p "$_cache_entry"
+    if mv "$_tmp/lib" "$_cache_entry/lib" 2>/dev/null; then
+      echo "Toolchain cached as $_digest — other worktrees on this base will not rebuild."
+    fi
+    # Losing the race is fine: the other builder published for the SAME digest, i.e. the same bytes
+    # by construction.
+    rm -rf "$_tmp"
+  else
+    rm -rf "$_tmp"
+  fi
+fi
 fi
 # The sbt interop plugin, published to the local ivy repo.
 #

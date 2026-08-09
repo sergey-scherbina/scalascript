@@ -203,18 +203,49 @@ var passed = 0
 var failed = 0
 var memoSkipped = 0
 
-// F2 memo: a case whose (input, expected, ssc.jar identity) is unchanged since
-// the last GREEN run is skipped. The jar identity uses size+mtime — cheap and
-// machine-local (the cache file lives under target/, not committed).
-val memoFile = repoRoot / "target" / "conformance-memo.txt"
-val jarId: String =
-  // Compatibility lanes use the explicit tools JAR; v2 uses the standard JAR.
-  val jars = Seq(repoRoot / "bin" / "lib" / "ssc.jar",
-                 repoRoot / "bin" / "lib" / "standard" / "ssc.jar")
-  jars.map { jar =>
-    val f = jar.toIO
-    if f.exists then s"${f.length}-${f.lastModified}" else "no-jar"
-  }.mkString(":")
+// F2 memo: a case whose (input, expected, toolchain identity) is unchanged since the last GREEN run
+// is skipped.
+//
+// THE TOOLCHAIN IDENTITY IS A CONTENT DIGEST, NOT size+mtime, and the difference is most of the
+// memo's value. `size-mtime` changes on EVERY build, including a byte-identical one, so a memo built
+// over 366 cases was thrown away by any rebuild — and with one worktree per agent, rebuilds are
+// constant. It also would have made `install.sh`'s toolchain cache actively harmful: `cp -R` stamps
+// fresh mtimes, so restoring an identical toolchain in 14 s would have invalidated every memo entry,
+// buying a fast build by paying for a full test run.
+//
+// `scripts/launcher-input-digest` is exactly the right key — its own header calls it "a content
+// digest of everything that can affect the staged toolchain" — and it is already what CI caches
+// `bin` on and what `smoke-ci` refuses a stale launcher by. Same question, same answer, one key.
+// Falls back to the old size+mtime when the script is unavailable, so a checkout without it behaves
+// as before rather than memoising nothing.
+val toolchainId: String =
+  val digest =
+    try
+      val r = os.proc(repoRoot / "scripts" / "launcher-input-digest").call(cwd = repoRoot, check = false)
+      if r.exitCode == 0 then r.out.trim() else ""
+    catch case _: Throwable => ""
+  if digest.nonEmpty then digest
+  else
+    // Compatibility lanes use the explicit tools JAR; v2 uses the standard JAR.
+    val jars = Seq(repoRoot / "bin" / "lib" / "ssc.jar",
+                   repoRoot / "bin" / "lib" / "standard" / "ssc.jar")
+    jars.map { jar =>
+      val f = jar.toIO
+      if f.exists then s"${f.length}-${f.lastModified}" else "no-jar"
+    }.mkString(":")
+
+// Keyed BY the toolchain id, so every worktree on the same base shares one memo instead of each
+// re-running 366 cases the others already proved. Two agents finishing at once can clobber each
+// other's additions — the write is a whole-file rewrite — and that is acceptable BY SHAPE: an entry
+// is (case, expected, toolchain) → green, so a lost write costs a re-run and can never produce a
+// false pass. Falls back to `target/` when there is no cache root, which is the single-worktree case.
+val memoFile =
+  val cacheRoot = sys.env.getOrElse("SSC_TOOLCHAIN_CACHE",
+                    sys.env.getOrElse("HOME", "") + "/.cache/ssc-toolchain")
+  if cacheRoot.nonEmpty && toolchainId.length == 64 then
+    os.Path(cacheRoot) / toolchainId / "conformance-memo.txt"
+  else repoRoot / "target" / "conformance-memo.txt"
+val jarId: String = toolchainId
 def sha(text: String): String =
   val d = java.security.MessageDigest.getInstance("SHA-256")
   d.digest(text.getBytes("UTF-8")).map("%02x".format(_)).mkString
