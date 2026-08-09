@@ -4390,9 +4390,11 @@ Pinned by `a lazy local cannot cross a later capture`. Matched by SUBJECT, not r
 
 
 ## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: npm test (v2/host/js/control-direct)
+     fixed-in: ec95c4c65 -->
 
 **Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
@@ -4419,9 +4421,25 @@ symbol for `ShorthandPropertyAssignment`. The candidate uses
 marker ownership and continuation checks. Real JavaScript property and assignment-
 initializer regressions now select `later`, emit one capture diagnostic, and retain
 the untouched file when diagnostics are ignored.
+**VERIFIED FIXED 2026-08-09.** The entry says the repair candidate *"is locally verified and awaits
+fresh independent review plus landing"*. **The landing happened:** `ec95c4c65` is an ancestor of
+`origin/main`. What dangles in the entry is the frozen review HEAD it cites, not the fix.
+
+Pinned by `shorthand value symbols cannot hide a suffix capture`. **Read in full.** The test is this entry's reproduction verbatim — `({ later }).later`
+inside a shift body followed by a suffix `const later = 42` — and it ALSO covers the
+assignment-initializer form `({ later = 0 } = {})`, which this entry asked for separately under
+*"add assignment-initializer shorthand coverage where the compiler AST permits that form"*.
+
+`npm test` in `v2/host/js/control-direct`: **39 tests, 39 pass, 0 fail.**
+
+⚠ **THAT SUITE LOOKS BROKEN IN A FRESH WORKTREE AND IS NOT.** `node_modules` is gitignored, so the
+first run there fails with *"compatible TypeScript compiler API not found … Cannot find module
+'typescript'"* — a fact about the checkout, not about the code, and it reads as a defect in whatever
+you are holding. `npm ci` in that directory first.
+
 
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen -->
 
@@ -4449,6 +4467,19 @@ but did not compare value references with bindings moved across generated
 continuations. Checker-symbol scans now reject own/later references in each marker
 layer, including nested syntax, while retaining type-only, preceding, and shadowed
 cases.
+**VERIFIED FIXED 2026-08-09.** The entry says the repair candidate *"is locally verified and awaits
+fresh independent review plus landing"*. **The landing happened:** `c19d42401` is an ancestor of
+`origin/main`. What dangles in the entry is the frozen review HEAD it cites, not the fix.
+
+Pinned by `shift bodies fail closed on own or forward lexical capture`. Matched by subject rather than read line by line.
+
+`npm test` in `v2/host/js/control-direct`: **39 tests, 39 pass, 0 fail.**
+
+⚠ **THAT SUITE LOOKS BROKEN IN A FRESH WORKTREE AND IS NOT.** `node_modules` is gitignored, so the
+first run there fails with *"compatible TypeScript compiler API not found … Cannot find module
+'typescript'"* — a fact about the checkout, not about the code, and it reads as a defect in whatever
+you are holding. `npm ci` in that directory first.
+
 
 ## scljet-update-ipk-does-not-move-rowid — `UPDATE t SET <ipk>=N` rewrites the column but leaves the rowid
 <!-- status: fixed
