@@ -204,6 +204,13 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   validation (`-32022` unsupported version, `-32602` missing `clientCapabilities`); `resultType`
   + `serverInfo` stamped by ONE post-processing site so the legacy path stays byte-identical and
   the gate can prove it.
+- [ ] **`mcp-module-extraction` — make the library's independence structural.** Sergiy,
+  2026-08-09. `mcp/common` already imports nothing from v1 and already has `scalatestTest`; what
+  is misfiled is its tests — **44 of 51** `Mcp*`/`OAuth*` test files under
+  `v1/runtime/backend/interpreter-plugin-tests/` have no v1 import (measured, 7 genuinely need
+  v1). Move those 44 to `mcp/common/src/test/`, give `std/mcp/*.ssc` a version-neutral home, and
+  leave the v1/v2 plugins as the thin per-front adapters they already are. No `build.sbt` change
+  for the test move. **Before P2** — otherwise every later phase pays the move twice.
 - [ ] **P1b — version honesty.** Legacy `initialize` echoes the client's version when supported;
   bump the legacy constant to `2025-06-18` at all four call sites at once, after auditing that we
   really implement it. Split out of P1 deliberately: three of those sites are in files P1 does not
