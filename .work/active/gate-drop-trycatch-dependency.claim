@@ -1,0 +1,15 @@
+slug: gate-drop-trycatch-dependency
+branch: feature/gate-drop-trycatch-dependency
+agent: claude-code
+started: 2026-08-09T15:11:17Z
+heartbeat: 2026-08-09T15:11:17Z
+status: implementing
+items: gate-drop-trycatch-dependency
+paths: file:tests/e2e/build-rust-refuses-loudly.sh
+scope: |
+  My gate asserts that an UNLOWERABLE def is a loud, named refusal, and it uses `try/catch` as the
+  unsupported construct. A sibling (`rust-try-catch`) has the feature committed locally and about
+  to push, which makes that assertion false BY DESIGN -- the gate's own comment says so. Swap the
+  probe to `return`, which the walker still refuses and which is unrelated to their change, so
+  their push does not turn main red on my apparatus.
+next: swap the construct, verify the refusal is still named, keep the control
