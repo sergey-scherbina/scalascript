@@ -4341,9 +4341,11 @@ that 256k must not starve the compiler that gets them there (tried it; the gate 
 reserved address space, not committed memory, so 512m is cheap.
 
 ## descriptor-v3-body-local-effect-evidence — raw effect scan makes descriptors depend on method bodies
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
+     fixed-in: ff0e2580b -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `ff0e2580b`, landing SHA
@@ -4380,6 +4382,19 @@ insertions, ignores body-local candidates, and stores the validated bindings for
 later projection instead of rescanning. Body-local-only and same-name-before-real-
 effect vectors are green; focused producer passes 82/82 and forced effect
 conformance passes 9/9. Keep `open` until fresh review and landing.
+
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. `ff0e2580b` is an ancestor of `origin/main`.
+
+Pinned by:
+  - `effect header evidence is scoped to executable blocks and missing erased evidence fails closed`
+
+`sbt core/testOnly *PreBodyApiDescriptorProducerTest*`: **85 tests, 85 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
 
 ## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
 <!-- status: fixed
@@ -4514,9 +4529,10 @@ conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status remains
 SHA on `origin/main`.
 
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest* -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -4557,10 +4573,29 @@ and affected conformance passes 2/2 modules/import-dir plus 9/9 effect cases. St
 remains `open` until fresh independent approval and landing; the local commit is
 not a fix SHA on `origin/main`.
 
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. **No cited sha landed under that hash** — the commits here are frozen review checkpoints, which is what made this look unlanded. The BEHAVIOUR is implemented and pinned.
+
+Pinned by:
+  - `direct imports resolve both Array and Byte before the Bytes shortcut`
+  - `rename-to-name imports resolve before the Bytes shortcut`
+  - `a wildcard import makes Array Byte ambiguous instead of primitive Bytes`
+  - `exact and wildcard imports precede representative Int and List builtins`
+  - `imports are source ordered and nested import scopes do not leak`
+
+`sbt core/testOnly *PreBodyApiDescriptorProducerTest*`: **85 tests, 85 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
+
 ## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
+     fixed-in: 790366a9d -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
@@ -4588,8 +4623,21 @@ descriptor 27/27, core 1092/1092, interop 36/36, IR, artifact ABI 73/73, and
 affected conformance 2/2 are green. Status stays `open` until fresh independent
 approval and landing on `origin/main`.
 
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. `790366a9d` is an ancestor of `origin/main`.
+
+Pinned by:
+  - `selected mutable vars reject until descriptor v3 represents mutability` — the entry's plan verbatim ("reject every selected public/exported `Defn.Var` … until a future additive schema represents mutability")
+
+`sbt core/testOnly *PreBodyApiDescriptorProducerTest*`: **85 tests, 85 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
+
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: codegen -->
 
@@ -4616,8 +4664,22 @@ calls even though an import-only file was also a rewrite candidate. The candidat
 now scans every selected file, retains the original import on diagnostic, and has an
 executing regression proving that `eval("typeof direct")` still observes `"object"`.
 
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. `4c6b8e2a9` is an ancestor of `origin/main`.
+
+Pinned by:
+  - `import-only marker erasure is also protected from intrinsic direct eval`
+  - `intrinsic direct eval is a transparent-wrapper-aware file barrier`
+
+`npm test (v2/host/js/control-direct)`: **39 tests, 39 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
+
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: cli -->
 
@@ -4640,6 +4702,19 @@ an actionable stable failure. Keep the published package free of a bundled compi
 object and never bounded compiler AST/factory compatibility. The candidate gates
 both programmatic and CLI entrypoints on `versionMajorMinor === "5.9"`, with 5.9.3
 as the qualification pin and deterministic rejection tests outside that line.
+
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. `c19d42401` is an ancestor of `origin/main`.
+
+Pinned by:
+  - the gate itself, at BOTH entrypoints the entry names: `transform.js:22` and `cli.js:39` compare `ts.versionMajorMinor` against `SupportedTypeScriptMajorMinor`, and both are exercised by tests that inject a fake TypeScript 6.0 (`transform.test.js:1142`, `cli.test.js:394`)
+
+`npm test (v2/host/js/control-direct)`: **39 tests, 39 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
 
 ## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
 <!-- status: open
@@ -4810,9 +4885,11 @@ while nested-prompt incompatibility, answer invariance, and forged-prompt negati
 gates remain green.
 
 ## descriptor-v3-nominal-surface-loss — strict pre-body projection drops public nominal semantics
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
+     fixed-in: 790366a9d -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
@@ -4840,6 +4917,19 @@ unexpected successful descriptors (`18/25` total green before the fix).
 descriptor 27/27, core 1092/1092, interop 36/36, IR, artifact ABI 73/73, and
 affected conformance 2/2 are green. Status remains `open` until fresh independent
 approval and landing on `origin/main`.
+
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. `790366a9d` is an ancestor of `origin/main`.
+
+Pinned by:
+  - `nominal declarations, aliases, typed values and plain/multi effects project without bodies`
+
+`sbt core/testOnly *PreBodyApiDescriptorProducerTest*`: **85 tests, 85 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
 
 ## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
 <!-- status: fixed

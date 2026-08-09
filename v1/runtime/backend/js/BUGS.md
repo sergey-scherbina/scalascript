@@ -3355,9 +3355,10 @@ genuinely green while CI was genuinely red — and nobody was reading CI. `origi
 consecutive red runs, zero green**. See `ci-red-main` in SPRINT.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test -->
 
 **Status:** open; remediation and regression are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -3384,10 +3385,24 @@ applications fail closed before their prompt/body arguments can be moved. The
 side-effectful wrapper regression passes in the 16/16 clean-compiled diagnostic
 suite; keep this entry open until rereview approves and the fix lands.
 
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. **No cited sha landed under that hash** — the commits here are frozen review checkpoints, which is what made this look unlanded. The BEHAVIOUR is implemented and pinned.
+
+Pinned by:
+  - `an inline wrapper around a marker fails closed before prompt evaluation` — the plan's words were "must fail closed"
+
+`sbt scala3ControlApi/test`: **165 tests, 165 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
+
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
-<!-- status: open
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test -->
 
 **Status:** open; implementation and regressions are green on the feature branch,
 but fresh independent rereview and the landing SHA are pending. Found by Codex
@@ -3415,6 +3430,20 @@ local to a nested method remain owned by that method. Pure-body, captured-suffix
 and safe local-return regressions pass; the full control leaf is 92/92 and the
 packaged-JAR example compiles and runs. Keep this entry open until rereview
 approves and the fix lands.
+
+**VERIFIED FIXED 2026-08-09.** This entry says its fix exists and awaits landing or review. **No cited sha landed under that hash** — the commits here are frozen review checkpoints, which is what made this look unlanded. The BEHAVIOUR is implemented and pinned.
+
+Pinned by:
+  - `a pure reset body cannot defer a non-local return`
+  - `a captured suffix cannot contain a non-local return`
+
+`sbt scala3ControlApi/test`: **165 tests, 165 pass**.
+
+Same shape as the thirteen entries closed on the root board earlier today: written the same day as
+its fix, describing a state that stopped being true, with nobody re-running the one command that
+could tell. **Matched by SUBJECT and by the entry's own stated plan, not read line by line** — except
+where the pin is the implementation itself, which is quoted with its file and line.
+
 
 ## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
 <!-- status: fixed
