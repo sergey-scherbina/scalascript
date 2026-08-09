@@ -1,0 +1,18 @@
+slug: rust-emit-reachable
+branch: feature/rust-emit-reachable
+agent: claude-code
+started: 2026-08-09T15:43:42Z
+heartbeat: 2026-08-09T15:43:42Z
+status: implementing
+items: json-core-emitted-rust-does-not-compile
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+scope: |
+  Emit only what the entry point REACHES. rozum's six-line program imports std/json, and the whole
+  of json-core's .ssc comes with it and fails to lower -- while `jsonParse`/`jsonStringify` are
+  already rust INTRINSICS (RustIntrinsics.scala:41-42), so those bodies are never called.
+  Two rules, and the second is what makes it work: reachability from the entry, and a name that
+  resolves to an intrinsic is NOT a reference to the user def of that name (renderCall already
+  gives the intrinsic precedence -- reachability must agree with it).
+  CONSERVATIVE: only when there IS an entry point. A lib crate exposes everything, and dropping a
+  def that IS needed reproduces exactly the `cannot find function` this whole thread is about.
+next: roots (entry, rust-verbatim blocks, givens/effects), fixpoint, then measure
