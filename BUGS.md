@@ -99,7 +99,7 @@ suite that cannot tell them whether they broke something.
 ## v2-conformance-uses-FIXED-temp-filenames — a green suite goes red when a sibling runs it
 
 <!-- status: fixed
-     lane: v2
+     lane: apparatus
      area: build
      kind: apparatus
      gate: v2/conformance/check.sh
@@ -4038,9 +4038,12 @@ Pinned by `prefix and explicit apply calls retain structural members`. **Read in
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
 <!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: a8f321d5c -->
 
-**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `a8f321d5c` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
 independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
 (2026-07-15).
@@ -4087,9 +4090,12 @@ Pinned by `a captured owner singleton type is rebound through the rank-2 body`. 
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
 <!-- status: fixed
      lane: multi
-     area: cli -->
+     area: cli
+     fixed-in: a8f321d5c -->
 
-**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `a8f321d5c` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
 independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
 (2026-07-15).
@@ -4183,9 +4189,12 @@ Pinned by `unused forward and mutual parameterless givens retain laziness`. Matc
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 <!-- status: fixed
      lane: multi
-     area: cli -->
+     area: cli
+     fixed-in: a8f321d5c -->
 
-**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `a8f321d5c` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported by the root
 agent's adversarial pre-review of the `scala3-control-macros` feature checkpoint
 `9c6850904` (2026-07-15).
@@ -4324,9 +4333,12 @@ Pinned by `a transparent inline wrapper reports its invocation position`. Matche
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 <!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: a8f321d5c -->
 
-**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `a8f321d5c` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
 rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -4363,9 +4375,12 @@ Pinned by `a direct marker nested in ShiftBody fails at the inner call`. Matched
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 <!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: a8f321d5c -->
 
-**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `a8f321d5c` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
 rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -4540,9 +4555,12 @@ you are holding. `npm ci` in that directory first.
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
 <!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: c19d42401 -->
 
-**Status:** open; cumulative repair candidate `c19d42401` with marker-layer closure
+**Status:** FIXED — closed 2026-08-09 by `verify-scala-direct-family` (release `3700867ba`), which confirmed `c19d42401` is an ancestor of `origin/main` and `sbt scala3ControlApi/test` 165/165. That release flipped the header to `fixed` without a `fixed-in:`, leaving `bugs-index-gate` RED on `main`; the sha here is the one THIS entry already named in its own prose. Original note, kept:
+
+**Was:** open; cumulative repair candidate `c19d42401` with marker-layer closure
 `4c6b8e2a9` is locally verified and awaits fresh independent review plus landing.
 Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
 direct-transform snapshot `f6fa34fac`.
