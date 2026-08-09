@@ -4040,9 +4040,11 @@ source against the stored AST. Focused producer 46/46, descriptor 27/27, core
 are green. Status remains `open` until fresh independent approval and landing.
 
 ## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: conformance -->
+     area: conformance
+     gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
+     fixed-in: 3ea1efd88 -->
 **NOT re-measured 2026-08-08, and this says so rather than leaving a gap in a green file.** Five
 siblings in this cluster were re-measured that day and all five closed; three more were already
 `fixed`. **This is the one that is still `open`**, and it could not be measured: its reproduction
@@ -4083,6 +4085,32 @@ focused run.
 Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
 artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open`
 until fresh independent approval and landing.
+
+**FIXED 2026-08-09 in `3ea1efd88`, harness and all.** `unwrapPackage` descended on
+`obj.name.value == head` alone; it now requires the shape `wrapSectionInPackage` actually writes —
+empty `mods`, `inits`, `derives` and no self type — and requires it BEFORE descending, so the forged
+shell is rejected at the shell rather than surviving to an inner-declaration comparison that cannot
+see it. Early initialisers are not checked, deliberately: `Template.early` is deprecated in
+scalameta 4.9.9 and the construct does not exist in the Scala 3 syntax this front parses.
+
+**THE MISSING HARNESS WAS THE WORK.** This entry's own note explains why the 2026-08-08 sweep could
+not measure it: the reproduction needs a module whose retained AST and retained SOURCE disagree, and
+`PreBodyApiDescriptorProducerTest` drives everything from a source string. The forgery cannot be
+written as source at all — the generator builds the shell itself, plainly, from the manifest.
+`withForgedTree` parses a normal module and swaps the retained tree of its code block for a
+re-parsed forged one, which is the shape the original review built by mutation.
+
+**The test carries its own control, and it runs first:** with the PLAIN wrapper spliced the same
+way, `visible` IS surfaced. Without that line, "the export is absent" would also be satisfied by a
+harness that surfaces nothing at all.
+
+**Proved to discriminate:** with `isPlainWrapper` forced to admit everything, the new test fails and
+the other 84 stay green. Deleting the guard outright is NOT a usable control — it makes the function
+unused and `-Werror` fails the build before a test runs.
+
+`sbt core/test`: **1155 tests, all passed** — the tightening rejects the forgery without rejecting
+any real module in the suite.
+
 
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
 <!-- status: fixed
