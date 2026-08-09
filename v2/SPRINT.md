@@ -41,6 +41,11 @@ F-verdict files a second question — does F PRINT what the reference front prin
     after curried defs + varargs (b32c9e663)  34 agree  11 fail identically    8 DISAGREE   3 F-worse
     after externs pass through (ce140eb69)    36 agree  11 fail identically    6 DISAGREE   1 F-worse
 
+Measured again by the GATE, over its own 240-file rule-based set rather than the old hand sample:
+
+    at the gate's first freeze            47 agree  23 fail identically   11 DISAGREE   1 F-worse
+    after `++` chains stay lists          47 agree  24 fail identically    7 DISAGREE   1 F-worse
+
 The last column is the one that matters and the only one that fell all the way: **F is observably
 worse than the reference on 1 of the 53 files it claims**, down from 3. The remaining one is
 `smoke-test.ssc`, held by the three std/ui gaps in

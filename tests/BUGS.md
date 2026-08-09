@@ -90,7 +90,40 @@ from).
      reported-at: 2026-08-08
      ssc-version: 1a13d17ea
      confirmed: yes
-     gate: none -->
+     gate: tests/e2e/f-std-ui-gate.sh -->
+
+### 2026-08-09 — gap 2 of 3 is FIXED, and gap 1 is narrowed but NOT solved
+
+**Gap 2, `element children expected a valid List`: fixed.** The card was never the subject.
+`runtime/std/ui/lower.ssc:510` builds one as `headerParts ++ [bodyEl] ++ footerParts`, and F turned
+that chain into a TUPLE — `isStrExprCode` read a generic `(prim __arith__ "++" ..)` as evidence of a
+String, which is exactly the node F emits when the type was NOT proven. Every second `++` of a chain
+became `sconcat`. Gate: `tests/e2e/f-std-ui-gate.sh`. This is a whole class, not one widget: any
+chained `++` over lists was affected.
+
+**Gap 1, `unbound global: selectFromView`: narrowed, cause still unknown.** Recording what is now
+measured so the next attempt does not repeat it:
+
+- The name is an `extern def` in `std/ui/primitives.ssc`. **Neither front emits a def for it** —
+  `SSC_DUMP_DEFS=1` shows 488 defs on F's side and none containing it — so it is bound, or not, by
+  the runtime.
+- **A standalone probe fails under BOTH fronts**, even copied verbatim from the example, with the
+  same imports, the same signal-typed choices list and the same front-matter. Three separate
+  attempts. So the asymmetry is not in the `selectFrom` call itself.
+- **The reference front needs a SECOND widget in the `vstack` to succeed.** With `selectFrom` alone
+  both fronts fail; with any one of `heading`, `textField`, `checkbox` or `select` beside it, the
+  reference prints `smoke:ok` and F still fails. It is the arity of the children list that flips the
+  reference, not which widget is added.
+- A greedy reduction of the 90-line section file converged on nothing, because the first trim left a
+  TRAILING COMMA in the `vstack` and broke the predicate before the loop began — visible in its own
+  output as `после обрезки дерева: False`, and a reminder that a reduction must assert its base case
+  before it starts removing things.
+
+The thread to pull is that widget-count dependence in the REFERENCE front: it is the reference that
+behaves oddly here, and F may simply be failing to reproduce an accident.
+
+**Gap 3, `duplicate native UI signal`: untouched.** Still looks shared — the reference front produces
+the same message on `examples/control-center-live.ssc`.
 
 Three separate gaps that `examples/frontend/std-ui/smoke-test.ssc` reaches now that F lowers its
 curried and vararg calls (`f-multi-parameter-clause-def-is-not-lowered`, fixed in `1a13d17ea`).
