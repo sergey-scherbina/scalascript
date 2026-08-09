@@ -160,7 +160,23 @@ object Parser:
 
   private def skipType(ts0: List[Tok]): List[Tok] =
     var ts =
-      if isPunct(peek(ts0), "(") then
+      // A TYPE LAMBDA — `[A] =>> (A, A)`. Skipped like every other type, and it belongs here
+      // rather than behind the generics wall SSC3-7i assumed: a type lambda is a type, Tier 0
+      // discards types, and `type Pair = [A] =>> (A, A)` followed by `val p: Pair[Long] = (…, …)`
+      // leaves an ordinary tuple once both are discarded. The UniML front has accepted this file
+      // all along — it was the ONLY row declared in `front-capability-gate.sh`, which is what says
+      // the construct is expressible at this tier and only v3's parser was missing it.
+      //
+      // The `=>>` is REQUIRED after the parameter list. A type starting with `[` and continuing
+      // any other way is not a type this language has, and consuming the brackets and carrying on
+      // would silently accept it.
+      if isPunct(peek(ts0), "[") then
+        val afterParams = skipBrackets(ts0)
+        if !isOp(peek(afterParams), "=>>") then
+          throw ParseFail(posOf(ts0),
+            "a type may not begin with `[` unless it is a type lambda — `[A] =>> …`")
+        skipType(afterParams.tail)
+      else if isPunct(peek(ts0), "(") then
         var t = ts0.tail
         var depth = 1
         while depth > 0 do

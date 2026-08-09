@@ -1,0 +1,23 @@
+# A type lambda is a TYPE, and Tier 0 discards types — SSC3-7i
+
+`type Pair = [A] =>> (A, A)` and `val p: Pair[Long] = …` both vanish, leaving an ordinary tuple.
+That is why this needed no type checker and no generics: it was behind the wall only in the
+sprint's guess, and the UniML front had accepted it all along.
+
+The numbers are chosen so the expectation can be read: `20 % 7` is 6, `20 % 11` is 9, and 6 + 9
+is **15**. The second alias is applied twice over to show that a type lambda used in another
+type is skipped the same way.
+
+```scalascript
+type Pair = [A] =>> (A, A)
+type Boxed = [A] =>> Pair[A]
+
+def combine(p: Pair[Long]): Long = p._1 + p._2
+
+val n: Long = 20
+val p: Pair[Long] = (n % 7, n % 11)
+println(combine(p))
+
+val q: Boxed[Long] = (1, 2)
+println(q._1 + q._2)
+```

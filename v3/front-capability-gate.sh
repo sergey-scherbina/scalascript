@@ -37,7 +37,17 @@ declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
 # SILENTLY; it now refuses, which is not a new decision — `20-core-language.md` and UniFront's own
 # `AbstractVal` case already said v3's traits carry methods, not abstract state. This gate went red
 # the moment that landed, which is the behaviour a declaration list is for.
-declare -a KNOWN_UNIML_ONLY=(type-lambda-native)        # uniml accepts, v3 refuses
+# `type-lambda-native` was the last entry here and came out on 2026-08-09 with SSC3-7i, which is
+# this gate doing its job twice over. It went red saying "no longer diverges; drop it in this
+# commit", and it is also what identified the row as CLOSEABLE: the sprint had `[A] =>> …` filed
+# behind the generics wall and gated on the type-checker decision, while this list recorded that
+# UniML ALREADY accepted the file. A construct one front takes at Tier 0 is expressible at Tier 0,
+# so what was missing was v3's parser, not a checker — three lines in `skipType`.
+#
+# BOTH LISTS ARE NOW EMPTY, and that is a claim worth stating plainly rather than leaving as an
+# absence: over the corpus and the probe set, the two fronts accept and refuse exactly the same
+# programs. The next entry added here is a REGRESSION unless it arrives with the reason.
+declare -a KNOWN_UNIML_ONLY=()                          # uniml accepts, v3 refuses
 
 available="$($SSC3 front 2>/dev/null | sed -n 's/^available: //p')"
 case "$available" in
