@@ -478,7 +478,23 @@ private[interpreter] object SectionRuntime:
       // by name from it.  A module that declares no exports stays permissive (legacy).  This
       // closes an interpreter↔codegen gap: programs importing a non-exported name ran under the
       // interpreter but failed under emit-js/emit-scala.
-      if child.exportedNames.nonEmpty && !child.exportedNames.contains(sourceName) then
+      // …EXCEPT the module's own PACKAGE ROOT. A package name is a NAMESPACE, not a member: you
+      // export names IN it, you do not export it. Binding `[p](./lib.ssc)` against a module whose
+      // manifest says `package: p` names the namespace, and this check rejected it because `p` is
+      // not in `exports:` — while the native lane bound it and ran. Decided 2026-08-09 by Sergiy in
+      // favour of the native reading (BUGS.md package-root-import-needs-an-exports-entry-on-int).
+      //
+      // IT GIVES UP NO PROTECTION THAT EXISTED, which is why the narrow exemption is right rather
+      // than merely convenient: the entry measured that adding `p` to `exports:` makes BOTH lanes
+      // reach the NON-exported `hidden()` through the package path anyway. This gate was deciding
+      // who may enter, never what they find inside — so removing it costs nothing that was being
+      // guarded. That a package path bypasses `exports:` at all is a real hole and has its own
+      // entry; it is not this one, and this change neither widens nor narrows it.
+      //
+      // `childPkg.head` is the same root `packageMembers` walks from, so the two agree by
+      // construction rather than by a second spelling of "the first segment".
+      val isPackageRoot = childPkg.headOption.contains(sourceName)
+      if child.exportedNames.nonEmpty && !isPackageRoot && !child.exportedNames.contains(sourceName) then
         throw InterpretError(
           s"'$sourceName' is not exported by ${imp.path} — add it to that module's `exports:` to re-export it")
       lookupExport(exported, childPkg, sourceName) match
