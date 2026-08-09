@@ -3609,9 +3609,11 @@ documented `sscx` 512m-stack launcher for stack-heavy tower generators. That res
 but intentionally does not change this bug's status or claim to protect adversarial capsules.
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     gate: v2/conformance/check.sh
+     fixed-in: ac59d7f54 -->
 
 **Classified 2026-08-02 from the entry's own content:** it is `open`, not `unknown` — two of the four
 sub-defects are marked STILL OPEN below (`-0.0` collapsing, and `IrBytes` having no representation),
@@ -3665,6 +3667,39 @@ Three independent fail-open defects in `v2/lib/irbin.ssc0`:
 
 Also: `IrBytes` has no representation at all in `irbin` (`grep -c IrBytes lib/irbin.ssc0` = 0), so the
 binary codec cannot round-trip a bytes literal that the canonical codec now encodes fine.
+
+**BOTH REMAINING SUB-DEFECTS FIXED 2026-08-09 in `ac59d7f54`.** This entry said they were blocked on
+"a shared-kernel prim that does not exist", and that was exactly right: `lib/irbin.ssc0` is written
+in ssc0 and can only reach what the kernel exposes. Four prims were added beside the ones they pair
+with — `f->lit` / `lit->f` and `bytes->hex` / `hex->bytes` — and `IrBytes` took tag 25.
+
+- **(2) `-0.0`** — the encoder called `#f->str`, the USER-VISIBLE renderer, where
+  `floatStr(-0.0) == "0" == floatStr(0.0)`. The sign bit was lost in the ENCODER, not the decoder.
+  It now calls `#f->lit`, the canonical literal. `lit->f` is a separate door from `str->f` because
+  the canonical form spells specials `nan` / `inf` / `-inf`, which `"nan".toDoubleOption` refuses.
+- **`IrBytes`** — had no case at all. Carried as lowercase hex, the same spelling the canonical text
+  codec writes in `(bytes HEX)`, so the two agree on the wire form rather than each inventing one.
+  `hex->bytes` fails CLOSED on an odd length or a non-hex digit.
+
+**The fixture pins seven properties now, up from three**, and the negative-zero one needed care to be
+a pin at all: `-0.0 == 0.0` is TRUE in IEEE-754, so comparing the decoded VALUE passes in both states
+and proves nothing. It compares `#coreir.encode`, which renders through `floatLit` and spells the two
+zeros differently. **Proved by planting the old encoder back:** `#f->str` gives `negzero-COLLAPSED`,
+`#f->lit` gives `negzero-preserved`.
+
+⚠ **`inf-preserved` is green in BOTH states** and is recorded as such: `floatStr` and `floatLit`
+spell the specials identically, so that row guards the `lit->f` pairing rather than the encoder
+choice. A row that cannot fail for the bug it sits next to is worth naming before someone reads it
+as coverage.
+
+`v2/conformance/check.sh`: rc=0, **645 ok**, unchanged. `irbin-demo` stays at **110 bytes** — the
+canonical literal cost this corpus nothing.
+
+**The dangling sha this entry warns about is still dangling** and is left as written: `cb8ad2863`
+resolves locally and is not an ancestor of `origin/main`. That remains live evidence for
+`bugs-index-fixed-in-checks-resolvable-not-reachable`, which is why the header above cites the
+commit that is reachable instead.
+
 
 ## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
 <!-- status: fixed
