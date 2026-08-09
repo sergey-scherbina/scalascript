@@ -2992,9 +2992,9 @@ object RustCodeWalk:
     "crate::runtime::_sha256",
     "crate::runtime::_base64_encode",
     "crate::runtime::_base64_decode",
-    // R.3.3 — JSON helpers also take `&str`.
+    // R.3.3 — jsonParse takes `&str`. jsonStringify does NOT: it takes a VALUE now (it renders a
+    // ScalaScript value as JSON rather than reformatting JSON text), so it must not be borrowed.
     "crate::runtime::_json_parse",
-    "crate::runtime::_json_stringify",
     // R.3.4 — env() takes its arg by reference.
     "crate::runtime::_env",
     "crate::runtime::_env_or_else",

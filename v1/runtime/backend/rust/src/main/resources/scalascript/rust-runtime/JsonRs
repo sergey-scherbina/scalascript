@@ -1,25 +1,75 @@
 
       |// ── R.3.3 — JSON (uses `serde_json` crate; emitted on demand) ──
       |
-      |/// `jsonParse(s)` — parse a JSON string and re-emit it in the
-      |/// canonical compact form.  Panics on parse error to match the
-      |/// interpreter's fail-fast contract.
+      |/// `jsonParse(s): Any` — parse JSON into a ScalaScript VALUE.
+      |///
+      |/// It used to parse and re-emit a STRING, which is a JSON formatter, not this language's
+      |/// `jsonParse`. Both compiled and both ran, so a program got `[1,2]` here and `List(1, 2)` on
+      |/// every other lane, silently (tests/BUGS.md
+      |/// jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else). The shape below is the
+      |/// one the other lanes produce, measured rather than assumed:
+      |///   `{"a": 1, "b": [true, null, 2.5]}` -> `Map(a -> 1, b -> List(true, None, 2.5))`
+      |///
+      |/// Panics on a parse error, matching the interpreter's fail-fast contract.
       |#[allow(dead_code)]
-      |pub fn _json_parse(input: &str) -> String {
+      |pub fn _json_parse(input: &str) -> crate::value::Value {
       |    let v: serde_json::Value = serde_json::from_str(input)
       |        .unwrap_or_else(|e| panic!("jsonParse: {}", e));
-      |    serde_json::to_string(&v)
-      |        .unwrap_or_else(|e| panic!("jsonParse re-emit: {}", e))
+      |    _json_to_value(&v)
       |}
       |
-      |/// `jsonStringify(s)` — pretty-print a JSON string (`{ ... }` with
-      |/// 2-space indent).  Input must already be valid JSON; the round-
-      |/// trip through `serde_json::Value` validates it.
       |#[allow(dead_code)]
-      |pub fn _json_stringify(input: &str) -> String {
-      |    let v: serde_json::Value = serde_json::from_str(input)
-      |        .unwrap_or_else(|e| panic!("jsonStringify: {}", e));
-      |    serde_json::to_string_pretty(&v)
-      |        .unwrap_or_else(|e| panic!("jsonStringify re-emit: {}", e))
+      |fn _json_to_value(v: &serde_json::Value) -> crate::value::Value {
+      |    use crate::value::Value;
+      |    match v {
+      |        serde_json::Value::Null      => Value::Unit,
+      |        serde_json::Value::Bool(b)   => Value::Bool(*b),
+      |        // An integral JSON number is an Int: ScalaScript's Int is 64-bit, and turning `1`
+      |        // into `1.0` would change what a program prints.
+      |        serde_json::Value::Number(n) =>
+      |            if let Some(i) = n.as_i64() { Value::Int(i) }
+      |            else { Value::Double(n.as_f64().unwrap_or(0.0)) },
+      |        serde_json::Value::String(s) => Value::Str(s.clone()),
+      |        serde_json::Value::Array(xs) => Value::List(xs.iter().map(_json_to_value).collect()),
+      |        serde_json::Value::Object(m) =>
+      |            Value::Map(m.iter().map(|(k, v)| (k.clone(), _json_to_value(v))).collect()),
+      |    }
+      |}
+      |
+      |/// `jsonStringify(v: Any): String` — render a ScalaScript value AS JSON.
+      |///
+      |/// Also a contract fix: this used to pretty-print a JSON string, so `jsonStringify(Map(...))`
+      |/// did not even typecheck — which is how the pair came to be looked at.
+      |#[allow(dead_code)]
+      |pub fn _json_stringify<T: Into<crate::value::Value>>(v: T) -> String {
+      |    serde_json::to_string(&_value_to_json(&v.into()))
+      |        .unwrap_or_else(|e| panic!("jsonStringify: {}", e))
+      |}
+      |
+      |#[allow(dead_code)]
+      |fn _value_to_json(v: &crate::value::Value) -> serde_json::Value {
+      |    use crate::value::Value;
+      |    match v {
+      |        Value::Unit        => serde_json::Value::Null,
+      |        Value::Bool(b)     => serde_json::Value::Bool(*b),
+      |        Value::Int(n)      => serde_json::Value::Number((*n).into()),
+      |        Value::Double(f)   => serde_json::Number::from_f64(*f)
+      |                                  .map(serde_json::Value::Number)
+      |                                  .unwrap_or(serde_json::Value::Null),
+      |        Value::Str(s)      => serde_json::Value::String(s.clone()),
+      |        Value::Tuple(xs) | Value::List(xs) =>
+      |            serde_json::Value::Array(xs.iter().map(_value_to_json).collect()),
+      |        Value::Map(kvs) => {
+      |            let mut m = serde_json::Map::new();
+      |            for (k, val) in kvs { m.insert(k.clone(), _value_to_json(val)); }
+      |            serde_json::Value::Object(m)
+      |        }
+      |        Value::Signal(_, inner) => _value_to_json(inner),
+      |        // A case class in an `Any` renders as its fields, keyed by nothing — there are no
+      |        // field NAMES in `Obj` (see specs/rust-backend.md §7.1), so an array is the honest
+      |        // rendering rather than inventing keys.
+      |        Value::Obj(_, fs) =>
+      |            serde_json::Value::Array(fs.iter().map(_value_to_json).collect()),
+      |    }
       |}
       |

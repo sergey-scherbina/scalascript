@@ -37,7 +37,14 @@ class RustGenR33Test extends AnyFunSuite:
     assert(toml.contains("""serde_json = "1.0""""),
       s"serde_json dep not in Cargo.toml:\n$toml")
     val rt = a("src/runtime/mod.rs")
-    assert(rt.contains("pub fn _json_parse(input: &str) -> String"))
+    // The RETURN TYPE is the assertion, not decoration. This used to read `-> String`, which is
+    // what the intrinsic did: parse JSON and re-emit it as text. The language says
+    // `def jsonParse(s: String): Any`, and every other lane returns a value — so on this lane
+    // `jsonParse("[1,2]")` gave the String `[1,2]` where `bin/ssc` gave `List(1, 2)`, silently
+    // (tests/BUGS.md jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else). The old
+    // assertion froze the defect; this one states the contract.
+    assert(rt.contains("pub fn _json_parse(input: &str) -> crate::value::Value"),
+      s"jsonParse must return a Value, not re-emitted JSON text:\n$rt")
 
   test("jsonStringify alone also pulls serde_json"):
     val a = assets(

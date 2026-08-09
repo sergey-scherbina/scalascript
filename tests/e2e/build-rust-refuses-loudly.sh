@@ -349,6 +349,30 @@ if command -v cargo >/dev/null 2>&1; then
     failed=1
   fi
 
+  # JSON is checked against the default lane, because the bug it replaced was a CONTRACT mismatch
+  # that compiled: `jsonParse` returned a String on this lane and a value everywhere else, so the
+  # only assertion that would have caught it is "the two lanes say the same thing".
+  cat > "$tmp/json.ssc" <<'SSC'
+[jsonParse, jsonStringify](std/json.ssc)
+def main(): Unit =
+  println(jsonStringify(Map("a" -> "b")))
+  println(jsonParse("{\"k\": [1, true, 2.5]}"))
+SSC
+  set +e
+  jbin=$("$SSC" build-rust "$tmp/json.ssc" -o "$tmp/jsonbin" 2>&1); jrc=$?
+  json_rust=$("$tmp/jsonbin" 2>&1)
+  json_ref=$("$ROOT/bin/ssc" run "$tmp/json.ssc" 2>/dev/null)
+  set -e
+  if [[ $jrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — importing std/json does not build" >&2
+    echo "--- output: $(printf '%s' "$jbin" | tail -5)" >&2
+    failed=1
+  elif [[ "$json_rust" != "$json_ref" || -z "$json_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on JSON" >&2
+    echo "--- rust: $(printf '%s' "$json_rust" | tr '\n' '|')   ssc: $(printf '%s' "$json_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # String indexing is checked DIFFERENTIALLY, against another lane rather than against numbers I
   # wrote down — hardcoding 97/28450 would only assert that I did the same arithmetic twice.
   #
