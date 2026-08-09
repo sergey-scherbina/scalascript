@@ -25,10 +25,11 @@ Newest first.
 
 ## v3-ci-gates-job-has-never-been-green — one red gate hid five others on every run
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: build
-     gate: .github/workflows/v3.yml -->
+     gate: .github/workflows/v3.yml
+     fixed-in: d85fa7aed -->
 
 **Measured 2026-08-09**: `gh run list --workflow v3.yml --limit 60` lists **48 runs and 0
 successes**, back to at least 2026-08-08T14:47. The `v3 gates` job fails at its second gate on every
@@ -55,9 +56,11 @@ the separation was not a saving — and put `if: ${{ !cancelled() }}` on every g
 gate reports without silencing the rest. The job is still red if any gate is red; what changes is
 that all of them now say so.
 
-**Not yet confirmed.** `status: open` until a run of `v3.yml` on a SHA carrying this change reports
-the later gates with a conclusion of their own. The fix is a workflow change, and a workflow change
-that has not run is a hypothesis.
+**Confirmed 2026-08-09.** Run
+[31321746483](https://github.com/sergey-scherbina/scalascript/actions/runs/31321746483) on
+`d85fa7aed`: `success`, with all thirteen steps of `v3 gates` green — `bridge`, `parity`, `front`,
+`front report` and both `jit gate` steps reporting a conclusion of their own **for the first time**,
+and the second job green as before. The previous 48 runs had none of that.
 
 ## v3-handle-has-no-return-clause — `effect-multishot` runs and answers 0
 
