@@ -1,0 +1,15 @@
+#!/usr/bin/env ssc
+---
+name: std-imports
+version: 0.1.0
+description: Does importing std/http and std/fs still make a program unlowerable?
+---
+```scalascript
+[route, serve](std/http.ssc)
+[readFile, exists](std/fs.ssc)
+
+def main(): Unit =
+  route("GET", "/", p => "ok")
+  println("registered " + exists("/tmp"))
+main()
+```

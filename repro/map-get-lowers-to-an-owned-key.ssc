@@ -1,0 +1,13 @@
+#!/usr/bin/env ssc
+---
+name: map-get-borrow
+version: 0.1.0
+description: A Map lookup on the run lane vs the rust lane.
+---
+```scalascript
+def main(): Unit =
+  val m = Map("a" -> "1", "b" -> "2")
+  println("get   = " + m.get("a"))
+  println("size  = " + m.size)
+main()
+```

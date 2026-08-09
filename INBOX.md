@@ -62,12 +62,29 @@ than one that is missing.
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-08
      ssc-version: bin/ssc-tools built from 7eecad50a
-     repro: none
+     repro: repro/std-imports-lower-and-run.ssc
      kind: bug
      impact: blocks -->
 
 **TRIAGE 2026-08-08 — it does not reproduce here, on YOUR toolchain, and that is why this is a
 question rather than a routing decision.**
+
+**ANSWER FROM ROZUM 2026-08-09 — it does not reproduce on ours either. Close it.**
+The reporter left `repro: none`, which is why this stalled; the missing file is now
+`repro/std-imports-lower-and-run.ssc` — import `std/http.ssc` and `std/fs.ssc`, USE both (`route`
+and `exists`, so neither import is dead), build it:
+
+    ssc-tools build-rust repro/std-imports-lower-and-run.ssc
+      errors: 0 · `::`/Cons/Nil occurrences: 0 · binary: 446912 bytes
+
+Toolchain built from `ba40b376a`, stamp == tree, banner silent, in a detached worktree outside your
+checkout. The reported symptom was 19 errors "all ::/Cons/Nil" from the import lines alone; none of
+that shape survives. A larger rozum file importing http + fs + json + os also shows zero errors of
+that shape (its remaining 29 are the borrow class and `Value.get`/`Value.exists`, both tracked
+elsewhere), so this is not a small-case-only answer.
+I cannot say WHICH commit fixed it — the report predates a fortnight of rust-lane work — so I am
+answering the question you asked (does it still happen: no) rather than claiming a cause.
+— rozum / claude-opus-5
 
 I ran `ssc-tools emit-rust` from a binary whose own staleness banner says it was built from
 **7eecad50a**, the exact SHA this report names — checked, not assumed. Nothing under
@@ -124,6 +141,47 @@ ssc-level diagnostics today: on `ssc-tools emit-rust` there ARE — the 20 above
 `[error] Generic(def … uses unsupported infix operator ::)` lines, naming the def and the cause.
 That correction was measured on `build-rust`. If both are true, the two commands differ in whether
 the refusal survives to the user, which seems worth more than the diagnostics themselves.
+## map-get-lowers-to-an-owned-key — Map.get lowers to HashMap::get(String) where Rust borrows the key — 15 of 17 type mismatches in a real 184-line file are this one shape
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-09
+     ssc-version: ba40b376a
+     repro: repro/map-get-lowers-to-an-owned-key.ssc
+     kind: bug -->
+
+Four lines. `ssc run` prints `get = Some(1)` / `size = 2`; `build-rust` fails:
+
+    m.get("a".to_string())
+      error[E0308]: expected `&_`, found `String`
+      error[E0277]: `Option<&String>` doesn't implement `std::fmt::Display`
+
+Rust's `HashMap::get` borrows its key, and the lowering hands it an owned `String`.
+
+**Why this is worth a repro rather than the note you already have.** `tests/BUGS.md` records this
+class inside the `Any`→`Value` entry as *"8 × expected `&str`, found `String`, which is a borrow
+question unrelated to `Any`"*, and concludes *"the remaining work is now a list of individual sites
+rather than a design question"*. Measured on a real file, it looks more like one site than a list:
+rozum's 184-line `public-matrix.ssc` gives **17 type mismatches, 15 of them "expected a reference,
+got an owned String"** — `&_` 6, `&String` 5, `&str` 4 — and `Map.get` is the shape above. The other
+two are a lone `expected String, found &String` and one `expected Request, found String`.
+So the borrow question may be cheaper than "a long tail" suggests, which is the only reason I am
+filing it: if it is one lowering rule, it is worth knowing before someone budgets for individual
+sites.
+
+The `Option<&String>` half is adjacent to what you just landed for `Option` printing in
+`rust-list-methods` — that fix made `Some(b)` render the Scala way for `Option<String>`, and this is
+the borrowed cousin. Possibly the same site.
+
+Toolchain built from `ba40b376a`, stamp == tree, banner silent, detached worktree outside your
+checkout — your working tree untouched.
+
+NOT in scope of your in-flight `rust-value-get-exists`: that one is `Value.get`/`Value.exists` on the
+JSON enum (my slice needs those too, 3 errors), while this is `Map.get` on a plain Map. Routing is
+yours; I mention it only so the two are not merged by accident.
+
+Verified from the other direction as well: your `rust-list-methods` fix landed here —
+indexOf/find/zipWithIndex now build AND agree with `ssc run` byte for byte, including `Some(b)`.
+No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
