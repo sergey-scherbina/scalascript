@@ -218,6 +218,25 @@ object Diag:
     if positioned then path + ":" + msg else path + ": " + msg
 
 object Cli:
+
+  /** ONE decision site for "was this module specialized?", and it is here rather than in `Exec`.
+    *
+    * SSC3-J1b. `Specialize` proves the `kind` field and `Exec.step` now reads it, so every path that
+    * hands a module to the executor has to agree about whether the pass ran — two subcommands
+    * answering differently is the shape this repository keeps paying for.
+    *
+    * A CLI FLAG AND NOT AN ENV VAR, deliberately. The v3 kernel reads no environment anywhere
+    * (`grep -rn 'sys.env\|getenv' v3/src` is empty), and it must run on ScalaScript 2 as well as on
+    * scalac — invariant I-2. Putting an ambient toggle in `Exec` would add a host dependency to the
+    * most portability-sensitive file in the module to save typing a flag. `Main` is the driver: it
+    * already parses arguments and reads files, so the choice belongs to it.
+    *
+    * `--no-specialize` is what makes the A/B possible at all: it is the OFF arm of every measurement
+    * of this tier, and the two arms have to be the same binary.
+    */
+  private def prepared(m: Module, args: List[String]): Module =
+    if args.contains("--no-specialize") then m else Specialize.module(m)
+
   def run(args: List[String]): Int =
     try
       if args.isEmpty then
@@ -291,9 +310,10 @@ object Cli:
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
             try
-              val m =
+              val m = prepared(
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src)),
+                args)
               Exec.run(m)
               0
             catch
@@ -335,9 +355,13 @@ object Cli:
             val reps0   = flag("reps", 1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
             try
-              val m =
+              // Specialized OUTSIDE the timed region, like the compile: `bench` measures execution,
+              // and charging one lane for a pass the other does not run would make the A/B a
+              // comparison of compilers rather than of executors.
+              val m = prepared(
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src)),
+                args)
               // ZERO OR ONE PARAMETER. 17 of the 36 corpus files declare `def workload(seed: Long)`
               // (one takes an `Int`): the seed is opaque varying input, there so a pure zero-input
               // body cannot be folded to a constant. Accepting only arity 0 blanked NINE rows that

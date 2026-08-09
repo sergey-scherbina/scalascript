@@ -298,7 +298,24 @@ object Exec:
           case Value.VInt(n) => Value.VInt(~n)
           case v             => throw ExecError("bnot on " + show(v))
       Signal.Done
-    case Instr.Bin(op, _, d, a, b) => regs(d) = binOp(m, op, regs(a), regs(b)); Signal.Done
+    // SSC3-J1b — the `kind` field is READ here, and this is the whole point of `Specialize.scala`
+    // writing it. The generic `binOp` is a 40-arm match on a `(op, a, b)` tuple that has to rule out
+    // sets, strings, chars and lists before it reaches two longs; when the specializer has proved
+    // both operands, that work is already done and `binI64` is a `long` operation behind one type
+    // test each.
+    //
+    // THE KIND IS A CLAIM, NOT A GUARANTEE, and every fast path below falls back to `binOp` when
+    // the values are not the shape the claim says. That is deliberate: it makes a defect in the
+    // specializer a PERFORMANCE outcome rather than a wrong answer — the same trade v1 makes when an
+    // un-compilable function is simply never compiled, and v2 when a backend answers null. Without
+    // the fallback, one over-eager rewrite in a pass nothing else can see would silently change what
+    // a program computes.
+    case Instr.Bin(op, kind, d, a, b) =>
+      regs(d) =
+        if kind == NumKind.I64 then binI64(m, op, regs(a), regs(b))
+        else if kind == NumKind.F64 then binF64(m, op, regs(a), regs(b))
+        else binOp(m, op, regs(a), regs(b))
+      Signal.Done
 
     // Structured control flow. A `Branch` propagates outward, losing one level per region — the
     // same rule the bridge implements with a counter, here as a returned value.
@@ -1202,6 +1219,63 @@ object Exec:
 
   // Takes the module for ONE arm: `"x = " + P(1, 2)` has to name the constructor the same way
   // `println` does, or a value prints one way on its own and another inside a string.
+  /** Both operands proved `I64` by `Specialize`. SSC3-J1b.
+    *
+    * SMALL ON PURPOSE. Past `-XX:FreqInlineSize` (325 bytecodes) HotSpot stops inlining a hot method
+    * into its caller, and the entire value of this method is being inlined into the dispatch loop —
+    * `binOp` is 4352 and never will be. `v3/jit-gate.sh` reports the number.
+    *
+    * Every arm answers what `binOp` answers for the same pair, which is the property that makes the
+    * `kind` field an optimization rather than a second semantics. Two that had to be checked in the
+    * source rather than assumed: the zero cases throw `ExecError` with those exact messages (the
+    * corpus compares OUTPUT, so letting the host's `ArithmeticException` out would change what a
+    * program prints), and `Eq`/`Ne` route through `eq`, whose `VInt` arm is `x == y`.
+    */
+  private def binI64(m: Module, op: BinOp, x: Value, y: Value): Value = (x, y) match
+    case (Value.VInt(p), Value.VInt(q)) => op match
+      case BinOp.Add  => Value.VInt(p + q)
+      case BinOp.Sub  => Value.VInt(p - q)
+      case BinOp.Mul  => Value.VInt(p * q)
+      case BinOp.Div  => if q == 0L then throw ExecError("/ by zero") else Value.VInt(p / q)
+      case BinOp.Rem  => if q == 0L then throw ExecError("% by zero") else Value.VInt(p % q)
+      case BinOp.Lt   => Value.VBool(p < q)
+      case BinOp.Le   => Value.VBool(p <= q)
+      case BinOp.Gt   => Value.VBool(p > q)
+      case BinOp.Ge   => Value.VBool(p >= q)
+      case BinOp.Eq   => Value.VBool(p == q)
+      case BinOp.Ne   => Value.VBool(p != q)
+      case BinOp.BAnd => Value.VInt(p & q)
+      case BinOp.BOr  => Value.VInt(p | q)
+      case BinOp.BXor => Value.VInt(p ^ q)
+      case BinOp.Shl  => Value.VInt(p << q)
+      case BinOp.Shr  => Value.VInt(p >> q)
+      case BinOp.UShr => Value.VInt(p >>> q)
+    // THE CLAIM WAS WRONG, so honour the values and not the annotation. A specializer defect is a
+    // performance outcome here; without this arm it would be a wrong answer, in a field no output
+    // gate can see until this method exists.
+    case _ => binOp(m, op, x, y)
+
+  /** Both operands proved `F64`. The same contract as `binI64`, and it is NOT symmetric with it:
+    * `binOp` has no `Rem` arm for two doubles and no bitwise arms, so `5.0 % 2.0` throws there. Both
+    * are delegated rather than implemented, because adding them here would give the fast path a
+    * capability the generic path does not have — which is a divergence between two lanes of the same
+    * executor, and the hardest kind to find. Division by zero is likewise NOT checked: the generic
+    * arm produces an infinity, and so must this one. */
+  private def binF64(m: Module, op: BinOp, x: Value, y: Value): Value = (x, y) match
+    case (Value.VFloat(p), Value.VFloat(q)) => op match
+      case BinOp.Add => Value.VFloat(p + q)
+      case BinOp.Sub => Value.VFloat(p - q)
+      case BinOp.Mul => Value.VFloat(p * q)
+      case BinOp.Div => Value.VFloat(p / q)
+      case BinOp.Lt  => Value.VBool(p < q)
+      case BinOp.Le  => Value.VBool(p <= q)
+      case BinOp.Gt  => Value.VBool(p > q)
+      case BinOp.Ge  => Value.VBool(p >= q)
+      case BinOp.Eq  => Value.VBool(p == q)
+      case BinOp.Ne  => Value.VBool(p != q)
+      case _         => binOp(m, op, x, y)
+    case _ => binOp(m, op, x, y)
+
   private def binOp(m: Module, op: BinOp, a: Value, b: Value): Value = (op, a, b) match
     // `s + x` on a SET adds an element, and `s - x` removes one. The reference lane treats a set as
     // a value with these operators; without them `Set(1,2) + 3` reported an arithmetic error on a
