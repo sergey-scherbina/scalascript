@@ -42,7 +42,12 @@ object RustCodeWalk:
 
   def walk(
       module:     ast.Module,
-      intrinsics: Map[QualifiedName, IntrinsicImpl]
+      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      // Names of defs that an IMPORT brought in, as opposed to ones the user wrote in this file.
+      // The CLI knows this because it does the inlining; the merged module cannot tell them apart.
+      // Used only for a LIB crate: a library exports what its author wrote, so those are the
+      // reachability roots and an imported body nobody reaches is not lowered.
+      importedDefs: Set[String] = Set.empty
   ): Either[List[Diagnostic], WalkResult] =
     _typeLambdas          = collectTypeLambdaAliases(module)
     // Custom effect declarations: `effect Bump: def tick(): Int` is preprocessed to
@@ -66,6 +71,9 @@ object RustCodeWalk:
     val enums             = collectEnums(module)
     val traitEnums        = collectSealedTraitEnums(module)
     val standaloneCases   = collectStandaloneCaseClasses(module, traitEnums)
+    _ctorDefaults = (standaloneCases ++ traitEnums.flatMap(_.caseClasses)).map { c =>
+      c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
+    }.toMap
     val rustBlocks        = collectRustBlocks(module)
     val givens            = collectGivens(module)
     val userDefs          = defs.map(_.name.value).toSet
@@ -136,8 +144,17 @@ object RustCodeWalk:
     // day removing — so every root below is deliberate, and the verbatim `rust` blocks are scanned
     // as TEXT because their contents are opaque to us.
     val entryDefs = defs.filter(d => isEntryPoint(d, d.name.value))
+    // A LIB crate has no entry, and its exported surface is what the AUTHOR wrote — so its own
+    // defs are the roots and an imported body nothing reaches is not lowered. Without this a
+    // library importing `std/json` still lowered all of json-core and failed on it, which is the
+    // half of the reachability work that binaries got and libraries did not. If the CLI told us
+    // nothing (no imports, or another entry path), every def is a root — the same conservative
+    // answer as before.
+    val libRoots =
+      if importedDefs.isEmpty then defs
+      else defs.filterNot(d => importedDefs.contains(d.name.value))
     val defsToRender =
-      if entryDefs.isEmpty then defs
+      if entryDefs.isEmpty && importedDefs.isEmpty then defs
       else
         val byName = defs.map(d => d.name.value -> d).toMap
         // A def named inside a verbatim `rust` block, or reached from a `given` instance body, is
@@ -150,7 +167,8 @@ object RustCodeWalk:
             // Rule 2: an intrinsic shadows the def of the same name.
             case m.Term.Name(n) if byName.contains(n) && !intrinsics.contains(QualifiedName(n)) => n
           }.toSet
-        var seen = (entryDefs.map(_.name.value) ++ rustBlockRoots ++ givenRoots).toSet
+        val rootDefs = if entryDefs.nonEmpty then entryDefs else libRoots
+        var seen = (rootDefs.map(_.name.value) ++ rustBlockRoots ++ givenRoots).toSet
         var frontier = seen
         while frontier.nonEmpty do
           val next = frontier.flatMap(n => byName.get(n).map(refs).getOrElse(Set.empty)) -- seen
@@ -479,6 +497,15 @@ object RustCodeWalk:
    * The `Any` boundary reads target types from here. It is the same trick as the case-class field
    * types: the walker never infers what an expression IS, only what the place it is going to
    * WANTS, and that is always written down. */
+  /** case-class ctor name → its parameters' DEFAULT expressions, in order.
+   *
+   * Rust has no default parameters, so an omitted trailing field has to be MATERIALISED at the
+   * construction site — the same thing `_defaultsMap` does for def calls. It was never done for
+   * constructors: `ProcessOptions(None, Map(), None)` emitted a struct literal without its
+   * defaulted `inheritEnv`, which rustc rejects (E0063, "missing field"). Reported by a user whose
+   * live server uses exactly that three-argument form. */
+  private var _ctorDefaults: Map[String, List[Option[m.Term]]] = Map.empty
+
   private var _paramTypes: Map[String, List[String]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
 
@@ -3063,7 +3090,19 @@ object RustCodeWalk:
               case _              => None
             plainName.flatMap { n =>
               ctx.ctorMap.get(n).map { ec =>
-                val fields = ec.fieldNames.zip(renderedArgs).zipWithIndex
+                // Fill omitted trailing fields that carry a default. Only when EVERY omitted one
+                // has a default to render — otherwise the arity is simply wrong and rustc's
+                // "missing field" is the honest message, rather than a struct literal we invented.
+                val ctorArgs =
+                  val defaults = _ctorDefaults.getOrElse(n, Nil)
+                  val missing  = defaults.drop(renderedArgs.size)
+                  if renderedArgs.size < ec.fieldNames.size && missing.nonEmpty && missing.forall(_.isDefined)
+                  then
+                    val filled = missing.flatten.map(renderTerm(_, ctx))
+                    if filled.forall(_.isRight) then renderedArgs ++ filled.map(_.toOption.get)
+                    else renderedArgs
+                  else renderedArgs
+                val fields = ec.fieldNames.zip(ctorArgs).zipWithIndex
                 val body   =
                   if fields.isEmpty then ""
                   else " { " + fields.map { case ((fn, a), i) =>

@@ -66,7 +66,9 @@ object RustGen:
     val uiUsage     = scanUiUsage(astModule) || tuiTarget
     val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget, httpClientUsage)
 
-    RustCodeWalk.walk(astModule, intrinsics) match
+    val importedDefs =
+      opts.extra.get("importedDefs").map(_.split(",").filter(_.nonEmpty).toSet).getOrElse(Set.empty)
+    RustCodeWalk.walk(astModule, intrinsics, importedDefs) match
       case Left(diags) =>
         CompileResult.Failed(diags)
       case Right(walked) =>

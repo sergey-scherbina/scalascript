@@ -88,7 +88,10 @@
       |                format!("Map({})", parts.join(", "))
       |            }
       |            Value::Obj(name, fs) => {
-      |                if fs.is_empty() { format!("{}()", name) }
+      |                // `None` is a case OBJECT and Scala prints it without parens; a field-less
+      |                // case CLASS keeps them, as `case class Marker()` does.
+      |                if *name == "None" { "None".to_string() }
+      |                else if fs.is_empty() { format!("{}()", name) }
       |                else { format!("{}{}", name, render_seq("(", ")", fs)) }
       |            }
       |        }
@@ -193,6 +196,18 @@
       |            m.into_iter().map(|(k, v)| (k.to_string(), v.into())).collect();
       |        kvs.sort_by(|a, b| a.0.cmp(&b.0));
       |        Value::Map(kvs)
+      |    }
+      |}
+      |
+      |// An `Option` field lifted into an `Any`. Represented the way Scala PRINTS it — `Some(x)` and
+      |// `None` — rather than collapsing `None` to `Unit`, which would make `Some("x")` and `"x"`
+      |// indistinguishable once inside an `Any`.
+      |impl<T: Into<Value>> From<Option<T>> for Value {
+      |    fn from(o: Option<T>) -> Value {
+      |        match o {
+      |            Some(v) => Value::Obj("Some", vec![v.into()]),
+      |            None    => Value::Obj("None", Vec::new()),
+      |        }
       |    }
       |}
       |

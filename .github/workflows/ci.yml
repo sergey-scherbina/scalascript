@@ -444,6 +444,19 @@ jobs:
       - name: Verify staged launcher bytes are reproducible
         run: tests/e2e/staged-launchers-clean.sh
 
+      # backendRust's own tests, on shard 1 only — they are not sharded, and running them four
+      # times would cost 4x for one verdict.
+      #
+      # WHY THIS STEP EXISTS. Nothing on the PUSH path runs them: the smoke suite may not invoke
+      # sbt (its own rule, `scripts/smoke-ci.ssc` §"A CHECK NEVER BUILDS"). On 2026-08-09 that let
+      # a WRONG-CODE regression through — omitted default arguments dropped from generated calls,
+      # `greet("hi")` instead of `greet("hi", "!", false)` — and it survived every push. A sibling
+      # working in the same file found it; no gate did. This job runs every four hours, so that
+      # defect now has a four-hour half-life instead of an indefinite one.
+      - name: Run backendRust tests
+        if: matrix.shard == 1
+        run: sbt -batch backendRust/test
+
       - name: Run conformance tests (shard ${{ matrix.shard }}/4)
         # Warm JVM lane (specs/conformance-perf.md F3): reuse one Bloop build
         # server across cases instead of a cold scalac start per case. The

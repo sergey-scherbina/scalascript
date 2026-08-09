@@ -331,9 +331,16 @@ private[cli] def compileViaBackend(
   val module0 = loadModule(file)
   // The Rust backend (unlike JVM/JS) does not resolve `[name](path.ssc)` file
   // imports inside its codegen, so inline the imported modules' defs here.
+  // Which defs came from an IMPORT rather than from the file the user wrote. The Rust backend
+  // needs the distinction for a LIB crate: a lib exports what its author wrote, and its imports
+  // are implementation detail — without this the walker cannot tell them apart in the merged
+  // module and lowers everything an import brought, which is why a library importing `std/json`
+  // still failed after reachability landed for binaries.
+  var importedDefNames = Set.empty[String]
   val module  =
     if backendId == "rust" then
       val extra = inlineImportsRust(module0, file / os.up, scala.collection.mutable.Set.empty[String])
+      importedDefNames = extra.flatMap(sectionDefNames).toSet
       if extra.isEmpty then module0 else module0.copy(sections = extra ++ module0.sections)
     else module0
   // Fail loudly on a code-block parse error instead of silently dropping the
@@ -348,7 +355,9 @@ private[cli] def compileViaBackend(
   val backend = resolveBackend(backendId)
   val opts = BackendOptions(
     baseDir = Some((file / os.up).toNIO),
-    extra   = extras
+    extra   =
+      if importedDefNames.isEmpty then extras
+      else extras + ("importedDefs" -> importedDefNames.toList.sorted.mkString(","))
   )
   backend match
     // wide-jit C-2: the tree-walking interpreter runs the ORIGINAL tree-bearing
@@ -1562,6 +1571,18 @@ private def inlineImportsRust(
           case None     => Nil
       case _ => Nil
   }
+
+/** Every `def` name declared in a section tree — used to tell a module's own defs from the ones an
+ *  import brought in. Names, not trees: the consumer only has to answer "is this one mine?". */
+private def sectionDefNames(s: scalascript.ast.Section): List[String] =
+  import scalascript.ast.Content
+  import scala.meta as m
+  import scala.meta.transversers.XtensionCollectionLikeUI
+  def fromContent(c: Content): List[String] = c match
+    case cb: Content.CodeBlock =>
+      cb.tree.toList.flatMap(_.tree.collect { case d: m.Defn.Def => d.name.value })
+    case _ => Nil
+  s.content.flatMap(fromContent) ++ s.subsections.flatMap(sectionDefNames)
 
 private def loadModule(path: os.Path): scalascript.ast.Module =
   if path.last.endsWith(".sscc") then

@@ -12,7 +12,8 @@ Newest first.
 
 ## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: v2-rust
      area: codegen
      kind: bug
@@ -23,6 +24,20 @@ Newest first.
      ssc-version: bin/ssc-tools built from 7eecad50a
      repro: none
      impact: workaround -->
+
+**Fixed 2026-08-09.** Rust has no default parameters, so an omitted trailing argument has to be
+MATERIALISED at the construction site. `_defaultsMap` already did that for def CALLS; it had never
+been applied to case-class constructors, so the struct literal came out a field short. Filled only
+when every omitted field has a default to render — otherwise the arity is genuinely wrong and
+rustc's "missing field" is the honest message rather than a literal the backend invented.
+
+Verified against the default lane rather than against expected text: the reporter's three-argument
+shape now prints `true` on both `build-rust` and `bin/ssc`.
+
+A second gap surfaced underneath it and is fixed in the same change: an `Option` field had no lift
+into an `Any`, so the generated `From<ProcessOptions> for Value` did not compile. Represented the
+way Scala prints it, `Some(x)` / `None`, rather than collapsing `None` to `Unit` — which would have
+made `Some("x")` and `"x"` indistinguishable once inside an `Any`.
 
 Routed from `INBOX.md` on 2026-08-08. Everything below is the reporter's, in their words.
 
