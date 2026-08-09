@@ -1,0 +1,11 @@
+slug: ssc3-jit
+branch: feature/ssc3-jit
+agent: claude-code
+started: 2026-08-09T14:53:55Z
+heartbeat: 2026-08-09T14:53:55Z
+status: claimed-before-planning
+items: SSC3-J0 SSC3-J1
+paths: file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
