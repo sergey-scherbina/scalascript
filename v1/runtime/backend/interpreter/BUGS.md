@@ -703,11 +703,28 @@ narrow to see which behaviour was the contract.
 
 ## int-v1-lane-loses-a-builtin-companion-to-its-own-case-class — `Response.html` dies, `Response(...)` works
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
+     fixed-in: eb759d10c
      gate: tests/e2e/render-lane-has-the-same-builtins-as-run.sh -->
+
+**FIXED by `eb759d10c` on 2026-08-02 — the same day this entry was renamed and corrected, and the
+header was never flipped.** `DispatchRuntime.scala:3520` now reads
+`interp.shadowedAlternatives.get(ownerName)` when a member is not found on the bound value, which is
+exactly what the analysis below said nothing did. Its own comment at `:3509` quotes this entry.
+
+**Verified 2026-08-09 rather than read**, because the entry's own history is a warning: it was filed
+wrong twice, and each wrong version pointed at a different file.
+
+- The four-line repro prints `<p>hi</p>` then `ctor` on `run --v1` AND on the default lane.
+- `tests/e2e/render-lane-has-the-same-builtins-as-run.sh` passes all cases on both lanes —
+  `companion-html`, `companion-text`, `companion-json`, `constructor`, each `[run]` and `[run --v1]`.
+
+**The "still unreduced" warning below is also discharged, and it was right to make me check.** It
+says `examples/components-demo.ssc` reaches the same message through an `html"…"` interpolator rather
+than `Response.html`, and *"do not assume it shares a fix"*. It does not fail any more either: the
+demo starts and serves. Two separate measurements, because the entry asked for two.
 
 On the v1 interpreter lane, importing `Response` from `std/http.ssc` leaves the name bound to the
 case-class CONSTRUCTOR and drops the builtin companion that carries `html` / `text` / `json` /
