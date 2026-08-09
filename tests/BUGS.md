@@ -4529,7 +4529,7 @@ conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status remains
 SHA on `origin/main`.
 
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
-<!-- status: fixed
+<!-- status: open
      lane: apparatus
      area: runtime
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest* -->
@@ -4637,7 +4637,7 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
-<!-- status: fixed
+<!-- status: open
      lane: apparatus
      area: codegen -->
 
@@ -4679,7 +4679,7 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
-<!-- status: fixed
+<!-- status: open
      lane: apparatus
      area: cli -->
 

@@ -3355,7 +3355,7 @@ genuinely green while CI was genuinely red — and nobody was reading CI. `origi
 consecutive red runs, zero green**. See `ci-red-main` in SPRINT.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
-<!-- status: fixed
+<!-- status: open
      lane: js
      area: runtime
      gate: sbt scala3ControlApi/test -->
@@ -3399,7 +3399,7 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
-<!-- status: fixed
+<!-- status: open
      lane: js
      area: runtime
      gate: sbt scala3ControlApi/test -->
