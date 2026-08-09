@@ -3885,9 +3885,11 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status stays `open`
 until fresh independent approval and landing on `origin/main`.
 
 ## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: b6d2cd262 -->
 
 **Status:** open; remediation is green in feature commit `b6d2cd262` on frozen
 `origin/main` base `6603e6c29`, but fresh independent review and the landing SHA
@@ -3924,9 +3926,18 @@ negative reports only the stable unsupported diagnostic. Catalog validation is
 26 vectors/9 lanes, validator negatives are 9/9, `scala-direct` is 3/3, and
 affected conformance is 5/5. Keep this entry open until rereview approves and the
 fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `b6d2cd262` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `prefix and explicit apply calls retain structural members`. **Read in full and confirmed to assert this entry's symptom.**
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen -->
 
@@ -3964,9 +3975,18 @@ rank-2 body, explicit shift, and generated bind continuation. Source regressions
 cover both `owner.type` and `Prompt[inner.Key, Int]`; the packaged Scala CLI 3.8.3
 consumer executes their direct and explicit forms and prints `42` for each. These
 cases are part of the clean 21/21 semantics suite and the 109/109 full leaf gate.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a captured owner singleton type is rebound through the rank-2 body`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: cli -->
 
@@ -4004,11 +4024,22 @@ audits moved terms for every replaced term/type symbol. Prefix and suffix
 consumer. Unrepresentable richer graphs reject before code construction with the
 stable unsupported diagnostic. These cases are green in feature commit
 `a8f321d5c`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `strict local values, givens, and pattern binds cross capture`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: a8f321d5c -->
 
 **Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
@@ -4040,9 +4071,18 @@ replacement map while retaining compiler `Given`/`Lazy` flags. The unused
 forward/mutual-given direct and explicit programs compile and each print `42` in
 the packaged consumer. The regression is green in feature commit `a8f321d5c`, the
 clean 21/21 semantics suite, and the full 109/109 leaf gate.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `unused forward and mutual parameterless givens retain laziness`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: cli -->
 
@@ -4086,11 +4126,22 @@ and the rebuilt packaged-JAR consumer no longer emits raw owner output. Package,
 POM, catalog 26/9, validator negatives 9/9, direct lane 3/3, and affected
 conformance 5/5 are green. Keep this entry open until rereview approves and the
 fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a direct marker in a nested reset prompt remains in the outer ShiftBody`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: a8f321d5c -->
 
 **Status:** open; behavior and the missing alias/provenance regressions are green at
 feature checkpoint `a8f321d5c`, but fresh independent review and the landing SHA
@@ -4121,11 +4172,22 @@ module-alias, and transparent-inline provenance regressions are committed and pa
 in the clean 26/26 diagnostics suite; the full leaf is 109/109 and the complete
 package/catalog/conformance gate is green. Keep this entry open until rereview
 approves and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a captured suffix cannot defer boundary break`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: a8f321d5c -->
 
 **Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
@@ -4150,9 +4212,18 @@ the compiler supplies no call span. The transparent-inline regression reports th
 wrapper invocation exactly; the earlier unexpanded-inline path remains unchanged.
 Both pass in the 21/21 clean diagnostic suite; keep this entry open until rereview
 approves and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a transparent inline wrapper reports its invocation position`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen -->
 
@@ -4180,9 +4251,18 @@ separately managed nested `direct.reset`, and leaves ordinary explicit
 `scalascript.control.shift`/`Eff` code untouched. Exact negative plus both positive
 families pass across the 16/16 semantics and 21/21 diagnostics suites; keep this
 entry open until rereview approves and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a direct marker nested in ShiftBody fails at the inner call`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen -->
 
@@ -4215,11 +4295,22 @@ prompt plus `owner.type`, dependent mutable/given/pattern values, and a suffix
 ascription across capture; the diagnostic regression freezes the unsupported
 polymorphic case. Focused suites pass 37/37 and the full leaf passes 99/99; keep
 this entry open until rereview approves and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `a8f321d5c` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a generic wrapper cannot erase the owner's path-dependent type`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: 71e30a599 -->
 
 **Status:** open; remediation and regressions are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -4243,11 +4334,22 @@ accepted marker bind, so traversal reports the frozen lazy-initializer
 `CAPTURE_BARRIER`; an ordinary lazy prefix before a later capture is rejected
 without forcing it. Both regressions pass in the 16/16 clean-compiled diagnostic
 suite; keep this entry open until rereview approves and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `71e30a599` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a marker in a lazy binding remains behind the lazy capture barrier`. **Read in full and confirmed to assert this entry's symptom.**
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## scala-direct-prefix-owner-split — local declarations lose ownership across capture
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt scala3ControlApi/test
+     fixed-in: 71e30a599 -->
 
 **Status:** open; remediation and regressions are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -4277,6 +4379,15 @@ shares one captured mutable cell. Local method/class/type/lazy crossings reject
 with exact diagnostics. The expanded semantics suite passes 14/14 and diagnostics
 16/16 after a clean test compilation; keep this entry open until rereview approves
 and the fix lands.
+**VERIFIED FIXED 2026-08-09.** This entry said *"remediation is green on the feature branch, but
+fresh independent rereview and the landing SHA are pending"*, and it has said so since 2026-07-15.
+**The landing happened.** `71e30a599` is an ancestor of `origin/main`
+(`git merge-base --is-ancestor` succeeds), so the pending half that was about code is resolved.
+
+Pinned by `a lazy local cannot cross a later capture`. Matched by SUBJECT, not read line by line — see the caveat below.
+
+`sbt scala3ControlApi/test`: **165 tests, 165 passed, 0 failed**, on `origin/main` today.
+
 
 ## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
 <!-- status: open
