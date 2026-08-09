@@ -108,7 +108,8 @@ declaration.
      lane: v3
      area: codegen
      kind: bug
-     gate: v3/exec-gate.sh -->
+     gate: v3/exec-gate.sh
+     fixed-in: 1499eab06 -->
 
 **FIXED 2026-08-08, one line in `BridgeV2.MkClos`.** A closure's captures are emitted as a v2
 `(let (e0 e1 …) (lam k …))`, and every capture expression read the executor frame at the SAME

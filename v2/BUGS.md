@@ -4213,6 +4213,32 @@ than closed: a TIMEOUT is load-dependent, this workflow has failed on most night
 now recorded is that **it is not the reason the nightly is red**, so anyone chasing that red should
 start at the row below and not here.
 
+**AND MY OWN NOTE WENT STALE IN ONE DAY — 2026-08-09 the answer is the opposite.** The 08-09
+nightly (`4b4552916`, 04:55) has shard 1/4 GREEN, so `ui-remote-table` is fixed and gone. Shards 0,
+2 and 3 — all green the day before — now fail, and every failing row is this family:
+
+    scljet-crud         v2  FAIL
+    scljet-full         v2  FAIL
+    scljet-jdbc         v2  FAIL
+    scljet-write-table  v2  FAIL
+
+So this entry IS the reason the nightly is red now, and in a worse form than it was filed in:
+`scljet-jdbc` moved from TIMEOUT to FAIL and three siblings joined it. Yesterday's line below
+saying otherwise was true when written and is left in place with this correction beside it, because
+the entry's whole cost has been people trusting a stale reading of it.
+
+**Not caused by the credential fix that landed between the two runs.** Checked rather than assumed:
+none of the four cases mentions `fetchUrlSignal`, `fetchUrlSignalTo`, `fetchAction` or
+`fetchActionClear` — zero matches across all four files — and no scljet CODE landed between the
+runs at all (the only commits matching scljet in that range are claim and release records, mine).
+Four cases of one family regressing together with no change to that family points at something
+shared: the v2 lane itself, or the runner, across the 389 commits between the two nightlies.
+
+**Next step, and it is a bisect not a read**: 389 commits is too many to eyeball, but four rows
+moving together means one cause, and the family is small enough to run locally on the v2 lane.
+
+---
+
 `ui-remote-table v2 FAIL` has NO entry of its own. The one entry naming that case,
 `v21-runtime-taxonomy-ui-remote-table-stale`, is `fixed` since 2026-07-11 and is about a stale
 manifest classification, not about the v2 lane failing the case. So the nightly's actual red is
