@@ -217,6 +217,15 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 - **Prefer `scripts/sbtc "<command>"`** (sbt thin client) over `sbt -batch` for
   repeated commands: a cold batch invocation pays ~8 s wall / ~31 s CPU just
   loading the 259-module build; the client reuses the warm server (<1 s).
+- **EXCEPT when you edited `build.sbt` — then use `sbt -no-colors -batch`.** The
+  warm server holds the build definition it loaded at STARTUP, so `sbtc` gives
+  you a verdict about the *previous* `build.sbt`, and gives it as `[success]`.
+  Measured 2026-08-09 (`std-to-repo-root`): a negative control on a new
+  `build.sbt` guard passed BOTH arms — correct and deliberately-wrong — and an
+  unconditional `sys.error` planted in the same block was never reached under
+  `sbtc` while a fresh `sbt -batch` hit it at once. Three measurements meant
+  nothing. `install.sh` already calls plain `sbt`, which is why a full
+  `install.sh --dev` sees a change the preceding `sbtc` loop did not.
 - **Remove worktrees with `scripts/rm-worktree <name>`**, not bare `git worktree
   remove` — it also kills the worktree's sbt/bloop daemons (2-3 GB RSS each
   otherwise leak). `scripts/kill-stale-builders` finds orphans (--kill to stop).
