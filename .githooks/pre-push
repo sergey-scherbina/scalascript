@@ -24,6 +24,51 @@ set -euo pipefail
 # purpose; claim paths are literal prefixes.
 set -f
 
+# Is path $1 the same as $2, INSIDE $2, or neither?  →  same | inside | outside
+#
+# THE SEPARATOR IS THE WHOLE POINT. This was three copies of `case "$a" in "$b"*)`, a bare prefix
+# match, so any directory whose NAME merely begins with another claimed directory's name was
+# reported as living inside it: a claim on `v3/tests/front-capability` was refused as falling inside
+# `v3/tests/front`, and `v1/lang/core` would block `v1/lang/core-bench`, which exists.
+#
+# A false refusal costs more than the inconvenience. The guard's entire value is that agents trust
+# it, and the habit a wrong refusal teaches is `--no-verify` — after which the next REAL overlap goes
+# through on the same reflex. Exercised by `--self-test` below, because an untested comparison is how
+# this survived in three places at once.
+path_rel() {
+  case "$1" in
+    "$2")   printf 'same'   ;;
+    "$2"/*) printf 'inside' ;;
+    *)      printf 'outside' ;;
+  esac
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  st_fail=0
+  st() { # st <a> <b> <expected>
+    got="$(path_rel "$1" "$2")"
+    if [ "$got" = "$3" ]; then printf '  ok   %-34s vs %-22s -> %s\n' "$1" "$2" "$got"
+    else printf '  FAIL %-34s vs %-22s -> %s, want %s\n' "$1" "$2" "$got" "$3"; st_fail=1; fi
+  }
+  echo "── pre-push path containment ───────────────────────────────────────────"
+  # THE INCIDENT, first: siblings that share a prefix are not containment.
+  st "v3/tests/front-capability" "v3/tests/front"  outside
+  st "v1/lang/core-bench"        "v1/lang/core"    outside
+  # …and the containment it must still catch, so the fix is not simply "admit everything".
+  st "v3/tests/front/x.ssc"      "v3/tests/front"  inside
+  st "v2/src/Runtime.scala"      "v2/src"          inside
+  st "v3/tests/front"            "v3/tests/front"  same
+  # Reverse direction: the outer path is not inside the inner one. The containment test runs both
+  # ways, and getting this backwards would refuse every pair that has any relation at all.
+  st "a/b"                       "a/b/c"           outside
+  # A one-segment name is the case a naive `${a#$b}` fix gets wrong.
+  st "v3x"                       "v3"              outside
+  st "v3/x"                      "v3"              inside
+  echo
+  [ "$st_fail" = 0 ] && echo "== pre-push self-test: PASS ==" || echo "== pre-push self-test: FAIL =="
+  exit "$st_fail"
+fi
+
 remote_tip=""
 local_tip=""
 while read -r _local_ref local_sha remote_ref remote_sha; do
@@ -128,6 +173,8 @@ scope_path() {
   while [ "${v%\*}" != "$v" ]; do v="${v%\*}"; done   # normalise trailing globs
   printf '%s' "${v%/}"
 }
+
+
 
 # Does the broad claim `$1` (whose scopes are `$2`) actually hold file `$3`?
 #
@@ -257,7 +304,7 @@ for new in $incoming; do
 
         # A FILE inside someone's MODULE: admitted only if that owner neither declared nor touched it.
         if [ "$p_lvl" = file ] && [ "$q_lvl" != file ]; then
-          case "$p_path" in "$q_path"/*|"$q_path"*)
+          case "$(path_rel "$p_path" "$q_path")" in inside)
             if owner_holds_file "$old_slug" "$old_paths" "$p_path"; then
               problems="$problems\n  file '$p_path' is inside '$q' AND '$old_slug' has it declared-or-modified"
             else
@@ -268,8 +315,8 @@ for new in $incoming; do
         fi
 
         # Everything else keeps the original prefix-containment rule in both directions.
-        case "$p_path" in "$q_path"*) problems="$problems\n  path '$p_path' falls inside '$q_path', claimed by '$old_slug'" ;; esac
-        case "$q_path" in "$p_path"*) [ "$p_path" = "$q_path" ] || problems="$problems\n  path '$p_path' contains '$q_path', claimed by '$old_slug'" ;; esac
+        case "$(path_rel "$p_path" "$q_path")" in inside) problems="$problems\n  path '$p_path' falls inside '$q_path', claimed by '$old_slug'" ;; esac
+        case "$(path_rel "$q_path" "$p_path")" in inside) problems="$problems\n  path '$p_path' contains '$q_path', claimed by '$old_slug'" ;; esac
       done
     done
   done
