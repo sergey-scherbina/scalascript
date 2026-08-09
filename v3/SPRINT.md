@@ -353,10 +353,15 @@ one symptom bucket turned out to be a different construct than the obvious readi
       file failed pointing at the `=` that follows — a diagnostic about a `def`'s BODY whose real
       problem was its return type.
 
-- [ ] **SSC3-7d — `given name: T with`.** `typeclass-fold.ssc:15:13` (`given intSum: Monoid[Int] with`)
+- [x] **SSC3-7d — `given name: T with`.** `typeclass-fold.ssc:15:13` (`given intSum: Monoid[Int] with`)
       and `typeclass-monoid.ssc:10:16` (`given intMonoid: IntMonoid with`) →
       `expected an expression, found :`. Tier 2 in `specs/20-core-language.md §2`; queued here with
       the measurement rather than left implicit in that deferral.
+      **DONE 2026-08-09 as §52's G1** — the DECLARATION only, on both fronts, as a named object.
+      Of the two rows this entry names, it turns `typeclass-monoid` (`VInt(6)`, checked as 0+1+2+3
+      against the source). `typeclass-fold` is NOT turned and was never G1's to turn: it reaches
+      its instance through `summon[Monoid[A]]` inside a function generic in `A`, which is the
+      type-directed question — §52's G2, queued as mandatory work.
 - [x] **SSC3-7e — a block argument, `f { … }`.** DONE 2026-08-08. `.map { x => … }` had worked; the
       same form on a bare name (`runLogger { … }`) or after an argument list (`handle(e) { … }`) had
       not. SAME LINE only — the `(` case's lesson, not decoration, since a block body ends by
@@ -464,9 +469,21 @@ one symptom bucket turned out to be a different construct than the obvious readi
       the bridge loses the barrier. Nothing measures that lane today — `bench/run.sc` has no
       v3-bridge column — but a future one would need the barrier emitted rather than erased.
 
-- [ ] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
+- [x] **SSC3-7i — type lambdas, `[A] =>> …`.** `type-lambda-native.ssc:12:13` —
       `type Pair = [A] =>> (A, A)` → `expected an expression, found [`. Behind the generics wall
       SSC3-6 already names (`[` at 36 cases), so this is gated on the type checker decision.
+      **DONE 2026-08-09, and the gating was WRONG — it is three lines in `skipType`.** A type
+      lambda is a TYPE, Tier 0 discards types, and once `type Pair = [A] =>> (A, A)` and
+      `val p: Pair[Long] = …` are both discarded what is left is an ordinary tuple. No checker, no
+      generics.
+      **What said so was `front-capability-gate.sh`, not a hunch.** `type-lambda-native` was the
+      one row in its `KNOWN_UNIML_ONLY` list — UniML had accepted this file all along — and a
+      construct one front takes at Tier 0 is expressible at Tier 0. The list is now EMPTY in both
+      directions: over 50 programs the two fronts accept and refuse exactly the same set.
+      `skipType` now takes a leading `[…]` when `=>>` follows, and REFUSES it otherwise, so a type
+      that merely starts with a bracket is not silently swallowed.
+      Measured: `type-lambda.ssc` prints 15 and 3, hand-computed (20%7=6, 20%11=9); the bench row
+      runs at `VInt(10)`.
 - [x] **SSC3-7j — `Vector`.** DONE, sharing `Array`'s representation, and the choice is not
       cosmetic. Vector is an INDEXED sequence; lowering it to a list — the obvious alternative, since
       `Seq` already goes there — would make `v(i)` a traversal, and `vector-index.ssc` exists

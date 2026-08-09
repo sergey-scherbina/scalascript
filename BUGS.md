@@ -637,11 +637,24 @@ was finally confirmed rather than argued about.
 
 ## v3-two-fronts-differ-in-CAPABILITY and every gate compares only OUTPUT
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: none -->
+     gate: v3/front-capability-gate.sh
+     fixed-in: 10bb9a635 -->
+
+**FIXED 2026-08-09 — both rows this entry names are closed, and the gate it produced is what
+closed them.** `effect-oneshot` came out when the effect projection landed; `type-lambda-native`
+comes out now with SSC3-7i. `front-capability-gate.sh` runs 50 programs on both fronts and its
+declared-divergence lists are EMPTY in both directions — the two fronts accept and refuse exactly
+the same programs, and the next entry added to those lists is a regression unless it arrives with
+a reason.
+
+**The gate did more than report.** It is what identified `[A] =>> …` as closeable: the sprint had
+it filed behind the generics wall and gated on the type-checker decision, while this list recorded
+that UniML already accepted the file. A construct one front takes at Tier 0 is expressible at
+Tier 0 — so what was missing was three lines in v3's `skipType`, not a checker.
 
 **Measured 2026-08-08, and the numbers are why it stayed invisible.** v3 has two fronts and
 `Front.default` picks UniML whenever it is registered — which depends on the WORKING TREE, since
