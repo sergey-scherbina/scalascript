@@ -1,0 +1,11 @@
+slug: v3-uniml-jar-staleness
+branch: feature/v3-uniml-jar-staleness
+agent: claude-code
+started: 2026-08-09T16:41:53Z
+heartbeat: 2026-08-09T16:41:53Z
+status: claimed-before-planning
+items: v3-uniml-jar-goes-stale-and-breaks-the-kernel-build
+paths: file:BUGS.md file:v3/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
