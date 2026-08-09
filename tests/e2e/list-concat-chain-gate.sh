@@ -106,11 +106,27 @@ fi
 run_lane "v2       " "$ssc" run --v2
 run_lane "bytecode " "$ssc" run --bytecode
 
+# The js lane earns its place here by having failed a DIFFERENT row from the other three: lists and
+# strings were right and `(1,2) ++ (3,4)` printed the STRING `(1, 2)(3, 4)`, because `$arith` had a
+# list arm and no tuple arm. Row 5 is not decoration — it is the only row that was ever red here.
+# `run-js --v2`, not `bin/jssc`: that wrapper is `emit-js | node`, the deprecated v1 hybrid whose
+# own help says to use this instead, and it fails row 3 for an unrelated reason
+# (v2/BUGS.md js-string-concat-chain-answers-a-tuple).
+if [ -x "$tools" ] && command -v node >/dev/null 2>&1; then
+  run_lane "js       " "$tools" run-js --v2
+else
+  echo "note: run-js --v2 not measured (needs the optional tools tier and node)"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo
-  echo "A three-way list concat is answering something other than a list."
-  echo "The prim is \`sconcat\` (v2/src/Runtime.scala, and its twin in v2/backend/jvm/JvmBackend.scala):"
-  echo "its Data++Data arm must not treat a Cons CELL as a pair."
+  echo "A \`++\` chain is answering the wrong SHAPE on some lane. Which rows failed says which copy:"
+  echo "  rows 1/2/4/6/7 (lists)  -> \`sconcat\`'s Data++Data arm is reading a Cons CELL as a pair"
+  echo "                             (v2/src/Runtime.scala, twin in v2/backend/jvm/JvmBackend.scala)"
+  echo "  row 5 (tuples)          -> the lane has no TUPLE arm and fell through to string concat"
+  echo "                             (v2/backend/js/JsBackend.scala, \`\$arith\` and \`sconcat\`)"
+  echo "  row 3 (strings)         -> a string chain is being read as a tuple concat"
+  echo "Each lane here has failed a DIFFERENT row, so do not assume one cause fixes all of them."
   exit 1
 fi
 echo "PASS list-concat-chain-gate: 7 rows agree on every measured lane"

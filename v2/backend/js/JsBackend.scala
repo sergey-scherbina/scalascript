@@ -361,7 +361,17 @@ object JsGen:
       // Boolean
       case "not"    => s"(!${a(0)})"
       // String
-      case "sconcat"   => s"(''+(${a(0)})+(${a(1)}))"   // works for str+int, int+str etc
+      // `sconcat` is NOT only string concatenation: F emits it for `++` whenever it can type the
+      // LEFT operand as String, and one of the prefixes it reads that way is `++` ITSELF — so the
+      // outer concat of `a ++ b ++ c` arrives here whatever the operands are. `''+a+b` is therefore
+      // wrong for every non-string chain, and it is the same hole the v2 VM had in its own
+      // `sconcat` (v2/BUGS.md corpus-contract-scljet-jdbc-v2-timeout).
+      //
+      // Delegating to `$arith('++')` rather than adding arms here is the same choice made on the
+      // VM, for the same reason: `(prim __arith__ "++")` is what this expression lowers to when the
+      // front CANNOT type it, and the typed and untyped paths must not disagree about the same
+      // operands. `$arith` already coerces str+int and int+str exactly as `''+a+b` did.
+      case "sconcat"   => s"$$arith('++',${a(0)},${a(1)})"
       case "seq"       => s"(${a(0)}===${a(1)})"
       case "scmp"      => if numberInts then s"(${a(0)}<${a(1)}?-1:${a(0)}>${a(1)}?1:0)" else s"(${a(0)}<${a(1)}?-1n:${a(0)}>${a(1)}?1n:0n)"
       case "sindexOf"  => if numberInts then s"${a(0)}.indexOf(${a(1)})" else s"BigInt(${a(0)}.indexOf(${a(1)}))"
@@ -709,6 +719,16 @@ function $arith(op,l,r){
     if(op==='==') return l===r; if(op==='!=') return l!==r;
   }
   if($isList(l)&&(op==='++'||op==='+')) return $listOf($listToArray(l).concat($listToArray(r)));
+  // `(a,b) ++ (c,d)` = `(a,b,c,d)`. There was a list arm and no tuple arm, so two tuples fell all
+  // the way to the `$bridgeShow(l)+$bridgeShow(r)` fallback at the bottom and this lane printed
+  // `(1, 2)(3, 4)` — a STRING — where int and the VM both answer `(1, 2, 3, 4)`. Silently, exit 0.
+  // The VM's arithOp has had this arm for as long as the tuple concat has existed
+  // (Runtime.scala, `lt.startsWith("Tuple") && rt.startsWith("Tuple")`); this is that arm, and the
+  // tag test is the same one, because a "Pair" is deliberately NOT a TupleN here either.
+  if(op==='++'&&l&&r&&typeof l.t==='string'&&typeof r.t==='string'&&
+     l.t.indexOf('Tuple')===0&&r.t.indexOf('Tuple')===0){
+    var $tf=l.f.concat(r.f); return {t:'Tuple'+$tf.length,f:$tf};
+  }
   if($isList(l)&&op===':+') return $listOf($listToArray(l).concat([r]));
   if(op==='==') return $eq(l,r);
   if(op==='!=') return !$eq(l,r);

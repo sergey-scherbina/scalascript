@@ -13,20 +13,32 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
-## `a ++ b ++ c` on lists answered a tuple (claim `scljet-tuple4-instrumentation`)
+## `++` answers the wrong SHAPE, once per lane (claims `scljet-tuple4-instrumentation`, `js-v2-sconcat-tuple-chain`)
 
-- [x] `sconcat` read a `Cons` CELL as a pair, so the OUTER concat of a three-way list chain
-  returned a `TupleN`: `List(1,2) ++ List(3) ++ List(4,5)` printed `(1, List(2, 3), 4, List(5))` on
-  the v2 VM and `--bytecode` lanes, silently, exit 0. Three copies fixed (the prim, its binary
-  fast-path twin, and the `JvmBackend` preamble); `tests/e2e/list-concat-chain-gate.sh` is wired
-  into smoke as `v2/list-concat-chain` and was verified RED on the unpatched toolchain.
-- [x] The front's part is left alone deliberately: `isConcatCode` reads `++` as evidence of a
-  String, which is what routes a list chain into `sconcat` at all. Once the prim is total that
+Four lanes measured on ONE seven-row subject, and each failed a DIFFERENT row. That is the finding,
+not a footnote: every time the cause was generalised from the source it was wrong.
+
+- [x] v2 VM and `--bytecode` — the five LIST rows. `sconcat` read a `Cons` CELL as a pair, so
+  `List(1,2) ++ List(3) ++ List(4,5)` answered `(1, List(2, 3), 4, List(5))`, silently, exit 0.
+  Three copies fixed (the prim, its binary fast-path twin, the `JvmBackend` preamble).
+- [x] `run-js --v2` — the TUPLE row. `$arith` had a list arm and no tuple arm, so `(1,2) ++ (3,4)`
+  returned the STRING `(1, 2)(3, 4)`; two operands were enough, chains were never the issue there.
+  `sconcat` on that backend now delegates to `$arith('++')`, the same choice made on the VM.
+- [ ] `bin/jssc` — the STRING row, `"x" ++ "y" ++ "z"` -> `(x, y, z)`. NOT fixed: that wrapper is
+  `emit-js | node`, the deprecated v1 hybrid its own help says to stop using, and its backend is
+  held by another claim.
+- Rust: NOT a defect on the lane a user reaches — `build-rust` lowers a typed chain to a native Vec
+  concat and is correct on all rows. The unguarded arm in `v2/backend/rust/RustBackend.scala` is
+  latent behind a standalone tool; `rust-list-concat-moves-its-operands` is the real one found there.
+- [x] `tests/e2e/list-concat-chain-gate.sh` runs int / v2 / `--bytecode` / js, wired into smoke as
+  `v2/list-concat-chain`, verified RED then green for each lane it covers. Its failure text maps
+  each ROW to the copy that owns it, because no single cause has ever explained two lanes.
+- The front's part is left alone deliberately: `isConcatCode` reads `++` as evidence of a String,
+  which is what routes a non-string chain into `sconcat` at all. Once the prims are total that
   inference costs nothing when wrong, and narrowing it would de-type real string chains.
 - Downstream and NOT done — `scljet-crud`/`full`/`jdbc` now fail further in on
-  `app: not a function: 0` (`v2/BUGS.md scljet-app-not-a-function-after-the-concat-fix`);
-  `scljet-write-table` passes. Two more lanes carry a concat defect and are filed, one measured
-  (js) and one inferred from source (rust).
+  `app: not a function: 0` (`v2/BUGS.md scljet-app-not-a-function-after-the-concat-fix`, narrowed to
+  F's trailing-block lowering); `scljet-write-table` passes.
 
 ## F coverage: the decline reasons left after 2026-08-08 (claim `f-underscore-global`)
 

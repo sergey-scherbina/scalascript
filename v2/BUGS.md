@@ -10611,7 +10611,7 @@ as lists. On the VM lane it delegates to the dynamic `++` rather than reimplemen
 the typed and untyped paths cannot disagree; the Rust equivalent is whatever `v_*` helper serves
 `(prim __arith__ "++")`.
 
-## js-string-concat-chain-answers-a-tuple — `"x" ++ "y" ++ "z"` prints `(x, y, z)` on the js lane
+## js-string-concat-chain-answers-a-tuple — the DEPRECATED js wrapper; the live lane had the opposite defect
 
 <!-- status: open
      lane: js
@@ -10642,6 +10642,50 @@ step; do not start from the Rust/VM diagnosis.
 **Recorded as a separate entry deliberately.** Reading the two backends' source suggested one
 defect in three places. Running the subject found two different defects, and this row is the one
 that would have been "fixed" by copying the v2 patch to a lane that did not have the v2 bug.
+
+### CORRECTED 2026-08-09 — I measured the wrong js lane, and the right one was broken elsewhere
+
+`bin/jssc` is `ssc-tools emit-js | node`. `emit-js`'s own help says it is **NON-CONFORMING** (folds
+integers at 32 bits) and is *"slated for deletion with the v1 hybrid tier; use `run-js --v2`
+instead."* So the row above is a defect in a deprecated wrapper, and the fix would land in
+`v1/runtime/backend/js` — not where this entry sits.
+
+**Measured on BOTH js paths, seven rows each:**
+
+| row | int | `bin/jssc` (v1, deprecated) | `run-js --v2` (the live lane) |
+|---|---|---|---|
+| `"x" ++ "y" ++ "z"` | `xyz` | **`(x, y, z)`** | `xyz` |
+| `(1,2) ++ (3,4) ++ (5,6)` | `(1, 2, 3, 4, 5, 6)` | `(1, 2, 3, 4, 5, 6)` | **`(1, 2)(3, 4)(5, 6)`** |
+| the five list rows | correct | correct | correct |
+
+**Each lane fails a different row, and neither fails the lists** — so "the js lane has the concat
+bug" was wrong in both directions.
+
+**The live lane's defect is FIXED here, and it is the VM's missing arm exactly.** `$arith` in
+`v2/backend/js/JsBackend.scala` had a list arm and **no tuple arm**, so two tuples fell past every
+case to the bottom line
+
+```js
+if(op==='+'||op==='++') return $bridgeShow(l)+$bridgeShow(r);
+```
+
+and `(1,2) ++ (3,4)` returned the STRING `(1, 2)(3, 4)`. Two operands are enough — this was never
+about chains on this lane. The VM's `arithOp` has carried the matching
+`lt.startsWith("Tuple") && rt.startsWith("Tuple")` arm all along.
+
+`sconcat` on this backend was `(''+(a)+(b))`, wrong for every non-string chain for the same reason
+it was wrong on the VM (F types `++` by its left operand and reads `++` itself as String). It now
+delegates to `$arith('++', …)` — the same choice, for the same reason: that is what the expression
+lowers to when the front cannot type it, and the two paths must not disagree.
+
+**The gate now runs the js lane**, `tests/e2e/list-concat-chain-gate.sh`, and row 5 is the reason:
+verified RED on the unpatched toolchain naming `js` alone with the other three green, and green
+after. Its failure text now maps each ROW to the copy that owns it, because three lanes have now
+failed three different rows of the same seven and "one cause fixes all" has been wrong every time.
+
+**The deprecated-wrapper row above stays open and unfixed**, deliberately: `v1/runtime/backend/js`
+is held by another claim, the lane is slated for deletion, and `run-js --v2` — the replacement it
+points users at — is now correct on all seven rows.
 
 ## rust-list-concat-moves-its-operands — a list used after `++` fails to COMPILE on the Rust lane
 
