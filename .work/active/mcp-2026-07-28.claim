@@ -5,7 +5,7 @@ started: 2026-08-09T14:05:59Z
 heartbeat: 2026-08-09T14:05:59Z
 status: implementing
 items: mcp-2026-07-28 P1
-paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/Mcp2026StatelessTest.scala
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala
 scope: |
   MCP protocol 2026-07-28 dual-era migration, P1 core envelope.
   Spec: specs/mcp-2026-07-28.md. Legacy `initialize` era kept byte-identical;
