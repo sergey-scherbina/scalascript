@@ -79,12 +79,18 @@ if [[ $rc2 -ne 0 ]] || ! grep -rqE '^(pub )?fn twice' "$tmp/linked-crate/src/gen
 fi
 
 # ── 2. What it cannot lower must be said out loud ────────────────────────────
-# `try/catch` is refused by the walker today. The point is not that it is unsupported — it is that
+# `return` is refused by the walker today. The point is not that it is unsupported — it is that
 # being unsupported produces a NAMED diagnostic and a non-zero exit, instead of a crate silently
-# missing `boom`. If someone implements try/catch, this goes red rather than quietly passing, and
+# missing `boom`. If someone implements `return`, this goes red rather than quietly passing, and
 # the right response is to pick another construct the walker still refuses.
+#
+# It used to be `try/catch`, and the swap is the rule above being followed rather than discovered:
+# a sibling had `throw`/`try`/`catch` committed and about to push, which would have turned this red
+# on their commit for a reason that has nothing to do with their change. The construct here is a
+# stand-in for "something unlowerable"; it is not the subject.
 cat > "$tmp/unsupported.ssc" <<'SSC'
-def boom(): Int = try 1 catch case _: Throwable => 2
+def boom(): Int =
+  return 1
 def main(): Unit = println(boom())
 SSC
 set +e
