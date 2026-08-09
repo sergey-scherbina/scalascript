@@ -1,0 +1,19 @@
+```scalascript
+effect Logger:
+  def log(msg: String): Int
+
+def runLogger(body: => Int): Int =
+  handle(body) {
+    case log(msg, k) => k(1)
+  }
+
+def compute(n: Int): Int =
+  var acc = 0
+  var i = 0
+  while i < n do
+    acc = acc + Logger.log("step")
+    i = i + 1
+  acc
+
+println(runLogger(compute(5)))
+```

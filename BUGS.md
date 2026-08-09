@@ -54,6 +54,19 @@ toolchain refused (stale build) and the v2 bridge has no effects, so nothing cou
 answer is. The fixture's prose says jvm, js and rust all run it, so those lanes are the oracle when
 one is buildable.
 
+**MEASURED SEPARATELY 2026-08-09, and it narrows this entry rather than widening it.** A handler
+written IN THE LANGUAGE works, so the gap is only the answer-type lift, not effects generally:
+
+```
+effect Logger:  def log(msg: String): Int
+def runLogger(body: => Int): Int = handle(body) { case log(msg, k) => k(0) }
+```
+
+With that prepended, `bench/corpus/effect-pure.ssc` runs and returns **49995000** — the sum 0..9999,
+checked against `9999*10000/2` rather than against itself. So `effect-pure` is blocked on a LIBRARY
+that provides `runLogger`, not on the language: a user can define the effect, the runner and a
+by-name parameter and it composes, with the perform inside a `while` loop.
+
 **Two ways out, and the choice is the language's:** give `handle` a return clause, or define the
 continuation to return the handled type implicitly. Until then `effect-multishot` should not be
 counted as a passing row — it is counted here instead.
