@@ -316,18 +316,29 @@ object Exec:
     var running = true
     while running do
       val fn = funcTable(fi)
-      if args.length != fn.nparams then
-        throw ExecError(fn.name + " takes " + fn.nparams + " argument(s), given " + args.length)
       val regs = new Array[Value](fn.nregs)
+      // ONE PASS over the argument list, doing all three jobs it used to take three for: copy the
+      // arguments into the low registers, count them, and initialise the rest to `unit`.
+      //
+      // What it replaces, per CALL: `args.length`, which is O(n) on a `List`; a `while` filling
+      // every register with `unit` including the ones about to be overwritten; and `args.foreach`,
+      // whose closure is an allocation. `recursion-fib` makes about 2.7 million calls, and it is the
+      // one row of the J0 measurement that did NOT move — the frame is what dominates it.
+      //
+      // The arity check keeps its exact message, so a wrong-arity program still fails the same way.
       var i = 0
+      var as = args
+      while as.nonEmpty do
+        if i < fn.nregs then regs(i) = as.head
+        as = as.tail
+        i = i + 1
+      if i != fn.nparams then
+        throw ExecError(fn.name + " takes " + fn.nparams + " argument(s), given " + i)
+      // `unit`, not `null`: a register read before its initialiser runs is a real possibility and
+      // `unit` is what the other lane starts it as. Only the registers no argument covered.
       while i < fn.nregs do
         regs(i) = Value.VUnit
         i = i + 1
-      i = 0
-      args.foreach { a =>
-        regs(i) = a
-        i = i + 1
-      }
       exec(m, fn.body, regs) match
         case Signal.Ret(v)       => result = v; running = false
         case Signal.Done         => result = Value.VUnit; running = false
