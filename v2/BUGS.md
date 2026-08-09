@@ -10427,6 +10427,75 @@ different lane — `v3-bridge-lifted-capture`, "app: not a function on a lambda 
 — is worth reading before starting, but it is the v3 bridge and this is the v2 VM, so treat the
 resemblance as a lead and not as a cause.
 
+### NARROWED 2026-08-09 to twelve lines and one call — `readonlyCursorFirst`
+
+The three cases print NOTHING, so they die before `built`, in `showRowids` → `readRowids`. Twelve
+lines reproduce it, and the control matters: the first line PASSES, which proves the build carries
+the concat fix and this is the defect behind it.
+
+```scalascript
+[ByteSlice, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[readRowids](std/scljet/mutate.ssc)
+
+def main() =
+  buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER)",
+    List(List(SqlInteger(1L)))) match
+    case Left(e)   => println("build-error")
+    case Right(db) =>
+      println("built ok")
+      readRowids(db) match
+        case Left(m)    => println("read-error")
+        case Right(ids) => println("rowids " + ids.toString)
+```
+
+    int  ->  built ok / rowids List(1)
+    v2   ->  built ok / ssc: app: not a function: 0
+
+**Bisected down the call tree, each step run on BOTH lanes.** `openReadonlyPager` and
+`validateFreelist` pass on v2; `openReadonlyCursor` passes; **`readonlyCursorFirst(openPager,
+cursor)` is the call that fails**, and int runs the same sequence to `4 fields 5`. So it is
+`cursorAdvance`, which `readonlyCursorFirst` is a two-line wrapper around.
+
+**Three dynamic facts, each from one instrumented run, and together they describe the defect
+precisely:**
+
+1. The applied value is `IntV(0)` and it is applied to **exactly one** argument.
+2. That argument is a **0-arity closure** — a by-name thunk or a lowered arm body, not an ordinary
+   lambda. (The arity is the discriminator; `Show` renders every closure identically.)
+3. **Forcing the thunk yields `Right(PagerCursorStep(…))` — the CORRECT answer**, with the schema
+   record intact (`… 1, 6, 23, 15, 15, 1, 63, 116, 97, 98, 108, 101 …` = the `sqlite_schema` row).
+   So nothing is miscomputed. The result is computed correctly and then applied to a `0`.
+
+**And the app site, from `SSC_APP_TRACE=1`:**
+
+```text
+at ssc.Runtime$.applyFallback(Runtime.scala:508)
+at ssc.Compiler$.…compile$$anonfun$18(Runtime.scala:971)   <- the 1-ARG App node
+at ssc.Compiler$C.compile$$anonfun$6(Runtime.scala:801)
+at ssc.Compiler$.…compile$$anonfun$15(Runtime.scala:911)   <- a MATCH ARM body
+```
+
+An ordinary one-argument application, inside a match arm. So the front emitted
+`(app <something> (lam 0 …))` where `<something>` lowered to the integer `0`.
+
+**A hypothesis DISPROVED before it reached this entry:** that this is the mutual-TCO function-id
+mechanism, where functions are encoded as integers and `0` would be an id used in call position.
+That mechanism exists only in `v2/backend/jvm/JvmBackend.scala` (`_mutual_<d>`, "bad mutual TCO
+function id"); `v2/src` has no such encoding, and this reproduces on the VM lane. Not it.
+
+**Where to start.** `cursorAdvance` is self-recursive in tail position in four branches, all inside
+match arms, and the thunk's forced value is exactly one of those recursive calls' results. The
+question for the front is what emits a one-argument application of a 0-arity lambda there at all —
+neither the source nor `Either` has a by-name parameter anywhere in this path (checked: the only
+`getOrElse`/`fold` in `btree.ssc`, `record.ssc`, `page.ssc`, `pager.ssc`, `text.ssc` and
+`values.ssc` are `btree.ssc:145` and `pager.ssc:204-205`, neither on this path).
+
+**The diagnostic that produced all of the above is landed**, because the old message said only
+`app: not a function: 0` and that is what made this expensive: the value alone describes a great
+many expressions. It now names the arguments and the closure arity always, and under
+`SSC_APP_TRACE=1` it prints the app site and forces a 0-arity argument to show what it computes.
+Forcing is behind the flag deliberately — it runs user code during error formatting.
+
 ## rust-sconcat-treats-a-cons-cell-as-a-pair — the Rust backend carries the v2 concat defect verbatim
 
 <!-- status: open

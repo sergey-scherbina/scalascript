@@ -438,6 +438,37 @@ object Runtime:
       Value.DataV("Op", collection.immutable.ArraySeq(l, a, k2))
     case _ => rest()
 
+  /** The `app: not a function` diagnostic. The VALUE alone is not enough to find the call site —
+   *  `0` describes a great many expressions — so the ARGUMENTS go in too: they are the part of the
+   *  call the source still recognises. Same reason `SSC_STUB_TRACE` prints the receiver. */
+  private def notAFunction(v: Value, avs: Array[Value]): Nothing =
+    def brief(x: Value): String = x match
+      // Show renders every closure as "<closure>", and the ARITY is the part that discriminates:
+      // a 0-arity closure is a BY-NAME thunk (`getOrElse`/`orElse`/`fold` default), anything else
+      // is an ordinary lambda argument. That one number says which call shape you are looking at.
+      // A 0-arity closure is a by-name thunk or a lowered arm body, and FORCING it identifies
+      // which one — it was the step that turned "some thunk" into "the recursive cursorAdvance
+      // call, computing the CORRECT answer" (v2/BUGS.md
+      // scljet-app-not-a-function-after-the-concat-fix). Behind the env var, and not in the
+      // default message, because forcing runs USER CODE during error formatting: the program is
+      // about to die either way, but a thunk with a side effect would perform it early.
+      case c: Value.ClosV if c.arity == 0 && sys.env.contains("SSC_APP_TRACE") =>
+        val forced =
+          try Show.show(Runtime.run(c.code, c.env))
+          catch case e: Throwable => s"<threw ${e.getClass.getSimpleName}>"
+        s"<by-name thunk yielding $forced>"
+      case c: Value.ClosV => s"<closure/${c.arity}>"
+      case _ => try Show.show(x) catch case e: Throwable => s"<unrenderable ${x.getClass.getSimpleName}>"
+    val args =
+      if avs.isEmpty then "no arguments"
+      else s"${avs.length} argument(s): ${avs.iterator.map(brief).mkString(", ")}"
+    if sys.env.contains("SSC_APP_TRACE") then
+      // Which COMPILED node performed the application. The VM has no source positions, so this is
+      // the only thing that distinguishes "the front emitted a bad app" from "a runtime path
+      // applied something it should not have".
+      new Throwable("app-site").printStackTrace()
+    sys.error(s"app: not a function: ${brief(v)} — applied to $args")
+
   def applyFallback(v: Value, avs: Array[Value]): Step = v match
     case Value.DataV("Op", IndexedSeq(l, a, k)) =>
       val kc = k.asInstanceOf[Value.ClosV]
@@ -451,7 +482,7 @@ object Runtime:
     case Value.ForeignV(nmo: Value.NamedMethodObj) =>
       nmo.getField("apply") match
         case Some(c: Value.ClosV) => Call(c, avs)
-        case _ => sys.error(s"app: not a function: ${Show.show(v)}")
+        case _ => notAFunction(v, avs)
     // Indexed array read `a(i)` outside the compile fast paths (e.g. the array
     // value came from Array.fill via the companion dispatch, bound as a Local).
     case Value.ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
@@ -472,11 +503,11 @@ object Runtime:
     case value @ Value.DataV(tag, _) =>
       V2PluginRegistry.lookupTaggedApply(tag) match
         case Some(fn) => Done(fn(value :: avs.toList))
-        case None => sys.error(s"app: not a function: ${Show.show(v)}")
+        case None => notAFunction(v, avs)
     case Value.ForeignV(m: collection.mutable.Map[?, ?]) =>
       // Transitional adapter value; core map construction uses MapV.
       Done(m.asInstanceOf[collection.mutable.Map[Value, Value]](avs(0)))
-    case _ => sys.error(s"app: not a function: ${Show.show(v)}")
+    case _ => notAFunction(v, avs)
 
   /** io.exit lands here. Default = real process exit; embedders that run many
    *  programs in one JVM (batchCli) override it to throw a catchable signal
