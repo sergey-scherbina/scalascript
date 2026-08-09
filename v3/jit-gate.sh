@@ -73,9 +73,14 @@ classes_dir() {
   printf '%s' "$ROOT/v3/.jars/ssc3-$dg"
 }
 
-# Highest bytecode OFFSET in each method, which is a lower bound on its code length (the final
-# instruction's own width is not added). Conservative in the right direction: anything this reports
-# as over the limit is over it.
+# Highest bytecode OFFSET in each method, which is a LOWER BOUND on its code length: the final
+# instruction's own width is not added. Conservative in the right direction for the 8000 check —
+# anything reported over the limit is over it — and NOT safe to read as "this will inline".
+#
+# The margin is not theoretical. 2026-08-09: this reported `Exec$.step` at exactly 325, the inline
+# limit, and `-XX:+PrintInlining` reported `step (326 bytes) hot method too big` and refused it. One
+# byte, and the two numbers disagree by construction. Read the inline column as a HINT and settle
+# the question with `--compiles`-style observation.
 measure() {
   local dir="$1" names
   names="$(cd "$dir" && find . -name '*.class' | sed 's|^\./||; s|\.class$||; s|/|.|g')"

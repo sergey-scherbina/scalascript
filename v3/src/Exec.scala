@@ -346,10 +346,40 @@ object Exec:
         case other       => out = other; running = false
     out
 
+  /** THE HOT OPCODES, and only as many as fit under `-XX:FreqInlineSize` (325 bytecodes).
+    *
+    * `exec` calls this once per instruction, so whether it INLINES is the difference between a
+    * dispatch and a virtual call plus a megamorphic switch. The full `step` was 5867 bytecodes:
+    * compiled, because that is under 8000, and never inlined, because it is eighteen times the
+    * inline limit. Splitting off the three opcodes that dominate a loop body — a constant, a move
+    * and an arithmetic operation, which is every instruction in `arith-loop`'s inner loop except
+    * the branch — leaves a dispatcher small enough to be inlined and sends everything else one call
+    * further, where it was already going.
+    *
+    * The three cases were MOVED, not copied. Leaving them in `stepRest` as well would make it a
+    * second decision site reachable by nobody: the next person to fix a `Bin` bug there would fix
+    * dead code, and this repository has that failure written down more than once.
+    */
   private def step(m: Module, i: Instr, regs: Array[Value]): Signal = i match
-    // SSC3-J0a: an array read, not a list walk plus an allocation. See `prepare`.
     case Instr.Const(d, k) => regs(d) = constPool(k); Signal.Done
     case Instr.Move(d, a)  => regs(d) = regs(a); Signal.Done
+    // The kind dispatch is a METHOD and not three lines here, and the reason is a measurement:
+    // inline, `step` came to 326 bytes and HotSpot refused it with "hot method too big" — one byte
+    // over `FreqInlineSize`. Observed with `-XX:+PrintInlining`, not deduced from the size, because
+    // `--sizes` reports the last instruction's OFFSET and is therefore a lower bound by exactly the
+    // margin that mattered here.
+    case Instr.Bin(op, kind, d, a, b) => regs(d) = binK(m, op, kind, regs(a), regs(b)); Signal.Done
+    case _ => stepRest(m, i, regs)
+
+  /** Pick the arithmetic path the specializer proved. Small enough to inline in its own right, so
+    * splitting it out of `step` costs a call the JIT removes and buys `step` its own inlining. */
+  private def binK(m: Module, op: BinOp, kind: NumKind, x: Value, y: Value): Value =
+    if kind == NumKind.I64 then binI64(m, op, x, y)
+    else if kind == NumKind.F64 then binF64(m, op, x, y)
+    else binOp(m, op, x, y)
+
+
+  private def stepRest(m: Module, i: Instr, regs: Array[Value]): Signal = i match
     case Instr.Un(op, _, d, a) =>
       regs(d) = op match
         case UnOp.Neg  => regs(a) match
@@ -373,12 +403,6 @@ object Exec:
     // un-compilable function is simply never compiled, and v2 when a backend answers null. Without
     // the fallback, one over-eager rewrite in a pass nothing else can see would silently change what
     // a program computes.
-    case Instr.Bin(op, kind, d, a, b) =>
-      regs(d) =
-        if kind == NumKind.I64 then binI64(m, op, regs(a), regs(b))
-        else if kind == NumKind.F64 then binF64(m, op, regs(a), regs(b))
-        else binOp(m, op, regs(a), regs(b))
-      Signal.Done
 
     // Structured control flow. A `Branch` propagates outward, losing one level per region — the
     // same rule the bridge implements with a counter, here as a returned value.
