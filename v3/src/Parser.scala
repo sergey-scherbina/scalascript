@@ -711,7 +711,19 @@ object Parser:
       val (e, t) = parseUnary(ts.tail); (Expr.Not(e, p), t)
     case _ => parsePostfix(ts)
 
-  private def parsePrimary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
+  private def parsePrimary(ts0: List[Tok]): (Expr, List[Tok]) =
+    // `new C(args)` IS `C(args)`. v3 has no separate allocation form — a class is a constructor and
+    // `MkData` is what a call to one lowers to — so the word is dropped, which is exactly what the
+    // UniML front produces for the same source.
+    //
+    // It has to be dropped HERE rather than ignored, because `new` was not a keyword and nothing
+    // claimed it: after alphanumeric identifiers became infix operators (SSC3-7g/7h),
+    // `throw new RuntimeException("boom")` parsed as `(bin "RuntimeException" (name "new") (str
+    // "boom"))` — the class name taken as an OPERATOR between `new` and the argument. Found by
+    // `front-diff`, which is the differential earning its keep: the tree was well-formed, the file
+    // compiled, and only the other front disagreed.
+    val ts = if isId(peek(ts0), "new") && isPlainName(peek(ts0.tail)) then ts0.tail else ts0
+    peek(ts) match
     case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)
     case Tok.TFloat(text, p) => (Expr.DoubleLit(text.toDouble, p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
