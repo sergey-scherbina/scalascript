@@ -403,6 +403,24 @@ object Cli:
           // down. `front-report-gate.sh` reads these two lines.
           // Which functions can PERFORM — step 1 of SSC3-7b, and observable so the step can be
           // checked on its own rather than only when CPS lands on top of it.
+          // The split module, printed — SSC3-7b step 2, observable on its own rather than only
+          // when the executor half lands on top of it. `check` on this output is the real test:
+          // a split that does not verify is a split that moved a register and did not say so.
+          case "cps" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m0 =
+                if path.endsWith(".ssir") then Text.read(src)
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              print(Text.write(Cps(m0)))
+              0
+            catch
+              case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "performs" if args.length >= 2 =>
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")

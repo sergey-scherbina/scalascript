@@ -295,6 +295,27 @@ one symptom bucket turned out to be a different construct than the obvious readi
       perform inside a `Loop` cannot split that way, because a loop's remainder is not a suffix of an
       instruction list.
 
+      **Step 2 DONE 2026-08-09.** `Cps.split` — a Module→Module pass, like `TailCalls`, so nothing
+      about it knows what a `.ssc` is. A `Perform` at position i divides the body: what comes before
+      stays, `MkClos k, f$k, <captures>` is built just before it, the continuation goes in as
+      `Perform`'s LAST argument, `f` ends with `Ret d` (what the handler returns IS the answer), and
+      what came after becomes `f$k`.
+
+      **Every register is captured**, not a computed live set — with all of them captured the
+      continuation's parameters are `0 .. nregs-1` in order and the moved instructions need NO
+      renaming. A live-range analysis captures fewer and must renumber, which is a second thing to
+      get wrong while the first is unproven. It costs closure size, never correctness.
+
+      Checkable on its own via `ssc3 cps <file>`, and checked three ways: the split module VERIFIES
+      (a split that moves a register without saying so fails rule 1 there), it round-trips through
+      `fmt`, and on a program with no effects the pass is byte-identical to no pass at all — so
+      nothing pays for effects it does not use.
+
+      Still only the TOP LEVEL of a body: a `Perform` inside a `Loop`/`If`/`Switch` is left alone,
+      which is step 3 and is a step rather than a detail because a region's remainder is not a suffix
+      of an instruction list. And it changes nothing yet — the executor's tail-resumptive path still
+      runs unconverted functions unchanged, and wiring the pass in is step 4.
+
       *Order of work, each step gateable on its own:* (1) compute the transitively-performing set;
       (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
       (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal

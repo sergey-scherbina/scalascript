@@ -1,0 +1,84 @@
+package ssc3
+
+// SSC3-7b step 2 — SPLIT a function at a `Perform`, so the rest of it becomes a FUNCTION and the
+// continuation can be an ordinary closure.
+//
+// The design is `specs/10-ssc-ir.md` §3 ("Capturing a continuation" and "Who PRODUCES the
+// continuation"), decided before any of this was written: `k` is a `VClos` built by the compiler,
+// not a machine the executor reifies, because the executor is 1363 lines of structured host
+// recursion and making its stack copyable is a rewrite of the kernel's largest file. v3 has had
+// `MkClos`/`CallV`/`VClos` since the beginning, and a continuation that is a closure is multi-shot
+// for free — a closure is not consumed by being called.
+//
+// THE SPLIT. A `Perform` at position i of a function body divides it:
+//
+//   before                       stays in `f`
+//   MkClos k, f$k, <captures>    built just before the perform
+//   Perform d, op, args ++ [k]   the continuation is the LAST argument, per §3
+//   Ret d                        `f` ends here: what the handler returns IS the answer
+//   after                        becomes `f$k`
+//
+// EVERY REGISTER IS CAPTURED, not a computed live set. That is deliberate for a first cut: with all
+// of them captured, `f$k`'s parameters are `0 .. nregs-1` in order and the instructions in `after`
+// need NO renaming — the mapping is the identity. A live-range analysis would capture fewer and
+// would have to renumber, which is a second thing to get wrong while the first is unproven. It
+// costs closure size, never correctness, and the comment is here so the next person does not read
+// laziness into it.
+//
+// The resumed value arrives as the LAST parameter — `VClos(f, cap)` is called as
+// `callFunc(f, cap ++ args)` (Exec.CallV), so captures come first — and is moved into the register
+// the `Perform` was writing to, which is what makes `after` read it exactly where it expected to.
+//
+// WHAT THIS PASS DOES NOT DO, so nobody reads more into it than is here:
+//   * only a `Perform` at the TOP LEVEL of a body is split. One inside a `Loop`/`If`/`Switch` is
+//     left alone, because a region's remainder is not a suffix of an instruction list — that is
+//     step 3, and it is a step rather than a detail for exactly this reason;
+//   * it does not change what `Perform` MEANS. The executor's tail-resumptive path still runs
+//     unconverted functions unchanged; wiring this in is step 4.
+object Cps:
+
+  /** The suffix name for a split function. Positional, like everything else in a module: ids are
+    * only ever compared inside one module. */
+  private def contName(base: String, n: Int): String = base + "$k" + n
+
+  /** Split every top-level `Perform` in every function. Returns the module unchanged when there is
+    * nothing to split, so applying it to a program without effects is free and provably a no-op. */
+  def apply(m: Module): Module =
+    val toSplit = m.funcs.zipWithIndex.filter { (f, _) => topLevelPerform(f.body).isDefined }
+    if toSplit.isEmpty then m
+    else
+      var funcs = m.funcs
+      toSplit.foreach { (f, idx) =>
+        topLevelPerform(funcs(idx).body).foreach { i =>
+          val cur = funcs(idx)
+          val (before, rest) = cur.body.splitAt(i)
+          val Instr.Perform(d, op, args) = rest.head: @unchecked
+          val after = rest.tail
+          val nregs = cur.nregs
+          val kReg = nregs                       // one fresh register for the closure itself
+          val contIdx = funcs.length             // appended below, so its index is known now
+          val caps = (0 until nregs).toList
+          // `f$k(cap0 … capN-1, resumed)` — the resumed value last, because `CallV` passes captures
+          // first. `Move(d, nregs)` puts it where `after` already expects to read it.
+          val cont = Func(contName(cur.name, i), nregs + 1, nregs + 1,
+                          Instr.Move(d, nregs) :: after)
+          val split = cur.copy(
+            nregs = nregs + 1,
+            body  = before
+                    ++ List(Instr.MkClos(kReg, contIdx, caps),
+                            Instr.Perform(d, op, args :+ kReg),
+                            Instr.Ret(d)))
+          funcs = funcs.updated(idx, split) :+ cont
+        }
+      }
+      m.copy(funcs = funcs)
+
+  /** The index of the first `Perform` at the TOP LEVEL of this body, if any. Deliberately not
+    * recursive: a perform nested inside a region is step 3's problem, and finding it here would
+    * produce a split that cannot be expressed. */
+  private def topLevelPerform(body: List[Instr]): Option[Int] =
+    val i = body.indexWhere {
+      case Instr.Perform(_, _, _) => true
+      case _                      => false
+    }
+    if i < 0 then None else Some(i)
