@@ -417,11 +417,12 @@ these fixtures.
 
 ## v3-refuses-a-default-argument-inside-an-enum-case
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: defect
-     gate: none -->
+     gate: v3/front-gate.sh
+     fixed-in: fd29eaeb4 -->
 
 A default on a parameter of an `enum` case is a parse error, while the same default on a `def` or a
 `case class` parameter works:
@@ -444,6 +445,27 @@ FOUND WHILE FIXING A DIFFERENT DEFECT IN THE SAME FILE. `tests/conformance/defau
 reported `unknown name 'x'`, which was a default referencing an earlier parameter (fixed). The file
 does not lower yet because of THIS second, unrelated failure at line 18 — worth stating, because a
 corpus case that stays refused after a fix reads like the fix did not work.
+
+**FIXED 2026-08-09 in `fd29eaeb4`, one call.** The `case class` field loop has always called
+`parseDefault`; the enum-case loop went straight from the type annotation to `,` or `)`. Same helper,
+so there is no second implementation to drift.
+
+This entry's guess was right and is worth confirming rather than quietly replacing: *"this is the
+enum case's own parameter parser not reaching the shared one, not a missing representation."* It was
+exactly that.
+
+    reference 1/3/8    v3 executor 1/3/8    v3 bridge 1/3/8
+
+**It closes `tests/conformance/default-params.ssc`, which two fixes had been chasing.** That case
+failed at line 13 — a default referencing an earlier parameter, fixed in `bf2cbfc06` — which moved
+its first failure to line 18, this. It now lowers and matches its expected output exactly.
+
+The fixture covers what a two-case example would miss: a parameterless case beside ones with
+parameters, and a default referencing an EARLIER parameter of the same case. **Proved to
+discriminate:** removing the `parseDefault` call returns the original `expected ')', found =`.
+
+front-gate GREEN (67), exec-gate GREEN (66).
+
 
 ## v3-has-no-scala-style-import — its module system is markdown links, and 4 corpus cases use the other spelling
 
