@@ -1,7 +1,7 @@
 ## list-methods-pass-through-to-rust
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: fb9ac0923
      lane: v2-rust
      area: codegen
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
