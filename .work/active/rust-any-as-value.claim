@@ -1,0 +1,17 @@
+slug: rust-any-as-value
+branch: feature/rust-any-as-value
+agent: claude-code
+started: 2026-08-09T13:30:25Z
+heartbeat: 2026-08-09T13:30:25Z
+status: implementing
+items: build-rust-drops-defs-it-cannot-lower-without-saying-so
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:specs/rust-backend.md
+scope: |
+  Option A, chosen by the project owner: `Any` stays `crate::value::Value` and gains an `Obj(name,
+  fields)` variant, so a case-class value can live in an `Any`. The reason I first rejected A was
+  wrong -- the types ARE available, in the case-class DECLARATION, so no inference is needed.
+  The trick that keeps it bounded: coercions are TOTAL, via traits implemented for both `Value` and
+  the concrete type, so the walker only needs the TARGET type (always declared) and never the
+  source type.
+  Boundaries: construction arg, destructuring bind, call arg, return.
+next: Value::Obj + total coercion traits in the runtime template, then ctorMap field TYPES
