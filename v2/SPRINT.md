@@ -122,7 +122,15 @@ Remaining, GAP only:
       **The denominator is the payoff.** None of the 65 turns on F's lowering, so F's real scope is
       140 − 65 = **75 files, of which F handles 53 — 71%, not the 38% that 53-of-140 suggests.**
       Quote the 75, or F's coverage reads as half of what it is. Achieved with no code at all.
-- [ ] The GAP tail, now the whole of it: `Parser` (4), `handler` (2), `__u0` (2), and six singles.
+- [x] **Censused the 5 `ERROR` files, 2026-08-09 — none is an F gap either.** Two were examples
+      importing a sibling by an unresolvable path, failing identically on BOTH fronts and wrong
+      against every other multi-file example in the corpus (fixed; `ERROR` → `BOTH-UNBOUND`). Three
+      are files the REFERENCE front cannot parse at all. With those and the 65 `BOTH-UNBOUND` out of
+      F's decision, **F's real scope is 70 files and it handles 53 — 76%**, against the 38% that
+      53-of-140 reads as. Entries: `error-bucket-holds-no-F-gaps`,
+      `two-examples-import-a-sibling-by-a-path-that-cannot-resolve`.
+- [ ] The GAP tail, now the whole of it AND the whole of the remaining work: `Parser` (4),
+      `handler` (2), `__u0` (2), and six singles.
       `Parser` is the one whose reduction failed to transplant twice; start it from the closure, not
       the module. `__u0` is `runtime/std/ui/content.ssc`, which has a verified seven-line in-place
       reduction where every line is load-bearing and eight hypotheses already eliminated.

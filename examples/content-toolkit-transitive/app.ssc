@@ -26,7 +26,7 @@ controls:
 
 ## Entry
 
-[studioPreview](content-toolkit-transitive/studio.ssc)
+[studioPreview](./studio.ssc)
 [serve](std/ui/primitives.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)

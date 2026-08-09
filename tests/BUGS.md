@@ -1,3 +1,67 @@
+## two-examples-import-a-sibling-by-a-path-that-cannot-resolve
+
+<!-- status: fixed
+     lane: n/a
+     area: docs
+     reported-by: claude-code
+     reported-at: 2026-08-09
+     ssc-version: fd8304965
+     confirmed: yes
+     gate: none -->
+
+`examples/content-toolkit-transitive/app.ssc` and its `-register` twin import their sibling as
+
+    [studioPreview](content-toolkit-transitive/studio.ssc)
+
+— a path relative to `examples/`, from a file that already lives in that directory. Nothing resolves
+it, and **both fronts fail identically**, so this was never a front gap:
+
+    ssc: native frontend import not found: content-toolkit-transitive/studio.ssc from app.ssc
+
+**The files are wrong, not the resolver, and the corpus says so.** Every other multi-file example
+imports a sibling as `./b.ssc` or `b.ssc` — `js-transitive-iife`, `js-transitive-iife-4`,
+`js-imported-int-div`, `js-transitive-iife-nopkg`, `std-ui`, `_enumxmod`, `site`. These two are the
+only files in `examples/` using the directory-prefixed form, and the only ones failing on it. Their
+own prose agrees: both describe themselves as importing "a child (studio.ssc)".
+
+Fixed to `./studio.ssc`. Both then move `ERROR` → `BOTH-UNBOUND` — they still do not run, on the
+`__u0` cause both fronts share, but the import layer is no longer the reason.
+
+## error-bucket-holds-no-F-gaps
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-09
+     ssc-version: fd8304965
+     confirmed: yes
+     gate: none -->
+
+A census of the five `ERROR` files in the 140-file front-report sample — the one bucket nobody had
+looked at. **None of them is an F lowering gap.**
+
+    2  the example imports a sibling by an unresolvable path — both fronts fail identically,
+       and the files were simply wrong (fixed; see the entry above)
+    3  the REFERENCE front cannot parse the file at all:
+         ssc: native frontend rejected incomplete parse in examples/graph-fullstack.ssc: struct…
+       F declines these separately, on its own `(global JsonCodec_derived)` gap, so neither front
+       compiles them and the ERROR label reflects whichever failed first.
+
+**What this does to F's denominator, which is the point of censusing a bucket at all.** With the
+65 `BOTH-UNBOUND` (already censused, `both-unbound-is-mostly-plugin-intrinsics-not-user-error`) and
+these five all outside F's decision:
+
+    140 corpus files − 67 BOTH-UNBOUND − 3 unparseable = 70 where F's lowering decides
+    F handles 53 of those 70 — 76%
+
+Against the raw 140 it reads 38%. It has been quoted that way all week, including by me. The
+remaining work is the 17 `GAP` files, and that is the whole of it.
+
+**Still open** because the three unparseable files are a real defect in the native frontend's parser,
+just not F's: `struct…` truncated in the message above is where the parse stops, and no one has
+reduced it. Filed here rather than left in a census note so it has a slug to be found by.
+
 ## json-core-emitted-rust-does-not-compile
 
 <!-- status: open

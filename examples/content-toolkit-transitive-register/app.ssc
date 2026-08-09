@@ -17,7 +17,7 @@ This entry module deliberately defines no toolkit block; the rendered block
 
 ## Entry
 
-[studioPreview](content-toolkit-transitive-register/studio.ssc)
+[studioPreview](./studio.ssc)
 [serve, element, textNode](std/ui/primitives.ssc)
 [lower](std/ui/lower.ssc)
 [defaultTheme](std/ui/theme.ssc)
