@@ -1471,6 +1471,23 @@ object Parser:
       // The two-token test matters. `effect` is not a keyword in this language, so a program with a
       // value called `effect` must keep working; requiring a NAME after it is what separates the
       // declaration from any other use of the word.
+      // `import a.b.c` — REFUSED BY NAME, because v3 has no such keyword and never did.
+      //
+      // Modules are composed through MARKDOWN LINKS here, read by `Loader.importsOf`. Nothing
+      // claimed the word `import`, so the parser read it as an ordinary name and the file became
+      // `(do (name "import"))` followed by `(do (send (name "actors") "Overflow"))` — a program
+      // silently turned into two meaningless statements, which then failed somewhere in the
+      // lowering with `unknown name 'import'`, far from the line that caused it. Four conformance
+      // cases are written this way and none of them lowered.
+      //
+      // A refusal rather than support, and the entry it comes from names both as acceptable:
+      // teaching the keyword and mapping it onto links is the OTHER way out, and belongs to whoever
+      // owns v3's module story. This does not foreclose it — when that lands, this branch goes.
+      // (BUGS.md v3-has-no-scala-style-import.)
+      else if isId(peek(ts), "import") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
+        throw ParseFail(posOf(ts),
+          "v3 has no `import` keyword — modules are composed with markdown links, and a `.ssc` " +
+          "file names its imports in the prose around the fence, not inside it")
       else if isId(peek(ts), "effect") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
         val (t, t2) = parseTrait(ts.tail, posOf(ts))
         effects = t :: effects
