@@ -5,7 +5,7 @@ started: 2026-08-09T14:53:55Z
 heartbeat: 2026-08-09T14:53:55Z
 status: implementing
 items: SSC3-J0 SSC3-J1
-paths: file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv file:BUGS.md file:v3/src/Exec.scala
+paths: file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv file:BUGS.md file:v3/src/Exec.scala file:v3/src/Main.scala
 scope: |
   v3 execution performance. Measured 2026-08-09 on a contended host: exec runs
   bench/corpus/arith-loop.ssc in 226.99 ms against v1's 0.244 (~930x) and list-fold in
