@@ -106,7 +106,39 @@ object RustCodeWalk:
     val topVals = baseTopVals ++ givenTopVals
     val results = defs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
     val (errors, ok) = results.partitionMap(identity)
-    val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten
+    // An `extern def` with no `@rust` and no intrinsic renders to NOTHING, deliberately — an extern
+    // nobody calls needs no Rust side. But when something DOES call it the call is still emitted,
+    // and the user gets rustc's `cannot find function __jsonCoreEncodeValue` pointing into
+    // generated code they never wrote. `std/json.ssc` declares four of these, which is why
+    // importing std/json produced exactly four such errors.
+    //
+    // Same disease as the two before it: the backend omitting what it cannot provide and letting
+    // rustc do the talking. Refuse, and name the def — an unreferenced extern still costs nothing.
+    val unimplementedExterns: Set[String] =
+      defs.filter(d => isExternBody(d.body) && extractRustAnnotArg(d.mods, "rust").isEmpty)
+        .map(_.name.value)
+        .filterNot(n => intrinsics.contains(QualifiedName(n)))
+        .toSet
+    val externErrs: List[Diagnostic] =
+      if unimplementedExterns.isEmpty then Nil
+      else
+        val callers = scala.collection.mutable.SortedMap.empty[String, scala.collection.mutable.SortedSet[String]]
+        defs.filterNot(d => isExternBody(d.body)).foreach { d =>
+          def walkT(t: m.Tree): Unit =
+            t match
+              case m.Term.Name(n) if unimplementedExterns.contains(n) =>
+                callers.getOrElseUpdate(n, scala.collection.mutable.SortedSet.empty) += d.name.value
+              case _ => ()
+            t.children.foreach(walkT)
+          walkT(d.body)
+        }
+        callers.toList.map { case (ext, from) =>
+          unsupported(
+            s"`$ext` is declared `extern` and the rust backend has no implementation for it " +
+            s"(no `@rust(...)`, no intrinsic); called from ${from.map(f => s"`$f`").mkString(", ")}"
+          )
+        }
+    val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs
     if allErrs.nonEmpty then Left(allErrs)
     else
       val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
@@ -1614,6 +1646,27 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
+    // ── String indexing, in UTF-16 CODE UNITS ──────────────────────────────
+    // These had no arm at all, so they fell through to the generic method-call rendering and came
+    // out as `s.charAt(i)` — a Rust `String` method that does not exist (E0599, 32 of the 37 errors
+    // rozum measured on a six-line program). They route to runtime helpers rather than inline
+    // `encode_utf16()` chains so the semantics live in ONE place and match the kernel's
+    // `IntV(s.charAt(i.toInt).toLong)`: an Int, and a code unit.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("charAt")), args)
+        if args.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); i <- renderTerm(args.values.head, ctx)
+      yield s"crate::runtime::_str_char_at(&$q, $i)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("substring")), args)
+        if args.values.size == 1 =>
+      for q <- renderTerm(qual, ctx); a <- renderTerm(args.values.head, ctx)
+      yield s"crate::runtime::_str_substring_from(&$q, $a)"
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("substring")), args)
+        if args.values.size == 2 =>
+      for
+        q <- renderTerm(qual, ctx)
+        a <- renderTerm(args.values(0), ctx)
+        b <- renderTerm(args.values(1), ctx)
+      yield s"crate::runtime::_str_substring(&$q, $a, $b)"
     // ── LazyList → std lazy iterators (Rust iterators are lazy). (lazylist-all-backends.) ──
     // `LazyList.from(n)` → `(n..)` (infinite); `LazyList.range(a,b[,s])`; `LazyList.continually(x)`
     // → `std::iter::repeat(x)`; `LazyList.iterate(s)(f)` → `std::iter::successors(...)`;

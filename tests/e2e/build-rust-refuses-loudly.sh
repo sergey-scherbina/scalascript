@@ -162,6 +162,66 @@ else
   fi
 fi
 
+# ── 5. An extern with no Rust side must say so, and only when it is CALLED ───
+# An `extern def` without `@rust(...)` renders to nothing on purpose — an extern nobody calls needs
+# no Rust side. But the CALL was still emitted, so importing std/json gave the user
+# `cannot find function __jsonCoreEncodeValue` pointing into generated code they never wrote.
+cat > "$tmp/extern-called.ssc" <<'SSC'
+extern def __notInRust(x: Int): Int
+def useIt(n: Int): Int = __notInRust(n)
+def main(): Unit = println(useIt(1))
+SSC
+set +e
+out6=$("$SSC" emit-rust "$tmp/extern-called.ssc" -o "$tmp/ext-crate" 2>&1); rc6=$?
+set -e
+if [[ $rc6 -eq 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — a called extern with no Rust side emitted at exit 0" >&2
+  echo "--- output: $out6" >&2
+  failed=1
+fi
+if [[ $out6 != *"__notInRust"* || $out6 != *"useIt"* ]]; then
+  echo "build-rust-refuses-loudly: FAILED — the refusal names neither the extern nor its caller" >&2
+  echo "--- output: $out6" >&2
+  failed=1
+fi
+
+# The other side of it: an extern nobody calls is NOT an error. Without this the fix would break
+# every program that declares externs for another backend — which is most of std.
+cat > "$tmp/extern-unused.ssc" <<'SSC'
+extern def __neverCalled(x: Int): Int
+def main(): Unit = println(1 + 1)
+SSC
+set +e
+out7=$("$SSC" emit-rust "$tmp/extern-unused.ssc" -o "$tmp/ext2-crate" 2>&1); rc7=$?
+set -e
+if [[ $rc7 -ne 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — an UNCALLED extern was refused; that breaks most of std" >&2
+  echo "--- output: $out7" >&2
+  failed=1
+fi
+
+# ── 6. charAt / substring are UTF-16 code units ──────────────────────────────
+# They had no arm and came out as Rust String methods that do not exist (32 + 5 errors on a
+# six-line program). The kernel is `IntV(s.charAt(i.toInt).toLong)` — an Int, a CODE UNIT — so the
+# probe uses a non-ASCII string: indexing `chars()` instead would agree on ASCII and silently
+# disagree here, which is the whole reason the helper exists.
+cat > "$tmp/strings.ssc" <<'SSC'
+def main(): Unit =
+  val s = "aé漢"
+  println(s.charAt(0))
+  println(s.charAt(2))
+  println(s.substring(1, 2))
+  println(s.substring(2))
+SSC
+set +e
+out8=$("$SSC" emit-rust "$tmp/strings.ssc" -o "$tmp/str-crate" 2>&1); rc8=$?
+set -e
+if [[ $rc8 -ne 0 || $out8 == *"Generic("* ]]; then
+  echo "build-rust-refuses-loudly: FAILED — charAt/substring are refused" >&2
+  echo "--- output: $out8" >&2
+  failed=1
+fi
+
 # Does it MEAN the right thing? Emission proves only that nothing was refused, and a wrong slice
 # pattern emits happily. Needs cargo, so it is conditional — and says so when it skips, because a
 # check that silently becomes a no-op is worse than one that is absent.
@@ -188,6 +248,36 @@ if command -v cargo >/dev/null 2>&1; then
     failed=1
   elif [[ $sran != *"7"* ]]; then
     echo "build-rust-refuses-loudly: FAILED — the case-class program gave '$sran', wanted 7" >&2
+    failed=1
+  fi
+
+  # String indexing is checked DIFFERENTIALLY, against another lane rather than against numbers I
+  # wrote down — hardcoding 97/28450 would only assert that I did the same arithmetic twice.
+  #
+  # The reference is `bin/ssc`, the DEFAULT lane, not `--v1`. Running this three ways showed the
+  # interpreter disagreeing with everything else: it prints `a` where `bin/ssc` and `--bytecode`
+  # print `97`, i.e. it yields a Char where they yield a UTF-16 code unit. Scala's `charAt` is a
+  # Char, so the interpreter is arguably the one following Scala — but `std/json-core` compares
+  # `source.charAt(next) != 92` and stores strings as `List[Int]`, so the Int reading is what the
+  # standard library is written against. Filed as `charat-returns-char-on-v1-and-int-everywhere-else`;
+  # picking a side belongs there, not in a codegen gate.
+  reference="$ROOT/bin/ssc"
+  set +e
+  sbin2=$("$SSC" build-rust "$tmp/strings.ssc" -o "$tmp/strbin" 2>&1); src2=$?
+  rust_out=$("$tmp/strbin" 2>&1)
+  interp_out=$("$reference" run "$tmp/strings.ssc" 2>/dev/null)
+  set -e
+  if [[ $src2 -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — cargo rejected the emitted charAt/substring code" >&2
+    echo "--- output: $sbin2" >&2
+    failed=1
+  elif [[ "$rust_out" != "$interp_out" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on charAt/substring" >&2
+    echo "--- rust:   $(printf '%s' "$rust_out" | tr '\n' '|')" >&2
+    echo "--- ssc:    $(printf '%s' "$interp_out" | tr '\n' '|')" >&2
+    failed=1
+  elif [[ -z "$interp_out" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — both lanes printed nothing; that is not agreement" >&2
     failed=1
   fi
 else

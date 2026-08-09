@@ -1,3 +1,86 @@
+## json-core-emitted-rust-does-not-compile
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-09
+     ssc-version: b652840fa
+     repro: repro/json-core-emitted-rust.ssc
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+Six lines — import `std/json`, call `jsonStringify` once and `jsonParse` once — lowered cleanly and
+then failed `cargo build` with 155 errors. Two of the reported classes are FIXED, one was already
+fixed before the report was written, and the remainder is now a single honest refusal.
+
+**`charAt` / `substring` had no arm at all** (32 + 5 errors). They fell through to the generic
+method-call rendering and came out as Rust `String` methods that do not exist. They now route to
+`_str_char_at` / `_str_substring` in the runtime, in UTF-16 CODE UNITS, matching the kernel's
+`IntV(s.charAt(i.toInt).toLong)`. Indexing `chars()` would agree on ASCII and disagree on every
+astral character — the kind of difference that shows up as one wrong emoji in production and in no
+test, so the gate probes `"aé漢"`.
+
+**The reported 33×E0223 and 8×E0423 were already gone** when the report was written — they were
+measured on a build predating `b652840fa` (case classes: unit structs, and patterns no longer
+qualified as enum variants). Re-measured here rather than assumed either way.
+
+**What is left is one refusal, not 131 errors.** `std/json.ssc` declares four `extern def`s —
+`__jsonCoreEncodeValue`, `__jsonCoreRawStrict`, `__jsonCoreWrap`, `__jsonCoreWrapStrict` — and an
+extern with no `@rust(...)` and no intrinsic rendered to NOTHING while its CALL was still emitted.
+Third instance of the same disease in this family: the backend omitting what it cannot provide and
+leaving rustc to blame the user. It now refuses by name:
+
+```
+`__jsonCoreEncodeValue` is declared `extern` and the rust backend has no implementation for it
+(no `@rust(...)`, no intrinsic); called from `jsonStringify`
+```
+
+An extern nobody calls is still silent — otherwise the check would break most of std, and the gate
+asserts that half too.
+
+**Still blocked, and on the same question as the sibling entry.** Implementing those four externs
+means representing json-core's case-class nodes in `Any`, which maps to a CLOSED `Value` enum with
+no variant for a user struct. So rozum's slice 1 waits on the `Any` decision recorded in
+`build-rust-drops-defs-it-cannot-lower-without-saying-so`, not on more codegen.
+
+Counts on the six-line repro: 155 (as reported) -> 131 (on current main, before this change) -> 4
+refusals naming their cause.
+
+## charat-returns-char-on-v1-and-int-everywhere-else
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     confirmed: yes
+     gate: none -->
+
+Found by a DIFFERENTIAL, while gating the Rust backend's new `charAt`: the gate compared the Rust
+binary against another lane and they disagreed. Three lanes, one program, `val s = "aé漢"`:
+
+```
+bin/ssc run           97    28450    é      ← default lane
+ssc-tools run --bytecode   97    28450    é
+ssc-tools run --v1     a     漢      é      ← the odd one out
+```
+
+`substring` agrees everywhere; `charAt` does not. Two lanes yield a UTF-16 CODE UNIT as an `Int`
+(`Runtime.scala`: `case (StrV(s), "charAt", List(IntV(i))) => IntV(s.charAt(i.toInt).toLong)`), the
+interpreter yields a `Char`.
+
+**Neither side is obviously wrong, which is why this is filed rather than fixed.** Scala's
+`String.charAt` returns `Char`, so the interpreter follows Scala — and `'\' == 92` still works
+there through numeric promotion, so code comparing to an Int is not broken by it. But
+`std/json-core.ssc` is written against the Int reading: it stores strings as `List[Int]` and
+compares `source.charAt(next) != 92` directly, and it PRINTS differently on the two readings.
+
+The Rust backend was implemented to match the majority (Int, code unit) — that keeps it consistent
+with the default lane and with what the standard library expects. Whichever way this is settled, it
+should be settled once, in the kernel and the interpreter together, not per backend.
+
+Related: `build-rust-drops-defs-it-cannot-lower-without-saying-so` (where the differential came
+from).
+
 ## f-std-ui-gaps-behind-the-curried-def-fix
 
 <!-- status: open

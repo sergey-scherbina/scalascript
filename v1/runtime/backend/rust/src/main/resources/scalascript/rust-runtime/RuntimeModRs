@@ -108,6 +108,39 @@
       |        .unwrap_or_else(|e| panic!("writeBytes({}): {}", path, e));
       |}
       |
+      |// `s.charAt(i)` returns an INT, not a char — the kernel is
+      |// `case (StrV(s), "charAt", List(IntV(i))) => IntV(s.charAt(i.toInt).toLong)`, i.e. a UTF-16
+      |// CODE UNIT. std/json-core relies on exactly that: it compares the result against 92 and 117
+      |// (`\` and `u`) and stores whole strings as `List[Int]`. Indexing Rust's `chars()` instead
+      |// would agree on ASCII and disagree on every astral character, which is the kind of
+      |// difference that shows up as one wrong emoji in production and nowhere in a test.
+      |#[allow(dead_code)]
+      |pub fn _str_char_at(s: &str, i: i64) -> i64 {
+      |    s.encode_utf16()
+      |        .nth(i as usize)
+      |        .unwrap_or_else(|| panic!("charAt({}): index out of range for a string of {} code units", i, s.encode_utf16().count()))
+      |        as i64
+      |}
+      |
+      |// `substring(from)` / `substring(from, until)` — same code-unit basis, and same panic as the
+      |// JVM's StringIndexOutOfBounds rather than a silent clamp: a wrong slice that keeps running
+      |// is how a parser produces plausible garbage.
+      |#[allow(dead_code)]
+      |pub fn _str_substring(s: &str, from: i64, until: i64) -> String {
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    let (a, b) = (from as usize, until as usize);
+      |    if a > b || b > units.len() {
+      |        panic!("substring({}, {}): out of range for a string of {} code units", from, until, units.len());
+      |    }
+      |    String::from_utf16_lossy(&units[a..b])
+      |}
+      |
+      |#[allow(dead_code)]
+      |pub fn _str_substring_from(s: &str, from: i64) -> String {
+      |    let units: Vec<u16> = s.encode_utf16().collect();
+      |    _str_substring(s, from, units.len() as i64)
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn _exists(path: &str) -> bool { std::path::Path::new(path).exists() }
       |
