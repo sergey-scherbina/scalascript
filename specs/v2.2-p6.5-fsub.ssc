@@ -377,7 +377,23 @@ def tokStr(t) = if fst(t) == 0 then "" ++ snd(t) else (if fst(t) == 2 then punct
 def startsW(s, p) = if s.length < p.length then false else s.substring(0, p.length) == p
 def isConcatCode(c, dq) = startsW(c, "(prim __arith__ (lit (str " ++ dq ++ "++" ++ dq)
 def isStrLitish(c) = if startsW(c, "(lit (str ") then true else (if startsW(c, "(prim sslice ") then true else startsW(c, "(prim i->str "))
-def isStrExprCode(c, dq) = if isConcatCode(c, dq) then true else isStrLitish(c)
+// A GENERIC `++` IS NOT EVIDENCE OF A STRING — it is evidence of the opposite. `(prim __arith__ "++" ..)`
+// is what gets emitted when the operand type was NOT proven, so reading it back as "this is a String"
+// inverts the rule stated six lines below: an unknown left is never sconcat'd. The second `++` of a
+// chain then became `sconcat`, and a chain of LISTS came out a tuple:
+//
+//   [1] ++ [2] ++ [1]     F  (prim sconcat (prim __arith__ "++" a b) a)   -> Tuple4.length
+//                         REF (prim __arith__ "++" (prim __arith__ "++" a b) a)  -> 3
+//
+// That is what made `card(..)` unusable under F: runtime/std/ui/lower.ssc:510 builds a card as
+// `headerParts ++ [bodyEl] ++ footerParts`, so `element` was handed a tuple where it wanted children.
+//
+// Removing it costs no typing that was real: when the inner `++` DID have a proven string operand it
+// was emitted as `(prim sconcat ..)`, which the very next branch of isStrCode already recognises. This
+// arm only ever fired on the unproven case. isConcatCode itself stays — emitLen still needs it, and
+// there its meaning is the correct one: a `++` receiver is dynamic, so keep `__method__ length` rather
+// than assuming `slen`.
+def isStrExprCode(c, dq) = isStrLitish(c)
 // -- F5b Stage 1: TYPE RECOVERY from the erased operand IR prefix (generalizes isStrExprCode, the oracle's
 // proven +-to-++ rule). A prefix is listed ONLY if the prim/lit PROVABLY yields that runtime type; a missing
 // prefix means "?" = stays on __arith__/__eq__ (SAFE dynamic dispatch); a WRONG prefix would miscompile, so

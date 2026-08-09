@@ -1123,6 +1123,9 @@ jobs:
       - name: F passes an extern call site through verbatim
         run: tests/e2e/f-trailing-block-gate.sh
 
+      - name: F keeps a chain of ++ a list
+        run: tests/e2e/f-std-ui-gate.sh
+
       # THE CORRECTNESS COUNTERPART TO THE COVERAGE CENSUS, and the reason it is worth its runtime:
       # every silent divergence found in front F this week — an arm body returning its first
       # statement, a curried extern losing its block, an extern vararg gaining a list it should not

@@ -44,8 +44,13 @@ ssc_usable_or_skip f-trailing-block-gate "$ssc"
 # The probes live under examples/ because the ones that touch std/http import it by a RELATIVE path
 # (`../v1/runtime/std/http.ssc`), exactly as examples/_bug1b.ssc does; from a temp dir that import
 # does not resolve and every case fails for a reason that has nothing to do with the front.
-sandbox="$ROOT/examples/_ftb_probe"
-mkdir -p "$sandbox"
+#
+# THE DIRECTORY IS UNIQUE PER RUN, and it was not at first: a fixed `examples/_ftb_probe` meant two
+# concurrent runs shared one sandbox, and whichever finished first ran `rm -rf` on the other's probes
+# mid-flight. Measured 2026-08-09: the same gate, same tree, two runs overlapping — one reported
+# PASSED and the other 4 failures. A gate that depends on nothing else running is not a gate you can
+# put in a suite, and CI runs jobs in parallel.
+sandbox=$(mktemp -d "$ROOT/examples/_ftb.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 
 # $1 name, $2 expected FULL stdout (newlines as |), $3 source
