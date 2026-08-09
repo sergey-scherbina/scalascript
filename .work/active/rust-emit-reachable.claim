@@ -2,9 +2,9 @@ slug: rust-emit-reachable
 branch: feature/rust-emit-reachable
 agent: claude-code
 started: 2026-08-09T15:43:42Z
-heartbeat: 2026-08-09T15:43:42Z
+heartbeat: 2026-08-09T15:56:38Z
 status: implementing
-items: json-core-emitted-rust-does-not-compile
+items: json-core-emitted-rust-does-not-compile jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
 scope: |
   Emit only what the entry point REACHES. rozum's six-line program imports std/json, and the whole
@@ -15,4 +15,7 @@ scope: |
   gives the intrinsic precedence -- reachability must agree with it).
   CONSERVATIVE: only when there IS an entry point. A lib crate exposes everything, and dropping a
   def that IS needed reproduces exactly the `cannot find function` this whole thread is about.
-next: roots (entry, rust-verbatim blocks, givens/effects), fixpoint, then measure
+next: reachability LANDED (155 -> 1). Continuing on the same file with what the last error exposed:
+  the rust JSON intrinsics implement a different contract from the language -- jsonParse returns a
+  String where every other lane returns a value, silently. Needs a `Map` variant in the emitted
+  Value (specs/rust-backend.md §7 lists it in the design) plus faithful parse/render.
