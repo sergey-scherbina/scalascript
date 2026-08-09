@@ -2452,12 +2452,31 @@ anything at run time. Proving more of a field nobody reads is not progress.
       `invoke` at 6912 the `--sizes` check went RED **on the method that had just been fixed**,
       demanding the stale line go. A one-way threshold would have gone quietly green.
 
-**What is left in J0, and it is not blocked — it is unmeasurable here.** `List[Instr]` → an array
-per region, a small-integer cache for `Value.VInt`, and `step` (5867) under `FreqInlineSize`. Each
-is a plausible win and NONE of them can be told apart from noise on this host today: the resolution
-floor measured across four A/Bs this session is roughly 2×. **Do them when there is a quiet machine,
-and take the PrintCompilation-style evidence whenever the change has a threshold in it** — that
-evidence cost nothing and survived a load of 72.
+- [x] **SSC3-J0c — `step` is inlined into the dispatch loop.** `5219b8b61`. `exec` calls `step` per
+      instruction, and at 5867 bytecodes it was compiled but eighteen times over `FreqInlineSize`.
+      The three opcodes that dominate a loop body moved into a small `step`; everything else is one
+      call further in `stepRest`. MOVED, not copied — a duplicate arm in `stepRest` would be a
+      second decision site reachable by nobody.
+      **The measurement corrected me mid-change:** after the split `--sizes` read 325, exactly the
+      limit, and `-XX:+PrintInlining` read **326** and refused with "hot method too big". The size
+      check reports the last instruction's OFFSET, a lower bound by however wide that instruction
+      is. Extracting `binK` bought the last 90 bytes → `step (236 bytes) inline (hot)`. The gate now
+      says this where the number is produced.
+
+**AND THE NUMBER ARRIVED — by measuring the SUM, at load 38.** Each J0 change is under the floor;
+all three together are not. 8 alternating pairs per workload, two class directories of the same
+tree: **`list-fold` 91.3 → 52.8 ms, 7 of 8 pairs, ~1.7×**; **`arith-loop` 82.6 → 64.9, 7 of 8,
+~1.3×**; `recursion-fib` 428.0 → 410.2, 4 of 8, no effect. The statistic is the SIGN TEST (7 of 8
+one-sided, p ≈ 0.035), not the ratio of medians — the pooled sd still exceeds the median difference.
+
+**The third row is the control and it is why the first two count.** `recursion-fib` is dominated by
+the per-call frame — `callFunc` allocates `new Array[Value](nregs)` and fills it with `VUnit` every
+call — which J0 never touched, and the prediction was made from the mechanism BEFORE the numbers
+were read. A host that had merely quietened down would have moved all three.
+
+**Left in J0, still unmeasured:** `List[Instr]` → an array per region, a small-integer cache, and
+the per-call frame that `recursion-fib` just pointed at. **The frame is now the named next target,
+by measurement rather than by taste.**
 
 ## 50 · Tier 2, un-deferred — and the first thing to establish is that it is not ONE thing
 

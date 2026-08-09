@@ -248,3 +248,31 @@ Two consequences, both cheap and both worth adopting before the next tier:
 result, and `invoke` moving from never-compiled to compiled is not something a reasonable person
 expects to be free. The measurement is owed, on a quiet machine, and the exact commands are in the
 `bench/history.tsv` rows.
+
+### 8.1 · The number arrived, by measuring the SUM and waiting for the load to drop
+
+Each J0 change is smaller than the floor; **all three together are not.** Measured at host load 38
+— 8 alternating pairs per workload, two class directories of the same tree:
+
+| workload | pre-J0 | J0 | pairs won | ratio |
+|---|---|---|---|---|
+| `list-fold` | 91.3 ms | **52.8** | **7 of 8** | **1.73×** |
+| `arith-loop` | 82.6 ms | **64.9** | **7 of 8** | **1.27×** |
+| `recursion-fib` | 428.0 ms | 410.2 | 4 of 8 | 1.04× |
+
+**The statistic is the sign test, not the ratio of medians.** 7 of 8 one-sided is p ≈ 0.035; the
+pooled standard deviation (38–106 ms) still exceeds the median difference, because a few runs are
+outliers and the median is what survives them. Quote "7 of 8 pairs, ~1.7×" and not "1.73".
+
+**The third row is the control, and it is why the first two mean something.** `recursion-fib` did
+not move, and it is exactly the workload J0 did not address: it is dominated by the per-call frame,
+`callFunc` allocating `new Array[Value](nregs)` and filling it with `VUnit` on every call. Had the
+host merely quietened down, that row would have moved with the others — it cannot, because both
+arms alternate inside one run. The prediction was made from the mechanism before the numbers were
+read, which is the only order in which a control is worth anything.
+
+And each row's mechanism was already established without a stopwatch: `list-fold` is the
+`invoke`-bound one (13415 → 6912, never-compiled → compiled), `arith-loop` is the one whose loop
+body is a constant, a move and an arithmetic operation (list walk plus allocation → array read;
+`step` 5867 → 236, now inlined). **The threshold evidence predicted which rows would move, and then
+they moved.**
