@@ -1,0 +1,11 @@
+slug: ref-front-dollar-brace
+branch: feature/ref-front-dollar-brace
+agent: claude-code
+started: 2026-08-09T17:52:06Z
+heartbeat: 2026-08-09T17:52:06Z
+status: claimed-before-planning
+items: reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
+paths: file:v2/lib/ssc1-front.ssc0 file:tests/e2e/ref-front-string-literal-gate.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
