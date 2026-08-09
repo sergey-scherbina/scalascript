@@ -1,0 +1,16 @@
+# string-plus
+
+`+` is not arithmetic when either side is a string: `Exec.binOp` matches `VStr` on the LEFT and on
+the RIGHT before any numeric arm, so `1 + "x"` is the string `1x` on both lanes. An analysis that
+concluded "one side is an int, so this is integer addition" would mark these `i64` and, once the
+executor trusts the field, turn a string into a wrong number.
+
+Both additions here must stay `dyn`. This fixture is the soundness half of the set: the others fail
+when the pass proves too little, this one fails when it proves too much.
+
+```scalascript
+def workload(): Int =
+  val a = "x" + 1
+  val b = 2 + "y"
+  a.length + b.length
+```

@@ -1,0 +1,38 @@
+# branch-join
+
+Three registers written in both arms of an `if` and read after it, so the answer depends entirely on
+what the pass does where the arms MEET. The three are ordered to catch every cheap way of getting a
+join wrong:
+
+| register | then-arm | else-arm | correct | what a broken join says |
+|---|---|---|---|---|
+| `x` | int | int | `i64` | everyone agrees |
+| `y` | string | int | `dyn` | "last arm wins" says `i64` |
+| `z` | int | string | `dyn` | "first arm wins" says `i64` |
+
+A pass that walks the instruction list without merging at the end of a region takes one arm's state
+into the code after it. Whichever arm it takes, one of `y` or `z` catches it — a single test case
+could be passed by luck, and a pair cannot.
+
+`x + x` proves the join is not merely conservative: an analysis that answered "unknown" at every
+merge would be sound and would leave all three `dyn`, and this row is what says so.
+
+```scalascript
+def workload(): Int =
+  val n = 3
+  var x = 0
+  var y = 0
+  var z = 0
+  if n > 1 then
+    x = 1
+    y = "s"
+    z = 2
+  else
+    x = 4
+    y = 5
+    z = "t"
+  val a = x + x
+  val b = y + y
+  val c = z + z
+  a
+```

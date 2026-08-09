@@ -1,0 +1,18 @@
+# loop-fixpoint
+
+The register a loop writes is also the register it reads, so proving it needs a FIXPOINT over the
+loop body rather than one pass. Analyse this once and `sum` and `i` are `KTop` on the back edge and
+nothing specializes; iterate to a fixpoint and all three arithmetic instructions are `i64`.
+
+The conservative shortcut — "set every register the loop writes to unknown at its head" — is sound
+and would leave this file entirely `dyn`, which is why the expectation is checked in.
+
+```scalascript
+def workload(): Int =
+  var i = 0
+  var sum = 0
+  while i < 10 do
+    sum = sum + i
+    i = i + 1
+  sum
+```

@@ -93,8 +93,8 @@ jobs:
       # (rule 1) and plants one for an under-limit method (rule 2), and fails if either stays green.
       - name: jit gate — self-test
         run: v3/jit-gate.sh --self-test
-      - name: jit gate — method sizes
-        run: v3/jit-gate.sh --sizes
+      - name: jit gate — method sizes and the specializer
+        run: v3/jit-gate.sh
 
   front-capability:
     name: the two fronts accept the same programs

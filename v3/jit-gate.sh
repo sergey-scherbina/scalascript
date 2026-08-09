@@ -155,6 +155,59 @@ check_sizes() {
   return $rc
 }
 
+# ── THE SPECIALIZER ──────────────────────────────────────────────────────────────────────────────
+#
+# `v3/src/Specialize.scala` rewrites the `kind` field on `Un`/`Bin` where the operand types are
+# proved. Each fixture in `v3/tests/jit/` asserts the kind of every arithmetic instruction it
+# produces, and each one is there because a DIFFERENT way of getting the analysis wrong changes its
+# answer — the fixture's own prose says which. A golden file nobody can explain is a golden file
+# nobody will dare to change.
+#
+# THIS IS THE ONLY CHECK WITH AN OPINION ABOUT THE SPECIALIZER, and that is worth stating rather
+# than discovering. `Exec` ignores `kind` today, so running the corpus with the pass on and off
+# produces identical output WHATEVER the pass writes — a byte-equality gate would certify a
+# specializer that marked string concatenation `f64`. It becomes evidence on the day `Exec.step`
+# dispatches on the field (`specs/ssc3-jit.md` §3, J1 step 2), and not before.
+#
+# The fixture directory is a PARAMETER so the self-test can corrupt a copy in a temp directory
+# instead of a tracked file. A gate whose self-test edits the repository is one interrupted run away
+# from leaving a wrong expectation checked in, and the next reader has no way to tell.
+check_specialize() {
+  local dir="$1" fixdir="$2" quiet="${3:-}" fail=0 ran=0
+  local tc; tc="$(cat "$ROOT"/v3/.jars/toolchain-*.cp 2>/dev/null | head -1)"
+  [ -n "$tc" ] || { echo "  ✋ no toolchain classpath cached — run v3/ssc3 selftest first"; return 2; }
+
+  [ -n "$quiet" ] || echo "── specializer: the kind of every arithmetic instruction ───────────────"
+  local f
+  for f in "$fixdir"/*.ssc; do
+    [ -f "$f" ] || continue
+    local name want got
+    name="$(basename "$f" .ssc)"
+    want="${f%.ssc}.kinds"
+    [ -f "$want" ] || { echo "  FAIL $name has no .kinds expectation"; fail=1; continue; }
+    ran=$((ran + 1))
+    # Captured, then compared. Piping javap-style output into `grep -q` is how this repo has twice
+    # inverted a check: `grep` exits on the first match, the writer dies with EPIPE, and pipefail
+    # takes the pipeline non-zero exactly when the thing being looked for HAPPENED.
+    got="$(java -cp "$dir:$tc" ssc3.SpecializeMain "$f" 2>&1 | grep -oE '\((bin|un) [a-z]+ [a-z0-9]+' | sed 's/^(//')"
+    if [ "$got" = "$(cat "$want")" ]; then
+      [ -n "$quiet" ] || echo "  ok   $name — $(printf '%s' "$got" | tr '\n' ' ')"
+    else
+      # The DIFF, not "they differ". A gate that can fail silently will.
+      echo "  FAIL $name — the specializer marked instructions differently than $want expects:"
+      diff <(cat "$want") <(printf '%s\n' "$got") | sed 's/^/         /'
+      fail=1
+    fi
+  done
+
+  if [ "$ran" = 0 ]; then
+    echo "  ✋ NO FIXTURES RAN — $fixdir/*.ssc is empty or unreadable"
+    return 2
+  fi
+  [ -n "$quiet" ] || echo "  $ran fixture(s)"
+  return $fail
+}
+
 # ── THE SELF-TEST — a gate is only a gate if it can go red ───────────────────────────────────────
 #
 # Both rules are exercised against the REAL measurement of this tree, by perturbing the declaration
@@ -209,24 +262,51 @@ self_test() {
     restore
   fi
 
+  # Rule 3 — the specializer check must notice a kind it did not expect. Planted on a COPY of the
+  # fixtures: `i64` is rewritten to `dyn` in one expectation, which is exactly the shape of the
+  # regression that matters (the pass quietly stops proving something it used to prove).
+  local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/ssc3jit.XXXXXX")"
+  cp "$ROOT"/v3/tests/jit/*.ssc "$ROOT"/v3/tests/jit/*.kinds "$tmp"/ 2>/dev/null
+  if ! check_specialize "$dir" "$tmp" quiet >/dev/null 2>&1; then
+    echo "  FAIL rule 3 baseline: the fixtures do not pass on an untouched copy"
+    fails=$((fails + 1))
+  else
+    local victim; victim="$(grep -lE '^(bin|un) [a-z]+ i64$' "$tmp"/*.kinds 2>/dev/null | head -1)"
+    if [ -z "$victim" ]; then
+      echo "  FAIL rule 3 has nothing to plant on: no fixture expects an i64"
+      fails=$((fails + 1))
+    else
+      sed -i.bak 's/ i64$/ dyn/' "$victim" && rm -f "$victim.bak"
+      if check_specialize "$dir" "$tmp" quiet >/dev/null 2>&1; then
+        echo "  FAIL rule 3 did not fire: an expectation was changed from i64 to dyn and the check"
+        echo "       still passed, so it is not comparing what it prints."
+        fails=$((fails + 1))
+      else
+        echo "  ok   rule 3 fires: a changed kind expectation ($(basename "$victim")) goes RED"
+      fi
+    fi
+  fi
+  rm -rf "$tmp"
+
   echo
-  [ "$fails" = 0 ] && echo "  self-test: the gate discriminates (2 rules, both proven to fire)" \
+  [ "$fails" = 0 ] && echo "  self-test: the gate discriminates (3 rules, all proven to fire)" \
                    || echo "  self-test: $fails rule(s) DID NOT FIRE — do not trust a green from this gate"
   return "$fails"
 }
 
-want_sizes=0; want_self=0
-if [ $# -eq 0 ]; then want_sizes=1; fi
+want_sizes=0; want_spec=0; want_self=0
+if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; fi
 for a in "$@"; do
   case "$a" in
-    --sizes)     want_sizes=1 ;;
-    --self-test) want_self=1 ;;
-    --specialize|--identity)
+    --sizes)      want_sizes=1 ;;
+    --specialize) want_spec=1 ;;
+    --self-test)  want_self=1 ;;
+    --identity)
       # Named rather than silently accepted, and with the reason, because `specs/ssc3-jit.md` §4
-      # lists them: `--specialize` needs `v3/src/Specialize.scala` to exist, and `--identity` is
-      # green BY CONSTRUCTION until `Exec` reads the `kind` field — while it is ignored, a corpus
-      # byte-equality check would pass a specializer that assigned F64 to string concatenation.
-      echo "v3/jit-gate.sh: $a is not built yet — see specs/ssc3-jit.md §4 for what it will prove"
+      # lists it: it is green BY CONSTRUCTION until `Exec.step` dispatches on the `kind` field.
+      # While the field is ignored, a corpus byte-equality check would pass a specializer that
+      # marked string concatenation `f64`. Writing it now would add a green light that means nothing.
+      echo "v3/jit-gate.sh: --identity is not built yet, deliberately — see specs/ssc3-jit.md §4"
       exit 2 ;;
     *) echo "v3/jit-gate.sh: unknown flag $a" >&2; exit 2 ;;
   esac
@@ -248,6 +328,7 @@ fi
 
 rc=0
 [ "$want_sizes" = 1 ] && { check_sizes "$DIR" || rc=1; }
+[ "$want_spec"  = 1 ] && { echo; check_specialize "$DIR" "$ROOT/v3/tests/jit" || rc=1; }
 [ "$want_self"  = 1 ] && { self_test  "$DIR" || rc=1; }
 
 echo

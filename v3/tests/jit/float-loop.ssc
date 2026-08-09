@@ -1,0 +1,19 @@
+# float-loop
+
+The same loop shape as `loop-fixpoint.ssc` over doubles, so the pass has to carry a SECOND numeric
+kind through the fixpoint rather than have `i64` wired in as the only answer it knows.
+
+`NumKind` also offers `Big`, and the pass deliberately never emits it: `Exec.constOf` turns
+`Lit.LBig` into a `Value.VStr`, so a `Big`-marked instruction would describe a representation the
+executor does not have. There is no fixture for that because there is nothing to assert — the
+absence is the assertion, and it is stated at the top of `v3/src/Specialize.scala`.
+
+```scalascript
+def workload(): Double =
+  var x = 0.0
+  var acc = 0.0
+  while x < 10.0 do
+    acc = acc + x
+    x = x + 1.0
+  acc
+```
