@@ -3,7 +3,7 @@
 -- A tooling layer over the same IR-Data tree that #coreir.encode consumes; the kernel still runs S-expr,
 -- so the round-trip invariant is:  #coreir.encode(dec(enc(ir))) == #coreir.encode(ir).
 -- Integers use LEB128 varints (unsigned for tags/arities/locals/lengths; zig-zag for signed int literals),
--- so small values are 1 byte (compact). Strings = uvarint length + UTF-8 bytes. Floats via #f->str/#str->f.
+-- so small values are 1 byte (compact). Strings = uvarint length + UTF-8 bytes. Floats via #f->lit/#lit->f (canonical, keeps -0.0); bytes via #bytes->hex/#hex->bytes.
 
 -- ===== varints =====
 def encUVar = (arr, x) =>
@@ -27,7 +27,7 @@ def decStr = (arr, pos) => match decUVar(arr, pos) { case Pair(n, p2) => match d
 -- ===== encode (tag byte then fields) =====
 -- 1 IrProg 2 IrDef 3 IrLit 4 IrLocal 5 IrGlobal 6 IrLam 7 IrApp 8 IrLet 9 IrLetRec 10 IrIf
 -- 11 IrCtor 12 IrPrim 13 IrMatch 14 IrArm 15 IrUnit 16 IrBool 17 IrInt 18 IrBig 19 IrFloat 20 IrStr
--- 21 Cons 22 Nil 23 Some 24 None
+-- 21 Cons 22 Nil 23 Some 24 None 25 IrBytes
 def tag = (arr, t) => let u = #arr.push(arr, t) in arr
 def encList = (arr, xs) => match xs { case Nil => tag(arr, 22) case Cons(h, t) => let a1 = tag(arr, 21) in let a2 = enc(a1, h) in encList(a2, t) }
 def encOpt  = (arr, o)  => match o  { case None => tag(arr, 24) case Some(x) => let a1 = tag(arr, 23) in enc(a1, x) }
@@ -54,8 +54,16 @@ def enc = (arr, ir) =>
     -- (10-core-ir.md §5), so the old encSVar silently CORRUPTED any BigInt outside Int64 instead of
     -- rejecting it — the canonical text codec has always been arbitrary-precision here.
     case IrBig(n)            => let a1 = tag(arr, 18) in encStr(a1, #big->str(n))
-    case IrFloat(d)          => let a1 = tag(arr, 19) in encStr(a1, #f->str(d))
+    -- `#f->lit`, NOT `#f->str`. The user-visible renderer collapses whole doubles and renders
+    -- BOTH zeros as "0", so `-0.0` decoded back as `+0.0` — the sign bit was lost in the
+    -- encoder, not the decoder. `#f->lit` is the canonical IR literal, and `#lit->f` below is
+    -- its exact inverse including the specials `nan` / `inf` / `-inf`.
+    case IrFloat(d)          => let a1 = tag(arr, 19) in encStr(a1, #f->lit(d))
     case IrStr(s)            => let a1 = tag(arr, 20) in encStr(a1, s)
+    -- Tag 25: `IrBytes` had no representation at all, for want of a bytes<->hex door out of
+    -- the kernel. Lowercase hex is the same spelling the canonical text codec writes inside
+    -- `(bytes HEX)`, so the two codecs agree on the wire form rather than each inventing one.
+    case IrBytes(b)          => let a1 = tag(arr, 25) in encStr(a1, #bytes->hex(b))
   }
 
 -- ===== decode (read tag byte, dispatch) =====
@@ -88,8 +96,9 @@ def dec = (arr, pos) =>
   else if #i.eq(t, 16) then (let b = #arr.get(arr, p) in Pair(IrBool(if #i.eq(b, 1) then true else false), #i.add(p, 1)))
   else if #i.eq(t, 17) then (match decSVar(arr, p) { case Pair(n, p2) => Pair(IrInt(n), p2) })
   else if #i.eq(t, 18) then (match decStr(arr, p) { case Pair(s, p2) => match #str->big(s) { case Some(n) => Pair(IrBig(n), p2) case None => Pair(IrGlobal("_err_irbin_bad_bigint"), p2) } })
-  else if #i.eq(t, 19) then (match decStr(arr, p) { case Pair(s, p2) => match #str->f(s) { case Some(d) => Pair(IrFloat(d), p2) case None => Pair(IrGlobal("_err_irbin_bad_float"), p2) } })
+  else if #i.eq(t, 19) then (match decStr(arr, p) { case Pair(s, p2) => match #lit->f(s) { case Some(d) => Pair(IrFloat(d), p2) case None => Pair(IrGlobal("_err_irbin_bad_float"), p2) } })
   else if #i.eq(t, 20) then (match decStr(arr, p) { case Pair(s, p2) => Pair(IrStr(s), p2) })
+  else if #i.eq(t, 25) then (match decStr(arr, p) { case Pair(s, p2) => match #hex->bytes(s) { case Some(b) => Pair(IrBytes(b), p2) case None => Pair(IrGlobal("_err_irbin_bad_bytes"), p2) } })
   -- FAIL CLOSED. The old bare `else` turned ANY unrecognised tag into IrStr, so corrupt or
   -- future-versioned input decoded to a plausible-looking WRONG program instead of an error; an
   -- unparseable float likewise became 0.0. Both now decode to a named unbound global, the tower's

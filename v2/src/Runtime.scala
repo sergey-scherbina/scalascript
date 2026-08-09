@@ -1458,6 +1458,36 @@ object Prims:
     case "i->str"  => a => StrV(int(a, 0).toString)
     case "big->str"=> a => StrV(big(a, 0).toString)
     case "f->str"  => a => StrV(Writer.floatStr(flt(a, 0)))
+    // THE CANONICAL IR LITERAL, which `f->str` deliberately is not. `Writer.floatStr` collapses
+    // whole doubles for ssc 1.0 output parity, and `floatStr(-0.0) == "0" == floatStr(0.0)` — so a
+    // codec written in ssc0 that reached for `f->str` lost the NEGATIVE-ZERO BIT and decoded `-0.0`
+    // back as `+0.0`. `lib/irbin.ssc0` did exactly that and had no other option: the two renderers
+    // are two functions on purpose (CoreIR.scala says so at length, and warns against re-merging
+    // them), but only one of them was reachable from ssc0. This exposes the other.
+    case "f->lit"  => a => StrV(Writer.floatLit(flt(a, 0)))
+    // The EXACT inverse of `f->lit`, and it has to be a separate door from `str->f`: the canonical
+    // literal spells the specials `nan` / `inf` / `-inf`, and `"nan".toDoubleOption` is None in
+    // Scala, which wants `NaN` / `Infinity`. So a codec pairing `f->lit` with `str->f` would encode
+    // a special faithfully and then fail to read its own output. Paired like `big->str`/`str->big`.
+    case "lit->f"  => a =>
+      val t = str(a, 0)
+      if t == "nan" then some(FloatV(Double.NaN))
+      else if t == "inf" then some(FloatV(Double.PositiveInfinity))
+      else if t == "-inf" then some(FloatV(Double.NegativeInfinity))
+      else t.toDoubleOption.fold(none)(d => some(FloatV(d)))
+    // Bytes as lowercase hex, the same spelling the canonical codec writes inside `(bytes HEX)`.
+    // `IrBytes` had NO representation in the ssc0 codec for want of this pair — not a missing case
+    // in the codec but a missing door out of the kernel.
+    case "bytes->hex" => a => a(0) match
+      case BytesV(b) => StrV(b.map(x => f"${x & 0xff}%02x").mkString)
+      case v         => sys.error("bytes->hex: not Bytes")
+    // Fails CLOSED on anything that is not full-byte lowercase hex: an odd length, or a digit
+    // outside `0-9a-f`, returns `none` rather than a silently truncated or half-decoded value.
+    // A codec that guesses is worse than one that refuses — this whole entry is titled "fails open".
+    case "hex->bytes" => a =>
+      val h = str(a, 0)
+      if h.length % 2 != 0 || !h.forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) then none
+      else some(BytesV(h.grouped(2).map(p => Integer.parseInt(p, 16).toByte).toVector))
     case "str->i"  => a => str(a, 0).toLongOption.fold(none)(n => some(IntV(n)))
     case "str->big"=> a => scala.util.Try(BigInt(str(a, 0))).toOption.fold(none)(b => some(BigV(b)))
     case "str->f"  => a => str(a, 0).toDoubleOption.fold(none)(d => some(FloatV(d)))
@@ -3428,6 +3458,7 @@ object Prims:
     case "i->f"     => Some { case IntV(n) => FloatV(n.toDouble);  case v => sys.error("i->f: not Int") }
     case "f->i"     => Some { case FloatV(d) => IntV(d.toLong);    case v => sys.error("f->i: not Float") }
     case "f->str"   => Some { case FloatV(d) => StrV(Writer.floatStr(d)); case v => sys.error("f->str: not Float") }
+    case "f->lit"   => Some { case FloatV(d) => StrV(Writer.floatLit(d)); case v => sys.error("f->lit: not Float") }
     case "big->str" => Some { case BigV(n) => StrV(n.toString);    case v => sys.error("big->str: not BigInt") }
     case "runLogger"=> Some(f  => { Runtime.run(f.asInstanceOf[ClosV].code, f.asInstanceOf[ClosV].env); UnitV })
     case _          => None

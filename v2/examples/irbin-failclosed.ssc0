@@ -38,4 +38,42 @@ def floatCheck =
     case _ => "bad-float-ACCEPTED"
   }
 
-def main = () => #io.println(Pair(bigCheck, Pair(unknownCheck, floatCheck)))
+-- (4) NEGATIVE ZERO. The encoder used `#f->str`, the USER-VISIBLE renderer, where
+-- `floatStr(-0.0) == "0" == floatStr(0.0)` — so the sign bit was lost in the ENCODER and `-0.0`
+-- came back as `+0.0` with nothing to indicate it.
+--
+-- COMPARED THROUGH `#coreir.encode`, NOT BY VALUE, and that is the whole reason this pins anything:
+-- `-0.0 == 0.0` is TRUE in IEEE-754, so a value comparison passes in BOTH states and proves nothing.
+-- The canonical text codec renders through `Writer.floatLit`, which spells them `-0.0` and `0.0`,
+-- so encoding is the cheapest thing here that can tell them apart.
+def negZeroIr = IrProg(Nil, IrLit(IrFloat(#f.neg(0.0))))
+def negZeroCheck =
+  let back = binDecode(binEncode(negZeroIr)) in
+  if #seq(#coreir.encode(back), #coreir.encode(negZeroIr)) then "negzero-preserved" else "negzero-COLLAPSED"
+
+-- (5) The float SPECIALS survive. `#f->lit` spells them `nan` / `inf` / `-inf`, which `#str->f`
+-- does NOT parse — Scala wants `NaN` / `Infinity` — so pairing the canonical literal with the
+-- ordinary string parser would encode a special faithfully and then fail to read its own output.
+-- `#lit->f` is the exact inverse, and this pins that it stayed exact.
+def infIr = IrProg(Nil, IrLit(IrFloat(#f.div(1.0, 0.0))))
+def infCheck =
+  let back = binDecode(binEncode(infIr)) in
+  if #seq(#coreir.encode(back), #coreir.encode(infIr)) then "inf-preserved" else "inf-LOST"
+
+-- (6) `IrBytes` had NO representation: the encoder had no case for it at all, so a bytes literal
+-- could not survive a round trip in either direction. Tag 25 carries it as lowercase hex — the same
+-- spelling the canonical text codec writes inside `(bytes HEX)`, so the two codecs agree on the
+-- wire form instead of each inventing one.
+def bytesCheck =
+  match #hex->bytes("00ff10") {
+    case None => "bytes-HEX-REFUSED"
+    case Some(b) =>
+      let ir = IrProg(Nil, IrLit(IrBytes(b))) in
+      if #seq(#coreir.encode(binDecode(binEncode(ir))), #coreir.encode(ir)) then "bytes-preserved" else "bytes-LOST"
+  }
+
+-- …and the hex decoder must FAIL CLOSED on input it cannot represent exactly: an odd length is
+-- half a byte, and a codec that guesses is the very thing this entry is named after.
+def hexOddCheck = match #hex->bytes("abc") { case None => "odd-hex-refused" case Some(x) => "odd-hex-ACCEPTED" }
+
+def main = () => #io.println(Pair(bigCheck, Pair(unknownCheck, Pair(floatCheck, Pair(negZeroCheck, Pair(infCheck, Pair(bytesCheck, hexOddCheck)))))))

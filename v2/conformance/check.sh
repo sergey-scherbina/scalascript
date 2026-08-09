@@ -310,7 +310,7 @@ chk run examples/irbin-demo.ssc0    'Pair("roundtrip-ok", Pair(110, 334))'   # v
 # 108 -> 110 on 2026-07-27, deliberately: IrBig now travels as its DECIMAL STRING instead of a 64-bit
 # varint, because `big->i` silently CORRUPTED any BigInt outside Int64. Two bytes for a value that
 # used to come back wrong (BUGS irbin-v2bin-codec-fails-open).
-chk run examples/irbin-failclosed.ssc0 'Pair(bigint-preserved, Pair(unknown-tag-refused, bad-float-refused))'  # the three fail-OPEN defects, pinned
+chk run examples/irbin-failclosed.ssc0 'Pair(bigint-preserved, Pair(unknown-tag-refused, Pair(bad-float-refused, Pair(negzero-preserved, Pair(inf-preserved, Pair(bytes-preserved, odd-hex-refused))))))'  # all SIX fail-OPEN defects + the odd-hex refusal
 # v2-bin executable round-trip: a runnable IR through binary -> back to S-expr -> actually runs to 42
 ssc run examples/irbin-run.ssc0 > "${TMPDIR:-/tmp}/irbin.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/irbin.coreir" | tail -1)
