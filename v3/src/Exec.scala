@@ -96,7 +96,14 @@ object Exec:
         case Instr.Resume(_, _, _) => 1
         case other                 => countResumes(Instr.children(other))
       }.sum
-    arm.body.nonEmpty && (arm.body.last match
+    // A TRAILING `Ret` IS SKIPPED. The lowering appends one to every arm so the arm's value has a
+    // single place to come from; that made the last instruction a `Ret` and this check — which
+    // wants "the last ACT is a resume" — started refusing every handler it used to accept. The
+    // shape it is really asking about is unchanged.
+    val body = arm.body match
+      case init :+ Instr.Ret(_) => init
+      case other                => other
+    body.nonEmpty && (body.last match
       case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
       case _                     => false)
 
@@ -443,35 +450,71 @@ object Exec:
           throw ExecError("no handler for effect operation " + op)
         case Some(h) =>
           val arm = h.arms.find(_.op == op).get
-          if arm.params.length != args.length then
-            throw ExecError(
-              "effect operation " + op + " was performed with " + args.length +
-              " argument(s) and its handler binds " + arm.params.length)
-          if !tailResumptive(arm) then
-            throw ExecError(
-              "this handler for operation " + op + " is not tail-resumptive — the executor " +
-              "implements only an arm whose LAST act is a single `resume`. Capturing a " +
-              "continuation needs the reified stack v3 does not have yet")
-          var i = 0
-          while i < arm.params.length do
-            h.regs(arm.params(i)) = args(i)
-            i = i + 1
-          // The continuation register is bound to a marker rather than left stale: `Resume` reads
-          // it, and a leftover value from a previous perform would resume the wrong thing silently.
-          h.regs(arm.k) = Value.VUnit
-          resumedWith = None
-          exec(h.m, arm.body, h.regs)
-          resumedWith match
-            case Some(v) => regs(d) = v; resumedWith = None; Signal.Done
-            case None =>
+          // CPS MODE: one argument more than the arm binds, and the extra one is the continuation
+          // (`specs/10-ssc-ir.md` §3, "Who PRODUCES the continuation"). The arm gets a real closure
+          // in `k`, runs to completion, and ITS result is the perform's — which is the whole answer,
+          // because `Cps.split` ended the performing function with `Ret` at this instruction.
+          //
+          // No tail-resumptive check here, and that is the point of the whole design: an arm may
+          // resume once, not at all, or many times, because resuming is calling a closure.
+          if args.length == arm.params.length + 1 then
+            var i = 0
+            while i < arm.params.length do
+              h.regs(arm.params(i)) = args(i)
+              i = i + 1
+            h.regs(arm.k) = args.last
+            // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
+            // is one place the answer comes from rather than a register the executor has to guess.
+            exec(h.m, arm.body, h.regs) match
+              case Signal.Ret(v) => regs(d) = v; Signal.Done
+              case _ =>
+                throw ExecError(
+                  "the handler for operation " + op + " ended without a value; a handler arm must " +
+                  "produce one, and the lowering appends the `ret` that does it")
+          else
+            // THE UNCONVERTED PATH, unchanged. Reached only when the perform carries no
+            // continuation — the function it came from was not split, so the tail-resumptive
+            // fast path is the only thing that can run it.
+            if arm.params.length != args.length then
               throw ExecError(
-                "the handler for operation " + op + " finished without resuming; the executor " +
-                "implements only tail-resumptive handlers")
+                "effect operation " + op + " was performed with " + args.length +
+                " argument(s) and its handler binds " + arm.params.length)
+            if !tailResumptive(arm) then
+              throw ExecError(
+                "this handler for operation " + op + " is not tail-resumptive — the executor " +
+                "implements only an arm whose LAST act is a single `resume`. Capturing a " +
+                "continuation needs the reified stack v3 does not have yet")
+            var i = 0
+            while i < arm.params.length do
+              h.regs(arm.params(i)) = args(i)
+              i = i + 1
+            // The continuation register is bound to a marker rather than left stale: `Resume` reads
+            // it, and a leftover value from a previous perform would resume the wrong thing silently.
+            h.regs(arm.k) = Value.VUnit
+            resumedWith = None
+            exec(h.m, arm.body, h.regs)
+            resumedWith match
+              case Some(v) => regs(d) = v; resumedWith = None; Signal.Done
+              case None =>
+                throw ExecError(
+                  "the handler for operation " + op + " finished without resuming; the executor " +
+                  "implements only tail-resumptive handlers")
 
     case Instr.Resume(d, k, v) =>
-      resumedWith = Some(regs(v))
-      regs(d) = regs(v)
-      Signal.Done
+      regs(k) match
+        // A REAL CONTINUATION. `Cps.split` put the rest of the performing function into a closure
+        // and `Perform` bound it here, so resuming is calling it — which is why multi-shot needs no
+        // second mechanism: a closure is not consumed by being called, so an arm may call it zero,
+        // one or many times and each call runs the rest of that function again.
+        case Value.VClos(_, _) =>
+          regs(d) = apply1(m, regs(k), regs(v))
+          Signal.Done
+        // The unconverted path, unchanged: `k` is `unit`, the arm is tail-resumptive, and the value
+        // travels back to the `Perform` that ran the arm.
+        case _ =>
+          resumedWith = Some(regs(v))
+          regs(d) = regs(v)
+          Signal.Done
     // The executor's own guard. `ExecError` is the only thing thrown by this lane, so catching it
     // is catching exactly what an SSC3 program can raise — a bare `catch Throwable` would also
     // swallow a StackOverflowError and report it as a caught user exception.

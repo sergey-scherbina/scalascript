@@ -711,7 +711,11 @@ object Lower:
         val (ab, ar, s4) = lower(a.body, fns, classes, zeroArity, armSt)
         // The arm's value IS the resume: the executor reads what `Resume` produced, and the arm
         // must END in one for the tail-resumptive check to accept it.
-        loweredArms = loweredArms :+ HandlerArm(a.op, paramRegs, kr, ab)
+        // The arm ENDS WITH A RET, so its value has one place to come from. Without it the
+        // executor would have to guess which register held the answer — and in CPS mode the answer
+        // is whatever the arm computed, which may be `k(1) + k(10)` rather than a single resume.
+        // Harmless on the tail-resumptive path, which reads the resumed value it already recorded.
+        loweredArms = loweredArms :+ HandlerArm(a.op, paramRegs, kr, ab :+ Instr.Ret(ar))
         st = s4
       }
       val (bi, br, stB) = lower(bodyE, fns, classes, zeroArity, st)
@@ -2081,4 +2085,8 @@ object Lower:
     // The tail-call pass runs HERE rather than inside the lowering: it is a rewrite of finished IR,
     // and keeping it separate is what lets it be tested, skipped or reordered without touching the
     // front. v3/src/TailCalls.scala.
-    TailCalls(Module(consts, types, globalNames.map(n => GlobalDef(n)), prims, funcs.reverse ++ lifted, entry))
+    // `Cps` BEFORE `TailCalls`: splitting introduces a `Ret` and a whole new function, and
+    // tail-call detection should see the FINAL shape rather than the one about to change.
+    // Both are Module->Module, so this order is a choice recorded here rather than an accident
+    // of where the call happened to be written.
+    TailCalls(Cps(Module(consts, types, globalNames.map(n => GlobalDef(n)), prims, funcs.reverse ++ lifted, entry)))

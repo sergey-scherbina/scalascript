@@ -316,6 +316,31 @@ one symptom bucket turned out to be a different construct than the obvious readi
       of an instruction list. And it changes nothing yet — the executor's tail-resumptive path still
       runs unconverted functions unchanged, and wiring the pass in is step 4.
 
+      **Steps 4 and 5 DONE 2026-08-09 — MULTI-SHOT CONTINUATIONS RUN.**
+
+          effect E: def op(): Int
+          def f(): Int = val a = E.op(); a + 1
+          handle(f()) { case op(k) => k(1) + k(10) }     ->  13
+
+      `(1+1) + (10+1)`: the handler resumed the SAME continuation twice with different values and
+      the rest of `f` ran again each time. Zero-shot works too — an arm that never resumes returns
+      its own value — and neither needed a second mechanism, because resuming is calling a closure
+      and a closure is not consumed by being called.
+
+      `Perform` takes the CPS path when it carries one argument more than the arm binds; the extra
+      one is the continuation. Otherwise it takes the unconverted path unchanged, so the
+      tail-resumptive fast path and its structural refusal are still there for functions the split
+      did not touch — measured: the earlier fixture still gives 21 and `effect-oneshot` still 881.
+
+      The arm now ENDS WITH A `Ret`, so its value has one place to come from rather than a register
+      the executor would have to guess. That change made `tailResumptive` reject every handler it
+      used to accept, because it asks "is the LAST act a resume" — fixed by skipping a trailing
+      `Ret`, which is the shape it was really asking about.
+
+      `Cps` runs BEFORE `TailCalls` in the pipeline: splitting introduces a `Ret` and a new
+      function, and tail-call detection should see the final shape. Corpus unchanged at 31 of 36
+      after wiring, so nothing pays for effects it does not use.
+
       *Order of work, each step gateable on its own:* (1) compute the transitively-performing set;
       (2) CPS-convert a performing function with no loop; (3) loops to recursive functions;
       (4) `Perform` builds the `VClos` and `Resume` calls it; (5) drop the tail-resumptive refusal
