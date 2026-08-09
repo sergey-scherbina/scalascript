@@ -72,39 +72,35 @@ indict the change you happen to be holding, because that is the difference you h
 
 ## coord-path-overlap-matches-a-SIBLING-directory-that-merely-shares-a-prefix
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
      kind: bug
-     gate: none -->
+     gate: .githooks/pre-push --self-test
+     fixed-in: 365daa818 -->
 
-**Measured 2026-08-08.** A claim on `v3/tests/front-capability/…` is refused as overlapping a claim
-on `v3/tests/front`:
+**FIXED 2026-08-09.** The three copies of `case "$p_path" in "$q_path"*)` are now one function,
+`path_rel a b` → `same | inside | outside`, which requires the separator: equal, or followed by `/`.
 
-```
-✋ pre-push: path 'v3/tests/front-capability' falls inside 'v3/tests/front'
-```
+**It now has a `--self-test`, and that is the larger half of the fix.** An untested comparison is
+how a two-character omission survived in three places at once. Eight cases: both incidents
+(`front-capability` vs `front`, `core-bench` vs `core`), the containment it must still catch so the
+fix is not "admit everything" (`v3/tests/front/x.ssc`, `v2/src/Runtime.scala`), equality, the
+reverse direction (`a/b` vs `a/b/c` is outside — backwards here would refuse every related pair),
+and `v3x` vs `v3`, the one-segment case a naive prefix-strip gets wrong.
 
-It does not. They are SIBLING directories. `.githooks/pre-push` compares with
+**Proved to DISCRIMINATE:** restoring the bare-prefix match turns exactly three cases red —
+`front-capability`, `core-bench`, `v3x` — and leaves the other five green.
 
-```sh
-case "$p_path" in "$q_path"*) …
-```
+**A placement trap worth keeping.** The self-test first went in below the hook's stdin loop and
+HUNG: a pre-push hook reads its refs from stdin, so anything after that loop waits forever when run
+by hand — and anything after the `[ -n "$local_tip" ] || exit 0` under it would exit 0 without
+running, a self-test that passes by never executing. It sits above both now.
 
-— a bare prefix match with no path-separator boundary, so `front-capability` matches `front*` and
-every directory whose name merely BEGINS with another claimed directory's name is reported as inside
-it. `v1/lang/core` would block `v1/lang/core-bench`, which exists.
-
-**Why it matters more than the inconvenience.** The guard's whole value is that agents trust it. A
-false refusal teaches the one habit that makes it useless — reaching for `--no-verify` — and the
-next real overlap goes through on the same reflex. I stopped rather than override, which is why this
-entry exists instead of a silent push.
-
-**Smallest useful fix:** require the boundary. `case "$p_path" in "$q_path"|"$q_path"/*)` — equal, or
-followed by a slash. Both directions, since the containment test runs each way.
-
-**Note for whoever fixes it:** `file:` scopes are compared with the same rule, so a claim on
-`…/front.scala` would also be reported as containing `…/front.scala.bak`.
+**STILL OWED, and blocked.** The self-test is not registered in `scripts/smoke-ci.ssc`, so it exists
+but does not run on every push — the state that left `inbox-route` unexercised for a day. That file
+is held by the live claim `scljet-tuple4-instrumentation`. One line:
+`Check(".", "claim-overlap", ".githooks/pre-push", List("--self-test"), 60000)`.
 
 ## v3-exec-gate-ssc-differential-compared-the-EXECUTOR-WITH-ITSELF for six days
 
