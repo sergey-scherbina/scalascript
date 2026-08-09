@@ -406,11 +406,12 @@ corpus case that stays refused after a fix reads like the fix did not work.
 
 ## v3-has-no-scala-style-import — its module system is markdown links, and 4 corpus cases use the other spelling
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: gap
-     gate: none -->
+     gate: v3/front-gate.sh
+     fixed-in: 946afab39 -->
 
 NOT A DEFECT, recorded so it is not filed as one a third time. `import actors.Overflow` reports
 `unknown name 'import'` because v3's parser has no `import` keyword at all — `grep '"import"'
@@ -425,6 +426,59 @@ nothing claims it. Four corpus cases use the Scala spelling — `actors-bounded-
 Two ways out, and the choice belongs to whoever owns v3's module story: teach the parser the
 keyword and map it onto the link mechanism, or refuse it BY NAME so the diagnostic says v3 uses
 links instead of leaving a reader to guess from `unknown name`.
+
+**FIXED 2026-08-09 — the first way.** `import actors.Overflow` now means what
+`[Overflow](std/actors.ssc)` means: the LAST segment is a member and the rest is the module, `.*`
+is the same with the member unnamed, and `std/` is prepended unless already there
+(`Loader.scalaImportTarget`). Anything relative keeps using a link, where a `../` can be written
+and a dotted path cannot. Fixtures `scala-import{,-doc-fence,-selector,-bare}` in
+`v3/tests/front/`, run by `front-gate.sh`, which was already wired into `.github/workflows/v3.yml`.
+
+**THE RULE IS FENCE-AWARE, and that is the whole of its difficulty.** Ten lines in the corpus and
+the standard library begin with `import`; three are prose, and four more sit in ```` ```text ````
+documentation blocks — `std/actors.ssc` and `std/nodes.ssc` each *show* `import actors.ChildSpec`
+in a Quick-start example. Only 3 are code. Every one of the doc-fence four names its OWN file, so
+reading them as imports would have been a harmless no-op that no test could have caught;
+`scala-import-doc-fence.ssc` therefore names a module that DOES NOT EXIST, and setting
+`inCode = true` makes it fail with `cannot find the import 'std/no_such_module.ssc'` — checked,
+because a control that has never been seen to fail is not evidence.
+
+**THE REFUSAL MOVED OUT OF THE PARSER, and the measurement is why.** `import a.{b, c}` and a bare
+`import a` are refused — Tier 0 has no namespaces, so a selector list promises something the
+language cannot keep. Put in `Parser.scala` that refusal covers ONE front: measured on these
+fixtures, the uniml front DROPPED the line and printed, while v3's own front refused — invariant
+I-3, on the default lane. It now lives in `Loader.importsOf`, the one place both fronts go through.
+
+**WHAT THE ENTRY GOT WRONG:** "0 of the 4 lower". `std-process-import` was ALREADY accepted before
+this change — verified in a control worktree at `origin/main`, not assumed. The other three do not
+turn green either, and not because of imports: two now load `std/actors.ssc` and stop at
+`extension [M](ref: ActorRef[M])`, a type-parameterised extension v3's parser does not take
+(`v3-extension-type-params`), and `curried-extern-import` uses a LINK and fails on an indentation
+in `std/json-core.ssc`. The import mechanism is done; those are two other gaps standing behind it.
+
+**Measured while here:** 27 of 58 standard-library modules parse on v3's front.
+
+## v3-extension-type-params — `extension [M](ref: ActorRef[M])` is refused, and it stands between two conformance cases and their module
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: gap
+     gate: none -->
+
+`v1/runtime/std/actors.ssc:182:18: expected ')', found :` — v3's parser takes
+`extension (ref: T)` and not `extension [M](ref: ActorRef[M])`, so the type-parameter list before
+the receiver is what it stops on. Column 18 is the `:` of `ref:`, which says the `[M]` was consumed
+as something else and the parser then wanted a plain parenthesised group.
+
+**FOUND BY FIXING SOMETHING ELSE.** `import actors.Overflow` used to be refused at the import line,
+so `actors-bounded-mailbox` and `actors-process-info` never reached the module they name; now that
+imports work the error moved from line 11 of the consumer INTO `std/actors.ssc`. This is the whole
+of what stands between those two cases and their module — worth stating because the previous entry
+counted them as import failures for as long as the import failed first.
+
+Not filed as a defect against `actors.ssc`: the file is ordinary Scala 3, and 27 of 58 std modules
+parse on this front, so the gap is v3's.
 
 ## front-diff-cannot-finish-when-the-second-front-does-not-compile
 
