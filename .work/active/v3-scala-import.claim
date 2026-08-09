@@ -3,9 +3,17 @@ branch: feature/v3-scala-import
 agent: claude-code
 started: 2026-08-09T15:48:55Z
 heartbeat: 2026-08-09T15:48:55Z
-status: claimed-before-planning
+status: in-progress
 items: v3-has-no-scala-style-import
-paths: file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/tests/front-capability file:v3/BUGS.md file:v3/SPRINT.md
+paths: file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/src/Source.scala file:v3/tests/scala-import file:v3/BUGS.md file:v3/SPRINT.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `import a.b.C` maps onto the markdown-link module mechanism instead of being refused.
+  MEASURED FIRST: of 10 lines in corpus+std that begin with `import`, 7 are a bare dotted path
+  and only 3 of those are CODE — the other 4 are inside ```text doc fences, so the rule must be
+  fence-aware or it imports a documentation example. The two real ones are
+  tests/conformance/actors-{bounded-mailbox,process-info}.ssc; the third is `import std.geo.*`
+  in std/geo.ssc, a SELF-import (harmless: Loader.visit marks `seen` before recursing).
+  Also found: uniml ACCEPTS both files (rc=0) while v3 REFUSES them — a front capability
+  divergence that front-capability-gate.sh cannot see, because it reads bench/corpus and these
+  two live in tests/conformance.
+next: Loader derives the target, Source blanks the line, Parser refuses only unsupported forms
