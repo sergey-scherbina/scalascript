@@ -101,6 +101,40 @@ measurement of the previous `build.sbt`.
 **So: verify a `build.sbt` change with `sbt -batch`, never with `scripts/sbtc`.** `AGENTS.md`
 recommends `sbtc` for speed, which is right for source edits and wrong for this one case.
 
+## 4.2 The regression this shipped with, and why §4's gates were blind to it
+
+**Landed broken and fixed the same day.** Every forked sbt test that runs `.ssc` died with
+`Import not found: std/http.ssc` — 10+ suites, ~70 tests. Two independent causes, and the first
+one masked the second:
+
+1. **`build.sbt:65` handed the test JVMs `-Dssc.std.path=<root>/runtime`.** That is
+   `ImportResolver` **rule 1 — the authoritative override**, taken on bare existence ahead of
+   every discovery rule. Via the compat symlink it resolves to `v1/runtime`, whose `std/` still
+   exists for the 42 Scala plugin modules and holds not one `.ssc`. Because rule 1 wins
+   outright, no amount of hardening the later rules could have rescued it. Fixed by pointing it
+   at the root.
+2. **`discoverStdRoot`'s ancestor walk stopped at the same empty directory.** The walk goes
+   BOTTOM-UP, so from a jar under `v1/runtime/backend/…` it reaches `<root>/v1/runtime` long
+   before the repo root. My first fix — probe a root `std/` *first* — could not help, because
+   ordering does not matter when the walk arrives at the wrong candidate first. `hasStd` now
+   requires the directory to contain at least one `.ssc`.
+
+**This is the same defect as the staging guard in §4.1, and I did not carry the lesson across.**
+There, "the glob is non-empty" was not "the glob is right". Here, "the directory exists" was not
+"the modules are there". One file apart, the same afternoon.
+
+**Why the §4 gates passed anyway** — worth stating, because it is the reusable part:
+`std-import-lanes-gate` drives `bin/ssc-tools`, and every launcher passes
+`-Dssc.lib.path=<repo root>`, so rule 3 matched the (correct) root and the walk never ran.
+`smoke-ci` runs no forked sbt tests. So both gates exercised the one configuration where the bug
+cannot appear. **A gate that only tests the launcher does not test the resolver** — the sbt test
+JVM is a *third* configuration with its own `ssc.std.path`, and nothing in §4 knew it existed.
+
+Now covered: three cases in `StdRootResolutionTest` — an empty `std/` is rejected, the walk
+climbs past one to the real root, and a legacy `runtime/std` that DOES hold modules still wins.
+Four pre-existing fixtures in that file built an empty `std/` and had to gain a module, which is
+itself the evidence that the old contract was "the directory exists".
+
 ## 5. Order of work
 
 1. `git mv` the 108 files — pure renames, verified with `git diff -M --numstat` (0 insertions,

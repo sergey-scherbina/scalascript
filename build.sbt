@@ -60,9 +60,16 @@ ThisBuild / Test / javaOptions += "-Xss8m"
 // pinned VTs hangs a SynchronousQueue handshake (poll times out); 16 carriers does not. Give
 // the forked JVM ample carriers so a handful of pinned VTs can't exhaust them.
 ThisBuild / Test / javaOptions += "-Djdk.virtualThreadScheduler.parallelism=16"
+// `ssc.std.path` is ImportResolver rule 1 — the AUTHORITATIVE override, taken on bare
+// existence, ahead of every discovery rule. `std-to-repo-root` moved the 108 `.ssc`
+// modules to the repo-root `std/`, so this has to point at the ROOT now. Pointed at
+// `/runtime` it resolved (via the compat symlink) to `v1/runtime`, whose `std/` still
+// exists for the 42 Scala plugin modules and holds not one `.ssc` — every forked test
+// then died with `Import not found: std/…`, and because rule 1 wins outright, no amount
+// of hardening the later rules could have rescued it.
 ThisBuild / Test / javaOptions += {
   val root = (ThisBuild / baseDirectory).value
-  s"-Dssc.std.path=${root.getAbsolutePath}/runtime"
+  s"-Dssc.std.path=${root.getAbsolutePath}"
 }
 ThisBuild / Test / fork         := true
 // Forked test JVMs must NOT inherit the ambient JDK_JAVA_OPTIONS heap (-Xmx12g

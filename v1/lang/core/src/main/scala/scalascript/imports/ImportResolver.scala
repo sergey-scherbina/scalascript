@@ -68,7 +68,20 @@ object ImportResolver:
       home:   os.Path
   ): Option[os.Path] =
     def existing(p: os.Path): Option[os.Path] = if os.exists(p) then Some(p) else None
-    def hasStd(root: os.Path): Boolean = os.exists(root / "std")
+    /** A std root is a directory whose `std/` actually HOLDS modules, not one
+     *  that merely has the name.
+     *
+     *  `os.exists(root / "std")` was enough until `std-to-repo-root` moved the
+     *  108 `.ssc` modules to the repo-root `std/` and left 42 Scala plugin
+     *  modules behind at `v1/runtime/std`. That directory still exists and
+     *  contains not one `.ssc`, so the bare existence test accepted it and
+     *  every lookup under it then failed with `Import not found: std/…`.
+     *  Same defect shape as the staging guard in `build.sbt`: "the directory
+     *  is there" is not "the modules are there". */
+    def hasStd(root: os.Path): Boolean =
+      val dir = root / "std"
+      try os.isDir(dir) && os.list(dir).exists(p => p.last.endsWith(".ssc") && os.isFile(p))
+      catch case _: Throwable => false
     def devWalkUp(start: os.Path): Option[os.Path] =
       var cur = start
       var found: Option[os.Path] = None
@@ -77,12 +90,17 @@ object ImportResolver:
         // `std-to-repo-root` (2026-08-09): the 108 shared `.ssc` modules now live at the
         // repo-root `std/`, so probe that FIRST.  The `runtime/std` arm stays as the
         // fallback — an installed tree still stages them to `<root>/runtime/std/`, and so
-        // does any checkout predating the move.  Order matters rather than merely being
-        // tidy: after the move `v1/runtime/std` still EXISTS (42 Scala modules live there)
-        // but holds no `.ssc`, so the old arm would match a directory that resolves
-        // nothing and report success.
-        if os.exists(cur / "std") then found = Some(cur)
-        else if os.exists(cur / "runtime" / "std") then found = Some(cur / "runtime")
+        // does any checkout predating the move.
+        //
+        // BOTH arms go through `hasStd`, and that is the fix for the regression the first
+        // version of this shipped with.  The walk goes BOTTOM-UP, so starting from a jar
+        // under `v1/runtime/backend/…` it reaches `<root>/v1/runtime` — whose `std/` still
+        // exists for the 42 Scala plugin modules — LONG before it reaches the repo root.
+        // Probing existence there stopped the walk at a directory holding zero `.ssc`, and
+        // every `std/…` import under it failed.  Ordering alone could not save it; the
+        // predicate had to get stricter.
+        if hasStd(cur) then found = Some(cur)
+        else if hasStd(cur / "runtime") then found = Some(cur / "runtime")
         else if cur.segmentCount == 0 then continue = false  // reached filesystem root
         else cur = cur / os.up
       found
