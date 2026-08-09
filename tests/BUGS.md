@@ -8122,3 +8122,43 @@ default-flip reached real production and broke it), this — and auditing
 for other unimplemented String/collection method overloads with the same
 shape (single-arg works, multi-arg silently missing) — should be
 high-priority for v2 parity work.
+
+## cli-errors-are-messages-guard-is-18-percent-above-its-own-runtime — a 60 s cap on a 49 s check
+
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     kind: apparatus
+     gate: scripts/smoke-ci
+     fixed-in: - -->
+
+**Status:** OPEN (measured 2026-08-09, after it was the SINGLE red of two consecutive smoke runs).
+
+`scripts/smoke-ci.ssc` registers it with a 60 000 ms guard. Measured on this host, same checkout,
+same day:
+
+    in-suite, run A     FAIL  60.0s   exit code -1 — TIMED OUT against its 60s guard
+    in-suite, run B     ok    32.5s
+    in-suite, run C     FAIL  60.0s   TIMED OUT
+    standalone, quiet   ok    31.8s
+    standalone, loaded  ok    49.1s   (14 java processes)
+
+**49.1 s against a 60 s cap is 18 % of headroom**, and the suite runs its checks in parallel, so
+in-suite it is routinely slower than the loaded standalone number. That is not a check that
+sometimes fails — it is a cap sitting inside its own variance.
+
+**Why this matters more than one red row.** `smoke-ci` is the ONLY thing a push runs. A check that
+goes red for being on a busy machine teaches everyone to read `FAILED:` and shrug, which is the
+exact death `tests/conformance/contract.sc`'s own header describes: *"A correctness gate that
+reports perf as TIMEOUT noise trains people to ignore it — which is how this one died."* Two agents
+have now spent a standalone re-run proving the same non-defect.
+
+**Do NOT just raise the number.** The check spawns both launchers several times and each pays JVM
+start-up; the question worth asking first is whether it needs that many spawns, because ~50 s for
+"a runtime error prints a message, not a stack trace" is itself the finding. If the spawns are
+irreducible, the cap should be set from a measurement on a LOADED host with headroom stated, the
+same discipline `corpus-contract-scljet-jdbc-v2-timeout` asks for — a budget moved with a number
+attached, not a guess.
+
+**Not fixed here** because `scripts/smoke-ci.ssc` is not in this claim's scope and the right cap is
+a judgement about the whole suite's budget, not this row alone.
