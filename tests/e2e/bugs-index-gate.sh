@@ -279,7 +279,17 @@ STALE
   # The stale-open report does NOT set the exit code — it is a heuristic and says so — so it needs
   # its own assertion. Without this the check could silently stop reporting and every other line of
   # this self-test would still pass. PROVED: switching the report off fails exactly here.
-  if ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
+  #
+  # ONLY IN A FULL CLONE, and this is not a loosening. The report itself is guarded by `not SHALLOW`
+  # because it asks `git merge-base --is-ancestor`, which a depth-1 clone cannot answer. CI checks
+  # out with `actions/checkout@v4` and no `fetch-depth`, so it is always shallow — and the
+  # unconditional assertion turned every push RED for an hour while the check it guards was
+  # deliberately not running. A self-test must assert what the check DOES in the environment it is
+  # in; asserting more makes the gate a liar about itself. Reproduced with `git clone --depth 1`
+  # before and after, which is the only control that distinguishes these two states.
+  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+    echo "--- self-test: shallow clone — the stale-open report is skipped by the check, so it is not asserted"
+  elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
   echo "--- self-test ok (5 planted defects all caught); checking ${#FILES[@]} file(s) ---"
