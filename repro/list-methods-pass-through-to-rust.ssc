@@ -1,0 +1,14 @@
+#!/usr/bin/env ssc
+---
+name: list-methods-rust-lane
+version: 0.1.0
+description: Three list methods that run on the interpreter and emit uncompilable Rust.
+---
+```scalascript
+def main(): Unit =
+  val xs = ["a", "b", "c"]
+  println("indexOf      = " + xs.indexOf("b"))
+  println("find         = " + xs.find(s => s == "b"))
+  println("zipWithIndex = " + xs.zipWithIndex.length)
+main()
+```
