@@ -735,39 +735,44 @@ object SpikeParse:
       // token sits on a LATER line — ssc1-front's layout inserts a `;` there) is a standalone statement →
       // `_err`, because ssc1-front's `@` handler runs `parseOneStmt(skipAnn(…))` which then hits that `;`
       // (ssc1-front.ssc0:2499). Emit the `_err` and let the decl parse on the next loop iteration.
-      var annErr = false
-      while !annErr && isAnnotationStart(c) do
-        val atTok = c.peek.get
+      // AN ANNOTATION ON ITS OWN LINE IS SKIPPED, and the declaration below it is parsed.
+      //
+      // This used to emit an `_err` node in that case, faithfully — the comment here cited
+      // `ssc1-front.ssc0:2499`, where skipping `@Name(args)` left the layout `;` and `parseOneStmt`
+      // met a separator where a declaration should be. **The reference has since FIXED that**: the
+      // call reads `parseOneStmt(skipSemis(skipAnn(toks)))` now, and its own comment files the old
+      // behaviour as `ssc1-front-annotation-before-declaration`, noting "F has no such gap".
+      //
+      // So this was mirroring a BUG, from a version that no longer exists. Eight files across
+      // `examples/` and the standard library were refused by v3 for it — `@graphLabel`, `@rdfClass`,
+      // `@tailrec` — while the reference parses them. Fidelity to an oracle means fidelity to what
+      // it does, which is a thing to re-read rather than remember.
+      while isAnnotationStart(c) do
         skipAnnotation(c)
-        if c.eof || c.peekLine > c.prevEndLine then
-          defs += Node.Frame("spike.exprStmt", None,
-            Vector(Node.Frame("spike.error", None, Vector(Node.Leaf(atTok, Some("error.token")))).withRole("stmt.expr")))
-          annErr = true
-      if annErr then () // `_err` emitted; the annotated decl (if any) is parsed on the next iteration
+        c.skipSemis()
+      skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
+      if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
+      else if isDefStart(c) then defs += parseDef(c)
+      // `case object`. The `case` used to be advanced past and dropped, so the object frame had
+      // no way to know, and `case object O` projected identically to `object O`.
+      else if isKw(c, "case") && c.peek2Lexeme == "object" then defs += parseObject(c, c.advance())
+      else if isKw(c, "case") then defs += parseCaseClass(c)
+      else if isKw(c, "given") then defs += parseGiven(c)
+      else if isKw(c, "enum") then defs += parseEnum(c)
+      else if isKw(c, "extension") then defs += parseExtension(c)
+      else if isWord(c, "object") then defs += parseObject(c)
+      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
+      else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
+      else if isWord(c, "extern") then defs += parseExtern(c)
+      else if isWord(c, "type") && isNameKind(c.peek2Kind) then defs += parseTypeAlias(c) // `type X = Y` erased
+      else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
+      // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
+      // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
+      // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
       else
-        skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
-        if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
-        else if isDefStart(c) then defs += parseDef(c)
-        // `case object`. The `case` used to be advanced past and dropped, so the object frame had
-        // no way to know, and `case object O` projected identically to `object O`.
-        else if isKw(c, "case") && c.peek2Lexeme == "object" then defs += parseObject(c, c.advance())
-        else if isKw(c, "case") then defs += parseCaseClass(c)
-        else if isKw(c, "given") then defs += parseGiven(c)
-        else if isKw(c, "enum") then defs += parseEnum(c)
-        else if isKw(c, "extension") then defs += parseExtension(c)
-        else if isWord(c, "object") then defs += parseObject(c)
-        else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
-        else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
-        else if isWord(c, "extern") then defs += parseExtern(c)
-        else if isWord(c, "type") && isNameKind(c.peek2Kind) then defs += parseTypeAlias(c) // `type X = Y` erased
-        else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
-        // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
-        // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
-        // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
-        else
-          val before = c.mark
-          defs += parseStmt(c, topLevel = true)
-          if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
+        val before = c.mark
+        defs += parseStmt(c, topLevel = true)
+        if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
     Parsed(Node.Frame("spike.program", None, defs.result()), c.diagnostics)
 
   private def expect(c: Cur, kind: String, role: String, what: String): Option[Node] =

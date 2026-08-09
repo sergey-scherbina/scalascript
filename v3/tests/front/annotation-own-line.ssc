@@ -1,0 +1,16 @@
+// An annotation on its OWN line, before the declaration it annotates. The reference front had
+// this as a filed bug (`ssc1-front-annotation-before-declaration`) and fixed it by skipping the
+// layout `;` the newline produces; the spike mirrored the version before that fix.
+@tailrec
+def count(n: Int, acc: Int): Int =
+  if n <= 0 then acc else count(n - 1, acc + n)
+
+@nowarn("msg=unused")
+case class Tagged(name: String)
+
+@main
+def entry(): Unit = ()
+
+def main(): Unit =
+  println(count(4, 0))
+  println(Tagged("x").name)

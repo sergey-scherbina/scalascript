@@ -37,7 +37,7 @@ unimlonly=0
 # The agreement FLOOR. It may rise in any commit and fall in none — the same non-regression rule the
 # corpus number carries, and for the same reason: a gate that is permanently red stops being read,
 # and a gate with no floor lets the number slide back without anyone noticing.
-FLOOR="${SSC3_FRONT_AGREE_FLOOR:-50}"
+FLOOR="${SSC3_FRONT_AGREE_FLOOR:-54}"
 
 # The fronts the DRIVER says it can run. Asked rather than duplicated here: a list in two places is
 # a list that disagrees with itself. The kernel knows one front; the driver knows whether the second
@@ -183,7 +183,7 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
   echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-228}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-270}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
     fail=1
@@ -235,7 +235,11 @@ if [ "$nfronts" -ge 2 ]; then
   echo
   echo "  fronts AGREE on $agree of $ran fixture(s); $disagree still differ or are refused (floor $FLOOR)"
   echo "  $unimlonly fixture(s) are declared uniml-only — v3's own front does not have the construct"
-  UOCEIL="${SSC3_FRONT_UNIML_ONLY_CEILING:-1}"
+  # RAISED TO 2 on 2026-08-09 for `annotation-own-line`. Each rise needs a reason and a way back,
+  # or the ceiling becomes a formality: v3's own LEXER refuses `@` outright, and the skip belongs in
+  # `Parser.scala`, which another claim holds. `Lexer.scala` is mine and tokenising `@` alone
+  # changes nothing observable, so the pair has to land together.
+  UOCEIL="${SSC3_FRONT_UNIML_ONLY_CEILING:-2}"
   if [ "$unimlonly" -gt "$UOCEIL" ]; then
     echo "  FAIL uniml-only fixtures rose to $unimlonly, above the ceiling $UOCEIL — the two fronts"
     echo "       are drifting apart, which is the opposite of what this gate is for"
