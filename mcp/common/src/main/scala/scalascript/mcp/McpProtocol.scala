@@ -101,16 +101,23 @@ object McpProtocol:
    *  through `notifyMessage`; lower ranks are filtered. */
   def logLevelRank(level: String): Int = LogLevels.indexOf(level)
 
-  /** The version the LEGACY `initialize` handshake answers with.
+  /** The best LEGACY revision we actually implement — what an `initialize`
+   *  handshake asks for as a client, and falls back to as a server.
    *
-   *  Deliberately still `2024-11-05` — see `specs/mcp-2026-07-28.md` §4.1.
-   *  Three sites in `McpIntrinsics.scala` and one in `McpNativePlugin.scala`
-   *  read this constant to build their own `initialize` result, and none of
-   *  them negotiates against the client's requested version.  Raising the
-   *  number here would change what those servers claim to speak without
-   *  giving them the logic to back it up.  P1b bumps it to the honest
-   *  `2025-06-18` and teaches all four sites to negotiate, in one commit. */
-  val ProtocolVersion = "2024-11-05"
+   *  `2025-03-26`, raised from `2024-11-05` by P1b after an audit rather than
+   *  a guess. Everything that revision added is present: tool annotations,
+   *  audio content, the completions capability, Streamable HTTP, the OAuth
+   *  framework, resource templates, and `message` on progress.
+   *
+   *  **It is deliberately NOT `2025-06-18`,** even though we have that
+   *  revision's headline features (structured tool output, elicitation,
+   *  resource links, RFC 9728 metadata). Two of its requirements are simply
+   *  absent — the `MCP-Protocol-Version` HTTP header and the `context` field
+   *  on `completion/complete`, both measured at zero occurrences on
+   *  2026-08-09. Advertising it would swap a four-revision UNDER-claim for an
+   *  over-claim, which is the same defect pointing the other way. P2 owns the
+   *  header; when both land, this constant and the list below move together. */
+  val ProtocolVersion = "2025-03-26"
 
   /** MCP 2026-07-28 — the stateless revision, and what we prefer to speak.
    *  There is no handshake in this era: a client states this version in the
@@ -122,12 +129,31 @@ object McpProtocol:
    *  `UnsupportedProtocolVersion` carrying this list, which is how a client
    *  discovers what to retry with. */
   val SupportedProtocolVersions: List[String] =
-    List(ModernProtocolVersion, "2025-06-18", "2025-03-26", ProtocolVersion)
+    List(ModernProtocolVersion, ProtocolVersion, "2024-11-05")
 
   /** True iff `v` is a revision that uses per-request `_meta` rather than an
    *  `initialize` handshake.  Version strings are ISO dates, so a lexical
    *  compare is a chronological one. */
   def isModernVersion(v: String): Boolean = v >= ModernProtocolVersion
+
+  /** The revisions an `initialize` handshake may settle on.  The modern one
+   *  is excluded BY CONSTRUCTION rather than by hand: `2026-07-28` deleted the
+   *  handshake, so echoing it back to a client that just sent `initialize`
+   *  would agree to speak a revision in which the message they sent does not
+   *  exist. */
+  val LegacyProtocolVersions: List[String] =
+    SupportedProtocolVersions.filterNot(isModernVersion)
+
+  /** Pre-2026 lifecycle negotiation: honour the client's requested revision
+   *  when we implement it, otherwise answer with our best and let the client
+   *  decide whether it can live with that.
+   *
+   *  Until P1b this did not exist — `initialize` ignored `params` entirely and
+   *  always replied with one hardcoded string, which is not negotiation at
+   *  all. A client asking for `2024-11-05` was told `2024-11-05` only because
+   *  that happened to be the constant. */
+  def negotiateLegacyVersion(requested: Option[String]): String =
+    requested.filter(LegacyProtocolVersions.contains).getOrElse(ProtocolVersion)
 
   // ─── MCP 2026-07-28 — per-request protocol metadata ─────────────────
 
@@ -223,9 +249,13 @@ object McpProtocol:
    *  advertise `listChanged: true`; resources also `subscribe: true`;
    *  `logging: {}` flags client→server log-level control + matching
    *  server→client `notifications/message` push. */
-  def initializeResult(serverName: String, serverVersion: String): ujson.Value =
+  def initializeResult(
+    serverName:    String,
+    serverVersion: String,
+    requested:     Option[String] = None
+  ): ujson.Value =
     ujson.Obj(
-      "protocolVersion" -> ProtocolVersion,
+      "protocolVersion" -> negotiateLegacyVersion(requested),
       "capabilities" -> ujson.Obj(
         "tools"       -> ujson.Obj("listChanged" -> true),
         "resources"   -> ujson.Obj("subscribe" -> true, "listChanged" -> true),

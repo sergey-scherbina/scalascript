@@ -684,7 +684,13 @@ object McpServerCore:
         try
           params.obj.get("capabilities").foreach(c => builder.clientCapabilities = c)
         catch case _: Throwable => ()
-        JsonRpc.encodeResult(id, McpProtocol.initializeResult(serverName, serverVersion))
+        // P1b — actually negotiate. Until now `params.protocolVersion` was read
+        // by nobody and the reply was one hardcoded string, so a client asking
+        // for a revision we support was answered correctly only by coincidence.
+        val requested =
+          try params.objOpt.flatMap(_.get("protocolVersion")).flatMap(_.strOpt)
+          catch case _: Throwable => None
+        JsonRpc.encodeResult(id, McpProtocol.initializeResult(serverName, serverVersion, requested))
 
       case McpProtocol.Method.Ping =>
         JsonRpc.encodeResult(id, ujson.Obj())

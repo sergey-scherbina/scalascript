@@ -43,7 +43,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     val reply = McpServerCore.dispatch(
       new McpServerBuilder, McpProtocol.Method.Initialize, ujson.Obj(), ujson.Num(1),
       "srv", "9.9.9")
-    reply shouldBe """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":true},"resources":{"subscribe":true,"listChanged":true},"prompts":{"listChanged":true},"logging":{},"completions":{}},"serverInfo":{"name":"srv","version":"9.9.9"}}}""" + "\n"
+    reply shouldBe """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{"listChanged":true},"resources":{"subscribe":true,"listChanged":true},"prompts":{"listChanged":true},"logging":{},"completions":{}},"serverInfo":{"name":"srv","version":"9.9.9"}}}""" + "\n"
 
   test("legacy: tools/list frame is unchanged by the 2026-07-28 work"):
     val reply = McpServerCore.dispatch(
@@ -169,7 +169,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
 
   test("modern: an older-but-supported revision is accepted, not rejected"):
     val params = ujson.Obj("_meta" -> ujson.Obj(
-      McpProtocol.MetaKey.ProtocolVersion    -> "2025-06-18",
+      McpProtocol.MetaKey.ProtocolVersion    -> "2025-03-26",
       McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj()
     ))
     val js = ujson.read(McpServerCore.dispatch(
@@ -182,3 +182,46 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     McpProtocol.isModernVersion("2027-01-01") shouldBe true
     McpProtocol.isModernVersion("2025-11-25") shouldBe false
     McpProtocol.isModernVersion(McpProtocol.ProtocolVersion) shouldBe false
+
+  // ── P1b: the legacy handshake actually negotiates ───────────────────
+
+  test("legacy initialize: a supported requested revision is echoed back"):
+    for asked <- McpProtocol.LegacyProtocolVersions do
+      val params = ujson.Obj("protocolVersion" -> asked)
+      val reply = ujson.read(McpServerCore.dispatch(
+        new McpServerBuilder, McpProtocol.Method.Initialize, params, ujson.Num(20)).trim)
+      withClue(s"asked $asked: ") { reply("result")("protocolVersion").str shouldBe asked }
+
+  test("legacy initialize: an unsupported requested revision falls back to our best"):
+    for asked <- List("1900-01-01", "2025-06-18", "2025-11-25", "") do
+      val params = ujson.Obj("protocolVersion" -> asked)
+      val reply = ujson.read(McpServerCore.dispatch(
+        new McpServerBuilder, McpProtocol.Method.Initialize, params, ujson.Num(21)).trim)
+      withClue(s"asked $asked: ") {
+        reply("result")("protocolVersion").str shouldBe McpProtocol.ProtocolVersion
+      }
+
+  test("legacy initialize: no requested revision at all still answers our best"):
+    val reply = ujson.read(McpServerCore.dispatch(
+      new McpServerBuilder, McpProtocol.Method.Initialize, ujson.Obj(), ujson.Num(22)).trim)
+    reply("result")("protocolVersion").str shouldBe McpProtocol.ProtocolVersion
+
+  test("the handshake can never settle on the modern revision"):
+    // 2026-07-28 DELETED `initialize`. Echoing it back to a client that just
+    // sent one would agree to speak a revision in which that message does not
+    // exist — so the modern version must be unreachable through this path,
+    // including when the client explicitly asks for it.
+    McpProtocol.LegacyProtocolVersions should not contain McpProtocol.ModernProtocolVersion
+    val params = ujson.Obj("protocolVersion" -> McpProtocol.ModernProtocolVersion)
+    val reply = ujson.read(McpServerCore.dispatch(
+      new McpServerBuilder, McpProtocol.Method.Initialize, params, ujson.Num(23)).trim)
+    reply("result")("protocolVersion").str shouldBe McpProtocol.ProtocolVersion
+
+  test("we advertise only revisions we implement"):
+    // 2025-06-18 is deliberately absent: its `MCP-Protocol-Version` header and
+    // `completion/complete` `context` field are not implemented (measured 0
+    // occurrences, 2026-08-09). Advertising it would trade a four-revision
+    // under-claim for an over-claim. P2 closes both, then this changes.
+    McpProtocol.SupportedProtocolVersions should not contain "2025-06-18"
+    McpProtocol.ProtocolVersion shouldBe "2025-03-26"
+    McpProtocol.SupportedProtocolVersions.head shouldBe McpProtocol.ModernProtocolVersion
