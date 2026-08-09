@@ -3,9 +3,9 @@ branch: feature/ssc3-jit
 agent: claude-code
 started: 2026-08-09T14:53:55Z
 heartbeat: 2026-08-09T14:53:55Z
-status: planning
+status: implementing
 items: SSC3-J0 SSC3-J1
-paths: file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv file:BUGS.md
+paths: file:specs/ssc3-jit.md file:v3/src/Specialize.scala file:v3/jit-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md mod:v3/tests/jit file:bench/history.tsv file:BUGS.md file:v3/src/Exec.scala
 scope: |
   v3 execution performance. Measured 2026-08-09 on a contended host: exec runs
   bench/corpus/arith-loop.ssc in 226.99 ms against v1's 0.244 (~930x) and list-fold in
@@ -17,7 +17,7 @@ scope: |
   hygiene) and J1 (the NumKind specializer + Invoke name->id) first; the host-bytecode
   backend behind a by-name seam is a separate decision after the numbers.
 
-  DELIBERATELY EXCLUDES file:v3/src/Exec.scala — ssc3-cps-split holds it (SSC3-7b-step2).
-  J0 is edits in that file and is sequenced after that claim releases; coordinated in the
-  rozum room 2026-08-09/13. Everything claimed here is a new file plus the module board.
+  Exec.scala WAS excluded while ssc3-cps-split held it; that claim released in 304f33ec0
+  and no other claim declares the file, so J1b (step dispatches on kind) and J0 (split
+  invoke, materialize the const pool, Array[Instr]) are now in scope.
 next: write specs/ssc3-jit.md, plan J0..J3 into v3/SPRINT.md, then build the gate before the feature
