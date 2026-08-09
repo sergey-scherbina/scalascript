@@ -1,0 +1,11 @@
+slug: f-correctness-audit-gate
+branch: feature/f-correctness-audit-gate
+agent: claude-code
+started: 2026-08-09T12:24:53Z
+heartbeat: 2026-08-09T12:24:53Z
+status: claimed-before-planning
+items: f-correctness-audit-gate
+paths: file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
