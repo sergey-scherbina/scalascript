@@ -86,6 +86,16 @@ jobs:
       - name: front report
         run: v3/front-report-gate.sh
 
+      # THE SELF-TEST RUNS FIRST, and that ordering is the point. This gate's green means "no method
+      # is over the JVM's compile limit except the ones declared" — a claim nothing else in CI can
+      # contradict, because a program whose methods are too big to compile is still CORRECT. So the
+      # run that asserts it also proves it can say the opposite: `--self-test` drops the declarations
+      # (rule 1) and plants one for an under-limit method (rule 2), and fails if either stays green.
+      - name: jit gate — self-test
+        run: v3/jit-gate.sh --self-test
+      - name: jit gate — method sizes
+        run: v3/jit-gate.sh --sizes
+
   front-capability:
     name: the two fronts accept the same programs
     runs-on: ubuntu-latest
