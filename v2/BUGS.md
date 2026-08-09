@@ -18,7 +18,6 @@ Newest first.
      area: codegen
      kind: bug
      gate: -
-     fixed-in: -
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-08
      ssc-version: bin/ssc-tools built from 7eecad50a
