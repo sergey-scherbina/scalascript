@@ -1,0 +1,13 @@
+slug: v3-new-is-not-an-infix-operand
+branch: feature/v3-new-is-not-an-infix-operand
+agent: claude-code
+started: 2026-08-09T13:52:43Z
+heartbeat: 2026-08-09T13:52:43Z
+status: in-progress
+items: v3-new-parsed-as-a-name
+paths: file:v3/src/Parser.scala
+scope: |
+  throw new RuntimeException(boom) parses as (bin RuntimeException (name new) …) —
+  new is not a keyword, so the alphanumeric-infix rule takes the class name as an
+  operator. UniML gives the plain call. Drop new before a constructor.
+next: fix, verify against the other front, re-run front-diff
