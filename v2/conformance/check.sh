@@ -17,6 +17,25 @@ fail=0
 # exec-redirect segments, so CONF_JOBS>1 output matches the sequential run line-for-line.
 CONF_JOBS="${CONF_JOBS:-1}"
 mkdir -p "$LOGDIR"
+# EVERY SCRATCH PATH BELOW IS `${TMPDIR:-/tmp}/<fixed-name>` — 857 of them over about 200 names like
+# `tp.rs`, `k51p.coreir`, `so-bin`. Fixed names in a directory every process shares means two runs
+# of this suite overwrite each other's files between the write and the read, and the result does NOT
+# look like a race. It looks like a defect in whatever change you are holding:
+#
+#   FAIL ssc-run-ir   java.lang.RuntimeException: unexpected EOF at ssc.Reader$P.sexpr
+#   FAIL rustc        error[E0601]: `main` function not found in crate `k51p`
+#
+# Measured 2026-08-09: a one-arm change to v2/src/Runtime.scala came back rc=1 on exactly those two;
+# reverting gave rc=0 — green-without, red-with, which reads as conclusive — and re-running the SAME
+# change gave rc=0 and the baseline's identical 645 ok. The repository had 92 worktrees and three
+# live claims that hour, one of them on the Rust lane this suite exercises.
+#
+# Redirecting TMPDIR itself is the whole fix, and that is WHY it is one line: the 857 uses already
+# read it. Rewriting 200 names by hand would be the risky way to do the same thing. It lives under
+# LOGDIR so it inherits that directory's existing policy — kept, not cleaned — which puts the
+# scratch a reader needs next to the stderr logs they are already being pointed at.
+TMPDIR="$LOGDIR/tmp"; export TMPDIR
+mkdir -p "$TMPDIR"
 _PAR_DIR="$LOGDIR/par"; mkdir -p "$_PAR_DIR"; _par_idx=0
 _par_slot() { while [ "$(jobs -rp | wc -l | tr -d " ")" -ge "$CONF_JOBS" ]; do wait -n 2>/dev/null || sleep 0.02; done; }
 touch "$ERR_SUMMARY"
