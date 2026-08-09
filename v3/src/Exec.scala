@@ -458,14 +458,25 @@ object Exec:
           // No tail-resumptive check here, and that is the point of the whole design: an arm may
           // resume once, not at all, or many times, because resuming is calling a closure.
           if args.length == arm.params.length + 1 then
+            // A FRESH COPY OF THE HANDLER'S FRAME PER ACTIVATION.
+            //
+            // The arm reads its `params` and `k` from the HANDLING function's registers, and one
+            // array cannot serve two activations at once. With multi-shot that happens immediately:
+            // `case op(k) => k(1) + k(2)` over a function that performs TWICE re-enters the same arm
+            // while the outer one is still live, and the inner binding overwrote the outer `k`.
+            //
+            // Measured before the fix: two performs with `k(1) + k(2)` gave 8, where the answer is
+            // 12 — (1+1)+(1+2) resumed from a=1, plus (2+1)+(2+2) from a=2. A WRONG ANSWER, not a
+            // refusal, which is the failure mode this executor is otherwise careful to avoid.
+            val frame = h.regs.clone()
             var i = 0
             while i < arm.params.length do
-              h.regs(arm.params(i)) = args(i)
+              frame(arm.params(i)) = args(i)
               i = i + 1
-            h.regs(arm.k) = args.last
+            frame(arm.k) = args.last
             // The arm RETURNS its value — the lowering ends every arm body with a `Ret`, so there
             // is one place the answer comes from rather than a register the executor has to guess.
-            exec(h.m, arm.body, h.regs) match
+            exec(h.m, arm.body, frame) match
               case Signal.Ret(v) => regs(d) = v; Signal.Done
               case _ =>
                 throw ExecError(

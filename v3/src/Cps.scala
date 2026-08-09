@@ -44,22 +44,31 @@ object Cps:
   /** Split every top-level `Perform` in every function. Returns the module unchanged when there is
     * nothing to split, so applying it to a program without effects is free and provably a no-op. */
   def apply(m: Module): Module =
-    val toSplit = m.funcs.zipWithIndex.filter { (f, _) => topLevelPerform(f.body).isDefined }
-    if toSplit.isEmpty then m
+    if !m.funcs.exists(f => topLevelPerform(f.body).isDefined) then m
     else
       var funcs = m.funcs
-      toSplit.foreach { (f, idx) =>
+      // A WORKLIST, not a scan-until-stable loop.
+      //
+      // The first version re-scanned every function until none had a top-level `Perform`, and did
+      // not terminate: a SPLIT function still contains one — that is the whole point of the split —
+      // so it was found and split again forever. The right statement is that a split FINISHES the
+      // function it touched and produces one new function that may still need work.
+      //
+      // Terminates because the continuation's body is strictly shorter than the body it came from,
+      // and nothing else is ever added to the queue.
+      var queue = funcs.indices.toList
+      while queue.nonEmpty do
+        val idx = queue.head
+        queue = queue.tail
         topLevelPerform(funcs(idx).body).foreach { i =>
           val cur = funcs(idx)
           val (before, rest) = cur.body.splitAt(i)
           val Instr.Perform(d, op, args) = rest.head: @unchecked
           val after = rest.tail
           val nregs = cur.nregs
-          val kReg = nregs                       // one fresh register for the closure itself
-          val contIdx = funcs.length             // appended below, so its index is known now
+          val kReg = nregs
+          val contIdx = funcs.length
           val caps = (0 until nregs).toList
-          // `f$k(cap0 … capN-1, resumed)` — the resumed value last, because `CallV` passes captures
-          // first. `Move(d, nregs)` puts it where `after` already expects to read it.
           val cont = Func(contName(cur.name, i), nregs + 1, nregs + 1,
                           Instr.Move(d, nregs) :: after)
           val split = cur.copy(
@@ -69,8 +78,11 @@ object Cps:
                             Instr.Perform(d, op, args :+ kReg),
                             Instr.Ret(d)))
           funcs = funcs.updated(idx, split) :+ cont
+          // Only the CONTINUATION goes back on the queue. A program whose function performs twice —
+          // `val a = E.op(); val b = E.op()` — keeps its second perform in the continuation the
+          // first split just made, and without this it stays there unsplit and unresumable.
+          queue = queue :+ contIdx
         }
-      }
       m.copy(funcs = funcs)
 
   /** The index of the first `Perform` at the TOP LEVEL of this body, if any. Deliberately not

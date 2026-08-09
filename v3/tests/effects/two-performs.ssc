@@ -1,0 +1,16 @@
+```scalascript
+effect E:
+  def op(): Int
+
+def f(): Int =
+  val a = E.op()
+  val b = E.op()
+  a + b
+
+def workload(): Int =
+  handle(f()) {
+    case op(k) => k(1)
+  }
+
+println(workload())
+```
