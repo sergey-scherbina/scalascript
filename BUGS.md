@@ -22,6 +22,31 @@ Newest first.
 
 
 
+## rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: sbt backendRust/test -->
+
+**Measured 2026-08-09 on a CLEAN worktree** — my own change removed and restored — because two red
+tests inside work I was doing is exactly the shape that gets misattributed:
+
+```
+FAIL  end-to-end golden — hello-world crate file set             (RustGenCodeWalkTest)
+FAIL  a call omitting trailing default params fills the defaults (RustGenWebToolkitTest)
+```
+
+`backendRust/test` is otherwise **268 of 271**. Both diffs show the block beginning *"The `Any`
+boundary"*, and `3ac30f018` — *"rust: `Any` can hold a case class — option A"*, landed the same day —
+adds 11 lines mentioning it. That makes it the cause by strong circumstance. **I did not run the
+suite at its parent to prove it**, and say so rather than assert it.
+
+**Unowned:** the `rust-any-as-value` claim was released, so nobody is watching these. A golden test
+is red on `origin/main` right now, which means the next person to touch this backend inherits a
+suite that cannot tell them whether they broke something.
+
 ## v2-conformance-uses-FIXED-temp-filenames — a green suite goes red when a sibling runs it
 
 <!-- status: fixed
@@ -699,12 +724,12 @@ executor with itself from 2026-08-07 until it was repaired
 
 ## rust-lane-rejects-try-catch — both entry-point halves are fixed; this one is not
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCargoTomlTest.scala
-     fixed-in: - -->
+     fixed-in: e7dcc5163 -->
 
 ⚠ **THE TITLE AND THE FIRST HALF OF THIS ENTRY WERE WRONG, AND I WROTE THEM.** It was filed as "the
 rust lane produces no binary for a hello-world". The lane was working. Measured properly on
@@ -772,6 +797,31 @@ because there is nothing to catch with. Any `std` contract that says "raises" is
 
 Filed at the root as `lane: rust` rather than under a backend directory because the Rust backend has
 no `BUGS.md`; move it if one appears.
+
+
+**FIXED 2026-08-09 in `e7dcc5163` — `throw` AND `try`/`catch`, because separately neither works.**
+
+ON THIS TARGET AN EXCEPTION IS ITS MESSAGE. Rust has no exception type to carry, so `throw` lowers
+to `panic!("{}", …)`, whose payload is a `String`, and `catch` downcasts that payload back. A `catch`
+without a matching `throw` would have had nothing catchable, so the two agree BY CONSTRUCTION. That
+narrowing is what this entry predicted: *"the question 'does this call raise, and can I recover' has
+no answer expressible in a program"* — the answer is now the message, and nothing else.
+
+    try b catch case e => h   ->   match std::panic::catch_unwind(AssertUnwindSafe(|| { b })) {
+                                     Ok(__v) => __v,
+                                     Err(__p) => { let e = __p.downcast_ref::<String>()…; h }
+                                   }
+
+`throw new RuntimeException("bang")` contributes only `"bang"`.
+
+**Refused BY NAME:** `finally` (needs the block on the unwinding path too — a second mechanism) and
+more than one `catch` arm (choosing needs the exception's TYPE, which this target erases).
+
+**Proved by compiling and running it**, not by matching strings: `RustGenCargoSmokeTest` builds a
+crate with cargo and asserts `fine / caught:bang / recovered`.
+
+**PART 1 OF THIS ENTRY REMAINS OPEN** — `run-rust` emitting no binary for bare top-level statements
+is a separate defect and is not touched here.
 
 
 ## v3-executor-catches-a-string-where-the-bridge-catches-the-value
