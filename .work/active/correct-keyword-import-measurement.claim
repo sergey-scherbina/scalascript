@@ -1,0 +1,11 @@
+slug: correct-keyword-import-measurement
+branch: feature/correct-keyword-import-measurement
+agent: claude-code
+started: 2026-08-09T17:50:07Z
+heartbeat: 2026-08-09T17:50:07Z
+status: claimed-before-planning
+items: my std-module measurement used paths not declared packages and was wrong twice
+paths: BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
