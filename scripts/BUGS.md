@@ -1145,10 +1145,35 @@ Verified in three directions: slug matches an item, `items:` matches an item whi
 and neither matches. The `items:` are read while the claim file still exists, since `coord-release`
 `git rm`s it well before this point.
 
-**Still open**, because the measurement above is the actual defect and it is untouched: fourteen
-stale `[~]` markers, and nothing stops a fifteenth. Option 2 — deriving the module sprint from the
-claims, as the root board already is — is the one this project's evidence supports, and it would make
-both the writing and the clearing impossible to forget rather than merely easier to remember.
+**The fourteen were audited one by one 2026-08-09, and "fourteen stale" was my word, not the
+finding.** Nine were done and are now `[x]`. **Five were never stale at all** — each names its own
+remainder in its own text, which is `[~]` meaning exactly what it should:
+
+| still `[~]` | what it says is left |
+| --- | --- |
+| `ci-crossbackend-differential-runtime` | "sharding the test phase is still open" |
+| `smoke-budget-drift` | "Step 2 waits for CI samples" |
+| `VC-2c` | adding `Long` to `knownTyName` "wants its own measurement and its own A/B" |
+| `J-0` | "**Still open in J-0:** the four-row baseline below" |
+| K38/K40 | "Only **Array-env for speed** … remains here" |
+
+So the marker is not meaningless; it is UNRELIABLE, which is a weaker and more accurate claim. What
+the audit does support is the original one: nothing clears a marker when the work finishes, and eight
+of the nine said DONE in their own first line while still reading as in-progress.
+
+**Each of the nine was verified against the artefact it names, not closed on its prose** — a
+distinction this repo has had to reopen entries over. `v2/src/Jit.scala` and its call sites (J-1),
+`JitBackend` (J-2), `compileUnit` (J-3), `JitSite.selfName` (J-3b), the static `callees` table with
+`GETSTATIC` (J-3c), `JvmByteGen.pureDefsOf` (J-3d), `SSC_V2_JIT_SYNC` (J-9), `ssc-tools lint-jit -v2`
+answering `64 defs compile, 0 refused` (J-8), and `examples/enums.ssc` printing `North -> South` (E4).
+Two of those checks failed on my FIRST attempt for reasons that were mine: I grepped `Jit.scala` for
+J-3c's `callees`, which lives in `JvmByteGen.scala`, and I typed `--v2` where the usage says `-v2`.
+Both would have read as "not done" if I had stopped at the first result.
+
+**Still open**, because the mechanism is untouched: nothing stops a tenth marker going stale the same
+way, and the audit is a one-off. Option 2 — deriving the module sprint from the claims, as the root
+board already is — is the one this project's evidence supports, and it would make both the writing
+and the clearing impossible to forget rather than merely easier to remember.
 
 ## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
 <!-- status: open

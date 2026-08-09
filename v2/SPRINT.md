@@ -704,7 +704,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       `recursion-tco` 0.275 / 0.031) is from 2026-07-10 and **predates the FastCode removal**, so it
       describes different code. Add a `jitSiteOverhead` case to `V2DispatchBench`. Record both in
       `specs/v2-wide-jit.md` §7 with the exact commands.
-- [~] **J-1 — `JitSite` counters, NO compilation.** *(the `f-tilde-infix` lock on
+- [x] **J-1 — `JitSite` counters, NO compilation.** *(the `f-tilde-infix` lock on
       `v2/src/Runtime.scala` released, so this was unblocked and taken on the widened
       `v2-wide-jit-j0` claim rather than a second worktree — that one already had warm targets and a
       launcher built from the tree, which is what the gate needs.)*
@@ -738,7 +738,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       **Its own slice on purpose:** this is the one change that can slow down programs that never
       JIT, and it is exactly the size of effect this host's whole-workload harness cannot see (it
       swings 2.5× on identical code). Gate = JMH A/B vs `HEAD~1`, not a corpus row.
-- [~] **J-2 — DONE except the ASM-isolation claim, which measurement KILLED.** `trait JitBackend` +
+- [x] **J-2 — DONE except the ASM-isolation claim, which measurement KILLED.** `trait JitBackend` +
       by-name resolution in `v2/src/Jit.scala`; `v2/backend-jvm-bytecode/JitBytecodeBackend.scala`
       implements it (`onProgram` does the `Emit.globalsRef` bridge, `compileUnit` answers `null`
       until J-3); `RunNativeV2.runBytecode` calls `Jit.disarm()` so the two lanes can never both own
@@ -769,7 +769,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       Flags are `SSC_V2_JIT*`, **not** `SSC_JIT*`: `bench/run.sc` sets `SSC_JIT_BACKEND` to select the
       v1 `ssc-asm` lane, so a shared name makes a bench row ambiguous about which JIT it measured.
       Gate: `-verbose:class` shows no `org.objectweb.asm` with `SSC_V2_JIT=off`.
-- [~] **J-3 — DONE: units compile, `arith-loop` 120×, and the first run broke the program.**
+- [x] **J-3 — DONE: units compile, `arith-loop` 120×, and the first run broke the program.**
       `JvmByteGen.emitUnit` compiles one `Lam` body to a class implementing `Emit$LamFn`, reusing
       `emitBody` + an extracted `drainPending` — the SAME emitter the AOT lane uses, so a shape
       either lane learns is learned by both. Refused outright, for correctness not difficulty: loop
@@ -809,7 +809,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       class (`Lookup.defineHiddenClass`, so a unit dies with its `LamFn`), boxed `Value` in/out, no
       residuals yet: unsupported ⇒ this site is not compiled. Gate = the parity gate below, plus
       ≥ 1 compiled unit on `recursion-fib`.
-- [~] **J-3b DONE — self-calls: `fib` 111×, `tco` 212× and PAST v1.** `JitSite.selfName` (top-level
+- [x] **J-3b DONE — self-calls: `fib` 111×, `tco` 212× and PAST v1.** `JitSite.selfName` (top-level
       defs only) + `emitUnit(body, selfName, arity)`. BOTH mechanisms are needed: `selfGlobal` gets
       the self-TAIL call (`Emit.rebind` + `GOTO`, no JVM frame), and registering the unit's own
       method in `defMethods` is what reaches the NON-TAIL one (`fib(n-1) + fib(n-2)`) — without it
@@ -843,7 +843,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       growth; if the tail position is unsupported, do not compile the unit (today's behaviour,
       localized to one site). Gate: residual histogram non-empty on a program J-3 refused, parity
       holds, and the revert-check — with residuals off, that program must go back to 0 units.
-- [~] **J-3d DONE — the purity set. `pattern-match-heavy` 20.7 → 10.9; three rows now AT the AOT
+- [x] **J-3d DONE — the purity set. `pattern-match-heavy` 20.7 → 10.9; three rows now AT the AOT
       ceiling.** The inline `foreach`/`foldLeft` Cons-walks are gated on `pureNoEffect(body,
       g.pureDefs)`, and a JIT unit's `pureDefs` was EMPTY — so `area(s)` was not provably pure, the
       inline walk was declined, and every element paid a closure call. The emitter's own comment
@@ -893,7 +893,7 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       `defMethods`, so every call to another def takes the generic `Emit.global` → `ClosV` →
       `Emit.app` path (lookup + dispatch + env alloc per call) where AOT emits `invokestatic`.
 
-- [~] **J-3c DONE — cross-unit linking. `pattern-match-heavy` 32.6 → 20.7; three rows now within
+- [x] **J-3c DONE — cross-unit linking. `pattern-match-heavy` 32.6 → 20.7; three rows now within
       1.06–1.15× of the AOT lane.** A unit carries a static `callees: LamFn[]`; a linked
       `App(Global(g), args)` compiles to `GETSTATIC` + interface call + `unroll`. Cheap because a
       top-level def's closure env is EMPTY, so its `LamFn` takes exactly the argument array.
@@ -951,14 +951,14 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       diagnostic that quietly re-points at a different lane is the same class of defect as a
       fallback that does not announce itself. Six other commands spell the flag `--v2`/`--v1`
       (`Main.scala:1294` …) — the single-dash form here is a deliberate call, not an oversight.
-- [~] **J-8 DONE — `ssc lint-jit` with `-v2` (default) / `-v1`, plus the compile-time counter.**
+- [x] **J-8 DONE — `ssc lint-jit` with `-v2` (default) / `-v1`, plus the compile-time counter.**
       Verdicts come from the SAME `JvmByteGen.emitUnit` the JIT calls with the same purity set, so
       `compiles` means it compiles at run time; and it does NOT run the program, unlike `-v1` which
       executes the module to read `interp.globals`. `--backend` is an error with `-v2`.
       ⚠ Known gap: `--backend asm` (space form) is eaten by the GLOBAL CLI parser before the command
       sees it, so the guard fires only on `--backend=asm`. Pre-existing, recorded not fixed.
 
-- [~] **J-9 DONE — compilation moved off the critical path; default stays OFF, by arithmetic.**
+- [x] **J-9 DONE — compilation moved off the critical path; default stays OFF, by arithmetic.**
       Background compile on one min-priority daemon thread (`SSC_V2_JIT_SYNC=1` forces sync so the
       A/B is possible). Wall median 1.69 → 1.59 s (−6 %) with **CPU unchanged** 7.00 → 6.96 — the
       work is MOVED, not removed. Ranges overlap, so: consistent with, not proof.
@@ -2355,7 +2355,7 @@ net-negative ONLY because enum cases are skipped → `North` unbound). Slices:
       net-positive (was net-negative only because enum cases were skipped → `North` unbound).
 - [x] E3 — lower: extend `collectCaseFields` + `collectCaseClassOrder` to walk `enum` cases
       (named-args reorder + accessor-routing parity with case classes).
-- [~] E4 — verify: enums.ssc Direction block runs (`North -> South …`), was fully broken.
+- [x] E4 — verify: enums.ssc Direction block runs (`North -> South …`), was fully broken.
       Fast conformance 406/0 (parity w/ origin/main), full corpus stage1 192/195 = zero parse
       regressions. Shape/Tree still blocked on stdlib `math` + literal-pattern `case 0` (both
       PRE-EXISTING, non-parser gaps).
