@@ -73,11 +73,28 @@ counted as a passing row — it is counted here instead.
 
 ## rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: v2-rust
      area: codegen
      kind: bug
      gate: sbt backendRust/test -->
+
+**Mine, and the reporter's attribution was right.** Both came from `3ac30f018`. One was a golden,
+one was not, and the second is the one that mattered:
+
+- the golden — the `Any` coercion-trait import went in the file HEADER, so every emitted crate
+  carried it, hello-world included. Wrong on its own terms: `effectsImport`, three lines above,
+  shows the shape — an import is emitted when the program needs it. Now conditional, decided from
+  the emitted BODY rather than a flag threaded through the builders.
+- **a real regression: omitted default arguments were being DROPPED.** `greet("hi")` emitted
+  `greet("hi")` instead of `greet("hi", "!", false)`. The call-argument coercion did
+  `argTerms.zip(renderedArgs)`, and `renderedArgs` is LONGER exactly when defaults have been filled
+  in — `zip` truncates to the shorter list silently. Rust has no default parameters, so that is
+  wrong code, not a cosmetic diff.
+
+`backendRust/test` 271/271. The reporter also noted nobody was watching this suite: it is not in the
+smoke set, so a red here survives every push. Touching this backend means running it.
 
 **Measured 2026-08-09 on a CLEAN worktree** — my own change removed and restored — because two red
 tests inside work I was doing is exactly the shape that gets misattributed:

@@ -178,9 +178,21 @@ object RustCodeWalk:
       val effectsImport =
         if effectNames.isEmpty then ""
         else "use crate::runtime::effects::*;\n\n"
+      // The `Any` boundary needs its coercion TRAITS in scope — a trait method is only callable
+      // where its trait is imported, and everything else in this file uses fully-qualified paths.
+      // Conditional for the same reason `effectsImport` is: a hello-world crate should not carry
+      // an import it has no use for, and putting it in the header unconditionally is what turned
+      // two golden tests red (BUGS.md
+      // rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work). Decided from the
+      // emitted BODY rather than from a flag threaded through every builder — one site, and it
+      // cannot disagree with what was actually emitted.
+      val anyImport =
+        if Seq(".ssc_int(", ".ssc_f64(", ".ssc_bool(", ".ssc_str(", ".ssc_val(").exists(body.contains)
+        then "#[allow(unused_imports)]\nuse crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal};\n\n"
+        else ""
       val generatedText =
         if body.isEmpty then headerComment
-        else headerComment + "\n" + effectsImport + body.dropWhile(_ == '\n')
+        else headerComment + "\n" + effectsImport + anyImport + body.dropWhile(_ == '\n')
       Right(WalkResult(
         generated       = generatedText,
         defNames        = ok.map(_.name),
@@ -196,13 +208,6 @@ object RustCodeWalk:
       |//! One `pub fn` per ScalaScript top-level `def`.  Calls to console
       |//! intrinsics (`println`, `print`) route to `crate::runtime::_*`.
       |//! `rust` fence blocks from the source are appended verbatim.
-      |
-      |// The `Any` boundary. Everywhere else this file uses fully-qualified paths, but a TRAIT
-      |// method needs its trait in scope, and these are what make a coercion total — `.ssc_int()`
-      |// compiles whether the receiver is a `Value` or already an `i64`, which is what lets the
-      |// generator emit it knowing only the DECLARED target type.
-      |#[allow(unused_imports)]
-      |use crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal};
       |""".stripMargin
 
   // ── Defn.Given collection (R.6 typeclasses) ──────────────────────────
@@ -2535,9 +2540,15 @@ object RustCodeWalk:
         val coercedArgs = fn match
           case m.Term.Name(fname) if _paramTypes.contains(fname) =>
             val want = _paramTypes(fname)
-            argTerms.zip(renderedArgs).zipWithIndex.map { case ((argTerm, rendered), i) =>
-              want.lift(i) match
-                case Some(target) if target.nonEmpty && needsAnyCoercion(argTerm, target, ctx) =>
+            // Iterate the RENDERED args, not a zip with the source terms. `renderedArgs` is longer
+            // whenever omitted trailing defaults were filled in above (Rust has no default
+            // parameters, so they are materialised here) — and `zip` truncates to the shorter list
+            // SILENTLY, which dropped every filled default. `argTerms.lift(i)` is None for exactly
+            // those, and a filled default needs no coercion: it was rendered from the declaration.
+            renderedArgs.zipWithIndex.map { case (rendered, i) =>
+              (argTerms.lift(i), want.lift(i)) match
+                case (Some(argTerm), Some(target))
+                    if target.nonEmpty && needsAnyCoercion(argTerm, target, ctx) =>
                   if target == "crate::value::Value" then s"crate::value::Value::from($rendered)"
                   else coerceFromValue(rendered, target)
                 case _ => rendered
