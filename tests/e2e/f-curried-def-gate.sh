@@ -29,6 +29,7 @@ set -uo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 ssc="${SSC:-$ROOT/bin/ssc}"
+. "$SCRIPT_DIR/lib/ssc-usable.sh"
 sandbox=$(mktemp -d "${TMPDIR:-/tmp}/f-curried.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 fails=0
@@ -36,10 +37,10 @@ export SSC_NO_BUILD_CHECK=1
 
 echo "── F lowers a curried def, and answers correctly"
 
-if [[ ! -x "$ssc" ]]; then
-  echo "SKIP f-curried-def-gate: $ssc not built (run scripts/sbtc installBin)"
-  exit 0
-fi
+# The guard is FUNCTIONAL: `-x "$ssc"` was the old test and it is not the question — a fresh
+# worktree has an executable launcher and no jars, so every case below "failed" on
+# ClassNotFoundException instead of skipping. See tests/e2e/lib/ssc-usable.sh.
+ssc_usable_or_skip f-curried-def-gate "$ssc"
 
 lowered_and_correct() {
   local name=$1 want=$2 src=$3

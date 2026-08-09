@@ -30,15 +30,16 @@ set -uo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 ssc="${SSC:-$ROOT/bin/ssc}"
+. "$SCRIPT_DIR/lib/ssc-usable.sh"
 fails=0
 export SSC_NO_BUILD_CHECK=1
 
 echo "── an extern call site passes through verbatim"
 
-if [[ ! -x "$ssc" ]]; then
-  echo "SKIP f-trailing-block-gate: $ssc not built (run scripts/sbtc installBin)"
-  exit 0
-fi
+# The guard is FUNCTIONAL: `-x "$ssc"` was the old test and it is not the question — a fresh
+# worktree has an executable launcher and no jars, so every case below "failed" on
+# ClassNotFoundException instead of skipping. See tests/e2e/lib/ssc-usable.sh.
+ssc_usable_or_skip f-trailing-block-gate "$ssc"
 
 # The probes live under examples/ because the ones that touch std/http import it by a RELATIVE path
 # (`../v1/runtime/std/http.ssc`), exactly as examples/_bug1b.ssc does; from a temp dir that import

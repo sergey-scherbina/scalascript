@@ -35,6 +35,7 @@ set -uo pipefail
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 ssc="${SSC:-$ROOT/bin/ssc}"
+. "$SCRIPT_DIR/lib/ssc-usable.sh"
 sandbox=$(mktemp -d "${TMPDIR:-/tmp}/f-global-v.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 fails=0
@@ -42,10 +43,10 @@ export SSC_NO_BUILD_CHECK=1
 
 echo "── F lowers a val written inline in a match arm"
 
-if [[ ! -x "$ssc" ]]; then
-  echo "SKIP f-global-v-gate: $ssc not built (run scripts/sbtc installBin)"
-  exit 0
-fi
+# The guard is FUNCTIONAL: `-x "$ssc"` was the old test and it is not the question — a fresh
+# worktree has an executable launcher and no jars, so every case below "failed" on
+# ClassNotFoundException instead of skipping. See tests/e2e/lib/ssc-usable.sh.
+ssc_usable_or_skip f-global-v-gate "$ssc"
 
 # $1 name, $2 expected stdout, $3 source. Strict run answers "did F lower it?", plain run answers
 # "is the result right?" — a front that lowered the file to WRONG code would pass a strict-only check.
