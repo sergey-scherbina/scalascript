@@ -216,9 +216,23 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   really implement it. Split out of P1 deliberately: three of those sites are in files P1 does not
   claim, and bumping the shared constant without the matching negotiation is the
   second-decision-site trap.
-- [ ] **P2 — caching + headers.** `ttlMs`/`cacheScope` on the five `CacheableResult` results;
-  deterministic `tools/list` order; `Mcp-Method`/`Mcp-Name` + `-32020`; `x-mcp-header`;
-  `MCP-Protocol-Version` header.
+- [x] **P2a — CacheableResult.** ✓ 3eb1e5e47. `ttlMs`/`cacheScope` on **six** operations, not the
+  five written here — `server/discover` is cacheable too. `cacheScope` derived from whether auth
+  is on; `resources/read` defaults to `ttlMs: 0` because a user handler's freshness is not ours
+  to assert. `tools/list` order was already deterministic (insertion-ordered registry), so that
+  line needed no work — checked rather than assumed.
+- [x] **P2b — server-side header validation.** ✓ 7eef2525b. `MCP-Protocol-Version`, `Mcp-Method`,
+  `Mcp-Name` vs the body, `-32020` on any disagreement, base64 sentinel decoded first, modern
+  requests only. **Named gap:** the plumbing in `McpIntrinsics.dispatchAuthorized` is verified
+  statically only — nothing drives that function in any test — so the validator is proven and the
+  feed is not. Needs a `PluginContext` double.
+- [ ] **P2c — `x-mcp-header`.** Tool params mirrored into `Mcp-Param-{Name}`. Own constraint set
+  (primitives only, no `number`, statically reachable via `properties` chains), and a conforming
+  client must EXCLUDE offending tools from `tools/list`. Bigger than it looks.
+- [ ] **P2d — the client half.** `McpHttpClient` speaks the legacy era only: it sends `initialize`
+  and emits neither `_meta` nor the mirrored headers. Making it modern is work, not a header
+  addition. Only after P2c+P2d may `ProtocolVersion` reach `2025-06-18` — which also needs
+  `context` on `completion/complete`.
 - [ ] **P3 — MRTR.** `InputRequiredResult`; migrate elicitation and roots off server-initiated
   requests. Largest semantic change — `McpServerBuilder.request(...)` stops being the mechanism.
 - [ ] **P4 — `subscriptions/listen`.** Replaces `resources/subscribe`/`unsubscribe` and the GET
