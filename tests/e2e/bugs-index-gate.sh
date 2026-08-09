@@ -63,7 +63,10 @@ for ln in lines:
         buf.append(ln)
 if cur is not None: entries.append((cur, "\n".join(buf)))
 
-problems, slugs = [], {}
+problems, slugs, stale = [], {}, []
+# The sentence that means "the code is done, the paperwork is not". Kept narrow on purpose: a
+# broad "pending" would match half the board, and a check that cries wolf is not read.
+STALE_HINT = re.compile(r"awaits? (?:fresh )?(?:independent )?(?:re)?review|landing SHA|SHA pending|remediation .{0,40}green|fix SHA pending", re.I)
 def slug_of(h): return h.split("—")[0].split("-—")[0].strip().split()[0] if h.split() else h
 
 for head, body in entries:
@@ -161,6 +164,29 @@ for head, body in entries:
     if st == "duplicate" and not fields.get("duplicate-of"):
         problems.append((slug, "status: duplicate requires `duplicate-of: <slug>`"))
 
+    # ── THE INVERSE OF THE `fixed-in` CHECK, and the one that was missing ──────────────────────────
+    #
+    # Above: a `fixed` entry must cite a sha that is REACHABLE. Here: an OPEN entry that says its fix
+    # already exists and is waiting to land, while a commit it cites is ALREADY AN ANCESTOR — i.e.
+    # the wait is over and nobody re-read it.
+    #
+    # Measured 2026-08-09, which is why this exists: twenty-two entries across four boards carried
+    # the sentence "remediation is green on the feature branch, but fresh independent rereview and
+    # the landing SHA are pending" — written 2026-07-15, still open three weeks later, and every one
+    # of their fixes had landed. The shas that DANGLE in those entries are frozen review checkpoints,
+    # so a reader who checked the obvious thing saw "nothing landed" and moved on.
+    #
+    # A REPORT, NOT A FAILURE, deliberately. A cited landed commit is at least as often the one that
+    # REPORTED the defect, so this cannot decide staleness — only a human or an agent running the
+    # entry's own `gate:` can. Failing the build on a heuristic would train people to ignore it,
+    # which is the same reflex a false claim-overlap refusal teaches. It is PRINTED unconditionally
+    # and COUNTED, because the failure mode it is about is nobody looking.
+    if st == "open" and not SHALLOW and STALE_HINT.search(body):
+        for sha in sorted(set(re.findall(r"\b[0-9a-f]{9,40}\b", body)))[:8]:
+            if subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+                              capture_output=True).returncode == 0:
+                stale.append((slug, sha)); break
+
 # Uniqueness is checked across the CONCATENATION of every file, not per file: after the split a
 # slug could otherwise exist twice in two modules and each file would look fine on its own.
 for s, n in slugs.items():
@@ -169,7 +195,14 @@ for s, n in slugs.items():
 if SHALLOW:
     print("note: shallow clone — `fixed-in` checked for SHAPE only; run in a full clone to verify "
           "each sha resolves.")
-print(f"files: {len(paths)}   entries: {len(entries)}   problems: {len(problems)}")
+print(f"files: {len(paths)}   entries: {len(entries)}   problems: {len(problems)}   stale-looking open entries: {len(stale)}")
+for sl, sha in stale[:20]:
+    print(f"  STALE? [{sl[:52]}] says the fix awaits landing, but {sha} is already an ancestor")
+if len(stale) > 20:
+    print(f"  … and {len(stale) - 20} more")
+if stale:
+    print("  ^ NOT failures. Run each entry's own `gate:` before closing it — a cited landed commit\n"
+          "    is often the one that REPORTED the defect.")
 for s, why in problems[:25]:
     print(f"  FAIL [{s[:56]}] {why}")
 if len(problems) > 25:
@@ -215,6 +248,18 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
      area: runtime
      fixed-in: 30484689408 -->
 BAD
+  # The STALE-OPEN case, appended rather than inlined because it needs a sha that really IS an
+  # ancestor of HEAD — a literal in the heredoc would either dangle or, worse, stop being an ancestor
+  # the day someone rewrites history and quietly turn the check off.
+  cat >> "$TMP" <<STALE
+## stale-open-entry — its fix landed and it still says otherwise
+<!-- status: open
+     lane: int
+     area: runtime -->
+
+Remediation is green on the feature branch, but fresh independent rereview and the landing SHA are
+pending. Reported against $(git rev-parse --short=9 HEAD).
+STALE
   out="$(run_check "$TMP")"; rc=$?
   echo "$out"
   rm -f "$TMP"
@@ -231,7 +276,13 @@ BAD
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
   done
-  echo "--- self-test ok (4 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  # The stale-open report does NOT set the exit code — it is a heuristic and says so — so it needs
+  # its own assertion. Without this the check could silently stop reporting and every other line of
+  # this self-test would still pass. PROVED: switching the report off fails exactly here.
+  if ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
+    echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
+  fi
+  echo "--- self-test ok (5 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"

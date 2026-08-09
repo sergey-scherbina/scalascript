@@ -4347,7 +4347,7 @@ reserved address space, not committed memory, so 512m is cheap.
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
      fixed-in: ff0e2580b -->
 
-**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `ff0e2580b`, landing SHA
 pending independent approval.
 
@@ -4529,12 +4529,13 @@ conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status remains
 SHA on `origin/main`.
 
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: apparatus
      area: runtime
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest* -->
 
-**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
 
 **Symptom/reproduce:** `projectStat` ignores imports. Sources such as
@@ -4597,7 +4598,7 @@ where the pin is the implementation itself, which is quoted with its file and li
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
      fixed-in: 790366a9d -->
 
-**Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
 fix SHA pending.
 
@@ -4637,11 +4638,12 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: apparatus
      area: codegen -->
 
-**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
 independent review plus landing. Found by parent adversarial pre-rereview on
 2026-07-15; the original independent-review snapshot was `f6fa34fac`.
 
@@ -4679,11 +4681,12 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: apparatus
      area: cli -->
 
-**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -4717,11 +4720,12 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: apparatus
      area: codegen -->
 
-**Status:** open; cumulative repair candidate `c19d42401` plus selected-file closure
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open; cumulative repair candidate `c19d42401` plus selected-file closure
 `4c6b8e2a9` are locally verified and await fresh independent review plus landing.
 Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
 direct-transform snapshot `f6fa34fac`.
@@ -4891,7 +4895,7 @@ gates remain green.
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
      fixed-in: 790366a9d -->
 
-**Status:** open (2026-07-15). Reported by the independent Slice B re-review
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
 
 **Symptom/reproduce:** the in-progress descriptor-v3 producer accepts nominal

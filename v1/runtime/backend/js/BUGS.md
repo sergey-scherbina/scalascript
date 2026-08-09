@@ -3355,12 +3355,13 @@ genuinely green while CI was genuinely red — and nobody was reading CI. `origi
 consecutive red runs, zero green**. See `ci-red-main` in SPRINT.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: js
      area: runtime
      gate: sbt scala3ControlApi/test -->
 
-**Status:** open; remediation and regression are green on the feature branch
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open; remediation and regression are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
 Reported as P1 by the independent `scala3-control-macros` review of frozen
 checkpoint `fa992fd92`.
@@ -3399,12 +3400,13 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
-<!-- status: open
+<!-- status: fixed
+     fixed-in: unrecorded
      lane: js
      area: runtime
      gate: sbt scala3ControlApi/test -->
 
-**Status:** open; implementation and regressions are green on the feature branch,
+**Status (SUPERSEDED — see the verification at the end of this entry):** was open; implementation and regressions are green on the feature branch,
 but fresh independent rereview and the landing SHA are pending. Found by Codex
 during the pre-integration fail-closed audit of `scala3-control-macros`.
 
