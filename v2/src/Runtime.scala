@@ -1432,7 +1432,24 @@ object Prims:
     case "str->f"  => a => str(a, 0).toDoubleOption.fold(none)(d => some(FloatV(d)))
     // String (UTF-16 code units; O(1) indexing)
     case "slen"      => a => IntV(str(a, 0).length.toLong)
+    // `sconcat` is NOT only string concatenation — the front emits it for `++` whenever it can
+    // recover a String type for the LEFT operand, and one of the prefixes it recovers from is
+    // `++` ITSELF (`isConcatCode`, specs/v2.2-p6.5-fsub.ssc:378). So in `a ++ b ++ c` the outer
+    // concat is typed String because its left operand is a concat — true for strings, FALSE for
+    // any other `++`-able type. A three-way LIST concat therefore arrives here.
+    //
+    // A v2 list is `DataV("Cons", [head, tail])` — a two-field DataV, structurally a pair — so the
+    // tuple arm below read two Cons CELLS as two pairs and returned a Tuple4:
+    // `[6,23,15,15,1,63] ++ [116,97,…]` became `(6, [23,15,15,1,63], 116, [97,…])`, which then
+    // failed far away as ``Tuple4.isEmpty` was called but does not exist``
+    // (corpus-contract-scljet-jdbc-v2-timeout — four scljet corpus cases, red on the v2 lane).
+    //
+    // Delegating to `arithOp` rather than inlining a list arm is deliberate: `(prim __arith__ "++")`
+    // is what the SAME expression lowers to when the front cannot type it, and the two must not
+    // disagree about the same operands. `arithOp`'s `++` is left-biased on `isList` exactly as the
+    // front's own rule is, so this reproduces it instead of approximating it.
     case "sconcat"   => a => (a(0), a(1)) match {
+      case (l, _) if isList(l) => arithOp("++", a(0), a(1))
       case (DataV(_, f1), DataV(_, f2)) =>
         val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
       case _ => StrV(anyStr(a(0)) + anyStr(a(1)))
@@ -1532,11 +1549,11 @@ object Prims:
                   case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                     margs.head match
                       case IntV(ix) => listIndex(lv, ix.toInt)
-                      case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
+                      case _ => stubMiss(tag, mname, recv)
                   case MapV(m) => m(margs.head)
                   case ForeignV(m: collection.mutable.Map[?, ?]) =>
                     m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
-                  case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
+                  case _ => stubMiss(tag, mname, recv)
               else methodOrPluginOrExt()
             case None => methodOrPluginOrExt()
         case _ => pluginOrExt()
@@ -1987,8 +2004,8 @@ object Prims:
                 }.toVector)
               else if args.length <= fields.length then
                 DataV(tag, (args ++ fields.drop(args.length)).toVector)
-              else DataV("Stub", Vector(StrV(s"$tag.copy")))
-            case None => DataV("Stub", Vector(StrV(s"$tag.copy")))
+              else stubMiss(tag, "copy", recv)
+            case None => stubMiss(tag, "copy", recv)
         // BEFORE the IntV arms (CharV extends IntV). `.toInt`/`.toLong` deliberately fall
         // through to those: a Char's numeric conversions ARE its code point in Scala.
         case (CharV(c), "toString", Nil)     => StrV(c.toString)
@@ -2888,13 +2905,13 @@ object Prims:
                           case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                             margs.head match
                               case IntV(ix) => listIndex(lv, ix.toInt)
-                              case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
+                              case _ => stubMiss(tag, name, recv)
                           case MapV(m) => m(margs.head)
                           case ForeignV(m: collection.mutable.Map[?, ?]) =>
                             m.asInstanceOf[collection.mutable.Map[Value, Value]](margs.head)
-                          case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
-                      else DataV("Stub", Vector(StrV(s"$tag.$name")))
-                    case None => DataV("Stub", Vector(StrV(s"$tag.$name")))
+                          case _ => stubMiss(tag, name, recv)
+                      else stubMiss(tag, name, recv)
+                    case None => stubMiss(tag, name, recv)
                 case _ =>
                   // ETA-EXPANSION: a method SELECTED on a value but NOT applied
                   // (`list.exists(lc.contains)`) reaches here with zero args after no
@@ -3265,6 +3282,32 @@ object Prims:
     case DataV("Stub", _) => true
     case _                => false
 
+  // ── SSC_STUB_TRACE — print the RECEIVER where a method misses ────────────────
+  //
+  // The breadcrumb carries `<Tag>.<method>`, and that is what the fatal message at the
+  // output boundary reports. It names what was CALLED; it cannot name what it was called
+  // ON. When the receiver's TYPE is the surprise — `Tuple4.isEmpty` from a program whose
+  // 68 `.isEmpty` receivers are all declared `Option`, `List` or `String`
+  // (corpus-contract-scljet-jdbc-v2-timeout) — the tag alone leaves you grepping call
+  // sites, because every one of them looks right in the source.
+  //
+  // Off by default and read ONCE: this sits on the miss path of the single dispatch point for
+  // every method call in every v2 program, and `sys.env` builds a fresh Map on every call.
+  private val stubTrace: Boolean =
+    sys.env.get("SSC_STUB_TRACE").exists(v => v != "" && v != "0" && v != "off")
+
+  /** Mint the missed-method breadcrumb, printing the receiver under `SSC_STUB_TRACE`. */
+  private def stubMiss(tag: String, name: String, recv: Value): Value =
+    if stubTrace then
+      // Show THROWS on a Stub (that is the point of the boundary check), and a receiver
+      // whose FIELD is a stub is exactly the compounding case worth seeing — so a failed
+      // render must not replace the diagnostic with an exception from the diagnostic.
+      val shown =
+        try Show.show(recv)
+        catch case e: Throwable => s"<unrenderable ${recv.getClass.getSimpleName}: ${e.getMessage}>"
+      System.err.println(s"[stub] $tag.$name  receiver = $shown")
+    DataV("Stub", Vector(StrV(s"$tag.$name")))
+
   // ── Effect-aware list traversal (bridged-lane list HOFs) ─────────────────────
   // A perform INSIDE a HOF lambda (`items.map(i => OperatorPlan(i.id,
   // Operator.decide(i)))`) makes the per-element call return an unresolved
@@ -3405,7 +3448,11 @@ object Prims:
     case "f.le"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x <= y); case (a,b) => sys.error("f.le: not Float") }
     case "f.gt"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x >  y); case (a,b) => sys.error("f.gt: not Float") }
     case "f.ge"     => Some { case (FloatV(x), FloatV(y)) => BoolV(x >= y); case (a,b) => sys.error("f.ge: not Float") }
+    // The binary fast-path twin of the `sconcat` prim above, and it carries the same list arm for
+    // the same reason — this table's own header says a fast path stricter than the general one
+    // silently diverges, and `sconcat` is the lesson it cites.
     case "sconcat"  => Some { case (StrV(a),  StrV(b))    => StrV(a + b)
+                              case (l, r) if isList(l) => arithOp("++", l, r)
                               case (DataV(_, f1), DataV(_, f2)) =>
                                 val n = f1.length + f2.length; DataV(s"Tuple$n", f1 ++ f2)
                               case (a, b) => StrV(anyStr(a) + anyStr(b)) }  // mirror the general table: coerce like "s" + 42

@@ -295,6 +295,11 @@ val suite = List(
   Check("v2", "v2-annotated-field-derives", "tests/e2e/v2-annotated-field-derives.sh", List(), 60000),
   Check("v2", "v2-std-index-arity", "tests/e2e/v2-std-index-arity.sh", List(), 60000),
   Check("v2", "v2-string-plus-vs-user-concat", "tests/e2e/v2-string-plus-vs-user-concat-ext.sh", List(), 60000),
+  // Sits beside the string-concat gate above because it is the same operator and the OPPOSITE
+  // operand type: `a ++ b ++ c` on lists answered a TupleN on the v2 and bytecode lanes and exited
+  // 0, so no gate anywhere could see it — the four scljet corpus cases only went red once a
+  // missing method became fatal. Three lanes, seven rows, ~30 s.
+  Check("v2", "list-concat-chain", "tests/e2e/list-concat-chain-gate.sh", List(), 300000),
   Check("v2", "v2-dsl-yaml-like", "tests/e2e/dsl-yaml-like-v2-smoke.sh", List(), 60000),
   Check("v2", "v2-indent-layout", "tests/e2e/indent-layout-v2-smoke.sh", List(), 60000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),

@@ -305,6 +305,9 @@ private def _Nil: V = ("Nil", Array.empty[V])
 private def _Cons(h: V, t: V): V = ("Cons", Array[V](h, t))
 private def _strList(xs: Seq[String]): V = xs.foldRight(_Nil)((s, acc) => _Cons(s, acc))
 private def _valList(vs: Seq[V]): V = vs.foldRight(_Nil)((v, acc) => _Cons(v, acc))
+private def _isListV(v: V): Boolean = v match
+  case (tag: String, _: Array[V]) => tag == "Cons" || tag == "Nil"
+  case _                          => false
 private def _unlist(v: V): List[V] =
   var cur = v; val buf = scala.collection.mutable.ListBuffer[V]()
   while cur.asInstanceOf[(String, Array[V])]._1 == "Cons" do
@@ -492,8 +495,16 @@ object R:
     case "f.le"     => _asDouble(a0) <= _asDouble(a1)
     case "f.gt"     => _asDouble(a0) >  _asDouble(a1)
     case "f.ge"     => _asDouble(a0) >= _asDouble(a1)
+    // The list arm is NOT optional here and NOT only about strings: the front emits `sconcat` for
+    // `++` whenever it can type the left operand as String, and it reads `++` itself as such — so
+    // the outer concat of `a ++ b ++ c` arrives here with two LISTS. A list is ("Cons", [h, t]),
+    // a two-field Data, which the tuple arm below concatenated field-wise into a Tuple4. Same
+    // defect and same fix as the kernel's `sconcat` (v2/src/Runtime.scala); this lane is the twin
+    // that a fix to one alone would have left wrong. tests/e2e/list-concat-chain-gate.sh runs both.
     case "sconcat"  => (a0, a1) match
                          case (s1: String, s2: String) => s1 + s2
+                         case (l, r) if _isListV(l) && _isListV(r) =>
+                           _valList(_unlist(l) ++ _unlist(r))
                          case ((t1: String, f1: Array[V]), (t2: String, f2: Array[V])) =>
                            val n = f1.length + f2.length; (s"Tuple$n", (f1 ++ f2).asInstanceOf[Array[V]])
                          case _ => _asStr(a0) + _asStr(a1)
