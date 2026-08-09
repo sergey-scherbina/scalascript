@@ -2384,18 +2384,37 @@ past `FreqInlineSize` (325), so neither ever inlines into the dispatch loop. The
 same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did not carry over is that
 **nothing in the build looks at method size**, which is why the first thing built here is the gate.
 
-- [~] **SSC3-J1 — the specializer, plus the gate that will judge it.** `Ir.scala` says the `kind`
-      field exists so "the specializer rewrites the field in place"; measured, `Lower.scala` emits
-      `NumKind.Dyn` at all nine of its sites and `Exec.step` matches it as `_`. The lever the IR was
-      designed around is emitted blank and read nowhere.
-      *Building:* `v3/jit-gate.sh` (`--sizes` bytecode-size check, `--specialize` per-instruction
-      kind fixtures, `--identity` corpus byte-equality) and `v3/src/Specialize.scala`
-      (`Specialize.module(m): Module`, pure, runs AFTER `Verify` per I-4, unproved stays `Dyn`).
-      *Done when:* `--sizes` is RED on `main` and named as such in the commit (P-6.1 — the failing
-      state is the starting state), `--specialize` is proven able to fail by reverting the rewrite,
-      and `v3/corpus-report.sh --exec` has not moved (I-5).
-      **`--identity` is asleep until `Exec` reads `kind`, and the spec says so in §4** — while the
-      field is ignored, that gate would pass a specializer assigning `F64` to string concatenation.
+- [x] **SSC3-J1a — the specializer writes the field, and the gate judges it.** `6feef7689`.
+      `Specialize.module` is a forward dataflow over the structured regions — `Block`/`If` consume
+      depth-0 branches into their exit, `Loop` feeds them back into its entry and iterates to a
+      fixpoint, deeper branches are re-emitted one level lower, which is the arithmetic `Exec`
+      already does with `Signal.Branch(d - 1)`.
+      **70 of 203 arithmetic and comparison instructions proved across the 30 `bench/corpus` files
+      that lower — 67 `i64`, 3 `f64`, 34.5 %.** `arith-loop` and `float-loop` go from 3 `Dyn` to 3
+      proved each, and both need the loop fixpoint: the conservative shortcut ("every register a
+      loop writes is unknown at its head") is sound and proves nothing in either.
+      **`Big` is never emitted, and that is a correctness rule rather than a gap** —
+      `Exec.constOf` turns `Lit.LBig` into a `Value.VStr`, so a `Big`-marked instruction would name
+      a representation the executor does not have. Invisible today, a wrong answer the day the field
+      is trusted.
+      *Gate:* `v3/jit-gate.sh --specialize`, four fixtures each failing for a DIFFERENT wrong
+      analysis, plus a three-rule `--self-test` that plants each failure and requires RED.
+
+- [~] **SSC3-J1b — `Exec.step` dispatches on `kind`. BLOCKED on the same file as J0.** Until this
+      lands the field is written and still not read, so the win is 0 and the `--identity` gate stays
+      unwritten: while `kind` is ignored, a corpus byte-equality check would pass a specializer that
+      marked string concatenation `f64`. `--specialize` is the only check with an opinion until then,
+      and `v3/jit-gate.sh` says so in its own output rather than only in the spec.
+      *Note for whoever writes it:* `Div`/`Rem` by zero must keep throwing `ExecError("/ by zero")`
+      on the `I64` path — the generic arm does, and a fast path that let the host's
+      `ArithmeticException` out would change the message the corpus compares.
+
+**The follow-up, recorded here rather than as a third row** — a module sprint has two states and
+"not started" is not one of them. The 133 instructions still `Dyn` are mostly PARAMETERS, which an
+intraprocedural pass cannot know. Interprocedural kinds — join the argument kinds over every `Call`
+site of a function, leave anything a `CallV` can reach at `Dyn` — is the next precision step, and it
+is a strictly larger analysis, so it waits until J1b has shown that the proved third is worth
+anything at run time. Proving more of a field nobody reads is not progress.
 
 - [~] **SSC3-J0 — executor hygiene. BLOCKED, deliberately, not forgotten.** Split `invoke`/`step`/
       `binOp` under the limits; materialize the constant pool once (`Instr.Const` builds a fresh
