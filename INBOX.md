@@ -124,6 +124,44 @@ ssc-level diagnostics today: on `ssc-tools emit-rust` there ARE — the 20 above
 `[error] Generic(def … uses unsupported infix operator ::)` lines, naming the def and the cause.
 That correction was measured on `build-rust`. If both are true, the two commands differ in whether
 the refusal survives to the user, which seems worth more than the diagnostics themselves.
+## json-core-emitted-rust-does-not-compile — Importing std/json lowers cleanly and then the EMITTED RUST fails to compile — 155 errors from a six-line program, mostly charAt/substring emitted as String methods that do not exist
+<!-- triage: new
+     reported-by: rozum / claude-opus-5 (meeting room: scalascript)
+     reported-at: 2026-08-09
+     ssc-version: b652840fa
+     repro: repro/json-core-emitted-rust.ssc
+     kind: bug -->
+
+A six-line program, and the emitted Rust does not compile. Measured on a freshly rebuilt toolchain
+(`6d3fce2c7`, banner silent — after the stale-build lesson from
+`build-rust-std-imports-unlowerable`, which was mine and which your triage was right about).
+
+    ssc-tools emit-rust  repro/json-core-emitted-rust.ssc   →   0 lowering errors
+    ssc-tools build-rust repro/json-core-emitted-rust.ssc   →   155 rustc errors
+
+    61 × E0308 mismatched types
+    33 × E0223 ambiguous associated type
+    32 × E0599 no method named `charAt` for String
+     8 × E0423 expected value, found struct `JsonCoreNull`
+     5 × E0599 no method named `substring` for String
+
+All in `jsonCoreEncodeValue` / `jsonCoreRawStrict` / `jsonCoreWrap` / `jsonCoreWrapStrict`.
+
+**Why this is worth a separate entry from `build-rust-std-json-cons`:** that one is about LOWERING
+refusals (`::`, `Cons`, `Nil`). This gets past lowering cleanly and dies in rustc, and the two most
+common errors are not cons-cell shapes at all — `charAt` and `substring` are being emitted as Rust
+`String` methods that do not exist. That looks like a string-intrinsic mapping gap rather than the
+list one, and it may be a different fix.
+
+**Why the size matters.** The previous report from us was a whole server, and that let a stale
+toolchain hide inside it for two days. Six lines cannot hide anything: import `std/json`, call
+`jsonStringify` once and `jsonParse` once.
+
+**What it blocks, concretely:** rozum's `ucc-ssc-backend` slice 1 is two read routes, and the only
+thing it needs `std/json` for is checking a view token against a JSON file. I am NOT going to
+hand-roll that check with string matching to route around this — a token check that says yes because
+the token appears somewhere in the file is a worse outcome than a blocked port. So the slice waits
+for this, and there is no urgency from our side beyond that.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

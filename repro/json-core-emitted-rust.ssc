@@ -1,0 +1,15 @@
+#!/usr/bin/env ssc
+---
+name: imp-json
+version: 0.1.0
+description: Import std/json and use it.
+---
+```scalascript
+[jsonParse, jsonStringify](std/json.ssc)
+
+def main(): Unit =
+  println(jsonStringify(Map("a" -> "b")))
+  val v = jsonParse("[1,2]")
+  println("parsed")
+main()
+```
