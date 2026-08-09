@@ -1,0 +1,12 @@
+slug: std-to-repo-root
+branch: feature/std-to-repo-root
+agent: claude-code
+started: 2026-08-09T15:38:06Z
+heartbeat: 2026-08-09T15:38:06Z
+status: claimed-before-planning
+items: std-to-repo-root
+paths: mod:v1/runtime/std mod:std file:build.sbt file:v1/lang/core/src/main/scala/scalascript/imports/ImportResolver.scala file:specs/project-partitioning.md file:specs/std-to-repo-root.md
+broad: moving the 108 shared .ssc std modules out of v1/runtime/std to a root std/, per Sergiy 2026-08-09. Every one of them is staged into the native front by build.sbt:2360, so the v1/ in their path is a name that stopped being true; scljet/ is the working precedent. The 49 Scala plugin modules under the same directory STAY — specs/project-partitioning.md 4 rules those are v1's on purpose. mod: on both ends because a 108-file move locks both directories in practice.
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
