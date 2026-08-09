@@ -1,0 +1,11 @@
+slug: error-bucket-census
+branch: feature/error-bucket-census
+agent: claude-code
+started: 2026-08-09T15:32:28Z
+heartbeat: 2026-08-09T15:32:28Z
+status: claimed-before-planning
+items: error-bucket-census
+paths: file:examples/content-toolkit-transitive/app.ssc file:examples/content-toolkit-transitive-register/app.ssc file:tests/BUGS.md file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
