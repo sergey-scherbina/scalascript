@@ -4,7 +4,7 @@ agent: claude-code
 started: 2026-08-09T17:18:58Z
 heartbeat: 2026-08-09T17:18:58Z
 status: claimed-before-planning
-items: x
+items: the index gate checks fixed-in reachability but not the inverse stale open entry
 paths: file:tests/e2e/bugs-index-gate.sh file:specs/bugs-index.md BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
