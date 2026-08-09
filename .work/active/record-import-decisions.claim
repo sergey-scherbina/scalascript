@@ -1,0 +1,11 @@
+slug: record-import-decisions
+branch: feature/record-import-decisions
+agent: claude-code
+started: 2026-08-09T17:41:03Z
+heartbeat: 2026-08-09T17:41:03Z
+status: claimed-before-planning
+items: both import questions now have an owner decision; the entries still say undecided
+paths: BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
