@@ -185,6 +185,30 @@ def scanInterpEnd = (s, i, depth) =>
       else scanInterpEnd(s, #i.add(i, 1), #i.sub(depth, 1))
     else scanInterpEnd(s, #i.add(i, 1), depth)
 
+-- A string is INTERPOLATED only when an identifier abuts its opening quote — `s"…"`, `html"…"`,
+-- Scala's own rule. Only then may `${…}` swallow inner quotes and braces, and scanStr below must
+-- balance them so `s"${a("x")}"` is not terminated by the inner quote.
+--
+-- Without this test every string was scanned that way, so a PLAIN literal containing `${` ran past
+-- its own closing quote and ate whatever followed:
+--
+--   println("${")               printed  ${")            -- the quote and the paren, as text
+--   "${" + s + "}"  on s="x"    printed  ${" + s + "}    -- the whole expression, as text
+--
+-- Both are correct under front F, which is what made this visible: it was the first divergence this
+-- week where the REFERENCE front was the wrong one. Found in runtime/std/ui/content.ssc, whose
+-- ContentInline.Expr arm renders an un-evaluated expression as exactly `"${" + source + "}"`.
+def strIsInterp = (s, q) =>
+  if #i.eq(q, 0) then false else isAlphaNum(sget(s, #i.sub(q, 1)))
+
+-- Plain string: only a backslash escape and the closing quote mean anything.
+def scanStrPlain = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if #i.eq(c, 34) then i
+    else if #i.eq(c, 92) then scanStrPlain(s, #i.add(i, 2))
+    else scanStrPlain(s, #i.add(i, 1))
+
 def scanStr = (s, i) =>
   if #i.ge(i, slen(s)) then i
   else let c = sget(s, i) in
@@ -195,6 +219,10 @@ def scanStr = (s, i) =>
         scanStr(s, scanInterpEnd(s, #i.add(i, 2), 1))
       else scanStr(s, #i.add(i, 1))
     else scanStr(s, #i.add(i, 1))
+
+-- `q` is the index of the OPENING quote, so the interpolator test can look at the byte before it.
+def scanStrAny = (s, q) =>
+  if strIsInterp(s, q) then scanStr(s, #i.add(q, 1)) else scanStrPlain(s, #i.add(q, 1))
 
 -- Triple-quoted strings are raw. A run of N >= 3 quotes closes with its LAST
 -- three quotes; the preceding N - 3 quotes are string content. This is what
@@ -390,10 +418,10 @@ def lexFrom = (s, i) =>
           let e = scanTripleEnd(s, start) in
           Cons(mkTok("str", #sslice(s, start, e)), lexFrom(s, #i.add(e, 3)))
         else
-          let e = scanStr(s, #i.add(i2, 1)) in
+          let e = scanStrAny(s, i2) in
           Cons(mkTok("str", buildStr(s, #i.add(i2, 1), e, "")), lexFrom(s, #i.add(e, 1)))
       else
-        let e = scanStr(s, #i.add(i2, 1)) in
+        let e = scanStrAny(s, i2) in
         Cons(mkTok("str", buildStr(s, #i.add(i2, 1), e, "")), lexFrom(s, #i.add(e, 1)))
     else if #i.eq(c, 40)  then Cons(mkTok("(", ""),   lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 41)  then Cons(mkTok(")", ""),   lexFrom(s, #i.add(i2, 1)))

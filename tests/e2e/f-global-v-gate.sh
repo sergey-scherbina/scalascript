@@ -17,7 +17,7 @@
 # naming the construct at fault. Both shapes are pinned below so a partial fix cannot pass.
 #
 # SCALE, measured 2026-08-08 over the 140-file corpus: 32 files were GAP and 16 of them — every
-# frontend example — reported `(global v)`, all inherited from ONE module, runtime/std/ui/lower.ssc,
+# frontend example — reported `(global v)`, all inherited from ONE module, std/ui/lower.ssc,
 # which every one of them imports. That module is checked directly at the end: it is the subject,
 # the examples are only its consumers.
 #
@@ -185,8 +185,11 @@ fi
 # ── the real subject ─────────────────────────────────────────────────────────────────────────────
 # The corpus files never contained the construct; they import the module that does. Asserting the
 # module directly is what keeps this honest if the examples are ever edited.
+# The path is std/ui, not runtime/std/ui: the 108 shared .ssc std modules moved to the repo root in
+# 531a0e451. This check went red the moment they did, and it read as a front regression -- a gate
+# that names a file by a hardcoded path fails in a way that accuses the code under test.
 echo "── the module the 16 corpus files inherited this from"
-for mod in runtime/std/ui/lower.ssc; do
+for mod in std/ui/lower.ssc; do
   verdict=$("$ssc" info --front-report "$ROOT/$mod" 2>/dev/null | tail -1 | awk -F'\t' '{print $2}')
   if [[ "$verdict" == "F" ]]; then
     echo "  ✓ $mod: F"

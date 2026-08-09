@@ -4,7 +4,7 @@
 #
 # `f-std-ui-gaps-behind-the-curried-def-fix`, gap 2. `card(text("a"))` errored with
 # `element children expected a valid List` under F and rendered fine under the reference front.
-# The card was never the subject: runtime/std/ui/lower.ssc:510 builds one as
+# The card was never the subject: std/ui/lower.ssc:510 builds one as
 #
 #     headerParts ++ [bodyEl] ++ footerParts
 #
