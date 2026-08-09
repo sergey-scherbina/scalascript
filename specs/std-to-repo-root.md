@@ -75,9 +75,31 @@ checks are about presence and count, not just about green.
    [`v1-runtime-compat-symlink.md`](v1-runtime-compat-symlink.md) recorded when Phase 1 of the
    v1→v2 migration moved `runtime/` and forgot the resolver.
 3. **Installed-mode resolution.** The same, through the staged tree rather than the source tree.
-4. **Negative control.** Repoint the staging line back to `v1/runtime/std` and confirm check 1
-   drops to 0 — otherwise check 1 was never reading what it claims to.
+4. **Negative control.** Repoint the staging line back to `v1/runtime/std` and confirm the build
+   fails — otherwise the guard was never reading what it claims to.
 5. `scripts/smoke-ci`, and the conformance slice covering `std/*` imports.
+
+### 4.1 Two ways the apparatus lied before it worked
+
+Both were caught by running the negative control rather than by reasoning, and both are the
+reason §4 is worded around *discrimination* instead of *green*.
+
+**The first guard was useless.** It tested `nativeStdFiles.isEmpty`. Pointed back at
+`v1/runtime/std` — the wrong root, the one this whole task moves away from — the deep glob still
+matched **23** files, because `v1/runtime/std/scljet` is a symlink to the repo-root `scljet/`
+and the glob follows it. A wrong source root would have staged 23 modules instead of 131 and
+reported success. The working guard tests for **loose top-level `.ssc`**, which is the actual
+discriminator: 58 in the real std tree, 0 in the old one.
+
+**Then the control itself lied, twice, and it was the tooling.** `scripts/sbtc` is a thin client
+onto a **warm sbt server**, and that server holds the build definition it loaded at startup. After
+editing `build.sbt`, `sbtc` happily reported `[success]` for both arms of the control — and an
+unconditional `sys.error` planted in the staging block was *not reached* through `sbtc` while a
+fresh `sbt -batch` hit it immediately. Every `sbtc` measurement of a `build.sbt` change is a
+measurement of the previous `build.sbt`.
+
+**So: verify a `build.sbt` change with `sbt -batch`, never with `scripts/sbtc`.** `AGENTS.md`
+recommends `sbtc` for speed, which is right for source edits and wrong for this one case.
 
 ## 5. Order of work
 

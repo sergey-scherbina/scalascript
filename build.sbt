@@ -2367,8 +2367,21 @@ lazy val cli = project
       val stdSourceRoot = root / "std"
       val stagedStdRoot = nativeFrontDir / "runtime" / "std"
       val nativeStdFiles = (stdSourceRoot ** "*.ssc").get.filter(_.isFile)
-      if nativeStdFiles.isEmpty then
-        sys.error(s"native std staging matched no .ssc under $stdSourceRoot — the std source root is wrong")
+      // Scala 2.12 here — build.sbt is the sbt build definition, not project source.
+      //
+      // The check is on LOOSE top-level `.ssc`, not on the glob being non-empty, and the
+      // difference is the whole point. `isEmpty` was the first version and it was USELESS:
+      // pointed back at `v1/runtime/std` it still matched 23 files, because `scljet` there is
+      // a symlink to the repo-root `scljet/` and the glob follows it. A wrong source root
+      // would have staged 23 files instead of 131 and reported success. Measured 2026-08-09,
+      // and it is the reason this guard exists in the form it does: 58 loose `.ssc` at the
+      // root of the real std tree, 0 at the root of the old one.
+      val looseStd = (stdSourceRoot * "*.ssc").get.filter(_.isFile)
+      if (looseStd.isEmpty)
+        sys.error(
+          s"native std staging found no top-level .ssc directly under $stdSourceRoot — " +
+          s"the std source root is wrong (a non-empty deep glob is NOT proof: the scljet " +
+          s"symlink alone satisfies it). See specs/std-to-repo-root.md.")
       nativeStdFiles.foreach { src =>
         val rel = IO.relativize(stdSourceRoot, src).getOrElse(sys.error(s"cannot relativize native std source: $src"))
         val dest = stagedStdRoot / rel
