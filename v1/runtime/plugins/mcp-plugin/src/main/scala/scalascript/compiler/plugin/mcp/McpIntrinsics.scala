@@ -268,14 +268,18 @@ private object Mcp:
     claims:  Option[McpAuth.AuthClaims],
     ctx: PluginContext
   ): PluginValue = builder.withAuth(claims) {
-    val acceptsSse = fields.get("headers").collect {
-      case MapVal(m) =>
-        m.iterator.exists {
-          case (Str(k), Str(v)) =>
-            k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
-          case _ => false
-        }
-    }.getOrElse(false)
+    // MCP 2026-07-28 mirrors `method`, `params.name`/`params.uri` and the protocol
+    // version into HTTP headers, and the server MUST reject a request whose headers
+    // and body disagree. Lifting them out here is what makes that check real: the
+    // validator in McpServerCore is only as good as what reaches it, and a check
+    // nothing feeds cannot fail. Applies to modern requests only — a legacy client's
+    // revision never defined these headers.
+    val reqHeaders: Map[String, String] = fields.get("headers").collect {
+      case MapVal(m) => m.iterator.collect { case (Str(k), Str(v)) => k -> v }.toMap
+    }.getOrElse(Map.empty)
+    val acceptsSse = reqHeaders.exists { (k, v) =>
+      k.equalsIgnoreCase("Accept") && v.toLowerCase.contains("text/event-stream")
+    }
     if acceptsSse then
       val sseHeaders = PluginValue.mapOf(Map(
         (PluginValue.string("Content-Type"): PluginValue) -> (PluginValue.string("text/event-stream"): PluginValue),
@@ -290,7 +294,7 @@ private object Mcp:
           }
           try
             val reply = builder.withAuth(claims) {
-              McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+              McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0", reqHeaders)
             }
             if reply.nonEmpty then
               ctx.invokeCallback(writeFn,
@@ -305,7 +309,7 @@ private object Mcp:
         "callback" -> callback
       ))
     else
-      val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0")
+      val reply = McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0", reqHeaders)
       val (status, respBody) =
         if reply.isEmpty then (204, "")
         else (200, reply)

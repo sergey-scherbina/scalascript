@@ -198,6 +198,93 @@ object McpProtocol:
       "requested" -> requested
     )
 
+  // ─── MCP 2026-07-28 — Streamable-HTTP request metadata headers ──────
+
+  /** Header names the transport mirrors selected body fields into, so an
+   *  intermediary can route without parsing the body.  RFC 9110 makes field
+   *  NAMES case-insensitive — comparisons must be too — while the VALUES
+   *  here are case-sensitive. */
+  object Header:
+    val ProtocolVersion = "MCP-Protocol-Version"
+    val Method          = "Mcp-Method"
+    val Name            = "Mcp-Name"
+    val ParamPrefix     = "Mcp-Param-"
+
+  /** The three methods whose `Mcp-Name` is required, and where its value
+   *  comes from in the body. */
+  val NameHeaderSource: Map[String, String] = Map(
+    Method.ToolsCall      -> "name",
+    Method.PromptsGet     -> "name",
+    Method.ResourcesRead  -> "uri"
+  )
+
+  /** Decode the `=?base64?…?=` sentinel a client uses when a value cannot be
+   *  carried as plain ASCII.  A value not in that form is returned as-is —
+   *  the sentinel is exact and case-sensitive by spec, so anything else is
+   *  a literal.  Servers MUST decode before comparing to the body. */
+  def decodeHeaderValue(v: String): String =
+    if v.startsWith("=?base64?") && v.endsWith("?=") && v.length >= 11 then
+      try String(java.util.Base64.getDecoder.decode(v.substring(9, v.length - 2)), "UTF-8")
+      catch case _: Throwable => v      // malformed payload: compare literally, and fail loudly
+    else v
+
+  /** Encode for a header, using the sentinel only when the value cannot ride
+   *  as plain ASCII — which per RFC 9110 means visible ASCII, space and tab,
+   *  with no leading or trailing whitespace.  A plain value that happens to
+   *  LOOK like the sentinel must also be encoded, or a server would decode
+   *  something the client never encoded. */
+  def encodeHeaderValue(v: String): String =
+    val plain = v.nonEmpty && v.forall(c => c == '\t' || (c >= 0x20 && c <= 0x7E)) &&
+                v == v.trim && !(v.startsWith("=?base64?") && v.endsWith("?="))
+    if plain then v
+    else "=?base64?" + java.util.Base64.getEncoder.encodeToString(v.getBytes("UTF-8")) + "?="
+
+  /** Validate the mirrored headers against the body they claim to describe.
+   *  Returns `Some(message)` naming the first violation, or `None` when they
+   *  agree.
+   *
+   *  Only applies to MODERN requests. A legacy client never sent these
+   *  headers and its revision never defined them, so rejecting it for their
+   *  absence would break the era we promised to keep serving — the spec
+   *  allows exactly this reading, letting a server treat a header-less
+   *  request as `2025-03-26`.
+   *
+   *  The point of the check is not tidiness: a load balancer may route on
+   *  the header while the server executes the body, so a request whose two
+   *  copies disagree is a request two components will act on differently. */
+  def validateRequestHeaders(
+    headers: Map[String, String],
+    method:  String,
+    params:  ujson.Value,
+    ctx:     RequestContext
+  ): Option[String] =
+    if !ctx.isModern then None
+    else
+      val lower = headers.map((k, v) => k.toLowerCase -> v)
+      def get(name: String): Option[String] = lower.get(name.toLowerCase)
+      val bodyVersion = ctx.protocolVersion.getOrElse("")
+      get(Header.ProtocolVersion) match
+        case None =>
+          Some(s"missing required header ${Header.ProtocolVersion}")
+        case Some(h) if h != bodyVersion =>
+          Some(s"${Header.ProtocolVersion} header '$h' does not match body value '$bodyVersion'")
+        case _ =>
+          get(Header.Method) match
+            case None =>
+              Some(s"missing required header ${Header.Method}")
+            case Some(h) if h != method =>
+              Some(s"${Header.Method} header '$h' does not match body value '$method'")
+            case _ =>
+              NameHeaderSource.get(method) match
+                case None => None      // this method mirrors no name
+                case Some(field) =>
+                  val bodyName = try params.objOpt.flatMap(_.get(field)).flatMap(_.strOpt) catch case _: Throwable => None
+                  (get(Header.Name).map(decodeHeaderValue), bodyName) match
+                    case (None, Some(_))            => Some(s"missing required header ${Header.Name}")
+                    case (Some(h), Some(b)) if h != b =>
+                      Some(s"${Header.Name} header '$h' does not match body value '$b'")
+                    case _ => None
+
   /** `data` payload for `MissingRequiredClientCapability` (-32021). */
   def missingCapabilityData(required: List[String]): ujson.Value =
     ujson.Obj("requiredCapabilities" -> ujson.Arr.from(required.map(ujson.Str(_))))

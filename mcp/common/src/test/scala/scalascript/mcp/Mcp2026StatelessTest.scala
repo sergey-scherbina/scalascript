@@ -283,3 +283,89 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
   test("CacheHints refuses a negative ttl and an unknown scope"):
     an [IllegalArgumentException] should be thrownBy McpProtocol.CacheHints(-1, "public")
     an [IllegalArgumentException] should be thrownBy McpProtocol.CacheHints(0, "shared")
+
+  // ── P2b: mirrored request headers must agree with the body ──────────
+
+  private def modernHeaders(extra: (String, String)*): Map[String, String] =
+    Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.Header.Method          -> McpProtocol.Method.ToolsCall,
+        McpProtocol.Header.Name            -> "echo") ++ extra
+
+  private def callBody = ujson.Obj(
+    "jsonrpc" -> "2.0", "id" -> 40, "method" -> McpProtocol.Method.ToolsCall,
+    "params"  -> modernParams("name" -> ujson.Str("echo"), "arguments" -> ujson.Obj())).render()
+
+  private def echoServer(): McpServerBuilder =
+    val b = new McpServerBuilder
+    b.tool("echo", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    b
+
+  test("headers that agree with the body are accepted"):
+    val js = ujson.read(McpServerCore.handleHttpRequest(
+      echoServer(), callBody, "srv", "9.9.9", modernHeaders()).trim)
+    js.obj.keySet should not contain "error"
+    js("result")("resultType").str shouldBe "complete"
+
+  test("every disagreeing or missing standard header is -32020"):
+    val cases = List(
+      "wrong version"  -> modernHeaders(McpProtocol.Header.ProtocolVersion -> "2025-03-26"),
+      "wrong method"   -> modernHeaders(McpProtocol.Header.Method -> "tools/list"),
+      "wrong name"     -> modernHeaders(McpProtocol.Header.Name -> "not-echo"),
+      "no version"     -> modernHeaders().removed(McpProtocol.Header.ProtocolVersion),
+      "no method"      -> modernHeaders().removed(McpProtocol.Header.Method),
+      "no name"        -> modernHeaders().removed(McpProtocol.Header.Name)
+    )
+    for (label, h) <- cases do
+      val js = ujson.read(McpServerCore.handleHttpRequest(echoServer(), callBody, "srv", "9.9.9", h).trim)
+      withClue(s"$label: ") {
+        js("error")("code").num shouldBe McpProtocol.ErrorCode.HeaderMismatch
+        js("error")("message").str should startWith ("Header mismatch")
+      }
+
+  test("header NAMES compare case-insensitively, values do not"):
+    // RFC 9110: field names are case-insensitive. Values — method names here — are not.
+    val shouted = modernHeaders().map((k, v) => k.toUpperCase -> v)
+    ujson.read(McpServerCore.handleHttpRequest(echoServer(), callBody, "srv", "9.9.9", shouted).trim)
+      .obj.keySet should not contain "error"
+    val wrongCaseValue = modernHeaders(McpProtocol.Header.Method -> "TOOLS/CALL")
+    ujson.read(McpServerCore.handleHttpRequest(echoServer(), callBody, "srv", "9.9.9", wrongCaseValue).trim)(
+      "error")("code").num shouldBe McpProtocol.ErrorCode.HeaderMismatch
+
+  test("a LEGACY request is never rejected for headers its revision never had"):
+    // The whole dual-era promise in one case: no _meta, no headers, still served.
+    val legacyBody = ujson.Obj("jsonrpc" -> "2.0", "id" -> 41,
+      "method" -> McpProtocol.Method.ToolsCall,
+      "params" -> ujson.Obj("name" -> "echo", "arguments" -> ujson.Obj())).render()
+    val js = ujson.read(McpServerCore.handleHttpRequest(echoServer(), legacyBody, "srv", "9.9.9", Map.empty).trim)
+    js.obj.keySet should not contain "error"
+    js("result").obj.keySet should not contain "resultType"
+
+  test("the base64 sentinel round-trips, and is decoded before comparison"):
+    for v <- List("us-west1", "Hello, 世界", " padded ", "line1\nline2", "=?base64?literal?=") do
+      withClue(s"[$v]: ") { McpProtocol.decodeHeaderValue(McpProtocol.encodeHeaderValue(v)) shouldBe v }
+    McpProtocol.encodeHeaderValue("us-west1") shouldBe "us-west1"          // plain ASCII rides as-is
+    McpProtocol.encodeHeaderValue("Hello, 世界") should startWith ("=?base64?")
+    // A value that merely LOOKS like the sentinel must still be encoded, or the
+    // server would decode something the client never encoded.
+    McpProtocol.encodeHeaderValue("=?base64?literal?=") should not be "=?base64?literal?="
+
+  test("an encoded Mcp-Name is compared against the body decoded"):
+    val b = new McpServerBuilder
+    b.tool("Hello, 世界", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    val body = ujson.Obj("jsonrpc" -> "2.0", "id" -> 42, "method" -> McpProtocol.Method.ToolsCall,
+      "params" -> modernParams("name" -> ujson.Str("Hello, 世界"), "arguments" -> ujson.Obj())).render()
+    val h = Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+                McpProtocol.Header.Method          -> McpProtocol.Method.ToolsCall,
+                McpProtocol.Header.Name            -> McpProtocol.encodeHeaderValue("Hello, 世界"))
+    ujson.read(McpServerCore.handleHttpRequest(b, body, "srv", "9.9.9", h).trim)
+      .obj.keySet should not contain "error"
+
+  test("only the three name-mirroring methods require Mcp-Name"):
+    McpProtocol.NameHeaderSource.keySet shouldBe
+      Set(McpProtocol.Method.ToolsCall, McpProtocol.Method.PromptsGet, McpProtocol.Method.ResourcesRead)
+    val listBody = ujson.Obj("jsonrpc" -> "2.0", "id" -> 43,
+      "method" -> McpProtocol.Method.ToolsList, "params" -> modernParams()).render()
+    val h = Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+                McpProtocol.Header.Method          -> McpProtocol.Method.ToolsList)
+    ujson.read(McpServerCore.handleHttpRequest(echoServer(), listBody, "srv", "9.9.9", h).trim)
+      .obj.keySet should not contain "error"

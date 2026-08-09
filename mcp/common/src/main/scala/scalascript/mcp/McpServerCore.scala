@@ -570,7 +570,14 @@ object McpServerCore:
     builder:       McpServerBuilder,
     body:          String,
     serverName:    String = "ssc-mcp-server",
-    serverVersion: String = "1.0.0"
+    serverVersion: String = "1.0.0",
+    /** MCP 2026-07-28 request-metadata headers, for the header/body agreement
+     *  check. Defaulted so the stdio and WS transports — which have no headers
+     *  and for which the spec defines none — keep calling this unchanged.
+     *  An HTTP caller that passes nothing gets no validation, which is why the
+     *  route in `McpIntrinsics` passes the real ones: a validator nothing feeds
+     *  is a check that cannot fail. */
+    headers:       Map[String, String] = Map.empty
   ): String =
     JsonRpc.parse(body) match
       case Left(err) =>
@@ -593,7 +600,16 @@ object McpServerCore:
         builder.routeInboundResponse(resp)
         ""
       case Right(JsonRpc.Message.Request(method, params, id)) =>
-        dispatch(builder, method, params, id, serverName, serverVersion)
+        // Header/body agreement, MODERN requests only. A load balancer may route on
+        // the mirrored header while this server executes the body, so a request whose
+        // two copies disagree is one that two components would act on differently —
+        // which is why the spec makes this -32020 rather than a warning.
+        val ctx = McpProtocol.parseRequestMeta(params)
+        McpProtocol.validateRequestHeaders(headers, method, params, ctx) match
+          case Some(why) =>
+            JsonRpc.encodeError(id, McpProtocol.ErrorCode.HeaderMismatch, s"Header mismatch: $why")
+          case None =>
+            dispatch(builder, method, params, id, serverName, serverVersion)
 
   /** One request → one wire-ready response frame (with trailing `\n`).
    *  Exposed for tests so they can drive dispatch without spinning a
