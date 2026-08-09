@@ -1,0 +1,16 @@
+slug: rust-value-get-exists
+branch: feature/rust-value-get-exists
+agent: claude-code
+started: 2026-08-09T17:54:32Z
+heartbeat: 2026-08-09T17:54:32Z
+status: implementing
+items: list-methods-pass-through-to-rust
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+scope: |
+  The rest of the class rozum named on their slice: `Value.get`, `Value.exists`, and a
+  `Value: From<Option<Value>>` bound. Same family as indexOf/find/zipWithIndex -- a method with no
+  lowering, or a conversion with no impl. Not waiting for their next paste: the three names are
+  enough to build the probes here.
+  Each one is checked DIFFERENTIALLY against bin/ssc, because the pair-order bug in zipWithIndex
+  showed that "it compiles" is not the same as "it means the same thing".
+next: probe get/exists on Map and List, and an Option[Any] crossing into an Any
