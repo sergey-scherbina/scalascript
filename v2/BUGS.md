@@ -6832,6 +6832,13 @@ two days. ASM's message is `Method too large: ssc/gen/Entry.install ()V`, which 
 member, and that name is the entire question when deciding what to split. Reading the class name
 alone sent me to this entry's class-splitting fix when the method was what had overflowed.
 
+**`tests/e2e/bytecode-fallback-visible.sh` is RED, and NOT for a capacity reason.** The fallback
+does exactly what that gate exists to check — it fires and announces itself — and then the VM lane
+it falls back to dies on `app: not a function: 0`. Verified red on `origin/main` WITHOUT this
+change (same failure, only the exception name differs), so it is
+`scljet-app-not-a-function-after-the-concat-fix`, filed there along with the finding that the gate
+has no caller at all.
+
 **Still OPEN**, and now for a reason that is measured rather than inherited: the generated class
 exceeds the JVM class limit for these five examples. The next step is the owner-threading split
 this entry has always described — or reducing what the class carries, which is worth a look first,
@@ -10483,6 +10490,29 @@ lets them run past that point and reach this:
     scljet-write-table  v2  ->  PASSES (`wrote 1024 bytes, 2 pages, schema format 4, 3 rows …`)
 
 All four run correctly on the int lane; `scljet-crud` prints four rowid lines there.
+
+**IT ALSO TURNS A GATE RED, AND NOTHING REPORTS IT.** `tests/e2e/bytecode-fallback-visible.sh`
+asserts that an oversized example still exits 0 — the `--bytecode` link-time fallback runs the VM
+instead, and the VM answer is correct. That held until this defect: the fallback fires, prints its
+marker, and then the VM lane dies, so the gate reads
+
+```text
+FAIL [scljet-hello] --bytecode exited 1; the link-time fallback is supposed to keep it 0
+     stderr: … fell back to the VM lane [class-size-limit] (…)
+     ssc: app: not a function: 0 — applied to 1 argument(s): <closure/0>
+```
+
+**Measured on `origin/main`, no branch applied**, so it is the state of the repository and not
+somebody's working tree. `scljet-hello` reaches this defect because the concat fix (`dc2b974ab`)
+carried it past `Tuple4.isEmpty` — the same "one blocker down, the next one up" as the three
+rostered cases above, in a fourth example and a gate nobody was watching.
+
+**And that is the second half: the gate has NO CALLER.** `grep` over `.github/`, `scripts/` and
+`tests/` finds nothing that invokes it, and it is not in `scripts/smoke-ci`. It was added by
+`af4725ed9` — the commit whose entire point was that a silent fallback certified VM-vs-VM parity —
+and never wired, so a gate written to catch a silent failure has been failing silently. Wiring it
+now would only make smoke permanently red; it should go in the push path in the SAME commit that
+fixes this defect, and this entry is the reminder.
 
 **Not narrowed yet, and the cheap end has NOT been tried.** `scljet-write-table` passing while the
 other three do not is the split worth exploiting: whatever the three share and it does not is a
