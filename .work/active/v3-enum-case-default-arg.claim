@@ -1,0 +1,11 @@
+slug: v3-enum-case-default-arg
+branch: feature/v3-enum-case-default-arg
+agent: claude-code
+started: 2026-08-09T16:47:18Z
+heartbeat: 2026-08-09T16:47:18Z
+status: claimed-before-planning
+items: a default on an enum case parameter is a parse error while the same default on a def or case class works
+paths: file:v3/src/Parser.scala file:v3/tests/front BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
