@@ -49,6 +49,30 @@ echo "── fronts declared runnable: $(printf '%s' "$fronts" | tr '\n' ' ') �
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
+# GENERATED NAMES ARE CANONICALISED BEFORE COMPARING, and without this the gate cannot ever pass on
+# a construct that generates one.
+#
+# The `match` desugaring invents a binder named after the SOURCE POSITION it came from — `$m20_14`.
+# The two fronts compute that position differently, so the same program prints `$m20_14` on one and
+# `$m21_7` on the other, and three `actors-*` cases differed by nothing else. A differential that
+# compares generated names is measuring the name generator.
+#
+# Renumbered BY ORDER OF FIRST APPEARANCE, which keeps the comparison honest: two trees that bind
+# DIFFERENT variables still canonicalise differently, because the order they appear in differs. It
+# erases the numbering, not the binding.
+canon() {
+  python3 -c '
+import re, sys
+t = sys.stdin.read()
+seen = {}
+def sub(m):
+    k = m.group(0)
+    if k not in seen: seen[k] = "$m%d" % (len(seen) + 1)
+    return seen[k]
+sys.stdout.write(re.sub(r"\$m\d+_\d+", sub, t))
+'
+}
+
 # EACH FRONT IS PROBED ONCE, BEFORE THE CORPUS, and a front that cannot print stops the gate here.
 #
 # `fronts` lists what is REGISTERED — a fact about the working tree. Whether a front COMPILES is a
@@ -118,9 +142,9 @@ for f in v3/tests/front/*.ssc; do
     fi
     if [ -z "$first" ]; then
       first="$out"
-    elif ! diff -q "$first" "$out" >/dev/null; then
+    elif ! diff -q <(canon < "$first") <(canon < "$out") >/dev/null; then
       echo "  diff $name"
-      diff "$first" "$out" | head -4 | sed 's/^/         /'
+      diff <(canon < "$first") <(canon < "$out") | head -4 | sed 's/^/         /'
       disagree=$((disagree + 1))
     else
       agree=$((agree + 1))
@@ -148,11 +172,11 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
     if ! "$SSC3" ast "$f" uniml > "$work/c.uniml" 2>/dev/null || [ ! -s "$work/c.uniml" ]; then
       conly=$((conly + 1)); continue
     fi
-    if diff -q "$work/c.v3" "$work/c.uniml" >/dev/null; then
+    if diff -q <(canon < "$work/c.v3") <(canon < "$work/c.uniml") >/dev/null; then
       cagree=$((cagree + 1))
     else
       cdiff=$((cdiff + 1))
-      printf '%s\t%s\n' "$cname" "$(diff "$work/c.v3" "$work/c.uniml" | head -2 | tr '\n' ' ' | cut -c1-110)" >> "$cdiffs"
+      printf '%s\t%s\n' "$cname" "$(diff <(canon < "$work/c.v3") <(canon < "$work/c.uniml") | head -2 | tr '\n' ' ' | cut -c1-110)" >> "$cdiffs"
     fi
   done
   cboth=$((cagree + cdiff))
