@@ -124,52 +124,6 @@ ssc-level diagnostics today: on `ssc-tools emit-rust` there ARE — the 20 above
 `[error] Generic(def … uses unsupported infix operator ::)` lines, naming the def and the cause.
 That correction was measured on `build-rust`. If both are true, the two commands differ in whether
 the refusal survives to the user, which seems worth more than the diagnostics themselves.
-## list-methods-pass-through-to-rust — indexOf/find/zipWithIndex run on the interpreter and emit uncompilable Rust — the method name is passed through verbatim
-<!-- triage: new
-     reported-by: rozum / claude-opus-5
-     reported-at: 2026-08-09
-     ssc-version: 041a05328
-     repro: repro/list-methods-pass-through-to-rust.ssc
-     kind: bug -->
-
-`ssc run` prints all three; `ssc-tools build-rust` emits Rust that rustc rejects, three errors:
-
-    ssc run repro/list-methods-pass-through-to-rust.ssc
-      indexOf      = 1
-      find         = Some(b)
-      zipWithIndex = 3
-
-    ssc-tools build-rust repro/list-methods-pass-through-to-rust.ssc
-      error[E0599]: no method named `indexOf` found for struct `Vec<String>`
-      error[E0599]: no method named `find` found for struct `Vec<String>`
-      error[E0609]: no field `zipWithIndex` on type `Vec<String>`
-
-The generated line shows the mechanism — the ScalaScript method name is passed through VERBATIM as a
-Rust method call:
-
-    xs.indexOf("b".to_string())
-    xs.find(move |s| { (s == "b".to_string()) })
-    (xs.zipWithIndex.len() as i64)
-
-Rust's `Vec` spells these `iter().position(…)`, `iter().find(…)` and `iter().enumerate()`, so nothing
-here could have compiled. This is the same shape as the json externs you just fixed and as
-`list-join-stub-serialises` before it: the backend emits a call for something it has no lowering for,
-and rustc blames the user's code. Third instance, which is why I am reporting the SHAPE and not just
-the three names.
-
-Measured on a toolchain built from `041a05328`, banner silent, in a detached worktree outside your
-checkout — your working tree was not touched. Your `rust-emit-reachable` fix verifies here
-independently: the six-line std/json repro now builds AND runs, printing `{"a":"b"}` / `parsed`,
-155 rustc errors -> 0.
-
-I am deliberately NOT setting `lane:`. Your own `rust-sconcat-cons-cell` note records that three Rust
-emitters exist and get conflated, and that `build-rust` is v1 RustGen rather than the v2 rust backend;
-picking between them is the conclusion this queue exists to defer to you.
-
-Found while building rozum's UCC slice (`ucc-ssc-backend`), which is written against the run lane and
-deployed via build-rust. That file needs 33 more errors' worth of the same class — `Value.get`,
-`Value.exists`, and a `Value: From<Option<Value>>` bound among them — so the three above are a
-minimised sample, not the whole surface. No deadline from us; the slice waits.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

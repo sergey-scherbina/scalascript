@@ -1816,6 +1816,12 @@ object RustCodeWalk:
       renderTerm(qual, ctx).map(q => s"($q as f64)")
     case m.Term.Select(qual, m.Term.Name("toString")) =>
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
+    // `xs.zipWithIndex` — a Select, not a call. Scala pairs (element, index); Rust's `enumerate`
+    // yields (index, element), so the pair is flipped rather than passed through.
+    case m.Term.Select(qual, m.Term.Name("zipWithIndex")) =>
+      renderTerm(qual, ctx).map(q =>
+        s"$q.iter().cloned().enumerate().map(|(__i, __e)| (__e, __i as i64)).collect::<Vec<_>>()")
+
     case m.Term.Select(qual, m.Term.Name("trim")) =>
       renderTerm(qual, ctx).map(q => s"$q.trim().to_string()")
     // ── String indexing, in UTF-16 CODE UNITS ──────────────────────────────
@@ -2220,6 +2226,29 @@ object RustCodeWalk:
           case other =>
             renderTerm(other, ctx).map(f => s"|x| ($f)(*x)")
       yield s"$q.filter($f)"
+
+    // xs.find(p) → xs.iter().cloned().find(…) — an Option, as in Scala.
+    //
+    // This and the two below were being emitted VERBATIM as `xs.find(...)` / `xs.indexOf(...)` /
+    // `xs.zipWithIndex`, none of which exist on a Rust `Vec`, so rustc blamed the user's own line
+    // for a method the backend had no lowering for (reported by a user porting a real service).
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("find")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = "find")
+      yield body
+
+    // xs.indexOf(v) → position, as an i64, and -1 when absent — Scala's contract, not Rust's
+    // `Option<usize>`.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("indexOf")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        v <- renderTerm(args.values.head, ctx)
+      yield s"($q.iter().position(|__e| *__e == $v).map(|__i| __i as i64).unwrap_or(-1))"
 
     // xs.filter(f) → xs.iter().cloned().filter(move |p| body).collect::<Vec<_>>()
     // Only for Vec expressions (not range/iterator chains).
@@ -2686,9 +2715,12 @@ object RustCodeWalk:
             case _              => false)
           strOp(lhs) || strOp(args.values.head)
         } =>
+      // Both operands go through the same Option rendering as an interpolation does: `"x = " +
+      // xs.find(p)` is the shape a user actually wrote, and `Option` has no `Display`, so without
+      // this it is E0277 rather than `Some(b)`.
       for
-        l <- renderTerm(lhs, ctx)
-        r <- renderTerm(args.values.head, ctx)
+        l <- renderInterpArg(lhs, ctx)
+        r <- renderInterpArg(args.values.head, ctx)
       yield s"format!(\"{}{}\", $l, $r)"
 
     // `a -> b` (Scala's tuple-arrow) → Rust tuple `(a, b)`.  `Map(k -> v, …)`
@@ -2944,6 +2976,14 @@ object RustCodeWalk:
   /** Best-effort check that a term is an Option-shaped expression so we can
    *  route `.map/.flatMap/.getOrElse` to Rust `Option`.
    */
+  /** A receiver the walker KNOWS is a Rust `Vec`: a local bound to a seq constructor, or a list
+   *  literal written in place. Deliberately narrow — it decides whether an unlowered method is a
+   *  refusal or a pass-through, and a wrong `true` refuses working code. */
+  private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
+    case m.Term.Name(n) => ctx.localSeqs.contains(n)
+    case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
+    case _ => false
+
   private def isOptionExpr(term: m.Term): Boolean = term match
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
@@ -2952,6 +2992,11 @@ object RustCodeWalk:
         if isOptionExpr(inner) =>
       // recursive chain case: `Some(x).map(...).getOrElse(...)`
       args.values.size == 1
+    // Collection methods that RETURN an Option. Needed because printing one has to render it the
+    // Scala way -- Rust's `Option` has no `Display`, so `"x = " + xs.find(p)` did not compile at
+    // all until this list knew what produces an Option.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption")), _) => true
+    case m.Term.Select(_, m.Term.Name("headOption" | "lastOption"))                                      => true
     case _ => false
 
   /** Best-effort check that a term is a range or Source expression.
@@ -3081,6 +3126,23 @@ object RustCodeWalk:
         // `obj.method(args)` — generic method dispatch via Term.Select callee.
         // Covers given-instance dispatch and arbitrary method calls not matched above.
         fn match
+          // A method we have no lowering for is emitted VERBATIM as a Rust method call. That is
+          // right for a user's own type — their struct has that method — and wrong for a `Vec` or a
+          // `String`, which will never have a ScalaScript method name on them. `xs.indexOf(...)`
+          // and `xs.zipWithIndex` reached a user as `no method named indexOf found for
+          // Vec<String>`: rustc blaming their line for something this backend could not do. Fourth
+          // report of that shape, which is why the refusal is here and not only in three new arms.
+          //
+          // Scoped to receivers whose type is KNOWN. Everything else keeps the pass-through: this
+          // is the fallback for every method call in the language, and refusing on an unknown
+          // receiver would break far more than it reports.
+          case m.Term.Select(qual, m.Term.Name(meth))
+              if isKnownVecReceiver(qual, ctx) || isStringExpr(qual) =>
+            val what = if isStringExpr(qual) then "String" else "List"
+            Left(List(unsupported(
+              s"def `${ctx.defName}` calls `$meth` on a $what and the rust backend has no lowering " +
+              s"for it — the name would be emitted as a Rust method that does not exist"
+            )))
           case m.Term.Select(qual, m.Term.Name(meth)) =>
             renderTerm(qual, ctx).map(q =>
               if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)")
@@ -3225,6 +3287,10 @@ object RustCodeWalk:
           // map closure, instead of being moved into the first one (E0507/E0382).  The
           // `.cloned()` element is owned, and clone-insertion clones any by-value capture.
           case "map"      => s"$q.iter().cloned().map(|$p0| { $b }).collect::<Vec<_>>()"
+          // `Iterator::find` hands the predicate a REFERENCE, so the parameter is rebound by
+          // clone: a body written as `s == "b"` is `&String == String` otherwise, which does not
+          // compile. Returns Rust's `Option`, which is what ScalaScript's `find` means.
+          case "find"     => s"$q.iter().cloned().find(|__f| { let $p0 = __f.clone(); $b })"
           case "filter"   => s"$q.iter().cloned().filter(|$p0| { $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
           case other      => s"$q.$other(|$p0| { $b })"
@@ -3239,6 +3305,7 @@ object RustCodeWalk:
         method match
           case "foreach"  => s"$q.iter().cloned().for_each($closure);"
           case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"
+          case "find"     => s"$q.iter().cloned().find(|__f| ($closure)(__f.clone()))"
           case "filter"   => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
           case other2     => s"$q.$other2($closure)"
@@ -4083,6 +4150,12 @@ object RustCodeWalk:
     arg match
       case m.Term.Block(List(single: m.Term)) => renderTerm(single, ctx)
       case b: m.Term.Block                     => renderBody(b, ctx, isUnit = false).map(inner => s"{ $inner }")
+      // An Option reaching a string position prints as Scala prints it -- `Some(b)` / `None`.
+      // Rust's `Option` implements no `Display`, so this is not formatting taste: without it the
+      // emitted `format!("{}", xs.find(p))` does not compile (E0277), which is what a user hit.
+      case other if isOptionExpr(other) =>
+        renderTerm(other, ctx).map(e =>
+          "match " + e + " { Some(__v) => format!(\"Some({})\", __v), None => \"None\".to_string() }")
       case other                               => renderTerm(other, ctx)
 
   /** Escape a string for `format!("…")` — same rules as the Rust lexer

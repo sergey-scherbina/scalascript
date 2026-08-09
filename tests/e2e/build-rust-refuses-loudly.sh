@@ -218,6 +218,46 @@ if [[ $rc11 -ne 0 ]] || ! grep -rqE '^(pub )?fn exported' "$tmp/lib-crate/src/ge
   failed=1
 fi
 
+# ── 4b. A method with no lowering: lowered, or REFUSED BY NAME ───────────────
+# `indexOf`/`find`/`zipWithIndex` were emitted verbatim as Rust method calls, which a `Vec` does
+# not have, so rustc blamed the user's own line. Both halves are checked here because the reporter
+# asked for the SHAPE and not the three names: the three now lower and agree with the default lane
+# (the cargo section below), and a method that still has NO lowering is a refusal that NAMES it
+# rather than a call nobody can compile.
+cat > "$tmp/unlowered.ssc" <<'SSC'
+def main(): Unit =
+  val xs = List(1, 2, 3)
+  println(xs.sliding(2))
+SSC
+set +e
+out12=$("$SSC" emit-rust "$tmp/unlowered.ssc" -o "$tmp/unl-crate" 2>&1); rc12=$?
+set -e
+if [[ $rc12 -eq 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — an unlowered List method emitted a crate at exit 0" >&2
+  failed=1
+fi
+if [[ $out12 != *"sliding"* ]]; then
+  echo "build-rust-refuses-loudly: FAILED — the refusal does not name the method it refused" >&2
+  echo "--- output: $out12" >&2
+  failed=1
+fi
+
+# The other side: a method on a receiver whose type we do NOT know still passes through. This is
+# the fallback for every method call in the language — refusing there would break a user's own
+# types, which is far more than this reports.
+cat > "$tmp/ownmethod.ssc" <<'SSC'
+case class Box(n: Int)
+def main(): Unit = println(Box(1).n)
+SSC
+set +e
+out13=$("$SSC" emit-rust "$tmp/ownmethod.ssc" -o "$tmp/own-crate" 2>&1); rc13=$?
+set -e
+if [[ $rc13 -ne 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — a user's own type was caught by the List refusal" >&2
+  echo "--- output: $out13" >&2
+  failed=1
+fi
+
 # ── 5. An extern with no Rust side must say so, and only when it is CALLED ───
 # An `extern def` without `@rust(...)` renders to nothing on purpose — an extern nobody calls needs
 # no Rust side. But the CALL was still emitted, so importing std/json gave the user
@@ -353,6 +393,32 @@ if command -v cargo >/dev/null 2>&1; then
   elif [[ "$any_rust" != "$any_ref" || -z "$any_ref" ]]; then
     echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on the Any round-trip" >&2
     echo "--- rust: $(printf '%s' "$any_rust" | tr '\n' '|')   ssc: $(printf '%s' "$any_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
+  # The three list methods, against the default lane. Emission proves only that nothing was
+  # refused; `zipWithIndex` in particular is a PAIR ORDER question — Scala gives (element, index)
+  # and Rust's `enumerate` gives (index, element) — which only a comparison can catch.
+  cat > "$tmp/listm.ssc" <<'SSC'
+def main(): Unit =
+  val xs = ["a", "b", "c"]
+  println("indexOf      = " + xs.indexOf("b"))
+  println("find         = " + xs.find(s => s == "b"))
+  println("zipWithIndex = " + xs.zipWithIndex.length)
+  println("missing      = " + xs.indexOf("zz"))
+SSC
+  set +e
+  lmb=$("$SSC" build-rust "$tmp/listm.ssc" -o "$tmp/listmbin" 2>&1); lmrc=$?
+  lm_rust=$("$tmp/listmbin" 2>&1)
+  lm_ref=$("$ROOT/bin/ssc" run "$tmp/listm.ssc" 2>/dev/null)
+  set -e
+  if [[ $lmrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — the list methods do not build" >&2
+    echo "--- output: $(printf '%s' "$lmb" | tail -5)" >&2
+    failed=1
+  elif [[ "$lm_rust" != "$lm_ref" || -z "$lm_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on list methods" >&2
+    echo "--- rust: $(printf '%s' "$lm_rust" | tr '\n' '|')   ssc: $(printf '%s' "$lm_ref" | tr '\n' '|')" >&2
     failed=1
   fi
 

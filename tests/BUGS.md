@@ -1,3 +1,51 @@
+## list-methods-pass-through-to-rust
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-09
+     ssc-version: 041a05328
+     repro: repro/list-methods-pass-through-to-rust.ssc
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+The reporter's framing is the important part: **"the same shape as the json externs you just fixed
+and as `list-join-stub-serialises` before it — the backend emits a call for something it has no
+lowering for, and rustc blames the user's code. Third instance, which is why I am reporting the
+SHAPE and not just the three names."** They were right, and the fix has two halves for that reason.
+
+**The three methods lower**, checked against the default lane rather than against expected text —
+`indexOf = 1`, `find = Some(b)`, `zipWithIndex = 3`, and `-1` for a miss:
+
+- `indexOf` → `iter().position(...)` as an `i64`, **-1 when absent**: Scala's contract, not Rust's
+  `Option<usize>`.
+- `find` → `iter().cloned().find(...)`, parameter rebound by clone — `Iterator::find` hands the
+  predicate a REFERENCE, so a body written `s == "b"` is otherwise `&String == String`.
+- `zipWithIndex` → `enumerate()` with the pair FLIPPED: Scala gives (element, index), Rust gives
+  (index, element). Only a differential catches that.
+
+Printing an `Option` came with it: Rust's `Option` implements no `Display`, so `"find = " +
+xs.find(p)` did not compile at all. It renders as Scala prints it now — on the interpolation path
+AND on the `+` path, which is a separate site; fixing only the first is why the first attempt looked
+complete and was not.
+
+**The SHAPE half.** A method with no lowering, on a receiver the walker KNOWS is a `List` or a
+`String`, is a refusal that names it:
+
+```
+def `main` calls `sliding` on a List and the rust backend has no lowering for it —
+the name would be emitted as a Rust method that does not exist
+```
+
+Scoped deliberately: the verbatim pass-through is the fallback for EVERY method call in the language
+and is CORRECT for a user's own type. So it fires only where the receiver's type is known, and the
+gate asserts the other direction too.
+
+Their slice needs more of this class (`Value.get`, `Value.exists`, a `Value: From<Option<Value>>`
+bound). Those now announce themselves by name instead of arriving as rustc errors in generated code.
+
 ## reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
 
 <!-- status: open
