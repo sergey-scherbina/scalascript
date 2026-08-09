@@ -112,7 +112,13 @@ object Lower:
     case Expr.Perform(_, as, _)   => as.flatMap(a => freeVars(a, bound))
     case Expr.Handle(b, arms, _)  =>
       freeVars(b, bound) ++ arms.flatMap(a => freeVars(a.body, bound ++ a.params ++ List(a.k)))
-    case Expr.Resume(_, v, _)     => freeVars(v, bound)
+    // THE CONTINUATION IS A USE OF `k`. Without naming it here the lambda lifter does not see it,
+    // so `opts.flatMap(opt => resume(opt))` — a resume inside a nested lambda, which is what a
+    // multi-shot handler is made of — lifted a function that never captured `resume` and failed at
+    // lowering with "`resume` is not a continuation in scope". A node that reads a variable has to
+    // say so, whatever else it is.
+    case Expr.Resume(k, v, _)     =>
+      (if bound.contains(k) then Nil else List(k)) ++ freeVars(v, bound)
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     // THE CALLEE IS A NAME TOO. This read `case Expr.Call(_, as, …)` and scanned only the ARGUMENTS,

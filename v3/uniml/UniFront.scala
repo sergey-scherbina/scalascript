@@ -251,24 +251,23 @@ object UniFront:
     // trait body has, so the ops are projected exactly as `U.TraitDecl` projects its members —
     // including `NotImplemented` becoming `__abstract__`, since an operation never has a body.
     //
-    // `multi effect` is REFUSED, deliberately. v3's own front does not parse it either (SSC3-7b),
-    // and the executor implements only tail-resumptive handlers; accepting the keyword here would
-    // make the two fronts differ in the OTHER direction, which is the thing being fixed.
+    // `multi effect` is ACCEPTED since 2026-08-09, and the refusal that stood here is gone because
+    // its REASON is gone. It read "the executor implements only tail-resumptive handlers", which was
+    // true when it was written and stopped being true when CPS landed: a continuation is a closure
+    // now, so an arm may resume zero times, once, or many. `multi` is carried as an ordinary effect
+    // declaration — nothing downstream needs to know, because multi-shot is not a mode.
     case U.EffectDecl(n, multi, ops, s) =>
-      if multi then no("`multi effect` (the executor implements only tail-resumptive handlers)", s)
-      else
-        Sorted.E(TraitDef(n, ops.toList.flatMap { m => m match
-          case dd: U.Def =>
-            val b = dd.body match
-              case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
-              case other                => expr(other)
-            List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
-          // Same reasoning as the trait fold above, and this one is MINE: I copied `case _ => Nil`
-          // into the effect projection an hour after the trait version diverged the two fronts. An
-          // effect declares OPERATIONS; anything else in its body is a program neither front should
-          // accept quietly.
-          case other => no("an `effect` member that is not a `def`", other.span)
-        }, Nil, pos(s)))
+      Sorted.E(TraitDef(n, ops.toList.flatMap { m => m match
+        case dd: U.Def =>
+          val b = dd.body match
+            case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
+            case other                => expr(other)
+          List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
+        // Same reasoning as the trait fold: an effect declares OPERATIONS, and anything else in its
+        // body is a program neither front should accept quietly.
+        case other => no("an `effect` member that is not a `def`", other.span)
+      }, Nil, pos(s)))
+
     case U.Extension(_, _, s)      => no("`extension`", s)
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 

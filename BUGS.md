@@ -22,6 +22,42 @@ Newest first.
 
 
 
+
+## v3-handle-has-no-return-clause — `effect-multishot` runs and answers 0
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: gap
+     gate: none -->
+
+**Measured 2026-08-09**, after `multi effect` was accepted and multi-shot continuations landed.
+`bench/corpus/effect-multishot.ssc` now parses, lowers and RUNS on both fronts — and returns **0**,
+which there is no reason to believe.
+
+Its handler is `case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))`, and the
+fixture's own prose says what that means: *"the List-monad handle"*. In that formulation `resume`
+returns the HANDLED type — a `List` — so `flatMap` concatenates the branches. In v3 `resume(opt)`
+returns the rest of the computation's own value, an `Int`, because `handle` has **no return clause**:
+nothing lifts the final value into the handler's answer type.
+
+So `flatMap` receives a non-list per element, yields nothing, and `foldLeft` over the empty result
+gives 0. **A wrong answer that looks like an answer**, and it comes from two things at once:
+
+  - `handle(e) { … }` cannot express `x => List(x)`. Scala 3 spells it `case x => …` beside the
+    operation arms; v3's grammar has only operation arms.
+  - `flatMap` on a list treats a non-list element as EMPTY rather than refusing. That is the second
+    silent step, and it is what turns a missing feature into a plausible number.
+
+**No oracle was available**, which is why this is filed rather than fixed on a guess: the v1
+toolchain refused (stale build) and the v2 bridge has no effects, so nothing could say what the right
+answer is. The fixture's prose says jvm, js and rust all run it, so those lanes are the oracle when
+one is buildable.
+
+**Two ways out, and the choice is the language's:** give `handle` a return clause, or define the
+continuation to return the handled type implicitly. Until then `effect-multishot` should not be
+counted as a passing row — it is counted here instead.
+
 ## rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
 
 <!-- status: open

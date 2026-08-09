@@ -1517,6 +1517,14 @@ object Parser:
         throw ParseFail(posOf(ts),
           "v3 has no `import` keyword — modules are composed with markdown links, and a `.ssc` " +
           "file names its imports in the prose around the fence, not inside it")
+      // `multi effect X:` — the same declaration, and the `multi` says the handler may resume more
+      // than once. Since CPS landed the executor can, so this is carried rather than refused; the
+      // word is dropped because nothing downstream needs it — multi-shot is not a mode, it is what
+      // a closure continuation already allows.
+      else if isId(peek(ts), "multi") && ts.tail.nonEmpty && isId(peek(ts.tail), "effect") then
+        val (t, t2) = parseTrait(ts.tail.tail, posOf(ts))
+        effects = t :: effects
+        ts = t2
       else if isId(peek(ts), "effect") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
         val (t, t2) = parseTrait(ts.tail, posOf(ts))
         effects = t :: effects
