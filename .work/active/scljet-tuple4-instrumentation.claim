@@ -1,0 +1,11 @@
+slug: scljet-tuple4-instrumentation
+branch: feature/scljet-tuple4-instrumentation
+agent: claude-code
+started: 2026-08-09T13:37:16Z
+heartbeat: 2026-08-09T13:37:16Z
+status: claimed-before-planning
+items: corpus-contract-scljet-jdbc-v2-timeout
+paths: file:v2/src/Runtime.scala file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
