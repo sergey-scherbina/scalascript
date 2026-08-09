@@ -8,6 +8,6 @@ v3-object-nested-class	claude-code	2026-08-08T18:44:06Z	exec-gate RED: object-ne
 v3-bridge-emits-stub-not-a-refusal	claude-code	2026-08-08T18:56:54Z	BridgeV2 emits a placeholder Stub for an unsupported method: a wrong answer that exits 0	file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/tests/front BUGS.md
 v3-refuses-scala-import-by-name	claude-code	2026-08-08T19:10:02Z	v3-has-no-scala-style-import	file:v3/src/Parser.scala
 v3-bridge-lifted-capture	claude-code	2026-08-08T19:10:23Z	bridge: app: not a function on a lambda lifted with captures (comp(f,g) = x => f(g(x)))	file:v3/src/BridgeV2.scala file:v3/src/Lower.scala file:v3/tests/front BUGS.md
-f-correctness-audit-gate	claude-code	2026-08-09T12:24:53Z	f-correctness-audit-gate	file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
+f-correctness-audit-gate	claude-code	2026-08-09T12:24:53Z	f-correctness-audit-gate	file:tests/e2e/f-output-agreement-gate.sh file:tests/e2e/f-bare-member-call-gate.sh file:tests/e2e/f-global-v-gate.sh file:tests/e2e/f-curried-def-gate.sh file:tests/e2e/f-trailing-block-gate.sh file:tests/e2e/lib/ssc-usable.sh file:scripts/smoke-ci.ssc file:v2/SPRINT.md file:tests/BUGS.md
 v3-bridge-tuple-concat	claude-code	2026-08-09T12:25:57Z	the last declared I-3 divergence: (a,b) ++ (c,d) answers on the executor and throws on the bridge	file:v3/src/BridgeV2.scala file:v3/src/Lower.scala file:v3/tests/front BUGS.md
 scljet-family-regressed-on-v2	claude-code	2026-08-09T12:27:06Z	corpus-contract-scljet-jdbc-v2-timeout	file:v2/BUGS.md

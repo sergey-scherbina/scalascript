@@ -3,9 +3,9 @@ branch: feature/f-correctness-audit-gate
 agent: claude-code
 started: 2026-08-09T12:24:53Z
 heartbeat: 2026-08-09T12:24:53Z
-status: claimed-before-planning
+status: in-progress
 items: f-correctness-audit-gate
-paths: file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md file:tests/BUGS.md
+paths: file:tests/e2e/f-output-agreement-gate.sh file:tests/e2e/f-bare-member-call-gate.sh file:tests/e2e/f-global-v-gate.sh file:tests/e2e/f-curried-def-gate.sh file:tests/e2e/f-trailing-block-gate.sh file:tests/e2e/lib/ssc-usable.sh file:scripts/smoke-ci.ssc file:v2/SPRINT.md file:tests/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
