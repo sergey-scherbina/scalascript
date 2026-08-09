@@ -1614,6 +1614,26 @@ object SpikeParse:
   private def parseVarStmt(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("var.kw"))) // `var`
+    // `var (a, b) = e` — DESTRUCTURING, exactly as `val (a, b) = e` has always been. Only the `val`
+    // twin had it, so `var` reported `expected var name, found '('` and the file stopped there;
+    // `v3/src/Parser.scala:283` is `var (lhs, ts) = parseUnary(ts0)`.
+    //
+    // It projects to the SAME `spike.tuppatval` frame the `val` form uses, with the `val.*` roles,
+    // because what follows is identical: bind the names off a tuple. The mutability the `var`
+    // announces is not modelled at Tier 0 — v3's destructuring binds each name once — so spelling
+    // it a second way would be two shapes for one meaning.
+    if c.peekKind == "spike.lparen" then
+      c.advance() // `(`
+      while c.peekKind != "spike.rparen" && !c.eof do
+        if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then
+          c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.name")))
+        if c.peekKind == "spike.comma" then c.advance()
+        else if c.peekKind != "spike.rparen" then c.advance() // skip a stray token to guarantee progress
+      if c.peekKind == "spike.rparen" then c.advance()
+      skipTypeAnnotation(c)
+      expect(c, "spike.eq", "val.eq", "'='")
+      parseExpr(c, 1).foreach(e => kids += e.withRole("val.rhs"))
+      return Node.Frame("spike.tuppatval", None, kids.result())
     expectName(c, "var.name", "var name").foreach(kids += _)
     skipTypeAnnotation(c) // optional `: T` (erased) — full generic/function type, not just one token
     expect(c, "spike.eq", "var.eq", "'='").foreach(kids += _)
@@ -1899,26 +1919,32 @@ object SpikeParse:
       if c.peekKind == "spike.id" && c.peekLexeme != "_" && c.peek2Lexeme == "@" then
         val a = c.advance().get; c.advance(); Some(a) // consume name + `@`
       else None
-    val first = parseConsPattern(c)
+    // ONE ALTERNAND = a cons pattern with its OWN optional type ascription. The ascription used to
+    // sit OUTSIDE the alternation — alternatives first, then one `: T` for all of them — so
+    // `case _: Int | _: String =>` read `_`, took `: Int`, and then met the `|` where the arm
+    // wanted `=>`: "expected '=>' in case arm". Scala binds the ascription TIGHTER than the bar,
+    // and `v3/src/Parser.scala:270` is the shape that needs it —
+    // `case _: Expr.While | _: Expr.If | _: Expr.Match | _: Expr.Block =>`.
+    def alternand(): Node =
+      val p0 = parseConsPattern(c)
+      if c.peekKind == "spike.colon" then
+        c.advance() // `:`
+        val tk = Vector.newBuilder[Node]
+        tk += p0.withRole("tpat.pat")
+        expectType(c, "tpat.type").foreach(tk += _)
+        skipTypeSegments(c) // qualified `case x: A.B =>` — consume `.B` (+ generics); the head is the tag
+        Node.Frame("spike.tpat", None, tk.result())
+      else p0
+    val first = alternand()
     val alts = Vector.newBuilder[Node]
     alts += first
     while c.peekKind == "spike.op" && c.peekLexeme == "|" do
       c.advance() // `|`
-      alts += parseConsPattern(c)
+      alts += alternand()
     val altList = alts.result()
-    val base =
+    val typed =
       if altList.length > 1 then Node.Frame("spike.apat", None, altList.map(_.withRole("apat.alt")))
       else first
-    // type ascription `p: T` → tpat
-    val typed =
-      if c.peekKind == "spike.colon" then
-        c.advance() // `:`
-        val tk = Vector.newBuilder[Node]
-        tk += base.withRole("tpat.pat")
-        expectType(c, "tpat.type").foreach(tk += _)
-        skipTypeSegments(c) // qualified `case x: A.B =>` — consume `.B` (+ generics); the head is the tag
-        Node.Frame("spike.tpat", None, tk.result())
-      else base
     bindAlias match
       case Some(a) => Node.Frame("spike.bpat", None, Vector(Node.Leaf(a, Some("bpat.alias")), typed.withRole("bpat.inner")))
       case None    => typed
@@ -1981,6 +2007,24 @@ object SpikeParse:
   // `(x :: xs, y :: ys)`, `Some(h :: t)` — which binds tighter than the enclosing comma, so parse a
   // base sub-pattern and fold a trailing `:: rest` into a conspat (right-associative, → cpat "Cons").
   private def parseSubPattern(c: Cur): Node =
+    val base = parseSubPatternCons(c)
+    // ALTERNATIVES nest. `case C("a" | "b", k) =>` is ordinary Scala and only the ARM's top level
+    // had the bar; inside a constructor the `|` reached `parseSubPatternAtom`, which reported
+    // `unsupported pattern '|'`. `v3/src/Lower.scala:828` is the shape:
+    // `case Expr.Call("Array" | "Vector", argEs, p)`.
+    //
+    // Same frame as the top level (`spike.apat`), so the projection and the lowering need nothing
+    // new: alternatives bind nothing wherever they appear, which is what makes them composable.
+    if !(c.peekKind == "spike.op" && c.peekLexeme == "|") then base
+    else
+      val alts = Vector.newBuilder[Node]
+      alts += base
+      while c.peekKind == "spike.op" && c.peekLexeme == "|" do
+        c.advance()
+        alts += parseSubPatternCons(c)
+      Node.Frame("spike.apat", None, alts.result().map(_.withRole("apat.alt")))
+
+  private def parseSubPatternCons(c: Cur): Node =
     val base = parseSubPatternAtom(c)
     if c.peekKind == "spike.op" && c.peekLexeme == "::" then
       c.advance() // `::`

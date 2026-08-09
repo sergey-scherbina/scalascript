@@ -2212,3 +2212,47 @@ predict from the outside, and `v3/src/Ir.scala:180` is exactly the shape:
 **Measured:** self-hosting **9 → 10 of 17**, N = 187 → **188 of 368** with CRASH 0, UniML 218/218,
 seven v3 gates green, fixture half 52 of 53 with one declared uniml-only, `install.sh --dev` clean,
 smoke-ci **76/76**. The three DIFFs are unchanged and all belong to the effects work.
+
+## 46 · Three pattern gaps, and v3 passes the reference on one of them — self-hosting 10 → 11
+
+Walking the self-hosting list again. All three are `ScalaSpike`, all three are things a person
+writes, and none of them appears in the conformance corpus.
+
+- [x] **46a — a type ascription binds TIGHTER than the bar.** `case _: Int | _: String =>` read `_`,
+      took `: Int`, then met the `|` where the arm wanted `=>`. The alternation was collected first
+      and one ascription applied to all of it, which is the wrong grouping; one alternand is now a
+      pattern with its OWN optional type. `v3/src/Parser.scala:270` is the shape.
+
+      **The tree is right and the lowering still refuses it**: `altTest` in `Lower.scala` handles a
+      literal and a nullary constructor and nothing else, so a typed alternative is
+      `an alternative pattern may not bind a name`. That file belongs to `ssc3-effect-protocol`.
+      A parse refusal became a lowering refusal — no wrong answer either way, and the arm is a few
+      lines whenever that claim frees the file.
+
+- [x] **46b — alternatives NEST.** `case C("a" | "b", k) =>` reported `unsupported pattern '|'`,
+      because only the arm's top level had the bar. Same `spike.apat` frame inside a constructor as
+      outside, and nothing downstream needed changing: alternatives bind nothing wherever they
+      appear, which is what makes them composable. `v3/src/Lower.scala:828` is the shape.
+
+      **AND THE REFERENCE FRONT CANNOT PARSE IT** — `bin/ssc` answers "native frontend rejected
+      incomplete parse … parser sentinel _err", while both v3 lanes now print `ab1`. So the corpus
+      can never cover this: its goldens come from a front that refuses the construct. Worth saying
+      out loud, because "the corpus does not exercise it" has meant "rare" every other time and here
+      it means something else.
+
+- [x] **46c — `var (a, b) = e`.** Only the `val` twin destructured, so `var` reported
+      `expected var name, found '('`. It projects to the same `spike.tuppatval` frame with the same
+      roles — v3 binds each name once at Tier 0, so a second shape would be two spellings of one
+      meaning. `v3/src/Parser.scala:283` is the shape.
+
+      Got the ROLE wrong first (`val.name` where the frame reads `tup.name`), and the symptom was a
+      tuple temporary with no names bound — `unknown name 'a'`. Caught by running it, which is the
+      only reason it did not land.
+
+**Measured:** self-hosting **10 → 11 of 17**, N = 188 of 368 with CRASH 0, UniML 218/218, seven v3
+gates green, fixture half 53 of 54 with one declared uniml-only.
+
+`smoke-ci` read 75/77, and NEITHER is mine: `bugs-index` fails on
+`v3-bridge-cannot-apply-a-lifted-capture`, a sibling's entry already on `origin/main` whose
+`status: fixed` carries no `fixed-in`; `std-ui-forms` fails on the JVM lane under contention and
+passes standalone twice, once with my change reverted and once with it in place.
