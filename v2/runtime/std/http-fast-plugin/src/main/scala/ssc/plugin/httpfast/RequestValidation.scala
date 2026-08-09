@@ -104,7 +104,7 @@ private[httpfast] object RequestValidation:
     // The v1 request-plugin family is ELEVEN names; this file had four, so a handler calling any of
     // the others died with `unbound global: requireInt` — which reads like a scoping problem and is
     // not one. Semantics copied from the v1 reference verbatim
-    // (`v1/runtime/std/request-plugin/.../RequestIntrinsics.scala`), including the fallbacks: a
+    // (`v1/runtime/plugins/request-plugin/.../RequestIntrinsics.scala`), including the fallbacks: a
     // require* that fails RECORDS the reason and returns a neutral value so `validate { … }` can
     // accumulate every field's complaint in one pass instead of stopping at the first.
     //

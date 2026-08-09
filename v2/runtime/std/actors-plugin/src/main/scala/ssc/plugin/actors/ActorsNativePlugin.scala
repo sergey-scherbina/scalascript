@@ -523,7 +523,7 @@ final class ActorsNativePlugin extends NativePlugin:
       Value.MapV.from(Nil)
     }
 
-    // ── std/cluster: the four `extern def`s of v1/runtime/std/cluster/types.ssc ────────────────
+    // ── std/cluster: the four `extern def`s of std/cluster/types.ssc ────────────────
     // Everything else in that module (CodeIdentity, SeedResolver, ClusterCapability,
     // SeedResolver.staticList) is ordinary .ssc and already works here. Field order below is the
     // DECLARED order of those case classes: v2 field access is positional, so a wrong order is a

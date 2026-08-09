@@ -229,7 +229,28 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
 
 Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
 
-## std-is-not-v1's-std — 49 shared std modules live under a directory named `v1`
+## std-is-not-v1's-std — ✓ CLOSED 2026-08-09, in two steps and not the way it was written
+
+The entry below was written from a wrong premise and is kept for the reasoning, not the plan.
+**It said "49 shared std modules". Measured, there were two populations, not one:**
+
+- **108 `.ssc` modules — genuinely shared,** zero v1 imports, every one staged into the native
+  front. Moved to the repo-root `std/` (`std-to-repo-root`, 3724798dc).
+- **42 Scala modules — genuinely v1's.** Every dependency they have lives under `v1/`:
+  `scalascript.backend` → `v1/runtime/backend/spi`, `scalascript.ir` → `v1/lang/ir`,
+  `scalascript.plugin` → `v1/runtime/scalascript-plugin-api`, `scalascript.interpreter` →
+  `v1/lang/core`. Moving them to a root `std/` would produce modules whose every import points
+  back into `v1/` — that hides the coupling rather than removing it. They stay.
+
+What was left afterwards was not a misplacement but a **lie in a directory name**:
+`v1/runtime/std/` held **zero** `.ssc` and 42 plugin modules, while
+`specs/project-partitioning.md` §4 had already called the shared word "a genuine trap for a
+reader". Closed by renaming it to `v1/runtime/plugins/` (Sergiy chose the name, 2026-08-09), so
+"std" now means one thing everywhere: the root `std/` and `v2/runtime/std/`.
+
+<details><summary>Original entry (superseded 2026-08-09) — the premise was half wrong</summary>
+
+## (superseded) 49 shared std modules live under a directory named `v1`
 
 Found while doing `mcp-module-extraction` (2026-08-09), and it is why the `.ssc` half of that
 task was deliberately left undone.
@@ -252,6 +273,8 @@ The right fix is repo-wide — relocate the whole tree (`std/` at the root, say)
 mechanical change with a real blast radius across 49 modules and the launcher staging, so it
 is **Sergiy's call, not an agent's**: raising it here rather than doing it quietly under an
 unrelated claim. Blocked on that decision.
+
+</details>
 
 ## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
 

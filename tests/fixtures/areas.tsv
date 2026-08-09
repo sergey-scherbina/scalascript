@@ -26,7 +26,7 @@ v1/runtime/backend/css	codegen
 v1/runtime/backend/html	codegen
 v2/backend	codegen
 v2/backend-jvm-bytecode	codegen
-v1/runtime/std	plugin
+v1/runtime/plugins	plugin
 v2/runtime/std	plugin
 std	plugin
 v2/plugin-spi	plugin

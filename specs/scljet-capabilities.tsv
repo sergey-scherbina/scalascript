@@ -23,9 +23,9 @@ extension-disk-profile	open	m7-disk-profile	scljet/index.ssc	-	scljet-production
 production-ci-matrix	open	m8-ci-matrix	.github/workflows/ci.yml	-	scljet-production-completion
 production-benchmarks	open	m8-benchmarks	scripts/bench	-	scljet-production-completion
 provider-sqlite-cutover	approval-gated	m8-provider-cutover	specs/scljet.md	-	user-decision
-ipk-insert-update-affinity	implemented	-	scljet/sql.ssc,v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	tests/conformance/scljet-ipk-numeric-affinity.ssc,v1/runtime/std/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetIpkAffinityDifferentialTest.scala	scljet-production-completion
-scalar-null-three-valued-logic	subset	-	scljet/sql.ssc,scljet/jdbc.ssc,v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetConnection.scala	tests/conformance/scljet-sql-null-semantics.ssc,tests/conformance/scljet-sql-correlated-join.ssc,tests/conformance/scljet-correlated-subquery-errors.ssc,tests/conformance/scljet-correlated-dml.ssc,v1/runtime/std/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetScalarSemanticsDifferentialTest.scala	scljet-production-completion
-scalar-numeric-blob-comparison	implemented	-	scljet/sql.ssc,scljet/write.ssc	tests/conformance/scljet-sql-value-compare.ssc,v1/runtime/std/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetScalarSemanticsDifferentialTest.scala	scljet-production-completion
+ipk-insert-update-affinity	implemented	-	scljet/sql.ssc,v1/runtime/plugins/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	tests/conformance/scljet-ipk-numeric-affinity.ssc,v1/runtime/plugins/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetIpkAffinityDifferentialTest.scala	scljet-production-completion
+scalar-null-three-valued-logic	subset	-	scljet/sql.ssc,scljet/jdbc.ssc,v1/runtime/plugins/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetConnection.scala	tests/conformance/scljet-sql-null-semantics.ssc,tests/conformance/scljet-sql-correlated-join.ssc,tests/conformance/scljet-correlated-subquery-errors.ssc,tests/conformance/scljet-correlated-dml.ssc,v1/runtime/plugins/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetScalarSemanticsDifferentialTest.scala	scljet-production-completion
+scalar-numeric-blob-comparison	implemented	-	scljet/sql.ssc,scljet/write.ssc	tests/conformance/scljet-sql-value-compare.ssc,v1/runtime/plugins/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetScalarSemanticsDifferentialTest.scala	scljet-production-completion
 schema-shared-model	open	-	scljet/sql.ssc	-	scljet-production-completion
 constraint-explicit-unique-index	implemented	-	scljet/sql.ssc	tests/conformance/scljet-sql-unique-index.ssc	scljet-production-completion
 constraint-column-table-primary-unique	open	-	scljet/sql.ssc	-	scljet-production-completion
@@ -37,7 +37,7 @@ constraint-conflict-actions	open	-	scljet/sql.ssc	-	scljet-production-completion
 constraint-strict-generated	open	-	scljet/sql.ssc	-	scljet-production-completion
 typed-sql	subset	-	scljet/typedsql.ssc	tests/conformance/scljet-typedsql-basic.ssc	scljet-production-completion
 jdbc-portable	subset	-	scljet/jdbc.ssc	tests/conformance/scljet-jdbc-basic.ssc	scljet-production-completion
-jdbc-jvm	subset	-	v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetDriver.scala	v1/runtime/std/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetDriverTest.scala	scljet-production-completion
+jdbc-jvm	subset	-	v1/runtime/plugins/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetDriver.scala	v1/runtime/plugins/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetDriverTest.scala	scljet-production-completion
 prepare-compiled-program	open	-	scljet/sql.ssc	-	scljet-production-completion
 planner-explain	open	-	scljet/sql.ssc	-	scljet-production-completion
 execution-register-vm	open	-	scljet/sql.ssc	-	scljet-production-completion

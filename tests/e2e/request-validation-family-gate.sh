@@ -145,7 +145,7 @@ check "optional*, fields present" "opt?s=hi&i=7&d=2.5&b=on" "i=Some(7)" "unbound
 echo
 if [ "$fail" -ne 0 ]; then
   echo "    The family lives in RequestValidation.scala on the native lane and in"
-  echo "    v1/runtime/std/request-plugin/.../RequestIntrinsics.scala as the reference."
+  echo "    v1/runtime/plugins/request-plugin/.../RequestIntrinsics.scala as the reference."
   echo "    require* records a validation error and returns a neutral value; optional* returns None."
   echo "✗ request-validation-family-gate FAILED"
   exit 1

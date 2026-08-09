@@ -135,55 +135,55 @@ modules under `v2/runtime/std/` is in the standard-tier allowlist; none of the 5
 `v2/runtime/providers/` is. 21 in, 5 out, no exceptions. That is the cleanest std/additional
 boundary in the repository and the model the rest should follow.
 
-**The v1 side reads the other way and it is not a defect.** 43 modules under `v1/runtime/std/` and
+**The v1 side reads the other way and it is not a defect.** 43 modules under `v1/runtime/plugins/` and
 only 3 are in the standard tier, because `v1` as a whole IS the compatibility tier. "std" there
 means *the standard library of the legacy lane*, which is a coherent thing to be — but the same
 directory word carrying a different tier meaning on the two sides is a genuine trap for a reader.
-`v1/runtime/std` — 42
+`v1/runtime/plugins` — 42
 
 ```
-  v1/runtime/std/actors-plugin                   scalascript-actors-plugin
-  v1/runtime/std/auth-plugin                     scalascript-auth-plugin
-  v1/runtime/std/bench-plugin                    scalascript-bench-plugin
-  v1/runtime/std/cache-effect-plugin             scalascript-cache-effect-plugin
-  v1/runtime/std/clock-effect-plugin             scalascript-clock-effect-plugin
-  v1/runtime/std/content-plugin                  scalascript-content-plugin
-  v1/runtime/std/deploy-plugin                   scalascript-deploy-plugin
-  v1/runtime/std/dstreams-plugin                 scalascript-dstreams-plugin
-  v1/runtime/std/env-effect-plugin               scalascript-env-effect-plugin
-  v1/runtime/std/fetch-plugin                    scalascript-fetch-plugin
-  v1/runtime/std/frontend-plugin                 scalascript-frontend-plugin
-  v1/runtime/std/fs-plugin                       scalascript-fs-plugin
-  v1/runtime/std/graph-plugin                    scalascript-graph-plugin
-  v1/runtime/std/graphql-plugin                  scalascript-graphql-plugin
-  v1/runtime/std/http-plugin                     scalascript-http-plugin
-  v1/runtime/std/json-plugin                     scalascript-json-plugin
-  v1/runtime/std/logger-effect-plugin            scalascript-logger-effect-plugin
-  v1/runtime/std/markup-js                       scalascript-markup-js
-  v1/runtime/std/markup-node                     scalascript-markup-node
-  v1/runtime/std/mcp-plugin                      scalascript-mcp-plugin
-  v1/runtime/std/mime-plugin                     scalascript-mime-plugin
-  v1/runtime/std/nfc-plugin                      scalascript-nfc-plugin
-  v1/runtime/std/oauth-plugin                    scalascript-oauth-plugin
-  v1/runtime/std/os-plugin                       scalascript-os-plugin
-  v1/runtime/std/pdf-plugin                      scalascript-pdf-plugin
-  v1/runtime/std/pwa-plugin                      scalascript-pwa-plugin
-  v1/runtime/std/random-effect-plugin            scalascript-random-effect-plugin
-  v1/runtime/std/remote-plugin                   scalascript-remote-plugin
-  v1/runtime/std/request-plugin                  scalascript-request-plugin
-  v1/runtime/std/retry-effect-plugin             scalascript-retry-effect-plugin
-  v1/runtime/std/scljet-jdbc-plugin              scalascript-scljet-jdbc-plugin
-* v1/runtime/std/scljet-vfs-host                 scalascript-scljet-vfs-host
-  v1/runtime/std/scljet-vfs-plugin               scalascript-scljet-vfs-plugin
-  v1/runtime/std/smtp-plugin                     scalascript-smtp-plugin
-  v1/runtime/std/sql-plugin                      scalascript-sql-plugin
-  v1/runtime/std/state-effect-plugin             scalascript-state-effect-plugin
-  v1/runtime/std/streams-plugin                  scalascript-streams-plugin
-  v1/runtime/std/swing-plugin                    scalascript-swing-plugin
-  v1/runtime/std/tcp-plugin                      scalascript-tcp-plugin
-  v1/runtime/std/uuid-plugin                     scalascript-uuid-plugin
-  v1/runtime/std/ws-plugin                       scalascript-ws-plugin
-* v1/runtime/std/yaml-plugin                     scalascript-yaml-plugin
+  v1/runtime/plugins/actors-plugin                   scalascript-actors-plugin
+  v1/runtime/plugins/auth-plugin                     scalascript-auth-plugin
+  v1/runtime/plugins/bench-plugin                    scalascript-bench-plugin
+  v1/runtime/plugins/cache-effect-plugin             scalascript-cache-effect-plugin
+  v1/runtime/plugins/clock-effect-plugin             scalascript-clock-effect-plugin
+  v1/runtime/plugins/content-plugin                  scalascript-content-plugin
+  v1/runtime/plugins/deploy-plugin                   scalascript-deploy-plugin
+  v1/runtime/plugins/dstreams-plugin                 scalascript-dstreams-plugin
+  v1/runtime/plugins/env-effect-plugin               scalascript-env-effect-plugin
+  v1/runtime/plugins/fetch-plugin                    scalascript-fetch-plugin
+  v1/runtime/plugins/frontend-plugin                 scalascript-frontend-plugin
+  v1/runtime/plugins/fs-plugin                       scalascript-fs-plugin
+  v1/runtime/plugins/graph-plugin                    scalascript-graph-plugin
+  v1/runtime/plugins/graphql-plugin                  scalascript-graphql-plugin
+  v1/runtime/plugins/http-plugin                     scalascript-http-plugin
+  v1/runtime/plugins/json-plugin                     scalascript-json-plugin
+  v1/runtime/plugins/logger-effect-plugin            scalascript-logger-effect-plugin
+  v1/runtime/plugins/markup-js                       scalascript-markup-js
+  v1/runtime/plugins/markup-node                     scalascript-markup-node
+  v1/runtime/plugins/mcp-plugin                      scalascript-mcp-plugin
+  v1/runtime/plugins/mime-plugin                     scalascript-mime-plugin
+  v1/runtime/plugins/nfc-plugin                      scalascript-nfc-plugin
+  v1/runtime/plugins/oauth-plugin                    scalascript-oauth-plugin
+  v1/runtime/plugins/os-plugin                       scalascript-os-plugin
+  v1/runtime/plugins/pdf-plugin                      scalascript-pdf-plugin
+  v1/runtime/plugins/pwa-plugin                      scalascript-pwa-plugin
+  v1/runtime/plugins/random-effect-plugin            scalascript-random-effect-plugin
+  v1/runtime/plugins/remote-plugin                   scalascript-remote-plugin
+  v1/runtime/plugins/request-plugin                  scalascript-request-plugin
+  v1/runtime/plugins/retry-effect-plugin             scalascript-retry-effect-plugin
+  v1/runtime/plugins/scljet-jdbc-plugin              scalascript-scljet-jdbc-plugin
+* v1/runtime/plugins/scljet-vfs-host                 scalascript-scljet-vfs-host
+  v1/runtime/plugins/scljet-vfs-plugin               scalascript-scljet-vfs-plugin
+  v1/runtime/plugins/smtp-plugin                     scalascript-smtp-plugin
+  v1/runtime/plugins/sql-plugin                      scalascript-sql-plugin
+  v1/runtime/plugins/state-effect-plugin             scalascript-state-effect-plugin
+  v1/runtime/plugins/streams-plugin                  scalascript-streams-plugin
+  v1/runtime/plugins/swing-plugin                    scalascript-swing-plugin
+  v1/runtime/plugins/tcp-plugin                      scalascript-tcp-plugin
+  v1/runtime/plugins/uuid-plugin                     scalascript-uuid-plugin
+  v1/runtime/plugins/ws-plugin                       scalascript-ws-plugin
+* v1/runtime/plugins/yaml-plugin                     scalascript-yaml-plugin
 ```
 
 `v2/runtime/std` — 21
@@ -257,16 +257,16 @@ Seven standard-library modules are written in ScalaScript itself and therefore a
 `build.sbt` listing. They are imported by path and shipped as sources:
 
 ```
-  v1/runtime/std/cluster      7 files   membership, sharding, singletons, consul/etcd coordination
-  v1/runtime/std/dsl          5 files   AST, builders, passes, pretty-printer, walker
-  v1/runtime/std/mapreduce    8 files   dataset, shuffle, handler registry, failure handling
-  v1/runtime/std/mcp          4 files   Model Context Protocol client and server
-  v1/runtime/std/parsing      5 files   parser combinators, layout, error recovery
-  v1/runtime/std/scljet      23 files   the pure-.ssc SQLite engine (b-tree, pager, WAL, SQL)
-  v1/runtime/std/ui          21 files   the declarative UI toolkit
+  v1/runtime/plugins/cluster      7 files   membership, sharding, singletons, consul/etcd coordination
+  v1/runtime/plugins/dsl          5 files   AST, builders, passes, pretty-printer, walker
+  v1/runtime/plugins/mapreduce    8 files   dataset, shuffle, handler registry, failure handling
+  v1/runtime/plugins/mcp          4 files   Model Context Protocol client and server
+  v1/runtime/plugins/parsing      5 files   parser combinators, layout, error recovery
+  v1/runtime/plugins/scljet      23 files   the pure-.ssc SQLite engine (b-tree, pager, WAL, SQL)
+  v1/runtime/plugins/ui          21 files   the declarative UI toolkit
 ```
 
-`v1/runtime/std/scljet` is a **tracked symlink**, one of only two in the repository (the other is
+`v1/runtime/plugins/scljet` is a **tracked symlink**, one of only two in the repository (the other is
 `runtime -> v1/runtime`).
 
 ## 5. Part III — additional libraries (144 modules)
@@ -631,7 +631,7 @@ is `scalascript.uniml` (119) or `scalascript.markup` (2), which lives there. The
 STRUCTURAL: the standalone build refuses a v1 import outright (planted `import
 scalascript.ast.DocumentContent` and it failed with "value ast is not a member of scalascript"),
 rather than resting on that build happening not to include one module. `uniml/xml`'s last reach was
-`v1/runtime/std/markup-core`, which moved to `uniml/markup` — see 8.7. Every other UniML module
+`v1/runtime/plugins/markup-core`, which moved to `uniml/markup` — see 8.7. Every other UniML module
 depends on nothing outside UniML at all. Note that the table now has EIGHT rows and the group in §5
 still says seven: `uniml/markup` is a Part II module inside the `uniml/` directory, so the v1-reach
 check covers it (it is under `uniml/`) while the Part III count does not.
@@ -642,12 +642,12 @@ repository:
 
     v1/lang/core                      the LANGUAGE CORE
     v1/runtime/backend/interpreter    v1/runtime/backend/spi
-    v1/runtime/std/markup-js          v1/runtime/std/markup-node
+    v1/runtime/plugins/markup-js          v1/runtime/plugins/markup-node
     backend/config
     payments/bank-rails   payments/processors/sepa   payments/processors/fednow   payments/fx-ecb
     uniml/xml                         one consumer of eleven
 
-It left `v1/runtime/std/markup-core` for top-level `markup/` on 2026-07-31 and reached
+It left `v1/runtime/plugins/markup-core` for top-level `markup/` on 2026-07-31 and reached
 `uniml/markup` the same day — GROUPED WITH THE SUBJECT: it is the XML/HTML AST that `uniml/xml`,
 and the other dialects around it, project onto.
 
@@ -672,7 +672,7 @@ document calls an additional library — is a real cost and it is not gated, bec
 mechanical distinguishes "`v1/lang/core` depends on `uniml/markup`, which is Part II" from a
 genuine language→Part III dependency. It rests on §4 saying so and on this section.
 
-`markup-js` and `markup-node` stay under `v1/runtime/std/` deliberately: they are lane-specific
+`markup-js` and `markup-node` stay under `v1/runtime/plugins/` deliberately: they are lane-specific
 plugins wrapping the shared core, which is what that directory is for. The artifact name is
 unchanged (`scalascript-markup-core`), so `standardJarPrefixes` needed no edit for either move.
 

@@ -4,7 +4,10 @@
 #
 # WHY. `AutoResolve` (the JVM lane's dependency walker) looked for a bare `std/foo.ssc` under
 # `ImportResolver.libPath` only. `libPath` is whatever the launcher passed as `-Dssc.lib.path`,
-# which in a dev tree is the REPO ROOT — and `std/` is not there, it is at `v1/runtime/std`. The
+# which in a dev tree is the REPO ROOT — and at the time, `std/` was not there, it was at
+# `v1/runtime/std`. (Since `std-to-repo-root`, 2026-08-09, the dev tree keeps its `.ssc` std AT the
+# root, so that particular gap has closed for dev trees; an INSTALLED tree still stages std to
+# `<root>/runtime/std`, so the two roots still differ and this gate still has something to prove.) The
 # interpreter and the js lane use `ImportResolver.stdPath`, the six-rule `discoverStdRoot` search
 # (`specs/std-root-resolution.md §3`) that knows the dev-tree layout. So one lane out of three had
 # its own notion of where the standard library is, and the SAME file compiled on two of them:

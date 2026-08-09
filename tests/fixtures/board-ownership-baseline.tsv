@@ -45,14 +45,14 @@ run-js-v2-always-exits-1	v1/runtime/backend/js	v1/tools/cli/src/main/scala/scala
 scala3-control-capability-jvm-visibility	tests	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
 scala3-control-operation-key-snapshot	v1/runtime/backend/js	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
 scjvm-artifact-cache-ignores-compiler-version	v1/runtime/backend/jvm	v1/lang/core/src/main/scala/scalascript/artifact/JvmArtifactIO.scala	fixed-in
-scljet-ipk-insert-indexed-out-of-order	tests	v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
-scljet-jdbc-nan-binding-diverges	tests	v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
-scljet-vfs-plugin-not-packaged	v1/runtime/backend/interpreter	v1/runtime/std/scljet-vfs-plugin/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
+scljet-ipk-insert-indexed-out-of-order	tests	v1/runtime/plugins/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
+scljet-jdbc-nan-binding-diverges	tests	v1/runtime/plugins/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
+scljet-vfs-plugin-not-packaged	v1/runtime/backend/interpreter	v1/runtime/plugins/scljet-vfs-plugin/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
 ssc0c-multifile-uselib-ir-divergence	tests	v2/bin/ssc0c.ssc0	fixed-in
 sscpkg-loader-temp-tree-leak	v2	v1/lang/core/src/main/scala/scalascript/compiler/plugin/SscpkgLoader.scala	fixed-in
 ssr-forsignal-duplicate-attrs	tests	frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala	fixed-in
 standard-tier-named-arg-skip-default	v1/runtime/backend/js	v2/lib/ssc1-lower.ssc0	fixed-in
-std-auth-webauthn-signature-drift	tests	v1/runtime/std/auth-plugin/.../AuthIntrinsics.scala	prose
+std-auth-webauthn-signature-drift	tests	v1/runtime/plugins/auth-plugin/.../AuthIntrinsics.scala	prose
 swift-effect-handler-implicit-return-fallback	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala	fixed-in
 ui-fetch-get-offline-rejection	tests	v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs	fixed-in
 uniml-yaml-bare-tag-missing-separation	v1/runtime/backend/js	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala	fixed-in
@@ -81,7 +81,7 @@ v2-native-double-toLong-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ss
 v2-native-error-printed-but-exit-zero	tests	v2/lib/ssc1-lower.ssc0	fixed-in
 v2-native-front-multiline-curried-def	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0	fixed-in
 v2-native-import-wildcard-drops-ssc-case-classes	v1/runtime/backend/js	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala	fixed-in
-v2-native-jvmvfs-externs-unbound	v1/runtime/backend/interpreter	v1/runtime/std/scljet-vfs-host/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
+v2-native-jvmvfs-externs-unbound	v1/runtime/backend/interpreter	v1/runtime/plugins/scljet-vfs-host/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
 v2-native-string-map-filter-char-methods	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
 v2-native-table-request-url-untested	tests	frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala	fixed-in
 v2-native-table-rowkey-adapter-drop	tests	frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala	fixed-in

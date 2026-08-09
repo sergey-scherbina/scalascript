@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets.ISO_8859_1
  *  status code could see — a wrong answer.
  *  BUGS `multipart-upload-three-lanes-three-answers`.
  *
- *  Field shape matches `UploadedFile` in `v1/runtime/std/http.ssc` exactly, because an ssc program
+ *  Field shape matches `UploadedFile` in `std/http.ssc` exactly, because an ssc program
  *  reads `f.filename` / `f.size` / `f.bytes` the same way on every lane. `bytes` is the ISO-8859-1
  *  view (1 char = 1 byte), recovered with `bytes.getBytes("ISO-8859-1")`, as the other lanes do.
  *

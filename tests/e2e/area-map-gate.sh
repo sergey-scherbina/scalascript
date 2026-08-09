@@ -93,7 +93,7 @@ fi
 # Reversing the file must not change any answer. If it does, two readers of the same map disagree.
 sed '/^#/d;/^[[:space:]]*$/d' "$MAP" | tail -r 2>/dev/null > "$tmp/rev.tsv" || \
   sed '/^#/d;/^[[:space:]]*$/d' "$MAP" | tac > "$tmp/rev.tsv"
-probe="v1/runtime/backend/js/x.scala v1/runtime/std/a-plugin/x.scala v2/backend/swift/x.scala v1/tools/cli/x.scala tests/conformance/a.ssc build.sbt"
+probe="v1/runtime/backend/js/x.scala v1/runtime/plugins/a-plugin/x.scala v2/backend/swift/x.scala v1/tools/cli/x.scala tests/conformance/a.ssc build.sbt"
 a1=$(cd "$ROOT" && $AREA --quiet $probe 2>/dev/null | tr '\n' ' ')
 cp "$MAP" "$tmp/orig.tsv"; { grep '^#' "$MAP"; cat "$tmp/rev.tsv"; } > "$MAP"
 a2=$(cd "$ROOT" && $AREA --quiet $probe 2>/dev/null | tr '\n' ' ')

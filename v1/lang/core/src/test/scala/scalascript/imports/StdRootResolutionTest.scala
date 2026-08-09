@@ -8,7 +8,7 @@ class StdRootResolutionTest extends AnyFunSuite:
   /** Make a temp dir that contains a `std/` subdir HOLDING A MODULE; returns the root.
    *
    *  The `.ssc` is not decoration. Since `std-to-repo-root` a std root is a directory
-   *  whose `std/` actually has modules in it, because `v1/runtime/std` survived the move
+   *  whose `std/` actually has modules in it, because `v1/runtime/plugins` survived the move
    *  with 42 Scala plugin modules and zero `.ssc` — and an existence-only test accepted
    *  it, stopping the ancestor walk at a directory under which nothing resolves. */
   private def withStd(label: String): os.Path =
@@ -18,7 +18,7 @@ class StdRootResolutionTest extends AnyFunSuite:
     root
 
   /** A directory with a `std/` subdir that holds NO modules — the shape
-   *  `v1/runtime/std` has since the move. Must never be accepted. */
+   *  `v1/runtime/plugins` has since the move. Must never be accepted. */
   private def withEmptyStd(label: String): os.Path =
     val root = os.temp.dir(prefix = s"ssc-stdroot-empty-$label-")
     os.makeDir.all(root / "std" / "some-plugin" / "src")
@@ -103,8 +103,8 @@ class StdRootResolutionTest extends AnyFunSuite:
 
   // ── std-to-repo-root regression: a `std/` with no modules is not a std root ──
   //
-  // The 108 `.ssc` modules left `v1/runtime/std` for the repo-root `std/`, and 42 Scala
-  // plugin modules stayed. `v1/runtime/std` therefore still EXISTS and holds no `.ssc`.
+  // The 108 `.ssc` modules left `v1/runtime/plugins` for the repo-root `std/`, and 42 Scala
+  // plugin modules stayed. `v1/runtime/plugins` therefore still EXISTS and holds no `.ssc`.
   // The ancestor walk runs BOTTOM-UP, so from a jar under `v1/runtime/backend/…` it
   // reaches `<root>/v1/runtime` long before the repo root — and an existence-only probe
   // stopped it there, after which every `std/…` import failed with `Import not found`.
@@ -115,7 +115,7 @@ class StdRootResolutionTest extends AnyFunSuite:
     check(disc(lib = Some(empty), home = os.temp.dir()), None)
 
   test("the ancestor walk skips an empty std/ and keeps climbing to the real one"):
-    // Shape of the tree after the move: <root>/std has modules, <root>/v1/runtime/std
+    // Shape of the tree after the move: <root>/std has modules, <root>/v1/runtime/plugins
     // does not, and the jar sits below the latter.
     val root = withStd("walk-root")
     val stale = root / "v1" / "runtime"

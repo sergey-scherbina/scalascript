@@ -5,7 +5,7 @@ import ssc.Value
 import ssc.plugin.{NativePlugin, NativePluginContext}
 
 /** Host-file VFS intrinsics (`jvmVfs*`) for the standard ScalaScript 2.1 runtime — the native
- *  half of what `v1/runtime/std/scljet-vfs-plugin` gives the interpreter.
+ *  half of what `v1/runtime/plugins/scljet-vfs-plugin` gives the interpreter.
  *
  *  Both plugins are thin adapters over the SAME implementation: `SclJetJvmVfsHost`
  *  (`scljetVfsHost`, zero deps), which owns every FileChannel, advisory lock and shm region.

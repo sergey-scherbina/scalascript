@@ -89,11 +89,16 @@ object AutoResolve:
                 // the importing file are looked up under the library roots.
                 //
                 // BOTH roots, and `stdPath` is the one that matters. `libPath` is whatever the
-                // launcher passed as `-Dssc.lib.path`, which in a dev tree is the REPO ROOT — and
-                // `std/` does not live there, it lives at `v1/runtime/std`. `stdPath` is the result
-                // of `ImportResolver.discoverStdRoot`, the six-rule search the interpreter and the
-                // js lane already use (`specs/std-root-resolution.md §3`), which finds the dev-tree
-                // layout via its `runtime/std` ancestor rule.
+                // launcher passed as `-Dssc.lib.path`, which in a dev tree is the REPO ROOT.
+                // `stdPath` is the result of `ImportResolver.discoverStdRoot`, the six-rule search
+                // the interpreter and the js lane already use (`specs/std-root-resolution.md §3`).
+                //
+                // This used to add "and `std/` does not live there, it lives at `v1/runtime/std`",
+                // which was the reason the two roots differed at all. Since `std-to-repo-root`
+                // (2026-08-09) the dev tree keeps its 108 `.ssc` modules AT the repo root, so in a
+                // dev tree the two roots now coincide and rule 3 matches directly. They still
+                // differ for an INSTALLED tree, whose std is staged to `<root>/runtime/std` — so
+                // reading `stdPath` rather than `libPath` remains the correct thing to do here.
                 //
                 // Consulting only `libPath` is why `compile-jvm` refused an import that `run --v1`
                 // and `run-js` accepted from the SAME file: one lane out of three used a different

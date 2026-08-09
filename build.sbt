@@ -2365,7 +2365,7 @@ lazy val cli = project
         IO.copyFile(src, dest)
       }
       // `std-to-repo-root` (2026-08-09): the shared `.ssc` standard library moved out of
-      // `v1/runtime/std` to the repo-root `std/`. Only the 42 Scala plugin modules stayed
+      // `v1/runtime/plugins` to the repo-root `std/`. Only the 42 Scala plugin modules stayed
       // behind, and none of them holds a `.ssc` — so left pointing at the old directory this
       // glob would match ZERO files and stage an EMPTY standard library, with no compile
       // error anywhere to say so. The count assertion below exists because of that failure
@@ -2378,7 +2378,7 @@ lazy val cli = project
       //
       // The check is on LOOSE top-level `.ssc`, not on the glob being non-empty, and the
       // difference is the whole point. `isEmpty` was the first version and it was USELESS:
-      // pointed back at `v1/runtime/std` it still matched 23 files, because `scljet` there is
+      // pointed back at `v1/runtime/plugins` it still matched 23 files, because `scljet` there is
       // a symlink to the repo-root `scljet/` and the glob follows it. A wrong source root
       // would have staged 23 files instead of 131 and reported success. Measured 2026-08-09,
       // and it is the reason this guard exists in the form it does: 58 loose `.ssc` at the
@@ -2396,7 +2396,7 @@ lazy val cli = project
         IO.copyFile(src, dest)
       }
       // SclJet is a first-class standalone library at the repo-root `scljet/`
-      // (NOT under v1/runtime/std — the compat symlink was dropped). Stage it
+      // (NOT under v1/runtime/plugins — the compat symlink was dropped). Stage it
       // directly from there into `runtime/std/scljet/`, so the native front
       // resolves `std/scljet/…` from real files. See
       // specs/scljet-standalone-library.md.
@@ -3996,7 +3996,7 @@ lazy val micropaymentHydra = project
 // `backendInterpreterPluginTests`; per-plugin suites use `testUtils % Test`.
 
 lazy val jsonPlugin = project
-  .in(file("v1/runtime/std/json-plugin"))
+  .in(file("v1/runtime/plugins/json-plugin"))
   // NB: no `testUtils % Test` here (unlike the other std plugins). The std JSON
   // codec is self-hosted, so std modules (http, error-handling, …) transitively
   // import std/json.ssc, which needs jsonPlugin's `__jsonCore*` intrinsics at
@@ -4015,7 +4015,7 @@ lazy val jsonPlugin = project
   .settings(sscpkgSettings("scalascript.std.json"))
 
 lazy val contentPlugin = project
-  .in(file("v1/runtime/std/content-plugin"))
+  .in(file("v1/runtime/plugins/content-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, testUtils % Test)
   .settings(
     name := "scalascript-content-plugin",
@@ -4026,7 +4026,7 @@ lazy val contentPlugin = project
   .settings(sscpkgSettings("scalascript.std.content"))
 
 lazy val frontendPlugin = project
-  .in(file("v1/runtime/std/frontend-plugin"))
+  .in(file("v1/runtime/plugins/frontend-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendCustom % Test, frontendReact % Test, frontendSolid % Test, frontendVue % Test, frontendSwing % Test, frontendSwiftUI % Test, testUtils % Test)
   .settings(
     name := "scalascript-frontend-plugin",
@@ -4037,7 +4037,7 @@ lazy val frontendPlugin = project
   .settings(sscpkgSettings("scalascript.std.frontend"))
 
 lazy val swingPlugin = project
-  .in(file("v1/runtime/std/swing-plugin"))
+  .in(file("v1/runtime/plugins/swing-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-swing-plugin",
@@ -4048,7 +4048,7 @@ lazy val swingPlugin = project
   .settings(sscpkgSettings("scalascript.std.swing"))
 
 lazy val requestPlugin = project
-  .in(file("v1/runtime/std/request-plugin"))
+  .in(file("v1/runtime/plugins/request-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-request-plugin",
@@ -4059,7 +4059,7 @@ lazy val requestPlugin = project
   .settings(sscpkgSettings("scalascript.std.request"))
 
 lazy val authPlugin = project
-  .in(file("v1/runtime/std/auth-plugin"))
+  .in(file("v1/runtime/plugins/auth-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-auth-plugin",
@@ -4070,7 +4070,7 @@ lazy val authPlugin = project
   .settings(sscpkgSettings("scalascript.std.auth"))
 
 lazy val oauthPlugin = project
-  .in(file("v1/runtime/std/oauth-plugin"))
+  .in(file("v1/runtime/plugins/oauth-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-oauth-plugin",
@@ -4081,7 +4081,7 @@ lazy val oauthPlugin = project
   .settings(sscpkgSettings("scalascript.std.oauth"))
 
 lazy val fetchPlugin = project
-  .in(file("v1/runtime/std/fetch-plugin"))
+  .in(file("v1/runtime/plugins/fetch-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-fetch-plugin",
@@ -4092,7 +4092,7 @@ lazy val fetchPlugin = project
   .settings(sscpkgSettings("scalascript.std.fetch"))
 
 lazy val graphPlugin = project
-  .in(file("v1/runtime/std/graph-plugin"))
+  .in(file("v1/runtime/plugins/graph-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graph-plugin",
@@ -4103,7 +4103,7 @@ lazy val graphPlugin = project
   .settings(sscpkgSettings("scalascript.std.graph"))
 
 lazy val sqlPlugin = project
-  .in(file("v1/runtime/std/sql-plugin"))
+  .in(file("v1/runtime/plugins/sql-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, backendSqlRuntime, testUtils % Test)
   .settings(
     name := "scalascript-sql-plugin",
@@ -4114,7 +4114,7 @@ lazy val sqlPlugin = project
   .settings(sscpkgSettings("scalascript.std.sql"))
 
 lazy val httpPlugin = project
-  .in(file("v1/runtime/std/http-plugin"))
+  .in(file("v1/runtime/plugins/http-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, httpSessionShared, testUtils % Test)
   .settings(
     name := "scalascript-http-plugin",
@@ -4125,7 +4125,7 @@ lazy val httpPlugin = project
   .settings(sscpkgSettings("scalascript.std.http"))
 
 lazy val wsPlugin = project
-  .in(file("v1/runtime/std/ws-plugin"))
+  .in(file("v1/runtime/plugins/ws-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, runtimeServerCommon, runtimeServerSpi, testUtils % Test)
   .settings(
     name := "scalascript-ws-plugin",
@@ -4136,7 +4136,7 @@ lazy val wsPlugin = project
   .settings(sscpkgSettings("scalascript.std.ws"))
 
 lazy val mcpPlugin = project
-  .in(file("v1/runtime/std/mcp-plugin"))
+  .in(file("v1/runtime/plugins/mcp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, mcpCommon, runtimeServerCommon, testUtils % Test)
   .settings(
     name := "scalascript-mcp-plugin",
@@ -4147,7 +4147,7 @@ lazy val mcpPlugin = project
   .settings(sscpkgSettings("scalascript.std.mcp"))
 
 lazy val remotePlugin = project
-  .in(file("v1/runtime/std/remote-plugin"))
+  .in(file("v1/runtime/plugins/remote-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-remote-plugin",
@@ -4158,7 +4158,7 @@ lazy val remotePlugin = project
   .settings(sscpkgSettings("scalascript.std.remote"))
 
 lazy val pwaPlugin = project
-  .in(file("v1/runtime/std/pwa-plugin"))
+  .in(file("v1/runtime/plugins/pwa-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core)
   .settings(
     name := "scalascript-pwa-plugin",
@@ -4170,7 +4170,7 @@ lazy val pwaPlugin = project
 
 // ── std.nfc — NFC NDEF status/read/write declarations ───────────────────
 lazy val nfcPlugin = project
-  .in(file("v1/runtime/std/nfc-plugin"))
+  .in(file("v1/runtime/plugins/nfc-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-nfc-plugin",
@@ -4197,7 +4197,7 @@ lazy val backendInterpreterPluginTests = project
 
 // ── Streams — interpreter plugin ─────────────────────────────────────────
 lazy val streamsPlugin = project
-  .in(file("v1/runtime/std/streams-plugin"))
+  .in(file("v1/runtime/plugins/streams-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, frontendCore, frontendPlugin % Test, testUtils % Test)
   .settings(
     name := "scalascript-streams-plugin",
@@ -4209,7 +4209,7 @@ lazy val streamsPlugin = project
 
 // ── DStreams — interpreter plugin ─────────────────────────────────────────
 lazy val dstreamsPlugin = project
-  .in(file("v1/runtime/std/dstreams-plugin"))
+  .in(file("v1/runtime/plugins/dstreams-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test, streamsPlugin % Test)
   .settings(
     name := "scalascript-dstreams-plugin",
@@ -4221,7 +4221,7 @@ lazy val dstreamsPlugin = project
 
 // ── GraphQL — interpreter plugin (Phase 1) ────────────────────────────────
 lazy val graphqlPlugin = project
-  .in(file("v1/runtime/std/graphql-plugin"))
+  .in(file("v1/runtime/plugins/graphql-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-graphql-plugin",
@@ -4237,7 +4237,7 @@ lazy val graphqlPlugin = project
 
 // ── Deploy — CLI-time plugin ───────────────────────────────────────────────
 lazy val deployPlugin = project
-  .in(file("v1/runtime/std/deploy-plugin"))
+  .in(file("v1/runtime/plugins/deploy-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-deploy-plugin",
@@ -4264,7 +4264,7 @@ lazy val cryptoPlugin = project
 
 // ── PDF generation — htmlToPdfBase64 via OpenHTMLtoPDF (opt-in, JVM only) ──
 lazy val pdfPlugin = project
-  .in(file("v1/runtime/std/pdf-plugin"))
+  .in(file("v1/runtime/plugins/pdf-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-pdf-plugin",
@@ -4280,7 +4280,7 @@ lazy val pdfPlugin = project
 
 // ── MIME assembly — buildMimeMessage RFC 5322 multipart/mixed (hand-rolled) ──
 lazy val mimePlugin = project
-  .in(file("v1/runtime/std/mime-plugin"))
+  .in(file("v1/runtime/plugins/mime-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-mime-plugin",
@@ -4296,7 +4296,7 @@ lazy val mimePlugin = project
   .settings(sscpkgSettings("scalascript.std.mime"))
 
 lazy val smtpPlugin = project
-  .in(file("v1/runtime/std/smtp-plugin"))
+  .in(file("v1/runtime/plugins/smtp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-smtp-plugin",
@@ -4313,7 +4313,7 @@ lazy val smtpPlugin = project
 
 // ── TCP — raw line-oriented server/client sockets (IMAP/POP3/SMTP/Redis etc.) ──
 lazy val tcpPlugin = project
-  .in(file("v1/runtime/std/tcp-plugin"))
+  .in(file("v1/runtime/plugins/tcp-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-tcp-plugin",
@@ -4326,7 +4326,7 @@ lazy val tcpPlugin = project
 
 // ── Bench — bench-harness helpers (Bench.opaque identity / anti-folding) ──
 lazy val benchPlugin = project
-  .in(file("v1/runtime/std/bench-plugin"))
+  .in(file("v1/runtime/plugins/bench-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-bench-plugin",
@@ -4339,7 +4339,7 @@ lazy val benchPlugin = project
 // ── Logger effect — runLogger/runLoggerJson/runLoggerToList block-forms ───
 // Extracted from interpreter core into a ServiceLoader plugin (polyglot-libraries §2d).
 lazy val loggerEffectPlugin = project
-  .in(file("v1/runtime/std/logger-effect-plugin"))
+  .in(file("v1/runtime/plugins/logger-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-logger-effect-plugin",
@@ -4351,7 +4351,7 @@ lazy val loggerEffectPlugin = project
 
 // ── Random effect — runRandom / runRandomSeeded as block-form plugins ──────
 lazy val randomEffectPlugin = project
-  .in(file("v1/runtime/std/random-effect-plugin"))
+  .in(file("v1/runtime/plugins/random-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-random-effect-plugin",
@@ -4363,7 +4363,7 @@ lazy val randomEffectPlugin = project
 
 // ── Clock effect — runClock / runClockAt as block-form plugins ─────────────
 lazy val clockEffectPlugin = project
-  .in(file("v1/runtime/std/clock-effect-plugin"))
+  .in(file("v1/runtime/plugins/clock-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-clock-effect-plugin",
@@ -4375,7 +4375,7 @@ lazy val clockEffectPlugin = project
 
 // ── Env effect — runEnv / runEnvWith as block-form plugins ─────────────────
 lazy val envEffectPlugin = project
-  .in(file("v1/runtime/std/env-effect-plugin"))
+  .in(file("v1/runtime/plugins/env-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-env-effect-plugin",
@@ -4387,7 +4387,7 @@ lazy val envEffectPlugin = project
 
 // ── State effect — runState(s0) as a block-form plugin (uses applyFn) ──────
 lazy val stateEffectPlugin = project
-  .in(file("v1/runtime/std/state-effect-plugin"))
+  .in(file("v1/runtime/plugins/state-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-state-effect-plugin",
@@ -4399,7 +4399,7 @@ lazy val stateEffectPlugin = project
 
 // ── Retry effect — runRetry/runRetryNoSleep as block-form plugins (uses applyFn) ──
 lazy val retryEffectPlugin = project
-  .in(file("v1/runtime/std/retry-effect-plugin"))
+  .in(file("v1/runtime/plugins/retry-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-retry-effect-plugin",
@@ -4411,7 +4411,7 @@ lazy val retryEffectPlugin = project
 
 // ── Cache effect — runCache/runCacheBypass as block-form plugins (uses applyFn) ──
 lazy val cacheEffectPlugin = project
-  .in(file("v1/runtime/std/cache-effect-plugin"))
+  .in(file("v1/runtime/plugins/cache-effect-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-cache-effect-plugin",
@@ -4423,7 +4423,7 @@ lazy val cacheEffectPlugin = project
 
 // ── Actors runtime — runActors provider skeleton; runtime move follows ────
 lazy val actorsPlugin = project
-  .in(file("v1/runtime/std/actors-plugin"))
+  .in(file("v1/runtime/plugins/actors-plugin"))
   .dependsOn(backendSpi, backendInterpreter, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-actors-plugin",
@@ -4435,7 +4435,7 @@ lazy val actorsPlugin = project
 
 // ── UUID — v4/v7 generation, parsing, validation ──────────────────────────
 lazy val uuidPlugin = project
-  .in(file("v1/runtime/std/uuid-plugin"))
+  .in(file("v1/runtime/plugins/uuid-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-uuid-plugin",
@@ -4524,7 +4524,7 @@ lazy val paymentsPlugin = project
 
 // ── std.fs — filesystem operations ──────────────────────────────────────
 lazy val fsPlugin = project
-  .in(file("v1/runtime/std/fs-plugin"))
+  .in(file("v1/runtime/plugins/fs-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-fs-plugin",
@@ -4540,7 +4540,7 @@ lazy val fsPlugin = project
 // interpreter plugin (scljetVfsPlugin) and the v2 native plugin (v2NativeScljetVfsPlugin) —
 // two different plugin SPIs, one implementation. Same pattern as httpFastEngine above.
 lazy val scljetVfsHost = project
-  .in(file("v1/runtime/std/scljet-vfs-host"))
+  .in(file("v1/runtime/plugins/scljet-vfs-host"))
   .settings(
     name := "scalascript-scljet-vfs-host",
     libraryDependencies += scalatestTest,
@@ -4548,7 +4548,7 @@ lazy val scljetVfsHost = project
   )
 
 lazy val scljetVfsPlugin = project
-  .in(file("v1/runtime/std/scljet-vfs-plugin"))
+  .in(file("v1/runtime/plugins/scljet-vfs-plugin"))
   .dependsOn(scljetVfsHost, backendSpi, pluginApi, ir, core, testUtils % Test, backendSqlRuntime % Test)
   .settings(
     name := "scalascript-scljet-vfs-plugin",
@@ -4566,7 +4566,7 @@ lazy val scljetVfsPlugin = project
 // (backendInterpreterPluginTests → thisPlugin → backendInterpreter) and it needs
 // no `.sscpkg` packaging (DriverManager finds it via META-INF/services).
 lazy val scljetJdbcPlugin = project
-  .in(file("v1/runtime/std/scljet-jdbc-plugin"))
+  .in(file("v1/runtime/plugins/scljet-jdbc-plugin"))
   // scljetVfsPlugin: the engine's `index.ssc` transitively imports `jvm-vfs.ssc`,
   // whose `extern def jvmVfs*` intrinsics are provided by scljet-vfs-plugin.  On
   // the classpath, the interpreter's ServiceLoader-based `ensurePluginsLoaded`
@@ -4581,7 +4581,7 @@ lazy val scljetJdbcPlugin = project
 
 // ── std.os / std.process — OS environment + process management ───────────
 lazy val osPlugin = project
-  .in(file("v1/runtime/std/os-plugin"))
+  .in(file("v1/runtime/plugins/os-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test)
   .settings(
     name := "scalascript-os-plugin",
@@ -4593,7 +4593,7 @@ lazy val osPlugin = project
 
 // ── std.yaml — YAML parse + stringify ────────────────────────────────────
 lazy val yamlPlugin = project
-  .in(file("v1/runtime/std/yaml-plugin"))
+  .in(file("v1/runtime/plugins/yaml-plugin"))
   .dependsOn(backendSpi, pluginApi, ir, core, yaml, testUtils % Test)
   .settings(
     name := "scalascript-yaml-plugin",
@@ -4800,7 +4800,7 @@ lazy val markupCore    = markupCoreJvm
 // Test: sbt markupJs/test (Scala.js Node.js runner — DOMParser tests are
 // structural mock tests; real DOMParser integration requires a browser or jsdom).
 lazy val markupJs = project
-  .in(file("v1/runtime/std/markup-js"))
+  .in(file("v1/runtime/plugins/markup-js"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(markupCoreJs)
   .settings(
@@ -4816,7 +4816,7 @@ lazy val markupJs = project
 // Runs `npm ci` in runtime/std/markup-node/ automatically before tests.
 // sbt markupNode/test  — real @xmldom/xmldom parse + walk integration tests.
 lazy val markupNode = project
-  .in(file("v1/runtime/std/markup-node"))
+  .in(file("v1/runtime/plugins/markup-node"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(markupCoreJs)
   .settings(
@@ -4827,7 +4827,7 @@ lazy val markupNode = project
     Test    / scalacOptions ++= sharedScalacOptions,
     Test / fork := false,
   )
-  .settings(npmInstallForScalaJsTestSettings(file("v1/runtime/std/markup-node")): _*)
+  .settings(npmInstallForScalaJsTestSettings(file("v1/runtime/plugins/markup-node")): _*)
 
 // ── Bank Rails — SEPA CT + DD adapter ────────────────────────────────────
 lazy val paymentsSepa = project

@@ -521,7 +521,7 @@ private[interpreter] object SectionRuntime:
           // Same failure as `rebindPluginNative` guards against, one layer down: a HOST BUILTIN is
           // per-interpreter infrastructure, not a value to hand over. The child's copy closes over
           // the CHILD interpreter, so a callback-style builtin invokes the CALLER's closure against
-          // the CHILD's globals. `v1/runtime/std/coroutine.ssc` re-exports `coroutineCreate` via
+          // the CHILD's globals. `std/coroutine.ssc` re-exports `coroutineCreate` via
           // `extern def`, so importing it left a coroutine body unable to read OR write the
           // importer's top-level `var`s — reads raised `Undefined: n`, writes silently created a
           // child-local binding and the caller saw its `var` unchanged. The importer already has

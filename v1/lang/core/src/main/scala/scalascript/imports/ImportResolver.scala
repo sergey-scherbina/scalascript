@@ -73,7 +73,7 @@ object ImportResolver:
      *
      *  `os.exists(root / "std")` was enough until `std-to-repo-root` moved the
      *  108 `.ssc` modules to the repo-root `std/` and left 42 Scala plugin
-     *  modules behind at `v1/runtime/std`. That directory still exists and
+     *  modules behind at `v1/runtime/plugins`. That directory still exists and
      *  contains not one `.ssc`, so the bare existence test accepted it and
      *  every lookup under it then failed with `Import not found: std/…`.
      *  Same defect shape as the staging guard in `build.sbt`: "the directory
@@ -109,7 +109,7 @@ object ImportResolver:
       // `.filter(hasStd)`, like rules 4 and 6 — this function's contract, stated one docstring up,
       // is "returns the directory that CONTAINS a `std/` subdirectory". Unfiltered, rule 3 accepted
       // whatever the launcher passed as `-Dssc.lib.path`, which every `bin/ssc*` sets to the REPO
-      // ROOT: a dev tree kept its std at `v1/runtime/std`, so the root did NOT contain `std/`,
+      // ROOT: a dev tree kept its std at `v1/runtime/plugins`, so the root did NOT contain `std/`,
       // and this returned it anyway. `stdPath` was therefore identical to `libPath` in every
       // dev-tree run, and rules 4-6 were unreachable — including rule 5, the `runtime/std`
       // ancestor walk that exists for exactly this layout.
@@ -145,7 +145,7 @@ object ImportResolver:
    *  under `runtime/std/` — yet is imported as `std/scljet/…`.  A packaged/staged
    *  install keeps a real `runtime/std/scljet/` tree, so the normal std-root
    *  resolution finds it there; this root is only consulted as a *fallback* when
-   *  that fails (dev tree, after the compat symlink `v1/runtime/std/scljet` was
+   *  that fails (dev tree, after the compat symlink `v1/runtime/plugins/scljet` was
    *  dropped).  First existing candidate wins:
    *    1. `ssc.scljet.path`   (override)
    *    2. `$SSC_SCLJET_PATH`   (override)
