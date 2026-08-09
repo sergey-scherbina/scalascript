@@ -346,6 +346,19 @@ gives the real message: `` bench/corpus/typeclass-monoid.ssc:10:1: `given … wi
 code, same refusal, different first line — so anything reading stderr top-down, a person or a
 script, gets the compiler's complaint instead of the program's.
 
+**IT ALSO FAILS A GATE, which is worse than the noise above and was measured hours later on the
+same day.** After rebasing SSC3-7i onto `origin/main`, `front-gate.sh` went RED on
+`annotation-own-line` — `the expression 'spike.error' is outside …` — a fixture a sibling had
+added 21 minutes earlier together with its fix IN UNIML (`ba23280b2`). The rebase brought the
+fixture and the UniML SOURCE; `v3/.jars/uniml.cp` still pointed at a jar built before it, so the
+fix was absent and the new fixture could not pass. Rebuilding the classpath turned the gate green
+with no code change.
+
+**So the failure mode is a RED GATE ATTRIBUTED TO THE WRONG CHANGE.** I was one step from reading
+that as a regression in my own commit. The rule that follows is narrow and worth stating: a rebase
+that moves `uniml/` requires `v3/uniml-classpath.sh` before any gate result is believed —
+`git log --oneline ORIG_HEAD..HEAD -- uniml/` answers it in one command.
+
 **Two things to decide, both small:** route the second front's compile output to a log file and
 keep only the one-line notice on stderr; and give `uniml.cp` a staleness check against the sources
 it was built from, so the notice says *rebuild* rather than leaving it to be inferred.
@@ -642,7 +655,7 @@ was finally confirmed rather than argued about.
      area: front
      kind: bug
      gate: v3/front-capability-gate.sh
-     fixed-in: 10bb9a635 -->
+     fixed-in: 83fbc8c75 -->
 
 **FIXED 2026-08-09 — both rows this entry names are closed, and the gate it produced is what
 closed them.** `effect-oneshot` came out when the effect projection landed; `type-lambda-native`
