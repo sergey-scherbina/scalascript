@@ -3,9 +3,11 @@ branch: feature/mcp-2026-07-28
 agent: claude-code
 started: 2026-08-09T14:05:59Z
 heartbeat: 2026-08-09T14:05:59Z
-status: claimed-before-planning
+status: implementing
 items: mcp-2026-07-28 P1
-paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpClientCore.scala file:specs/mcp-2026-07-28.md file:examples/mcp-server-tools.js
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/Mcp2026StatelessTest.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  MCP protocol 2026-07-28 dual-era migration, P1 core envelope.
+  Spec: specs/mcp-2026-07-28.md. Legacy `initialize` era kept byte-identical;
+  modern stateless era added behind a per-request `_meta` discriminator.
+next: P1 slice 1 — server/discover + modern _meta + resultType stamping
