@@ -7,6 +7,7 @@
      reported-at: 2026-08-09
      ssc-version: fd8304965
      confirmed: yes
+     fixed-in: 6b9fc4352
      gate: none -->
 
 `examples/content-toolkit-transitive/app.ssc` and its `-register` twin import their sibling as
