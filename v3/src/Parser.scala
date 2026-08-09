@@ -444,9 +444,26 @@ object Parser:
         // lowering resolves a function by name there; `Apply(Name("take"), …)` reached it as an
         // unbound NAME and reported `unknown name 'take'` — a message about a function that is
         // defined three lines up. Two spellings of one call must not build two different nodes.
+        // THE BLOCK BECOMES A THUNK, matching the UniML front. `runActors { … }` means "run this
+        // later", and a front that passes the block's VALUE has already run it — which is why the
+        // two fronts printed different trees for 12 of the 15 differing `actors-*` conformance
+        // cases: UniML wrapped, this one did not.
+        //
+        // UniML is the DEFAULT front, so its reading is what ships; aligning here removes a
+        // divergence rather than choosing a new semantics. The double-wrap this could have caused
+        // with a by-name parameter is already guarded in `Lower.rewriteByName` — an argument that
+        // is already `Lambda(Nil, _)` is left alone.
+        // UNLESS THE BLOCK IS ALREADY A LAMBDA. `receive { case … }` parses to a one-argument
+        // lambda with a `match` inside — that IS the function the callee wants, and wrapping it
+        // would hand over a function returning a function. UniML makes the same exception, which is
+        // how it was found: after aligning the wrap, three `actors-*` cases still differed and v3's
+        // tree had `(lam (params) (lam (params) …))` where UniML had one.
+        val thunk = arg match
+          case _: Expr.Lambda => arg
+          case _              => Expr.Lambda(Nil, arg, Expr.posOf(arg))
         e = e match
-          case Expr.Name(n, p) => Expr.Call(n, List(arg), p)
-          case other           => Expr.Apply(other, List(arg), Expr.posOf(other))
+          case Expr.Name(n, p) => Expr.Call(n, List(thunk), p)
+          case other           => Expr.Apply(other, List(thunk), Expr.posOf(other))
         ts = t
       // A LEADING-DOT continuation: the chain goes on, on the next and more deeply indented line.
       //
