@@ -1,0 +1,16 @@
+slug: rust-golden-red-mine
+branch: feature/rust-golden-red-mine
+agent: claude-code
+started: 2026-08-09T15:20:31Z
+heartbeat: 2026-08-09T15:20:31Z
+status: implementing
+items: rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md BUGS.md
+scope: |
+  Two backendRust tests are red on origin/main from MY Any-boundary change (3ac30f018) -- a sibling
+  found them while working next to me and filed them without a claim, correctly noting nobody was
+  watching. A golden red on main means the next person to touch this backend inherits a suite that
+  cannot tell them whether they broke something. Mine to fix, ahead of any new work.
+  Then, with the file free: reachability -- emit only what the entry point reaches, so importing
+  std/json stops dragging json-core's .ssc bodies in when jsonParse/jsonStringify are intrinsics.
+next: reproduce backendRust/test, fix both, and add the suite to what I run before landing here
