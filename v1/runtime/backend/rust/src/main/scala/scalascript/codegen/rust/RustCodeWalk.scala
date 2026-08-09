@@ -2240,6 +2240,29 @@ object RustCodeWalk:
         body <- renderVecIterBody(args.values.head, q, ctx, method = "find")
       yield body
 
+    // xs.exists(p) / xs.forall(p) → any / all. Named by the refusal before this arm existed, which
+    // is how they were found rather than guessed.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name(meth @ ("exists" | "forall"))), args
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+      for
+        q <- renderTerm(qual, ctx)
+        body <- renderVecIterBody(args.values.head, q, ctx, method = meth)
+      yield body
+
+    // `m.get(k)` on a Map → `Option`, and OWNED: Rust's `HashMap::get` hands back `Option<&V>`
+    // while Scala's `get` is `Option[V]`, so the borrow is cloned away. Excluded for a receiver
+    // known to be a List, where `get` is not a ScalaScript method at all and the refusal below
+    // should say so.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("get")), args
+    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual)
+         && !isKnownVecReceiver(qual, ctx) =>
+      for
+        q <- renderTerm(qual, ctx)
+        k <- renderTerm(args.values.head, ctx)
+      yield s"$q.get(&$k).cloned()"
+
     // xs.indexOf(v) → position, as an i64, and -1 when absent — Scala's contract, not Rust's
     // `Option<usize>`.
     case m.Term.Apply.After_4_6_0(
@@ -2995,7 +3018,7 @@ object RustCodeWalk:
     // Collection methods that RETURN an Option. Needed because printing one has to render it the
     // Scala way -- Rust's `Option` has no `Display`, so `"x = " + xs.find(p)` did not compile at
     // all until this list knew what produces an Option.
-    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption")), _) => true
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption" | "get")), _) => true
     case m.Term.Select(_, m.Term.Name("headOption" | "lastOption"))                                      => true
     case _ => false
 
@@ -3291,6 +3314,10 @@ object RustCodeWalk:
           // clone: a body written as `s == "b"` is `&String == String` otherwise, which does not
           // compile. Returns Rust's `Option`, which is what ScalaScript's `find` means.
           case "find"     => s"$q.iter().cloned().find(|__f| { let $p0 = __f.clone(); $b })"
+          // `any`/`all` take the item BY VALUE from a `cloned()` iterator, so the parameter binds
+          // directly — unlike `find`, whose predicate gets a reference.
+          case "exists"   => s"$q.iter().cloned().any(|$p0| { $b })"
+          case "forall"   => s"$q.iter().cloned().all(|$p0| { $b })"
           case "filter"   => s"$q.iter().cloned().filter(|$p0| { $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
           case other      => s"$q.$other(|$p0| { $b })"
@@ -3306,6 +3333,8 @@ object RustCodeWalk:
           case "foreach"  => s"$q.iter().cloned().for_each($closure);"
           case "map"      => s"$q.iter().cloned().map($closure).collect::<Vec<_>>()"
           case "find"     => s"$q.iter().cloned().find(|__f| ($closure)(__f.clone()))"
+          case "exists"   => s"$q.iter().cloned().any($closure)"
+          case "forall"   => s"$q.iter().cloned().all($closure)"
           case "filter"   => s"$q.iter().cloned().filter($closure).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, $closure)"
           case other2     => s"$q.$other2($closure)"
@@ -3720,6 +3749,12 @@ object RustCodeWalk:
       case m.Term.Apply.After_4_6_0(m.Term.Name(c), _) => ctx.ctorMap.get(c).exists(_.isStruct)
       case _ => false
     if target == "crate::value::Value" then argIsCaseClass || argIsValue
+    // A CONTAINER of `Any` — `Map[String, Any]`, `List[Any]` — is the same boundary one level down:
+    // `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own. The element
+    // map below is the identity when the argument already holds `Value`s, so this can fire on any
+    // argument shape without having to know which it is.
+    else if target == "Vec<crate::value::Value>" ||
+            target == "std::collections::HashMap<String, crate::value::Value>" then true
     else argIsValue
 
   /** Coerce an expression that is a `Value` into `rustType`, using the DECLARED type only.
@@ -3733,6 +3768,13 @@ object RustCodeWalk:
     case "bool"                 => s"($expr).ssc_bool()"
     case "String"               => s"($expr).ssc_str()"
     case "crate::value::Value"  => expr
+    // Into a container OF `Any`: map the elements. `Value::from` is the identity on a `Value`, so
+    // the same expression serves an argument that already holds them.
+    case "Vec<crate::value::Value>" =>
+      s"($expr).into_iter().map(|__e| crate::value::Value::from(__e)).collect::<Vec<_>>()"
+    case "std::collections::HashMap<String, crate::value::Value>" =>
+      s"($expr).into_iter().map(|(__k, __v)| (__k, crate::value::Value::from(__v)))" +
+        ".collect::<std::collections::HashMap<_, _>>()"
     case t if t.startsWith("Vec<") && t.endsWith(">") =>
       val inner = t.drop(4).dropRight(1)
       if inner == "crate::value::Value" then s"crate::value::ssc_vec($expr)"

@@ -422,6 +422,39 @@ SSC
     failed=1
   fi
 
+  # The rest of the class the reporter named — `get`, `exists`, and an `Option[Any]` crossing into
+  # an `Any` through a CONTAINER (`Map[String, Any]`), which is the same boundary one level down:
+  # `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own.
+  cat > "$tmp/getexists.ssc" <<'SSC'
+case class Cell(payload: Any)
+
+def wrap(m: Map[String, Any], k: String): Any = Cell(m.get(k))
+
+def main(): Unit =
+  val m = Map("a" -> 1, "b" -> 2)
+  println("get hit  = " + m.get("a"))
+  println("get miss = " + m.get("zz"))
+  val xs = List(1, 2, 3)
+  println("exists   = " + xs.exists(n => n > 2))
+  println("forall   = " + xs.forall(n => n > 0))
+  println(wrap(m, "a"))
+  println(wrap(m, "zz"))
+SSC
+  set +e
+  geb=$("$SSC" build-rust "$tmp/getexists.ssc" -o "$tmp/gebin" 2>&1); gerc=$?
+  ge_rust=$("$tmp/gebin" 2>&1)
+  ge_ref=$("$ROOT/bin/ssc" run "$tmp/getexists.ssc" 2>/dev/null)
+  set -e
+  if [[ $gerc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — get/exists/Option-in-a-container do not build" >&2
+    echo "--- output: $(printf '%s' "$geb" | tail -5)" >&2
+    failed=1
+  elif [[ "$ge_rust" != "$ge_ref" || -z "$ge_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on get/exists" >&2
+    echo "--- rust: $(printf '%s' "$ge_rust" | tr '\n' '|')   ssc: $(printf '%s' "$ge_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # JSON is checked against the default lane, because the bug it replaced was a CONTRACT mismatch
   # that compiled: `jsonParse` returned a String on this lane and a value everywhere else, so the
   # only assertion that would have caught it is "the two lanes say the same thing".
