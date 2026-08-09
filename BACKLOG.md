@@ -204,13 +204,13 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   validation (`-32022` unsupported version, `-32602` missing `clientCapabilities`); `resultType`
   + `serverInfo` stamped by ONE post-processing site so the legacy path stays byte-identical and
   the gate can prove it.
-- [ ] **`mcp-module-extraction` — make the library's independence structural.** Sergiy,
-  2026-08-09. `mcp/common` already imports nothing from v1 and already has `scalatestTest`; what
-  is misfiled is its tests — **44 of 51** `Mcp*`/`OAuth*` test files under
-  `v1/runtime/backend/interpreter-plugin-tests/` have no v1 import (measured, 7 genuinely need
-  v1). Move those 44 to `mcp/common/src/test/`, give `std/mcp/*.ssc` a version-neutral home, and
-  leave the v1/v2 plugins as the thin per-front adapters they already are. No `build.sbt` change
-  for the test move. **Before P2** — otherwise every later phase pays the move twice.
+- [x] **`mcp-module-extraction` — make the library's independence structural.** Sergiy,
+  2026-08-09. ✓ Landed: the 44 v1-free `Mcp*`/`OAuth*` test files moved to
+  `mcp/common/src/test/` as **44 renames, 0 insertions, 0 deletions**; no `build.sbt` change, no
+  new dependency. `mcpCommon/test` 462 green, the 7 genuinely-v1 files stay put, v1 module 71
+  green. The v1/v2 plugins were already thin per-front adapters and were not touched.
+  **Deliberately NOT done — see `std-is-not-v1s-std` below:** moving `std/mcp/*.ssc` out of
+  `v1/runtime/std/` would make MCP the one exception among 49 and gain nothing.
 - [ ] **P1b — version honesty.** Legacy `initialize` echoes the client's version when supported;
   bump the legacy constant to `2025-06-18` at all four call sites at once, after auditing that we
   really implement it. Split out of P1 deliberately: three of those sites are in files P1 does not
@@ -228,6 +228,30 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   Metadata Documents.
 
 Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
+
+## std-is-not-v1's-std — 49 shared std modules live under a directory named `v1`
+
+Found while doing `mcp-module-extraction` (2026-08-09), and it is why the `.ssc` half of that
+task was deliberately left undone.
+
+`v1/runtime/std/` holds **49** std modules — `json-plugin`, `sql-plugin`, `auth-plugin`,
+`mcp-plugin`, and the `.ssc` API files beside them. `build.sbt:2360` sets
+`stdSourceRoot = v1/runtime/std` and stages every `*.ssc` under it into
+`bin/lib/standard/**native-front**/`. So this directory is **already the whole toolchain's std
+library, serving both fronts** — the `v1/` in its path is a name that stopped being true and
+now misleads every reader into thinking a shared library belongs to one front. It cost real
+minutes on 2026-08-09: the natural reading of "mcp lives under v1" is that mcp is v1's, and it
+is not.
+
+Moving one module out is the wrong fix and was rejected: it makes that module the single
+exception among 49, needs a special case in what is currently one `stdSourceRoot` path, and
+buys nothing because the files already serve both fronts.
+
+The right fix is repo-wide — relocate the whole tree (`std/` at the root, say) and repoint
+`stdSourceRoot`, the two staged trees, and whatever else resolves that path. That is a large
+mechanical change with a real blast radius across 49 modules and the launcher staging, so it
+is **Sergiy's call, not an agent's**: raising it here rather than doing it quietly under an
+unrelated claim. Blocked on that decision.
 
 ## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
 
