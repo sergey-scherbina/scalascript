@@ -10496,6 +10496,44 @@ many expressions. It now names the arguments and the closure arity always, and u
 `SSC_APP_TRACE=1` it prints the app site and forces a 0-arity argument to show what it computes.
 Forcing is behind the flag deliberately — it runs user code during error formatting.
 
+**THE FRONT IS F**, asked rather than assumed: `ssc info --front-report` answers `F` for the
+bisect file. So the fix, when it is found, goes in `specs/v2.2-p6.5-fsub.ssc`, not the legacy
+lowerer.
+
+**And F has exactly ONE construct that emits `(app <x> (lam 0 …))`** — the trailing block
+argument, `fsub.ssc:717`:
+
+```text
+// Trailing block-argument application: `f { block }` -> `(app f (lam 0 <block>))` and
+// `f(args) { block }` -> `(app (app f args) (lam 0 <block>))`
+```
+
+That matches the failure exactly: a one-argument application of a 0-arity lambda, in a match arm.
+So the shape to look for is a place where F decides some expression is a callee taking a trailing
+block, and that expression evaluates to `0`.
+
+**The thunk is the two-statement `else` block of `cursorAdvance`'s LEAF branch** — its forced value
+ends in `Some(record)` carrying the `CREATE TABLE t(n INTEGER)` text, which is
+`Right(PagerCursorStep(pager, next, Some(row)))` from `cursorYieldCell`, not the `case Nil` arm's
+`None`:
+
+```scalascript
+      case TableLeafPage | IndexLeafPage =>
+        if frame.nextEvent >= page.header.cellCount then cursorAdvance(pager, cursor.copy(stack = tail))
+        else
+          val nextCursor = cursorReplaceTop(cursor, frame.copy(nextEvent = frame.nextEvent + 1))
+          cursorYieldCell(pager, nextCursor, page.pageNumber, cursorCellAt(page.cells, frame.nextEvent))
+```
+
+**A STRUCTURAL REPRODUCTION WAS ATTEMPTED AND FAILED — do not start there.** That `else` block's
+shape, isolated (an outer `match` arm containing an inner `match` whose arm body is
+`if cond then <recursive call> else <two-statement indented block>`, all returning `Either`), runs
+IDENTICALLY on int and v2 — `Right(50) / Right(5) / Right(5)` on both, and `--front-report` says
+`F` for it too. So the trigger is something else about `btree.ssc` that the skeleton does not
+carry: the multi-tag arm `case TableLeafPage | IndexLeafPage`, the surrounding file's size or
+earlier definitions, or a construct further up. Whoever takes this next should widen the skeleton
+toward the real file rather than re-derive it from this shape.
+
 ## rust-sconcat-treats-a-cons-cell-as-a-pair — the Rust backend carries the v2 concat defect verbatim
 
 <!-- status: open
