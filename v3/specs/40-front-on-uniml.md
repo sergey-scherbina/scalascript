@@ -347,6 +347,36 @@ always has — and it means the projection does not build the module graph. Reco
 opposite assumption is the natural one and would have produced a front that resolved no imports
 while looking correct. Detail in [`50-uniml-projection.md`](50-uniml-projection.md) §6.
 
+## 5c · What UniML owed AFTER the eight — the list §5b could not have had, 2026-08-09
+
+§5b closed eight items and called the hand-over complete. It was complete for the corpus. What it
+could not see is the other oracle: **v3's own kernel**, sixteen files of Scala in the portable
+subset, which the front must read before v3 can compile itself. Walking that list found nine more
+gaps in two days, and **none of them appears in the conformance corpus** — because the corpus is
+written IN the language and these are constructs you reach for when writing a compiler.
+
+| gap | where it showed |
+|---|---|
+| `;` separates statements in a block | five kernel files; `parseBlock` never consumed one |
+| `{ case … }` as a NON-TRAILING call argument | `Ir.scala` — reached `parseExpr`, which reads `{` as a block |
+| a type ascription binds tighter than `\|` | `Parser.scala` — `case _: A \| _: B =>` |
+| alternatives NEST inside a constructor | `Lower.scala` — and the REFERENCE front cannot parse it either |
+| `var (a, b) = e` | `Parser.scala` — only the `val` twin destructured |
+| a `case class` inside an `object` | `BridgeV2.scala`, `Text.scala` |
+| an `enum` case with a FUNCTION-typed field | `Exec.scala` — the `case class` twin read the full type, this one an identifier |
+| a plain string containing `${` | `Lexer.scala` — the hole scan ran to the END OF THE FILE |
+| an import link must BEGIN its line | `Loader.scala` — a doc comment and a string literal both read as imports |
+
+**The `${` one is the shape worth remembering.** It is a lexer bug that only a lexer's source
+exposes: `raw = raw + "${"` is a program WRITING a hole rather than using one. Where a `}` happened
+to appear later it swallowed the code between and produced a well-formed tree of a different
+program — silent, and it survived my own first probe for exactly that reason.
+
+**Self-hosting went 0 of 16 to 12 of 17 files read.** The remainder: three files want a multi-arm
+`catch`, which needs one line in `Exec.scala`; one wants `finally`, which needs `Ast.scala`; one
+wants a pattern `val` (`val C(a, b) = e`), which appears ONCE in the kernel and never in the corpus
+and is not worth four files of machinery yet.
+
 ## 6 · What v3 does on its own side, before any of that lands
 
 Nothing in §5 blocks the apparatus. Under `ssc3-core`, in this order:

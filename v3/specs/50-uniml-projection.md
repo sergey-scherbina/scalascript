@@ -86,7 +86,11 @@ having the gate before the projection.
 | `Lambda(params, body)` | `Lambda(params.map(Param(_)), body)` | |
 | `Throw(v)` | `Call("__throw__", [v])` — v3's throw is a prim call | `Parser` |
 | `Try(body, handler, finalizer)` | `Try(body, name, handler)`. A `finalizer` REFUSES; a handler that is not a `PartialFn` of exactly one binding arm REFUSES | `Parser.parseTry` |
-| `CompoundAssign`, `Summon`, `Quote`, `Splice`, `QuotedName`, `Marker`, `NotImplemented` | **REFUSE by name** | — |
+| `CompoundAssign(n, op, v)` | `Assign(n, Bin(op-minus-the-`=`, Name(n), v))` |
+| `RangeOp(op, a, b)` | `Bin(op, a, b)` — an ordinary binary operator in the TREE. The desugaring into a cons list lives in `Lower`, one implementation for two fronts; emitting the desugared form here made the fronts print different trees |
+| `Summon`, `Quote`, `Splice`, `QuotedName`, `Marker` | **REFUSE.** `Marker` is `direct[F] { … }` and the optics markers: erasing one to its contents would run a monadic-do block as an ordinary block, which is a wrong ANSWER rather than a smaller tree |
+| `NotImplemented` in EXPRESSION position | `Prim("__throw__", ["an implementation is missing"])` — Scala's `???` throws WHEN EVALUATED, and refusing the file is stricter than the language: a stub in a branch nobody takes used to block the whole program |
+| `NotImplemented` as a def BODY | `Name("__abstract__")` — no `=` was written. ONE marker, and the SITE says what it means: in a trait or class it is an abstract member, at top level it is an `extern`, i.e. a host function |
 
 **`Block` is the subtle one.** `SpikeAst.Block(stmts: Vector[Expr])` is a flat vector in which
 `ValDef`, `Assign` and `LocalDef` are ordinary `Expr` cases. v3's `Block(stmts: List[Stmt], result:
@@ -95,20 +99,69 @@ written down: the last element is the result **unless it is a `val`**, because a
 nothing (`Lower.markAutoOutput` depends on it). Getting this wrong does not crash — it changes what
 a block evaluates to and what auto-output prints, which is a wrong answer.
 
-## 5 · Patterns, and what v3 does not have
+## 5 · Patterns — CORRECTED 2026-08-09
+
+This table said "v3 has no typed pattern" and "alternatives may not bind" as if both were fixed
+facts about v3. The first stopped being true on 2026-08-07, and saying so here matters more than
+the row itself: a spec that describes a refusal the code no longer makes sends the next reader to
+add something that exists.
 
 | `SpikeAst` | v3 |
 |---|---|
 | `PatVar(n)` | `PBind(n)` |
 | `PatWild` | `PWild` |
-| `PatLit(text)` | `PLit(literal parsed from text)` |
+| `PatLit(expr)` | `PLit(expr)` — it carries the literal's own EXPRESSION NODE, not text. It was a `String` and lost the literal's KIND: the integer arm passed the raw lexeme, the string arm passed decoded content with the quotes gone, and `case '\n'` matched character 92 |
 | `PatCtor(n, args)` | `PCtor(n, args)` |
 | `PatTuple(es)` | `PCtor("Tuple" + es.length, es)` |
 | `PatCons(h, t)` | `PCtor("Cons", [h, t])` |
-| `PatAlt(alts)` | `PAlt(alts)` — and v3 additionally requires that none of them BIND |
+| `PatAlt(alts)` | `PAlt(alts)`. Alternatives bind nothing — Scala requires every alternative to bind the same names and v3 has no analysis to check it — and they NEST, so `C("a" \| "b", k)` is ordinary. The reference front cannot parse that one |
+| `PatTyped(inner, tpe)` | `PType(typeHead(tpe), inner)`. The test is `__isTag__(value, name, -1)`, the reference's own shape, which v2 implements — so the bridge lane costs nothing. The type is taken by its HEAD: `List[Int]` tests `List`, since a type argument carries no runtime evidence |
 | `PatBind(alias, inner)` | **REFUSE** — v3 has no `x @ pat` |
-| `PatTyped(inner, tpe)` | **REFUSE** — v3 has no typed pattern, and erasing the type would make `case x: Int` match everything |
 | `PatUnsupported(kind)` | **REFUSE, quoting `kind`** |
+
+**What the LOWERING still refuses, which is not the same thing.** A typed alternative
+(`case _: Int \| _: String =>`) projects correctly and then meets `Lower.altTest`, which handles a
+literal and a nullary constructor and nothing else. A parse refusal became a lowering refusal; both
+are positioned, neither is a wrong answer, and the fix is a few lines in a file that belongs to
+another claim.
+
+## 5a · What the projection does that this document never described — ADDED 2026-08-09
+
+Written after the fact, which is the honest order to admit: these landed one measurement at a time
+while the corpus number moved, and a contract that only records the parts decided in advance is a
+contract for a program that no longer exists.
+
+**A HOST FUNCTION IS A DECLARATION, NOT A REFUSAL.** `extern def readFile(path: String): String`
+arrives as a def with no body. Refusing it cost **144 corpus cases**: the standard library declares
+these in blocks — twenty in `fs.ssc`, fifteen in `os.ssc` — so importing such a module failed
+outright for a program that called none of them. It stays a function whose body throws, and a
+REACHABLE one is refused at BUILD time from a call graph rooted at the entry. That reachability is
+deliberately UNDER-approximated (direct calls only): over-approximating would mark a host function
+reachable through any same-named method and refuse the 144 again.
+
+**THE PLACEHOLDER LAMBDA IS NOT HERE.** `xs.map(_ * 2)` desugars in `Lower`, not in this
+projection, because v3's own front hands `_` over as an ordinary name too. Two fronts implementing
+one desugaring is two implementations that will disagree. Same for curried application, `to`/`until`
+and boxing a captured `var` — every rule that both fronts need lives past the fork, not in it.
+
+**AN `object` IS A NAMESPACE, AND ITS CLASSES ARE HOISTED.** `def`s become `O.name`, `val`s become
+the object's state, and a `case class` declared inside is lifted to the top level under its PLAIN
+name — v3 has no nested classes and an object is not a scope for types. Plain names make the
+references inside the object work without rewriting them; the cost is a COLLISION, which is refused
+by name rather than resolved silently, and the check covers every class because an `enum` case can
+collide just as easily.
+
+**A `case object` CARRIES ITS PARENTS AND ITS METHODS.** It is a NULLARY CONSTRUCTOR, so it becomes
+a `ClassDef` with no fields. Both halves were dropped once: parents were erased in the CST, which
+left a constructor belonging to no hierarchy that no `match` on the trait could reach, and members
+were dropped by an arm written for the bare-marker shape.
+
+**A `catch` KEEPS ITS SIMPLE SHAPE.** One arm that only BINDS projects to v3's `Try` unchanged,
+because that is what v3's own front produces and the two must print the same tree wherever both can
+parse. Several arms, or one that tests a TYPE, want a `match` on the caught value with a rethrow
+arm — written, measured, and NOT landed: `Exec.scala` binds the message STRING where the bridge
+binds the thrown value, so making the type mean something turns a shared wrong answer into a lane
+divergence. The order is: fix that line first.
 
 ## 6 · Imports stay with `Loader`, and this was verified
 

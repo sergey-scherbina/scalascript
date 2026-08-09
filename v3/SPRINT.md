@@ -2287,3 +2287,35 @@ interpolated one** — and when the match was not there it ran to the END OF THE
 with CRASH 0, fixture half 53 of 54 with one declared uniml-only. The corpus number does not move —
 no conformance case writes a `${` inside a plain string, which is the same reason the whole class
 survived: the corpus is written in the language, and this is a bug you only meet writing a compiler.
+
+## 48 · The specs caught up with the code, and I stopped rather than manufacture work
+
+The next thing on the self-hosting list was a pattern `val` — `val Tok.TInt(text, _) = e`. Measured
+before starting: **one occurrence in the whole kernel, zero in the corpus**, and the same line also
+needs `@unchecked`. Four files of machinery — `ScalaSpike`, `SpikeAst`, `SpikeTyped`, `UniFront` —
+for one line. **Not done, and not done deliberately**: "next on the list" is not a reason.
+
+What was left that is mine and real is the CONTRACT, which had fallen a long way behind:
+
+- [x] **48a — `50-uniml-projection.md` §5 said "v3 has no typed pattern" and "REFUSE".** That
+      stopped being true on 2026-08-07. A spec describing a refusal the code no longer makes sends
+      the next reader to add something that exists. Same for `CompoundAssign`, `LocalDef` and
+      `NotImplemented`, all still listed as refusals.
+
+- [x] **48b — §5a is new, and its heading admits the order.** Written after the fact, because these
+      landed one measurement at a time: host functions as declarations, the hoisting of nested
+      classes, `case object` parents and methods, and the rule that a desugaring both fronts need
+      lives PAST the fork rather than in the projection — placeholder lambdas, curried application,
+      ranges and boxing are all in `Lower` for that reason.
+
+- [x] **48c — `40-front-on-uniml.md` §5c records the list §5b could not have had.** §5b closed
+      eight items and called the hand-over complete; it was complete FOR THE CORPUS. The other
+      oracle is v3's own kernel, and walking it found nine more gaps in two days, **none of which
+      appears in the corpus** — the corpus is written IN the language, and these are what you reach
+      for writing a compiler.
+
+**Where v3 stands, honestly.** Self-hosting 12 of 17 files; N = 188 of 368 with CRASH 0 and three
+DIFFs that all belong to the effects claim. The remaining work in my scope is: three kernel files
+waiting on one line in `Exec.scala:482`, one on `finally` in `Ast.scala`, one on a pattern `val`
+that is not worth it yet — and on the corpus side, library surface in `Exec.scala`, `extension` in
+`Lower.scala`, and Tier 2. **All of it is either another claim's file or charter-deferred.**
