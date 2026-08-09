@@ -49,7 +49,6 @@ INLINE=325     # -XX:FreqInlineSize — over this, never inlined into a hot call
 # someone added an argument is noise rather than a signal.
 declarations() {
   cat <<'EOF'
-ssc3.Exec$|invoke|SSC3-J0. THE defect this gate was built for, declared rather than left RED so the check can be wired into CI on the day it is written. Expires when J0 splits it by receiver kind — and the expiry is enforced: this gate goes RED the moment the method drops under the limit and this line is still here.
 ssc3.Lower$|lower|SSC3-J0 follow-up, and not on the RUNTIME path — it is the front, so it costs compile time and matters for self-hosting rather than for a benchmark row. v3/src/Lower.scala is held by another claim; queued rather than fixed here.
 scalascript.alphabet.Alphabet$|<init>|A one-shot object initialiser: it runs once per process, before anything is hot, so "never JIT-compiled" costs a single interpreted execution and nothing after it. This one is not a defect and has no expiry condition beyond the class being rewritten.
 EOF

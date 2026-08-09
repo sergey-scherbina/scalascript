@@ -72,6 +72,66 @@ object Exec:
   // makes, one level up.
   private var globals: Array[Value] = new Array[Value](0)
 
+  // ── SSC3-J0a — the derived tables ──────────────────────────────────────────────────────────────
+  //
+  // `Module` holds its pools as `List`, which is right for a serialized program and wrong for a
+  // machine: **`List.apply` is O(index)**. `m.consts(k)` walks k cons cells EVERY TIME the
+  // instruction executes, and an `Instr.Const` inside a loop executes as often as the loop runs —
+  // `bench/corpus/arith-loop.ssc` has two of them in its body, so a million iterations pay a million
+  // list walks for a value that never changes. `m.funcs(fi)` is the same cost per CALL, and
+  // `m.prims(p)` per host call.
+  //
+  // The constant pool is materialised to VALUES rather than to `Lit`s, which removes the second
+  // cost: `constOf` allocated a fresh `Value` on every execution of every `Const`. Sharing one
+  // instance is safe because `constOf` produces only `VUnit`/`VBool`/`VInt`/`VFloat`/`VStr` — every
+  // case is immutable. It would NOT be safe for `VData`, `VArr` or `VMap`, which is why this is
+  // stated rather than assumed.
+  private var constPool: Array[Value] = new Array[Value](0)
+  /** The same pool as STRINGS, for `Invoke`, whose name is a pool index that must be an `LStr`. */
+  private var constStr: Array[String] = new Array[String](0)
+  private var funcTable: Array[Func] = new Array[Func](0)
+  private var primTable: Array[String] = new Array[String](0)
+
+  /** Build the tables for `m`. Idempotent and cheap to re-check, because the alternative — building
+    * them only in `run` — leaves any caller that reaches `callFunc` first reading an empty array.
+    * `bench` is exactly such a caller; it calls `run` first today, and a check costs three integer
+    * comparisons per CALL against a list walk per INSTRUCTION.
+    *
+    * The comparison is on LENGTHS, not identity: `eq` is host reference equality and this file has
+    * to compile on ScalaScript 2 as well (invariant I-2). The residual case is a second module with
+    * exactly the same pool sizes in one process, which `Cli` does not create — one program is
+    * loaded, prepared and run. Named here rather than left for someone to find.
+    */
+  private def prepare(m: Module): Unit =
+    if constPool.length != m.consts.length
+       || funcTable.length != m.funcs.length
+       || primTable.length != m.prims.length then
+      constPool = new Array[Value](m.consts.length)
+      constStr = new Array[String](m.consts.length)
+      var cs = m.consts
+      var i = 0
+      while cs.nonEmpty do
+        constPool(i) = constOf(cs.head)
+        constStr(i) = cs.head match
+          case Lit.LStr(x) => x
+          case _           => ""
+        cs = cs.tail
+        i = i + 1
+      funcTable = new Array[Func](m.funcs.length)
+      var fs = m.funcs
+      i = 0
+      while fs.nonEmpty do
+        funcTable(i) = fs.head
+        fs = fs.tail
+        i = i + 1
+      primTable = new Array[String](m.prims.length)
+      var ps = m.prims
+      i = 0
+      while ps.nonEmpty do
+        primTable(i) = ps.head
+        ps = ps.tail
+        i = i + 1
+
   /** One live `Handle`: the arms, and the FRAME they read. `specs/10-ssc-ir.md` §3 puts an arm's
     * `params` and `k` in the handling function's frame, so the frame has to travel with the arms —
     * a perform can happen any number of host calls deeper, and the arm still writes here. */
@@ -236,6 +296,7 @@ object Exec:
     // Invariant I-4: nothing executes unverified, and the executor is not an exception to it just
     // because it happens to be in the same process as the verifier.
     if e.isDefined then throw ExecError("refusing to run invalid IR: " + e.get.render)
+    prepare(m)
     globals = new Array[Value](m.globals.length)
     var i = 0
     while i < m.globals.length do
@@ -248,12 +309,13 @@ object Exec:
   /** The trampoline. A `TailCall` returns here and re-enters the loop with a FRESH argument list
     * and no added host frame, which is the whole of the constant-stack guarantee. */
   def callFunc(m: Module, f0: Int, args0: List[Value]): Value =
+    prepare(m)
     var fi = f0
     var args = args0
     var result: Value = Value.VUnit
     var running = true
     while running do
-      val fn = m.funcs(fi)
+      val fn = funcTable(fi)
       if args.length != fn.nparams then
         throw ExecError(fn.name + " takes " + fn.nparams + " argument(s), given " + args.length)
       val regs = new Array[Value](fn.nregs)
@@ -285,7 +347,8 @@ object Exec:
     out
 
   private def step(m: Module, i: Instr, regs: Array[Value]): Signal = i match
-    case Instr.Const(d, k) => regs(d) = constOf(m.consts(k)); Signal.Done
+    // SSC3-J0a: an array read, not a list walk plus an allocation. See `prepare`.
+    case Instr.Const(d, k) => regs(d) = constPool(k); Signal.Done
     case Instr.Move(d, a)  => regs(d) = regs(a); Signal.Done
     case Instr.Un(op, _, d, a) =>
       regs(d) = op match
@@ -553,12 +616,14 @@ object Exec:
           regs(x) = Value.VStr(e.message)
           exec(m, h, regs)
     case Instr.Invoke(d, nm, r, as) =>
-      val name = m.consts(nm) match
-        case Lit.LStr(x) => x
-        case _           => throw ExecError("an invoke whose name const is not a string")
+      // `constStr` holds "" for a pool entry that is not an `LStr`, which is the same refusal the
+      // list-walking version made — an empty method name reaches no arm of `invoke` and is reported
+      // with the receiver. The verifier is what keeps this from being reachable at all.
+      val name = constStr(nm)
+      if name == "" then throw ExecError("an invoke whose name const is not a string")
       regs(d) = invoke(m, name, regs(r), as.map(x => regs(x)))
       Signal.Done
-    case Instr.Prim(d, p, as) => regs(d) = prim(m, m.prims(p), as.map(r => regs(r))); Signal.Done
+    case Instr.Prim(d, p, as) => regs(d) = prim(m, primTable(p), as.map(r => regs(r))); Signal.Done
 
   // ── the method table ────────────────────────────────────────────────────────
   //
@@ -1002,211 +1067,223 @@ object Exec:
       // `asInstanceOf` has nothing to check and nothing to change; refusing it would refuse a
       // no-op. Any value, which is why it sits before the per-type arms.
       case (_, "asInstanceOf")        => recv
-      case _ =>
-        if isList(m, recv) then
-          val xs = listOut(m, recv)
-          name match
-            case "size" | "length" => Value.VInt(xs.length.toLong)
-            case "isEmpty"         => Value.VBool(xs.isEmpty)
-            case "nonEmpty"        => Value.VBool(xs.nonEmpty)
-            case "head"            => if xs.isEmpty then throw ExecError("head of an empty list") else xs.head
-            case "tail"            => listIn(m, if xs.isEmpty then Nil else xs.tail)
-            case "sum" =>
-              var acc = 0L
-              xs.foreach { case Value.VInt(n) => acc = acc + n; case v => throw ExecError("sum over " + show(v)) }
-              Value.VInt(acc)
-            case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
-            case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
-            case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x))))
-            // Every one of these ran on the BRIDGE and refused here. Found by probing the two
-            // lanes with one program per method rather than by reading either implementation:
-            // 23 of 32 probes were bridge-only, which no amount of code reading had suggested.
-            case "exists"  => Value.VBool(xs.exists(x => truthy(apply1(m, args.head, x))))
-            case "forall"  => Value.VBool(xs.forall(x => truthy(apply1(m, args.head, x))))
-            case "count"   => Value.VInt(xs.count(x => truthy(apply1(m, args.head, x))).toLong)
-            case "find" =>
-              xs.find(x => truthy(apply1(m, args.head, x))) match
-                case Some(v) => someOf(m, v)
-                case None    => noneOf(m)
-            case "sorted"  => listIn(m, xs.sortWith((a, b) => cmp(a, b) < 0))
-            case "sortBy" =>
-              listIn(m, xs.sortWith((a, b) => cmp(apply1(m, args.head, a), apply1(m, args.head, b)) < 0))
-            case "zip" =>
-              listIn(m, xs.zip(listOut(m, args.head)).map((a, b) => tup2(m, a, b)))
-            case "take"     => listIn(m, xs.take(intArg(args.head, "take")))
-            case "drop"     => listIn(m, xs.drop(intArg(args.head, "drop")))
-            case "distinct" => listIn(m, dedup(xs))
-            case "contains" => Value.VBool(xs.exists(x => eq(x, args.head)))
-            case "indexOf"  => Value.VInt(xs.indexWhere(x => eq(x, args.head)).toLong)
-            case "last" =>
-              if xs.isEmpty then throw ExecError("last of an empty list") else xs.last
-            case "init" =>
-              if xs.isEmpty then throw ExecError("init of an empty list") else listIn(m, xs.init)
-            case "min" =>
-              if xs.isEmpty then throw ExecError("min of an empty list")
-              else xs.reduce((a, b) => if cmp(a, b) <= 0 then a else b)
-            case "max" =>
-              if xs.isEmpty then throw ExecError("max of an empty list")
-              else xs.reduce((a, b) => if cmp(a, b) >= 0 then a else b)
-            // `xs.foldLeft(z)(f)` — two argument lists, so the first invoke gets one argument and
-            // must return something the second can apply. Revealed the moment curried application
-            // became parseable: the construct existed on the bridge and the executor had no way to
-            // express it.
-            // Found by running the CORPUS through this lane rather than a hand-picked probe set.
-            // The probes were the top ~30 method names by frequency and they all passed; the corpus
-            // reaches the tail, and the tail is where the lane was still behind.
-            case "toList"   => recv
-            case "toSet" =>
-              var out: List[Value] = Nil
-              xs.foreach { x => if !out.exists(y => eq(y, x)) then out = out :+ x }
-              Value.VSet(out)
-            case "apply"    => 
-              regs0(m, xs, args.head)
-            case "filterNot" => listIn(m, xs.filterNot(x => truthy(apply1(m, args.head, x))))
-            case "takeWhile" => listIn(m, xs.takeWhile(x => truthy(apply1(m, args.head, x))))
-            case "zipWithIndex" =>
-              listIn(m, xs.zipWithIndex.map((x, i) => tup2(m, x, Value.VInt(i.toLong))))
-            case "dropWhile" => listIn(m, xs.dropWhile(x => truthy(apply1(m, args.head, x))))
-            case "headOption" =>
-              if xs.isEmpty then noneOf(m) else someOf(m, xs.head)
-            case "lastOption" =>
-              if xs.isEmpty then noneOf(m) else someOf(m, xs.last)
-            case "slice"    => listIn(m, xs.slice(intArg(args.head, "slice"), intArg(args.tail.head, "slice")))
-            case "scanLeft" if args.length == 1 => Value.VPartial(recv, "scanLeft", args)
-            case "scanLeft" =>
-              listIn(m, xs.scanLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x)))
-            case "foldLeft" if args.length == 1  => Value.VPartial(recv, "foldLeft", args)
-            case "foldRight" if args.length == 1 => Value.VPartial(recv, "foldRight", args)
-            case "foldLeft" =>
-              xs.foldLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x))
-            case "foldRight" =>
-              xs.foldRight(args.head)((x, acc) => apply2(m, args.tail.head, x, acc))
-            case "reduce" =>
-              if xs.isEmpty then throw ExecError("reduce of an empty list")
-              else xs.reduce((a, b) => apply2(m, args.head, a, b))
-            case "reverse" => listIn(m, xs.reverse)
-            // A LANE DIVERGENCE, not a missing feature: the bridge ran `foreach` all along and the
-            // executor did not. Invisible because no fixture used it.
-            case "foreach" =>
-              xs.foreach(x => apply1(m, args.head, x))
-              Value.VUnit
-            case "++"      => listIn(m, xs ++ listOut(m, args.head))
-            case ":+"      => listIn(m, xs :+ args.head)
-            case "+:"      => listIn(m, args.head :: xs)
-            case "mkString" =>
-              // THREE forms, not one: `mkString`, `mkString(sep)` and `mkString(start, sep, end)`.
-              // Only the middle one was implemented, and the three-argument call silently used its
-              // FIRST argument as the separator — `mkString("[", ", ", "]")` printed
-              // `5[3[8[1[9[2`. A wrong answer, not a refusal, because the arity was never checked.
-              val (pre, sep, post) = args match
-                case Value.VStr(a) :: Value.VStr(b) :: Value.VStr(c) :: Nil => (a, b, c)
-                case Value.VStr(a) :: Nil                                   => ("", a, "")
-                case Nil                                                    => ("", "", "")
-                case other => throw ExecError("mkString takes no arguments, one, or three strings")
-              // `showV`, not `show`: this is OUTPUT, and `show` names raw tags. A zipped list
-              // printed as #4(1, a) instead of (1, a) — the last of 32 parity probes to fall, and
-              // the only one whose cause was in the PRINTER rather than in a missing method.
-              Value.VStr(pre + xs.map(x => showV(m, x)).mkString(sep) + post)
-            case other => throw ExecError("list method '" + other + "' is not implemented on this lane")
-        else
-          recv match
-            // `Some`/`None` are ordinary constructors here, so their methods are too.
-            // EITHER. `f1a82c9b8` made `Right`/`Left` constructible; nothing could be done with the
-            // value afterwards, so `either-chain` got one step further and then stopped with
-            // `method 'map' on #6(3) is not implemented`. Right-biased, as Scala is: `map` and
-            // `flatMap` act on a `Right` and pass a `Left` through untouched.
-            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "map" =>
-              rightOf(m, apply1(m, args.head, f(0)))
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "map" => recv
-            // `flatMap` returns the function's result AS IS — it is already an Either, and wrapping
-            // it in another `Right` is the classic off-by-one-layer that type-checks in a language
-            // with types and here would silently produce `Right(Right(x))`.
-            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "flatMap" =>
-              apply1(m, args.head, f(0))
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "flatMap" => recv
-            // `fold(onLeft, onRight)` — two functions, and the LEFT one comes first, which is the
-            // order Scala uses and the opposite of what the right-biased methods above suggest.
-            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "fold" && args.length == 2 =>
-              apply1(m, args(1), f(0))
-            case Value.VData(t, f) if t == tagOf(m, "Left") && name == "fold" && args.length == 2 =>
-              apply1(m, args.head, f(0))
-            case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isRight" => Value.VBool(true)
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isRight" => Value.VBool(false)
-            case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isLeft" => Value.VBool(false)
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isLeft" => Value.VBool(true)
-            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "getOrElse" => f(0)
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "getOrElse" => args.head
-            // `Either.toOption` — `Right(v)` is `Some(v)`, `Left(_)` is `None`. Scala's, and the
-            // shape `scljet` uses to reach into a result it has already checked.
-            case Value.VData(t, f) if t == tagOf(m, "Right") && name == "toOption" => someOf(m, f(0))
-            case Value.VData(t, _) if t == tagOf(m, "Left") && name == "toOption" => noneOf(m)
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "get" => f(0)
-            case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "getOrElse" => f(0)
-            case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isDefined" => Value.VBool(true)
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "isDefined" => Value.VBool(false)
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "map" =>
-              someOf(m, apply1(m, args.head, f(0)))
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "map" => noneOf(m)
-            // `flatMap` returns the function's result AS IS — it is already an Option. Wrapping it
-            // in another `Some` type-checks nowhere and here would silently build `Some(Some(x))`,
-            // which then reads as a present value at every later `isDefined`. Same shape as the
-            // Either case above; `map` is directly beside it, and the contrast is the point.
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "flatMap" =>
-              apply1(m, args.head, f(0))
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "flatMap" => noneOf(m)
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "foreach" =>
-              apply1(m, args.head, f(0)); Value.VUnit
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "foreach" => Value.VUnit
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "exists" =>
-              Value.VBool(truthy(apply1(m, args.head, f(0))))
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "exists" => Value.VBool(false)
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "filter" =>
-              if truthy(apply1(m, args.head, f(0))) then recv else noneOf(m)
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "filter" => recv
-            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "toList" => listIn(m, List(f(0)))
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "toList" => listIn(m, Nil)
-            case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
-            // Numeric conversions. `toInt` is IDENTITY on an integer because ScalaScript's `Int` is
-            // 64-bit — it is not a narrowing here, and treating it as one would silently change
-            // large values. Every arm below was checked against the v2 lane on the same program
-            // rather than assumed; the two lanes must agree or the differential gate is worthless.
-            // A STRING parsed as a number. `"3".toInt` — the markdown module reads an ordered
-            // list's start attribute that way, and it was the last thing between this lane and
-            // that corpus case.
-            case Value.VStr(x) if name == "toInt" || name == "toLong" =>
-              try Value.VInt(java.lang.Long.parseLong(x.trim))
-              catch case _: NumberFormatException => throw ExecError("'" + x + "' is not an integer")
-            case Value.VStr(x) if name == "toDouble" =>
-              try Value.VFloat(x.trim.toDouble)
-              catch case _: NumberFormatException => throw ExecError("'" + x + "' is not a number")
-            case Value.VInt(n) if name == "toInt"  => Value.VInt(n.toInt.toLong)
-            case Value.VInt(n) if name == "toLong" => Value.VInt(n)
-            case Value.VInt(n) if name == "toDouble" => Value.VFloat(n.toDouble)
-            case Value.VFloat(d) if name == "toInt"  => Value.VInt(d.toLong.toInt.toLong)
-            case Value.VFloat(d) if name == "toLong" => Value.VInt(d.toLong)
-            case Value.VFloat(d) if name == "toDouble" => Value.VFloat(d)
-            // `65.toChar` is the one-character STRING "A", not a char value — which is not what I
-            // reached for first. The reference lane is explicit (`v2/src/Runtime.scala:2000`:
-            // `StrV((n & 0xffff).toChar.toString)`), and the corpus case depends on it: it prints
-            // `65.toChar + 8364.toChar` as `A€` and `List(65,66,67).map(_.toChar).mkString` as
-            // `ABC`, both of which are string behaviour. A `VChar` here read `A` correctly and then
-            // diverged from the bridge on the very next method.
-            //
-            // MASKING THE LOW 16 BITS is the reference's too, and it is a real rule rather than
-            // tidiness: `toChar` is a UTF-16 CODE UNIT, so it wraps rather than failing.
-            case Value.VInt(n)  if name == "toChar" => Value.VStr((n & 0xffffL).toChar.toString)
-            // A char IS an integer on both lanes — v2 has `CharV extends IntV`, so its `toInt` arm
-            // catches one by inheritance. v3's `VChar` is a separate case, so it needs the arm
-            // written out to answer the same.
-            case Value.VChar(c) if name == "toInt" || name == "toLong" => Value.VInt(c.toLong)
-            // Refused BY NAME, with the receiver shown. The tail of this message used to read
-            // "`ssc3 run` uses the v2 runtime", which stopped being true on 2026-08-07 when `run`
-            // switched to v3's own executor — a diagnostic that sends the reader to the wrong lane
-            // is worse than one that says less.
-            case _ => throw ExecError("method '" + name + "' on " + show(recv) +
-                        "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
+      // SSC3-J0b — the receiver shapes that are not a distinct `Value` case (a LIST is a
+      // `VData` chain, an `Option`, an `Either`, a tuple) plus the numeric conversions, lifted
+      // WHOLE into `invokeRest`. A pure extraction: not one arm reordered, not one guard
+      // changed, because `invoke` at 13415 bytecodes was over HotSpot's
+      // `DontCompileHugeMethods` limit of 8000 and therefore never compiled at all — every
+      // method call in every v3 program ran in the JVM's own bytecode interpreter, for the life
+      // of the process. Splitting is the entire fix; the code is the same code.
+      case _ => invokeRest(m, name, recv, args)
+
+  /** The tail of `invoke`, lifted out to get that method under the JVM's compilation limit.
+    * See the comment at its `case _` arm. Reached only when no arm with a concrete receiver
+    * shape matched, so its own order is exactly the order it had inside the match. */
+  private def invokeRest(m: Module, name: String, recv: Value, args: List[Value]): Value =
+    if isList(m, recv) then
+      val xs = listOut(m, recv)
+      name match
+        case "size" | "length" => Value.VInt(xs.length.toLong)
+        case "isEmpty"         => Value.VBool(xs.isEmpty)
+        case "nonEmpty"        => Value.VBool(xs.nonEmpty)
+        case "head"            => if xs.isEmpty then throw ExecError("head of an empty list") else xs.head
+        case "tail"            => listIn(m, if xs.isEmpty then Nil else xs.tail)
+        case "sum" =>
+          var acc = 0L
+          xs.foreach { case Value.VInt(n) => acc = acc + n; case v => throw ExecError("sum over " + show(v)) }
+          Value.VInt(acc)
+        case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
+        case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
+        case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x))))
+        // Every one of these ran on the BRIDGE and refused here. Found by probing the two
+        // lanes with one program per method rather than by reading either implementation:
+        // 23 of 32 probes were bridge-only, which no amount of code reading had suggested.
+        case "exists"  => Value.VBool(xs.exists(x => truthy(apply1(m, args.head, x))))
+        case "forall"  => Value.VBool(xs.forall(x => truthy(apply1(m, args.head, x))))
+        case "count"   => Value.VInt(xs.count(x => truthy(apply1(m, args.head, x))).toLong)
+        case "find" =>
+          xs.find(x => truthy(apply1(m, args.head, x))) match
+            case Some(v) => someOf(m, v)
+            case None    => noneOf(m)
+        case "sorted"  => listIn(m, xs.sortWith((a, b) => cmp(a, b) < 0))
+        case "sortBy" =>
+          listIn(m, xs.sortWith((a, b) => cmp(apply1(m, args.head, a), apply1(m, args.head, b)) < 0))
+        case "zip" =>
+          listIn(m, xs.zip(listOut(m, args.head)).map((a, b) => tup2(m, a, b)))
+        case "take"     => listIn(m, xs.take(intArg(args.head, "take")))
+        case "drop"     => listIn(m, xs.drop(intArg(args.head, "drop")))
+        case "distinct" => listIn(m, dedup(xs))
+        case "contains" => Value.VBool(xs.exists(x => eq(x, args.head)))
+        case "indexOf"  => Value.VInt(xs.indexWhere(x => eq(x, args.head)).toLong)
+        case "last" =>
+          if xs.isEmpty then throw ExecError("last of an empty list") else xs.last
+        case "init" =>
+          if xs.isEmpty then throw ExecError("init of an empty list") else listIn(m, xs.init)
+        case "min" =>
+          if xs.isEmpty then throw ExecError("min of an empty list")
+          else xs.reduce((a, b) => if cmp(a, b) <= 0 then a else b)
+        case "max" =>
+          if xs.isEmpty then throw ExecError("max of an empty list")
+          else xs.reduce((a, b) => if cmp(a, b) >= 0 then a else b)
+        // `xs.foldLeft(z)(f)` — two argument lists, so the first invoke gets one argument and
+        // must return something the second can apply. Revealed the moment curried application
+        // became parseable: the construct existed on the bridge and the executor had no way to
+        // express it.
+        // Found by running the CORPUS through this lane rather than a hand-picked probe set.
+        // The probes were the top ~30 method names by frequency and they all passed; the corpus
+        // reaches the tail, and the tail is where the lane was still behind.
+        case "toList"   => recv
+        case "toSet" =>
+          var out: List[Value] = Nil
+          xs.foreach { x => if !out.exists(y => eq(y, x)) then out = out :+ x }
+          Value.VSet(out)
+        case "apply"    => 
+          regs0(m, xs, args.head)
+        case "filterNot" => listIn(m, xs.filterNot(x => truthy(apply1(m, args.head, x))))
+        case "takeWhile" => listIn(m, xs.takeWhile(x => truthy(apply1(m, args.head, x))))
+        case "zipWithIndex" =>
+          listIn(m, xs.zipWithIndex.map((x, i) => tup2(m, x, Value.VInt(i.toLong))))
+        case "dropWhile" => listIn(m, xs.dropWhile(x => truthy(apply1(m, args.head, x))))
+        case "headOption" =>
+          if xs.isEmpty then noneOf(m) else someOf(m, xs.head)
+        case "lastOption" =>
+          if xs.isEmpty then noneOf(m) else someOf(m, xs.last)
+        case "slice"    => listIn(m, xs.slice(intArg(args.head, "slice"), intArg(args.tail.head, "slice")))
+        case "scanLeft" if args.length == 1 => Value.VPartial(recv, "scanLeft", args)
+        case "scanLeft" =>
+          listIn(m, xs.scanLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x)))
+        case "foldLeft" if args.length == 1  => Value.VPartial(recv, "foldLeft", args)
+        case "foldRight" if args.length == 1 => Value.VPartial(recv, "foldRight", args)
+        case "foldLeft" =>
+          xs.foldLeft(args.head)((acc, x) => apply2(m, args.tail.head, acc, x))
+        case "foldRight" =>
+          xs.foldRight(args.head)((x, acc) => apply2(m, args.tail.head, x, acc))
+        case "reduce" =>
+          if xs.isEmpty then throw ExecError("reduce of an empty list")
+          else xs.reduce((a, b) => apply2(m, args.head, a, b))
+        case "reverse" => listIn(m, xs.reverse)
+        // A LANE DIVERGENCE, not a missing feature: the bridge ran `foreach` all along and the
+        // executor did not. Invisible because no fixture used it.
+        case "foreach" =>
+          xs.foreach(x => apply1(m, args.head, x))
+          Value.VUnit
+        case "++"      => listIn(m, xs ++ listOut(m, args.head))
+        case ":+"      => listIn(m, xs :+ args.head)
+        case "+:"      => listIn(m, args.head :: xs)
+        case "mkString" =>
+          // THREE forms, not one: `mkString`, `mkString(sep)` and `mkString(start, sep, end)`.
+          // Only the middle one was implemented, and the three-argument call silently used its
+          // FIRST argument as the separator — `mkString("[", ", ", "]")` printed
+          // `5[3[8[1[9[2`. A wrong answer, not a refusal, because the arity was never checked.
+          val (pre, sep, post) = args match
+            case Value.VStr(a) :: Value.VStr(b) :: Value.VStr(c) :: Nil => (a, b, c)
+            case Value.VStr(a) :: Nil                                   => ("", a, "")
+            case Nil                                                    => ("", "", "")
+            case other => throw ExecError("mkString takes no arguments, one, or three strings")
+          // `showV`, not `show`: this is OUTPUT, and `show` names raw tags. A zipped list
+          // printed as #4(1, a) instead of (1, a) — the last of 32 parity probes to fall, and
+          // the only one whose cause was in the PRINTER rather than in a missing method.
+          Value.VStr(pre + xs.map(x => showV(m, x)).mkString(sep) + post)
+        case other => throw ExecError("list method '" + other + "' is not implemented on this lane")
+    else
+      recv match
+        // `Some`/`None` are ordinary constructors here, so their methods are too.
+        // EITHER. `f1a82c9b8` made `Right`/`Left` constructible; nothing could be done with the
+        // value afterwards, so `either-chain` got one step further and then stopped with
+        // `method 'map' on #6(3) is not implemented`. Right-biased, as Scala is: `map` and
+        // `flatMap` act on a `Right` and pass a `Left` through untouched.
+        case Value.VData(t, f) if t == tagOf(m, "Right") && name == "map" =>
+          rightOf(m, apply1(m, args.head, f(0)))
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "map" => recv
+        // `flatMap` returns the function's result AS IS — it is already an Either, and wrapping
+        // it in another `Right` is the classic off-by-one-layer that type-checks in a language
+        // with types and here would silently produce `Right(Right(x))`.
+        case Value.VData(t, f) if t == tagOf(m, "Right") && name == "flatMap" =>
+          apply1(m, args.head, f(0))
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "flatMap" => recv
+        // `fold(onLeft, onRight)` — two functions, and the LEFT one comes first, which is the
+        // order Scala uses and the opposite of what the right-biased methods above suggest.
+        case Value.VData(t, f) if t == tagOf(m, "Right") && name == "fold" && args.length == 2 =>
+          apply1(m, args(1), f(0))
+        case Value.VData(t, f) if t == tagOf(m, "Left") && name == "fold" && args.length == 2 =>
+          apply1(m, args.head, f(0))
+        case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isRight" => Value.VBool(true)
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isRight" => Value.VBool(false)
+        case Value.VData(t, _) if t == tagOf(m, "Right") && name == "isLeft" => Value.VBool(false)
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "isLeft" => Value.VBool(true)
+        case Value.VData(t, f) if t == tagOf(m, "Right") && name == "getOrElse" => f(0)
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "getOrElse" => args.head
+        // `Either.toOption` — `Right(v)` is `Some(v)`, `Left(_)` is `None`. Scala's, and the
+        // shape `scljet` uses to reach into a result it has already checked.
+        case Value.VData(t, f) if t == tagOf(m, "Right") && name == "toOption" => someOf(m, f(0))
+        case Value.VData(t, _) if t == tagOf(m, "Left") && name == "toOption" => noneOf(m)
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "get" => f(0)
+        case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "getOrElse" => f(0)
+        case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isDefined" => Value.VBool(true)
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "isDefined" => Value.VBool(false)
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "map" =>
+          someOf(m, apply1(m, args.head, f(0)))
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "map" => noneOf(m)
+        // `flatMap` returns the function's result AS IS — it is already an Option. Wrapping it
+        // in another `Some` type-checks nowhere and here would silently build `Some(Some(x))`,
+        // which then reads as a present value at every later `isDefined`. Same shape as the
+        // Either case above; `map` is directly beside it, and the contrast is the point.
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "flatMap" =>
+          apply1(m, args.head, f(0))
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "flatMap" => noneOf(m)
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "foreach" =>
+          apply1(m, args.head, f(0)); Value.VUnit
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "foreach" => Value.VUnit
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "exists" =>
+          Value.VBool(truthy(apply1(m, args.head, f(0))))
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "exists" => Value.VBool(false)
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "filter" =>
+          if truthy(apply1(m, args.head, f(0))) then recv else noneOf(m)
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "filter" => recv
+        case Value.VData(t, f) if t == tagOf(m, "Some") && name == "toList" => listIn(m, List(f(0)))
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "toList" => listIn(m, Nil)
+        case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
+        // Numeric conversions. `toInt` is IDENTITY on an integer because ScalaScript's `Int` is
+        // 64-bit — it is not a narrowing here, and treating it as one would silently change
+        // large values. Every arm below was checked against the v2 lane on the same program
+        // rather than assumed; the two lanes must agree or the differential gate is worthless.
+        // A STRING parsed as a number. `"3".toInt` — the markdown module reads an ordered
+        // list's start attribute that way, and it was the last thing between this lane and
+        // that corpus case.
+        case Value.VStr(x) if name == "toInt" || name == "toLong" =>
+          try Value.VInt(java.lang.Long.parseLong(x.trim))
+          catch case _: NumberFormatException => throw ExecError("'" + x + "' is not an integer")
+        case Value.VStr(x) if name == "toDouble" =>
+          try Value.VFloat(x.trim.toDouble)
+          catch case _: NumberFormatException => throw ExecError("'" + x + "' is not a number")
+        case Value.VInt(n) if name == "toInt"  => Value.VInt(n.toInt.toLong)
+        case Value.VInt(n) if name == "toLong" => Value.VInt(n)
+        case Value.VInt(n) if name == "toDouble" => Value.VFloat(n.toDouble)
+        case Value.VFloat(d) if name == "toInt"  => Value.VInt(d.toLong.toInt.toLong)
+        case Value.VFloat(d) if name == "toLong" => Value.VInt(d.toLong)
+        case Value.VFloat(d) if name == "toDouble" => Value.VFloat(d)
+        // `65.toChar` is the one-character STRING "A", not a char value — which is not what I
+        // reached for first. The reference lane is explicit (`v2/src/Runtime.scala:2000`:
+        // `StrV((n & 0xffff).toChar.toString)`), and the corpus case depends on it: it prints
+        // `65.toChar + 8364.toChar` as `A€` and `List(65,66,67).map(_.toChar).mkString` as
+        // `ABC`, both of which are string behaviour. A `VChar` here read `A` correctly and then
+        // diverged from the bridge on the very next method.
+        //
+        // MASKING THE LOW 16 BITS is the reference's too, and it is a real rule rather than
+        // tidiness: `toChar` is a UTF-16 CODE UNIT, so it wraps rather than failing.
+        case Value.VInt(n)  if name == "toChar" => Value.VStr((n & 0xffffL).toChar.toString)
+        // A char IS an integer on both lanes — v2 has `CharV extends IntV`, so its `toInt` arm
+        // catches one by inheritance. v3's `VChar` is a separate case, so it needs the arm
+        // written out to answer the same.
+        case Value.VChar(c) if name == "toInt" || name == "toLong" => Value.VInt(c.toLong)
+        // Refused BY NAME, with the receiver shown. The tail of this message used to read
+        // "`ssc3 run` uses the v2 runtime", which stopped being true on 2026-08-07 when `run`
+        // switched to v3's own executor — a diagnostic that sends the reader to the wrong lane
+        // is worse than one that says less.
+        case _ => throw ExecError("method '" + name + "' on " + show(recv) +
+                    "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
 
   private def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
