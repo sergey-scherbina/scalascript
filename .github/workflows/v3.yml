@@ -130,6 +130,23 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/loader-gate.sh
 
+      # THE GATE THAT DECIDES THE FRONT SWAP, and until now it ran only when someone remembered.
+      # `v3/specs/40-front-on-uniml.md` §7 makes this the adoption criterion — every fixture and
+      # every corpus case printing the same `Ast` on both fronts — and it was in no workflow at all,
+      # in a file whose own header argues that a suite nobody runs is worse than a red one.
+      #
+      # What that cost, measured: on 2026-08-10 the corpus carried TWO disagreements (`derives` and
+      # `summon`) against a ceiling of 0, and nothing said so. They were found by hand, filed, and
+      # closed by 89f6f3e0a — but the window in which a differential disagreement can sit unnoticed
+      # is exactly as long as the interval between two people choosing to run this.
+      #
+      # Wired only now, and the order was the point: adding the step while it was red would have
+      # turned `main` red for everyone over a defect its author had not seen. Fixed first, then
+      # wired.
+      - name: front differential
+        if: ${{ !cancelled() }}
+        run: v3/front-diff.sh
+
       # THE SELF-TEST RUNS FIRST, and that ordering is the point. This gate's green means "no method
       # is over the JVM's compile limit except the ones declared" — a claim nothing else in CI can
       # contradict, because a program whose methods are too big to compile is still CORRECT. So the

@@ -6289,11 +6289,12 @@ follow-up, and is a much smaller problem than a wrong answer.
 
 ## v3-two-fronts-disagree-on-derives-and-summon-and-no-ci-job-runs-the-gate
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: bug
-     gate: v3/front-diff.sh -->
+     gate: v3/front-diff.sh
+     fixed-in: 89f6f3e0ae512d3b51fc059dc3e66a07637f6e1d -->
 
 **Measured 2026-08-10 on a freshly rebased tree, twice, same numbers both times:**
 
@@ -6333,3 +6334,17 @@ tree that carried the loader fix and nothing newer, the same gate read 270 print
 **0 differ**. The two appeared only after a rebase pulled in sibling commits, which is consistent
 with 634147b99 for the `summon` half. The loader fix changes WHICH files load, never what a front
 prints for a file it already loaded, and both disagreeing cases loaded before it.
+
+**CLOSED 2026-08-10, both halves, and neither by waiting.**
+
+The disagreements are gone: on 470e7ab03 the differential reads `both fronts print: 277; they AGREE
+on 277, differ on 0`. `git log -S'derives'` on the front sources names 89f6f3e0a — the
+`v3-method-as-a-value` work, which taught both fronts the same thing about a construct neither had
+implemented. Two files also moved from "neither front prints" into agreement, so the count rose
+rather than fell, which is how a real fix reads differently from a case quietly dropping out of the
+comparison.
+
+The second half — `v3/front-diff.sh` in no workflow — is closed by the same commit that closes this
+entry: it is now a step in `.github/workflows/v3.yml`. Added AFTER the gate went green, which was
+the whole reason it was not added when this was filed. The window in which a front-to-front
+disagreement can sit unnoticed is no longer "until someone remembers to run it".
