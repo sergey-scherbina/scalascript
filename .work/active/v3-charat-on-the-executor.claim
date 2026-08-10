@@ -1,0 +1,34 @@
+slug: v3-charat-on-the-executor
+branch: feature/ssc3-front-diff-wiring
+agent: claude-code
+started: 2026-08-10T15:25:00Z
+heartbeat: 2026-08-10T15:25:00Z
+status: measured-before-planning
+items: v3-charat-on-the-executor
+paths: file:v3/src/Exec.scala
+scope: |
+  `main` is red on `exec-gate.sh`: v3's two lanes disagree on `char-literals`, which invariant I-3
+  forbids.
+
+      executor  x/121/A/98/true/sq      <- Value.VInt(code)
+      bridge    x/121/A/b/true/sq       <- the v2 runtime, now CharV
+
+  `f39448c96` moved `charAt` onto v2's `CharV extends IntV`. v3's bridge lane RUNS on that runtime
+  so it followed at once; v3's own executor has its own `charAt` and did not. `Exec.scala:922` even
+  carries a comment saying `charAt` returns an INT "on the reference lane — matching that is the
+  point", which was true when written and is what changed underneath it.
+
+  NOT a semantics decision on my part — that was made and released as `charat-is-a-char`. This is
+  the fourth implementation catching up with the other three.
+
+  One line, and the model it needs is ALREADY in v3: `Value.VChar` exists with the same
+  `CharV extends IntV` behaviour, verified by reading rather than assumed — binOp coerces a VChar
+  operand to VInt (1451-1452), equality covers VChar/VInt (1518-1519), `toInt` is there (1361), and
+  `show` renders the character (218). So `'x' + 1` stays 121 and `charAt(i) != 92` keeps working.
+
+  ALSO IN THIS CLAIM, and it is why the file looked taken: the LEDGER row for
+  `v3-dataset-vertical-slice` still lists `v3/src/Exec.scala` although that claim was RELEASED in
+  7a88d1049 ("NOT implemented: measured..."), which removed the .claim file and left the row. A
+  released claim holding a file in the mutex is worse than no mutex — it silently reserves work
+  nobody is doing. Removed with the release commit named, not on a heartbeat guess.
+next: return VChar from charAt, then exec-gate + bridge + the CI set
