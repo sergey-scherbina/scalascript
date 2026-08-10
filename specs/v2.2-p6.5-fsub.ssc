@@ -2956,10 +2956,22 @@ def mirrorRegs(cs, dq) = cs match { case Nil => "" case h :: t => "(prim __regme
 def nMirrorRegs(cs) = cs match { case Nil => 0 case h :: t => 2 }
 // entry = caseFieldRegs (ALL case classes first) ++ caseMethodRegs ++ doc-order val-sets/exprs ++ main
 // call (if any). ssc1-lower :5648 order: regfields (all classes), THEN regmethods (all classes), THEN docExprs.
-def mainItem(ts) = if hasMain(ts) then "(app (global main))" else ""
-def entryItems3(ts, cs, docEntry, dq, cms) = join2(regFields(cs, dq), join2(mirrorRegs(cs, dq), join2(regMethods(cms, dq), join2(docEntry, mainItem(ts)))))
-def nItems3(ts, cs, nDoc, cms) = dlen(cs) + nMirrorRegs(cs) + countMethods(cms) + nDoc + (if hasMain(ts) then 1 else 0)
-def entryBody3(ts, cs, docEntry, nDoc, dq, cms) = entryWrap(entryItems3(ts, cs, docEntry, dq, cms), nItems3(ts, cs, nDoc, cms))
+// The entry is auto-invoked ONLY when the program does not call it itself. A file ending in a bare
+// `main()` used to run its body TWICE here (and on the bytecode lane) and once on the interpreter,
+// because the auto-invoke was unconditional and the explicit call ran as written. Every repro a user
+// has sent us ends that way, so the doubled block had to be discounted by eye at every lane
+// comparison. Owner's rule, 2026-08-10: one auto-invoke unless the program calls main itself, and N
+// explicit calls mean N runs.
+//
+// The test is on the ALREADY-EMITTED doc entry rather than on the token stream: a top-level `main()`
+// lowers to exactly `(app (global main))`, so this asks what was emitted instead of re-deriving it
+// from tokens — and `nItems3` must agree with `mainItem`, since it counts what that appends.
+def callsMain(docEntry) = hasSub(docEntry, "(app (global main))", 0)
+def hasSub(s, p, i) = if i + p.length > s.length then false else (if s.substring(i, i + p.length) == p then true else hasSub(s, p, i + 1))
+def mainItem(ts, docEntry) = if hasMain(ts) then (if callsMain(docEntry) then "" else "(app (global main))") else ""
+def entryItems3(ts, cs, docEntry, dq, cms) = join2(regFields(cs, dq), join2(mirrorRegs(cs, dq), join2(regMethods(cms, dq), join2(docEntry, mainItem(ts, docEntry)))))
+def nItems3(ts, cs, nDoc, cms, docEntry) = dlen(cs) + nMirrorRegs(cs) + countMethods(cms) + nDoc + (if hasMain(ts) then (if callsMain(docEntry) then 0 else 1) else 0)
+def entryBody3(ts, cs, docEntry, nDoc, dq, cms) = entryWrap(entryItems3(ts, cs, docEntry, dq, cms), nItems3(ts, cs, nDoc, cms, docEntry))
 def entryWrap(items, n) = if n == 0 then "(lit unit)" else (if n == 1 then items else "(seq " ++ items ++ ")")
 
 // The entry clause depends on whether the program HAS a `main` (measured: a main-less program gets

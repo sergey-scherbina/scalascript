@@ -351,6 +351,10 @@ val suite = List(
   // `bin/ssc-tools` and every command after that failed for a reason that looked like the change
   // under test. This suite runs LOCALLY from the pre-push hook, which is exactly where that lives.
   Check("tests", "launcher-set-complete", "tests/e2e/launcher-set-complete.sh", List(), 60000),
+  // The entry-point rule, frozen on all three lanes: 0/1/2 explicit `main()` calls mean 1/1/2 runs.
+  // Cheap (six short runs) and it guards a divergence that was invisible for two days because the
+  // doubled block looked like the user's own file.
+  Check("tests", "entry-auto-invoke-once", "tests/e2e/entry-auto-invoke-once.sh", List(), 120000),
   // Under a second, and it covers the failure shape that cost a user a binary they could not
   // rebuild: the Rust backend emitting a crate MISSING an imported def, leaving rustc to blame
   // their own call site. Both directions -- both import forms must REACH the crate, and what the

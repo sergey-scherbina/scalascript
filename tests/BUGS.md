@@ -76,11 +76,35 @@ all.
 
 ## trailing-main-call-runs-the-program-twice
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
+     gate: tests/e2e/entry-auto-invoke-once.sh
      lane: multi
      area: runtime
      confirmed: yes
      gate: none -->
+
+**Settled 2026-08-10 by the project owner: the entry is auto-invoked ONLY when the program does not
+call it itself, and N explicit calls mean N runs.** All three lanes now agree:
+
+```
+explicit main() calls    0     1     2
+bin/ssc (F)              1     1     2
+--bytecode               1     1     2
+--v1                     1     1     2
+```
+
+The third column is the one that keeps the fix honest: suppressing every explicit call would satisfy
+the complaint and quietly break a program that means to run `main` twice. The gate asserts all
+three.
+
+Implemented in the F front, where `mainItem` appended `(app (global main))` unconditionally whenever
+the token stream declared `def main`. It now asks whether the ALREADY-EMITTED doc entry contains
+that same call — a top-level `main()` lowers to exactly it — so the test is on what was emitted
+rather than re-derived from tokens. `nItems3` counts what `mainItem` appends and had to move with
+it.
+
+Original finding follows.
 
 A file that ends with a bare `main()` call runs its body TWICE on two lanes and once on the third.
 Isolated against a control in the same shape:
