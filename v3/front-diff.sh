@@ -183,7 +183,7 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
   echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-270}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-273}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
     fail=1
@@ -201,6 +201,32 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   CCEIL="${SSC3_FRONT_CORPUS_DIFF_CEILING:-0}"
   if [ "$cdiff" -gt "$CCEIL" ]; then
     echo "  FAIL corpus DISAGREEMENTS rose to $cdiff, above the ceiling $CCEIL"
+    fail=1
+  fi
+
+  # AND THE THIRD BUCKET, which had no guard at all while being the largest number in this report.
+  #
+  # The lesson above was learnt once and then applied to only two of the three numbers. Files
+  # exactly ONE front can print are not agreements and not disagreements, so neither the floor nor
+  # the ceiling above says anything about them — and `a v3 refusal is not a disagreement`, printed
+  # right there, is true and is also the reason nobody looked.
+  #
+  # It moved from a dozen to 128 in a single commit (the loader following `std-to-repo-root`), and
+  # that particular move was an IMPROVEMENT: 116 files went from "neither front can load this" to
+  # "the default front loads it", which is why 270 + 128 is now exactly the whole corpus. But the
+  # bucket grows the other way too, and that direction is invisible: a construct taught to one
+  # front and not the other widens the capability gap without touching either number above. That is
+  # `v3-two-fronts-differ-in-CAPABILITY` exactly, and it is why the entry says an output
+  # differential cannot see capability by construction.
+  #
+  # So the guard is a CEILING, and it is expected to be LOWERED over time rather than raised: as
+  # v3's own front catches up, files move from one-sided into agreement and this falls. Raising it
+  # is a deliberate act that says the gap widened and someone decided that was acceptable.
+  CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-123}"
+  if [ "$conly" -gt "$CONECEIL" ]; then
+    echo "  FAIL corpus ONE-SIDED files rose to $conly, above the ceiling $CONECEIL"
+    echo "       one front accepts these and the other refuses them; that gap is not visible in"
+    echo "       the agree/differ numbers above, which is the whole reason this ceiling exists."
     fail=1
   fi
 fi
