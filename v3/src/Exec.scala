@@ -56,6 +56,20 @@ enum Value:
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
+/** A `throw` FROM THE PROGRAM, carrying the thrown VALUE rather than a rendering of it.
+  *
+  * `__throw__` used to build an `ExecError(showV(value))` and `catch` bound `VStr(e.message)`, so
+  * the value was lost at the THROW — one lane turning every exception into its own text. The bridge
+  * and the reference front both bind the value as thrown, so a typed arm matched on one lane and not
+  * the other: `catch case e: Boom => …` answered `caught-boom` on the bridge and fell through to the
+  * rethrow arm here (BUGS.md `v3-executor-catches-a-string-where-the-bridge-catches-the-value`).
+  *
+  * SEPARATE FROM `ExecError`, which keeps its meaning: a failure the EXECUTOR raised, which has a
+  * message and no value. `catch` handles both — see the arm — because v3 draws no line between a
+  * language-level runtime error (`/ by zero`, catchable in Scala) and an internal one, and refusing
+  * the second would refuse the first with it. */
+final case class ExecThrow(value: Value, rendered: String) extends RuntimeException(rendered)
+
 /** What running a region produced. Structured control flow means these are the only four
   * possibilities, and each is a value rather than an exception — an exception would unwind the host
   * stack, which is exactly what `TailCall` must not do. */
@@ -735,6 +749,19 @@ object Exec:
     case Instr.Try(d, b, x, h) =>
       try exec(m, b, regs)
       catch
+        // BOTH, and the difference is what gets bound. A program `throw` carries its VALUE; a
+        // runtime failure the executor raises — `/ by zero`, an unimplemented method — has only a
+        // message, and binding that is what this lane did for everything before.
+        //
+        // NARROWING THIS TO `ExecThrow` ALONE WAS TRIED AND REVERTED, which is why it is spelled
+        // out: `try-catch.ssc` catches a division by zero, and it went uncatchable. That is not an
+        // internal error being swallowed — it is a language-level exception, and Scala lets a
+        // program catch it. v3 does not distinguish "the language raised" from "the executor
+        // failed": both are `ExecError`, so refusing to catch them would refuse the first to be rid
+        // of the second. Making that distinction is a real change and wants its own entry.
+        case e: ExecThrow =>
+          regs(x) = e.value
+          exec(m, h, regs)
         case e: ExecError =>
           regs(x) = Value.VStr(e.message)
           exec(m, h, regs)
@@ -1721,5 +1748,7 @@ object Exec:
         i = i - 1
       listIn(m, xs)
     case "__throw__" =>
-      throw ExecError(if args.isEmpty then "throw" else showV(m, args.head))
+      // The VALUE travels; the rendering is only for an uncaught throw's message.
+      val v = if args.isEmpty then Value.VStr("throw") else args.head
+      throw ExecThrow(v, showV(m, v))
     case other => throw ExecError("unknown primitive '" + other + "'")

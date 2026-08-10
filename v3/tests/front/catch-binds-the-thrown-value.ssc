@@ -1,0 +1,18 @@
+// `catch` binds the VALUE that was thrown, not a rendering of it. The executor used to convert at
+// the THROW — `__throw__` built an error carrying `showV(value)` — so the caught name was a String
+// on this lane and the thrown value on the bridge, and a field read failed on one lane only.
+case class Boom(msg: String, code: Int)
+
+def risky(k: Int): String =
+  try (if k == 1 then throw Boom("b", 7) else "none")
+  catch case e => e.msg + ":" + e.code.toString
+
+// A thrown STRING must still arrive as a string — the fix must not turn every payload into a class.
+def rawThrow(): String =
+  try throw "plain"
+  catch case e => e
+
+def main(): Unit =
+  println(risky(0))     // none  — nothing thrown
+  println(risky(1))     // b:7   — both fields readable, so it is the value and not its text
+  println(rawThrow())   // plain
