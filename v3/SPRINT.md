@@ -2516,6 +2516,19 @@ by measurement rather than by taste.**
       closure calling its successor instead of returning to a loop, is what the literature actually
       measures. Different experiment, not a tweak.
 
+**FRAME POOLING IS REFUTED — do not build it.** It was the obvious next move: `recursion-fib` is the
+slowest row, nothing has moved it, and `callFunc` allocates a frame per call. The assumption was
+checked before any code was written and it is false — `java -Xlog:gc` over that workload reports
+**76 collections and 66.8 ms of total pause in a ~14 s run, 0.5 %**, with every collection going
+338M → 2M so nothing is promoted. A pool removes GC *pauses*, and the ceiling on the whole idea is
+smaller than one round of this host's noise. Written down here rather than left as an absent task,
+because it is precisely what the J0 control seemed to point at.
+
+What those numbers DO say: ~25 GB allocated in that run. The volume is real, the *pause* is not — so
+the target is allocating less, not recycling. Every arithmetic result is a fresh `Value.VInt`, which
+points at J1's parked two-bank frame (`Array[Long]` beside `Array[Value]`): it removes the boxing
+instead of reusing the box. Bigger than anything in J0, and now it has a measurement behind it.
+
 ## 50 · Tier 2, un-deferred — and the first thing to establish is that it is not ONE thing
 
 Sergiy lifted the Tier 2 deferral. Before planning anything, the charter's own grouping needed

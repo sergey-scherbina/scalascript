@@ -225,6 +225,34 @@ design — each closure calling its successor directly instead of returning to a
 a monomorphic-per-site call and is the shape the literature actually measures. That is a different
 experiment, not a tweak to this one.
 
+### 8.2 · Frame pooling: refuted before it was written
+
+`recursion-fib` is the slowest row in the corpus and the one nothing has moved, and `callFunc`
+allocates `new Array[Value](nregs)` per call — so a frame pool is the obvious next move. **The
+assumption behind it was checked first, and it is false.**
+
+```text
+java -Xlog:gc … bench recursion-fib
+76 collections, 66.8 ms total pause   over a ~14 s run   →  0.5 %
+each: 338M -> 2M          everything dies young, nothing is promoted
+```
+
+A pool removes GC *pauses*, and GC pauses are **half a percent** of this workload. The ceiling on
+the whole idea is smaller than one round of measurement noise on this host. **Do not implement frame
+pooling** — and the reason is written here rather than left as an absent task, because "the frame is
+the next target" is exactly what the J0 control measurement seemed to say, and it is what a
+reasonable person would build next.
+
+**What the same numbers DO say:** 76 × 336 MB is roughly **25 GB allocated** in that run. The volume
+is real; it is the GC *pause* that is not. So the target is allocating LESS, not recycling what is
+allocated — and the frame is only part of it, because every arithmetic result is a fresh
+`Value.VInt` too. That points back at J1's parked item, the two-bank frame (`Array[Long]` beside
+`Array[Value]`), which removes the boxing rather than reusing the box. It is a bigger change than
+anything in J0 and it now has a measurement pointing at it.
+
+This is the second time in two days that checking an optimization's assumption before writing it
+changed the answer — §8.1 for J2, this for the pool. The check cost one run each time.
+
 ### J3 · Host bytecode behind a by-name seam — a separate decision
 
 The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,
