@@ -1078,6 +1078,24 @@ class Typer(
       bindPatVars(p.lhs, scope, Some(typeAnnotToSType(p.rhs)))
     case p: Pat.Bind =>
       bindPatVars(p.lhs, scope, expected) ++ bindPatVars(p.rhs, scope, expected)
+    // A CAPITALISED bare name in pattern position is a stable-identifier pattern — it MATCHES
+    // against something that must already exist, unlike a lowercase name, which BINDS. Scala 3
+    // rejects `case Nope =>` with `not found: value Nope`; this front resolved nothing and fell
+    // through to `case _ => Nil` below, so the pattern simply never matched. Measured across the
+    // lanes: int and native printed the fallback arm silently at exit 0, and js emitted the name
+    // verbatim so it became a run-time `ReferenceError` — three lanes, three answers, no diagnostic
+    // (BUGS.md `an-undefined-name-in-a-pattern-means-three-different-things`).
+    //
+    // The wording matches v3's `unknown constructor '…' in a pattern`, which already reports this,
+    // so the two fronts say the same sentence about the same program rather than each inventing one.
+    //
+    // The capitalisation rule itself was never the defect — the lowercase control binds correctly on
+    // every lane. What was missing is the RESOLUTION check behind it, which is why this looks only
+    // at a name the parser has already decided is not a binder.
+    case n: Term.Name if n.value.headOption.exists(_.isUpper) =>
+      if scope.lookup(n.value).isEmpty && scope.lookupType(n.value).isEmpty then
+        errors += TypeError(s"unknown constructor '${n.value}' in a pattern", None)
+      Nil
     case _ => Nil
 
   private def classFieldTypes(d: Defn.Class): List[(String, SType)] =
