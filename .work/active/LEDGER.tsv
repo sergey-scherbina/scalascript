@@ -29,7 +29,7 @@ interpreter-test-fast-slow-split	claude-code	2026-08-10T10:51:34Z	backendInterpr
 v3-charat-on-the-executor	claude-code	2026-08-10T15:25:00Z	v3-charat-on-the-executor	file:v3/src/Exec.scala
 f-cost-reached-graph	claude-code	2026-08-10T15:44:19Z	f-front-compile-cost-7x-on-scljet	file:specs/v2.2-p6.5-fsub.ssc
 mcp-p4b3-route	claude-code	2026-08-10T15:49:11Z	mcp-2026-07-28 P4b-3	file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/McpHttpRouteTest.scala file:specs/mcp-2026-07-28.md
-smoke-budget-self-scaling	claude-code	2026-08-10T15:51:47Z	smoke-suite-over-its-own-budget	file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:tests/BUGS.md
+smoke-budget-self-scaling	claude-code	2026-08-10T15:51:47Z	smoke-suite-over-its-own-budget	file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:tests/BUGS.md file:tests/e2e/smoke-budget-gate.sh file:tests/smoke-baseline-harvest.sh
 v3-expr-walker-gate	claude-code	2026-08-10T15:51:52Z	lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree SSC3-W1	file:v3/src/Lower.scala file:v3/walker-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md file:BUGS.md
 content-toolkit-transitive-emit	claude-code	2026-08-10T15:52:38Z	two tests fail on a generated-JS comparison for a transitively imported content toolkit	file:v1/runtime/backend/interpreter/src/test/scala/scalascript/JsGenStdImportTest.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/ContentBackendExposureTest.scala BUGS.md
 v3-uniml-cp-staleness	claude-code	2026-08-10T15:54:54Z	v3-uniml-jar-goes-stale-and-breaks-the-kernel-build	file:v3/uniml-classpath.sh file:BUGS.md file:v3/SPRINT.md file:v3/ssc3

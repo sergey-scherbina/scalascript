@@ -3,9 +3,9 @@ branch: feature/smoke-budget-self-scaling
 agent: claude-code
 started: 2026-08-10T15:51:47Z
 heartbeat: 2026-08-10T15:51:47Z
-status: claimed-before-planning
+status: in-progress
 items: smoke-suite-over-its-own-budget
-paths: file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:tests/BUGS.md
+paths: file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:tests/BUGS.md file:tests/e2e/smoke-budget-gate.sh file:tests/smoke-baseline-harvest.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
