@@ -162,7 +162,22 @@ final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
   * other lanes lower it. */
 /** `vals` are the object's `val`/`var` members. They become module GLOBALS named `Object.member`,
   * because a `var` needs somewhere to live and a namespace is not a value in this language. */
-final case class ObjectDef(name: String, defs: List[Def], vals: List[Stmt.Val], pos: Pos)
+/** `givenOf` is the TRAIT HEAD a `given name: T with` declares — `Monoid` for `Monoid[Int]` — and
+  * `None` for an ordinary `object`.
+  *
+  * THE FIRST TYPE THIS FRONT CARRIES, and it is one word rather than a type. `summon[Monoid[A]]`
+  * asks which instance a type selects, so something has to remember what each instance IS; the
+  * head is the least that answers it and the most that Tier 0 can check, since the ARGUMENT (`Int`
+  * vs `A`) is exactly what is erased. Recording more would be an unenforced notion of types in the
+  * front, which invariant I-2 is about; recording less makes `given` indistinguishable from
+  * `object` and `summon` unanswerable.
+  *
+  * Defaulted so every existing construction keeps compiling — and that is a hazard this repository
+  * has paid for once already (`Loader.merge` silently dropped a defaulted `Program.effects`, and
+  * the symptom appeared three layers away). Nothing rebuilds an `ObjectDef` field by field today;
+  * anything that starts to must carry this. */
+final case class ObjectDef(name: String, defs: List[Def], vals: List[Stmt.Val], pos: Pos,
+                           givenOf: Option[String] = None)
 
 final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef],
                          objects: List[ObjectDef], traits: List[TraitDef] = Nil,

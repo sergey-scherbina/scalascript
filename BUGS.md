@@ -534,6 +534,60 @@ in `std/json-core.ssc`. The import mechanism is done; those are two other gaps s
 
 **Measured while here:** 27 of 58 standard-library modules parse on v3's front.
 
+## std-move-left-scljet-behind — 113 corpus cases lost their import, and N fell 188 → 75 on main
+
+<!-- status: open
+     lane: multi
+     area: build
+     kind: bug
+     gate: v3/corpus-report.sh -->
+
+**Measured 2026-08-09 on `origin/main`, by a sweep run for an unrelated change.**
+
+    N = 75 / 368        (188 / 368 earlier the same day)
+    UNSUPPORTED 287     (was 174)
+    116  cannot find the import — v1/runtime/std/scljet/index.ssc,
+         std/scljet/index.ssc, tests/conformance/std/scljet/index.ssc
+
+The std relocation (`531a0e451`, *"the 108 shared .ssc std modules move to the repo-root"*) put the
+scljet modules at **`scljet/…` in the repo root**, while every consumer writes the link
+`std/scljet/index.ssc`. `Loader.candidates` tries `SSC_STD + target` (the old
+`v1/runtime/std/…`, now deleted), the bare target, and the importing file's directory — none of
+which is `scljet/`. So the modules exist and no path reaches them.
+
+**DIFF stayed 1 and CRASH stayed 4**, which is what identifies this as a resolution failure rather
+than a semantic one: nothing computes a wrong answer, 113 programs simply stop being reachable.
+
+Not filed against the move itself, which is a claim in flight (`std-to-repo-root`), and not fixed
+here for the same reason. What this entry is for is the NUMBER: anyone measuring v3 against the
+corpus in the meantime will read 75 and think a compiler regressed. It did not.
+
+## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: gap
+     gate: none -->
+
+`bench/corpus/typeclass-fold.ssc` — `xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)`
+→ `refusing to run invalid IR: func combineAll #2: call to intSum.combine passes 0 arguments, it
+takes 2`. The second `summon` is not being CALLED; it is being PASSED, and Scala calls that
+eta-expansion. v3 lowers `obj.m` with no argument list to a call with no arguments, so a method
+used as a value becomes a call that cannot type.
+
+**Found by G2 stage 1 and worth separating from it, because it is not a typing question.** With
+`summon` resolution landed, this row gets its instance — a single `Monoid` in its closure — and
+then stops here. It is the only thing between `typeclass-fold` and running.
+
+**The fix has a trap in it, which is why this is filed rather than done.** The rule would be: a
+method reference with no argument list, where the method takes `n > 0` parameters, becomes
+`(a₁ … aₙ) => obj.m(a₁ … aₙ)`. That is correct Scala semantics — but only if the AST distinguishes
+`obj.m` from `obj.m()`. If both arrive as a method call with an empty argument list, then applying
+the rule silently turns a genuine arity ERROR into a lambda, and a program that should be refused
+starts running and printing something. Check that first; the answer decides whether the fix is
+three lines or needs the front to carry the distinction.
+
 ## v3-extension-type-params — `extension [M](ref: ActorRef[M])` is refused, and it stands between two conformance cases and their module
 
 <!-- status: open

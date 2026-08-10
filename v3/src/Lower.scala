@@ -1007,6 +1007,47 @@ object Lower:
     * decides it with types; v3 decides it by name, and where it cannot decide it leaves the call
     * eager. A real limit, written down rather than assumed away.
     */
+  /** `summon[Monoid[A]]` becomes the ONE `given` that declares `Monoid`, or a refusal naming what
+    * it found. SSC3-G2 stage 1 (v3/SPRINT.md §52).
+    *
+    * WHY THIS IS SOUND AT TIER 0, and where it stops. The parser carries the HEAD of the summoned
+    * type — `Monoid`, never `Monoid[Int]` — because the argument is what erasure removes. When a
+    * module declares exactly one instance of that trait there is nothing to choose between, so no
+    * type is needed to choose it: the answer is the same whatever `A` turns out to be. The moment
+    * there are two, the choice IS the type, and this refuses instead of picking. That is the whole
+    * of the difference between a stage and a shortcut, and `tagless-resolution` — `Show[Int]` and
+    * `Show[String]` — is the case that would otherwise print a plausible wrong answer.
+    *
+    * It runs over the MERGED module, which is why it is here and not in the parser:
+    * `tagless-multi-file` declares its instance in one file and summons it in another.
+    *
+    * What stage 2 (the checker proper) adds is exactly the ambiguous case — and when it lands,
+    * this function is where the single-instance fast path can stay, since a checker will agree
+    * with it whenever it applies. */
+  private def resolveSummons(defs: List[Def], objects: List[ObjectDef]): List[Def] =
+    val instances: Map[String, List[String]] =
+      objects.flatMap(o => o.givenOf.map(t => (t, o.name)))
+             .groupBy((t, _) => t).map((t, ps) => (t, ps.map((_, n) => n)))
+    // No early exit on "does this program mention `summon`": answering that costs the same
+    // traversal as doing the work, and the first version of the guard was a `mapDeep` used for its
+    // side effect, which did not even parse.
+    locally:
+      def fix(e: Expr): Expr = mapDeep(e, x => x match
+        case Expr.Call("__summon__", List(Expr.StrLit(head, _)), p) =>
+          instances.get(head) match
+            case Some(one :: Nil) => Expr.Name(one, p)
+            case Some(many) =>
+              throw LowerFail(p, "`summon[" + head + "[…]]` has " + many.length +
+                " instances to choose from — " + many.sorted.mkString(", ") +
+                " — and which one a call needs is a fact about its TYPE, which Tier 0 erases. " +
+                "Name the instance you mean; type-directed resolution is v3/SPRINT.md SSC3-G2 " +
+                "stage 2")
+            case None =>
+              throw LowerFail(p, "`summon[" + head + "[…]]` finds no `given` declaring `" + head +
+                "` in this module or anything it imports")
+        case other => other)
+      defs.map(d => d.copy(body = fix(d.body)))
+
   private def rewriteByName(defs: List[Def]): List[Def] =
     val byNameParams: Map[String, Set[Int]] =
       defs.map(d => (d.name, d.params.zipWithIndex.filter((pm, _) => pm.byName).map(_._2).toSet))
@@ -1927,7 +1968,7 @@ object Lower:
     // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
     // second list is how one consumer ends up reading the un-rewritten version.
-    val allDefs = rewriteByName(allDefsEager)
+    val allDefs = resolveSummons(rewriteByName(allDefsEager), p.objects)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //

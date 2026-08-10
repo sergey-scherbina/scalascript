@@ -1,0 +1,28 @@
+# `summon[T]` finds the one instance of `T` — SSC3-G2 stage 1
+
+When a module declares exactly ONE `given` of a trait there is nothing to choose between, so no
+type is needed to choose it: the answer is the same whatever the type argument turns out to be.
+That is why this resolves at Tier 0 and why the ambiguous case (`using-ambiguous.ssc`) does not.
+
+`empty` is 0 and `combine` adds, so folding 4, 5 and 6 onto 0 is **15**; the second line shows the
+same instance reached through a second `summon` in another function.
+
+```scalascript
+trait Monoid:
+  def empty: Int
+  def combine(a: Int, b: Int): Int
+
+given intSum: Monoid with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+def total(xs: List[Int]): Int =
+  var acc = summon[Monoid].empty
+  for x <- xs do acc = summon[Monoid].combine(acc, x)
+  acc
+
+def zero(): Int = summon[Monoid].empty
+
+println(total(List(4, 5, 6)))
+println(zero())
+```

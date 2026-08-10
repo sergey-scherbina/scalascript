@@ -2614,6 +2614,25 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
       "same output" to "same judgements"; and `N` may fall for the first time, which I-5 forbids
       quietly — so G2 lands behind a gate that reports the corpus number before and after.
 
+  - [x] **G2 stage 1 — the question travels, and the unambiguous case is answered.** Landed
+        2026-08-09. A `given` now records the HEAD of the trait it declares (`Monoid`, never
+        `Monoid[Int]` — the argument is what erasure removes), `summon[T]` is carried to `Lower`
+        as `__summon__("T")` by BOTH fronts instead of being refused at either, and `Lower`
+        resolves it against the MERGED module: exactly one instance → that instance; zero or
+        several → a refusal naming the count and the instances.
+        **It turns ZERO corpus rows, and that is the honest result rather than a disappointment.**
+        The estimate that said two came from grepping each FILE for its instances; the candidate
+        set is the import CLOSURE, and over the closure `tagless-context-bounds` sees three
+        `Monoid` instances, not one. Only `typeclass-fold` resolves — it has a single `Monoid` —
+        and it then stops on something else entirely: `xs.foldLeft(…)(summon[Monoid[A]].combine)`
+        passes a METHOD AS A VALUE, and v3 lowers `obj.m` with no arguments to a call with none,
+        so the IR verifier reports `intSum.combine passes 0 arguments, it takes 2`. Filed as
+        `v3-method-as-a-value`; it is the next thing standing between this row and running, and
+        it is not a typing question.
+        **What it does buy** is the machinery stage 2 needs and a refusal that says which
+        instances it found, in place of `unknown name 'summon'`. Fixtures `using-param` (15 and 0,
+        hand-computed) and `using-ambiguous` (refused on both fronts, same position).
+
 ## 53 · The spike mirrored a reference BUG that the reference had already fixed
 
 A sweep of the uniml front over 120 files of `examples/` and the standard library — a wider oracle

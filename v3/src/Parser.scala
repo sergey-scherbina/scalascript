@@ -754,22 +754,26 @@ object Parser:
     case Tok.TId("throw", p) =>
       val (e, t) = parseExpr(ts.tail)
       (Expr.Call("__throw__", List(e), p), t)
-    // `summon[T]` — REFUSED AT THE FRONT, in the same words the projection uses.
+    // `summon[T]` — A QUESTION CARRIED TO THE LOWERING, not an answer given here.
     //
-    // Both fronts already declined this program; they declined it at different STAGES, and that is
-    // a capability divergence even though the outcome matched. v3 parsed `summon` as an ordinary
-    // name and failed in the lowering with `unknown name 'summon'`, while UniML refuses it in
-    // `parse`. `front-capability-gate.sh` compares `ssc3 ast`, which stops at the front, so it read
-    // v3 as ACCEPTING — and it went red the moment G1 stopped `given` from refusing the file first.
-    // The gate was right: a message that names the construct beats one that names a missing symbol.
+    // It used to refuse at this line, and the refusal was right for as long as nothing could
+    // answer it. What changed is that a `given` now records the trait it declares, so the question
+    // "which instance does `Monoid[A]` select" has a candidate set. The PARSER cannot answer it:
+    // it reads one file, and `tagless-multi-file` puts the instance in another. `Lower` sees the
+    // merged module, so the question travels there as `__summon__("Monoid")` — the HEAD only,
+    // because the argument is what Tier 0 erases.
+    //
+    // The refusal did not disappear, it MOVED and got narrower: `Lower` refuses when the head
+    // matches no `given` or more than one, naming both the trait and the instances it found.
     //
     // Tied to `[` rather than to the word, so a value called `summon` keeps working — there is no
     // keyword here, and `a[…]` is unambiguously a type-argument list (arrays index with `a(0)`).
     case Tok.TId("summon", p) if isPunct(peek(ts.tail), "[") =>
-      throw ParseFail(p,
-        "`summon` is outside SSC3 core Tier 0 — it asks which instance a TYPE selects, and Tier 0 " +
-        "erases types. A `given name: T with` instance can be used by name today; type-directed " +
-        "resolution is v3/SPRINT.md SSC3-G2")
+      val head = peek(ts.tail.tail) match
+        case Tok.TId(h, _) if !keywords.contains(h) => h
+        case other =>
+          throw ParseFail(p, "`summon[…]` needs a type whose head is a name — `summon[Monoid[A]]`")
+      (Expr.Call("__summon__", List(Expr.StrLit(head, p)), p), skipBrackets(ts.tail))
     case Tok.TId(n, p) if !keywords.contains(n) =>
       // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,
       // like every other type at Tier 0 — there is no checker, and half-reading them would put an
@@ -1471,6 +1475,13 @@ object Parser:
     var ts = t0
     if !isPunct(peek(ts), ":") then
       throw ParseFail(posOf(ts), "a `given` must declare its type — `given name: T with …`")
+    // THE HEAD OF THE DECLARED TYPE IS KEPT, and only the head. `Monoid[Int]` records `Monoid`,
+    // which is what `summon[Monoid[A]]` can be matched against — the ARGUMENT is precisely what
+    // Tier 0 erases, so keeping it would be an unenforced notion of types in the front (I-2).
+    // Read before `skipType` discards the rest.
+    val givenOf = peek(ts.tail) match
+      case Tok.TId(h, _) if !keywords.contains(h) => Some(h)
+      case _                                     => None
     ts = skipType(ts.tail)
     if !isId(peek(ts), "with") then
       throw ParseFail(posOf(ts),
@@ -1478,7 +1489,7 @@ object Parser:
         "it needs members to reach. Type-directed resolution (`using`, `summon[T]`) is the next " +
         "step and is not here yet; see v3/SPRINT.md SSC3-G2")
     val (members, vals, t2) = parseMembers(ts.tail, "object")
-    (ObjectDef(name, members, vals, p), t2)
+    (ObjectDef(name, members, vals, p, givenOf), t2)
 
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =

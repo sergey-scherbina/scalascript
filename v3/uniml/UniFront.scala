@@ -256,7 +256,7 @@ object UniFront:
     //
     // An ANONYMOUS `given T with` refuses, because the only way to use an instance here is to name
     // it. `name.getOrElse` would invent one and make the program mean something it does not say.
-    case U.GivenObject(nameOpt, _, members, s) =>
+    case U.GivenObject(nameOpt, tpeOpt, members, s) =>
       nameOpt match
         case None => no("an anonymous `given … with` — at Tier 0 an instance is reached BY NAME", s)
         case Some(n) =>
@@ -269,7 +269,11 @@ object UniFront:
               vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
             case other => no("a non-`def`, non-`val` member of a `given … with`", other.span)
           }
-          Sorted.O(ObjectDef(n, ds, vs, pos(s)))
+          // The HEAD of the declared type, so `summon` has something to match against — the same
+          // one word v3's own parser keeps, derived the same way from the text the dialect gives.
+          val givenOf = tpeOpt.map(t => t.text.takeWhile(c => c != '[' && c != ' ').trim)
+                              .filter(_.nonEmpty)
+          Sorted.O(ObjectDef(n, ds, vs, pos(s), givenOf))
     // `effect Bump:` — projected, not refused, since 2026-08-08. UniML's grammar has parsed this
     // since it was written (`ScalaSpike.parseEffectDecl`); only this projection said no, so the
     // whole of SSC3-7a worked on v3's own front and was ABSENT on the default one. That gap is what
@@ -489,7 +493,16 @@ object UniFront:
     // lowering, one implementation for both fronts; emitting the desugared form HERE made the two
     // fronts print different trees for `js-compound-assign` and the differential said so.
     case U.RangeOp(o, from, to, s) => Expr.Bin(o, expr(from), expr(to), pos(s))
-    case U.Summon(_, s)            => no("`summon`", s)
+    // `summon[T]` — carried to the lowering as a question, exactly as v3's own parser does, and
+    // reduced to the HEAD of `T` for the same reason: the argument is what Tier 0 erases. The
+    // dialect hands the type over as TEXT, so the head is everything before the first `[`.
+    // Refusing here instead would put the two fronts on different stages again, which is the
+    // divergence `front-capability-gate.sh` caught the last time this file and the parser
+    // disagreed about `summon`.
+    case U.Summon(tpe, s) =>
+      val head = tpe.takeWhile(c => c != '[' && c != ' ').trim
+      if head.isEmpty then no("`summon` with no type", s)
+      else Expr.Call("__summon__", List(Expr.StrLit(head, pos(s))), pos(s))
     case U.Quote(_, s)             => no("a quote", s)
     case U.Splice(_, s)            => no("a splice", s)
     case U.QuotedName(_, s)        => no("a quoted name", s)

@@ -1,0 +1,24 @@
+# Two instances of one trait — REFUSED, not guessed
+
+No `.expected`, so the front gate requires this to be refused.
+
+**This is the case that separates a stage from a shortcut.** With `Show[Int]` and `Show[String]`
+both in scope, which one `summon[Show]` needs is a fact about the TYPE at the call site — and
+Tier 0 erases types. A rule that picked "the first" or "the only one in this file" would print a
+plausible wrong answer, which costs more than a refusal.
+
+The message names the count and the instances, so the reader can either name the one they mean or
+wait for `v3/SPRINT.md` SSC3-G2 stage 2, which is what answers it properly.
+
+```scalascript
+trait Show:
+  def show(): String
+
+given showInt: Show with
+  def show(): String = "int"
+
+given showString: Show with
+  def show(): String = "string"
+
+println(summon[Show].show())
+```
