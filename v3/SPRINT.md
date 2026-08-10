@@ -2666,6 +2666,40 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
         **What it does buy** is the machinery stage 2 needs and a refusal that says which
         instances it found, in place of `unknown name 'summon'`. Fixtures `using-param` (15 and 0,
         hand-computed) and `using-ambiguous` (refused on both fronts, same position).
+  - [x] **G2 stage 2a — type-directed resolution, first order.** Landed 2026-08-09.
+        `tests/conformance/tagless-resolution.ssc` RUNS on v3's front and prints
+        `42 / hello / equal: 7 / not-equal / 99` — the row where `Show[Int]` and `Show[String]`
+        are separable by nothing but the type. `(using …)` clauses, context bounds `[A: Monoid]`
+        (which become `given_` parameters, as their own prose says they desugar to), and an
+        explicit `(using showInt)` at a call site all parse; `Param` carries its declared type as
+        TEXT and `Def` carries its type-parameter names.
+        **MONOMORPHISATION, NOT A DICTIONARY, and a failure chose it rather than a preference.**
+        The first version appended the instance as an argument and died on `unknown name 'showInt'`:
+        a `given` is an `object`, a NAMESPACE with no runtime value, so there is nothing to pass.
+        What works is specialising the callee — `display$showInt` with the `using` parameter's name
+        replaced by the instance's, so `s.show(a)` becomes `showInt.show(a)`, the qualified call
+        that has worked since G1. One copy per (function, instances) pair.
+        **What it infers is deliberately small — a literal's type, and nothing else.** When it
+        cannot infer, or the substituted type matches no instance or several, the call is left
+        alone and the arity check refuses it by name with a position. Filling in "the only instance
+        of that trait" would be the spelling shortcut §52 rejected.
+        **Two ORDERING defects, both found by running rather than by reading:** `summon` must
+        resolve BEFORE specialisation, or the copy has no parameter left to resolve against; and
+        `f(a)(using inst)` must be flattened in a pass of its OWN, because `mapDeep` rebuilds
+        children first and the inner call was being specialised before the outer clause was seen.
+        **DECLARED GAP:** the projection still refuses `using`, because `SpikeAst.Def` has nowhere
+        to keep `[A]`. The default front is UniML, so the feature needs `SSC3_FRONT=v3` and the
+        corpus number does NOT move — 188/368 before and after. Probes `usingp` and `summon2` are
+        declared in `front-capability-gate.sh`; the follow-up is
+        `BUGS.md v3-uniml-def-has-no-type-parameters`.
+  - [ ] **G2 stage 2b — inference past a literal.** `tagless-context-bounds` needs it and is the
+        next row: `combineAll(xs)` inside a generic body passes a PARAMETER of type `List[A]`, not
+        a literal, so three things are missing — a constructor's type (`List(1,2,3)` is
+        `List[Int]`), structural matching of `List[A]` against `List[Int]`, and propagating the
+        enclosing specialisation's binding into the calls its body makes.
+  - [ ] **G2 stage 2c — higher-kinded.** `tagless-program` and `tagless-multi-file` select on a
+        type CONSTRUCTOR — `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside
+        `Logged[Option]`. Not reachable by substituting a type argument into text.
 
 ## 53 · The spike mirrored a reference BUG that the reference had already fixed
 

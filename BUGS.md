@@ -655,6 +655,32 @@ Cost measured while chasing something else: three commands to discover the posit
 the end of the file it named. Fixing it means carrying the unit with each declaration into the
 merged program — `Pos` would need a path, or `merge` would need to record a per-def origin.
 
+## v3-uniml-def-has-no-type-parameters — so the default front cannot resolve a `using` clause
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: gap
+     gate: v3/front-capability-gate.sh -->
+
+`SpikeAst.Def` is `(name, params, ret, body, span)`. There is nowhere for `[A]` to go, so UniML's
+dialect discards a definition's type parameters — and telling a type VARIABLE from a type is the
+whole of what instance resolution does: `A` in `Show[A]` is solved for, `Int` in `Show[Int]` is
+matched. Without them the projection cannot do what v3's own parser now does, and it keeps refusing
+`using` by name.
+
+**Measured 2026-08-09, landing SSC3-G2 stage 2a.** `tests/conformance/tagless-resolution.ssc` runs
+on `SSC3_FRONT=v3` and prints `42 / hello / equal: 7 / not-equal / 99`; on the DEFAULT front it
+reports `a \`using\` parameter is outside SSC3 core Tier 0`. Declared in
+`front-capability-gate.sh` as `usingp` and `summon2` — probes that already existed for exactly this
+construct — so the gap is visible rather than silent.
+
+**THE DEFAULT FRONT IS UNIML**, so until this closes the feature is reachable only with
+`SSC3_FRONT=v3`, and the corpus number does not move: `N = 188/368` before and after.
+
+Closing it is a change to a DIFFERENT artifact — `uniml/scala/.../SpikeAst.scala` and
+`ScalaSpike.scala` — plus the projection, and a classpath rebuild. Worth its own claim.
+
 ## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
 
 <!-- status: fixed
