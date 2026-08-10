@@ -1,0 +1,11 @@
+slug: v3-expr-walker-gate
+branch: feature/v3-expr-walker-gate
+agent: claude-code
+started: 2026-08-10T15:51:52Z
+heartbeat: 2026-08-10T15:51:52Z
+status: claimed-before-planning
+items: lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree SSC3-W1
+paths: file:v3/src/Lower.scala file:v3/walker-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
