@@ -1,0 +1,11 @@
+slug: v3-lowerfail-names-the-right-file
+branch: feature/v3-lowerfail-names-the-right-file
+agent: claude-code
+started: 2026-08-10T16:40:14Z
+heartbeat: 2026-08-10T16:40:14Z
+status: claimed-before-planning
+items: a LowerFail from an imported unit reports the ROOT path with the imported unit's line, pointing past the end of a file the reader did not write
+paths: file:v3/src/Ast.scala file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/tests/front BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
