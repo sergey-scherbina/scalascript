@@ -1,0 +1,37 @@
+slug: ssc3-std-root-migration
+branch: feature/ssc3-core
+agent: claude-code
+started: 2026-08-10T07:10:00Z
+heartbeat: 2026-08-10T07:10:00Z
+status: measured-before-planning
+items: v3 loader vs std-to-repo-root
+paths: file:v3/src/Loader.scala file:v3/tests/loader file:v3/loader-gate.sh
+scope: |
+  MEASURED, not guessed. Sweeping all 398 conformance files through the DEFAULT (UniML) front and
+  histogramming the FIRST diagnostic per file: 169 refuse, and 116 of those 169 — 69% of every
+  refusal in the corpus — are one line:
+
+      cannot find the import 'std/scljet/index.ssc'
+      looked in: v1/runtime/std/scljet/index.ssc, std/scljet/index.ssc, tests/conformance/std/...
+
+  This is NOT a language gap. Every Tier-0 gap in the same histogram is small by comparison
+  (`extension` 11, trait members 8, `summon` 5, markers 5+3+1, interpolators 4+1+1+1+1).
+
+  Cause: `std-to-repo-root` (2026-08-09) moved the dev tree's modules to the repo root, and v3's
+  `Loader.stdRoot` still defaults to `v1/runtime/` — which now holds ZERO `.ssc` modules, so the
+  first candidate is dead in every dev tree. The 64 `std/*.ssc` modules keep resolving only via the
+  incidental bare-`target` candidate (CWD is the repo root). `scljet/` was PROMOTED out of `std/`
+  to the top level, so no candidate reaches it, while the corpus keeps writing the canonical
+  spelling `std/scljet/...` (200+ occurrences) — which the reference still resolves, because the
+  reference reads the INSTALLED staged tree where `std/scljet/` physically exists.
+
+  Fix: one added candidate for a `std/`-prefixed target — the path with the prefix stripped,
+  resolved from the repo root — placed LAST, so nothing that resolves today changes. Same
+  discipline `AutoResolve.scala:109` used for the same migration ("libPath stays FIRST; this is
+  purely an added candidate"). Simulated over every unresolved target before writing any code:
+  exactly one unique target, and stripping lands it.
+
+  A gate goes with it, because a resolver has no output differential to protect it: assert the
+  promoted-directory spelling resolves AND that a genuinely absent module still refuses, with the
+  candidate list still naming where it looked.
+next: implement the candidate + gate, re-sweep, report the refusal histogram before/after

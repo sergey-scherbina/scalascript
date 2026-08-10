@@ -137,13 +137,32 @@ object Loader:
     acc
 
   /** Candidate paths, in the order they are tried. Reported IN FULL when none exists, because
-    * "cannot find x" without saying where it looked is a message that costs the reader the search. */
+    * "cannot find x" without saying where it looked is a message that costs the reader the search.
+    *
+    * THE LAST CANDIDATE IS A MIGRATION, not a guess. `std-to-repo-root` (2026-08-09) moved the dev
+    * tree's modules to the repo root and PROMOTED whole directories out of `std/` to the top level
+    * — `scljet/` is the big one. The import spelling did not move with them: the corpus writes
+    * `std/scljet/index.ssc` in 200+ places and the reference still resolves it, because the
+    * reference reads the INSTALLED staged tree, where `std/scljet/` physically survives. So the
+    * logical name keeps its `std/` prefix while the dev tree's physical path has dropped it, and
+    * the resolver is the one place that knows both.
+    *
+    * Stripping the prefix is tried LAST so nothing that resolves today changes — `std/actors.ssc`
+    * still lands on `<root>/std/actors.ssc` via the bare-target candidate and never reaches this
+    * one. Same ordering discipline, for the same migration, as `AutoResolve.scala:109`.
+    *
+    * Measured before it was written: over the whole conformance corpus this was 116 of 169
+    * refusals — 69% of everything the default front turned away, and every one of them the SAME
+    * unresolved target. `stdRoot`'s `v1/runtime/` default now names a directory holding ZERO `.ssc`
+    * modules, so candidate one is dead in a dev tree; it stays because an INSTALLED tree still
+    * stages `std/` under a root, and `SSC_STD` still points there. */
   def candidates(target: String, fromFile: String): List[String] =
     val dir =
       val i = fromFile.lastIndexOf('/')
       if i < 0 then "." else fromFile.substring(0, i)
     val raw =
-      if target.startsWith("std/") then List(stdRoot + target, target, dir + "/" + target)
+      if target.startsWith("std/") then
+        List(stdRoot + target, target, dir + "/" + target, target.substring("std/".length))
       else List(dir + "/" + target, target, stdRoot + target)
     raw.map(normalise).distinct
 
