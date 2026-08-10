@@ -972,13 +972,27 @@ object Exec:
         Value.VInt(s.count(c => truthy(apply1(m, args.head, Value.VInt(c.toLong)))).toLong)
       case (Value.VInt(n), "abs")      => Value.VInt(if n < 0 then -n else n)
       case (Value.VFloat(d), "abs")    => Value.VFloat(if d < 0.0 then -d else d)
-      // `charAt` returns an INT on the reference lane — "abc".charAt(1) is 98, not 'b'. Char
-      // LITERALS are chars there and charAt is not; matching that is the point.
+      // `charAt` returns a CHAR, and the comment that stood here — "an INT on the reference lane,
+      // matching that is the point" — was true when written and is what changed underneath it.
+      // `f39448c96` moved the reference onto `CharV extends IntV`: char LITERALS were already chars
+      // there, `charAt` simply had never been moved onto the same model, so `println(s.charAt(0))`
+      // printed a number.
+      //
+      // v3's bridge lane RUNS on that runtime and followed the same hour; this interpreter is a
+      // fourth implementation of the primitive and did not, so the two v3 lanes disagreed for four
+      // commits against invariant I-3 — `x/121/A/98/true/sq` here against `x/121/A/b/true/sq`
+      // through the bridge. Nothing caught it because `v3.yml` watched only `v3/**` while half of
+      // what `exec-gate.sh` compares lives in `v2/`.
+      //
+      // NOTHING ELSE NEEDS TO CHANGE, and that was checked rather than hoped: `Value.VChar` is
+      // already the same "integer that prints as a character" — `binOp` coerces a VChar operand to
+      // VInt, `eq` covers VChar against VInt, `toInt`/`toLong` are there, and `show` renders the
+      // character. So `'x' + 1` stays 121 and `s.charAt(i) != 92` keeps meaning what it meant.
       case (Value.VStr(s), "charAt") =>
         args.head match
           case Value.VInt(i) =>
             if i < 0 || i >= s.length then throw ExecError("charAt " + i + " of a string of length " + s.length)
-            Value.VInt(s.charAt(i.toInt).toLong)
+            Value.VChar(s.charAt(i.toInt))
           case v => throw ExecError("charAt " + show(v))
       case (Value.VStr(s), "toLowerCase") => Value.VStr(s.toLowerCase)
       case (Value.VStr(s), "isEmpty")     => Value.VBool(s.isEmpty)
