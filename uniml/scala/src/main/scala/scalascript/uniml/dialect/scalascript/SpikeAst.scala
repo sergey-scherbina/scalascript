@@ -35,7 +35,17 @@ object SpikeAst:
   final case class TypeRef(text: String, span: SourceSpan) extends Node
 
   sealed trait Decl extends Node
-  final case class Def(name: String, params: Vector[Param], ret: Option[TypeRef], body: Expr, span: SourceSpan) extends Decl
+  /** `tparams` are the definition's own type-parameter NAMES and `bounds` the context bounds on
+    * them, as `(name, boundHead)` — `[A: Monoid]` is `("A", "Monoid")`, meaning a `using Monoid[A]`
+    * parameter. Kept since 2026-08-09: without them a front cannot tell a type VARIABLE from a
+    * type, which is the whole of instance resolution, and the v3 projection had to refuse `using`
+    * outright (BUGS.md v3-uniml-def-has-no-type-parameters).
+    *
+    * Defaulted, so every other construction of a `Def` in this file and its tests compiles
+    * unchanged. */
+  final case class Def(name: String, params: Vector[Param], ret: Option[TypeRef], body: Expr, span: SourceSpan,
+                       tparams: Vector[String] = Vector.empty,
+                       bounds: Vector[(String, String)] = Vector.empty) extends Decl
   final case class CaseClass(name: String, fields: Vector[Param], parent: Option[String], methods: Vector[Def], span: SourceSpan) extends Decl
   final case class EnumDecl(name: String, cases: Vector[EnumCase], span: SourceSpan) extends Decl
   /** One `case` of an enum. Its fields are constructor parameters, so they are `Param`s — the same
@@ -221,7 +231,7 @@ object SpikeAst:
     case ObjectDecl(_, _, ms, _, _) => ms.flatMap(walk)
     case While(c, b, _)           => walk(c) ++ walk(b)
     case Tuple(es, _)             => es.flatMap(walk)
-    case Def(_, ps, rt, b, _)     => ps.flatMap(walk) ++ rt.toVector.flatMap(walk) ++ walk(b)
+    case Def(_, ps, rt, b, _, _, _)     => ps.flatMap(walk) ++ rt.toVector.flatMap(walk) ++ walk(b)
     case Param(_, t, d, _, _, _)  => t.toVector.flatMap(walk) ++ d.toVector.flatMap(walk)
     case CaseClass(_, fs, _, ms, _) => fs.flatMap(walk) ++ ms.flatMap(walk)
     case EnumDecl(_, cs, _)       => cs.flatMap(walk)

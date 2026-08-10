@@ -194,6 +194,15 @@ object SpikeTyped:
           flush(); cur = Some((lex(c), span(c))); tpe = None; dflt = None; isUsing = false; byName = false
         case Some(r) if typeRoles.contains(r) =>
           tpe = Some(typeRef(c)); if r.endsWith("usingtype") then isUsing = true
+        // A `using` parameter's TYPE ARGUMENTS, appended to the type it belongs to as they
+        // arrive. `Show` and `Show[A]` are the same head and different types, and resolution
+        // matches on the whole of it.
+        case Some("def.usingtypearg") =>
+          tpe = tpe.map { t =>
+            val txt = if t.text.endsWith("]") then t.text.dropRight(1) + "," + lex(c) + "]"
+                      else t.text + "[" + lex(c) + "]"
+            TypeRef(txt, t.span)
+          }
         // The arrow the grammar now keeps. It arrives BEFORE the type, which is why it is read as
         // its own role rather than inferred from `tpe`.
         case Some(r) if r.endsWith("byname") => byName = true
@@ -230,6 +239,16 @@ object SpikeTyped:
       // "declared, no body", so no new shape is introduced.
       byRole(n, "def.body").map(expr).getOrElse(NotImplemented(span(n))),
       span(n),
+      allByRole(n, "def.tparam").map(lex),
+      // PAIRED BY ORDER, which is why `kids` is walked instead of two `allByRole` calls: a bound
+      // belongs to the name that precedes it, and two flat lists cannot say which — `[A: Monoid,
+      // B: Pretty]` would come out as both bounds on `A`.
+      kids(n).foldLeft((Vector.empty[(String, String)], "")) { case ((acc, cur), (role, k)) =>
+        role match
+          case Some("def.tparam") => (acc, lex(k))
+          case Some("def.tbound") => (if cur.isEmpty then acc else acc :+ (cur, lex(k)), cur)
+          case _                  => (acc, cur)
+      }._1,
     )
 
   /** CST → `Pattern`, mirroring the reference's `patProj` (`ScalaSpike.scala:2630`) role for role.

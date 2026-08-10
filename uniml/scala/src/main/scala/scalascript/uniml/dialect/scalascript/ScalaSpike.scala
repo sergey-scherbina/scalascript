@@ -632,6 +632,34 @@ object SpikeParse:
 
   // consume a `[ … ]` type-parameter clause (erased). Plain params only — a context bound
   // `[A: TC]` would need the `__tc_TC`-param rewrite (deferred; finicky even in ssc1-front).
+  /** Like `skipTypeParams`, but KEEPS the names and their context bounds as ordered leaves.
+    *
+    * Only at depth 1: `[F[_]]` contributes `F` and nothing from inside its own brackets, and
+    * `[A <: B]` contributes `A` alone — an upper bound constrains a type, and there is no checker
+    * here to constrain one with. A CONTEXT bound is different in kind: `[A: Monoid]` means a value
+    * is passed, which is why it survives while `<:` does not. */
+  private def collectTypeParams(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
+    if c.peekKind == "spike.lbracket" then
+      c.advance()
+      var depth = 1
+      while depth > 0 && !c.eof do
+        c.peekKind match
+          case "spike.lbracket" => depth += 1; c.advance()
+          case "spike.rbracket" => depth -= 1; c.advance()
+          // BOTH identifier kinds. A type parameter is `A`, which this lexer calls `spike.uid`
+          // — the uppercase kind — and matching only `spike.id` collected nothing at all, which
+          // is why `tagless-resolution` still reached the arity check with no `A` to solve for.
+          case k if (k == "spike.id" || k == "spike.uid") && depth == 1 =>
+            c.advance().foreach(t => kids += Node.Leaf(t, Some("def.tparam")))
+            while c.peekKind == "spike.colon" && depth == 1 do
+              c.advance()
+              if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then
+                c.advance().foreach(t => kids += Node.Leaf(t, Some("def.tbound")))
+                // `[A: Monoid[Int]]` — the bound may carry its own arguments, which are erased
+                // like every other type argument here.
+                if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+          case _ => c.advance()
+
   private def skipTypeParams(c: Cur): Unit =
     if c.peekKind == "spike.lbracket" then
       c.advance()
@@ -814,12 +842,28 @@ object SpikeParse:
     // The qualifier may carry TYPE PARAMS — `extern def Source[A].distributed(…)`. They sit
     // BETWEEN the segment and the dot, so a plain dot-chain stopped at `[` and left
     // `.distributed` behind, which is what the first version of this loop did.
-    skipTypeParams(c)
+    //
+    // COLLECTED, not skipped, and the reason is that this call sees a PLAIN def's own parameters
+    // too: `def display[A](a: A)` has no dot, so `[A]` is consumed right here and the collecting
+    // call further down never sees it. That is why `tagless-resolution` reached the arity check on
+    // this front with nothing to solve `A` from.
+    collectTypeParams(c, kids)
     while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.namedot")))
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.nameseg")))
       skipTypeParams(c)
-    skipTypeParams(c) // plain `[A, B]` are erased (like ssc1-front); context bounds `[A: TC]` deferred
+    // A DEFINITION'S OWN TYPE PARAMETERS, kept since 2026-08-09 instead of erased.
+    //
+    // They were dropped here, and that is why the v3 projection had to refuse `using`: telling a
+    // type VARIABLE from a type is the whole of instance resolution — `A` in `Show[A]` is solved
+    // for, `Int` in `Show[Int]` is matched — and with `[A]` gone there was nothing to tell them
+    // apart with. (BUGS.md v3-uniml-def-has-no-type-parameters.)
+    //
+    // Emitted as ORDERED leaves, `def.tparam` and `def.tbound`, so a context bound stays attached
+    // to the name it bounds: `[A: Monoid: Pretty, B]` is tparam A, tbound Monoid, tbound Pretty,
+    // tparam B, and the typed layer pairs each bound with the last name it saw. Two flat lists
+    // could not express that, and `[A: Monoid, B: Pretty]` is the case that would come out wrong.
+    collectTypeParams(c, kids)
     // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def. MULTIPLE clauses (curried
     // `def f(a)(b)`) are FLATTENED into one param list — ssc1-front appends the 2nd clause's params, so the
     // def lowers to a single `(lam N)` and lowerProg flattens the call by arity (all params share the
@@ -861,6 +905,26 @@ object SpikeParse:
             c.advance().foreach(t => kids += Node.Leaf(t, Some("def.byname")))
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
           else expectType(c, if usingClause then "def.usingtype" else "def.paramType").foreach(kids += _)
+          // A TYPE ARGUMENT IS KEPT for a `using` parameter, as ordered `def.usingtypearg` leaves.
+          //
+          // `skipTypeTail` erases it, which is right for a type nobody reads — and wrong for this
+          // one: `Show[A]` and `Show[Int]` differ only there, and instance resolution matches on
+          // exactly that. Measured 2026-08-09 with a diagnostic, after guessing twice: the
+          // projection was receiving `s:Show(using)` where it needed `Show[A]`, so nothing could
+          // ever match an instance declared `Show[Int]`.
+          //
+          // Only for `using`. An ordinary parameter's type is still erased, because nothing reads
+          // it and keeping it would put an unenforced notion of types into every signature.
+          if usingClause && c.peekKind == "spike.lbracket" then
+            c.advance()
+            var d0 = 1
+            while d0 > 0 && !c.eof do
+              c.peekKind match
+                case "spike.lbracket" => d0 += 1; c.advance()
+                case "spike.rbracket" => d0 -= 1; c.advance()
+                case k if k == "spike.id" || k == "spike.uid" =>
+                  c.advance().foreach(t => kids += Node.Leaf(t, Some("def.usingtypearg")))
+                case _ => c.advance()
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
           // a default value `param: T = expr` — captured (def.dflt) so defNodes can emit the funcdefaults node
           // for call-site synthesis (`f(a)`→`f(a, dflt…)`); appears right after its param, before the next one.

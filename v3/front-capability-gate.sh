@@ -32,17 +32,12 @@ SSC3="v3/ssc3"
 # `effect-oneshot` was here until 2026-08-08 and came out the same day the projection landed —
 # which is the gate doing its job: it went red saying "no longer diverges; drop it from KNOWN_v3 in
 # this commit", and this is that commit.
-# `usingp` and `summon2` — DECLARED 2026-08-09 with SSC3-G2 stage 2a, and it is a gap in flight rather than
-# a difference of opinion. v3's parser takes a `using` clause and a context bound and resolves the
-# instance by the argument's type; the projection refuses `using` because UniML's own AST has
-# nowhere to keep `[A]` — `SpikeAst.Def` is `(name, params, ret, body, span)` — and telling a type
-# VARIABLE from a type is the whole of what resolution does. Closing it means a field in UniML's
-# dialect and its parser, which is a different artifact and a separate claim
-# (BUGS.md v3-uniml-def-has-no-type-parameters).
-#
-# THE DEFAULT FRONT IS UNIML, so until that lands the feature is reachable only with
-# `SSC3_FRONT=v3`. That is the honest statement of what stage 2a shipped.
-declare -a KNOWN_V3_ONLY=(usingp summon2)       # v3 accepts, uniml refuses
+# `usingp` and `summon2` were DECLARED for ONE DAY, with SSC3-G2 stage 2a, and came out with U1:
+# UniML's dialect now keeps a definition's type parameters and a `using` parameter's type
+# ARGUMENTS, so the projection resolves what v3's own parser resolves. What the declaration bought
+# was a day in which the gap was visible and named instead of being a silent difference between the
+# front a user gets and the front a test ran.
+declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
 # `absval` was here for one commit. The projection accepted a trait's non-`def` member and dropped it
 # SILENTLY; it now refuses, which is not a new decision — `20-core-language.md` and UniFront's own
 # `AbstractVal` case already said v3's traits carry methods, not abstract state. This gate went red

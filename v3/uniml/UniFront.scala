@@ -148,9 +148,11 @@ object UniFront:
     // is that an `extern` v3 cannot implement IS NOT A FUNCTION at Tier 0. `Lower` drops it from
     // the table, so the declaration still costs nothing and a CALL to it is refused at the call
     // site, with a position, exactly as a call to any name that does not exist.
-    case U.Def(n, ps, _, U.NotImplemented(bs), s) =>
-      Sorted.D(Def(n, ps.toList.map(param), hostGap(n, pos(bs)), pos(s)))
-    case U.Def(n, ps, _, b, s)  => Sorted.D(Def(n, ps.toList.map(param), expr(b), pos(s)))
+    case d @ U.Def(n, ps, _, U.NotImplemented(bs), s, _, _) =>
+      Sorted.D(Def(n, ps.toList.map(param), hostGap(n, pos(bs)), pos(s),
+                   d.tparams.toList, boundParams(d)))
+    case d @ U.Def(n, ps, _, b, s, _, _) =>
+      Sorted.D(Def(n, ps.toList.map(param), expr(b), pos(s), d.tparams.toList, boundParams(d)))
     case U.CaseClass(n, fs, parent, ms, s) =>
       // A class method with no body is ABSTRACT, exactly as a trait's is — the same rule, applied
       // at the other declaration site. Only a TOP-LEVEL bodyless def is an `extern`.
@@ -271,7 +273,11 @@ object UniFront:
           }
           // The HEAD of the declared type, so `summon` has something to match against — the same
           // one word v3's own parser keeps, derived the same way from the text the dialect gives.
-          val givenOf = tpeOpt.map(t => t.text.takeWhile(c => c != '[' && c != ' ').trim)
+          // THE WHOLE DECLARED TYPE, spaces removed — `Show[Int]`, not `Show`. It was the head
+          // only while G1 could use nothing more; stage 2a matches an instance by its full type,
+          // and with the head alone `Show[Int]` and `Show[String]` are the same key. v3's own
+          // parser reconstructs the same string from its tokens, so the two fronts agree on it.
+          val givenOf = tpeOpt.map(_.text.replace(" ", "")).filter(_.nonEmpty)
                               .filter(_.nonEmpty)
           Sorted.O(ObjectDef(n, ds, vs, pos(s), givenOf))
     // `effect Bump:` — projected, not refused, since 2026-08-08. UniML's grammar has parsed this
@@ -346,8 +352,20 @@ object UniFront:
     val i = noArgs.lastIndexOf('.')
     (if i >= 0 then noArgs.substring(i + 1) else noArgs).trim
 
+  /** A context bound as the `using` parameter it stands for: `[A: Monoid]` is `Monoid[A]`.
+    *
+    * Built here rather than read from the dialect because the dialect keeps the PAIR — the bound
+    * and the name it bounds — and the parameter is what v3 lowers. Names are positional
+    * (`__given0`) and match what v3's own parser synthesises, so the two fronts produce the same
+    * program rather than the same-looking one. They go in `givenParams`, not `params`, for the
+    * reason `Ast.Def.givenParams` gives: the printed tree stays identical to the one this front
+    * produced before the field existed. */
+  private def boundParams(d: U.Def): List[Param] =
+    d.bounds.toList.zipWithIndex.map { case ((tv, bound), i) =>
+      Param("__given" + i, pos(d.span), None, false, Some(bound + "[" + tv + "]"), true)
+    }
+
   private def param(p: U.Param): Param =
-    if p.using_ then no("a `using` parameter", p.span)
     // BY-NAME, carried since 2026-08-08, and one field only because the grammar was fixed first.
     //
     // Until then `ScalaSpike` consumed the arrow before the type was captured — its own comment said
@@ -356,7 +374,12 @@ object UniFront:
     // escaped the front: `def twice(x: => Int) = x + x` on a counting argument gave 3 through v3's
     // own parser and 2 through this one. One language, two evaluation orders, chosen by which front
     // the working tree happened to register. (BUGS.md v3-uniml-front-drops-by-name.)
-    Param(p.name, pos(p.span), p.default.map(expr), p.byName)
+    // `using_` and the declared TYPE TEXT are carried since 2026-08-09. A `using` parameter used
+    // to be refused outright here, which is what made SSC3-G2 stage 2a reachable only on v3's own
+    // front; the type is what resolution matches an instance against, and `TypeRef.text` is
+    // already exactly the text v3's own parser reconstructs from its tokens.
+    Param(p.name, pos(p.span), p.default.map(expr), p.byName,
+          p.tpe.map(_.text.replace(" ", "")).filter(_.nonEmpty), p.using_)
 
   /** A top-level or block element as v3 STATEMENTS. `ValDef` and the destructuring `TupleVal`
     * expand to several; everything else is one expression statement. */

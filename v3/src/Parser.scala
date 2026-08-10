@@ -441,8 +441,20 @@ object Parser:
       // second of the two constructs behind all 74 corpus disagreements; the other was UniML's.
       else if isPunct(peek(ts), "(") &&
               (endLine < 0 || Lexer.posOf(peek(ts)).line == endLine) then
+        // `f(a)(using inst)` FLATTENS into one call, which is what the other front does with every
+        // second argument list. Left as an `Apply`, v3 printed
+        // `(apply (call "display" (int 99)) (name "showInt"))` where UniML printed
+        // `(call "display" (int 99) (name "showInt"))`, and `front-diff.sh` reported it — the two
+        // trees mean the same thing and are not the same tree, which is the whole of what that
+        // gate is for. Only the `using` list: an ordinary curried `f(a)(b)` still becomes an
+        // `Apply`, because `Lower.flattenCurried` decides that one by arity and this parser does
+        // not know it.
+        val isUsingList = isId(peek(ts.tail), "using")
         val (as, t) = parseArgs(ts.tail)
-        e = Expr.Apply(e, as, Expr.posOf(e)); ts = t
+        e = (e, isUsingList) match
+          case (Expr.Call(fn, as0, cp), true) => Expr.Call(fn, as0 ++ as, cp)
+          case _                              => Expr.Apply(e, as, Expr.posOf(e))
+        ts = t
       // A BRACE BLOCK as the argument: `runLogger { compute(10000) }`, `handle(e) { case … }`.
       // `.map { x => … }` has worked for a while; the same form on a bare name or after an argument
       // list did not, so `effect-pure.ssc` and `effect-stream.ssc` failed pointing at the `{`.

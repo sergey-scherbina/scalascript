@@ -2174,9 +2174,18 @@ object Lower:
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
     // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
+    // A CONTEXT BOUND BECOMES A PARAMETER BEFORE `sigs` IS BUILT, not after.
+    //
+    // It used to be applied further down, so `sigs` said `combineAll` took one parameter while the
+    // def it lowered took two — and `checkArity`, which reads `sigs`, let a one-argument call
+    // through for the IR verifier to refuse WITHOUT a position. `std-semigroup-monoid` went from a
+    // refusal to a CRASH that way, which the corpus report counts as worse than a wrong answer.
+    // One table, one arity.
+    val bounded = allDefs0.map(d =>
+      if d.givenParams.isEmpty then d else d.copy(params = d.params ++ d.givenParams))
     val sigs: List[(String, List[Param])] =
-      allDefs0.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
-    val allDefsEager = liftLocals(allDefs0, allDefs0.map(_.name) ++ resolved.map(_.name))
+      bounded.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
+    val allDefsEager = liftLocals(bounded, bounded.map(_.name) ++ resolved.map(_.name))
     // BY-NAME is applied HERE, at the one place `allDefs` is bound, so every consumer downstream —
     // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
@@ -2190,10 +2199,8 @@ object Lower:
     // left to resolve against.
     // A CONTEXT BOUND BECOMES A PARAMETER HERE, not in the parser: the two fronts print the same
     // tree that way, and only this file has to know that `[A: Monoid]` means `(using Monoid[A])`.
-    val withBounds = allDefsEager.map(d =>
-      if d.givenParams.isEmpty then d else d.copy(params = d.params ++ d.givenParams))
     val allDefs = resolveMethodRefs(
-      resolveGivenArgs(resolveSummons(rewriteByName(withBounds), p.objects), p.objects), sigs)
+      resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //
