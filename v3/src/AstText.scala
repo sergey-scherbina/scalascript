@@ -128,6 +128,11 @@ object AstText:
                  List(expr(a.body)))))
     case Expr.Resume(k, v, _)   => sx("resume", List(q(k), expr(v)))
     case Expr.MethodCall(r, n, as, _) => sx("send", expr(r) :: q(n) :: as.map(expr))
+    // PRINTED DISTINCTLY, on purpose. Printing a `MethodRef` as `send` would make it invisible to
+    // `front-diff.sh`, which compares the two fronts' AST TEXT — and a node one front emits and the
+    // other does not is exactly the divergence that differential exists to catch. A field written
+    // but never read passes every byte-equality gate, and this repository has shipped that before.
+    case Expr.MethodRef(r, n, _)      => sx("sel", List(expr(r), q(n)))
     case Expr.NamedArg(n, v, _)  => sx("named", List(q(n), expr(v)))
     case Expr.Apply(f, as, _)    => sx("apply", expr(f) :: as.map(expr))
     case Expr.If(c, t, el, _)  =>

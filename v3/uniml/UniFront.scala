@@ -440,7 +440,11 @@ object UniFront:
     case U.BlockApply(U.Ident(f, _), a, s)      => Expr.Call(f, List(expr(a)), pos(s))
     case U.BlockApply(U.Select(r, m, _), a, s)  => Expr.MethodCall(expr(r), m, List(expr(a)), pos(s))
     case U.BlockApply(f, a, s)                  => Expr.Apply(expr(f), List(expr(a)), pos(s))
-    case U.Select(r, m, s)                      => Expr.MethodCall(expr(r), m, Nil, pos(s))
+    // A bare `Select` is a SELECTION, and the dialect already keeps it apart from `Apply` — the
+    // two cases above are `obj.m(…)` and `obj.m { … }`. Projecting all three onto `MethodCall`
+    // threw that distinction away, which is what made `obj.m` passed as a value indistinguishable
+    // from `obj.m()`. `Lower.resolveMethodRefs` decides which it is.
+    case U.Select(r, m, s)                      => Expr.MethodRef(expr(r), m, pos(s))
 
     case U.NamedArg(n, v, s) => Expr.NamedArg(n, expr(v), pos(s))
     case U.ListLit(es, s)    => Expr.Call("List", es.toList.map(expr), pos(s))

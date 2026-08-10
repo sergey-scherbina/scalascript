@@ -132,6 +132,9 @@ object Lower:
     // contributes nothing, and a function-valued parameter contributes itself.
     case Expr.Call(fn, as, _)     => (if bound.contains(fn) then Nil else List(fn)) ++ as.flatMap(a => freeVars(a, bound))
     case Expr.MethodCall(r, _, as, _) => freeVars(r, bound) ++ as.flatMap(a => freeVars(a, bound))
+    // Reached because `liftLocals` runs BEFORE `resolveMethodRefs` — the receiver of a selection
+    // is an ordinary expression and its free names must be captured like any other.
+    case Expr.MethodRef(r, _, _)      => freeVars(r, bound)
     case Expr.Lambda(ps, b, _)    => freeVars(b, bound ++ ps.map(_.name))
     case Expr.Match(sc, arms, _) =>
       freeVars(sc, bound) ++ arms.flatMap { a =>
@@ -453,6 +456,13 @@ object Lower:
       val (d, st3) = st2.fresh
       (ai :+ Instr.Invoke(d, k, ar, Nil), d, st3)
 
+    // AN INVARIANT, STATED WHERE IT WOULD BREAK. `resolveMethodRefs` runs over every def before
+    // anything is lowered and leaves no `MethodRef` behind, so reaching this case means a new
+    // producer of the node was added without going through that pass — which would otherwise show
+    // up as a missing method call much later, in a program that merely does the wrong thing.
+    case Expr.MethodRef(_, nm, p) =>
+      throw LowerFail(p, "internal: a selection `" + nm + "` reached the lowering unresolved — " +
+        "every `MethodRef` is meant to be rewritten by `resolveMethodRefs`")
     case Expr.MethodCall(Expr.Name(obj, _), nm, argEs, p) if fns.contains(obj + "." + nm) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -1048,6 +1058,42 @@ object Lower:
         case other => other)
       defs.map(d => d.copy(body = fix(d.body)))
 
+  /** Every `Expr.MethodRef` becomes either an ordinary no-argument `MethodCall` or a LAMBDA that
+    * calls the method with the arguments it declares. Nothing downstream sees a `MethodRef`.
+    *
+    * `xs.foldLeft(z)(intSum.combine)` is the case: `combine` is not being called there, it is being
+    * PASSED, and v3 used to lower it to a call with no arguments — so the verifier reported
+    * `intSum.combine passes 0 arguments, it takes 2` and refused a correct program
+    * (`v3-method-as-a-value`).
+    *
+    * ETA-EXPANSION IS RESTRICTED TO A RECEIVER THAT NAMES ITS TARGET, and the restriction is the
+    * honest part. `Obj.m` resolves to the single definition `Obj.m`, so its arity is known here.
+    * A method on a VALUE — `x.m` where `x` is some list at run time — does not: which `m` runs is
+    * decided by the receiver's tag, and two classes may declare `m` with different arities. Those
+    * keep lowering exactly as before, so this pass can only turn a program that was REFUSED into
+    * one that runs, never change one that already ran.
+    *
+    * The distinction it depends on — `obj.m` versus `obj.m()` — exists only because the parser and
+    * the projection now keep it (`Ast.MethodRef`). Measured before building any of this: both
+    * spellings used to print `(send (name "M") "add")`, so a rule based on "no arguments" alone
+    * would have turned the genuine arity error `M.add()` into a lambda, and a program that should
+    * be refused would have started printing something. */
+  private def resolveMethodRefs(defs: List[Def], sigs: List[(String, List[Param])]): List[Def] =
+    val arity: Map[String, List[Param]] = sigs.toMap
+    def fix(e: Expr): Expr = mapDeep(e, x => x match
+      case Expr.MethodRef(recv, m, p) =>
+        val target = recv match
+          case Expr.Name(o, _) => arity.get(o + "." + m)
+          case _               => None
+        target match
+          case Some(ps) if ps.nonEmpty =>
+            val names = ps.indices.map(i => "__eta" + i).toList
+            Expr.Lambda(names.map(n => Param(n, p)),
+                        Expr.MethodCall(recv, m, names.map(n => Expr.Name(n, p)), p), p)
+          case _ => Expr.MethodCall(recv, m, Nil, p)
+      case other => other)
+    defs.map(d => d.copy(body = fix(d.body)))
+
   private def rewriteByName(defs: List[Def]): List[Def] =
     val byNameParams: Map[String, Set[Int]] =
       defs.map(d => (d.name, d.params.zipWithIndex.filter((pm, _) => pm.byName).map(_._2).toSet))
@@ -1104,6 +1150,18 @@ object Lower:
     val rebuilt = e match
       case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
       case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+      // The RECEIVER is traversed. Without this line `summon[Monoid[A]].combine` kept its
+      // `__summon__` unresolved — the selection was rebuilt as itself and nothing looked inside —
+      // and the failure surfaced two passes later as `call to unknown function '__summon__'`.
+      case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
+      // A NAMED ARGUMENT'S VALUE, and this line is a fix for a hole that predates the node above.
+      // `mapDeep` had no case for `NamedArg`, so it fell to the identity arm and nothing inside
+      // `f(x = expr)` was ever rewritten — meaning `rewriteByName` and `resolveSummons` have both
+      // been silently skipping named arguments. It surfaced because a `MethodRef` left unresolved
+      // is REFUSED rather than merely unrewritten: 116 corpus cases stopped at
+      // `std/scljet/btree.ssc:178`, whose `cursor.copy(stack = ReadonlyCursorFrame(read.page, 0))`
+      // hides a selection two levels inside a named argument.
+      case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
       case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
       case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
       case Expr.Not(x, p)               => Expr.Not(go(x), p)
@@ -1244,6 +1302,7 @@ object Lower:
         case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
         case Expr.Call(f, as, p)          => Expr.Call(f, as.map(go), p)
         case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+        case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
         case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
         case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
         case Expr.Try(b, n, h, p)         => Expr.Try(go(b), n, go(h), p)
@@ -1388,6 +1447,24 @@ object Lower:
           case Some((_, ps)) if ps.isEmpty && as.nonEmpty => x
           case Some((_, ps)) if ps.length != as.length =>
             throw LowerFail(p, "call to '" + fn + "' passes " + as.length +
+                               " argument(s), it takes " + ps.length)
+          case _ => x
+      // AN OBJECT'S METHOD, where the target is named and its arity is therefore known here.
+      // `M.add()` — an argument list written and none supplied — is an arity error, and without
+      // this arm it reached the verifier, which reports it with no position at all and so is
+      // classified CRASH. That matters more than usual now: `M.add` WITHOUT the list is
+      // eta-expansion and runs, so the two spellings differ, and the one that fails has to say
+      // where.
+      //
+      // Keyed on `obj.nm` resolving in `sigs`, which happens only for an OBJECT — a namespace,
+      // whose flattened `def`s carry no receiver parameter. A class method is `C.m` with the
+      // receiver first and is not reachable through a name here, so this cannot misjudge it: the
+      // lookup simply misses and the expression is left alone.
+      case Expr.MethodCall(Expr.Name(obj, _), nm, as, p) =>
+        sigs.find((n, _) => n == obj + "." + nm) match
+          case Some((_, ps)) if ps.isEmpty && as.nonEmpty => x
+          case Some((_, ps)) if ps.length != as.length =>
+            throw LowerFail(p, "call to '" + obj + "." + nm + "' passes " + as.length +
                                " argument(s), it takes " + ps.length)
           case _ => x
       case other => other)
@@ -1635,6 +1712,12 @@ object Lower:
         Expr.Lambda(ps, qualifyMembers(b, obj, own.filter(n => !ps.exists(q => q.name == n))), p)
       case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
       case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+      // THE THIRD HAND-WRITTEN WALKER over `Expr` in this file, and the third that had to learn
+      // this node. Without it `def names() = entries.reverse` inside `object Registry` kept its
+      // receiver unqualified — `entries` instead of `Registry.entries` — and the case failed with
+      // `unknown name 'entries'`. It cost exactly one corpus row (188 → 187), which is what the
+      // A/B against `origin/main` on the SAME front was run to find.
+      case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
@@ -1968,7 +2051,7 @@ object Lower:
     // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
     // second list is how one consumer ends up reading the un-rewritten version.
-    val allDefs = resolveSummons(rewriteByName(allDefsEager), p.objects)
+    val allDefs = resolveMethodRefs(resolveSummons(rewriteByName(allDefsEager), p.objects), sigs)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //

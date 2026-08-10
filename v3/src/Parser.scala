@@ -512,7 +512,11 @@ object Parser:
               val (arg, t) = parseBody(afterName)
               e = Expr.MethodCall(e, nm, List(arg), p); ts = t
             else
-              e = Expr.MethodCall(e, nm, Nil, p); ts = afterName
+              // NO ARGUMENT LIST WRITTEN — a selection. What it MEANS depends on what `nm` turns
+              // out to be, and only the lowering knows that: a field read, a method that takes no
+              // arguments, or a method passed as a value. Deciding here would need the parser to
+              // know the whole merged module, which it does not.
+              e = Expr.MethodRef(e, nm, p); ts = afterName
           case _ => go = false
       else go = false
       // The step consumed `stepFrom` down to `ts`; that is where the expression now ends.
@@ -769,10 +773,19 @@ object Parser:
     // Tied to `[` rather than to the word, so a value called `summon` keeps working — there is no
     // keyword here, and `a[…]` is unambiguously a type-argument list (arrays index with `a(0)`).
     case Tok.TId("summon", p) if isPunct(peek(ts.tail), "[") =>
-      val head = peek(ts.tail.tail) match
-        case Tok.TId(h, _) if !keywords.contains(h) => h
-        case other =>
+      // THE HEAD IS THE WHOLE DOTTED NAME, not its first segment. `summon[Mirror.Of[Solo]]` is
+      // `Mirror.Of`, and taking only `Mirror` made the two fronts disagree on
+      // `v2-mirror-surface` — UniML derives the head from the type's TEXT, so it stops at the `[`
+      // and keeps the dots. A differential over ASTs is the only thing that could see this, and it
+      // did, one commit after the summon question was introduced without running it.
+      var ht = ts.tail.tail
+      var head = peek(ht) match
+        case Tok.TId(h, _) if !keywords.contains(h) => ht = ht.tail; h
+        case _ =>
           throw ParseFail(p, "`summon[…]` needs a type whose head is a name — `summon[Monoid[A]]`")
+      while isPunct(peek(ht), ".") && ht.tail.nonEmpty && isPlainName(peek(ht.tail)) do
+        head = head + "." + (peek(ht.tail) match { case Tok.TId(n, _) => n; case _ => "" })
+        ht = ht.tail.tail
       (Expr.Call("__summon__", List(Expr.StrLit(head, p)), p), skipBrackets(ts.tail))
     case Tok.TId(n, p) if !keywords.contains(n) =>
       // TYPE ARGUMENTS in an expression: `List[Int]()`, `Map[String, Int]()`, `empty[A]`. Skipped,
@@ -1291,6 +1304,20 @@ object Parser:
     ts = expectPunct(ts, ")")
     val (parents, tp) = parseParents(ts)
     ts = tp
+    // `derives Tagged, Labelled` — CONSUMED AND DROPPED, as UniML already does.
+    //
+    // It asks the compiler to SYNTHESISE an instance from the type's shape, which is derivation and
+    // needs the type. Dropping it is what Tier 0 can honestly do, and it is what the other front
+    // does, so the two agree. Nothing claimed the word before, so `case class Point(…) derives
+    // Tagged` parsed on as two statements — `(do (name "derives"))` and `(do (name "Tagged"))` —
+    // which `front-diff.sh` reported as a disagreement the moment `js-derives-segmented` stopped
+    // being refused for an unrelated reason and both fronts started printing it.
+    if isId(peek(ts), "derives") then
+      ts = ts.tail
+      var more = true
+      while more do
+        ts = if isPlainName(peek(ts)) then ts.tail else ts
+        if isPunct(peek(ts), ",") then ts = ts.tail else more = false
     // A BODY. It used to be refused by name, which was the honest thing while methods could not be
     // lowered; they can now, so the refusal would be the dishonest one.
     if isPunct(peek(ts), ":") then

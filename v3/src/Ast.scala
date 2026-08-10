@@ -63,6 +63,23 @@ enum Expr:
     * it is on every lane already. Keeping them one node means the lowering has one case, not two
     * that must agree. */
   case MethodCall(recv: Expr, name: String, args: List[Expr], pos: Pos)
+
+  /** `recv.name` with NO argument list written — a selection, not yet a call.
+    *
+    * WHY A SEPARATE CASE rather than a flag on `MethodCall`. The distinction is only between
+    * `obj.m` and `obj.m()`, and both used to arrive as `MethodCall(_, _, Nil, _)`; a program that
+    * passes a method as a value was therefore indistinguishable from one that calls it with no
+    * arguments, so `xs.foldLeft(z)(m.combine)` lowered to a call taking none and the verifier
+    * refused it (`v3-method-as-a-value`). A `Boolean` on `MethodCall` would have said the same
+    * thing and broken all THIRTY of its pattern sites, every one of which would have gained a
+    * wildcard for a fact it does not use.
+    *
+    * IT DOES NOT SURVIVE THE LOWERING. `Lower.resolveMethodRefs` turns each one into either a
+    * `MethodCall` with no arguments — a field read, or a method that genuinely takes none — or a
+    * lambda that calls it with the arguments it declares. So nothing downstream of that pre-pass
+    * ever sees this node, which is why adding it costs one case here and one there rather than a
+    * sweep. */
+  case MethodRef(recv: Expr, name: String, pos: Pos)
   case If(c: Expr, t: Expr, e: Option[Expr], pos: Pos)
   case While(c: Expr, body: Expr, pos: Pos)
   case Block(stmts: List[Stmt], result: Option[Expr], pos: Pos)
@@ -207,6 +224,7 @@ object Expr:
     case Handle(_, _, p)   => p
     case Resume(_, _, p)   => p
     case MethodCall(_, _, _, p) => p
+    case MethodRef(_, _, p)     => p
     case If(_, _, _, p)   => p
     case While(_, _, p)   => p
     case Block(_, _, p)   => p

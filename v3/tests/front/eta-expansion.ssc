@@ -1,0 +1,24 @@
+# A method passed as a value — SSC3 `v3-method-as-a-value`
+
+`M.add` is not being called here, it is being PASSED. v3 used to lower it to a call with no
+arguments, so the verifier refused a correct program with `passes 0 arguments, it takes 2`.
+
+`fold` starts at 0 and adds 1, 2, 3, 4 — **10**; then the same method value is applied directly,
+7 + 5 is **12**; and `M.tag` shows that a selection which is NOT a method still reads as before.
+
+```scalascript
+object M:
+  def add(a: Int, b: Int): Int = a + b
+  val tag: String = "sum"
+
+def fold(f: (Int, Int) => Int, xs: List[Int]): Int =
+  var acc = 0
+  for x <- xs do acc = f(acc, x)
+  acc
+
+println(fold(M.add, List(1, 2, 3, 4)))
+
+val g = M.add
+println(g(7, 5))
+println(M.tag)
+```

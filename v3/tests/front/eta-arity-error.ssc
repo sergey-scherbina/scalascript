@@ -1,0 +1,20 @@
+# `M.add()` is still an error — REFUSED
+
+No `.expected`, so the front gate requires this to be refused.
+
+**This is the control that makes the feature honest.** Eta-expansion turns `M.add` into a function
+value; the rule must NOT do the same for `M.add()`, which writes an argument list and supplies none
+— that is an arity error, and turning it into a lambda would let a program that should be refused
+run and print something.
+
+Measured before any of this was built: both spellings used to produce the same tree,
+`(send (name "M") "add")`, so the distinction had to be added to the front before the rule could
+be written. If that distinction is ever lost again, this file starts passing.
+
+```scalascript
+object M:
+  def add(a: Int, b: Int): Int = a + b
+
+val bad = M.add()
+println(bad)
+```
