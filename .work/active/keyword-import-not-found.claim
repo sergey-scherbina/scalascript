@@ -5,7 +5,7 @@ started: 2026-08-10T06:45:21Z
 heartbeat: 2026-08-10T06:45:21Z
 status: claimed-before-planning
 items: decided: import of a module that nothing provides must say not found; scoped to the std namespace, the only one with declared packages
-paths: file:v1/tools/cli/src/main/scala/scalascript/cli/NativeSourceClosure.scala file:tests/e2e/keyword-import-missing-module.sh BUGS.md
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/NativeSourceClosure.scala file:tests/e2e/keyword-import-missing-module.sh file:examples/international-bank-rails.ssc BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
