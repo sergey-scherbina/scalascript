@@ -5,7 +5,7 @@ started: 2026-08-10T18:10:37Z
 heartbeat: 2026-08-10T18:10:37Z
 status: claimed-before-planning
 items: v3-extension-type-params
-paths: file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala
+paths: file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala file:v3/uniml/UniFront.scala
 scope: |
   `extension` is REFUSED in Parser.scala today; the feature needs the parser to accept a
   declaration, the AST to carry it and Lower to lift each def to a top-level function whose

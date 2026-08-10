@@ -2,7 +2,7 @@
 #slug	agent	started	items	paths
 mcp-p2d1-client-envelope	claude-code	2026-08-10T18:10:10Z	mcp-2026-07-28 P2d-1	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
 entry-class-multi	claude-code	2026-08-10T18:10:20Z	scljet-jdbc-facade-bytecode-class-too-large	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala
-v3-extension-dispatch	claude-code	2026-08-10T18:10:37Z	v3-extension-type-params	file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala
+v3-extension-dispatch	claude-code	2026-08-10T18:10:37Z	v3-extension-type-params	file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala file:v3/uniml/UniFront.scala
 v3-catch-binds-the-thrown-value	claude-code	2026-08-10T18:10:43Z	the v3 executor binds the message string to the caught name; the bridge and the reference bind the thrown VALUE, so a typed arm matches on one lane only	file:v3/src/Exec.scala file:v3/tests/front BUGS.md
 v2-getorelse-f-front	claude-code	2026-08-10T18:12:51Z	v2-getorelse-two-arg-falls-into-option-helper	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:tests/conformance/map-getorelse-expr-receiver.ssc
 char-gates-on-push-path	claude-code	2026-08-10T18:13:44Z	js-char-type-test-cannot-tell-Char-from-String js-char-is-a-plain-string	file:scripts/smoke-ci.ssc
