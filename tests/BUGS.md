@@ -1973,7 +1973,7 @@ see the cause from the output alone.
 <!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: 279a60e9b
+     fixed-in: 7fea7a711
      gate: scripts/smoke-ci -->
 
 **FIXED 2026-08-10 — the budget is no longer a number, it is a sum over what the suite contains.**
