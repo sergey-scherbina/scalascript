@@ -33,7 +33,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
 
-limit=0; show_diff=0; show_crash=0; lane=bridge
+limit=0; show_diff=0; show_crash=0; show_names=0; lane=bridge
 while [ $# -gt 0 ]; do
   case "$1" in
     # The EXECUTOR lane — v3's own runtime instead of the v2 VM. The two must give the same number,
@@ -44,6 +44,8 @@ while [ $# -gt 0 ]; do
     --limit) limit="$2"; shift 2 ;;
     --list-diff) show_diff=1; shift ;;
     --list-crash) show_crash=1; shift ;;
+    # THE QUESTION THE HISTOGRAM BELOW CANNOT ANSWER, and it is always the next one asked.
+    --names) show_names=1; shift ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -205,6 +207,23 @@ if [ -s "$WORK/unsup.txt" ]; then
   echo
   echo "what UNSUPPORTED is actually blocked on, most common first:"
   sed 's/.*: //' "$WORK/unsup.txt" | sed "s/'[^']*'/'…'/g" | sort | uniq -c | sort -rn | head -12 | sed 's/^/  /'
+fi
+
+# WHAT THE ELISION THROWS AWAY, on request. Replacing every quoted identifier with a placeholder is
+# the right DEFAULT: it groups 49 files blocked on forty different names into one line and ranks the
+# SHAPES of the remaining work. But a shape decides nothing on its own — the DISTRIBUTION does, and
+# the two are indistinguishable once elided. `Dataset 12, suspend 6, math 4` then a tail of ones
+# says "standard-library breadth, no single win"; the same 49 concentrated on ONE name would say
+# "one bug, go fix it". Opposite conclusions from an identical line.
+#
+# It is here because I hand-rolled this exact sweep twice on 2026-08-10, and the DATASET decision in
+# `v3/BACKLOG.md` rests on a third hand count. A question asked every time the histogram is read
+# belongs in the tool that prints the histogram.
+if [ "$show_names" = 1 ] && [ -s "$WORK/unsup.txt" ]; then
+  echo
+  echo "the identifiers behind those messages, most common first:"
+  grep -ohE "(unknown name|unknown function|host function) '[^']*'" "$WORK/unsup.txt" \
+    | sed "s/.*'\(.*\)'/\1/" | sort | uniq -c | sort -rn | head -20 | sed 's/^/    /'
 fi
 [ "$show_diff" = 1 ] && { echo; echo "DIFF:"; sed 's/^/  /' "$WORK/diff.txt"; echo "LANE-EXCLUDED:"; sed 's/^/  /' "$WORK/excl.txt"; }
 [ "$show_crash" = 1 ] && { echo; echo "CRASH:"; sed 's/^/  /' "$WORK/crash.txt"; }
