@@ -1,0 +1,12 @@
+slug: std-scljet-back-under-std
+branch: feature/std-scljet-back-under-std
+agent: claude-code
+started: 2026-08-10T07:34:22Z
+heartbeat: 2026-08-10T07:34:22Z
+status: claimed-before-planning
+items: std-move-left-scljet-behind
+paths: mod:scljet mod:std/scljet file:BUGS.md
+broad: the fix IS a directory move — every file in the subtree changes path by construction, so a file: scope cannot express it
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
