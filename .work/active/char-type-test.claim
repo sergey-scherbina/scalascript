@@ -1,0 +1,11 @@
+slug: char-type-test
+branch: feature/char-type-test
+agent: claude-code
+started: 2026-08-10T16:42:03Z
+heartbeat: 2026-08-10T16:42:03Z
+status: claimed-before-planning
+items: js-char-type-test-cannot-tell-Char-from-String
+paths: file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
