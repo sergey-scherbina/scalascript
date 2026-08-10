@@ -141,6 +141,48 @@
       |    pub fn as_int(&self) -> i64 {
       |        match self { Value::Int(n) => *n, Value::Bool(b) => if *b { 1 } else { 0 }, _ => 0 }
       |    }
+      |    // ── Dynamic accessors, so code written against `Any` reaches its contents ──────
+      |    // A typed pattern (`case l: List[Any]`) does not narrow the arm's binding, so a body
+      |    // that says `l.length` or `m.get(k)` emits those calls ON the `Value`. Answering them
+      |    // here keeps the representation private: `Map` stays an ORDERED `Vec<(String, Value)>`
+      |    // — the ordering the enum's own comment says a BTreeMap would have quietly destroyed —
+      |    // and the linear scan lives behind the accessor instead of leaking into generated code.
+      |    // Total, like `as_int` above: a wrong variant answers 0 / None / empty rather than
+      |    // panicking, because these run in generated code with no place to report an error.
+      |    #[allow(dead_code)]
+      |    pub fn len(&self) -> usize {
+      |        match self {
+      |            Value::List(xs)  => xs.len(),
+      |            Value::Tuple(xs) => xs.len(),
+      |            Value::Map(kvs)  => kvs.len(),
+      |            Value::Str(s)    => s.chars().count(),
+      |            Value::Obj(_, f) => f.len(),
+      |            _                => 0,
+      |        }
+      |    }
+      |    #[allow(dead_code)]
+      |    pub fn is_empty(&self) -> bool { self.len() == 0 }
+      |    // First value for `k`. FIRST, not last: `Map` keeps insertion order, and a duplicate
+      |    // key in JSON input should read as the one the document introduced.
+      |    #[allow(dead_code)]
+      |    pub fn get(&self, k: &str) -> Option<&Value> {
+      |        match self {
+      |            Value::Map(kvs) => kvs.iter().find(|(key, _)| key == k).map(|(_, v)| v),
+      |            _               => None,
+      |        }
+      |    }
+      |    // Iterate the elements of a List/Tuple (a Map iterates its VALUES, matching what
+      |    // `for (v <- someMap)` means on the other lanes). Anything else is empty, not a panic.
+      |    #[allow(dead_code)]
+      |    pub fn iter(&self) -> std::vec::IntoIter<&Value> {
+      |        let items: Vec<&Value> = match self {
+      |            Value::List(xs)  => xs.iter().collect(),
+      |            Value::Tuple(xs) => xs.iter().collect(),
+      |            Value::Map(kvs)  => kvs.iter().map(|(_, v)| v).collect(),
+      |            _                => Vec::new(),
+      |        };
+      |        items.into_iter()
+      |    }
       |}
       |
       |// `From` conversions so a signal's initial value (`signal(name, default)`) of a

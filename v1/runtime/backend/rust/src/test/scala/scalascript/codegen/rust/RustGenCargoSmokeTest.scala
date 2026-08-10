@@ -120,3 +120,29 @@ class RustGenCargoSmokeTest extends AnyFunSuite:
         |  println(ignored())        // recovered   — a wildcard arm discards the payload
         |```""".stripMargin)
     assert(lines == List("fine", "caught:bang", "recovered"), lines)
+
+  // A typed pattern does not narrow its arm's binding on this lane, so `l.length` and
+  // `m.get(k)` are emitted ON the `Value` — which is why this belongs in the cargo suite and
+  // not the string-match one: the generated code LOOKED right and simply had no such method.
+  // Reported from rozum as `typed-pattern-does-not-narrow`.
+  test("len/get on a value reached through a typed pattern compile and run end-to-end via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping end-to-end Rust smoke")
+    val lines = runCrate(
+      """```scalascript
+        |[jsonParse](std/json.ssc)
+        |
+        |def size(v: Any): Int =
+        |  v match
+        |    case l: List[Any] => l.length
+        |    case _            => 0
+        |
+        |def key(v: Any): String =
+        |  v match
+        |    case m: Map[String, Any] => m.get("k").map(x => x.toString).getOrElse("-")
+        |    case _                   => "-"
+        |
+        |@main def run(): Unit =
+        |  println(size(jsonParse("[1,2,3]")))   // 3 — Value::len over the List arm
+        |  println(key(jsonParse("{\"k\":\"v\"}")))  // v — Value::get over the Map arm
+        |```""".stripMargin)
+    assert(lines == List("3", "v"), lines)
