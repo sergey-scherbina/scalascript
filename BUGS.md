@@ -6137,3 +6137,50 @@ first and caught a wrong `ROOT` in the gate, which is what that guard is for.
 
 Old archives accumulate in the cache under their digests; a size cap or an age sweep is the
 follow-up, and is a much smaller problem than a wrong answer.
+
+## the two v3 fronts disagree on `derives` and on `summon`, and no CI job runs the gate that says so
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: bug
+     gate: v3/front-diff.sh -->
+
+**Measured 2026-08-10 on a freshly rebased tree, twice, same numbers both times:**
+
+```
+both fronts print: 275; they AGREE on 273, differ on 2
+  js-derives-segmented   10,13d9 <   (do (name "derives"))
+  v2-mirror-surface      4c4     <   (val "mp" (call "__summon__" (str "Mirror")))
+FAIL corpus DISAGREEMENTS rose to 2, above the ceiling 0
+```
+
+The disagreement ceiling is 0 and it is 0 for a reason: two fronts printing different trees for the
+same program is the one thing this differential exists to forbid.
+
+**`summon` is attributable.** `git log -S'__summon__'` names exactly one commit on the front
+files — 634147b99, SSC3-G2 stage 1. That commit touched BOTH fronts (`Parser.scala` and
+`UniFront.scala`), so this is not a case of one front being taught and the other forgotten; the two
+implementations of the same stage disagree on what they emit.
+
+**`derives` is stranger, and worth reading before fixing.** `git log -S'derives'` on the front
+sources names NO commit: the word does not appear in either front. So neither front implements
+`derives` — one parses it as an ordinary name and leaves a stray `(do (name "derives"))` statement
+behind, the other drops it. They do not disagree about a feature; they disagree about **how to fail
+at a feature neither has**, which is the shape that survives review because both sides look
+reasonable in isolation.
+
+**Why nothing caught it.** `v3/front-diff.sh` is not a step in `.github/workflows/v3.yml`. That
+workflow runs selftest, exec, bridge, parity, front, front-report, jit (twice) and front-capability,
+and its own header argues at length that a suite nobody runs is worse than a red one. The front
+differential is the suite that decides the UniML front swap, and it is run by hand.
+
+**Not wired here, deliberately.** Adding the step while the gate is red would turn `main` red for
+everyone over a defect its author has not seen yet. The honest order is: fix the two, then wire it —
+and wiring it is a one-line change to a file no claim holds.
+
+Reported by the agent holding `ssc3-core`. Attributed by construction rather than assumed: on the
+tree that carried the loader fix and nothing newer, the same gate read 270 print / 270 agree /
+**0 differ**. The two appeared only after a rebase pulled in sibling commits, which is consistent
+with 634147b99 for the `summon` half. The loader fix changes WHICH files load, never what a front
+prints for a file it already loaded, and both disagreeing cases loaded before it.
