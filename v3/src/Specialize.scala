@@ -390,6 +390,106 @@ object Specialize:
       val d = dstOf(other)
       (other, if d >= 0 then setAt(cur, d, Kd.KTop) else cur, Nil)
 
+  // ── SSC3-J1c — which registers can live in a `long` bank ───────────────────────────────────────
+  //
+  // The specializer proves a KIND per instruction; this turns that into a per-REGISTER decision, so
+  // the executor can keep a value unboxed for its whole life instead of boxing every result.
+  // `specs/ssc3-jit.md` §9 has the measurement that named it: `arith-loop` allocates one frame and
+  // still reclaims ~4 GB, all of it `Value.VInt`.
+  //
+  // MONOTONE DISQUALIFICATION, not inference. Every register starts a candidate and is removed the
+  // moment anything writes something that is not a proved integer. The fixpoint therefore only ever
+  // shrinks the set, which is what makes "sound" checkable by reading one direction: no rule here
+  // can ADD a register, so no register can be marked long-bank because a rule was too clever.
+  //
+  // A COMPARISON WRITES A BOOLEAN. `Bin(Lt, I64, d, …)` carries `I64` and that names its OPERANDS,
+  // not its result — `d` holds `VBool`. Missing this would put a boolean in a long slot and read it
+  // back as a number, and it is the one arm of this analysis where the field's meaning inverts.
+
+  /** Registers whose every writer stores a proved `I64`, so they never need to be boxed.
+    *
+    * Parameters are excluded: they arrive as a `List[Value]` from the caller, so unboxing them is a
+    * calling-convention change rather than a frame change. Named here because it is why a
+    * call-heavy program is expected not to move.
+    */
+  def longBanks(m: Module, f: Func): Array[Boolean] =
+    val ok = new Array[Boolean](f.nregs)
+    val written = new Array[Boolean](f.nregs)
+    var i = f.nparams
+    while i < f.nregs do
+      ok(i) = true
+      i = i + 1
+    // Repeat until nothing changes: `Move` copies a register's status, so one pass could accept a
+    // register whose source is disqualified later in the list.
+    var changed = true
+    var rounds = 0
+    while changed && rounds <= f.nregs + 2 do
+      changed = false
+      rounds = rounds + 1
+      var is = Instr.flatten(f.body)
+      while is.nonEmpty do
+        val ins = is.head
+        val d = writesReg(ins)
+        if d >= 0 && d < f.nregs then
+          written(d) = true
+          if ok(d) && !writesInt(m, ins, ok) then
+            ok(d) = false
+            changed = true
+        // A handler's binders are written by the runtime, not by an instruction, so they are
+        // disqualified explicitly rather than by falling through `writesInt`.
+        ins match
+          case Instr.Handle(_, _, arms) =>
+            var as = arms
+            while as.nonEmpty do
+              var ps = as.head.params
+              while ps.nonEmpty do
+                if ps.head >= 0 && ps.head < f.nregs && ok(ps.head) then { ok(ps.head) = false; changed = true }
+                ps = ps.tail
+              if as.head.k >= 0 && as.head.k < f.nregs && ok(as.head.k) then { ok(as.head.k) = false; changed = true }
+              as = as.tail
+          case Instr.Try(_, _, exn, _) =>
+            if exn >= 0 && exn < f.nregs && ok(exn) then { ok(exn) = false; changed = true }
+          case _ => ()
+        is = is.tail
+    // A register nothing writes holds `unit` for the whole function; it is not an integer and must
+    // not get a slot that reads back as 0.
+    i = 0
+    while i < f.nregs do
+      if !written(i) then ok(i) = false
+      i = i + 1
+    ok
+
+  private def writesReg(i: Instr): Int = dstOf(i)
+
+  /** Does this instruction store a proved integer into its destination? */
+  private def writesInt(m: Module, i: Instr, ok: Array[Boolean]): Boolean = i match
+    case Instr.Const(_, k) => kindOfLit(m.consts(k)) == Kd.KInt
+    // A copy is an integer exactly when its source is one, which is what makes this a fixpoint.
+    case Instr.Move(_, a)  => a >= 0 && a < ok.length && ok(a)
+    case Instr.Bin(op, kind, _, _, _) => kind == NumKind.I64 && !isCompare(op)
+    case Instr.Un(op, kind, _, _)     => kind == NumKind.I64 && op != UnOp.Not
+    case Instr.Tag(_, _)    => true
+    case Instr.ArrLen(_, _) => true
+    case _ => false
+
+  /** How many registers across the module the executor could keep unboxed, and out of how many. The
+    * number `v3/jit-gate.sh --banks` reports: it is what says whether a change to this analysis
+    * proved MORE or merely proved differently. */
+  def bankCensus(m: Module): (Int, Int) =
+    var total = 0
+    var longs = 0
+    var fs = m.funcs
+    while fs.nonEmpty do
+      val f = fs.head
+      val b = longBanks(m, f)
+      var i = 0
+      while i < b.length do
+        total = total + 1
+        if b(i) then longs = longs + 1
+        i = i + 1
+      fs = fs.tail
+    (longs, total)
+
   /** How many `Bin`/`Un` instructions carry each kind. The number `v3/jit-gate.sh` reports, and the
     * number that says whether a change to this pass proved MORE or merely proved DIFFERENTLY. */
   def census(m: Module): (Int, Int, Int) =
@@ -457,4 +557,9 @@ object SpecializeMain:
       val (d1, i1, f1) = Specialize.census(m1)
       println("before: dyn " + d0 + "  i64 " + i0 + "  f64 " + f0)
       println("after:  dyn " + d1 + "  i64 " + i1 + "  f64 " + f1)
+      // SSC3-J1c. Reported off the SPECIALIZED module, because a register can only be proved
+      // integer once the kinds are filled in — on `m0` this is 0 by construction and would read as
+      // "the analysis found nothing" rather than "it was asked too early".
+      val (lb, tot) = Specialize.bankCensus(m1)
+      println("banks:  long " + lb + " of " + tot + " register(s)")
     else print(Text.write(m1))

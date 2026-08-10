@@ -8,6 +8,12 @@ kind through the fixpoint rather than have `i64` wired in as the only answer it 
 executor does not have. There is no fixture for that because there is nothing to assert — the
 absence is the assertion, and it is stated at the top of `v3/src/Specialize.scala`.
 
+**Its `.banks` count is 0 of 12, and that is correct rather than disappointing.** SSC3-J1c's long
+bank holds `I64` only, so a file whose every arithmetic register is `F64` contributes none. Doubles
+*could* share the same bank — v1's VM stores IEEE-754 bits in its `Long` registers and operates on
+them with typed opcodes (`specs/vm-jit-spec.md` §3) — and that is a follow-up rather than a gap. The
+row is here so the day it stops reading 0 is a visible change and not a silent one.
+
 ```scalascript
 def workload(): Double =
   var x = 0.0

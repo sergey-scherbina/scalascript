@@ -212,6 +212,42 @@ check_specialize() {
   return $fail
 }
 
+# ── BANKS: which registers the executor may keep unboxed ─────────────────────────────────────────
+#
+# SSC3-J1c. `Specialize.longBanks` decides, per register, whether every writer stores a proved
+# integer. The count is asserted per fixture because the analysis is MONOTONE DISQUALIFICATION —
+# it can only ever remove registers — so a defect shows up as a count that moved, in either
+# direction, and a golden number is exactly the right shape of check for it.
+#
+# The arithmetic is hand-checkable and is checked in the fixture prose: `loop-fixpoint` has 12
+# registers of which the two comparison results, the `unit` and one never written are not integers,
+# leaving 8.
+check_banks() {
+  local dir="$1" fixdir="$2" quiet="${3:-}" fail=0 ran=0
+  local tc; tc="$(cat "$ROOT"/v3/.jars/toolchain-*.cp 2>/dev/null | head -1)"
+  [ -n "$tc" ] || { echo "  ✋ no toolchain classpath cached — run v3/ssc3 selftest first"; return 2; }
+  [ -n "$quiet" ] || echo "── banks: registers that never need boxing ─────────────────────────────"
+  local f
+  for f in "$fixdir"/*.ssc; do
+    [ -f "$f" ] || continue
+    local name want got
+    name="$(basename "$f" .ssc)"
+    want="${f%.ssc}.banks"
+    [ -f "$want" ] || continue     # a fixture may assert kinds without asserting banks
+    ran=$((ran + 1))
+    got="$(java -cp "$dir:$tc" ssc3.SpecializeMain --census "$f" 2>&1 | sed -n 's/^banks:  //p')"
+    if [ "$got" = "$(cat "$want")" ]; then
+      [ -n "$quiet" ] || echo "  ok   $name — $got"
+    else
+      echo "  FAIL $name — expected [$(cat "$want")] got [$got]"
+      fail=1
+    fi
+  done
+  if [ "$ran" = 0 ]; then echo "  ✋ NO BANK FIXTURES RAN"; return 2; fi
+  [ -n "$quiet" ] || echo "  $ran fixture(s)"
+  return $fail
+}
+
 # ── IDENTITY: specializing must not change what a program PRINTS ─────────────────────────────────
 #
 # This check was deliberately NOT written until 2026-08-09, and the reason is worth keeping. While
@@ -475,12 +511,13 @@ self_test() {
   return "$fails"
 }
 
-want_sizes=0; want_spec=0; want_ident=0; want_comp=0; want_self=0
-if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; want_ident=1; want_comp=1; fi
+want_sizes=0; want_spec=0; want_banks=0; want_ident=0; want_comp=0; want_self=0
+if [ $# -eq 0 ]; then want_sizes=1; want_spec=1; want_banks=1; want_ident=1; want_comp=1; fi
 for a in "$@"; do
   case "$a" in
     --sizes)      want_sizes=1 ;;
     --specialize) want_spec=1 ;;
+    --banks)      want_banks=1 ;;
     --identity)   want_ident=1 ;;
     --compiles)   want_comp=1 ;;
     --self-test)  want_self=1 ;;
@@ -505,6 +542,7 @@ fi
 rc=0
 [ "$want_sizes" = 1 ] && { check_sizes "$DIR" || rc=1; }
 [ "$want_spec"  = 1 ] && { echo; check_specialize "$DIR" "$ROOT/v3/tests/jit" || rc=1; }
+[ "$want_banks" = 1 ] && { echo; check_banks "$DIR" "$ROOT/v3/tests/jit" || rc=1; }
 [ "$want_ident" = 1 ] && { echo; check_identity || rc=1; }
 [ "$want_comp"  = 1 ] && { echo; check_compiles "$DIR" || rc=1; }
 [ "$want_self"  = 1 ] && { self_test  "$DIR" || rc=1; }
