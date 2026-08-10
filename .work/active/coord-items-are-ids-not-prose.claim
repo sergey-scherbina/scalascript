@@ -1,0 +1,11 @@
+slug: coord-items-are-ids-not-prose
+branch: feature/coord-items-are-ids-not-prose
+agent: claude-code
+started: 2026-08-10T20:28:48Z
+heartbeat: 2026-08-10T20:28:48Z
+status: claimed-before-planning
+items: coord-claim-items-prose-reserves-english-words
+paths: file:scripts/coord-claim file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
