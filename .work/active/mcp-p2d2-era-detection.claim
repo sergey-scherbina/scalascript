@@ -1,0 +1,11 @@
+slug: mcp-p2d2-era-detection
+branch: feature/mcp-p2d2-era-detection
+agent: claude-code
+started: 2026-08-10T20:17:43Z
+heartbeat: 2026-08-10T20:17:43Z
+status: claimed-before-planning
+items: mcp-2026-07-28 P2d-2
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpHttpClient.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
