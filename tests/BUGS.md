@@ -1,7 +1,7 @@
 ## jsonparse-null-is-none-on-every-lane
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: a38e3d835
      lane: multi
      area: runtime
      confirmed: yes
