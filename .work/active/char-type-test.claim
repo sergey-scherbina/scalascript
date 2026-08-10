@@ -5,7 +5,7 @@ started: 2026-08-10T16:42:03Z
 heartbeat: 2026-08-10T16:42:03Z
 status: claimed-before-planning
 items: js-char-type-test-cannot-tell-Char-from-String
-paths: file:specs/type-ascription-matrix.md file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
+paths: file:specs/type-ascription-matrix.md file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
 scope: |
   `case _: Char` cannot be told from `case _: String`. Measured on a FRESH build, four lanes, one
   probe (kind('c') / kind("c") / kind(99) / kind(s.charAt(0))):
