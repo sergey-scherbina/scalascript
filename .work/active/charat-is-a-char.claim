@@ -1,0 +1,19 @@
+slug: charat-is-a-char
+branch: feature/charat-is-a-char
+agent: claude-code
+started: 2026-08-10T10:44:27Z
+heartbeat: 2026-08-10T10:44:27Z
+status: implementing
+items: charat-returns-char-on-v1-and-int-everywhere-else
+paths: file:v2/src/Runtime.scala mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+scope: |
+  Owner's decision, and a pragmatic one: `println(s.charAt(0))` must print the CHARACTER on every
+  backend, while code that treats the result as a number keeps working -- coerce where needed
+  rather than convert the world.
+  The consensus already exists in the v2 kernel: `CharV extends IntV`, so a Char IS its code point
+  for every numeric site and carries the character for the text sites (`v2-char-is-an-int` solved
+  this class for literals). `charAt` simply still returns a bare IntV. That is the minimal change.
+  v1 is already right. Rust is the hard lane: its emitted code is typed i64, so a Char there needs a
+  newtype that Displays as the character and compares/coerces as a number -- the same total-coercion
+  approach as the Any boundary, not a rewrite.
+next: v2 charAt -> CharV, measure all lanes, then rust
