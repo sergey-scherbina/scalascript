@@ -6138,7 +6138,7 @@ first and caught a wrong `ROOT` in the gate, which is what that guard is for.
 Old archives accumulate in the cache under their digests; a size cap or an age sweep is the
 follow-up, and is a much smaller problem than a wrong answer.
 
-## the two v3 fronts disagree on `derives` and on `summon`, and no CI job runs the gate that says so
+## v3-two-fronts-disagree-on-derives-and-summon-and-no-ci-job-runs-the-gate
 
 <!-- status: open
      lane: v3
