@@ -6974,6 +6974,63 @@ change (same failure, only the exception name differs), so it is
 `scljet-app-not-a-function-after-the-concat-fix`, filed there along with the finding that the gate
 has no caller at all.
 
+### SIZED 2026-08-10 — what the split costs, and the numbers to size it by
+
+`ClassTooLargeException` names no number: it means the constant pool passed 65535 entries and ASM
+reports neither the count nor what filled it. `SSC_GEN_STATS=1` now prints the emitter's own method
+counts on BOTH exits — success and the size throw, via `finally`, because the only run whose numbers
+matter is the one that throws.
+
+**Every row below is the LEGACY front**, on purpose: the first version of this table mixed a
+default-front (F) row with a legacy row, which is not a table. Front choice shifts the count by ~12
+methods (`write-table` 12 577 on F against 12 589 on legacy), so it does not matter — but a table
+that cannot say which front produced it is not evidence.
+
+| program | methods | `defMethods` | emits? |
+|---|---|---|---|
+| a three-line `List.map.sum` | 121 | 46 | yes |
+| `scljet-write-table` | 12 589 | 1 408 | yes |
+| `scljet-crud` | 13 672 | 1 473 | yes |
+| **`scljet-unique-index`** | **29 453** | 2 543 | **ClassTooLarge** |
+| **`scljet-hello`** | **29 463** | 2 545 | **ClassTooLarge** |
+
+Two emissions happen per run and the FIRST is identical across programs (3 916 / 1 456): that is the
+front compiling itself, not the user's program. Only the second varies.
+
+**So the wall sits between 13 672 and 29 453 methods**, and the pool arithmetic explains why: each
+method costs a name, a descriptor and a methodref, so ~29 000 methods spends 60–90 k against a
+65 535-entry pool while ~13 600 spends half that.
+
+**That sizes the split concretely: TWO classes is already enough.** 29 463 / 2 ≈ 14 700 per class,
+just above `scljet-crud`'s 13 672 which emits today. Four gives real headroom, and a per-class
+budget of ~12 000 methods keeps a margin against growth. This is a small split, not the invasive
+rewrite the entry has implied since July — the invasive part is the CONTRACT change below, not the
+number of classes.
+
+**The scope of the split, measured rather than estimated:**
+
+- **14 sites** hardcode the owner (`INVOKESTATIC GEN` / `H_INVOKESTATIC GEN` / `GETSTATIC GEN`).
+  Each takes a method NAME, so a `ownerOf(name)` lookup replaces the constant at every one of them;
+  no site needs restructuring.
+- **`emitProgram` returns ONE `Array[Byte]`, and that is the real cost.** Three call sites consume
+  it and all three assume a single class:
+  `RunNativeV2:536`/`553` and `:603`/`627` (emit then `runProgram`), and
+  `NativeJvmArtifact:209` which writes it into a JAR at the fixed path `ssc/gen/Entry.class`.
+  A split changes this file's CONTRACT, so those three move with it — which is why it was not
+  attempted under a claim scoped to `JvmByteGen.scala` alone.
+
+**The cheapest shape**, for whoever takes it: keep `Entry` public and holding `main`/`install`/
+`entry` (the names `main` and the artifact runner call by name), spill the `lam$N` bodies into
+`ssc/gen/Entry$1..k` by index, and return `Seq[(String, Array[Byte])]`. `GenLoader` already defines
+classes by name, so the runtime side is a loop.
+
+**And it is now a candidate fix for a SECOND entry.** `f-front-compile-cost-7x-on-scljet` measures F
+at >7× on exactly these programs, and the reason is the same limit seen from the other side: F's own
+nested `coreir.eval` tries direct ASM, hits the class-size wall, and falls back to VM interpretation
+— `specs/v2-f-compile-cost.md` Result 3b, with `specs/v2-f-bytecode-probe.md` measuring that fast
+path at 4.38×. The prediction is written down there so it can be falsified: after the split, re-run
+that entry's minimal pair and see whether the fallback stops firing and the >400 s row collapses.
+
 **Still OPEN**, and now for a reason that is measured rather than inherited: the generated class
 exceeds the JVM class limit for these five examples. The next step is the owner-threading split
 this entry has always described — or reducing what the class carries, which is worth a look first,

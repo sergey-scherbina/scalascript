@@ -172,6 +172,20 @@ object JvmByteGen:
     val pending = collection.mutable.Queue.empty[Pending]
     var lamIdx = 0
     def freshLam(): String = { lamIdx += 1; s"lam$$$lamIdx" }
+    /** `SSC_GEN_STATS=1` — what this class is made of, printed when emission finishes or throws.
+     *
+     *  `ClassTooLargeException` names no number: it means the CONSTANT POOL passed 65535 entries,
+     *  and ASM reports neither the count nor what filled it. Splitting `ssc/gen/Entry` is the
+     *  standing plan (v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large) and it is invasive —
+     *  the owner is hardcoded at sixteen `INVOKESTATIC` sites and `emitProgram` returns ONE
+     *  `Array[Byte]`, so the split changes this file's contract and its callers. Nobody should pay
+     *  that without knowing which of methods, string constants or call sites is the pool, and by
+     *  how much it must fall. These counters answer that in one run and cost nothing when off. */
+    // METHOD COUNT ONLY, and deliberately so. A first version of this also carried
+    // `distinctStrings` and `invokeSites`; both were declared, never incremented at any emit site,
+    // and duly printed `0` for every program — a counter that cannot move is worse than no counter,
+    // because it reads as a measurement. They are gone rather than half-wired.
+    def stats: String = s"methods=$lamIdx  defMethods=${defMethods.size}"
     /** Top-level Lam defs: name → (methodName, arity). Calls to these compile
      *  to DIRECT invokestatic — no global lookup, no ClosV, no Emit.app. */
     val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
@@ -222,11 +236,19 @@ object JvmByteGen:
   def emitProgram(p: Program, sourceDebug: JvmSourceDebug): Array[Byte] =
     emitProgram(p, Some(sourceDebug))
 
+  private val genStats: Boolean =
+    sys.env.get("SSC_GEN_STATS").exists(v => v != "" && v != "0" && v != "off")
+
   private def emitProgram(p: Program, sourceDebug: Option[JvmSourceDebug]): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, GEN, null, OBJ, null)
     sourceDebug.foreach(debug => cw.visitSource(debug.sourceFile, debug.smap))
     val g = new Gen(cw, sourceDebug)
+    // Reported on BOTH exits via `finally` below. The ONLY run whose numbers matter is the one that
+    // THROWS, and a stats line on the success path alone would print for exactly the programs that
+    // do not need sizing.
+    def reportStats(outcome: String): Unit =
+      if genStats then System.err.println(s"[gen-stats] $outcome  ${g.stats}")
 
     // pre-register def methods FIRST so entry and def bodies alike can call
     // them directly (invokestatic) — names issued once, no re-issuing.
@@ -380,7 +402,11 @@ object JvmByteGen:
     drainPending(g)
 
     cw.visitEnd()
-    dump("aot-program", cw.toByteArray)
+    // `try/finally`, not a line after the return: the ONLY run whose numbers matter is the one that
+    // THROWS `ClassTooLargeException`, and `toByteArray` is where ASM discovers the pool is full.
+    // Reporting on success alone would print for exactly the programs that do not need sizing.
+    try dump("aot-program", cw.toByteArray)
+    finally reportStats(if genStats then "done" else "")
 
   /** Emit every deferred body until nothing is left; each may enqueue more. Shared with the JIT's
     * single-unit path (`emitUnit`) so both go through the SAME emitter — the fragmented-coverage
