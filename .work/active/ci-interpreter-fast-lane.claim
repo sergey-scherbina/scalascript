@@ -1,0 +1,11 @@
+slug: ci-interpreter-fast-lane
+branch: feature/ci-interpreter-fast-lane
+agent: claude-code
+started: 2026-08-10T16:13:48Z
+heartbeat: 2026-08-10T16:13:48Z
+status: claimed-before-planning
+items: the interpreter fast lane is green at 1608/0 in 163s and runs only on dispatch; put it in tier 2
+paths: file:.github/workflows/ci.yml BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
