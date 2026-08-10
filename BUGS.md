@@ -842,6 +842,44 @@ construct — so the gap is visible rather than silent.
 Closing it is a change to a DIFFERENT artifact — `uniml/scala/.../SpikeAst.scala` and
 `ScalaSpike.scala` — plus the projection, and a classpath rebuild. Worth its own claim.
 
+## v3-no-handler-error-has-no-position, and no NAME either — the IR carries neither
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/effects-gate.sh -->
+
+`v3/tests/effects/perform-no-handler.ssc` fails with
+
+    ssc3: v3/tests/effects/perform-no-handler.ssc: no handler for effect operation 0
+
+**Two things are wrong with that line and the second is worse.** There is no `line:col`, so
+`corpus-report.sh` classifies it as a CRASH rather than an honest refusal — that rule is what
+separates "the reader can act on this" from "the reader cannot". And the operation is named by its
+INDEX: `0` is what the lowering assigned, and nothing in the program is called that.
+
+**MEASURED 2026-08-09, and the measurement says this cannot be fixed in the executor.** `Instr` has
+no position field and neither does `Func`; `Module` is
+`(consts, types, globals, prims, funcs, entry)` — `prims` is the primitive table, and there is no
+effect-operation table at all. So the executor has nothing to print: not a position, not a name.
+
+**Two shapes it could take, both outside `Exec.scala`:**
+
+  * an operation-NAME table in `Module`, which is a format change — `Ir.scala`, `Lower.scala`,
+    `BridgeV2`, and the text codec all have to agree, and the codec has a checked-in golden;
+  * a LOWERING-time refusal, which is the cheaper one and covers this fixture exactly: a `Perform`
+    of an operation that NO `handle` in the merged module handles can never find one at run time,
+    so it can be refused where positions still exist. It does NOT cover a handler installed by a
+    caller that simply is not on the path — that stays a run-time error, correctly.
+
+The gate declares this fixture in `KNOWN_UNPOSITIONED` rather than weakening its rule for
+everything else; the line comes out when either shape lands.
+
+**Filed late, and that is its own small lesson**: `effects-gate.sh` cited this slug the day it was
+written and the entry did not exist. A dangling reference in a gate reads as "someone looked at
+this" when nobody had.
+
 ## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
 
 <!-- status: fixed
