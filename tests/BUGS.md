@@ -1,7 +1,7 @@
 ## zipwithindex-result-is-not-indexable
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: c825079d0
      lane: v2-rust
      area: codegen
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
