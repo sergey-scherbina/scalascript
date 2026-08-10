@@ -1,3 +1,71 @@
+## a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration
+
+<!-- status: open
+     lane: apparatus
+     area: other
+     reported-by: claude-code
+     reported-at: 2026-08-10
+     confirmed: yes
+     gate: none -->
+
+**Method, not code — and it cost two investigations in one day.**
+
+The natural predicate when chasing an F coverage gap is "front-report says `GAP` with `(global X)`".
+It has a trivial solution the reducer finds immediately: **delete the declaration of `X`.** Then the
+name really is unbound, the predicate holds, and every further cut is measured against a module that
+is broken in a way the original was not.
+
+Measured twice, both today:
+
+- **`(global Parser)`**, `std/parsing/core.ssc`. The reduction converged on three declarations, one
+  of them `case class PReadContext(f: Any) extends Parser[Any]` with `sealed trait Parser[A]`
+  REMOVED. Rebuilt well-formed — traits restored — the same three declarations lower to **`F`**. The
+  artifact reproduced nothing; it was the trivial solution.
+- **`(global __u0)`**, `std/ui/content.ssc`. A line-level reduction converged on a file with an empty
+  lambda body and an unterminated parameter list. Three refuted hypotheses were read off it before
+  anyone noticed.
+
+**The rule, in two parts.** Reduce by DECLARATION, never by line — already written down in this
+repository, and violated. And when the predicate names an unbound IDENTIFIER, **pin that
+identifier's declaration** so the reducer cannot take it. With `sealed trait Parser[A]` and
+`trait ParserContext` pinned, the same reduction stops at twelve declarations instead of three, and
+the twelve are all well-formed.
+
+A cheaper check that would have caught both: before trusting a reduced artifact, REBUILD it
+well-formed and confirm it still reproduces. It takes one run.
+
+## f-parser-gap-reduced-but-not-solved
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-10
+     confirmed: yes
+     gate: none -->
+
+`(global Parser)` is F's decline reason on 4 corpus GAP files — `examples/dsl-calc-parser.ssc`,
+`dsl-json-parser`, `dsl-sql-recovery`, `dsl-yaml-like` — the largest single cause left in the GAP
+tail. Asking each module of the import closure for its own verdict puts the origin at
+`std/parsing/core.ssc`, which is `GAP` on its own, is **self-contained** (no imports) and is 118
+lines. `combinators`, `helpers` and `recovery` inherit it; `std/dsl/pretty.ssc` is `F`.
+
+**NOT SOLVED.** Banked, so the next attempt starts here:
+
+With the trait declarations PINNED (see the entry above — without that the reduction just deletes
+`sealed trait Parser[A]`), the module reduces to **twelve** declarations, all well-formed: the three
+traits, seven case classes, `case object NoContext`, and `object Parser` carrying **all seven** of
+its methods. **No single method is removable** — which is what makes the shape interesting, since
+the methods are near-identical one-liners.
+
+**Refuted by measurement, all lowering correctly under F:** a companion object sharing its name with
+a trait, generic and non-generic; a companion under a different name; no companion at all; an
+`extension` on the trait; and an object with 3, 5, 6, 7 or 8 near-identical methods, in case the
+count was a threshold.
+
+The next thing to try is not another guess about the shape: it is to reduce WITHIN the surviving
+twelve — the case-class bodies and the method bodies — with the traits pinned throughout.
+
 ## orphan-fixedin-lands-red — a rewritten `fixed-in:` turns SMOKE red for everyone, three times in two days
 
 <!-- status: fixed

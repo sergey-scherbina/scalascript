@@ -141,7 +141,18 @@ Remaining, GAP only:
       F's decision, **F's real scope is 70 files and it handles 53 — 76%**, against the 38% that
       53-of-140 reads as. Entries: `error-bucket-holds-no-F-gaps`,
       `two-examples-import-a-sibling-by-a-path-that-cannot-resolve`.
-- [ ] The GAP tail, now the whole of it AND the whole of the remaining work: `Parser` (4),
+- [~] **`Parser` (4 files) — reduced to twelve well-formed declarations, NOT solved.** Origin is
+      `std/parsing/core.ssc`, self-contained and 118 lines; `combinators`/`helpers`/`recovery`
+      inherit it. With the trait declarations PINNED it stops at three traits, seven case classes,
+      `NoContext` and `object Parser` with ALL SEVEN methods — none individually removable, which
+      is the interesting part since they are near-identical one-liners. Six shapes refuted.
+      `tests/BUGS.md` `f-parser-gap-reduced-but-not-solved`.
+      **The pinning is not optional:** without it the reduction simply deletes
+      `sealed trait Parser[A]`, which satisfies the predicate trivially and converged on an
+      artifact that lowers to `F` once rebuilt well-formed. Same trap cost three refuted
+      hypotheses on `__u0` the same day —
+      `a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration`.
+- [ ] The rest of the GAP tail: `Parser` (4),
       `handler` (2), `__u0` (2), and six singles.
 - [~] **`__u0` — reduced to a well-formed 124-line reproducer, NOT solved.** F's own reason on 11
       files, from `runtime/std/ui/content.ssc`; reducing by DECLARATION then by whole `case` ARM
