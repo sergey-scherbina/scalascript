@@ -47,9 +47,13 @@ git config user.email test@example.com; git config user.name test
 git config commit.gpgsign false; git config core.hooksPath /dev/null
 
 REASON='v3 does not exist yet and the module subtree is created by this very task'
+# The item is ID-SHAPED on purpose. `--items` began refusing prose tokens on 2026-08-10
+# (coord-claim-items-prose-reserves-english-words) because the overlap guard compares items as
+# whitespace-separated TOKENS, so a sentence reserves each of its words. This gate passed `I`, which
+# that rule reads as prose, and it went red on every push until the item was given a real id.
 # coord-claim also commits and pushes; in this sandbox that may fail and it does not matter — the
 # claim FILE is what this gate is about and it is written before any of that.
-SSC_AGENT_ID=test scripts/coord-claim probe --items I --paths 'mod:v3' --broad "$REASON" \
+SSC_AGENT_ID=test scripts/coord-claim probe --items probe-item --paths 'mod:v3' --broad "$REASON" \
   >"$LAB/out" 2>&1 || true
 
 CLAIM="$LAB/work/.work/active/probe.claim"
@@ -76,7 +80,7 @@ else bad "claim '$paths_line' vs ledger '$led' — this is what refused the push
 
 # 4 — no flag, no line.
 rm -f "$CLAIM"
-SSC_AGENT_ID=test scripts/coord-claim plain --items I --paths 'file:a.txt' >/dev/null 2>&1 || true
+SSC_AGENT_ID=test scripts/coord-claim plain --items probe-item --paths 'file:a.txt' >/dev/null 2>&1 || true
 if [ -f "$LAB/work/.work/active/plain.claim" ]; then
   if grep -q '^broad:' "$LAB/work/.work/active/plain.claim"; then
     bad "a claim with no --broad grew a broad: line"
