@@ -5,7 +5,7 @@ started: 2026-08-10T20:20:45Z
 heartbeat: 2026-08-10T20:20:45Z
 status: claimed-before-planning
 items: ledger-rows-outlive-their-claims
-paths: file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:.githooks/pre-push file:specs/claim-mutex.md
+paths: file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement

@@ -1,4 +1,4 @@
-# generation: 1608
+# generation: 1609
 #slug	agent	started	items	paths
 v3-extension-dispatch	claude-code	2026-08-10T18:10:37Z	v3-extension-type-params	file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala file:v3/uniml/UniFront.scala file:v3/src/Lexer.scala file:v3/front-capability-gate.sh
 v3-catch-binds-the-thrown-value	claude-code	2026-08-10T18:10:43Z	the v3 executor binds the message string to the caught name; the bridge and the reference bind the thrown VALUE, so a typed arm matches on one lane only	file:v3/src/Exec.scala file:v3/tests/front BUGS.md
@@ -35,5 +35,5 @@ v3-lowerfail-names-the-right-file	claude-code	2026-08-10T16:40:14Z	a LowerFail f
 char-type-test	claude-code	2026-08-10T16:42:03Z	js-char-type-test-cannot-tell-Char-from-String	file:specs/type-ascription-matrix.md file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
 rust-topval-intrinsic	claude-code	2026-08-10T20:19:21Z	a top-level val whose initializer calls a std intrinsic emits an unrouted call so the crate does not compile	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenTryCatchTest.scala BUGS.md
-ledger-is-derived	claude-code	2026-08-10T20:20:45Z	ledger-rows-outlive-their-claims	file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:.githooks/pre-push file:specs/claim-mutex.md
+ledger-is-derived	claude-code	2026-08-10T20:20:45Z	ledger-rows-outlive-their-claims	file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
 rust-no-paren-member	claude-code	2026-08-10T20:43:38Z	no-paren-list-method-becomes-a-field	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR5Test.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:INBOX.md
