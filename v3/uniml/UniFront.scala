@@ -73,6 +73,7 @@ object UniFront:
       SpikeTyped.module(s).decls.foreach { d =>
         decl(d) match
           case Sorted.D(x) => defs = defs :+ x
+          case Sorted.Ds(xs) => defs = defs ++ xs
           case Sorted.C(x) => classes = classes ++ x
           case Sorted.O(x) => objects = objects :+ x
           case Sorted.OC(x, cs) => objects = objects :+ x; classes = classes ++ cs
@@ -102,6 +103,11 @@ object UniFront:
     * so this cannot be a plain function to one `Decl`. */
   private enum Sorted:
     case D(d: Def)
+    /** SEVERAL defs from one declaration — an `extension` declares a receiver once and any number
+      * of methods on it. A LIST for the same reason `C` is one: an arm that can return only one
+      * would drop every member after the first, silently, which is the defect the comment below
+      * records for enums. */
+    case Ds(ds: List[Def])
     // A LIST, because an `enum` becomes one class PER CASE. The first version of this returned one
     // class and left the rest in a mutable field that nothing drained — every enum case after the
     // first would have vanished, silently, which is the exact defect this file's refusals exist to
@@ -306,7 +312,24 @@ object UniFront:
         case other => no("an `effect` member that is not a `def`", other.span)
       }, Nil, pos(s)))
 
-    case U.Extension(_, _, s)      => no("`extension`", s)
+    // `extension (s: String) def boxed: Box = …` becomes an ordinary top-level
+    // `def boxed(s: String): Box = …`. That IS what an extension means — the receiver is the first
+    // parameter — and `specs/ssc3-extensions.md` §3 explains why the call-site half is sound.
+    //
+    // DESUGARED IN THE FRONT, NOT CARRIED AS A NODE, and both fronts do it identically. v3's own
+    // parser produces the same lifted `Def`s, so `front-diff.sh` compares two trees that agree by
+    // construction rather than two spellings of the same idea. A new AST node would have had to be
+    // projected the same way twice anyway, and the second copy is where they drift.
+    //
+    // A receiverless `extension` is refused rather than guessed at: without the receiver there is
+    // no first parameter to give, and the grammar allows the shape.
+    case U.Extension(recv, ds, s) =>
+      recv match
+        case None => no("an `extension` with no receiver parameter", s)
+        case Some(r) =>
+          Sorted.Ds(ds.toList.map(d =>
+            Def(d.name, param(r) :: d.params.toList.map(param), expr(d.body), pos(d.span),
+                d.tparams.toList, boundParams(d))))
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 
   /** A 64-bit literal, or a POSITIONED refusal. `ssc` integers are 64-bit, so a literal outside

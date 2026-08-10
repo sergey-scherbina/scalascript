@@ -1371,6 +1371,69 @@ object Lower:
       case other => other)
     defs.map(d => d.copy(body = fix(d.body)))
 
+
+  // ── SSC3 extensions: `v.m(args)` becomes `m(v, args)`, under three conditions ─────────────────
+  //
+  // Design and its justification: `specs/ssc3-extensions.md`. §51 of `v3/SPRINT.md` records the
+  // version of this that was REVERTED — `N 188 -> 130, CRASH 0 -> 131`, because an extension named
+  // `map` rewrote every `.map(…)` in the program, lists included — and its conclusion, that which
+  // method a receiver has is a fact about its runtime value rather than about syntax.
+  //
+  // That conclusion rules out choosing BETWEEN candidates. It does not rule out observing that there
+  // are NONE BUT ONE: if a name is not a built-in method and no class in the merged program declares
+  // it, no receiver value can answer to it, and the top-level def of that name is the only thing the
+  // call can mean. The rewrite is then not a guess about a type — it is the absence of alternatives.
+  //
+  // Every condition can only PREVENT a rewrite, so this cannot make a call that works today stop
+  // working. It can decline one that would have been fine, and that shows up as a program still
+  // refused rather than as a wrong answer.
+  //
+  // BUILTIN-VOCABULARY-BEGIN
+  // Kept in sync with `Exec.invoke` by `v3/extension-gate.sh`, which DERIVES the list from that file
+  // and requires this one to cover it. A hand-written copy of another file's table goes stale in the
+  // direction nobody notices, and here that direction is exact: a built-in `Exec` gains and this
+  // list lacks would be SHADOWED by an extension of the same name. The gate turns red on the commit
+  // that adds the built-in instead.
+  private def builtinMethods: List[String] = List(
+    "++", "+:", ":+", "A", "Array", "Bool", "Boolean", "Char", "Cons", "Double", "Error",
+    "Exception", "Float", "Int", "Iterable", "Left", "List", "Long", "Map", "Nil", "None", "Option",
+    "Right", "Set", "Some", "String", "Unit", "Vector", "abs", "append", "apply", "asInstanceOf",
+    "charAt", "collect", "contains", "containsKey", "copy", "count", "distinct", "drop", "dropRight",
+    "dropWhile", "endsWith", "exists", "filter", "filterNot", "find", "flatMap", "flatten", "fold",
+    "foldLeft", "foldRight", "forall", "foreach", "from", "get", "getOrElse", "groupBy", "head",
+    "headOption", "indexOf", "init", "isDefined", "isEmpty", "isInstanceOf", "isRight", "iterator",
+    "keys", "last", "lastIndexOf", "lastOption", "length", "map", "max", "maxBy", "min", "minBy",
+    "mkString", "nonEmpty", "padTo", "partition", "product", "put", "reduce", "reduceLeft",
+    "remove", "removed", "replace", "reverse", "size", "slice", "sortBy", "sortWith", "sorted",
+    "span", "split", "startsWith", "strip", "stripMargin", "sum", "tail", "take", "takeRight",
+    "takeWhile", "toDouble", "toChar", "toInt", "toList", "toLong", "toLowerCase", "toMap", "toSeq",
+    "toSet", "toString", "toUpperCase", "toVector", "trim", "updated", "values", "withFilter",
+    "zip", "zipWithIndex",
+    // Added by `v3/extension-gate.sh` on its first run against a hand-written list — it found 28
+    // names this had missed, which is the whole reason the list is derived and not trusted. Some are
+    // methods (`substring`, `matches`, `union`, `subsetOf`, `scanLeft`), some are type names, some
+    // are prims, and a few (`ab`, `alice`, `carol`, `cd`, `x`) are strings from examples inside
+    // `Exec` that the extractor sweeps up. All of them stay: an extra name can only PREVENT a
+    // rewrite, and pruning by hand is how the list would start drifting again.
+    "RuntimeException", "Seq", "Throwable", "Tuple", "__arith__", "__autoOutput__", "__isTag__",
+    "__lazyFrom__", "__throw__", "ab", "alice", "any", "carol", "cd", "char", "diff", "intersect",
+    "isLeft", "matches", "scanLeft", "subsetOf", "substring", "throw", "to", "toOption", "union",
+    "until", "x")
+  // BUILTIN-VOCABULARY-END
+
+  private def rewriteExtensionCalls(defs: List[Def], classes: List[ClassDef]): List[Def] =
+    val topLevel = defs.map(_.name).toSet
+    val classMembers = classes.flatMap(c => c.methods.map(_.name)).toSet ++ classes.flatMap(_.fields.map(_.name)).toSet
+    val builtins = builtinMethods.toSet
+    def eligible(m: String): Boolean =
+      topLevel.contains(m) && !classMembers.contains(m) && !builtins.contains(m)
+    if !defs.exists(d => eligible(d.name)) then defs
+    else
+      def fix(e: Expr): Expr = mapDeep(e, x => x match
+        case Expr.MethodCall(recv, m, args, p) if eligible(m) => Expr.Call(m, recv :: args, p)
+        case other => other)
+      defs.map(d => d.copy(body = fix(d.body)))
+
   private def rewriteByName(defs: List[Def]): List[Def] =
     val byNameParams: Map[String, Set[Int]] =
       defs.map(d => (d.name, d.params.zipWithIndex.filter((pm, _) => pm.byName).map(_._2).toSet))
@@ -2356,8 +2419,9 @@ object Lower:
     // left to resolve against.
     // A CONTEXT BOUND BECOMES A PARAMETER HERE, not in the parser: the two fronts print the same
     // tree that way, and only this file has to know that `[A: Monoid]` means `(using Monoid[A])`.
-    val allDefs = resolveMethodRefs(
-      resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs)
+    val allDefs = rewriteExtensionCalls(resolveMethodRefs(
+      resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs),
+      p.classes)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //

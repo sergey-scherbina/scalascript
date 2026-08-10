@@ -202,8 +202,18 @@ object Lexer:
     if Chars.isDigit(c) then
       var s = s0
       var text = ""
-      while !done(s) && Chars.isDigit(at(s)) do
-        text = text + at(s); s = adv(s)
+      // AN UNDERSCORE IS A DIGIT GROUPER AND IS DROPPED. `30_000` is 30000 — Scala's rule, and the
+      // corpus writes it: `std/actors.ssc:382` declares `overlapMs: Int = 30_000`. Without this the
+      // lexer stopped at the `_`, the parser reported `expected ')', found _000`, and two
+      // conformance cases were refused by v3's front while the UniML front took them — a divergence
+      // the capability gate reports as NEW, which is how this was found.
+      //
+      // Only BETWEEN digits: a trailing `_` would take the following identifier's first character
+      // with it, and `1_` is not a literal in Scala either.
+      while !done(s) && (Chars.isDigit(at(s)) ||
+                         (at(s) == '_' && s.pos + 1 < s.src.length && Chars.isDigit(s.src.charAt(s.pos + 1)))) do
+        if at(s) != '_' then text = text + at(s)
+        s = adv(s)
       // A FRACTION, only when a digit follows the dot. `1.5` is a number; `1.toString` is a method
       // call on a number, and the difference is exactly the character after the `.`.
       var isFloat = false

@@ -104,6 +104,21 @@ object Parser:
     case Tok.TId(n, p) if !keywords.contains(n) => (n, p, ts.tail)
     case other => throw ParseFail(Lexer.posOf(other), "expected a name, found " + Lexer.show(other))
 
+  /** The name position of a `def`, where an OPERATOR is a legal method name: `def ~(q: Parser[B])`,
+    * `def |`, `def <~>`. Scala spells them this way and so does the corpus —
+    * `std/parsing/combinators.ssc` defines four, and `tests/conformance/js-symbolic-infix-operator`
+    * turns on one.
+    *
+    * SEPARATE FROM `expectName` on purpose. Every other name position wants an identifier, and
+    * widening the shared helper would have let an operator through where a variable belongs. This
+    * was found by the capability gate: with `extension` parsing, four corpus files reached
+    * `def ~[B]` and v3 refused where UniML did not — a divergence the gate reports as NEW rather
+    * than as a shared gap. */
+  private def expectDefName(ts: List[Tok]): (String, Pos, List[Tok]) = peek(ts) match
+    case Tok.TId(n, p) if !keywords.contains(n) => (n, p, ts.tail)
+    case Tok.TOp(n, p)                          => (n, p, ts.tail)
+    case other => throw ParseFail(Lexer.posOf(other), "expected a method name, found " + Lexer.show(other))
+
   private def skipNewlines(ts: List[Tok]): List[Tok] =
     var t = ts
     while peek(t).isInstanceOf[Tok.TNewline] do t = t.tail
@@ -1590,10 +1605,46 @@ object Parser:
       (names.reverse, givens.reverse, ts)
 
   // ── definitions ─────────────────────────────────────────────────────────────
+  /** `extension (s: String) def boxed: Box = …` → an ordinary top-level `def boxed(s: String)`.
+    *
+    * DESUGARED HERE, and the UniML projection does exactly the same thing to `U.Extension`. That is
+    * the point: the two fronts must produce the SAME tree or `front-diff.sh` reports a difference
+    * neither of them is wrong about. Carrying an AST node instead would mean projecting it twice
+    * downstream, and the second copy is where they drift.
+    *
+    * Both spellings, because the corpus has both: one `def` on the same line, or a block of them
+    * indented (or braced) below. `parseMembers` already knows about `TIndent`/`TDedent`, so the
+    * block form does not need indentation logic of its own — and the inline form is recognised by
+    * `def` following the receiver clause directly, which is the one case `parseMembers` refuses.
+    *
+    * Type parameters are DISCARDED, like every other type at Tier 0: `extension [A](xs: List[A])`
+    * binds `xs`, and `A` has nothing to say about a program whose dispatch is by runtime tag.
+    * That is why the bug this closes is called `v3-extension-type-params` — the parameterised form
+    * was refused one column later than the plain one, for the same reason.
+    */
+  private def parseExtension(ts0: List[Tok], p: Pos): (List[Def], List[Tok]) =
+    var ts = skipBrackets(ts0)
+    ts = expectPunct(ts, "(")
+    val (rname, _, t1) = expectName(ts)
+    var t2 = skipTypeAnn(t1)
+    t2 = expectPunct(t2, ")")
+    val recv = Param(rname, p)
+    def lift(d: Def): Def = d.copy(params = recv :: d.params)
+    if isId(peek(t2), "def") then
+      val (d, t3) = parseDef(t2)
+      (List(lift(d)), t3)
+    else
+      val (ms, vs, t3) = parseMembers(t2, "extension")
+      // A `val` in an extension has no receiver to belong to — it would be one value shared by
+      // every call, which is not what the syntax says. Refused by name rather than dropped.
+      if vs.nonEmpty then
+        throw ParseFail(p, "an `extension` member that is not a `def` is outside SSC3 core Tier 0")
+      (ms.map(lift), t3)
+
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
     val t0 = expectKw(ts0, "def")
-    val (name, _, t1) = expectName(t0)
+    val (name, _, t1) = expectDefName(t0)
     val (tparams, boundGivens, afterName) = parseTypeParams(t1, p)
     // A PARAMETERLESS `def` — `def empty: List[A] = Nil` — has no parameter clause at all. It was
     // 116 of 333 remaining refusals, the single largest cause, and every one of them came from the
@@ -1812,7 +1863,9 @@ object Parser:
       // this front the moment I tried it — `extension = extension + 1` reported the construct.
       else if isId(peek(ts), "extension") && ts.tail.nonEmpty &&
               (isPunct(peek(ts.tail), "(") || isPunct(peek(ts.tail), "[")) then
-        throw ParseFail(posOf(ts), "`extension` is outside SSC3 core Tier 0")
+        val (ds, t) = parseExtension(ts.tail, posOf(ts))
+        ds.foreach { d => defs = d :: defs }
+        ts = t
       else if isId(peek(ts), "trait") then
         val (tr, t) = parseTrait(ts.tail, posOf(ts))
         traits = tr :: traits
