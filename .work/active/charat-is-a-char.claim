@@ -2,9 +2,9 @@ slug: charat-is-a-char
 branch: feature/charat-is-a-char
 agent: claude-code
 started: 2026-08-10T10:44:27Z
-heartbeat: 2026-08-10T11:59:50Z
+heartbeat: 2026-08-10T12:00:57Z
 status: implementing
-items: charat-returns-char-on-v1-and-int-everywhere-else
+items: charat-returns-char-on-v1-and-int-everywhere-else jsonparse-null-is-none
 paths: file:v2/src/Runtime.scala mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:v2/lib/ssc1-lower.ssc0 file:v2/lib/string.ssc0 file:specs/v2.2-p6.5-fsub.ssc
 scope: |
   Owner's decision, and a pragmatic one: `println(s.charAt(0))` must print the CHARACTER on every
@@ -16,5 +16,6 @@ scope: |
   v1 is already right. Rust is the hard lane: its emitted code is typed i64, so a Char there needs a
   newtype that Displays as the character and compares/coerces as a number -- the same total-coercion
   approach as the Any boundary, not a rewrite.
-next: LANDING. The active front is F (specs/v2.2-p6.5-fsub.ssc), NOT v2/lib/ssc1-lower.ssc0 --
+next: charAt LANDED (f39448c96). Now decision 2: JSON null is None on every lane --
+  bin/ssc already does it, --v1 and rust say `()`. Previously LANDING: The active front is F (specs/v2.2-p6.5-fsub.ssc), NOT v2/lib/ssc1-lower.ssc0 --
   that is legacy, and editing it changed nothing. Both are updated so the two fronts agree.
