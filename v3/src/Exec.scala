@@ -86,6 +86,21 @@ object Exec:
   // instance is safe because `constOf` produces only `VUnit`/`VBool`/`VInt`/`VFloat`/`VStr` — every
   // case is immutable. It would NOT be safe for `VData`, `VArr` or `VMap`, which is why this is
   // stated rather than assumed.
+  // ── SSC3-J2 — the closure lane ────────────────────────────────────────────────────────────────
+  //
+  // OFF by default and selected with `ssc3 exec --closures`, which is the measurement design and not
+  // caution: two execution strategies over one IR, in one binary, is the A/B rig this host actually
+  // permits (`specs/ssc3-jit.md` §8.1) and a differential at the same time — `jit-gate.sh
+  // --identity` makes every corpus program run both ways and compares the bytes.
+  private var closureLane: Boolean = false
+  private var compiled: Array[Array[Op]] = new Array[Array[Op]](0)
+
+  /** Set BEFORE the program runs; `prepare` reads it when it builds the tables. Flipping it
+    * mid-run would leave half a module compiled, so `Cli` sets it once from the command line. */
+  private[ssc3] def useClosures(on: Boolean): Unit =
+    closureLane = on
+    compiled = new Array[Array[Op]](0)  // force `prepare` to rebuild rather than serve the old lane
+
   private var constPool: Array[Value] = new Array[Value](0)
   /** The same pool as STRINGS, for `Invoke`, whose name is a pool index that must be an `LStr`. */
   private var constStr: Array[String] = new Array[String](0)
@@ -131,6 +146,16 @@ object Exec:
         primTable(i) = ps.head
         ps = ps.tail
         i = i + 1
+      // Compiled ONCE per program, here, where the other derived tables are built — the closure
+      // lane's whole claim is that decode happens once per instruction in the program rather than
+      // once per execution, and compiling lazily per call would put a check on the path this exists
+      // to shorten.
+      if closureLane then
+        compiled = new Array[Array[Op]](m.funcs.length)
+        var fi = 0
+        while fi < funcTable.length do
+          compiled(fi) = Compile.func(m, funcTable(fi))
+          fi = fi + 1
 
   /** One live `Handle`: the arms, and the FRAME they read. `specs/10-ssc-ir.md` §3 puts an arm's
     * `params` and `k` in the handling function's frame, so the frame has to travel with the arms —
@@ -285,7 +310,7 @@ object Exec:
     case Value.VClos(fi, cap) => callFunc(m, fi, cap ++ List(a, b))
     case other                => throw ExecError("not a two-argument function: " + show(other))
 
-  private def truthy(v: Value): Boolean = v match
+  private[ssc3] def truthy(v: Value): Boolean = v match
     case Value.VBool(b) => b
     case Value.VInt(n)  => n != 0L
     case Value.VUnit    => false
@@ -339,7 +364,8 @@ object Exec:
       while i < fn.nregs do
         regs(i) = Value.VUnit
         i = i + 1
-      exec(m, fn.body, regs) match
+      val sig = if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs)
+      sig match
         case Signal.Ret(v)       => result = v; running = false
         case Signal.Done         => result = Value.VUnit; running = false
         case Signal.Branch(d)    => throw ExecError("a branch left the function body (depth " + d + ")")
@@ -371,6 +397,15 @@ object Exec:
     * second decision site reachable by nobody: the next person to fix a `Bin` bug there would fix
     * dead code, and this repository has that failure written down more than once.
     */
+  /** ONE interpreted instruction, for the closure lane to fall back on.
+    *
+    * SSC3-J2. `Compile` specializes the opcodes that pay for it and delegates the rest here, which
+    * is what makes that lane COMPLETE from its first commit rather than a bail list that grows a
+    * spec of its own the way v1's did. The delegation is one closure deep and the arm it reaches is
+    * the same arm the tree-walker reaches, so the two lanes cannot disagree about an opcode that
+    * neither of them specializes. */
+  private[ssc3] def stepOne(m: Module, i: Instr, regs: Array[Value]): Signal = step(m, i, regs)
+
   private def step(m: Module, i: Instr, regs: Array[Value]): Signal = i match
     case Instr.Const(d, k) => regs(d) = constPool(k); Signal.Done
     case Instr.Move(d, a)  => regs(d) = regs(a); Signal.Done
@@ -384,7 +419,7 @@ object Exec:
 
   /** Pick the arithmetic path the specializer proved. Small enough to inline in its own right, so
     * splitting it out of `step` costs a call the JIT removes and buys `step` its own inlining. */
-  private def binK(m: Module, op: BinOp, kind: NumKind, x: Value, y: Value): Value =
+  private[ssc3] def binK(m: Module, op: BinOp, kind: NumKind, x: Value, y: Value): Value =
     if kind == NumKind.I64 then binI64(m, op, x, y)
     else if kind == NumKind.F64 then binF64(m, op, x, y)
     else binOp(m, op, x, y)
@@ -659,6 +694,17 @@ object Exec:
       regs(d) = invoke(m, name, regs(r), as.map(x => regs(x)))
       Signal.Done
     case Instr.Prim(d, p, as) => regs(d) = prim(m, primTable(p), as.map(r => regs(r))); Signal.Done
+
+    // `Const`, `Move` and `Bin` live in `step` (SSC3-J0c, which is what gets `step` under the inline
+    // limit) and cannot arrive here — `step` answers them and only delegates what it does not.
+    //
+    // NAMED rather than left off. Without this arm the match is not exhaustive, so a broken
+    // invariant would surface as a bare `MatchError` with no opcode in it, and the compiler's
+    // warning about exactly these three is not free either: it landed in a gate's captured stderr
+    // on the first build after a source change and was read as a program producing different
+    // output. A gate should not be able to fail because the compiler had something to say.
+    case _ =>
+      throw ExecError("stepRest reached '" + Text.opcode(i) + "', which step is supposed to answer")
 
   // ── the method table ────────────────────────────────────────────────────────
   //
@@ -1320,7 +1366,7 @@ object Exec:
         case _ => throw ExecError("method '" + name + "' on " + show(recv) +
                     "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
 
-  private def constOf(l: Lit): Value = l match
+  private[ssc3] def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
     case Lit.LBool(b)  => Value.VBool(b)
     case Lit.LInt(n)   => Value.VInt(n)

@@ -224,7 +224,14 @@ check_specialize() {
 # rule 4 proves it by planting a specializer that lies.
 check_identity() {
   local quiet="${1:-}" fail=0 ran=0
-  [ -n "$quiet" ] || echo "── identity: --no-specialize must print the same bytes ─────────────────"
+  # COMPILE FIRST, and this line is not politeness. The comparison captures `2>&1` because a
+  # program's diagnostics are part of what it prints — several fixtures assert a parse error. The
+  # first `ssc3` after a source change also compiles the kernel, and the COMPILER's output lands in
+  # that same capture: measured 2026-08-10, a `match may not be exhaustive` warning made
+  # `alt-pattern` read as "specializing CHANGED the output" when all three lanes printed the same
+  # five lines. `exec-gate.sh` warms up for the same reason and says so in the same words.
+  v3/ssc3 selftest >/dev/null 2>&1
+  [ -n "$quiet" ] || echo "── identity: --no-specialize and --closures print the same bytes ───────"
   local f
   for f in "$ROOT"/v3/tests/front/*.ssc "$ROOT"/v3/tests/jit/*.ssc; do
     [ -f "$f" ] || continue
@@ -236,12 +243,23 @@ check_identity() {
     ran=$((ran + 1))
     on="$(v3/ssc3 exec "$f" 2>&1)"
     off="$(v3/ssc3 exec --no-specialize "$f" 2>&1)"
-    if [ "$on" = "$off" ]; then
-      [ -n "$quiet" ] || echo "  ok   $name"
-    else
+    # SSC3-J2: a THIRD arm, and it is a different kind of check from the other two. `--closures`
+    # is not the same executor with a field read differently — it is a second execution strategy
+    # over the same IR, so this is a DIFFERENTIAL between two implementations rather than an
+    # on/off of one. That is the technique `00-charter.md` credits with finding 8 defects in UniML
+    # that point examples had missed, turned on the executor itself.
+    clo="$(v3/ssc3 exec --closures "$f" 2>&1)"
+    if [ "$on" != "$off" ]; then
       echo "  FAIL $name — specializing CHANGED the output:"
       diff <(printf '%s\n' "$off") <(printf '%s\n' "$on") | sed 's/^/         /'
       fail=1
+    elif [ "$on" != "$clo" ]; then
+      echo "  FAIL $name — the CLOSURE lane disagrees with the tree-walker:"
+      diff <(printf '%s\n' "$on") <(printf '%s\n' "$clo") | sed 's/^/         /'
+      echo "         left = tree-walker, right = --closures. Two strategies over one IR must agree."
+      fail=1
+    else
+      [ -n "$quiet" ] || echo "  ok   $name"
     fi
   done
   if [ "$ran" = 0 ]; then echo "  ✋ NO PROGRAMS RAN"; return 2; fi

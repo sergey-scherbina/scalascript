@@ -235,6 +235,10 @@ object Cli:
     * of this tier, and the two arms have to be the same binary.
     */
   private def prepared(m: Module, args: List[String]): Module =
+    // SSC3-J2. The lane is chosen HERE, next to the other one, so "which executor ran this" has one
+    // answer per invocation and both switches are visible in the same three lines. `Exec` reads the
+    // flag when it builds its tables, so it must be set before the module is handed over.
+    Exec.useClosures(args.contains("--closures"))
     if args.contains("--no-specialize") then m else Specialize.module(m)
 
   def run(args: List[String]): Int =
