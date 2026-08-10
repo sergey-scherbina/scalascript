@@ -23,6 +23,41 @@ Newest first.
 
 
 
+## interpreter-fast-lane-not-on-the-push-path-yet
+
+<!-- status: open
+     lane: int
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**The lane exists and is GREEN; registering it is one line and is blocked on a live claim.**
+
+`backendInterpreter/testFast` — added 2026-08-10 in `2c52c99bd` — is **1608 tests, 0 failures, 163
+seconds**. The suite it comes from runs NOWHERE: absent from `ci.yml`, absent from smoke, whose own
+comment records that this directory's coverage is the corpus lanes alone. That is how thirteen red
+tests sat unnoticed until the lanes made a verdict possible:
+
+  - eleven were one stale path from the `v1-runtime-std` rename, across five files and three suites
+    (`6e7f915ef`);
+  - two were a disagreement about where an import resolves, between the corpus and a test suite
+    (`23fc17895`).
+
+**What is owed**, and it is deliberately not done here: a row in `scripts/smoke-ci.ssc`, e.g.
+
+    Check("v1/runtime/backend/interpreter", "interpreter-fast",
+          "sbt", List("-batch", "backendInterpreter/testFast"), 420000),
+
+**Blocked:** `scripts/smoke-ci.ssc` is held by the live claim `smoke-budget-self-scaling` — and that
+is the right owner for it anyway. 163 s is a real addition to a suite already over its 750 s budget
+locally, so whether it goes in smoke (every push, locally) or in `ci.yml` (tier 2, dedicated runner)
+is a budget decision, not a mechanical one.
+
+**The three shell-out lanes are for deliberate runs and want their own time**, measured on this
+host: `testSlowJs` 35 s / 154 tests, `testSlowJvm` 228 s / 55, `testSlowCross` >1600 s (property
+tests over 74 generated programs). `testSlowJvm` has 1 failure and `testSlowCross` has not been run
+to completion — neither is investigated here.
+
 ## std-ui-fetch-plugin-two-red-tests-nobody-filed
 
 <!-- status: fixed
