@@ -1267,6 +1267,48 @@ jobs:
   # runs on every push in `scripts/smoke-ci`; the runner additionally refuses an enumeration under
   # ten suites and refuses to RUN an empty slice, because `testOnly` with no arguments runs
   # everything and would look like a fast green.
+  interpreter-fast:
+    name: Interpreter fast lane
+    runs-on: ubuntu-latest
+    # TIER 2 — nightly, PR and dispatch, like `validate` and `conformance`. Deliberately NOT tier 3.
+    #
+    # The interpreter suite is 1854 tests and reaches a verdict only when somebody dispatches
+    # `sbt-test` below. That is how THIRTEEN red tests sat unnoticed until 2026-08-10: eleven were a
+    # single stale path from the `v1-runtime-std` rename across five files and three suites, and two
+    # were a disagreement between the corpus and a test suite about where an import resolves. Both
+    # causes were introduced by careful commits that had no way to learn they had broken something.
+    #
+    # WHY THE FAST LANE AND NOT THE WHOLE SUITE. Measured on a dev host: one shell-out suite is 221 s
+    # for 4 tests (~55 s/test) while in-process tests run ~0.3 s/test. 31 of 156 files shell out to
+    # `scala-cli` or `node`, holding 262 of the tests; `backendInterpreter/testFast` excludes exactly
+    # those and is **1608 tests, 0 failures, 163 s**. The heavy lanes stay in `sbt-test`, which is
+    # sharded and dispatch-only for the reasons its own comment gives.
+    #
+    # WHY NOT SMOKE: smoke is 27 checks in ~157 s and is the per-push signal. Adding 163 s would
+    # DOUBLE it. A nightly-and-PR verdict is the right cadence for 1608 tests; the push path stays
+    # the fast first word.
+    #
+    # JDK ONLY, AND THAT IS ALSO THE TEST. The fast lane is defined as the tests that do not shell
+    # out, so it should need neither node nor scala-cli. This job installs neither. If a suite the
+    # heuristic in `build.sbt` calls "fast" secretly starts a process, this is where it surfaces —
+    # on a nightly, naming itself, rather than inside somebody's unrelated change.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Interpreter fast lane
+        run: sbt -batch backendInterpreter/testFast
+
   sbt-test:
     name: sbt test shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest

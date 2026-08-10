@@ -25,11 +25,12 @@ Newest first.
 
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: int
      area: build
      kind: apparatus
-     gate: none -->
+     gate: .github/workflows/ci.yml (interpreter-fast) -->
 
 **The lane exists and is GREEN; registering it is one line and is blocked on a live claim.**
 
@@ -57,6 +58,25 @@ is a budget decision, not a mechanical one.
 host: `testSlowJs` 35 s / 154 tests, `testSlowJvm` 228 s / 55, `testSlowCross` >1600 s (property
 tests over 74 generated programs). `testSlowJvm` has 1 failure and `testSlowCross` has not been run
 to completion — neither is investigated here.
+
+**CLOSED 2026-08-10 — in TIER 2 of `ci.yml`, not in smoke, and the correction matters.**
+
+This entry proposed a smoke row. That was under-informed: smoke is **27 checks in ~157 s** and is the
+per-push signal — adding a 163 s lane would have DOUBLED it. `ci.yml`'s own tiering comment spells
+the sizes out; I proposed the row before reading it.
+
+**And "runs nowhere" was too strong.** The suite does run — in `sbt-test`, which is sharded 4 ways
+and **dispatch-only** (tier 3). So the real state was "only when somebody asks", which is why
+thirteen reds could sit there, and the fix is a cadence rather than a first appearance.
+
+`interpreter-fast` is a tier-2 job: nightly, PR and dispatch, like `validate` and `conformance`.
+1608 tests, 0 failures, 163 s against that tier's ~14 min.
+
+**It installs a JDK and nothing else, deliberately, and that is also a test of the heuristic.** The
+fast lane is DEFINED as the tests that do not shell out, so it should need neither `node` nor
+`scala-cli`. If a suite `build.sbt` classifies as fast quietly starts a process, this job is where it
+surfaces — on a nightly, naming itself, instead of inside somebody's unrelated change.
+
 
 ## std-ui-fetch-plugin-two-red-tests-nobody-filed
 
