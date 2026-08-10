@@ -2396,6 +2396,15 @@ object Lower:
                               mapDeep(arm.body, y => y match
                                 case Expr.Call(cn, List(cv), cp) if cn == k => Expr.Resume(k, cv, cp)
                                 case other2 => other2), pp)
+              // `case x => …` — THE RETURN CLAUSE. Not an operation: a plain binder, bound to
+              // the value the handled body produced, and its result is what `handle` gives back.
+              // Marked `op = -1`, which no operation index can be, so the executor can find it
+              // without a second field on every arm.
+              //
+              // No resume rewrite in its body, because it has no continuation to rewrite: the
+              // body has already finished by the time this runs.
+              case Pat.PBind(bn, bp) =>
+                HandleArm(-1, List(bn), "__return__", arm.body, bp)
               case other => throw LowerFail(Pat.posOf(other),
                 "a handler arm must match an effect operation, as in `case tick(resume) => …`")
           }

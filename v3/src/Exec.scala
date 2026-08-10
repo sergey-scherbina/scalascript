@@ -160,7 +160,15 @@ object Exec:
   /** One live `Handle`: the arms, and the FRAME they read. `specs/10-ssc-ir.md` §3 puts an arm's
     * `params` and `k` in the handling function's frame, so the frame has to travel with the arms —
     * a perform can happen any number of host calls deeper, and the arm still writes here. */
-  private final case class HandlerFrame(m: Module, arms: List[HandlerArm], regs: Array[Value])
+  /** `performed` records whether an ARM of this handler ran during the computation just finished.
+    *
+    * It is what makes the return clause apply EXACTLY ONCE: `handle` lifts a body that completed
+    * without performing, and a `resume` lifts a continuation that completed without performing —
+    * but when either DID perform, the value is the arm's own result, already lifted by the resume
+    * inside it. Lifting again nested the list-monad answer three deep:
+    * `List(List(List(11, 21), List(12, 22)))` where the answer is `List(11, 21, 12, 22)`. */
+  private final case class HandlerFrame(m: Module, arms: List[HandlerArm], regs: Array[Value],
+                                        var performs: Long = 0L)
   private var handlers: List[HandlerFrame] = Nil
   /** Set by `Resume`, read by the `Perform` that ran the arm. A field rather than a return value
     * because an arm's body is an ordinary instruction list and `Signal` has no case for "resumed"
@@ -192,6 +200,20 @@ object Exec:
       case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
       case _                     => false)
 
+
+  /** The `case x => …` arm of a handler, if it wrote one. Marked by `op = -1`, which no real
+    * operation index can be. */
+  private def retArm(arms: List[HandlerArm]): Option[HandlerArm] = arms.find(_.op == -1)
+
+  /** Run the return clause on one value, in a FRESH copy of the handling frame — the same rule the
+    * operation arms follow, and for the same reason: one array cannot serve two activations, and a
+    * multi-shot handler applies this once per branch. */
+  private def applyRet(m: Module, arm: HandlerArm, regs: Array[Value], v: Value): Value =
+    val frame = regs.clone()
+    if arm.params.nonEmpty then frame(arm.params.head) = v
+    exec(m, arm.body, frame) match
+      case Signal.Ret(r) => r
+      case _             => v
 
   /** The runtime type, for diagnostics only. Never for output — `show` owns that, and the two must
     * not be conflated: `show` is tuned for lane parity and deliberately hides `0.0` as `0`. */
@@ -589,9 +611,20 @@ object Exec:
     // function's frame, so the arm reads its arguments where the spec says they are, and nothing
     // about this is invented locally.
     case Instr.Handle(d, body, arms) =>
-      handlers = HandlerFrame(m, arms, regs) :: handlers
-      try exec(m, body, regs)
-      finally handlers = handlers.tail
+      val hf = HandlerFrame(m, arms, regs)
+      handlers = hf :: handlers
+      val sig = try exec(m, body, regs) finally handlers = handlers.tail
+      // THE RETURN CLAUSE, applied to the body's own value. `case x => List(x)` is what makes
+      // `handle` produce the HANDLED type — a `List` for the list-monad handler — and without it
+      // `resume(opt)` gave back the rest of the computation's `Int`, `flatMap` saw a non-list per
+      // element and yielded nothing, and `effect-multishot` answered 0. A wrong answer that looks
+      // like an answer. (BUGS.md v3-handle-has-no-return-clause.)
+      //
+      // `op = -1` marks it: an operation index is an index into the effect's declared operations
+      // and is never negative, so no arm can collide with it.
+      if sig == Signal.Done && hf.performs == 0L then
+        retArm(arms).foreach(r => regs(d) = applyRet(m, r, regs, regs(d)))
+      sig
 
     case Instr.Perform(d, op, as) =>
       val args = as.map(r => regs(r))
@@ -599,6 +632,7 @@ object Exec:
         case None =>
           throw ExecError("no handler for effect operation " + op)
         case Some(h) =>
+          h.performs = h.performs + 1L
           val arm = h.arms.find(_.op == op).get
           // CPS MODE: one argument more than the arm binds, and the extra one is the continuation
           // (`specs/10-ssc-ir.md` §3, "Who PRODUCES the continuation"). The arm gets a real closure
@@ -668,7 +702,26 @@ object Exec:
         // second mechanism: a closure is not consumed by being called, so an arm may call it zero,
         // one or many times and each call runs the rest of that function again.
         case Value.VClos(_, _) =>
-          regs(d) = apply1(m, regs(k), regs(v))
+          // THE RETURN CLAUSE APPLIES HERE TOO, and that is the half a reader would miss. A deep
+          // handler's continuation is `k(w) = h(rest(w))` — the handler wraps what the rest
+          // produces — so `resume(opt)` must come back already lifted. Lift only at the `handle`
+          // and `opts.flatMap(opt => resume(opt))` still flatMaps over plain values.
+          // A COUNTER READ BEFORE AND AFTER, not a flag reset and re-read. A flag was the first
+          // version and it did not survive nesting: the INNER resume reset it to false, so the
+          // OUTER one read false after its continuation had in fact performed, lifted a second
+          // time, and the list-monad answer came out three deep.
+          val before = handlers.headOption.map(_.performs).getOrElse(0L)
+          val raw = apply1(m, regs(k), regs(v))
+          val didPerform = handlers.headOption.exists(_.performs != before)
+          // THE HANDLER'S OWN FRAME, not the one this instruction is running in. The arm's
+          // registers — params, `k`, and the return clause's binder — are registers of the
+          // HANDLING function (`specs/10-ssc-ir.md` §3), and a `resume` inside a lambda, which is
+          // exactly what `opts.flatMap(opt => resume(opt))` writes, runs in the LAMBDA's frame:
+          // three registers long, so the return clause's binder was index 5 out of bounds.
+          regs(d) =
+            if didPerform then raw
+            else handlers.headOption.flatMap(h => retArm(h.arms).map(r => (h, r)))
+                         .map((h, r) => applyRet(h.m, r, h.regs, raw)).getOrElse(raw)
           Signal.Done
         // The unconverted path, unchanged: `k` is `unit`, the arm is tail-resumptive, and the value
         // travels back to the `Perform` that ran the arm.

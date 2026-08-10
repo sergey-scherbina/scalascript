@@ -139,6 +139,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/front-report-gate.sh
 
+      # THE EFFECTS FIXTURES. `v3/tests/effects/` held 15 files that NO gate read — not this
+      # workflow, not `exec-gate.sh`, not `front-gate.sh` — so they were exercised only by hand,
+      # and 10 of them had no recorded expectation at all. One lane on purpose: `BridgeV2` has no
+      # case for `Handle`, `Perform` or `Resume`, so the executor-versus-bridge differential would
+      # report the bridge printing nothing, which is true and useless.
+      - name: effects
+        if: ${{ !cancelled() }}
+        run: v3/effects-gate.sh
+
       # THE ONE GATE HERE THAT IS NOT A DIFFERENTIAL, and that is why it exists. Every check above
       # compares two things that should agree — two fronts, two lanes. The import resolver has no
       # second opinion to compare against: both fronts share it, so a file NEITHER front can load

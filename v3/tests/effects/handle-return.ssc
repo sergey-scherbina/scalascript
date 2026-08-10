@@ -1,0 +1,32 @@
+# `handle` with a return clause — the list-monad handler
+
+`case x => List(x)` is the RETURN CLAUSE: it says what `handle` produces from a body that finished,
+and therefore what a `resume` gives back. Without it `resume(opt)` returns the rest of the
+computation's own `Int`, `flatMap` sees a non-list per element and yields nothing, and the answer
+is 0 — a wrong answer that looks like an answer (BUGS.md v3-handle-has-no-return-clause).
+
+**IT APPLIES EXACTLY ONCE, at the point a computation finishes WITHOUT performing.** Applying it at
+`handle` as well as at each `resume` lifted the answer three deep —
+`List(List(List(11, 21), List(12, 22)))` — and a boolean "did it perform" did not survive nesting,
+because the inner `resume` reset the flag the outer one was about to read. A counter compared
+before and after does.
+
+The answer is hand-derived: `a` ranges over 1, 2 and `b` over 10, 20, so `a + b` is
+**11, 21, 12, 22** in that order — the first choice varies slowest, which is what `flatMap` over the
+outer `opts` means.
+
+```scalascript
+multi effect NonDet:
+  def choose(options: List[Int]): Int
+
+def program(): Int ! NonDet =
+  val a = NonDet.choose(List(1, 2))
+  val b = NonDet.choose(List(10, 20))
+  a + b
+
+val all = handle(program()) {
+  case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+  case x => List(x)
+}
+println(all)
+```
