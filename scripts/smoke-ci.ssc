@@ -451,6 +451,14 @@ val suite = List(
   Check("scripts", "claim-scope-hierarchy", "tests/coord/claim-scope-hierarchy.sh", List(), 180000),
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
+  // The ledger is a DERIVED copy of the claim files — every column is a verbatim field — and until
+  // 2026-08-10 nothing checked it in either direction. Measured that day: 39 rows against 7 claim
+  // files, and each of the 32 extras had a `release-claim` commit. It blocked nobody (the overlap
+  // guard reads `.work/active/*.claim`, never rows) and that is why it survived: the damage is a
+  // reader believing a path is held. One agent handed work to a "holder" who had released it hours
+  // earlier. `--self-test` proves the checker catches each drift on fixtures and then runs the real
+  // check, so a green row cannot mean "the checker never looked". Sub-second, no launcher.
+  Check("scripts", "ledger-derived", "scripts/coord-ledger", List("--self-test"), 60000),
   Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
   // `std-import-lanes` and `build-smoke` USED TO BE HERE (added 2026-08-03, moved the same day).
   // Both now run in tier 2 of ci.yml, which is also per-push, so the per-commit answer is unchanged.

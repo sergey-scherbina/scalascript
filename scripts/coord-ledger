@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#
+# coord-ledger — derive `.work/active/LEDGER.tsv` from the claim files, which is where it already
+# lives.
+#
+# WHY THIS EXISTS. Every column of a ledger row is a verbatim copy of a field in
+# `.work/active/<slug>.claim`:
+#
+#     slug ← the filename    agent ← agent:    started ← started:    items ← items:    paths ← paths:
+#
+# so the row carries nothing the claim does not. Storing it twice is the whole problem, and it is
+# the SAME problem `scripts/board` was written for — read its header; the reasoning is identical and
+# the conclusion was "the fix is not a better gate, it is not keeping the second copy".
+#
+# MEASURED 2026-08-10: 28 of 32 rows were orphans — claim file gone, a `release-claim` commit on
+# `origin/main` for every one. `scripts/coord-release` removes the row today, but releases from
+# before it learned to, and any release done by hand (`git rm` on the claim), left theirs behind.
+# Nothing swept them and nothing went red, because no check read the ledger for liveness.
+#
+# WHAT THE DRIFT ACTUALLY COST, since it is not what one would guess: the pre-push overlap guard
+# enumerates `.work/active/*.claim` (`.githooks/pre-push`), never ledger rows, so an orphan blocks
+# NOBODY. The damage is to a reader. On 2026-08-10 an agent grepped the ledger for
+# `scripts/smoke-ci.ssc`, found two rows, concluded the file was held and asked its "holder" to make
+# a change for them. Both rows were dead. Nothing failed; work was simply handed away. A stale
+# record produces a wrong BELIEF, and there is no gate between a belief and a decision.
+#
+# THE OTHER DIRECTION IS WORSE AND HAS NEVER BEEN CHECKED EITHER. `scripts/board` walks the ledger's
+# slugs and skips any without a claim file, so an orphan row is inert there — but a claim whose row
+# is MISSING is invisible to the board, i.e. someone working with nobody able to see it. `--check`
+# reports both, because only one of them is the one that already happened.
+#
+# Usage:
+#   scripts/coord-ledger              the derived TSV on stdout
+#   scripts/coord-ledger --check      exit 1 if the committed file disagrees; names both directions
+#   scripts/coord-ledger --write      rewrite it in place, bumping `# generation:`
+#   scripts/coord-ledger --self-test  paired assertions: derive right, and catch each drift
+#
+# Rows are compared as a SET. Order carries no meaning here and a reordering harms nobody, so it is
+# not worth a red run; `--write` emits them sorted by `started` for a stable diff.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+LEDGER="${SSC_LEDGER:-$ROOT/.work/active/LEDGER.tsv}"
+ACTIVE="${SSC_ACTIVE:-$ROOT/.work/active}"
+
+# A field from a claim file. `head -1` because `scope:`/`done-so-far:` are block literals whose
+# indented body can contain anything, including a line that looks like a field.
+field() { # field <file> <name>
+  sed -n "s/^$2:[[:space:]]*//p" "$1" | head -1
+}
+
+derive_rows() {
+  [ -d "$ACTIVE" ] || return 0
+  for f in "$ACTIVE"/*.claim; do
+    [ -e "$f" ] || continue
+    local slug agent started items paths
+    # The FILENAME is the slug, not the `slug:` field: the filename is what the mutex keys on
+    # (`git ls-tree .work/active/`), so a claim whose field disagreed with its name would otherwise
+    # get a row nothing can find.
+    slug="$(basename "$f" .claim)"
+    agent="$(field "$f" agent)"
+    started="$(field "$f" started)"
+    items="$(field "$f" items)"
+    paths="$(field "$f" paths)"
+    # Old single-line claims (`<worktree> <ISO-timestamp>`, still valid per the protocol) carry no
+    # `started:`; take the timestamp off line 1 rather than writing an empty column.
+    [ -n "$started" ] || started="$(head -1 "$f" | awk '{print $2}')"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$slug" "${agent:-unknown}" "${started:-unknown}" "$items" "$paths"
+  done
+}
+
+committed_rows() {
+  [ -f "$LEDGER" ] || return 0
+  grep -v '^#' "$LEDGER" | grep -v '^[[:space:]]*$' || true
+}
+
+generation() {
+  local g
+  g="$(sed -n 's/^# generation:[[:space:]]*//p' "$LEDGER" 2>/dev/null | head -1)"
+  case "$g" in (''|*[!0-9]*) echo 0 ;; (*) echo "$g" ;; esac
+}
+
+emit() {
+  printf '# generation: %s\n#slug\tagent\tstarted\titems\tpaths\n' "$1"
+  derive_rows | LC_ALL=C sort -t"$(printf '\t')" -k3,3 -k1,1
+}
+
+case "${1:-print}" in
+  print)  emit "$(generation)" ;;
+
+  --write)
+    tmp="$(mktemp "${TMPDIR:-/tmp}/ledger.XXXXXX")"
+    emit "$(( $(generation) + 1 ))" > "$tmp"
+    mv "$tmp" "$LEDGER"
+    printf 'coord-ledger: wrote %s rows to %s\n' "$(derive_rows | grep -c . || true)" "$LEDGER" ;;
+
+  --check)
+    have="$(committed_rows | LC_ALL=C sort)"
+    want="$(derive_rows    | LC_ALL=C sort)"
+    if [ "$have" = "$want" ]; then
+      printf 'coord-ledger: in sync with %s (%s rows)\n' "$ACTIVE" "$(printf '%s' "$want" | grep -c . || true)"
+      exit 0
+    fi
+    # Named per direction, because they mean opposite things and only one has ever happened.
+    orphan="$(comm -23 <(printf '%s\n' "$have" | cut -f1 | LC_ALL=C sort -u) \
+                       <(printf '%s\n' "$want" | cut -f1 | LC_ALL=C sort -u) | grep -v '^$' || true)"
+    missing="$(comm -13 <(printf '%s\n' "$have" | cut -f1 | LC_ALL=C sort -u) \
+                        <(printf '%s\n' "$want" | cut -f1 | LC_ALL=C sort -u) | grep -v '^$' || true)"
+    echo "coord-ledger: LEDGER.tsv does NOT match the claim files" >&2
+    [ -z "$orphan" ]  || { echo "  rows whose claim is GONE (a reader will think these paths are held):" >&2
+                           printf '    %s\n' $orphan >&2; }
+    [ -z "$missing" ] || { echo "  live claims with NO row (invisible to scripts/board):" >&2
+                           printf '    %s\n' $missing >&2; }
+    if [ -z "$orphan" ] && [ -z "$missing" ]; then
+      echo "  same slugs, different CONTENT — a row disagrees with its claim:" >&2
+      diff <(printf '%s\n' "$have") <(printf '%s\n' "$want") >&2 || true
+    fi
+    echo "" >&2
+    echo "  fix: scripts/coord-ledger --write   (then commit .work/active/LEDGER.tsv)" >&2
+    exit 1 ;;
+
+  --self-test)
+    LAB="$(mktemp -d "${TMPDIR:-/tmp}/coord-ledger-st.XXXXXX")"
+    trap 'rm -rf "$LAB"' EXIT HUP INT TERM
+    fail=0
+    ok() { if [ "$2" = "$3" ]; then printf 'PASS  %s\n' "$1"
+           else printf 'FAIL  %s\n        expected: %s\n        got:      %s\n' "$1" "$2" "$3"; fail=1; fi }
+    mkdir -p "$LAB/active"
+    claim() { # claim <slug> <items> <paths>
+      printf 'slug: %s\nbranch: feature/%s\nagent: claude-code\nstarted: 2026-08-10T0%s:00:00Z\nheartbeat: x\nstatus: in-progress\nitems: %s\npaths: %s\nscope: |\n  items: NOT-A-FIELD\nnext: x\n' \
+        "$1" "$1" "${4:-1}" "$2" "$3" > "$LAB/active/$1.claim"
+    }
+    run() { SSC_LEDGER="$LAB/active/LEDGER.tsv" SSC_ACTIVE="$LAB/active" "$ROOT/scripts/coord-ledger" "$@"; }
+
+    claim alpha item-a "file:v2/a.scala" 1
+    claim beta  item-b "file:v2/b.scala" 2
+    run --write > /dev/null
+    ok "derives one row per claim file" "2" "$(run --check >/dev/null 2>&1; grep -vc '^#' "$LAB/active/LEDGER.tsv")"
+    ok "a written ledger checks clean"  "0" "$(run --check >/dev/null 2>&1; echo $?)"
+    # The block-literal trap: `scope:` here contains a line reading `items: NOT-A-FIELD`. Taking the
+    # LAST match, or grepping without an anchor, puts that text in the row — and the pre-push guard
+    # compares that column, so every push by that agent would be refused.
+    ok "a field inside a scope block is not read" "item-a" "$(awk -F'\t' '$1=="alpha"{print $4}' "$LAB/active/LEDGER.tsv")"
+
+    # ── each drift, caught, and named ────────────────────────────────────────────────────────────
+    printf 'ghost\tclaude-code\t2026-08-10T03:00:00Z\titem-g\tfile:v2/g.scala\n' >> "$LAB/active/LEDGER.tsv"
+    out="$(run --check 2>&1 || true)"
+    ok "an orphan row is caught"        "1" "$(run --check >/dev/null 2>&1; echo $?)"
+    ok "and it is named as an orphan"   "yes" "$(case "$out" in *"claim is GONE"*ghost*) echo yes ;; *) echo no ;; esac)"
+
+    run --write > /dev/null   # back in sync
+    grep -v '^beta	' "$LAB/active/LEDGER.tsv" > "$LAB/x" && mv "$LAB/x" "$LAB/active/LEDGER.tsv"
+    out="$(run --check 2>&1 || true)"
+    ok "a live claim with no row is caught" "1" "$(run --check >/dev/null 2>&1; echo $?)"
+    ok "and it is named as missing"         "yes" "$(case "$out" in *"NO row"*beta*) echo yes ;; *) echo no ;; esac)"
+
+    run --write > /dev/null
+    sed -i.bak 's|file:v2/a.scala|file:v2/HIJACKED.scala|' "$LAB/active/LEDGER.tsv" && rm -f "$LAB/active/LEDGER.tsv.bak"
+    out="$(run --check 2>&1 || true)"
+    ok "a row that disagrees with its claim is caught" "1" "$(run --check >/dev/null 2>&1; echo $?)"
+    ok "and the content diff is shown"                 "yes" "$(case "$out" in *"disagrees with its claim"*) echo yes ;; *) echo no ;; esac)"
+
+    # Order alone must NOT be a failure: a red for something that harms nobody trains people to
+    # ignore the check.
+    run --write > /dev/null
+    { head -2 "$LAB/active/LEDGER.tsv"; grep -v '^#' "$LAB/active/LEDGER.tsv" | LC_ALL=C sort -r; } > "$LAB/x"
+    mv "$LAB/x" "$LAB/active/LEDGER.tsv"
+    ok "reordered rows are still in sync" "0" "$(run --check >/dev/null 2>&1; echo $?)"
+
+    ok "generation is preserved and bumped" "yes" \
+       "$(g1=$(sed -n 's/^# generation: //p' "$LAB/active/LEDGER.tsv"); run --write >/dev/null; \
+          g2=$(sed -n 's/^# generation: //p' "$LAB/active/LEDGER.tsv"); [ "$g2" = "$((g1+1))" ] && echo yes || echo no)"
+
+    if [ "$fail" -ne 0 ]; then
+      echo "coord-ledger --self-test: the CHECKER is broken — its verdict about this repo means nothing" >&2
+      exit 1
+    fi
+    echo "coord-ledger --self-test: all checks passed"
+    # …and then the real thing, on the real repo. A self-test that stops here proves only that the
+    # checker works on fixtures, which is how a gate becomes a no-op nobody notices
+    # (bugs-index-gate takes `--self-test` and does exactly this pair).
+    echo ""
+    exec "$0" --check ;;
+
+  *) echo "usage: scripts/coord-ledger [--check|--write|--self-test]" >&2; exit 2 ;;
+esac

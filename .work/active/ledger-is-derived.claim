@@ -7,5 +7,23 @@ status: claimed-before-planning
 items: ledger-rows-outlive-their-claims
 paths: file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  MEASURED on origin/main 2026-08-10: 39 LEDGER rows against 7 claim files. Every one of the 32
+  extras has a release-claim commit, so none is a lost claim -- they are rows that outlived their
+  work. The count has sat near 37 for days, moving +-1 per claim/release, so this is a backlog that
+  never drains, not a spike.
+
+  IT BLOCKS NOBODY, and that is why it survived: the pre-push overlap guard enumerates
+  .work/active/*.claim (pre-push:189) and never reads a row. The damage is to a READER. On this day
+  an agent (me) grepped the ledger for scripts/smoke-ci.ssc, found two rows, concluded the file was
+  held and asked its "holder" to make a change -- both rows were dead. Nothing failed; work was
+  handed away on a stale file.
+
+  THE OTHER DIRECTION has never been checked either and is worse: board walks the ledger's slugs and
+  skips any without a claim file, so a claim whose row is MISSING is invisible on the board.
+
+  FIX, and the project already chose it once: the row is a verbatim copy of claim fields
+  (slug<-filename, agent, started, items, paths), so generate it rather than maintain it -- the same
+  reasoning scripts/board's header sets out for the SPRINT table, ending "the fix is not a better
+  gate, it is not keeping the second copy". scripts/coord-ledger --write/--check/--self-test, the
+  check wired into smoke beside board-generated.
+next: verify smoke green with the new check, then land
