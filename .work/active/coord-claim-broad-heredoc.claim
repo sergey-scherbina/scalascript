@@ -1,0 +1,11 @@
+slug: coord-claim-broad-heredoc
+branch: feature/coord-claim-broad-heredoc
+agent: claude-code
+started: 2026-08-10T16:42:12Z
+heartbeat: 2026-08-10T16:42:12Z
+status: claimed-before-planning
+items: coord-claim-broad-flag-writes-a-claim-its-own-ledger-contradicts
+paths: file:scripts/coord-claim file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
