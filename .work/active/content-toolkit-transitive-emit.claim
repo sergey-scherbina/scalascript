@@ -1,0 +1,11 @@
+slug: content-toolkit-transitive-emit
+branch: feature/content-toolkit-transitive-emit
+agent: claude-code
+started: 2026-08-10T15:52:38Z
+heartbeat: 2026-08-10T15:52:38Z
+status: claimed-before-planning
+items: two tests fail on a generated-JS comparison for a transitively imported content toolkit
+paths: file:v1/runtime/backend/interpreter/src/test/scala/scalascript/JsGenStdImportTest.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/ContentBackendExposureTest.scala BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
