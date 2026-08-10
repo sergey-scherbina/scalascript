@@ -1792,6 +1792,27 @@ object Parser:
         val (o, t) = parseGiven(ts.tail, posOf(ts))
         objects = o :: objects
         ts = t
+      // `extension` — REFUSED BY NAME, in the words the other front already uses.
+      //
+      // It was not refused, it was UNPARSEABLE: `extension (s: String)` reached the expression
+      // parser and stopped at `expected ')', found :`, which names punctuation instead of the
+      // construct — and `extension [A](xs: List[A])` did the same one column further along. The
+      // projection has said `` `extension` is outside SSC3 core Tier 0 `` all along, so the two
+      // fronts refused the same programs while telling the reader different things.
+      //
+      // This is NOT the feature. §51 records an attempt to make extensions work by rewriting
+      // `v.m(a)` to `m(v, a)` wherever `m` is an extension name, and its measurement: `N 188 → 130,
+      // CRASH 0 → 131`, because an extension called `map` rewrote every `.map` in the program. The
+      // conclusion recorded there is that an extension belongs in `Lower`'s dynamic `Invoke`
+      // default — the one point where the merged program AND the receiver's runtime tag are both
+      // known — and that is a separate piece of work, not a wider `else if` here.
+      // Guarded by what FOLLOWS, like `given` and `summon` above: an extension declaration opens
+      // with a receiver clause `(` or a type-parameter list `[`. Refusing the bare word would make
+      // `extension` a hard keyword, and a program with a value of that name stopped working on
+      // this front the moment I tried it — `extension = extension + 1` reported the construct.
+      else if isId(peek(ts), "extension") && ts.tail.nonEmpty &&
+              (isPunct(peek(ts.tail), "(") || isPunct(peek(ts.tail), "[")) then
+        throw ParseFail(posOf(ts), "`extension` is outside SSC3 core Tier 0")
       else if isId(peek(ts), "trait") then
         val (tr, t) = parseTrait(ts.tail, posOf(ts))
         traits = tr :: traits

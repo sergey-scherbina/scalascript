@@ -778,7 +778,27 @@ as 1+2+…+10 = 55 times 300 against the source rather than against itself. Fixt
      lane: v3
      area: front
      kind: gap
-     gate: none -->
+     gate: v3/front-gate.sh -->
+
+**HALF DONE 2026-08-09, and the half matters: the DIAGNOSTIC, not the feature.** `extension` was
+not refused by v3's own front, it was UNPARSEABLE — `extension (s: String)` reached the expression
+parser and stopped at `expected ')', found :`, naming punctuation instead of the construct, and the
+type-parameterised form did the same one column further along. It now refuses BY NAME, in the words
+the projection has used all along: `` `extension` is outside SSC3 core Tier 0 ``, same message, same
+position, both fronts.
+
+**Guarded by what FOLLOWS it.** The first version refused the bare word and made `extension` a hard
+keyword: a program with a value of that name stopped working, and the tell was that the refusal
+pointed at the ASSIGNMENT rather than at a declaration. A declaration opens with `(` or `[`, and
+nothing else is one. No gate would have caught this — the corpus has no such value, and the
+capability gate compares accept/refuse rather than positions.
+
+**THE FEATURE IS STILL OPEN and §51 already says how.** An attempt to make extensions work by
+rewriting `v.m(a)` to `m(v, a)` wherever `m` is an extension name was reverted at
+`N 188 → 130, CRASH 0 → 131`, because an extension called `map` rewrote every `.map` in the
+program. The conclusion recorded there is that an extension belongs in `Lower`'s dynamic `Invoke`
+default — the one point where the merged program AND the receiver's runtime tag are both known.
+Doing that is what turns `actors-bounded-mailbox`, `actors-process-info` and `tagless-multi-file`.
 
 `v1/runtime/std/actors.ssc:182:18: expected ')', found :` — v3's parser takes
 `extension (ref: T)` and not `extension [M](ref: ActorRef[M])`, so the type-parameter list before
