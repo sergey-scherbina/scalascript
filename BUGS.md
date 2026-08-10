@@ -971,11 +971,35 @@ as 1+2+…+10 = 55 times 300 against the source rather than against itself. Fixt
 
 ## v3-extension-type-params — `extension [M](ref: ActorRef[M])` is refused, and it stands between two conformance cases and their module
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: gap
-     gate: v3/front-gate.sh -->
+     gate: v3/extension-gate.sh
+     fixed-in: 10024d732 -->
+
+**Fixed 2026-08-10. N 171 → 194 of 368**, where §51's earlier attempt at the same feature moved it
+188 → 130. Design: [`specs/ssc3-extensions.md`](specs/ssc3-extensions.md).
+
+§51 concluded that *which method a receiver has is a fact about its runtime value, not its syntax*.
+That is right about choosing BETWEEN candidates and too strong for this case: if a name is neither a
+built-in nor declared by any class in the merged program, no receiver can answer to it, and the
+rewrite is not a guess about a type but the absence of alternatives. Three conditions, each able
+only to PREVENT a rewrite, so no call that works today can stop working.
+
+Both fronts desugar an extension into ordinary lifted `Def`s — the receiver becomes the first
+parameter — so `front-diff` compares trees that agree by construction. Both call shapes are covered:
+`"a".boxed` arrives as a `MethodCall`, `3 ~ 4` as a `Bin`.
+
+Three gaps closed on the way, each reachable only once extensions parsed: operator method names,
+Scala's TOP precedence band (`prec` returned 0 for `~` — "not an operator" — and
+`f-tilde-arrow-ext` checks the consequence: `1 <~ 2 ~ 3` is 1203), and numeric separators
+(`30_000`). Prefix `~` desugars to `x ^ -1` on both fronts rather than adding an AST node.
+
+**The costs are filed, not omitted:** `v3-extension-unblocks-two-files-into-a-lane-DIFF` (two files
+now execute and the lanes fail differently) and three DECLARED capability rows, none of which is
+about extensions — UniML now walks past `extension` into parts of those files v3's parser has never
+handled.
 
 **HALF DONE 2026-08-09, and the half matters: the DIAGNOSTIC, not the feature.** `extension` was
 not refused by v3's own front, it was UNPARSEABLE — `extension (s: String)` reached the expression
