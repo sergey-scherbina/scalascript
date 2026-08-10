@@ -18,6 +18,58 @@ private[cli] final case class NativeSourceUnit(
 private[cli] object NativeSourceClosure:
   private val StandaloneImport = """^\s*\[[^]]+\]\(([^)]+[.]ssc)\)\s*$""".r
 
+  // `import std.a.b` INSIDE a fence — the keyword form, which this scanner never saw. It matched
+  // only the Markdown link above, outside fences, so an import naming a module that does not exist
+  // ran to completion with no diagnostic while `[x](std/nosuchmodule.ssc)` reported not-found.
+  // Decided 2026-08-09 by Sergiy: it must say not found.
+  private val KeywordImport = """^\s*import\s+(std(?:[.][A-Za-z_][A-Za-z0-9_]*)+)(?:[.][*])?\s*$""".r
+
+  // SCOPED TO `std.`, AND THAT IS WHAT THE DATA SAYS RATHER THAN A HEDGE. Counted across every
+  // `.ssc` in the repository: of 192 keyword imports, `std` is the ONLY root whose imports land in a
+  // declared package — 18 of 19 do. `scalascript` (95), `scala` (32), `actors` (11), `org` (8),
+  // `nodes` (6), `cluster` (3), `java` (3) resolve to ZERO declared packages, because they are host
+  // or plugin surfaces rather than modules. Holding those to "not found" would refuse twenty-odd
+  // correct lines, which is the compatibility risk the entry was opened for.
+  //
+  // A package is NOT a path here: it is declared in a module's front-matter and the file may sit
+  // anywhere. Checking `std/pdf.ssc` exists is a different question and gives a different answer —
+  // `std.pdf` is declared by `std/pdf-gen.ssc`, so a path check calls a correct import missing.
+  private val PackageDecl = """^\s*package:\s*(\S+)\s*$""".r
+
+  private def declaredPackages(stdRoot: File): Set[String] =
+    val out = mutable.HashSet.empty[String]
+    def walk(d: File): Unit =
+      val kids = d.listFiles()
+      if kids != null then kids.foreach { f =>
+        if f.isDirectory then walk(f)
+        else if f.getName.endsWith(".ssc") then
+          // Front matter only: the `package:` key is in the leading `---` block, and reading the
+          // whole file would also match the word inside prose or a fence.
+          val lines = Files.readAllLines(f.toPath, StandardCharsets.UTF_8)
+          var i = 0
+          var seenOpen = false
+          var done = false
+          while i < lines.size && i < 40 && !done do
+            val t = lines.get(i).trim
+            if t == "---" then { if seenOpen then done = true else seenOpen = true }
+            else if seenOpen then t match
+              case PackageDecl(p) => out += p
+              case _              => ()
+            i += 1
+      }
+    if stdRoot.isDirectory then walk(stdRoot)
+    out.toSet
+
+  /** Does anything provide `mod`? A package is provided when it is declared, when it is an ANCESTOR
+    * of a declared one (`std.ui` is real if `std.ui.form` is), or when the import names a MEMBER of
+    * a declared package (`import std.json.parse`). Anything else is not found. */
+  private def isProvided(mod: String, declared: Set[String]): Boolean =
+    declared.contains(mod) ||
+    declared.exists(_.startsWith(mod + ".")) ||
+    (mod.lastIndexOf('.') match
+      case -1 => false
+      case n  => declared.contains(mod.substring(0, n)))
+
   def resolve(roots: List[File], stdRoot: File, libRoot: File): List[NativeSourceUnit] =
     val seen = mutable.HashSet.empty[String]
     val result = mutable.ListBuffer.empty[NativeSourceUnit]
@@ -46,7 +98,22 @@ private[cli] object NativeSourceClosure:
       }
       result += NativeSourceUnit(root, normalizeDisplay(display), explicitRoot = true)
     }
-    result.toList
+    val units = result.toList
+    // ONCE, over the finished closure, and only if some file actually uses the keyword form —
+    // `declaredPackages` walks the std tree, and a program that never writes `import std.…` should
+    // not pay for it.
+    val keyworded = units.map(u => u.file -> keywordImports(u.file)).filter(_._2.nonEmpty)
+    if keyworded.nonEmpty then
+      val declared = declaredPackages(stdRoot)
+      keyworded.foreach { case (file, mods) =>
+        mods.foreach { mod =>
+          if !isProvided(mod, declared) then
+            throw new java.io.FileNotFoundException(
+              s"native frontend import not found: $mod from ${file.getName} — no module declares " +
+              s"`package: $mod`")
+        }
+      }
+    units
 
   private def resolveImport(
       importer: File,
@@ -95,6 +162,32 @@ private[cli] object NativeSourceClosure:
         case _                      => ()
       index += 1
     result.toList
+
+  /** The keyword form, which is CODE rather than a Markdown link — so it lives inside a fence, or
+    * anywhere in a file that has no fences at all.
+    *
+    * THAT SECOND CASE IS NOT AN EDGE. Fences are optional: a bare `.ssc` is code from the first line,
+    * and both this repository's own probe and `tests/e2e/keyword-import-missing-module.sh` write
+    * exactly that shape. A first cut of this scanner matched only inside fences and therefore saw
+    * nothing in the very file the gate uses — it compiled, it looked right, and it did not fire. */
+  private def keywordImports(file: File): List[String] =
+    val lines = Files.readAllLines(file.toPath, StandardCharsets.UTF_8)
+    var fenced = false
+    var i = 0
+    while i < lines.size && !fenced do
+      if lines.get(i).trim.startsWith("```") then fenced = true
+      i += 1
+    val result = mutable.ListBuffer.empty[String]
+    var inFence = false
+    var index = 0
+    while index < lines.size do
+      val trimmed = lines.get(index).trim
+      if trimmed.startsWith("```") then inFence = !inFence
+      else if inFence || !fenced then trimmed match
+        case KeywordImport(mod) => result += mod
+        case _                  => ()
+      index += 1
+    result.toList.distinct
 
   private def normalizeDisplay(path: String): String =
     val absolute = path.startsWith("/")

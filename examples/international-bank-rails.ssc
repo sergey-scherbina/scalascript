@@ -5,7 +5,11 @@
 > UETR generation, GPI trail inspection, and charge bearer selection.
 
 ```scalascript
-import std.payments.swift.*
+// `import std.payments.swift.*` stood here and named a package that does not exist: `SwiftProvider`
+// and `SwiftConfig` come from the swift PLUGIN (payments/processors/swift), which registers bare
+// names, and nothing declares `package: std.payments.swift`. Removing it cannot change behaviour —
+// the native front never recognised the keyword form as an import at all, so the line was already
+// a no-op. It is gone rather than corrected because there is no module to point it at.
 
 // ── SWIFT pacs.008 (ISO 20022 CBPR+ — preferred for new integrations) ─────────
 

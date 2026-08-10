@@ -32,10 +32,33 @@ printf 'import std.nosuchmodule_9d4f.anything\n\ndef main() =\n  println("ran")\
 printf '[anything](std/nosuchmodule_9d4f.ssc)\n\ndef main() =\n  println("ran")\n'  > "$tmp/link.ssc"
 
 kw_out=$(SSC_NO_BUILD_CHECK=1 timeout 180 "$V2" run --v2 "$tmp/kw.ssc" 2>&1 </dev/null || true)
-if [[ $kw_out != *ran* ]]; then
-  echo 'keyword-import-missing-module: the KEYWORD form no longer runs silently.' >&2
-  echo '  That may well be the intended fix — update this gate and the BUGS entry together.' >&2
+if [[ $kw_out != *"import not found"* ]]; then
+  echo 'keyword-import-missing-module: the KEYWORD form stopped reporting a missing module.' >&2
+  echo '  It reported one from 2026-08-10; going quiet again is a regression, not a decision.' >&2
   echo "--- got" >&2; printf '%s\n' "$kw_out" >&2
+  exit 1
+fi
+
+# THE TWO SIDES THE DIAGNOSTIC MUST NOT TOUCH, and they are the whole reason it is scoped to `std.`.
+# Counted across every `.ssc` in the repo before implementing: `std` is the ONLY import root whose
+# names land in a declared package (18 of 19). `scalascript` (95 imports), `scala` (32), `actors`
+# (11), `org` (8), `java` (3) resolve to ZERO — they are host and plugin surfaces, not modules, and
+# holding them to "not found" would refuse twenty-odd correct lines.
+printf 'import scala.concurrent.Await\nimport actors.Overflow\n\ndef main() =\n  println("host-silent")\n' > "$tmp/host.ssc"
+host_out=$(SSC_NO_BUILD_CHECK=1 timeout 180 "$V2" run --v2 "$tmp/host.ssc" 2>&1 </dev/null || true)
+if [[ $host_out != *host-silent* ]]; then
+  echo 'keyword-import-missing-module: a HOST or PLUGIN root was refused.' >&2
+  echo '  Those namespaces are not modules and must stay silent; the check is scoped to `std.`.' >&2
+  echo "--- got" >&2; printf '%s\n' "$host_out" >&2
+  exit 1
+fi
+
+# …and a REAL std module must still import. Without this the check could pass by refusing everything.
+printf 'import std.crypto.*\n\ndef main() =\n  println("std-ok")\n' > "$tmp/real.ssc"
+real_out=$(SSC_NO_BUILD_CHECK=1 timeout 180 "$V2" run --v2 "$tmp/real.ssc" 2>&1 </dev/null || true)
+if [[ $real_out != *std-ok* ]]; then
+  echo 'keyword-import-missing-module: a DECLARED std package was refused.' >&2
+  echo "--- got" >&2; printf '%s\n' "$real_out" >&2
   exit 1
 fi
 
@@ -47,4 +70,4 @@ if [[ $link_out != *"import not found"* ]]; then
   exit 1
 fi
 
-echo 'PASS keyword-import-missing-module (keyword form SILENT, link form reports — divergence pinned)'
+echo 'PASS keyword-import-missing-module (both forms report; host/plugin roots and real std packages untouched)'
