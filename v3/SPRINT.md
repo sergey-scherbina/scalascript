@@ -2495,6 +2495,27 @@ were read. A host that had merely quietened down would have moved all three.
 the per-call frame that `recursion-fib` just pointed at. **The frame is now the named next target,
 by measurement rather than by taste.**
 
+- [x] **SSC3-J2 — the closure lane exists, is SLOWER, and is kept for a different reason.**
+      `e4dc0e94a`. Each `Func` compiles once into an `Array[Op]`, `Op = Array[Value] => Signal`;
+      an opcode the compiler does not specialize delegates to `Exec.stepOne`, so coverage is
+      complete from the first commit and there is no bail list.
+      **Measured, 8 alternating pairs per workload, one binary:** `arith-loop` 110.3 → 171.8 ms,
+      closures won **1 of 8** (~1.56× SLOWER, p ≈ 0.035 in the direction opposite to the one
+      intended); `nested-loop` 211.4 → 256.7, 2 of 8; `list-fold` unchanged at 4 of 8 — the control,
+      because it is `invoke`-bound and the lane delegates `Invoke`.
+      **Why, and it is a lesson about baselines:** "compile to closures beats a tree-walker" assumes
+      the walker pays a switch plus an operand decode per instruction, and **J0c had already removed
+      that** — `step` is 236 bytes, inlined into `exec`, and its match over a sealed `Instr` is a
+      tableswitch. `ops(i)(regs)` is a MEGAMORPHIC call site instead. The optimization was designed
+      against a baseline that had stopped existing four commits earlier.
+      **Kept behind `--closures`, default off, for the DIFFERENTIAL:** a second execution strategy
+      over one IR, with `--identity` running every program both ways. Proven to discriminate —
+      swapping `Bin`'s operands in the compiler turned **14 of 73** programs red, each naming the
+      closure lane, the rest green.
+      *For whoever retries it:* the array-of-closures dispatch is what lost. A CHAINED design, each
+      closure calling its successor instead of returning to a loop, is what the literature actually
+      measures. Different experiment, not a tweak.
+
 ## 50 · Tier 2, un-deferred — and the first thing to establish is that it is not ONE thing
 
 Sergiy lifted the Tier 2 deferral. Before planning anything, the charter's own grouping needed

@@ -186,6 +186,45 @@ credits with finding 8 defects in UniML, applied to the executor itself.
 call, so `recursion-fib` is expected not to move — the same control that made the J0 numbers mean
 something, kept deliberately for J2.
 
+#### J2 was MEASURED SLOWER, and the reason is J0c — 2026-08-10
+
+Everything above is the design as it was reasoned. The measurement disagreed with it, so the
+paragraph that predicted a win is corrected here rather than deleted, because the prediction and its
+refutation are the useful pair.
+
+8 alternating pairs per workload, one binary, `--closures` against the default:
+
+| workload | closures | tree-walker | closures won | result |
+|---|---|---|---|---|
+| `arith-loop` | 171.8 ms | 110.3 | **1 of 8** | **~1.56× SLOWER** |
+| `nested-loop` | 256.7 ms | 211.4 | 2 of 8 | ~1.21× slower |
+| `list-fold` | 40.8 ms | 39.5 | 4 of 8 | unchanged |
+
+1 of 8 is significant in the direction opposite to the one intended (sign test, p ≈ 0.035), and the
+third row is the control that makes the other two credible at a host load of 69–96: `list-fold` is
+`invoke`-bound, the closure lane DELEGATES `Invoke`, so that row could not move and did not.
+
+**The mechanism, and it is a lesson about baselines rather than about closures.** "Compile to
+closures beats a tree-walker" assumes the tree-walker pays a switch dispatch plus an operand decode
+per instruction. **J0c removed exactly that**: `step` is 236 bytes and INLINED into `exec`, and its
+match over a sealed `Instr` compiles to a tableswitch — one hot, well-predicted path. The closure
+lane replaces that with `ops(i)(regs)`, a **megamorphic** call site: dozens of distinct closure
+classes reach it, so HotSpot cannot inline it and dispatches through a vtable, and each region
+closure adds a frame on top. The optimization was designed against a baseline that no longer
+existed by the time it was written.
+
+**Kept anyway, and not out of sentiment.** The lane's second property is independent of its speed:
+it is a SECOND EXECUTION STRATEGY over the same IR, and `jit-gate.sh --identity` now runs every
+program both ways and compares bytes. That differential is proven to discriminate — swapping the two
+operands of `Bin` in the compiler alone turned **14 of 73** programs red, each naming the closure
+lane, while the rest stayed green. A correctness net that selective is worth more than the lane's
+lost 1.5×, and it costs nothing when the flag is off.
+
+**For whoever retries this:** the array-of-closures dispatch is the part that lost. A CHAINED
+design — each closure calling its successor directly instead of returning to a loop — gives the JIT
+a monomorphic-per-site call and is the shape the literature actually measures. That is a different
+experiment, not a tweak to this one.
+
 ### J3 · Host bytecode behind a by-name seam — a separate decision
 
 The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,
