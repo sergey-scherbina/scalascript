@@ -1,4 +1,4 @@
-# generation: 1498
+# generation: 1499
 #slug	agent	started	items	paths
 rust-type-lost-at-boundary	claude-code	2026-08-10T07:53:05Z	type-lost-across-a-boundary	mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:INBOX.md
 rozum-agent-and-double-run	claude-code	2026-08-10T07:36:11Z	rozum-agent-family-v2-diverges-again rozum-agent-schema-derived-js-and-v2-gaps trailing-main-call-runs-twice	file:v2/BUGS.md file:tests/BUGS.md file:tests/e2e/trailing-main-call-runs-once.sh file:tests/e2e/launcher-set-complete.sh
@@ -28,3 +28,4 @@ ssc3-j2-closures	claude-code	2026-08-10T06:45:51Z	SSC3-J2	file:v3/src/Compile.sc
 main-red-and-gate-wiring	claude-code	2026-08-10T06:53:42Z	main-red-and-gate-wiring	file:BUGS.md file:.github/workflows/ci.yml
 f-app-not-a-function	claude-code	2026-08-10T07:03:25Z	scljet-app-not-a-function-after-the-concat-fix	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/bytecode-fallback-visible.sh file:tests/e2e/f-alternative-pattern-gate.sh
 mcp-p3a-mrtr-wire	claude-code	2026-08-10T07:52:41Z	mcp-2026-07-28 P3a	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
+v3-method-as-a-value	claude-code	2026-08-10T07:53:57Z	v3-method-as-a-value	file:v3/src/Ast.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/tests/front/eta-expansion.ssc file:v3/tests/front/eta-expansion.expected file:v3/tests/front/eta-arity-error.ssc file:BUGS.md
