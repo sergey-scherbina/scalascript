@@ -413,7 +413,7 @@ and why is in `uniml/BACKLOG.md`; this was noticed on the way.
      area: build
      kind: bug
      gate: none
-     fixed-in: PENDING -->
+     fixed-in: bf68b9eed -->
 
 **FIXED 2026-08-10 — and `kind` moved from `friction` to `bug`, because tracing it found the same
 mistake pointing the other way, where it is dangerous.** The exclusions matched the FIRST path
