@@ -5,7 +5,7 @@ started: 2026-08-10T14:48:34Z
 heartbeat: 2026-08-10T14:48:34Z
 status: claimed-before-planning
 items: v3-handle-has-no-return-clause SSC3-E1
-paths: file:v3/src/Exec.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/src/Ast.scala file:v3/uniml/UniFront.scala file:v3/tests/front/handle-return.ssc file:v3/tests/front/handle-return.expected file:v3/SPRINT.md file:BUGS.md
+paths: file:v3/src/Exec.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/src/Ast.scala file:v3/uniml/UniFront.scala file:v3/tests/effects file:v3/effects-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
