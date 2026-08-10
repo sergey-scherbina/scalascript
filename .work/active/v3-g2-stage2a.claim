@@ -5,7 +5,7 @@ started: 2026-08-10T09:28:33Z
 heartbeat: 2026-08-10T09:28:33Z
 status: claimed-before-planning
 items: SSC3-G2-stage2a using-params context-bounds first-order-resolution
-paths: file:v3/src/Ast.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/tests/front/using-resolve.ssc file:v3/tests/front/using-resolve.expected file:v3/tests/front/using-hk-refused.ssc file:v3/SPRINT.md file:BUGS.md
+paths: file:v3/src/Ast.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/front-capability-gate.sh file:v3/tests/front-capability/using-param.ssc file:v3/tests/front/using-resolve.ssc file:v3/tests/front/using-resolve.expected file:v3/tests/front/using-hk-refused.ssc file:v3/SPRINT.md file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
