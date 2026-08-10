@@ -73,9 +73,51 @@ is_excluded_top() {
   return 1
 }
 
+# Directory names that are documents or corpora WHEREVER THEY SIT, not only at the root. The
+# exclusions above were matched against the FIRST path component only, so `specs/` was excluded and
+# `v3/specs/` was not: a sibling landing three markdown files under `v3/specs/` changed the digest
+# and cost the next agent who rebased a full `./install.sh --dev` before smoke-ci would say anything.
+# Measured 2026-08-06 on e4cc9f706, a commit that touches three `.md` files and nothing else.
+NESTED_DOC_DIRS=(docs site specs bench releases scratch examples tests .work .github .agents)
+
+has_doc_component() {
+  local path="$1" comp part
+  while [[ "$path" == */* ]]; do
+    comp="${path%%/*}"; path="${path#*/}"
+    for part in "${NESTED_DOC_DIRS[@]}"; do
+      [[ "$comp" == "$part" ]] && return 0
+    done
+  done
+  return 1
+}
+
+# …and the exception that goes the other way, which is the more dangerous half. `specs/` is excluded
+# because it is 421 markdown files, 247 `.out` fixtures and a dozen shell scripts — and ONE compiler
+# source: `specs/v2.2-p6.5-fsub.ssc`, the F front, staged byte-identical to
+# `bin/lib/*/native-front/tower/bin/fsub.ssc`. MEASURED 2026-08-10: appending a line to it did not
+# move the digest at all.
+#
+# That is not the friction this entry was filed about, it is the reverse and it is worse: smoke-ci's
+# staleness refusal could not see a change to the DEFAULT FRONT, so an edited F ran as the old F and
+# reported green. Since 2026-08-09 two more things key on this digest — the shared toolchain cache and
+# the conformance memo — so the hole had grown from "a stale verdict" to "a cache serving the previous
+# front to every worktree".
+#
+# Scoped to `.ssc`/`.ssc0` DIRECTLY under `specs/`, not to that extension anywhere: `tests/` holds
+# ~400 corpus cases which are data the launcher reads, and re-including those would rebuild on every
+# case edit. Today exactly one file matches; the rule is written so a second one would be picked up
+# automatically rather than needing to be noticed.
+is_staged_source_under_excluded_dir() {
+  local path="$1"
+  [[ "$path" == specs/*.ssc || "$path" == specs/*.ssc0 ]] && return 0
+  return 1
+}
+
 is_excluded_path() {
   local path="$1" base="${1##*/}" excluded
+  is_staged_source_under_excluded_dir "$path" && return 1
   is_excluded_top "${path%%/*}" && return 0
+  has_doc_component "$path" && return 0
   for excluded in "${EXCLUDE_BASENAME[@]}"; do
     [[ "$base" == "$excluded" ]] && return 0
   done
@@ -84,7 +126,13 @@ is_excluded_path() {
 
 included=()
 while IFS=$'\t' read -r _meta path; do
-  is_excluded_top "$path" || included+=("$path")
+  # `specs/` is excluded as a TOP-LEVEL tree but now contributes one file, so it must survive this
+  # pass to be walked; `is_excluded_path` makes the per-file decision below.
+  if is_excluded_top "$path"; then
+    [[ "$path" == specs ]] && included+=("$path")
+  else
+    included+=("$path")
+  fi
 done < <(git ls-tree HEAD)
 
 if [[ ${#included[@]} -eq 0 ]]; then

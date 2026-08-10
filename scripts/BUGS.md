@@ -408,12 +408,44 @@ and why is in `uniml/BACKLOG.md`; this was noticed on the way.
 
 ## launcher-digest-includes-nested-specs-so-a-doc-commit-forces-a-rebuild
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     kind: friction
+     kind: bug
      gate: none
-     fixed-in: - -->
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-10 — and `kind` moved from `friction` to `bug`, because tracing it found the same
+mistake pointing the other way, where it is dangerous.** The exclusions matched the FIRST path
+component only. That is why `v3/specs/*.md` forced rebuilds. It is also why
+**`specs/v2.2-p6.5-fsub.ssc` — the F FRONT — was not in the digest at all.**
+
+Measured: appending a line to the front left the digest unchanged, while
+`bin/lib/*/native-front/tower/bin/fsub.ssc` is byte-identical to it. So `smoke-ci`'s staleness
+refusal could not see a change to the DEFAULT FRONT: an edited F ran as the old F and the suite
+reported green. Since 2026-08-09 two more things key on this digest — the shared toolchain cache and
+the conformance memo — so by the time it was found the hole served the previous front to every
+worktree that hit the cache.
+
+Both halves fixed in `is_excluded_path`: the doc and corpus directory names are matched at ANY depth
+now, and `.ssc`/`.ssc0` directly under `specs/` are exempted from the exclusion. The exemption is
+scoped rather than by extension because `tests/` holds ~400 corpus cases that are data the launcher
+READS — re-including those would rebuild on every case edit, which is the friction this entry was
+filed about, reintroduced.
+
+**Six controls, because two of them are the ones that make it wrong in the other direction:**
+
+| edit | digest | |
+| --- | --- | --- |
+| `specs/v2.2-p6.5-fsub.ssc` (the F front) | changes | the hole, closed |
+| a compiler source under `v1/` | changes | control |
+| a template `README.md` under `src/main/resources` | **changes** | this file's own warning: sbt packages it into the jar |
+| `v3/specs/*.md` | unchanged | the filed friction |
+| top-level `specs/*.md` | unchanged | |
+| a `tests/conformance/*.ssc` case | unchanged | corpus is data, not code |
+
+Today exactly one file matches the exemption; the rule is written so a second would be picked up
+without anyone noticing it needed to be.
 
 `scripts/smoke-ci` refuses to run against a launcher built from different sources than the tree, and
 that refusal is right — a verdict from a stale toolchain is a verdict about the wrong code. What is
