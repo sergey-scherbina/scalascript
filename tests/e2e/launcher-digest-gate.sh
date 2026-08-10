@@ -155,6 +155,19 @@ included_case untracked-new-source v1/lang/core/src/main/scala/__digest_probe.sc
 included_case packaged-markdown-resource v1/tools/cli/src/main/resources/templates/app/README.md \
   bash -c 'printf "\nlauncher-digest-gate probe\n" >> v1/tools/cli/src/main/resources/templates/app/README.md'
 
+# THE DEFAULT FRONT. `specs/` is on the exclusion list because it holds ~420 `.md` documents, and
+# for eight days that swallowed `specs/v2.2-p6.5-fsub.ssc` with them -- the F front, which
+# `install.sh` stages verbatim into `bin/lib/*/native-front/tower/bin/fsub.ssc`. Measured: appending
+# a line to the front left the digest unchanged, so smoke-ci's staleness refusal could not see a
+# change to the compiler EVERY default-lane check runs, and an edited F reported green as the old F.
+# This case is here rather than in the entry because the exclusion is by DIRECTORY and the file is a
+# single exception inside it -- exactly the shape that gets re-broken by someone tidying the list.
+front_f=specs/v2.2-p6.5-fsub.ssc
+( cd "$WT" && git ls-files --error-unmatch "$front_f" ) >/dev/null 2>&1 \
+  || fail front-fixture-missing "$front_f is not tracked -- the default front moved, and the case below would test nothing"
+included_case default-front "$front_f" \
+  bash -c 'printf "\n// launcher-digest-gate probe\n" >> specs/v2.2-p6.5-fsub.ssc'
+
 # ── BENEFIT: an excluded path must not move the digest ────────────────────────
 # This is what buys the cache hit. A docs or board commit is the majority of this repository's
 # traffic (measured 2026-07-28: 43 of 58 run-creating commits in one hour touched only `.md` or
@@ -191,6 +204,13 @@ excluded_case module-board-sprint scripts/SPRINT.md \
   bash -c 'printf "\n- [ ] launcher-digest-gate probe\n" >> scripts/SPRINT.md'
 excluded_case module-board-bugs v2/BUGS.md \
   bash -c 'printf "\nlauncher-digest-gate probe\n" >> v2/BUGS.md'
+
+# A doc tree NESTED inside an included one. The exclusions used to match the FIRST path component
+# only, so `specs/` was skipped and `v3/specs/` was not, and a docs-only commit there paid a full
+# launcher build. Same defect as the front case above, pointing the other way: one list, two
+# directions, so the gate keeps one case for each.
+excluded_case nested-doc-tree v3/specs/00-charter.md \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> v3/specs/00-charter.md'
 
 # The PREMISE of excluding those names: none of them is ever a packaged resource. Checked against the
 # tree rather than asserted in a comment, so the day someone adds `templates/foo/BUGS.md` to the cli
