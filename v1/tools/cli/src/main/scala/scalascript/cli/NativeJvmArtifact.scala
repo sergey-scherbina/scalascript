@@ -205,10 +205,18 @@ private[cli] object NativeJvmArtifact:
     // `run --bytecode` native lane (see ssc.bytecode.OpAnfNative).
     val lifted = _root_.ssc.bytecode.OpAnfNative.lift(program)
     val sourceDebug = NativeJvmSourceMap.build(lifted, sourceUnits)
-    add(
-      EntryClass,
-      _root_.ssc.bytecode.JvmByteGen.emitProgram(lifted, sourceDebug),
-      "generated CoreIR class")
+    // EVERY emitted class, not just the entry. A program large enough to spill into
+    // `ssc/gen/Entry$1` and beyond would otherwise produce a JAR that loads and then dies at the
+    // first call into the missing sibling — a run-time NoClassDefFoundError from a build that
+    // reported success. The entry keeps its fixed name because the manifest's Main-Class points at
+    // it; the siblings take theirs from the emitter.
+    val emitted = _root_.ssc.bytecode.JvmByteGen.emitProgram(lifted, sourceDebug)
+    emitted.classes.foreach { (internalName, bytes) =>
+      val path = s"$internalName.class"
+      add(path, bytes,
+          if path == EntryClass then "generated CoreIR class"
+          else "generated CoreIR class (spilled)")
+    }
 
     Option(output.getParentFile).foreach(parent => Files.createDirectories(parent.toPath))
     val out = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(output)))

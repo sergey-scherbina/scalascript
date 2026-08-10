@@ -599,7 +599,7 @@ object RunNativeV2:
     // certified bytecode/VM parity for a program the bytecode backend never compiled. The note goes
     // to stderr, never stdout, so output comparisons are unaffected; the sweep keys on it to
     // classify the case honestly. See BUGS.md `scljet-jdbc-facade-bytecode-class-too-large`.
-    val bytecode: Option[Array[Byte]] =
+    val bytecode: Option[_root_.ssc.bytecode.JvmByteGen.Emitted] =
       try Some(_root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog)))
       catch
         case e: _root_.ssc.bytecode.Unsupported =>

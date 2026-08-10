@@ -168,10 +168,60 @@ object JvmByteGen:
       val s = tc.capDepth + extra
       (tc.targets.map { case (k, v) => (k + s) -> v }, tc.frameArity + s)
 
-  private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug]):
+  /** Methods per class before the emitter spills into a sibling.
+    *
+    *  A JVM constant pool holds 65535 entries and each method spends a name, a descriptor and a
+    *  methodref, so ~29 000 methods is 60-90 k and `ClassTooLargeException` — measured, with the
+    *  numbers and the whole table in `v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large`:
+    *  `scljet-crud` emits at 13 672 methods, `scljet-hello` and `scljet-unique-index` throw at
+    *  ~29 460. 12 000 keeps every class comfortably below the row that is known to fit, and is low
+    *  enough that the corpus EXERCISES the spill rather than leaving it dead code for two examples.
+    */
+  private val ClassChunk = 12000
+
+  /** `spill` is OFF for the JIT and ON for the whole-program lane, and that asymmetry is required.
+    *  `emitUnit` names its class `ssc/gen/Entry` as well but returns a SINGLE `Array[Byte]`, so a
+    *  spilled sibling would be generated, dropped on the floor, and then fail at run time with
+    *  `NoClassDefFoundError` — a fail-open shape, and the JIT is the one caller that cannot report
+    *  it. A JIT unit compiles one `Lam` body and comes nowhere near 12 000 methods, but "it will not
+    *  happen in practice" is not a guard; this is. */
+  private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug],
+                          val spill: Boolean = false):
     val pending = collection.mutable.Queue.empty[Pending]
     var lamIdx = 0
     def freshLam(): String = { lamIdx += 1; s"lam$$$lamIdx" }
+
+    // ── the spill ────────────────────────────────────────────────────────────────────────────────
+    //
+    // THE OWNER IS A FUNCTION OF THE NAME, and it has to be: a call is often emitted BEFORE the
+    // method it targets exists (a deferred lambda body, a forward self-call), so a table populated
+    // at definition time would be consulted empty. Every generated name comes from `freshLam()` as
+    // `lam$N`; the sole exception is the long-specialised twin `lam$N$long`, which is mapped onto
+    // its BASE so a method and its specialisation never land in different classes.
+    //
+    // Everything else — `main`, `install`, `install$k`, `entry`, the `callees` field — stays in
+    // `Entry` by falling through, which is what keeps `runProgram` and the persisted artifact
+    // calling the same two names they always have.
+    val auxCws = collection.mutable.LinkedHashMap.empty[String, ClassWriter]
+    def ownerFor(m: String): String =
+      val base = if m.endsWith("$long") then m.dropRight(5) else m
+      if !spill || !base.startsWith("lam$") then GEN
+      else base.drop(4).toIntOption match
+        case Some(n) =>
+          val bucket = (n - 1) / ClassChunk
+          if bucket == 0 then GEN else s"$GEN$$$bucket"
+        case None => GEN
+    def writerFor(m: String): ClassWriter =
+      val owner = ownerFor(m)
+      if owner == GEN then cw
+      else auxCws.getOrElseUpdate(owner, {
+        val w = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+        w.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, owner, null, OBJ, null)
+        w
+      })
+    /** A spilled method is called from ANOTHER class, so it cannot be private. */
+    def accessFor(m: String, preferred: Int): Int =
+      if ownerFor(m) == GEN then preferred else (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC)
     /** `SSC_GEN_STATS=1` — what this class is made of, printed when emission finishes or throws.
      *
      *  `ClassTooLargeException` names no number: it means the CONSTANT POOL passed 65535 entries,
@@ -231,19 +281,31 @@ object JvmByteGen:
     def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
     def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
 
-  def emitProgram(p: Program): Array[Byte] = emitProgram(p, None)
+  /** Every class the program compiled to: `ssc/gen/Entry` first, then any spilled sibling.
+    *
+    *  A `Seq` and not an `Array[Byte]`, and the old single-value signature is GONE rather than kept
+    *  as a convenience: a caller that took the head and dropped the rest would produce a JAR or a
+    *  loader that works for every program small enough to fit one class and fails at RUN TIME, with
+    *  `NoClassDefFoundError`, on exactly the large ones this split exists for. Making the compiler
+    *  reject those call sites is the point. */
+  final case class Emitted(classes: Seq[(String, Array[Byte])]):
+    /** Internal name of the entry class, e.g. `ssc/gen/Entry`. */
+    def entryInternalName: String = classes.head._1
+    def entryBytes: Array[Byte] = classes.head._2
 
-  def emitProgram(p: Program, sourceDebug: JvmSourceDebug): Array[Byte] =
+  def emitProgram(p: Program): Emitted = emitProgram(p, None)
+
+  def emitProgram(p: Program, sourceDebug: JvmSourceDebug): Emitted =
     emitProgram(p, Some(sourceDebug))
 
   private val genStats: Boolean =
     sys.env.get("SSC_GEN_STATS").exists(v => v != "" && v != "0" && v != "off")
 
-  private def emitProgram(p: Program, sourceDebug: Option[JvmSourceDebug]): Array[Byte] =
+  private def emitProgram(p: Program, sourceDebug: Option[JvmSourceDebug]): Emitted =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, GEN, null, OBJ, null)
     sourceDebug.foreach(debug => cw.visitSource(debug.sourceFile, debug.smap))
-    val g = new Gen(cw, sourceDebug)
+    val g = new Gen(cw, sourceDebug, spill = true)
     // Reported on BOTH exits via `finally` below. The ONLY run whose numbers matter is the one that
     // THROWS, and a stats line on the success path alone would print for exactly the programs that
     // do not need sizing.
@@ -366,7 +428,7 @@ object JvmByteGen:
           installMv.visitLdcInsn(ar)
           installMv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
             AsmType.getType(s"([L$VAL;)L$VAL;"),
-            new Handle(Opcodes.H_INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false),
+            new Handle(Opcodes.H_INVOKESTATIC, g.ownerFor(m), m, s"([L$VAL;)L$VAL;", false),
             AsmType.getType(s"([L$VAL;)L$VAL;"))
           installMv.visitInsn(Opcodes.ICONST_0)
           installMv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
@@ -405,8 +467,13 @@ object JvmByteGen:
     // `try/finally`, not a line after the return: the ONLY run whose numbers matter is the one that
     // THROWS `ClassTooLargeException`, and `toByteArray` is where ASM discovers the pool is full.
     // Reporting on success alone would print for exactly the programs that do not need sizing.
-    try dump("aot-program", cw.toByteArray)
-    finally reportStats(if genStats then "done" else "")
+    // The spilled siblings are closed HERE, after `drainPending` — a body emitted late can create a
+    // new bucket, so closing them earlier would truncate the last one.
+    g.auxCws.values.foreach(_.visitEnd())
+    try
+      val entry = dump("aot-program", cw.toByteArray)
+      Emitted((GEN, entry) +: g.auxCws.toSeq.map((name, w) => (name, w.toByteArray)))
+    finally reportStats(if genStats then s"classes=${1 + g.auxCws.size}" else "")
 
   /** Emit every deferred body until nothing is left; each may enqueue more. Shared with the JIT's
     * single-unit path (`emitUnit`) so both go through the SAME emitter — the fragmented-coverage
@@ -537,7 +604,7 @@ object JvmByteGen:
                            rhs: List[Term], body: Term, tl: Boolean,
                            sourceLine: Option[Int], tc: TailCtx): Unit =
     rhs.zipWithIndex.foreach { (r, i) =>
-      val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, steps(i), s"([L$VAL;)L$VAL;", null, null)
+      val mv = g.writerFor(steps(i)).visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, steps(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
       val ctx = new Ctx(mv, g)
       sourceLine.foreach(line => markLine(ctx, line))
@@ -558,12 +625,12 @@ object JvmByteGen:
       mv.visitVarInsn(Opcodes.ALOAD, 0)
       mv.visitVarInsn(Opcodes.ALOAD, vSlot)
       mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "extend1", s"([L$VAL;L$VAL;)[L$VAL;", false)
-      mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, next, s"([L$VAL;)L$VAL;", false)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, g.ownerFor(next), next, s"([L$VAL;)L$VAL;", false)
       mv.visitInsn(Opcodes.ARETURN)
       mv.visitMaxs(0, 0)
       mv.visitEnd()
     }
-    val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, bodyName, s"([L$VAL;)L$VAL;", null, null)
+    val mv = g.writerFor(bodyName).visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, bodyName, s"([L$VAL;)L$VAL;", null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
     // The body runs on env = captured(base + capDepth) ++ (rhs.length let-slots), so shift the local-tail
@@ -590,7 +657,7 @@ object JvmByteGen:
     val (st, sfa) = shiftTailCtx(tc, 0)
     ts.zipWithIndex.foreach { (stmt, i) =>
       val last = i == ts.length - 1
-      val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, names(i), s"([L$VAL;)L$VAL;", null, null)
+      val mv = g.writerFor(names(i)).visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, names(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
       val ctx = new Ctx(mv, g)
       ctx.localTailTargets = st; ctx.localFrameArity = sfa
@@ -609,7 +676,7 @@ object JvmByteGen:
         mv.visitLabel(contL)
         mv.visitInsn(Opcodes.POP)
         mv.visitVarInsn(Opcodes.ALOAD, 0)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, names(i + 1), s"([L$VAL;)L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, g.ownerFor(names(i + 1)), names(i + 1), s"([L$VAL;)L$VAL;", false)
       mv.visitInsn(Opcodes.ARETURN)
       mv.visitMaxs(0, 0)
       mv.visitEnd()
@@ -623,7 +690,7 @@ object JvmByteGen:
                        localFrameArity: Int = -1,
                        handlerDispatchRoot: Boolean = false): Unit =
     val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
-    val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
+    val mv = g.writerFor(name).visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
     ctx.selfGlobal = if handlerDispatchRoot then null else selfGlobal
@@ -656,7 +723,7 @@ object JvmByteGen:
       (0 until selfArity).foreach { k =>
         loadEnvArgLong(mv, selfArity - 1 - k)
       }
-      mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, ln, "(" + ("J" * selfArity) + ")J", false)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, g.ownerFor(ln), ln, "(" + ("J" * selfArity) + ")J", false)
       callJ(mv, "intV")
       mv.visitInsn(Opcodes.ARETURN)
     }
@@ -690,7 +757,7 @@ object JvmByteGen:
   private def emitLamFnRef(ctx: Ctx, methodName: String): Unit =
     ctx.mv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
       AsmType.getType(s"([L$VAL;)L$VAL;"),
-      new Handle(Opcodes.H_INVOKESTATIC, GEN, methodName, s"([L$VAL;)L$VAL;", false),
+      new Handle(Opcodes.H_INVOKESTATIC, ctx.g.ownerFor(methodName), methodName, s"([L$VAL;)L$VAL;", false),
       AsmType.getType(s"([L$VAL;)L$VAL;"))
 
   private def loadLocalValue(i: Int, ctx: Ctx): Unit =
@@ -943,7 +1010,10 @@ object JvmByteGen:
   private def longParamSlot(deBruijn: Int, arity: Int): Int =
     (arity - 1 - deBruijn) * 2
 
-  private def emitParamLong(t: Term, mv: MethodVisitor, selfName: String, arity: Int, longName: String, startL: Label, tail: Boolean): Unit =
+  // `longOwner` rather than a `Gen`: this is a leaf emitter and the owning class name is the only
+  // thing it needs from the spill. Threading `Gen` here would put the whole emitter state into a
+  // function that touches none of it.
+  private def emitParamLong(t: Term, mv: MethodVisitor, selfName: String, arity: Int, longName: String, longOwner: String, startL: Label, tail: Boolean): Unit =
     t match
       case Term.Lit(Const.CInt(n)) =>
         mv.visitLdcInsn(n)
@@ -951,17 +1021,17 @@ object JvmByteGen:
         mv.visitVarInsn(Opcodes.LLOAD, longParamSlot(i, arity))
       case ArithB(op, a, b)
           if op.length == 1 && "+-*/%".contains(op) =>
-        emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
-        emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
+        emitParamLong(a, mv, selfName, arity, longName, longOwner, startL, tail = false)
+        emitParamLong(b, mv, selfName, arity, longName, longOwner, startL, tail = false)
         mv.visitInsn(longArithOpcode(op))
       case Term.If(c, a, b) =>
         val elseL = new Label()
         val endL = new Label()
-        emitParamLongCondFalse(c, mv, selfName, arity, longName, startL, elseL)
-        emitParamLong(a, mv, selfName, arity, longName, startL, tail)
+        emitParamLongCondFalse(c, mv, selfName, arity, longName, longOwner, startL, elseL)
+        emitParamLong(a, mv, selfName, arity, longName, longOwner, startL, tail)
         mv.visitJumpInsn(Opcodes.GOTO, endL)
         mv.visitLabel(elseL)
-        emitParamLong(b, mv, selfName, arity, longName, startL, tail)
+        emitParamLong(b, mv, selfName, arity, longName, longOwner, startL, tail)
         mv.visitLabel(endL)
       case Term.App(Term.Global(name), args) if name == selfName && args.length == arity =>
         if tail then
@@ -969,15 +1039,15 @@ object JvmByteGen:
           // param slots, so no clobber), then store them back into the param
           // slots and GOTO the method start. args(k) is param position k → slot
           // longParamSlot(arity-1-k, arity) == 2*k; store top-of-stack first.
-          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, startL, tail = false))
+          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, longOwner, startL, tail = false))
           (arity - 1 to 0 by -1).foreach { k =>
             mv.visitVarInsn(Opcodes.LSTORE, k * 2)
           }
           mv.visitJumpInsn(Opcodes.GOTO, startL)
           mv.visitLdcInsn(0L) // unreachable value for the verifier's LRETURN stack shape
         else
-          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, startL, tail = false))
-          mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, longName, "(" + ("J" * arity) + ")J", false)
+          args.foreach(arg => emitParamLong(arg, mv, selfName, arity, longName, longOwner, startL, tail = false))
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, longOwner, longName, "(" + ("J" * arity) + ")J", false)
       case other =>
         throw new Unsupported(s"param-long:${other.getClass.getSimpleName}")
 
@@ -987,13 +1057,14 @@ object JvmByteGen:
       selfName: String,
       arity: Int,
       longName: String,
+      longOwner: String,
       startL: Label,
       falseLabel: Label
   ): Unit =
     t match
       case ArithB(op, a, b) if isLongCmp(op) =>
-        emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
-        emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
+        emitParamLong(a, mv, selfName, arity, longName, longOwner, startL, tail = false)
+        emitParamLong(b, mv, selfName, arity, longName, longOwner, startL, tail = false)
         mv.visitInsn(Opcodes.LCMP)
         val jump = op match
           case "<"  => Opcodes.IFGE
@@ -1014,7 +1085,7 @@ object JvmByteGen:
       arity: Int,
       sourceLine: Option[Int]): Unit =
     val desc = "(" + ("J" * arity) + ")J"
-    val mv = g.cw.visitMethod(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name, desc, null, null)
+    val mv = g.writerFor(name).visitMethod(g.accessFor(name, Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC), name, desc, null, null)
     mv.visitCode()
     // A self-tail call jumps HERE with the param slots rebound — a constant-
     // stack loop over the unboxed Long params. Non-tail self-calls use a real
@@ -1023,7 +1094,7 @@ object JvmByteGen:
     val startL = new Label()
     mv.visitLabel(startL)
     sourceLine.foreach(line => markLine(mv, line))
-    emitParamLong(body, mv, selfName, arity, name, startL, tail = true)
+    emitParamLong(body, mv, selfName, arity, name, g.ownerFor(name), startL, tail = true)
     mv.visitInsn(Opcodes.LRETURN)
     mv.visitMaxs(0, 0)
     mv.visitEnd()
@@ -1093,7 +1164,7 @@ object JvmByteGen:
         ctx.g.chains += ((chainNames, ts, tail, lines,
           TailCtx(ctx.localTailTargets, ctx.localFrameArity, ctx.slotDepth)))
         emitCapture(ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chainNames(0), s"([L$VAL;)L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, ctx.g.ownerFor(chainNames(0)), chainNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.If(c, a, b) =>
         val elseL = new Label(); val endL = new Label()
         if !genBoolBranchFalse(c, ctx, elseL) then
@@ -1121,7 +1192,7 @@ object JvmByteGen:
         ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail, ctx.sourceLine,
           TailCtx(ctx.localTailTargets, ctx.localFrameArity, ctx.slotDepth)))
         emitCapture(ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, stepNames(0), s"([L$VAL;)L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, ctx.g.ownerFor(stepNames(0)), stepNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.LetRec(lams, body) =>
         // LetRec installs its tied closure frame in local 0 while compiling the
         // expression body. Preserve the caller frame: a surrounding argument
@@ -1441,7 +1512,7 @@ object JvmByteGen:
         else
           // direct call to a compiled top-level def: invokestatic + unroll
           genArray(args, ctx)
-          mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, ctx.g.ownerFor(m), m, s"([L$VAL;)L$VAL;", false)
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
       case Term.App(f, args) =>
         // Generic (non-optimized) call. UNROLL the result so a returned `Bounce` (from a self/mutual tail
@@ -1726,9 +1797,20 @@ object JvmByteGen:
     if callees.nonEmpty then cls.getField("callees").set(null, callees)
     cls.getDeclaredConstructor().newInstance().asInstanceOf[ssc.Emit.LamFn]
 
-  /** defineClass + install compiled defs + invoke entry(). */
-  def runProgram(bytes: Array[Byte]): Value =
-    val cls = new GenLoader(getClass.getClassLoader).define("ssc.gen.Entry", bytes)
+  /** defineClass for every emitted class + install compiled defs + invoke entry().
+    *
+    *  ONE loader for all of them: a spilled sibling is only reachable from `Entry` if both were
+    *  defined by the same `ClassLoader`, and `Entry`'s `INVOKESTATIC` into it resolves lazily, so a
+    *  missing sibling would surface as `NoClassDefFoundError` at the first call rather than here.
+    *  Defining them all up front is what keeps that impossible. */
+  def runProgram(emitted: Emitted): Value =
+    val loader = new GenLoader(getClass.getClassLoader)
+    var entry: Class[?] | Null = null
+    emitted.classes.foreach { (internalName, bytes) =>
+      val cls = loader.define(internalName.replace('/', '.'), bytes)
+      if internalName == GEN then entry = cls
+    }
+    val cls = entry.nn
     cls.getMethod("install").invoke(null)
     PortableEffects.completeManaged(
       ssc.Emit.unroll(cls.getMethod("entry").invoke(null).asInstanceOf[Value]))
