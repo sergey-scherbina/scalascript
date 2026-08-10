@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## js-char-is-a-plain-string — a char literal never widened, so `'x' == 120` was false and `'a' + 1` was `"a1"`
+<!-- status: fixed
+     lane: js
+     area: codegen
+     kind: wrong-output
+     gate: tests/e2e/js-char-is-a-char.sh
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-10.** Six shapes disagreed with `bin/ssc` and `--v1`, which already agreed with each
+other:
+
+| | `'x' == 120` | `1 + 'a'` | `'a' + 1` | `'a' * 2` | `'a' < 98` |
+|---|---|---|---|---|---|
+| `bin/ssc`, `--v1` | true | 98 | 98 | 194 | true |
+| `run-js` | **false** | **`1a`** | **`a1`** | **`aa`** | **false** |
+
+`'a' * 2` returning `aa` is the one that shows the shape of it: JS represents a char literal as a
+one-character STRING, so every numeric operator silently became a string operator. `.toInt`,
+`charAt` and printing were already right — only literals in a numeric context were wrong.
+
+**The representation was NOT the bug, and that is why the fix is three lines of decision rather than
+a rewrite.** `JsGen` carries an explicit note that char-as-string backs char/char equality, pattern
+matching and the name-keyed numeric evidence (46 sites), that `===` does not call `valueOf`, and
+that making the representation uniform "is a separate change with its own corpus run". That note is
+correct. What was missing is the widening Scala does at the OPERATOR: a char in a numeric context is
+its code point. So the infix arm widens the *operand* — before constant folding, so the folder and
+the emitter cannot disagree — and only when the SIBLING operand is provably numeric. `'a' == 'a'`,
+`'a' + "b"`, `case 'a' =>` and `List('a', 'b')` are untouched, and the gate asserts that half too: a
+fix that widened unconditionally would break every char comparison in the corpus while passing a
+gate that only checked the numeric group.
+
+This completes the owner's Char decision (2026-08-10: *"`println(s.charAt(0))` должен печатать
+правильно символ а не число, везде на всех бекендах… в остальных случаях по возможности просто
+приводить тип"*) on the last backend that still diverged. `bin/ssc`, `--v1` and `--bytecode` were
+done under `scharAt`; JS is coercion-only, exactly as the decision asks.
+
+**The two extra shapes came from the negative control, not from reading.** Reverting the fix and
+re-running the gate is what surfaced `'a' * 2` → `aa` and `1 + 'a'` → `1a`; by hand I had found only
+the two the report named.
+
 ## js-control-direct-tests-never-run — the repair landed with 496 lines of tests and nothing runs them
 <!-- status: fixed
      lane: js

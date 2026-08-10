@@ -5461,8 +5461,21 @@ class JsGen(
     case CompoundAssign(js) => js
 
     // Infix
-    case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
-      val args = argClause.values
+    case Term.ApplyInfix.After_4_6_0(lhs0, op, _, argClause) =>
+      // A char literal in a NUMERIC context widens to its code point, as in Scala:
+      // `'x' == 120` is true and `'a' + 1` is 98, not the string "a1".
+      // The widening is applied to the OPERAND, before constant folding, so the
+      // folder and the emitter agree; what `Lit.Char` itself emits is unchanged —
+      // char-as-string still backs char/char equality, pattern matching and the
+      // name-keyed numeric evidence (see `genReceiver`). It fires only when the
+      // SIBLING operand is provably numeric, so `'a' == 'a'` and `'a' + "b"` are
+      // untouched. js-char-is-a-char.
+      def widenChar(t: Term, sibling: Term): Term = t match
+        case Lit.Char(c) if isNumericExpr(sibling) => Lit.Int(c.toInt)
+        case _                                     => t
+      val (lhs, args): (Term, List[Term]) = argClause.values.asInstanceOf[List[Term]] match
+        case only :: Nil => (widenChar(lhs0, only), List(widenChar(only, lhs0)))
+        case other       => (lhs0, other)
       // Constant folding: both operands are compile-time literals
       val constResult =
         if args.length == 1 then foldConstant(lhs, op.value, args.head) else None
