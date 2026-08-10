@@ -199,8 +199,23 @@ to VM interpretation when the emitted class is too large (`specs/v2-f-bytecode-p
 V-6b.3 work, which measured direct ASM at **4.38× faster** on the product SClJet F0). Both members
 fall back; the difference is the SIZE of the nested eval each one forces.
 
-**So the F cost and `scljet-jdbc-facade-bytecode-class-too-large` are the same problem seen from two
-sides.** The class-size limit is what denies F its fast path, and the ~4.38× it loses is the right
+**REFUTED 2026-08-10, by the split it predicted.** `ssc/gen/Entry` now spills into siblings
+(`abf9a4075`) and `scljet-hello` compiles on the bytecode lane. Re-running the pair:
+
+    the fallback stopped firing        as predicted
+    B5 under F   rc=124 at 500 s       UNCHANGED — the >400 s row did NOT collapse
+
+**The class-size limit was not the cause of the F cost.** Removing it changed the timing not at all,
+so the paragraph below is wrong about the mechanism and is kept only because the prediction it
+carried is what made the test worth running. What survives from it: the fallback WAS firing, it is
+gone now, and it was not what cost the time.
+
+**So the F cost is still unexplained, with everything below still refuted and one more candidate
+added to the list.** The reached-call-graph result (Result 3) stands; what does not is any story
+that routes it through the bytecode fast path.
+
+**The superseded claim, kept for the prediction it made:** the F cost and
+`scljet-jdbc-facade-bytecode-class-too-large` are the same problem seen from two sides. The class-size limit is what denies F its fast path, and the ~4.38× it loses is the right
 order for the gap measured here. Splitting `ssc/gen/Entry` is therefore not only a `--bytecode`
 capacity fix; it is the candidate fix for this entry. That prediction is cheap to test the moment
 the split lands: re-run this minimal pair and see whether the fallback stops firing and the >400 s

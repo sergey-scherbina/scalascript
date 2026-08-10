@@ -6899,10 +6899,12 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 (PASS, `forbidden.references=0`). Lesson recorded in `SPRINT.md` F5 (the "SECOND STAGING LIST" note).
 
 ## scljet-jdbc-facade-bytecode-class-too-large — the JDBC-facade examples overflow the JVM class-size limit on the bytecode lane
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
-     kind: perf -->
+     kind: perf
+     fixed-in: abf9a4075
+     gate: tests/e2e/bytecode-fallback-visible.sh -->
 
 **Status:** OPEN as a capacity gap — but **it stopped being invisible 2026-07-27** (opus,
 `v2-bytecode-lane-silent-downgrade`, `af4725ed9`). The v2 JVM bytecode backend still emits one
@@ -7015,6 +7017,60 @@ it falls back to dies on `app: not a function: 0`. Verified red on `origin/main`
 change (same failure, only the exception name differs), so it is
 `scljet-app-not-a-function-after-the-concat-fix`, filed there along with the finding that the gate
 has no caller at all.
+
+### FIXED 2026-08-10 — `ssc/gen/Entry` spills into siblings at 12 000 methods a class
+
+```text
+scljet-write-table   classes=2  methods=12 589   ->  wrote 1024 bytes, 2 pages, schema format 4 …
+scljet-hello         classes=3  methods=29 463   ->  all books, newest first: …
+```
+
+**`scljet-hello` compiles and runs on the bytecode lane.** No fallback message, no
+`ClassTooLargeException`. It had fallen back since this entry was filed in July.
+
+**The owner is a function of the NAME, and it has to be.** A call is often emitted before its target
+exists — a deferred lambda body, a forward self-call — so a table filled at definition time would be
+read empty. Every generated name is `lam$N` from `freshLam()`; the long-specialised twin
+`lam$N$long` maps onto its base so a method and its specialisation never split apart. `main`,
+`install`, `install$k`, `entry` and the `callees` field stay in `Entry` by falling through, which is
+what keeps `runProgram` and the persisted artifact calling the same two names they always have.
+
+**The spill is OFF by default and ON only for the whole-program lane.** `emitUnit` (the JIT) names
+its class `ssc/gen/Entry` too but returns a SINGLE `Array[Byte]`, so a spilled sibling would be
+generated, dropped, and fail at run time with `NoClassDefFoundError` — and the JIT is the one caller
+that cannot report it. A JIT unit compiles one `Lam` body and comes nowhere near 12 000 methods, but
+"it will not happen in practice" is not a guard.
+
+**The single-value signature is GONE rather than kept for convenience.** `emitProgram` returns
+`Emitted(classes)`. A caller that took the head and dropped the rest would produce a JAR or a loader
+that works for every program small enough to fit one class and dies at run time on exactly the large
+ones this exists for. Making the compiler reject those call sites is the point; all three moved
+(`RunNativeV2` twice, `NativeJvmArtifact` writing every class into the JAR).
+
+**No regression: `bc-parity-sweep`, 214 cases — `mismatch 0`, `bytecode-error 0`, `vm-error 0`,
+`both-fail 0`, `identical 68`.**
+
+**AND THE PREDICTION I WROTE DOWN FOR THIS IS HALF REFUTED.** `specs/v2-f-compile-cost.md` Result 3b
+predicted that the class-size limit was also what denied F its fast path, and that after the split
+the F minimal pair would collapse. Re-run:
+
+    the fallback stopped firing        ✓ as predicted
+    B5 under F                         ✗ rc=124 at 500 s — UNCHANGED
+
+**So the class-size limit was not the cause of the F cost.** Removing it changed the timing not at
+all. That prediction was written before the run precisely so it could be killed, and it was; the F
+entry carries the correction.
+
+**The gate flipped with the fix.** `tests/e2e/bytecode-fallback-visible.sh` asserted that
+`scljet-hello` FALLS BACK — asserting the bug. It now asserts the opposite, and measures it on the
+LEGACY front because on the default front the subject does not finish inside any cap worth having
+(the F cost, a different entry). The identical emitter and the identical spill run either way; only
+the front feeding them differs, and the override carries a note to delete it when F is fixed.
+
+**What is NOT pinned:** the marker itself. With the class-size route closed, `ClassTooLarge` is
+unreachable by construction and the only remaining source of a fallback is `Unsupported`. No subject
+was invented for it — naming a construct that `JvmByteGen` later learns to compile would produce a
+gate that fails for being fixed, which is exactly what the oversized subject just did.
 
 ### SIZED 2026-08-10 — what the split costs, and the numbers to size it by
 
