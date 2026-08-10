@@ -750,11 +750,12 @@ and require each walker to visit its children.
 
 ## v3-lowerfail-reports-the-root-path-with-an-imported-unit's-line
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: codegen
      kind: bug
-     gate: none -->
+     gate: v3/front-gate.sh (imported-lower-error)
+     fixed-in: 255971bc4 -->
 
 `ssc3 ir tests/conformance/tkv2-busi-home.ssc` reports
 `tests/conformance/tkv2-busi-home.ssc:119:3: call to 'vstack' passes 1 argument(s), it takes 2`.
@@ -770,6 +771,30 @@ boundary is gone, so nothing can do the same.
 Cost measured while chasing something else: three commands to discover the position pointed past
 the end of the file it named. Fixing it means carrying the unit with each declaration into the
 merged program — `Pos` would need a path, or `merge` would need to record a per-def origin.
+
+**FIXED 2026-08-10 in `255971bc4`, by the second of the two options this entry named** — `merge`
+records a per-def origin. `Pos` was left alone: a path on every position would have touched every
+construction site in the front, and the failing DECLARATION is the unit of blame anyway.
+
+    Program.origin     name → unit path, filled for NON-root units only
+    LowerFail.origin   optional and DEFAULTED, so ~40 `throw` sites are untouched
+    Lower              ONE try/catch around the per-def loop — every message passes through it
+    Main               `e.origin.getOrElse(path)` at its six catch sites
+
+**Measured with the attachment disabled and restored**, on a two-file program whose imported unit
+calls an unknown function:
+
+    without   /tmp/lf/app.ssc:2:3   ← the root, whose line 2 is blank
+    with      /tmp/lf/lib.ssc:2:3
+
+**This entry's own reproduction no longer isolates the change** and that is worth recording: it now
+reports `std/ui/primitives.ssc:74:26`, correct — but as a PARSE failure, which `Loader.closureWith`
+already handled. The front moved under the entry. The planted control above is the evidence.
+
+**Not pinned by a gate:** `front-gate.sh` requires a positioned refusal and prints the message, but
+does not assert the PATH — the new `imported-lower-error` fixture would still pass if the wrong file
+were named. Pinning it needs an assertion the gate does not have today.
+
 
 ## v3-uniml-def-has-no-type-parameters — so the default front cannot resolve a `using` clause
 
