@@ -64,6 +64,17 @@ Verified in the emitted JS rather than only through the lane output, so "the bra
 inference: `c == 97` → `_arith('==', (c).charCodeAt(0), 97)`, and `c == d` → `_arith('==', c, d)`,
 unwidened, because two char names compare as characters.
 
+**SUPERSEDED the same day, and the replacement is smaller.** `js-char-type-test-cannot-tell-Char-from-String`
+made a char literal carry the `_Char` box, whose `valueOf` IS the code point — so every numeric
+operator widens on its own and none of the machinery above is needed. `charLitVars`, its two param
+clears and the operand rewrite were removed; the 25-row gate stays green without them. The
+name-keyed evidence hazard they carried went with them.
+
+Left standing: the term-level fold of `'x' == 120` to a constant, which is free and still correct.
+The entry stays FIXED — the behaviour it was filed for never regressed, only the mechanism changed —
+and it is recorded here because a reader finding `charLitVars` referenced in the commit and absent
+from the file should not have to guess why.
+
 **The TYPE TEST is a separate, still-open entry:** `js-char-type-test-cannot-tell-Char-from-String`.
 `case _: Char` needs the value to carry the `_Char` box — the representation change this fix
 deliberately does not make. Both defects were filed under one slug and `bugs-index-gate` refused the
@@ -991,12 +1002,15 @@ wrong than before, where the answer depended on the order the arms happened to b
 code for whichever value suited it — green in both states, the failure this repo keeps paying for.
 
 ## js-char-type-test-cannot-tell-Char-from-String — `case _: Char` matches a String
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/e2e/char-type-test.sh -->
+     kind: wrong-output
+     gate: tests/e2e/char-type-test.sh
+     fixed-in: 32613ef58 -->
 
-**PARTLY FIXED 2026-08-10, and the split is the finding.** Re-measured on a fresh build across four
+**FIXED 2026-08-10 on all four lanes, in two steps — and the second one was supposed to be
+impossible.** Re-measured on a fresh build across four
 lanes, this was TWO defects wearing one entry, and only one of them is the representation gap:
 
 | `kind(x)` with arms Char / String / Int / _ | `'c'` | `"c"` | `99` | `s.charAt(0)` |
@@ -1013,10 +1027,25 @@ lanes, this was TWO defects wearing one entry, and only one of them is the repre
 * **js Char RESULT — one arm.** `s.charAt(0)` is a `_Char` box and the type-test mapping had no
   `Char` case at all, so it fell to the `_type === 'Char'` default, which is false for a box whose
   only own key is `__c`. Now `_isChar`.
-* **js char LITERAL — still open, and this entry stays open for it.** `'c'` is a plain
+* **js char LITERAL — needed the box, and the box was affordable.** `'c'` was a plain
   one-character string, and `case _: String` on a genuine one-character string must keep working, so
-  no arm can serve both. It needs the literal to carry the box: a representation change with its own
-  corpus run, which `JsGen` argues for at length and which is not this.
+  no arm could serve both. `JsGen` carried a note that making the representation uniform "is a
+  separate change with its own corpus run". **The corpus was run and it passed**: smoke 81/81,
+  JsGen suites 101/101, with `Lit.Char` emitting `_char(code)`.
+
+  The warning had been read as a verdict for weeks; measured, the surface was small. Eleven sites
+  read `Lit.Char` and only **two** emitted the string — expression position and the pattern literal
+  — and they have to move TOGETHER, or `case 'a' =>` compares a box with a string and never matches.
+  Everything else was already in place: `_Char.valueOf` is the code point, `_toString` is the
+  character, `_eq` compares two boxes by their only own key `__c`, and `_asChar` normalises a
+  `Char`-typed param. So `'a' + 1` is 98, `"x" + 'a'` is `"xa"`, `case 'a' =>` matches, and
+  `case _: Char` finally has something true to say.
+
+  **It also DELETED code.** `js-char-is-a-plain-string` had just fixed the numeric half by widening
+  a char-literal operand and tracking `charLitVars` — name-keyed, module-global evidence with a
+  param-shadowing hazard that needed clearing at two registration sites. The box subsumes all of it:
+  `valueOf` does the widening at every operator, so the tracking, the clears and the operand rewrite
+  came out and the 25-row differential gate stayed green without them.
 
 **The census said this was not fixable, and the census was out of date.**
 `specs/type-ascription-matrix.md` (2026-07-31) filed native under "a missing TYPE — not fixable in a
