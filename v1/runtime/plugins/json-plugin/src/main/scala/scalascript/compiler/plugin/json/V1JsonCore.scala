@@ -98,7 +98,11 @@ object V1JsonCore:
    *  `jsonParse` already expect). */
   def toRaw(core: Any): PluginValue =
     core match
-      case Inst("JsonCoreNull", _) => PluginValue.unit
+      // JSON `null` is `None`, not `()` — the owner's decision, and the reading a program can act
+      // on (`.getOrElse`, `case None =>`). `bin/ssc` already answered this way while this lane and
+      // the rust one said `()`, which is indistinguishable from "a function returned nothing".
+      // `isNullish` below accepts both, so the internal checks are unaffected.
+      case Inst("JsonCoreNull", _) => PluginValue.none
       case Inst("JsonCoreBool", f) =>
         PluginValue.bool(f.get("value").flatMap(_.asBool).getOrElse(false))
       case Inst("JsonCoreNumber", f) =>

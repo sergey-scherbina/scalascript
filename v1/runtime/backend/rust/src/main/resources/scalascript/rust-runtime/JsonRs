@@ -22,7 +22,11 @@
       |fn _json_to_value(v: &serde_json::Value) -> crate::value::Value {
       |    use crate::value::Value;
       |    match v {
-      |        serde_json::Value::Null      => Value::Unit,
+      |        // JSON `null` is `None`, not `Unit` — the owner's decision, and the one that lets a
+      |        // program DO something with it (`.getOrElse`, `case None =>`). `bin/ssc` already
+      |        // answered this way; `--v1` and this lane said `()`, which is indistinguishable from
+      |        // "a function returned nothing".
+      |        serde_json::Value::Null      => Value::Obj("None", Vec::new()),
       |        serde_json::Value::Bool(b)   => Value::Bool(*b),
       |        // An integral JSON number is an Int: ScalaScript's Int is 64-bit, and turning `1`
       |        // into `1.0` would change what a program prints.
@@ -51,6 +55,9 @@
       |    use crate::value::Value;
       |    match v {
       |        Value::Unit        => serde_json::Value::Null,
+      |        // The round trip: `None` back out to `null`, and `Some(x)` to x itself.
+      |        Value::Obj("None", _)          => serde_json::Value::Null,
+      |        Value::Obj("Some", fs) if fs.len() == 1 => _value_to_json(&fs[0]),
       |        Value::Bool(b)     => serde_json::Value::Bool(*b),
       |        Value::Int(n)      => serde_json::Value::Number((*n).into()),
       |        Value::Double(f)   => serde_json::Number::from_f64(*f)

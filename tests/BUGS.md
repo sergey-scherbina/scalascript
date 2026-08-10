@@ -1,3 +1,32 @@
+## jsonparse-null-is-none-on-every-lane
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: multi
+     area: runtime
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**Settled 2026-08-10 by the project owner: JSON `null` is `None`.** It was `None` on `bin/ssc` and
+`()` on `--v1` and on the Rust lane — filed while fixing the JSON contract and left open because it
+is a language question, not a defect.
+
+```
+jsonParse("{\"a\": 1, \"b\": [true, null, 2.5]}")
+bin/ssc  Map(a -> 1, b -> List(true, None, 2.5))
+--v1     Map(a -> 1, b -> List(true, None, 2.5))
+rust     Map(a -> 1, b -> List(true, None, 2.5))
+```
+
+The reason to prefer it over `()`: a program can DO something with `None` — `.getOrElse(default)`,
+`case None =>` — whereas `()` is indistinguishable from "a function returned nothing", so a null in
+the data and a missing result read the same.
+
+Two lanes changed. `--v1`: `V1JsonCore.toRaw` mapped `JsonCoreNull` to `PluginValue.unit`; its
+`isNullish` already accepted both, so nothing internal moved. Rust: `_json_to_value` produces the
+`Some`/`None` representation, and `_value_to_json` sends `None` back out as `null` and unwraps
+`Some(x)` — so the round trip is closed rather than one-way.
+
 ## type-lost-across-a-boundary
 
 <!-- status: fixed
