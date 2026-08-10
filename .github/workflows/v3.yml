@@ -115,6 +115,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/front-report-gate.sh
 
+      # THE ONE GATE HERE THAT IS NOT A DIFFERENTIAL, and that is why it exists. Every check above
+      # compares two things that should agree — two fronts, two lanes. The import resolver has no
+      # second opinion to compare against: both fronts share it, so a file NEITHER front can load
+      # produces no output for either to disagree about. That blind spot cost 116 corpus files,
+      # 69% of every refusal the default front produced, when `std-to-repo-root` moved the modules
+      # and v3's loader kept looking at `v1/runtime/` — and nothing above went red for a day.
+      #
+      # `--self-test` is NOT run here, deliberately and with the cost named: it plants two defects
+      # in `Loader.scala` and rebuilds the kernel for each, which is two extra compiles on a job
+      # whose whole point is that the first gate pays for the compile and the rest do not. It is
+      # run by hand when the resolver changes; the gate itself is cheap.
+      - name: loader
+        if: ${{ !cancelled() }}
+        run: v3/loader-gate.sh
+
       # THE SELF-TEST RUNS FIRST, and that ordering is the point. This gate's green means "no method
       # is over the JVM's compile limit except the ones declared" — a claim nothing else in CI can
       # contradict, because a program whose methods are too big to compile is still CORRECT. So the
