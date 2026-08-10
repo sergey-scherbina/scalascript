@@ -1,0 +1,11 @@
+slug: rust-request-value-merge
+branch: feature/rust-request-value-merge
+agent: claude-code
+started: 2026-08-10T18:34:58Z
+heartbeat: 2026-08-10T18:34:58Z
+status: claimed-before-planning
+items: fix/rust-request-value: Value answers len/get/iter; a handler declared against Request receives one
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCargoSmokeTest.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR5Test.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
