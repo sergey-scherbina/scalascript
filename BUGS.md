@@ -660,7 +660,7 @@ corpus in the meantime will read 75 and think a compiler regressed. It did not.
      area: codegen
      kind: bug
      gate: v3/walker-gate.sh
-     fixed-in: PENDING -->
+     fixed-in: 50e1e2c7c -->
 
 **GATED 2026-08-09 by `v3/walker-gate.sh`, and it found a real bug on its first run.** The `Expr`
 cases that carry child expressions are read from `Ast.scala` — 21 of 28 — so a new case is required
