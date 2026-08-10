@@ -2809,15 +2809,42 @@ feeling. Anything that turns out bigger than its entry gets split rather than st
       VALUE is, so this needs either the receiver's runtime tag or a real kind-aware match. Expect
       this to be the one that splits.
       *Done when:* both rows run, or the entry is replaced by what measurement showed instead.
-- [ ] **X1 — `extension [M](ref: ActorRef[M])`.** `v3-extension-type-params`: a type-parameterised
+- [x] **X1 — `extension [M](ref: ActorRef[M])` — THE DIAGNOSTIC HALF ONLY.** Landed 2026-08-09.
+      `extension` was not refused by v3's own front, it was UNPARSEABLE — `expected ')', found :`,
+      naming punctuation instead of the construct — and both fronts now say
+      `` `extension` is outside SSC3 core Tier 0 `` at the same position. Guarded by what FOLLOWS,
+      because refusing the bare word made `extension` a hard keyword and broke a value of that name.
+      **The BEHAVIOUR is not done and is not mine**: it is claim `v3-extension-dispatch`, taken by
+      another agent, and §51's conclusion — a fallback in `Lower`'s dynamic `Invoke` default — is
+      what it should follow. That is what turns the three rows.
+      **Superseded description:**  `v3-extension-type-params`: a type-parameterised
       extension is a parse error, and it is the whole of what stands between
       `actors-bounded-mailbox` / `actors-process-info` and the module they import. Read §51 first —
       a name-based extension rewrite was tried and reverted at `N 188 → 130`.
-- [ ] **W1 — one walker, or a test that every walker handles every case.**
+- [x] **W1 — one walker, or a test that every walker handles every case.** Landed 2026-08-09 as
+      `v3/walker-gate.sh`, wired into the workflow with a self-test first.
+      **It found a real bug on its first run**: `qualifyMembers` did not descend into `NamedArg`, so
+      an object's own `val` was never qualified inside a named argument —
+      `Box(v = secret, tag = "x")` inside `object Store` reported `unknown name 'secret'`. The same
+      hole `mapDeep` had, in a different walker. The remaining gaps are declared per walker and per
+      case; the gate goes red when one closes and its declaration stays, which it did to me
+      immediately — my first list was copied from a truncated run and claimed two cases were missing
+      that were not.
+      **Superseded description:** 
       `lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree`. Three were missed in
       one day, each with a different symptom; the middle one was a hole that predated the node.
       *Done when:* adding a case to `Expr` without touching a walker FAILS a test.
-- [ ] **E1 — `handle`'s return clause, and E2 — a clock prim (SSC3-3d).** Both need
+- [x] **E1 — `handle`'s return clause, and E2 — a clock prim (SSC3-3d).** Both landed 2026-08-09,
+      the moment `Exec.scala` freed. E2: `nanoTime()` in the language, `io.nanoTime` as the prim —
+      v2's own name, because the bridge emits prim names verbatim. E1: `case x => List(x)`, applied
+      EXACTLY ONCE, at the point a computation finishes without performing; a boolean did not
+      survive nesting and the frame carries a counter. The implicit alternative is not available at
+      Tier 0 — lifting an `Int` into a `List` implicitly needs the handler's answer type, which this
+      tier erases — so `effect-multishot` still answers 0 and its fixture was NOT edited to suit the
+      implementation.
+      **Found while landing it:** `v3/tests/effects/` held 15 fixtures that no gate read, 10 with no
+      recorded expectation. `v3/effects-gate.sh` runs them on the executor lane and is wired in.
+      **Superseded description:**  Both need
       `v3/src/Exec.scala`, held by `ssc3-unboxed-frame` at the time of writing. Taken the moment it
       frees; not started behind someone else's claim.
 
