@@ -57,7 +57,7 @@ than one that is missing.
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
 ## no-paren-list-method-becomes-a-field — headOption on a list is emitted as a Rust field access, so it lands as 'no field headOption on Vec' — the by-name refusal covers calls but not no-paren member access
-<!-- triage: new
+<!-- triage: diagnosed
      reported-by: rozum / claude-opus-5
      reported-at: 2026-08-10
      ssc-version: 7fea7a711
@@ -101,6 +101,31 @@ Measured effect of those two on our file, since it is the honest way to say than
 **33 errors at the start, 16 yesterday, 2 now.** One of the two is the `Request` handler branch;
 this is the other. No deadline from us.
 <!-- inbox-entries:end -->
+
+**TRIAGED 2026-08-10 — reproduced, and the emitting line found.**
+
+`bin/ssc-tools build-rust repro/no-paren-list-method-becomes-a-field.ssc` fails exactly as
+reported: `error[E0609]: no field 'headOption' on type 'Vec<String>'`.
+
+**The line is `RustCodeWalk.scala:1994`**, the catch-all of `renderTerm`:
+
+    case m.Term.Select(qual, m.Term.Name(field)) =>
+      renderTerm(qual, ctx).map(q => s"$q.$field")
+
+Any no-paren select becomes a Rust FIELD access. That is right for a case-class field and wrong for
+everything else, and nothing between it and the emitted text asks which the receiver is — so the
+report's second point is the load-bearing one: whatever `headOption` gets, the REFUSAL has to reach
+this line, or the next unlowered no-paren member arrives at a user as `no field X on type Vec<…>`.
+
+**`headOption` itself is small**: on a `Vec<T>` it is `.first().cloned()`, which is an `Option<T>`,
+and the `.getOrElse("-")` beside it already lowers to `unwrap_or`. The reporter's guess that
+`lastOption`, `head`, `tail`, `isEmpty` want checking is worth taking seriously — they reach the
+same line — but each needs its own check, since `isEmpty` is a method on `Vec` and would compile
+today while `head` would not.
+
+**NOT FIXED HERE: `RustCodeWalk.scala` is held by the live claim `rust-topval-intrinsic`**, taken
+six minutes before I looked. Diagnosing without editing is what could be done honestly; whoever is
+in that file next has the line number and the shape.
 
 ## Closed without routing
 
