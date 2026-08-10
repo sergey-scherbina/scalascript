@@ -144,3 +144,32 @@ class RustGenCodeWalkTest extends AnyFunSuite:
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("""format!("{}{}","""), s"format concat missing in:\n$g")
     assert(g.contains("\"item-\".to_string()"), s"string literal shape missing in:\n$g")
+
+  // Reported from rozum: a String whose PROVENANCE the walker had not recorded fell out of the
+  // string-concat path and emitted Rust's `String + String`, which needs `&str` on the right.
+  // `val plain = "s1"` on the line above compiled, so the operand's origin was the whole difference.
+  test("a String from Option.getOrElse still concatenates as a String"):
+    val src =
+      """```scalascript
+      |def path(m: Map[String, String]): String =
+      |  val stamp = m.get("stamp").getOrElse("")
+      |  "/tmp" + "/" + stamp
+      |```
+      |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("{}{}","""), s"getOrElse operand left the concat path in:\n$g")
+    assert(!g.contains(") + stamp"), s"emitted a raw Rust `+` on two Strings in:\n$g")
+
+  // The same fact from the other direction: the return type is DECLARED, so reading it is not a
+  // guess. Mirrors `defReturnsEither`, which already does this for Either-shaped returns.
+  test("a call to a def declared : String still concatenates as a String"):
+    val src =
+      """```scalascript
+      |def dir(): String = "/tmp"
+      |def path(seg: String): String =
+      |  val d = dir()
+      |  d + "/" + seg
+      |```
+      |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("""format!("{}{}","""), s"declared-String return left the concat path in:\n$g")

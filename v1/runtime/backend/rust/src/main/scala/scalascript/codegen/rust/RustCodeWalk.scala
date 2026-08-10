@@ -1030,7 +1030,13 @@ object RustCodeWalk:
     else
       val (lseqs, larrays) = collectLocalSeqs(d.body)
       val paramSeqs = collectSeqParams(d)
-      val lstrings = collectLocalStrings(d.body)
+      // Params DECLARED `String` are strings too — the declaration says so. Without this a
+      // `def path(seg: String)` fell out of the concat path at `… + seg` even though its own
+      // signature named the type (found by the test below, not by reading).
+      val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+        .toSet
+      val lstrings = collectLocalStrings(d.body) ++ stringParams
       // Params declared `Any` hold a `crate::value::Value`. Read off the signature — the boundary
       // never guesses.
       val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -1245,8 +1251,15 @@ object RustCodeWalk:
 
   /** Local `val`/`var` names bound to a String-valued rhs (literal, `s"…"`,
    *  `.toString`/`.trim`/`.mkString`, an `if` whose branches are strings, a `+`
-   *  with a string operand, or another known string val).  Used so a `a + b`
-   *  over two such vars lowers to `format!` (String concat) not numeric `+`. */
+   *  with a string operand, `opt.getOrElse(<string>)`, a call to a def DECLARED
+   *  `: String`, or another known string val).  Used so a `a + b` over two such
+   *  vars lowers to `format!` (String concat) not numeric `+`.
+   *
+   *  The `getOrElse` and declared-return cases were reported from rozum: a String
+   *  that arrived through `m.get(k).getOrElse("")` was not known to BE a String, so
+   *  concatenating it emitted Rust's `String + String` — which needs `&str` on the
+   *  right — instead of `format!`. The value's PROVENANCE was the whole difference:
+   *  `val plain = "s1"` on the line above compiled. */
   private def collectLocalStrings(body: m.Term): Set[String] =
     val strs = scala.collection.mutable.Set.empty[String]
     def isStr(rhs: m.Term): Boolean = rhs match
@@ -1258,6 +1271,13 @@ object RustCodeWalk:
       case ifx: m.Term.If                             => isStr(ifx.thenp) || isStr(ifx.elsep)
       case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
         isStr(l) || args.values.headOption.exists(isStr)
+      // `opt.getOrElse(<string>)`: in a well-typed program the element type and the
+      // default agree, so a String default makes the whole expression a String.
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), args) =>
+        args.values.headOption.exists(isStr)
+      // A call to a def whose DECLARED return type is `String`. Mirrors `defReturnsEither`
+      // below — the declaration is stated, so this reads it rather than guessing.
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)                => defReturnsString(n)
       case m.Term.Block(stats)                        =>
         stats.lastOption.collect { case t: m.Term => isStr(t) }.getOrElse(false)
       case _                                          => false
@@ -3032,6 +3052,12 @@ object RustCodeWalk:
         && n != "Vector" && n != "Seq" && n != "IndexedSeq" && n != "Iterable" =>
       defReturnsEither(n)
     case _ => false
+
+  private def defReturnsString(name: String): Boolean =
+    _defBodies.get(name).flatMap(_.decltpe).exists {
+      case m.Type.Name("String") => true
+      case _                     => false
+    }
 
   private def defReturnsEither(name: String): Boolean =
     _defBodies.get(name).flatMap(_.decltpe).exists { t =>
