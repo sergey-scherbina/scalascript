@@ -5,7 +5,7 @@ started: 2026-08-10T20:20:45Z
 heartbeat: 2026-08-10T20:20:45Z
 status: claimed-before-planning
 items: ledger-rows-outlive-their-claims
-paths: file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
+paths: file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md file:tests/coord/coord-claim-broad.sh
 scope: |
   MEASURED on origin/main 2026-08-10: 39 LEDGER rows against 7 claim files. Every one of the 32
   extras has a release-claim commit, so none is a lost claim -- they are rows that outlived their
