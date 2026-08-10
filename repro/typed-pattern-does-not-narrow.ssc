@@ -1,0 +1,21 @@
+#!/usr/bin/env ssc
+---
+name: typed-pattern-does-not-narrow
+version: 0.1.0
+description: A typed pattern over Any binds the arm as Any again on the rust lane.
+---
+```scalascript
+[jsonParse](std/json.ssc)
+
+def describe(v: Any): String =
+  v match
+    case l: List[Any]        => "list:" + l.length
+    case m: Map[String, Any] => "map:" + m.get("k").getOrElse("?")
+    case _                   => "other"
+
+def main(): Unit =
+  println("control = " + describe("plain"))
+  println("list    = " + describe(jsonParse("[1,2]")))
+  println("map     = " + describe(jsonParse("{\"k\":\"v\"}")))
+main()
+```

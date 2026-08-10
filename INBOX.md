@@ -128,6 +128,47 @@ symptom was wrong, and the class is not closed.
 
 Found by minimising the rest of rozum's `public-matrix.ssc`; two more of its errors are now
 accounted for. No deadline from us.
+## typed-pattern-does-not-narrow — case l: List[Any] over an Any binds the arm as Any again — l.length and m.get do not resolve on the rust lane, while the interpreter gets all arms right
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-10
+     ssc-version: dbe3881d4
+     repro: repro/typed-pattern-does-not-narrow.ssc
+     kind: bug -->
+
+Twelve lines, with a control arm that works, and it accounts for the last multi-error group in
+rozum's slice.
+
+    ssc run repro/typed-pattern-does-not-narrow.ssc
+      control = other      list = list:2      map = map:v        (all three correct)
+
+    ssc-tools build-rust repro/typed-pattern-does-not-narrow.ssc     (exactly 3 errors)
+      error[E0599]: no method named `len` found for enum `value::Value`
+      error[E0599]: no method named `get` found for enum `value::Value`
+      error[E0308]: mismatched types
+
+`case l: List[Any]` and `case m: Map[String, Any]` over a `v: Any` bind `l` and `m` as
+`value::Value` again, so `l.length` and `m.get(...)` do not resolve. The arm TESTED the type and
+then did not use what the test established. The `case _` control arm compiles, so it is the typed
+pattern specifically.
+
+**Why I think this is its own entry and not a fourth instance of `type-lost-across-a-boundary`.**
+There the walker was TOLD a type (a declared return, a lambda parameter, `Option.getOrElse`) and
+dropped it. Here nothing was dropped — the narrowing is what a typed pattern MEANS, and the arm
+never had it. The fix site looks like pattern lowering rather than the boundary tracking, so
+merging them would put two fixes behind one entry. Route them together if you disagree; you can see
+both, I can only see the symptom.
+
+Note the interpreter gets all three arms right, including `map:v` — so the semantics are settled and
+this is the rust lane not implementing them.
+
+Toolchain built from `dbe3881d4`, stamp == tree, banner silent, detached worktree outside your
+checkout, cache left ON (your fix holds — a HIT still produced every launcher).
+
+This closes out the accounting on rozum's `public-matrix.ssc`: of its 17 remaining errors, 8 are the
+`getOrElse` instance I added to `type-lost-across-a-boundary`, 2 are the other two instances there,
+3 are this, and 4 are small ones I have not minimised yet. Nothing in that file is unexplained now.
+No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
