@@ -75,9 +75,17 @@ case "$available" in
     ;;
 esac
 
-accepts() { # $1 front, $2 file  -> 0 if the front accepted
-  timeout 180 $SSC3 ast "$2" "$1" >/dev/null 2>&1
+classify() { # $1 newline-separated paths -> "<v3><uniml> <name>" per line
+  printf '%s\n' "$1" | SSC3="$SSC3" xargs -P "${SSC3_GATE_JOBS:-8}" -I{} sh -c '
+    f="$1"; a=0; u=0
+    timeout 180 "$SSC3" ast "$f" v3    >/dev/null 2>&1 && a=1
+    timeout 180 "$SSC3" ast "$f" uniml >/dev/null 2>&1 && u=1
+    printf "%s%s %s\n" "$a" "$u" "$(basename "$f" .ssc)"
+  ' _ {}
 }
+
+# `accepts()` lived here and is gone: `classify` above asks both fronts in one pass, in parallel,
+# and a second way to spell the same question is a second thing to keep in step with the driver.
 
 fails=0
 v3_only=""
@@ -92,15 +100,10 @@ checked=0
 #
 # Measured when the probes were added: 14 constructs, 13 agree, and the one that did not —
 # an abstract `val` in a trait — is invisible to the corpus entirely.
-for f in bench/corpus/*.ssc v3/tests/front-capability/*.ssc; do
-  n="$(basename "$f" .ssc)"
-  checked=$((checked + 1))
-  a3=1; au=1
-  accepts v3 "$f" && a3=0
-  accepts uniml "$f" && au=0
-  if [ $a3 -eq 0 ] && [ $au -ne 0 ]; then v3_only="$v3_only $n"; fi
-  if [ $au -eq 0 ] && [ $a3 -ne 0 ]; then uniml_only="$uniml_only $n"; fi
-done
+sec1_out="$(classify "$(ls bench/corpus/*.ssc v3/tests/front-capability/*.ssc 2>/dev/null)")"
+checked="$(printf '%s\n' "$sec1_out" | grep -c .)"
+v3_only="$(printf '%s\n' "$sec1_out" | awk '$1=="10"{print $2}' | sort | tr '\n' ' ')"
+uniml_only="$(printf '%s\n' "$sec1_out" | awk '$1=="01"{print $2}' | sort | tr '\n' ' ')"
 
 # `declared X actual` both ways: a divergence that appears is a regression, and a declared one that
 # disappears means the list is stale and must shrink in the same commit that closed it.
@@ -124,6 +127,149 @@ check_set() { # $1 label, $2 declared (space list), $3 actual (space list)
 echo "── front capability: $checked programs (corpus + probes), both fronts ──────"
 check_set "v3"    "${KNOWN_V3_ONLY[*]}"    "$v3_only"
 check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
+
+
+# ── SECTION TWO: the conformance corpus ───────────────────────────────────────────────────────────
+#
+# A SECOND SECTION RATHER THAN MORE FILES IN THE FIRST, and the reason is the claim above. Section
+# one says the two fronts accept and refuse EXACTLY the same programs, with both lists empty, and
+# that statement is true of its 50 programs. Pouring 398 more in would replace a strong empty-list
+# claim with a weak 85-row one and lose the first for good. Two scopes, two claims, each falsifiable
+# on its own.
+#
+# It also removes an ambiguity the merged form would have introduced: `map-ops` and
+# `mutual-recursion` exist in BOTH `bench/corpus` and `tests/conformance`, so a list keyed on the
+# basename could not say WHICH one diverges.
+#
+# WHY THE CONFORMANCE CORPUS AT ALL. `v3-two-fronts-differ-in-CAPABILITY` asked for exactly this and
+# named the reason an output differential cannot supply it: a program one front refuses and the
+# other runs produces no output to compare, so capability is invisible to `front-diff.sh` by
+# construction. Measured 2026-08-10, twice on two trees with the same result:
+#
+#     both fronts accept   277
+#     only v3              13        <- UniML's projection refuses these
+#     only uniml           72        <- v3's own parser refuses these
+#     NEITHER accepts      36        <- not a front divergence: a gap both share
+#
+# The 38 are reported and NOT guarded here. They are a Tier-0 language gap, which the corpus report's
+# UNSUPPORTED bucket already counts and `N` already floors; counting them as a front divergence
+# would hide a real capability regression behind a number that moves for unrelated reasons. That
+# distinction is the whole point of splitting the count — a single "one front only" number of 123
+# conflates a capability gap with a shared gap, and I published that conflated number this morning
+# before measuring the split.
+#
+# LISTS, NOT A CEILING. A count lets one divergence close while another opens and reports nothing;
+# the bidirectional `check_set` above cannot — a row that stops diverging must come OUT of the list
+# in the same commit, which is what caught `type-lambda-native` as closeable.
+declare -a KNOWN_CONF_V3_ONLY=(
+  content
+  direct-syntax
+  enum-shared-casename
+  lenses
+  markdown-html
+  optic-polish
+  optics-index-at
+  optional
+  prisms
+  tagless-direct-syntax
+  tagless-program
+  tagless-resolution
+  traversal
+)
+
+declare -a KNOWN_CONF_UNIML_ONLY=(
+  actors-cluster-coordinator
+  actors-cluster-visibility
+  actors-global-registry
+  cluster-connect
+  coroutine-native-lifecycle
+  curried-def-clauses
+  dataset-agg
+  distributed-callback-user-throw
+  effects-handler
+  fewer-braces-colon
+  for-comprehensions
+  for-yield-layout
+  fs-confined
+  generator-callback-user-throw
+  json-deep-import
+  json-self-hosted-import
+  litdoc
+  literal-pattern-in-case-lambda
+  mcp-client-invoke
+  mcp-server-resource
+  mcp-server-tool
+  mcp-types
+  named-arg-defaults
+  parameterless-def-mention
+  predef-notimplemented
+  scljet-address-write
+  scljet-byte-codec
+  scljet-journal-recover
+  scljet-pager-mutate
+  scljet-readonly-pager-btree
+  std-fs-failure
+  std-fs-failure-raises
+  std-os
+  std-os-doc-import
+  std-os-readline
+  std-ui-i18n
+  std-ui-native-css-scope
+  std-ui-native-css-scope-lib
+  std-ui-native-pair-lib
+  std-ui-native-pair-minimal
+  string-eq-locals
+  tkv2-busi-home
+  tkv2-button-size
+  tkv2-button-variant
+  tkv2-component
+  tkv2-forms
+  tkv2-hstack-wrap
+  tkv2-keyed-for
+  tkv2-offline
+  tkv2-pwa
+  tkv2-raw-html
+  tkv2-select
+  tkv2-select-reactive
+  tkv2-textfield-reactive-label
+  tkv2-tri-state
+  tkv2-webauthn
+  try-catch-exception-delivery
+  try-catch-io-failure
+  type-ascription
+  type-ascription-list
+  type-ascription-map
+  type-ascription-option
+  type-ascription-set
+  type-ascription-tuple
+  unit-literal-pattern
+  v2-db-url-scheme-not-jdbc
+  v2-multiline-list-literal
+  v2-native-result-unregistered-field
+  v2-self-hosted-parser-fuzz
+  v2-self-hosted-yaml-core
+  v2js-unit-pattern
+  webauthn-server-verify
+)
+
+# PARALLEL, because the serial form is ten minutes. 398 files times two fronts at ~0.7 s each is
+# the cost of the whole `gates` job again, on every push that touches `v3/`. A gate that makes
+# pushing expensive is a gate people route around.
+
+if [ "${SSC3_CAP_CONFORMANCE:-1}" = 1 ] && [ -d tests/conformance ]; then
+  conf_out="$(classify "$(ls tests/conformance/*.ssc)")"
+  conf_both="$(printf '%s\n' "$conf_out" | grep -c '^11 ')"
+  conf_neither="$(printf '%s\n' "$conf_out" | grep -c '^00 ')"
+  conf_v3_only="$(printf '%s\n' "$conf_out" | awk '$1=="10"{print $2}' | sort | tr '\n' ' ')"
+  conf_uniml_only="$(printf '%s\n' "$conf_out" | awk '$1=="01"{print $2}' | sort | tr '\n' ' ')"
+  conf_n="$(printf '%s\n' "$conf_out" | grep -c .)"
+
+  echo
+  echo "── the conformance corpus: $conf_n programs, both fronts ──────────────────"
+  echo "  both accept: $conf_both   only v3: $(echo $conf_v3_only | wc -w | tr -d ' ')   only uniml: $(echo $conf_uniml_only | wc -w | tr -d ' ')   NEITHER: $conf_neither (a shared gap, not a divergence)"
+  check_set "v3"    "${KNOWN_CONF_V3_ONLY[*]}"    "$conf_v3_only"
+  check_set "uniml" "${KNOWN_CONF_UNIML_ONLY[*]}" "$conf_uniml_only"
+fi
 
 if [ $fails -ne 0 ]; then
   echo "front-capability-gate: FAIL ($fails)" >&2
