@@ -6489,11 +6489,12 @@ disagreement can sit unnoticed is no longer "until someone remembers to run it".
 
 ## v3-executor-still-returns-the-charAt-CODE-while-the-bridge-returns-the-character
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
      kind: bug
-     gate: v3/exec-gate.sh -->
+     gate: v3/exec-gate.sh
+     fixed-in: b5fb6a9814f86a88fd1b09e8210da97f2fab689b -->
 
 **`main` is red on this now.** v3's two lanes disagree, which invariant I-3 forbids:
 
@@ -6527,3 +6528,24 @@ reading the symptom: v3's executor adopts the Char, or the decision is narrowed 
 Same shape as `v3-two-fronts-differ-in-CAPABILITY` and as the loader's stale search path, both
 found today: a differential is blind to the component its two sides SHARE, and a path filter is
 blind to the dependency it does not name.
+
+**FIXED.** `v3/src/Exec.scala` now returns `Value.VChar` from `charAt`, and the fixture's
+`.expected` moves with it. One constructor: `Value.VChar` was already the same
+integer-that-prints-as-a-character, so `'x' + 1` stays 121 and `s.charAt(i) != 92` keeps meaning
+what it meant.
+
+The file was NOT actually held. `v3-dataset-vertical-slice` was released in 7a88d1049, which removed
+its `.claim` file and left its LEDGER row — so the mutex still reserved `v3/src/Exec.scala` for work
+nobody was doing, and that stale row is why this entry first said the fix belonged to someone else.
+Row dropped on the strength of the release commit.
+
+Eleven gates green, on a tree where the UniML front actually builds — which took a rebuild to
+notice. Three cases failed at first and only one was mine; the other two are uniml-only fixtures
+that failed because a stale `v3/.jars/uniml.cp` made the driver fall back to v3's own front. The CI
+run on the same commit had exactly one FAIL, which is how that was attributed rather than guessed —
+and it sent me after a hazard that turned out not to exist. I expected the fallback to make
+`front-diff.sh` compare one front with itself and report perfect agreement. Measured instead of
+built: with `uniml.cp` pointed at an empty directory, `ssc3 ast <file> uniml` exits **2** with
+`could not compile the uniml front` and prints nothing, so the differential's own probe fails the
+gate by name. The fallback applies to `Front.default` — which is what `exec` and `run` use, and why
+`exec-gate` ran on v3's own front — never to an EXPLICIT front request. No guard needed.
