@@ -779,11 +779,26 @@ on 2026-07-30 and "this layer did not", which is the same defect one prefix earl
 learn the vocabulary separately, so they will keep drifting until it lives in one place.
 
 ## coord-claim-broad-flag-writes-a-claim-its-own-ledger-contradicts
-<!-- status: open
+<!-- status: fixed
      lane: n/a
      area: build
-     fixed-in: -
-     gate: none -->
+     fixed-in: 3325b91e3
+     gate: scripts/coord-claim --self-test -->
+
+**Fixed in `3325b91e3`, and this entry was stale for long enough to send the next reader back to
+work already done — which is what a `status: open` with an empty `fixed-in` does.** I read it,
+claimed it, opened the file to fix it and found the fix already there with a comment naming this
+exact cause. Verified rather than taken from the commit message: reproducing the heredoc with the
+same variables now writes `paths:` and `broad:` on separate lines, and the claim's `paths:` line is
+byte-equal to what the ledger writer records.
+
+**It had no gate, which is why it could have come back in one edit.** `scripts/coord-claim
+--self-test` now asserts the property the pre-push guard actually compares, and carries its own
+NEGATIVE CONTROL: it re-creates the pre-fix spelling — a literal `\n` inside the quoted heredoc —
+and requires that to be detected as disagreeing. A green from it therefore cannot mean "the check
+did not look".
+
+### Original report (superseded 2026-08-10)
 
 `scripts/coord-claim <slug> --items … --paths … --broad "dir:…"` writes a claim file whose `paths:`
 and `broad:` lines disagree with the LEDGER row it writes in the same run, so the very next push is

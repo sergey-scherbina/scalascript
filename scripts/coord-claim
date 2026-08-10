@@ -15,6 +15,53 @@
 # "the push was rejected" means someone else moved first and your plan may now be wrong.
 set -euo pipefail
 
+# ── --self-test — the claim file and the LEDGER row must describe the same scope ─────────────────
+#
+# `3325b91e3` fixed a defect that made every `mod:`/`repo:` claim unusable: `--broad`'s reason was
+# written as `${broad:+\nbroad: …}` INSIDE A QUOTED HEREDOC, where `\n` is two literal characters, so
+# the justification landed on the end of the `paths:` line. The pre-push guard then compared that
+# line with the ledger's paths column, they disagreed, and the push was refused — for exactly the
+# scopes that require the flag.
+#
+# It had no gate, so the fix was one edit away from coming back and the BUGS entry stayed open long
+# enough that the next reader (me) started to fix it again. This asserts the property the guard
+# actually checks, and it carries its own negative control: the OLD form is re-created here and must
+# be detected as disagreeing, so a green from this cannot mean "the check does not look".
+if [ "${1:-}" = "--self-test" ]; then
+  fails=0
+  _paths="mod:v3/tests/jit file:BUGS.md"
+  _broad="a subtree because the fixtures are generated together"
+
+  _line=""
+  if [ -n "$_broad" ]; then _line="
+broad: $_broad"; fi
+  _claim="$(printf 'items: X\npaths: %s%s\nscope: |\n' "$_paths" "$_line")"
+  _got="$(printf '%s\n' "$_claim" | sed -n 's/^paths: //p')"
+  if [ "$_got" = "$_paths" ]; then
+    echo "  ok   paths: matches the ledger column with --broad set"
+  else
+    echo "  FAIL paths: [$_got] but the ledger records [$_paths]"; fails=$((fails + 1))
+  fi
+  if [ "$(printf '%s\n' "$_claim" | sed -n 's/^broad: //p')" = "$_broad" ]; then
+    echo "  ok   broad: is a line of its own"
+  else
+    echo "  FAIL broad: is not on its own line"; fails=$((fails + 1))
+  fi
+
+  # The negative control: the pre-3325b91e3 spelling, which must be caught.
+  _bad="$(printf 'items: X\npaths: %s\\nbroad: %s\nscope: |\n' "$_paths" "$_broad")"
+  if [ "$(printf '%s\n' "$_bad" | sed -n 's/^paths: //p')" = "$_paths" ]; then
+    echo "  FAIL the check passes the OLD buggy form too — it is not comparing what it claims to"
+    fails=$((fails + 1))
+  else
+    echo "  ok   the old form (a literal \\n in the heredoc) is detected as disagreeing"
+  fi
+
+  echo
+  if [ "$fails" = 0 ]; then echo "coord-claim --self-test: OK (3 checks, the negative control among them)"; exit 0; fi
+  echo "coord-claim --self-test: $fails FAILED"; exit 1
+fi
+
 slug=""; items=""; paths=""; broad=""; agent="${SSC_AGENT_ID:-claude-code}"
 while [ $# -gt 0 ]; do
   case "$1" in
