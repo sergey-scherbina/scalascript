@@ -5,7 +5,12 @@ started: 2026-08-10T16:47:42Z
 heartbeat: 2026-08-10T16:47:42Z
 status: claimed-before-planning
 items: orphan-fixedin-lands-red
-paths: file:.githooks/pre-push
+paths: file:.githooks/pre-push file:tests/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+  bugs-index-gate catches an orphaned `fixed-in:` only AFTER it lands, so main goes red for
+  everyone until the owner notices. THREE entries in two days: rust-backend-two-tests-red…,
+  lower-has-six-hand-written-Expr-walkers…, smoke-suite-over-its-own-budget. The cause is
+  structural, not carelessness — the SHA is written into the entry in the same commit as the fix,
+  and the rebase-and-push loop then rewrites it. Catch it in pre-push, where it costs the author
+  one retry instead of costing everyone a red suite.
 next: plan the task into SPRINT.md, then implement

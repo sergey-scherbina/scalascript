@@ -33,4 +33,4 @@ mcp-p4b4-stdio-cancel	claude-code	2026-08-10T16:38:34Z	mcp-2026-07-28 P4b-4	file
 v3-lowerfail-names-the-right-file	claude-code	2026-08-10T16:40:14Z	a LowerFail from an imported unit reports the ROOT path with the imported unit's line, pointing past the end of a file the reader did not write	file:v3/src/Ast.scala file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/tests/front BUGS.md
 char-type-test	claude-code	2026-08-10T16:42:03Z	js-char-type-test-cannot-tell-Char-from-String	file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
 coord-items-prose-reserves-words	claude-code	2026-08-10T16:47:17Z	coord-claim-items-prose-reserves-english-words	file:scripts/BUGS.md file:scripts/coord-claim
-prepush-fixedin-orphan	claude-code	2026-08-10T16:47:42Z	orphan-fixedin-lands-red	file:.githooks/pre-push
+prepush-fixedin-orphan	claude-code	2026-08-10T16:47:42Z	orphan-fixedin-lands-red	file:.githooks/pre-push file:tests/BUGS.md
