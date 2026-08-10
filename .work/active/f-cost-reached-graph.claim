@@ -1,0 +1,11 @@
+slug: f-cost-reached-graph
+branch: feature/f-cost-reached-graph
+agent: claude-code
+started: 2026-08-10T15:44:19Z
+heartbeat: 2026-08-10T15:44:19Z
+status: claimed-before-planning
+items: f-front-compile-cost-7x-on-scljet
+paths: file:specs/v2.2-p6.5-fsub.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
