@@ -25,7 +25,8 @@ Newest first.
 
 ## std-ui-fetch-plugin-two-red-tests-nobody-filed
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 6e7f915ef
      lane: int
      area: runtime
      kind: bug
@@ -45,6 +46,23 @@ FAIL  std/ui data exposes remoteTable composing fetchRowsSource + dataTableView 
 suite that is red with nobody watching cannot tell the next person whether they broke something. I
 did not investigate the cause — the tests are about `std/ui/data.ssc` exposing `rowEditAction` and
 `remoteTable`, and both are named precisely enough to start from.
+
+**FIXED 2026-08-10 — and they were not two, they were eleven.** Both read
+`repoRoot / "runtime" / "std" / "ui" / "data.ssc"`, a path the `v1-runtime-std` rename removed: `.ssc`
+sources moved to `std/` and the plugin projects to `v1/runtime/plugins/`. The same stale spelling
+killed seven tests in `MoneyStdTest`, two in `MoneyCrossBackendTest`, and one probe each in
+`StableSpiEnforcementTest` and `SingletonFailoverTest` — three suites, one cause.
+
+`fetchPlugin/test`: 2 failures → **0**. `backendInterpreter/testFast`: 9 → 2.
+
+**Not a blanket replace, and that mattered:** four of the five want the `.ssc` tree, but
+`StableSpiEnforcementTest` scans for `*-plugin` DIRECTORIES and wants `v1/runtime/plugins`. Replacing
+every occurrence identically would have left it passing over an empty list — a gate checking nothing.
+
+**Why nobody saw it:** none of those suites runs anywhere — absent from `ci.yml` and from smoke. I
+filed this entry yesterday having stumbled on the two while verifying something else, and only found
+the other nine after splitting the interpreter suite into lanes that finish (`2c52c99bd`).
+
 
 ## v3-ci-gates-job-has-never-been-green — one red gate hid five others on every run
 
