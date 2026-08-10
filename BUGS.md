@@ -1452,12 +1452,12 @@ is a separate defect and is not touched here.
 
 ## v3-executor-catches-a-string-where-the-bridge-catches-the-value
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: divergence
-     gate: none
-     fixed-in: - -->
+     gate: v3/exec-gate.sh (catch-binds-the-thrown-value)
+     fixed-in: e16ca28e3 -->
 
 Found 2026-08-08 while giving the UniML projection a multi-arm `catch`. The two v3 lanes bind
 DIFFERENT THINGS to the caught name:
@@ -1496,6 +1496,30 @@ N 186 → 185, DIFF 0 → 1 and CRASH 0 → 1, the crash being
 longer matches, because the caught value is a string. So the order is: fix `Exec.scala:482` first,
 then the projection can stop ignoring the type in one move. The diff is small — replace the
 single-arm shortcut with a `match` on the caught value plus a rethrow arm.
+
+
+**FIXED 2026-08-10 in `e16ca28e3`, and the loss was at the THROW rather than the catch.**
+`__throw__` built `ExecError(showV(value))`, so the value was already gone by the time the catch arm
+ran; binding `VStr(e.message)` was the second half of one mistake. `ExecThrow(value, rendered)`
+carries it.
+
+    before   method 'msg' on Boom(b)' is not implemented by v3's executor
+    after    none / b:7 / plain      — same on the bridge
+
+**A NARROWER FIRST CUT WAS REVERTED, recorded because the reasoning was wrong in an instructive
+way.** Catching only `ExecThrow` looked right — the executor's own failures are not values a program
+threw — and turned `exec-gate` red on `try-catch.ssc`, which catches a DIVISION BY ZERO. That is a
+language-level exception Scala lets a program catch, not an internal error. **v3 does not
+distinguish "the language raised" from "the executor failed": both are `ExecError`**, so refusing to
+catch them refuses the first to be rid of the second. Both are caught; the BINDING differs. Drawing
+that line properly is a real change and deserves its own entry.
+
+**This entry's own reproduction no longer runs**, and it is left as written: it uses a MULTI-ARM
+`catch`, which v3's front now refuses outright — *"a `catch` arm binds one name at Tier 0"* — so it
+stops before the executor. The single-arm form above isolates the same defect.
+
+The fixture pins both directions: a thrown case class arrives with its fields readable, and a thrown
+STRING arrives as a string — a fix that wrapped every payload would have been just as wrong.
 
 
 ## v3-loses-a-mutation-to-a-captured-var — both v3 lanes answer 0 where the reference answers 6
