@@ -6982,9 +6982,11 @@ counts on BOTH exits — success and the size throw, via `finally`, because the 
 matter is the one that throws.
 
 **Every row below is the LEGACY front**, on purpose: the first version of this table mixed a
-default-front (F) row with a legacy row, which is not a table. Front choice shifts the count by ~12
-methods (`write-table` 12 577 on F against 12 589 on legacy), so it does not matter — but a table
-that cannot say which front produced it is not evidence.
+default-front (F) row with a legacy row, which is not a table. Front choice shifts the count by 12
+methods on `write-table` (12 577 on F, 12 589 on legacy) and by 176 on `scljet-hello` (29 287 on F,
+29 463 on legacy) — under 1 % either way, so it changes no conclusion here. But a table that cannot
+say which front produced it is not evidence, and `~12` from a SINGLE pair was too confident a way
+to say "under a percent".
 
 | program | methods | `defMethods` | emits? |
 |---|---|---|---|
@@ -6993,6 +6995,10 @@ that cannot say which front produced it is not evidence.
 | `scljet-crud` | 13 672 | 1 473 | yes |
 | **`scljet-unique-index`** | **29 453** | 2 543 | **ClassTooLarge** |
 | **`scljet-hello`** | **29 463** | 2 545 | **ClassTooLarge** |
+
+`scljet-hello` was measured on the F front too — **29 287** methods, the same `defMethods`, the same
+`ClassTooLargeException`. Both fronts land the same side of the wall, which is what makes the sizing
+below front-independent.
 
 Two emissions happen per run and the FIRST is identical across programs (3 916 / 1 456): that is the
 front compiling itself, not the user's program. Only the second varies.
