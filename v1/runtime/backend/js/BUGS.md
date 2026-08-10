@@ -994,7 +994,40 @@ code for whichever value suited it — green in both states, the failure this re
 <!-- status: open
      lane: js
      area: codegen
-     gate: none -->
+     gate: tests/e2e/char-type-test.sh -->
+
+**PARTLY FIXED 2026-08-10, and the split is the finding.** Re-measured on a fresh build across four
+lanes, this was TWO defects wearing one entry, and only one of them is the representation gap:
+
+| `kind(x)` with arms Char / String / Int / _ | `'c'` | `"c"` | `99` | `s.charAt(0)` |
+|---|---|---|---|---|
+| `--v1` (the census oracle) | Char | String | Int | Char |
+| `bin/ssc` before → after | `Int` → **Char** | String | Int | `Int` → **Char** |
+| `--bytecode` before → after | `Int` → **Char** | String | Int | `Int` → **Char** |
+| `run-js` before → after | `String` → `String` | String | Int | `other` → **Char** |
+
+* **native / bytecode — one arm, and the ORDER is the fix.** `CharV extends IntV`, so a Char fell
+  into the `IntV` arm of `__isTag__` and answered `Int` — the one question where being an IntV is
+  the wrong answer. A `CharV` arm placed BEFORE it. This lane now answers Char for the literal too,
+  because a char literal there really is a `CharV`.
+* **js Char RESULT — one arm.** `s.charAt(0)` is a `_Char` box and the type-test mapping had no
+  `Char` case at all, so it fell to the `_type === 'Char'` default, which is false for a box whose
+  only own key is `__c`. Now `_isChar`.
+* **js char LITERAL — still open, and this entry stays open for it.** `'c'` is a plain
+  one-character string, and `case _: String` on a genuine one-character string must keep working, so
+  no arm can serve both. It needs the literal to carry the box: a representation change with its own
+  corpus run, which `JsGen` argues for at length and which is not this.
+
+**The census said this was not fixable, and the census was out of date.**
+`specs/type-ascription-matrix.md` (2026-07-31) filed native under "a missing TYPE — not fixable in a
+type test at all", citing `v2-char-is-an-int`. True when written; `f39448c96` then moved `charAt`
+onto a distinct `CharV` class, which silently promoted the row from "needs a representation" to
+"needs one arm" — and nothing re-measured it for ten days. The matrix now says so, because a spec
+that says *impossible* about a one-line fix costs more than no spec.
+
+**The gate asserts the gap, not just the fixes.** It pins js still answering `String` for a literal,
+so the day that changes the gate reports it instead of passing quietly, and it refuses to judge at
+all if `--v1` stops matching the census.
 
 **Found 2026-07-31** by the same census. A char literal compiles to a plain JS string
 (`val c = 'c'` emits `const c = "c";`), so `kind('c')` answers `String` where the JVM, INT and the

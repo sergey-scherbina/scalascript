@@ -10,7 +10,7 @@ Boolean      Boolean       Boolean  Boolean  Boolean
 Int          Int           Int      Int      Int
 Double       Double        Double   Double   Int      ✗   (fixed — see below)
 String       String        String   String   String
-Char         Char          Char     Int   ✗  String ✗
+Char         Char          Char     Char     String ✗  (native fixed 08-10)
 Map          Map           Map      Map      Map
 Set          Set           Set      List  ✗  -      ✗
 List         List          List     List     -      ✗
@@ -58,11 +58,24 @@ lane, so any arm would have to lie:
 
 - native: `Set(1,2)` **prints** `List(1, 2)` — a Set IS a list there;
 - js: `List(...)` is `[...args]` and `_setOf(...)` is a plain array too;
-- js: a char literal is a plain string, so `Char` and `String` are one value;
-- native: a char is an int (`v2-char-is-an-int`).
+- js: a char literal is a plain string, so `Char` and `String` are one value.
 
 These need a representation before the question means anything. Answering `other` is the honest
 result meanwhile — better than a confident wrong type.
+
+**A row in this kind can GRADUATE, and one did — which is the reason to re-measure a census instead
+of citing it.** `native: a char is an int (v2-char-is-an-int)` was listed here on 2026-07-31 and was
+true then. `f39448c96` later moved `charAt` onto `CharV extends IntV`, giving the lane a distinct
+Char class — so by 2026-08-10 the type EXISTED and only the test was missing, which is kind 1, a
+one-line arm. Measured 08-10 on a fresh build, native and bytecode answered `Int` for a char and the
+fix was ordering the `CharV` arm before `IntV` in `__isTag__`. js's Char RESULT (`s.charAt(0)`, a
+`_Char` box) was kind 1 as well and answered `other`; only the js LITERAL is still kind 3.
+
+The lesson is about the census, not about Char: **a "not fixable" verdict is dated evidence.** It
+records what the lane could represent on the day it was taken, and a representation landing
+elsewhere silently promotes the row. Anything reading this file should re-measure the row it cares
+about before concluding the work is impossible — three months of this file said a one-line fix
+could not be done.
 
 ## What this census is FOR
 

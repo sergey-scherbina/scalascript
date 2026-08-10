@@ -804,6 +804,21 @@ private[codegen] trait JsGenCpsCodegen:
         case "Number" =>
           s"(typeof $scrutVar === 'number')"
         case "Boolean" => s"(typeof $scrutVar === 'boolean')"
+        // `_isChar` is the runtime's own predicate (`x instanceof _Char`), and the box is what
+        // every Char RESULT already carries: `s.charAt(0)`, a `String.map` element, a `Char`-typed
+        // param normalised by `_asChar`. Without this arm `case _: Char` fell to the `_type ===
+        // 'Char'` default below — false for the box, whose own key is `__c` — so a Char answered
+        // `other` where the reference lane answers `Char`.
+        //
+        // A one-character STRING is deliberately NOT accepted. `case _: String` on a genuine
+        // one-char string must keep working, and accepting both would make the two arms the same
+        // predicate — the ordering bug the Int/Double comment above describes, in a new place.
+        //
+        // KNOWN LIMIT, and it is the rest of the entry: a char LITERAL is a plain one-character
+        // string on this lane, so `case _: Char` is still false for `'c'`. Closing that needs the
+        // literal to carry the box — a representation change with its own corpus run, not this arm.
+        // BUGS `js-char-type-test-cannot-tell-Char-from-String`.
+        case "Char"    => s"_isChar($scrutVar)"
         // The unit value is `undefined` here (a unit-returning function falls off its
         // end), and `null` stays a distinct value, so this test does not conflate the
         // two. Without the arm `case _: Unit` fell to the `_type === 'Unit'` branch

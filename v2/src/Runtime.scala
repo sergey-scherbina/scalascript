@@ -1812,6 +1812,12 @@ object Prims:
         val primitive = value match
           case UnitV     => expected == "Unit"
           case BoolV(_)  => expected == "Boolean" || expected == "Bool"
+          // BEFORE `IntV`, and that ORDER is the fix: `CharV extends IntV`, so a Char fell into the
+          // arm below and answered `Int` — the one question where being an IntV is the wrong
+          // answer. Everything numeric about a Char stays as it was; this arm is only ever reached
+          // by `case _: T`, never by arithmetic. The reference lane (`--v1`) says `Char` here and
+          // says `Int` for a genuine Int, which is what Scala says. js-char-type-test-…
+          case CharV(_)  => expected == "Char"
           case IntV(_)   => expected == "Int" || expected == "Long"
           case BigV(_)   => expected == "BigInt"
           case FloatV(_) => expected == "Float" || expected == "Double"
