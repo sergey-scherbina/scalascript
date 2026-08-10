@@ -1440,6 +1440,29 @@ row eventually — an expected-output comparison is what distinguishes "no match
 but it belongs in a commit that is already refreshing the baseline.
 
 
+**HALF OF IT LANDED 2026-08-10 in `5a194d2b8`, and the entry stays OPEN — deliberately.** The front
+now HAS the check: `Typer.bindPatVars` had cases for `Pat.Var`, `Pat.Extract`, `Pat.Typed`,
+`Pat.Bind` and then `case _ => Nil`, so a capitalised bare name resolved to nothing and fell through
+in silence. It now reports `unknown constructor 'Nope' in a pattern` — the same sentence v3 already
+produced, so the two fronts do not each invent one.
+
+Four tests, three of them CONTROLS, because the capitalisation rule was never the defect: a lowercase
+name still binds, a real constructor still matches, a locally declared `case object` is still
+accepted. Proved to discriminate. `core/test` 1158 passing, 0 failing — no false positives in the
+front's own suite.
+
+**THE THREE ROWS ABOVE ARE UNCHANGED, and that is measured, not assumed.** `ssc run` is silent BY
+DELIBERATE POLICY: `Main.scala` type-checks on the run path only under `SSC_JIT_TYPESTATS`, with the
+comment *"best-effort (never fail the run on a type error)"*. After this change `run --v1` still
+prints `NO MATCH`. `run-jvm` does fail, but on `E006 Not Found` from the generated Scala — not this
+diagnostic.
+
+**So the remaining half is not a missing check; it is a POLICY.** Every path that surfaces Typer
+errors now reports this (the JVM build path exits 1 on `typed.hasErrors`, watch mode prints them).
+Making `run` fail on a type error is a decision with an owner, exactly like the two import questions
+settled this week, and the gate's rows stay as they are until someone takes it.
+
+
 ## multi-name-val-binds-garbage-and-says-nothing — `val a, b = 1` on four lanes, four answers
 
 <!-- status: fixed
