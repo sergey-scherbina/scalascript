@@ -264,7 +264,7 @@ class McpServerBuilder:
    *  doesn't add any (no persistent channel — push delivery for Http is
    *  deferred to the SSE GET stream variant). */
   private val subscribers =
-    java.util.concurrent.ConcurrentHashMap.newKeySet[String => Unit]()
+    java.util.concurrent.ConcurrentHashMap.newKeySet[Subscriber]()
 
   /** Wire a new push subscriber for the lifetime of one transport
    *  connection.  Returns a thunk the transport calls on disconnect
@@ -273,8 +273,27 @@ class McpServerBuilder:
    *  dead connection doesn't tear the whole broadcaster down. */
   def addSubscriber(write: String => Unit): () => Unit =
     val wrap: String => Unit = s => try write(s) catch case _: Throwable => ()
-    subscribers.add(wrap)
-    () => { subscribers.remove(wrap); () }
+    val sub = Subscriber(wrap, None, None)
+    subscribers.add(sub)
+    () => { subscribers.remove(sub); () }
+
+  /** MCP 2026-07-28 — a `subscriptions/listen` stream.
+   *
+   *  Unlike a legacy subscriber this one is FILTERED: it receives only the
+   *  notification types its filter admits, and every frame it receives is
+   *  tagged with its subscription id. Both are the spec's MUSTs, and both are
+   *  properties of the SUBSCRIBER rather than of the notification — which is
+   *  why the decision moved here instead of into each `notify*` call site.
+   *  Several listens may be open at once with different filters. */
+  def addListenSubscriber(
+    write:          String => Unit,
+    filter:         McpProtocol.NotificationFilter,
+    subscriptionId: ujson.Value
+  ): () => Unit =
+    val wrap: String => Unit = s => try write(s) catch case _: Throwable => ()
+    val sub = Subscriber(wrap, Some(filter), Some(subscriptionId))
+    subscribers.add(sub)
+    () => { subscribers.remove(sub); () }
 
   /** Broadcast a server-initiated notification to every active
    *  subscriber.  No id (notifications never expect a reply).  Frames
@@ -282,8 +301,21 @@ class McpServerBuilder:
    *  framing every reader (`McpClientCore.dispatchResponse` /
    *  `McpWsClient.dispatchInboundLine`) already understands. */
   def notify(method: String, params: ujson.Value): Unit =
-    val frame = JsonRpc.encodeNotification(method, params)
-    subscribers.forEach { s => s(frame) }
+    val legacyFrame = JsonRpc.encodeNotification(method, params)
+    val uri = try params.objOpt.flatMap(_.get("uri")).flatMap(_.strOpt) catch case _: Throwable => None
+    subscribers.forEach { s =>
+      s.filter match
+        // Legacy subscriber: the frame it gets is byte-identical to what it got
+        // before subscriptions existed. Everything about this revision is opt-in
+        // on the wire, and a stdio client that never sent `subscriptions/listen`
+        // has not opted into anything.
+        case None => s.write(legacyFrame)
+        case Some(f) =>
+          if f.admits(method, uri) then
+            val tagged = McpProtocol.tagSubscription(ujson.read(legacyFrame.trim),
+                                                     s.subscriptionId.getOrElse(ujson.Null))
+            s.write(tagged.render() + "\n")
+    }
 
   // v1.17.x — bidirectional sampling.  Server can issue a JSON-RPC
   // Request to a client (e.g. `sampling/createMessage`); the
@@ -302,7 +334,7 @@ class McpServerBuilder:
    *  response wins (semantically: any one of the clients can fulfill
    *  the request).  Timeout fires if no client replies in time. */
   def request(method: String, params: ujson.Value, timeoutMs: Long): Either[JsonRpc.Error, ujson.Value] =
-    if subscribers.isEmpty then
+    if !subscribers.stream().anyMatch(_.filter.isEmpty) then
       return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
         "srv.request: no active client subscribers"))
     val id    = nextRequestId.getAndIncrement()
@@ -310,7 +342,11 @@ class McpServerBuilder:
     serverPending.put(id, q)
     try
       val frame = JsonRpc.encodeRequest(method, params, id)
-      subscribers.forEach { s => s(frame) }
+      // A server-initiated request is not a subscription notification: it goes to
+      // legacy channels only. A `subscriptions/listen` stream carries only the
+      // types its filter named, and the modern era replaces this whole mechanism
+      // with MRTR anyway (specs/mcp-2026-07-28.md 8).
+      subscribers.forEach { s => if s.filter.isEmpty then s.write(frame) }
       val resp = q.poll(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
       if resp == null then
         Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError,
@@ -449,6 +485,16 @@ case class ResourceHandlerResult(uri: String, contents: List[ujson.Value])
 
 case class PromptHandlerResult(description: Option[String], messages: List[ujson.Value])
 
+/** One server→client channel. `filter` is `None` for a legacy connection —
+ *  stdio's single writer, a WS connection — which receives every notification
+ *  untagged, exactly as before this revision. `Some(f)` is a
+ *  `subscriptions/listen` stream: filtered, and tagged with `subscriptionId`. */
+private[mcp] case class Subscriber(
+  write:          String => Unit,
+  filter:         Option[McpProtocol.NotificationFilter],
+  subscriptionId: Option[ujson.Value]
+)
+
 case class ToolRegistration(
   name:        String,
   description: Option[String],
@@ -534,6 +580,40 @@ object McpServerCore:
                 write(dispatch(builder, method, params, id, serverName, serverVersion))
       try builder.onDisconnected() catch case _: Throwable => ()
     finally unsubscribe()
+
+  /** MCP 2026-07-28 — open a `subscriptions/listen` stream.
+   *
+   *  The transport owns the stream; this owns the protocol. It parses the
+   *  filter, registers a filtered subscriber, and writes the acknowledgement
+   *  BEFORE returning — the spec requires it to be the first message on the
+   *  subscription and forbids any notification preceding it, so it cannot be
+   *  left to the caller to remember.
+   *
+   *  Returns the thunk the transport calls when the stream ends, however it
+   *  ends: client close, `notifications/cancelled`, or server teardown.
+   *
+   *  `honoured` is what we agreed to, not what was asked. Today those are the
+   *  same set; when a server grows a type it cannot serve, this is where the
+   *  difference gets reported, because the acknowledgement is how a client
+   *  learns what it will actually receive. */
+  def openSubscription(
+    builder: McpServerBuilder,
+    params:  ujson.Value,
+    id:      ujson.Value,
+    write:   String => Unit
+  ): () => Unit =
+    val requested = McpProtocol.parseNotificationFilter(params)
+    val honoured  = requested          // every type in the filter is serviceable
+    val close     = builder.addListenSubscriber(write, honoured, id)
+    write(McpProtocol.subscriptionsAcknowledged(id, honoured))
+    close
+
+  /** Graceful closure: answer the long-lived request itself, then let the
+   *  transport drop the stream. The ABSENCE of this response is what tells a
+   *  client the stream died rather than ended, so it is emitted only on an
+   *  orderly teardown — never from an error path. */
+  def closeSubscription(id: ujson.Value, write: String => Unit): Unit =
+    write(JsonRpc.encodeResult(id, McpProtocol.subscriptionClosedResult(id)))
 
   /** v1.17.x — outcome of the HTTP auth gate.  `Allowed(claims)` means
    *  dispatch may proceed with the bound claims; the four `Reject*`

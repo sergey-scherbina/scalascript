@@ -670,3 +670,87 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       val legacy = ujson.read(McpServerCore.dispatch(
         b, m, ujson.Obj("uri" -> "file:///a"), ujson.Num(81)).trim)
       withClue(s"legacy $m: ") { legacy.obj.keySet should not contain "error" }
+
+  // ── P4b: filtered delivery on a listen stream ───────────────────────
+
+  private class Sink:
+    val frames = scala.collection.mutable.ListBuffer.empty[ujson.Value]
+    val write: String => Unit = s => frames += ujson.read(s.trim)
+    def methods: List[String] = frames.toList.flatMap(_.obj.get("method")).flatMap(_.strOpt)
+
+  test("a listen stream receives ONLY what its filter admits, each tagged"):
+    val b = new McpServerBuilder
+    val sink = new Sink
+    McpServerCore.openSubscription(b,
+      ujson.Obj("notifications" -> ujson.Obj("toolsListChanged" -> true)), ujson.Num(1), sink.write)
+    b.notifyToolsListChanged()
+    b.notifyPromptsListChanged()
+    b.notifyResourcesListChanged()
+    // ack first, then only the admitted one
+    sink.methods shouldBe List(McpProtocol.Method.SubscriptionsAcknowledged,
+                               McpProtocol.Method.ToolsListChanged)
+    sink.frames.toList.foreach { f =>
+      f("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 1
+    }
+
+  test("the acknowledgement is the FIRST message and precedes every notification"):
+    // The spec forbids any notification on the subscription before the ack, and
+    // openSubscription writes it before returning so a transport cannot forget.
+    val b = new McpServerBuilder
+    val sink = new Sink
+    McpServerCore.openSubscription(b,
+      ujson.Obj("notifications" -> ujson.Obj("toolsListChanged" -> true)), ujson.Num(2), sink.write)
+    sink.methods.head shouldBe McpProtocol.Method.SubscriptionsAcknowledged
+
+  test("resource updates reach only the streams that named that URI"):
+    val b = new McpServerBuilder
+    val wantsA, wantsB = new Sink
+    McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "resourceSubscriptions" -> ujson.Arr("file:///a"))), ujson.Num(3), wantsA.write)
+    McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "resourceSubscriptions" -> ujson.Arr("file:///b"))), ujson.Num(4), wantsB.write)
+    b.notify(McpProtocol.Method.ResourcesUpdated, ujson.Obj("uri" -> "file:///a"))
+    wantsA.methods should contain (McpProtocol.Method.ResourcesUpdated)
+    wantsB.methods should not contain McpProtocol.Method.ResourcesUpdated
+
+  test("a LEGACY subscriber still receives everything, untagged and byte-identical"):
+    // The dual-era promise at the notification layer: a stdio client that never
+    // sent subscriptions/listen has opted into nothing, so nothing changes for it.
+    val b = new McpServerBuilder
+    val legacy = new Sink
+    b.addSubscriber(legacy.write)
+    b.notifyToolsListChanged()
+    b.notifyPromptsListChanged()
+    legacy.methods shouldBe List(McpProtocol.Method.ToolsListChanged,
+                                 McpProtocol.Method.PromptsListChanged)
+    legacy.frames.toList.foreach { f =>
+      f("params").obj.keySet should not contain "_meta"
+    }
+
+  test("two streams with different filters demultiplex by subscription id"):
+    val b = new McpServerBuilder
+    val tools, prompts = new Sink
+    McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true)), ujson.Num(10), tools.write)
+    McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "promptsListChanged" -> true)), ujson.Num(11), prompts.write)
+    b.notifyToolsListChanged()
+    b.notifyPromptsListChanged()
+    tools.methods.tail shouldBe List(McpProtocol.Method.ToolsListChanged)
+    prompts.methods.tail shouldBe List(McpProtocol.Method.PromptsListChanged)
+    tools.frames.last("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 10
+    prompts.frames.last("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 11
+
+  test("closing the stream emits the graceful-closure response, and unsubscribes"):
+    val b = new McpServerBuilder
+    val sink = new Sink
+    val close = McpServerCore.openSubscription(b,
+      ujson.Obj("notifications" -> ujson.Obj("toolsListChanged" -> true)), ujson.Num(5), sink.write)
+    close()
+    McpServerCore.closeSubscription(ujson.Num(5), sink.write)
+    b.notifyToolsListChanged()                       // after close: nothing more
+    val last = sink.frames.last
+    last("id").num shouldBe 5
+    last("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    last("result")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 5
+    sink.methods should not contain McpProtocol.Method.ToolsListChanged
