@@ -185,6 +185,18 @@ private[mcp] object Mcp:
    *  open it subscribe to server→client notifications via the same
    *  `builder.addSubscriber` mechanism that Stdio/Spawn/Ws use.  Each
    *  notification is wrapped as `data: <json>\n\n`. */
+  /** Is this POST body a `subscriptions/listen` request? Returns its params and
+   *  id, which are all the stream needs.
+   *
+   *  A separate function because it is the one place the transport has to look
+   *  INSIDE the body before dispatching — every other method goes through
+   *  `handleHttpRequest` untouched. */
+  private[mcp] def listenRequest(body: String): Option[(ujson.Value, ujson.Value)] =
+    JsonRpc.parse(body) match
+      case Right(JsonRpc.Message.Request(m, params, id))
+        if m == McpProtocol.Method.SubscriptionsListen => Some((params, id))
+      case _ => None
+
   def installHttpRoute(builder: McpServerBuilder, path: String, ctx: PluginContext): Unit =
     val handler = PluginValue.nativeFn("mcp.http.handler", {
       case List(Inst("Request", fields)) =>
@@ -292,19 +304,36 @@ private[mcp] object Mcp:
       ))
       val callback = PluginValue.nativeFn("mcp.http.post.sse", {
         case List(writeFn) =>
-          val unsubscribe = builder.addSubscriber { line =>
-            try ctx.invokeCallback(writeFn,
+          // NOTE the missing try/catch. For a `subscriptions/listen` stream a
+          // failed write is the CANCELLATION signal — the client closed the
+          // connection — and `addListenSubscriber` is what turns it into a
+          // teardown. Swallowing it here would lose exactly the event the
+          // subscription's lifetime is built on. The broadcast writer below
+          // keeps its catch, because there the failure concerns nobody but
+          // that one dead peer.
+          val writeSse: String => Unit = line =>
+            ctx.invokeCallback(writeFn,
               List(PluginValue.string(s"data: ${line.stripSuffix("\n")}\n\n")))
-            catch case _: Throwable => ()
-          }
-          try
-            val reply = builder.withAuth(claims) {
-              McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0", reqHeaders)
-            }
-            if reply.nonEmpty then
-              ctx.invokeCallback(writeFn,
-                List(PluginValue.string(s"data: ${reply.stripSuffix("\n")}\n\n")))
-          finally unsubscribe()
+          listenRequest(body) match
+            case Some((listenParams, listenId)) =>
+              // The RESPONSE is the stream: no dispatch, no reply frame. Open
+              // the subscription (which writes the acknowledgement first) and
+              // hold the connection until it ends — client close, cancellation
+              // or teardown, which `await` makes one event.
+              val sub = builder.withAuth(claims) {
+                McpServerCore.openSubscription(builder, listenParams, listenId, writeSse)
+              }
+              try sub.await() finally sub.close()
+            case None =>
+              val unsubscribe = builder.addSubscriber { line =>
+                try writeSse(line) catch case _: Throwable => ()
+              }
+              try
+                val reply = builder.withAuth(claims) {
+                  McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-int", "1.0.0", reqHeaders)
+                }
+                if reply.nonEmpty then writeSse(reply)
+              finally unsubscribe()
           PluginValue.unit
         case _ => PluginValue.unit
       })

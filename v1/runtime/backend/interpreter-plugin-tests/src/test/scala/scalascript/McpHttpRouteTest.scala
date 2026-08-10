@@ -134,3 +134,82 @@ class McpHttpRouteTest extends AnyFunSuite with Matchers:
     post(ctx, body, base + ("Mcp-Param-Region" -> "eu-west1"))("error")("code").num shouldBe
       McpProtocol.ErrorCode.HeaderMismatch
     post(ctx, body, base)("error")("code").num shouldBe McpProtocol.ErrorCode.HeaderMismatch
+
+  // ── P4b-3: subscriptions/listen is answered by the stream itself ────
+
+  /** A ctx whose `invokeCallback` really invokes, so the SSE callback runs. */
+  private class InvokingCtx extends CapturingCtx:
+    override def invokeCallback(fn: Any, args: List[Any]): Any = fn match
+      case Value.NativeFnV(_, f) => f(args.map(_.asInstanceOf[Value])) match
+        case Computation.Pure(v) => v
+        case other               => other
+      case other => fail(s"expected a NativeFnV writer, got $other")
+
+  private def listenBody(id: Int, notifications: ujson.Obj) = ujson.Obj(
+    "jsonrpc" -> "2.0", "id" -> id, "method" -> McpProtocol.Method.SubscriptionsListen,
+    "params" -> ujson.Obj("notifications" -> notifications,
+      "_meta" -> ujson.Obj(
+        McpProtocol.MetaKey.ProtocolVersion    -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj()))).render()
+
+  test("listenRequest recognises only a subscriptions/listen REQUEST"):
+    Mcp.listenRequest(listenBody(1, ujson.Obj("toolsListChanged" -> true))).isDefined shouldBe true
+    Mcp.listenRequest(modernBody) shouldBe None                 // tools/call
+    Mcp.listenRequest("not json")  shouldBe None
+    Mcp.listenRequest(JsonRpc.encodeNotification(
+      McpProtocol.Method.SubscriptionsListen, ujson.Obj())) shouldBe None       // a notification, not a request
+
+  test("a listen POST is answered with a stream, not a Response"):
+    // The revision's shape: the RESPONSE is the stream. A plain Response here
+    // would mean we had dispatched it like any other method and closed.
+    val ctx = new InvokingCtx
+    val b   = new McpServerBuilder
+    Mcp.installHttpRoute(b, "/mcp", PluginContext.fromNative(ctx))
+    val req = request(listenBody(1, ujson.Obj("toolsListChanged" -> true)),
+      Map("Accept" -> "text/event-stream",
+          McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+          McpProtocol.Header.Method          -> McpProtocol.Method.SubscriptionsListen))
+    call(ctx.routes(("POST", "/mcp")), req) match
+      case Value.InstanceV("StreamResponse", f) =>
+        f.get("status").collect { case Value.IntV(n) => n } shouldBe Some(200L)
+      case other => fail(s"expected a StreamResponse, got $other")
+
+  test("the stream acknowledges first, delivers only what was asked, and ends on close"):
+    val ctx = new InvokingCtx
+    val b   = new McpServerBuilder
+    Mcp.installHttpRoute(b, "/mcp", PluginContext.fromNative(ctx))
+    val req = request(listenBody(9, ujson.Obj("toolsListChanged" -> true)),
+      Map("Accept" -> "text/event-stream",
+          McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+          McpProtocol.Header.Method          -> McpProtocol.Method.SubscriptionsListen))
+    val resp = call(ctx.routes(("POST", "/mcp")), req).asInstanceOf[Value.InstanceV]
+    val cb   = resp.fields("callback")
+
+    val seen = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val writer = Value.NativeFnV("w", {
+      case List(Value.StringV(s)) => seen.add(s); Computation.Pure(Value.UnitV)
+      case other                  => fail(s"unexpected writer args: $other")
+    })
+    // The callback BLOCKS for the life of the stream — that is the point — so it
+    // runs on its own thread and the test ends the subscription from outside.
+    val t = new Thread(new Runnable { def run(): Unit = { call(cb, writer); () } })
+    t.setDaemon(true); t.start()
+    eventually(seen.size shouldBe 1)                     // the acknowledgement, first
+    seen.peek should include (McpProtocol.Method.SubscriptionsAcknowledged)
+    b.notifyToolsListChanged()
+    b.notifyPromptsListChanged()                          // not requested — must not appear
+    eventually(seen.size shouldBe 2)
+    val frames = seen.toArray.map(_.toString).toList
+    frames.exists(_.contains(McpProtocol.Method.ToolsListChanged))   shouldBe true
+    frames.exists(_.contains(McpProtocol.Method.PromptsListChanged)) shouldBe false
+    frames.foreach(_ should startWith ("data: "))
+    t.interrupt()
+
+  /** Poll briefly — the stream runs on another thread. */
+  private def eventually(check: => Unit): Unit =
+    var last: Throwable = null
+    var i = 0
+    while i < 100 do
+      try { check; return } catch case e: Throwable => last = e
+      Thread.sleep(20); i += 1
+    throw last
