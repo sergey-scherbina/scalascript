@@ -744,9 +744,11 @@ private[codegen] trait JsGenCpsCodegen:
       // The interpreter had the identical hole in `PatternRuntime.compileLit` (`NullV` instead of
       // `undefined`), and fixing that one is what exposed this one: `dsl-calc-parser`'s LIVE golden
       // moved to int's now-correct output and js became the divergent lane.
-      // A Char is a 1-char STRING in emitted JS — `Lit.Char` in expression position (`JsGen.scala:4195`)
-      // emits exactly that — so comparing against the same form is consistent by construction.
-      // (int-char-literal-pattern-never-matches.)
+      // A Char carries the `_Char` box in emitted JS — `Lit.Char` in expression position emits
+      // exactly that — so comparing against the same form is consistent by construction. It was a
+      // one-character STRING on both sides until 2026-08-10; the pair has to move together, or
+      // `case 'a' =>` compares a box with a string and never matches.
+      // (int-char-literal-pattern-never-matches; js-char-type-test-cannot-tell-Char-from-String.)
       val litJs = lit match
         case Lit.Int(v)     => v.toString
         case Lit.Long(v)    => v.toString
@@ -756,7 +758,7 @@ private[codegen] trait JsGenCpsCodegen:
         // of that chain, and the second one is what produced `jsgen-char-literal-escape` — a pattern on
         // a string containing a newline emitted unparseable JS.
         case Lit.String(v)  => "\"" + escapeJsString(v) + "\""
-        case Lit.Char(v)    => "\"" + escapeJsString(v.toString) + "\""
+        case Lit.Char(v)    => s"_char(${v.toInt})"
         case Lit.Boolean(v) => v.toString
         case Lit.Unit()     => "undefined"   // matches Lit.Unit in expression position
         case Lit.Null()     => "null"

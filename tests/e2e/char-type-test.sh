@@ -19,12 +19,12 @@
 #   * js — a Char RESULT is a `_Char` box and the type-test mapping simply had no "Char" arm,
 #     so it answered `other`.
 #
-# THE DECLARED GAP, asserted rather than skipped: a char LITERAL on js is a plain one-character
-# string, so `case _: Char` is false for `'c'` and `case _: String` is true. That is a
-# representation gap, not a missing arm — `case _: String` on a genuine one-character string has to
-# keep working, so no arm can serve both. This gate asserts js STILL answers String there, so the
-# day the literal starts carrying the box the gate says so instead of quietly passing. A gap that
-# is only in a comment is a gap nobody notices closing.
+# THE THIRD CAUSE, and it did not stay declared: a char LITERAL on js was a plain one-character
+# string, so `case _: Char` was false for `'c'` while `case _: String` was true. No arm can serve
+# both — `case _: String` on a genuine one-character string has to keep working — so this one really
+# did need the literal to carry the `_Char` box. `JsGen` had argued that change needed its own
+# corpus run; it was run (81/81 smoke, 101/101 JsGen suites) and it passed, so the box landed and
+# all four lanes now agree. The gate compares js against `--v1` line for line like the others.
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -86,22 +86,15 @@ for lane in native bytecode; do
   fi
 done
 
-# js: every row but the literal must match the oracle. Row 1 is the declared representation gap.
-js_expected=$'String\nString\nInt\nChar\nString'
-if [[ "$(cat "$tmp/js.txt")" != "$js_expected" ]]; then
-  got=$(tr '\n' '/' < "$tmp/js.txt")
-  if [[ "$(sed -n '1p' "$tmp/js.txt")" == "Char" ]]; then
-    echo "char-type-test: js now answers Char for a char LITERAL." >&2
-    echo "The declared representation gap has closed — that is good news, and this gate is the" >&2
-    echo "record of it. Update the js expectation to match --v1 exactly, and update the entry" >&2
-    echo "js-char-type-test-cannot-tell-Char-from-String and specs/type-ascription-matrix.md." >&2
-  else
-    echo "char-type-test: js disagrees where it is expected to agree" >&2
-    echo "  expected: $(echo "$js_expected" | tr '\n' '/')" >&2
-    echo "  got:      $got" >&2
-  fi
+if ! diff -u "$tmp/int.txt" "$tmp/js.txt" > "$tmp/js.diff"; then
+  echo "char-type-test: js disagrees with --v1" >&2
+  echo "  (-) --v1   (+) js" >&2
+  cat "$tmp/js.diff" >&2
+  echo "If row 1 ('c') answers String, the char literal has stopped carrying the _Char box —" >&2
+  echo "check what emits Lit.Char in JsGen and JsGenCpsCodegen. The two must move TOGETHER:" >&2
+  echo "boxing only the expression side makes case 'a' => compare a box with a string." >&2
   fail=1
 fi
 
 [[ $fail -eq 0 ]] || exit 1
-echo "char-type-test: ok — native, bytecode and js agree with --v1 (js literal: declared gap)"
+echo "char-type-test: ok — native, bytecode and js all agree with --v1 on five rows"

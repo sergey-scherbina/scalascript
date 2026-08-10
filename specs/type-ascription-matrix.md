@@ -10,7 +10,7 @@ Boolean      Boolean       Boolean  Boolean  Boolean
 Int          Int           Int      Int      Int
 Double       Double        Double   Double   Int      ✗   (fixed — see below)
 String       String        String   String   String
-Char         Char          Char     Char     String ✗  (native fixed 08-10)
+Char         Char          Char     Char     Char       (all fixed 08-10)
 Map          Map           Map      Map      Map
 Set          Set           Set      List  ✗  -      ✗
 List         List          List     List     -      ✗
@@ -58,7 +58,7 @@ lane, so any arm would have to lie:
 
 - native: `Set(1,2)` **prints** `List(1, 2)` — a Set IS a list there;
 - js: `List(...)` is `[...args]` and `_setOf(...)` is a plain array too;
-- js: a char literal is a plain string, so `Char` and `String` are one value.
+- (js's char literal was here until 2026-08-10; see below — it got the representation.)
 
 These need a representation before the question means anything. Answering `other` is the honest
 result meanwhile — better than a confident wrong type.
@@ -70,6 +70,12 @@ Char class — so by 2026-08-10 the type EXISTED and only the test was missing, 
 one-line arm. Measured 08-10 on a fresh build, native and bytecode answered `Int` for a char and the
 fix was ordering the `CharV` arm before `IntV` in `__isTag__`. js's Char RESULT (`s.charAt(0)`, a
 `_Char` box) was kind 1 as well and answered `other`; only the js LITERAL is still kind 3.
+
+**Then the js row graduated too — by paying for the representation, not by finding a trick.** A char
+literal now emits the `_Char` box that every Char RESULT already carried. That was filed as needing
+"its own corpus run"; the run happened (smoke 81/81, JsGen suites 101/101) and passed, and only two
+sites emitted the old form. So of the three kinds below, Char occupied all three in turn on
+different lanes and left all three.
 
 The lesson is about the census, not about Char: **a "not fixable" verdict is dated evidence.** It
 records what the lane could represent on the day it was taken, and a representation landing
