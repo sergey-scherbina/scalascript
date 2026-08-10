@@ -243,6 +243,55 @@ object McpProtocol:
     if plain then v
     else "=?base64?" + java.util.Base64.getEncoder.encodeToString(v.getBytes("UTF-8")) + "?="
 
+  // ─── MCP 2026-07-28 — which era does this server speak? ────────────
+
+  /** A server speaks one of two eras, and a client must find out before it can
+   *  say anything. The spec calls them modern and legacy; `Unknown` is only the
+   *  state before the probe. */
+  enum Era:
+    case Unknown, Modern, Legacy
+
+  /** The error codes that IDENTIFY a modern server even while refusing us.
+   *
+   *  This is the subtle half of the probe: a modern server may answer the
+   *  probe with an ERROR — unsupported version, missing capability, header
+   *  mismatch — and that error is still proof it speaks the revision. Treating
+   *  every error as "legacy" would fall back to `initialize` against a server
+   *  that has no such method. */
+  val ModernErrorCodes: Set[Int] = Set(
+    ErrorCode.UnsupportedProtocolVersion,
+    ErrorCode.MissingRequiredClientCapability,
+    ErrorCode.HeaderMismatch)
+
+  /** Decide the era from a `server/discover` probe (the stdio rule).
+   *
+   *  A result means modern. A RECOGNISED modern error also means modern —
+   *  the server refused this particular request while proving it speaks the
+   *  revision. Anything else — `MethodNotFound`, a parse error, a timeout —
+   *  means legacy, because a legacy server does not implement
+   *  `server/discover` and will say so in its own way. */
+  def eraFromProbe(probe: Either[JsonRpc.Error, ujson.Value]): Era = probe match
+    case Right(_)                                       => Era.Modern
+    case Left(e) if ModernErrorCodes.contains(e.code)   => Era.Modern
+    case Left(_)                                        => Era.Legacy
+
+  /** Decide the era from an HTTP attempt (the Streamable-HTTP rule).
+   *
+   *  A 2xx is modern. On a 4xx the BODY decides, and that is the whole point:
+   *  a modern server uses 400 for its own errors, so status alone cannot
+   *  distinguish "you asked wrongly" from "I have never heard of this". Only a
+   *  recognised modern JSON-RPC error in the body identifies the era. */
+  def eraFromHttp(status: Int, body: String): Era =
+    if status >= 200 && status < 300 then Era.Modern
+    else
+      val code =
+        try ujson.read(body.trim).obj.get("error").flatMap(_.objOpt)
+              .flatMap(_.get("code")).flatMap(_.numOpt).map(_.toInt)
+        catch case _: Throwable => None
+      code match
+        case Some(c) if ModernErrorCodes.contains(c) => Era.Modern
+        case _                                       => Era.Legacy
+
   // ─── MCP 2026-07-28 — the CLIENT side of the envelope ──────────────
 
   /** The `_meta` a modern request must carry.

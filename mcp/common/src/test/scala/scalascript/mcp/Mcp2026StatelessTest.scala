@@ -1019,3 +1019,66 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       "p" -> ujson.Obj("type" -> "number", "x-mcp-header" -> "P")))
     McpProtocol.mirroredParamHeaders(bad, ujson.Obj("p" -> 1)) shouldBe empty
     McpProtocol.validateParamHeaders(Map.empty, bad, ujson.Obj("p" -> 1)).isDefined shouldBe true
+
+  // ── P2d-2: which era does this server speak? ────────────────────────
+
+  test("a discover RESULT means modern; so does a modern ERROR"):
+    // The subtle half. A modern server may refuse the probe — wrong version,
+    // missing capability, header mismatch — and that refusal still proves it
+    // speaks the revision. Reading every error as legacy would send us to
+    // `initialize` against a server that has no such method.
+    McpProtocol.eraFromProbe(Right(ujson.Obj("supportedVersions" -> ujson.Arr()))) shouldBe
+      McpProtocol.Era.Modern
+    for c <- McpProtocol.ModernErrorCodes do
+      withClue(s"code $c: ") {
+        McpProtocol.eraFromProbe(Left(JsonRpc.Error(c, "refused"))) shouldBe McpProtocol.Era.Modern
+      }
+
+  test("anything else means legacy — including the code a legacy server actually sends"):
+    McpProtocol.eraFromProbe(Left(JsonRpc.Error(
+      JsonRpc.ErrorCode.MethodNotFound, "method not found: server/discover"))) shouldBe
+      McpProtocol.Era.Legacy
+    for c <- List(JsonRpc.ErrorCode.ParseError, JsonRpc.ErrorCode.InvalidRequest,
+                  JsonRpc.ErrorCode.InvalidParams, JsonRpc.ErrorCode.InternalError, -32002) do
+      withClue(s"code $c: ") {
+        McpProtocol.eraFromProbe(Left(JsonRpc.Error(c, "x"))) shouldBe McpProtocol.Era.Legacy
+      }
+
+  test("our OWN server is detected as modern by our own probe"):
+    // The two sides checked against each other again: dispatch server/discover
+    // for real and feed the answer to the client's decision.
+    val b = twoToolServer()
+    val frame = McpServerCore.dispatch(b, McpProtocol.Method.ServerDiscover,
+      modernParams(), ujson.Num(1), "srv", "9.9.9")
+    val js = ujson.read(frame.trim)
+    val probe: Either[JsonRpc.Error, ujson.Value] =
+      js.obj.get("error").map(e => Left(JsonRpc.Error(e("code").num.toInt, e("message").str)))
+        .getOrElse(Right(js("result")))
+    McpProtocol.eraFromProbe(probe) shouldBe McpProtocol.Era.Modern
+
+  test("our own server's -32022 refusal is ALSO read as modern"):
+    // The case that separates "refused me" from "does not speak this at all".
+    val params = ujson.Obj("_meta" -> ujson.Obj(
+      McpProtocol.MetaKey.ProtocolVersion    -> "1900-01-01",
+      McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj()))
+    val js = ujson.read(McpServerCore.dispatch(new McpServerBuilder,
+      McpProtocol.Method.ServerDiscover, params, ujson.Num(2)).trim)
+    js("error")("code").num shouldBe McpProtocol.ErrorCode.UnsupportedProtocolVersion
+    McpProtocol.eraFromProbe(Left(JsonRpc.Error(js("error")("code").num.toInt, ""))) shouldBe
+      McpProtocol.Era.Modern
+
+  test("on HTTP the BODY decides a 400, because status alone cannot"):
+    // A modern server uses 400 for its own errors, so 400 does not mean
+    // "unknown endpoint". Only a recognised modern error in the body identifies
+    // the era — that asymmetry is the reason this function exists at all.
+    McpProtocol.eraFromHttp(200, "{}") shouldBe McpProtocol.Era.Modern
+    val modern400 = JsonRpc.encodeError(ujson.Num(1),
+      McpProtocol.ErrorCode.UnsupportedProtocolVersion, "Unsupported protocol version")
+    McpProtocol.eraFromHttp(400, modern400) shouldBe McpProtocol.Era.Modern
+    val legacy400 = JsonRpc.encodeError(ujson.Num(1),
+      JsonRpc.ErrorCode.InvalidRequest, "Bad Request")
+    McpProtocol.eraFromHttp(400, legacy400) shouldBe McpProtocol.Era.Legacy
+    for junk <- List("", "not json", "<html>404</html>", "{}") do
+      withClue(s"[$junk]: ") { McpProtocol.eraFromHttp(400, junk) shouldBe McpProtocol.Era.Legacy }
+    McpProtocol.eraFromHttp(404, modern400) shouldBe McpProtocol.Era.Modern
+    McpProtocol.eraFromHttp(405, "") shouldBe McpProtocol.Era.Legacy
