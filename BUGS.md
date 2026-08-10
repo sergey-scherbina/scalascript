@@ -1130,12 +1130,12 @@ uses, applied to the axis it cannot see.
 
 ## rust-toplevel-val-calling-an-intrinsic-does-not-compile
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: sbt backendRust/testOnly *RustGenTryCatchTest*
+     fixed-in: 67cbccb20 -->
 
 A top-level `val` whose initializer calls a `std` intrinsic emits an UNROUTED call, and the crate
 does not compile:
@@ -1163,6 +1163,24 @@ all — before, it emitted a `[lib]` and never got there.
 `format!("{}", Vec<String>)`, and `Vec` has no `Display`:
 
     error[E0277]: `Vec<String>` doesn't implement `std::fmt::Display`
+
+
+**FIXED 2026-08-10 in `67cbccb20`, and this entry's diagnosis was exactly right.** `collectTopVals`
+built `Ctx(Map.empty, Set.empty, ctorMap, Nil, "<topval>")` — an empty intrinsic table and an empty
+user-def set — so the initializer was rendered with no routing. It now receives the same
+`intrinsics` and `userDefs` the rest of the walk uses.
+
+**The first test I wrote for it was VACUOUS**, and the control is what said so: it probed with
+`"abc".length`, a METHOD the walker renders identically with or without the table, so it passed in
+both states. With `cwd()` — a registered intrinsic — it discriminates:
+
+    table emptied   let here = cwd();      ← this defect, verbatim
+    fixed           let here = …runtime::…
+
+The test also REFERENCES the val on purpose: top-level vals are emitted as a `let` preamble only
+inside the bodies that use them, so an unused one appears nowhere and would be vacuous a second way.
+
+`backendRust/test`: 276 tests, 0 failures.
 
 
 ## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
