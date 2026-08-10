@@ -1,0 +1,36 @@
+slug: v3-prelude-and-dataset
+branch: feature/ssc3-front-diff-wiring
+agent: claude-code
+started: 2026-08-10T16:10:00Z
+heartbeat: 2026-08-10T16:10:00Z
+status: claimed-before-planning
+items: v3-prelude-and-dataset
+paths: file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+scope: |
+  THE OWNER CHOSE OPTION 3 of the DATASET decision in `v3/BACKLOG.md` (2026-08-10): `Dataset`
+  written in ScalaScript as a library over lists, so BOTH v3 lanes get it with no host surface at
+  all — the answer the project's own rule points at ("new intrinsics go to the plugin, never the
+  core"). Options 1 (implement twice) and 2 (give `run-ir` a plugin path) are declined.
+
+  That option was recorded as BLOCKED ON A PRELUDE, and the block is real: the corpus calls
+  `Dataset.of` with NO import, v3's module system is markdown links, and `grep -rniE
+  'prelude|auto-import' v3/src v3/ssc3` is empty. So this claim is two things, in order, and the
+  second is worthless without the first.
+
+  STAGE A — the prelude mechanism. A module loaded implicitly before the user's program, so its
+  declarations are ambient. Reusing the existing loader rather than inventing a second path: the
+  prelude is an ordinary module whose own markdown-link imports work as they already do. Must be
+  overridable (`SSC3_PRELUDE`) so gates can run with it OFF — a gate that cannot turn the mechanism
+  off cannot show what it changed.
+
+  STAGE B — `Dataset` over lists. Counted from the corpus rather than guessed: `Dataset.of` 46
+  uses, `fromTable` 11, `fromFile` 9, `fromList` 7, `fromGenerator` 3, `fromCsvAs` 2, and
+  `run`/`runParallel`/`runShuffle` 1 each, with `collect`, `map`, `groupBy`, `reduce`, `sortBy`,
+  `first`, `mkString` on top. The file- and table-backed sources need IO, which is the host surface
+  option 3 exists to avoid — so those stay unsupported and the report will say so rather than the
+  library pretending.
+
+  The prize is capped and was counted by whoever filed the decision: N 166 -> 178 in their measure,
+  12 conformance files, and only if each also passes the rest of its program. I will report what it
+  actually moves, not what it could.
+next: read Loader's merge semantics for duplicate top-level names, then Stage A behind SSC3_PRELUDE
