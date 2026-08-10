@@ -343,6 +343,14 @@ val suite = List(
   // serialised — rozum had {"cell":{Stub}} in an HTTP body with a 200 and no log line. Both halves
   // are asserted: a missing method is fatal AND names itself, and ordinary values still render.
   Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 60000),
+  // Sub-second, reads what is staged and builds nothing — and it guards a class CI STRUCTURALLY
+  // cannot see. The toolchain cache lives in `$HOME/.cache/ssc-toolchain`; a runner's is always
+  // empty, so CI always misses and always builds. The failure needs a WARM cache and a FRESH
+  // worktree: a hit restores `bin/lib` and skips `cli/installBin`, which is what writes the
+  // launchers, and only `bin/ssc` is tracked — so on 2026-08-10 every fresh worktree of main had no
+  // `bin/ssc-tools` and every command after that failed for a reason that looked like the change
+  // under test. This suite runs LOCALLY from the pre-push hook, which is exactly where that lives.
+  Check("tests", "launcher-set-complete", "tests/e2e/launcher-set-complete.sh", List(), 60000),
   // Under a second, and it covers the failure shape that cost a user a binary they could not
   // rebuild: the Rust backend emitting a crate MISSING an imported def, leaving rustc to blame
   // their own call site. Both directions -- both import forms must REACH the crate, and what the
