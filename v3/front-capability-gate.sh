@@ -32,7 +32,17 @@ SSC3="v3/ssc3"
 # `effect-oneshot` was here until 2026-08-08 and came out the same day the projection landed —
 # which is the gate doing its job: it went red saying "no longer diverges; drop it from KNOWN_v3 in
 # this commit", and this is that commit.
-declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
+# `usingp` and `summon2` — DECLARED 2026-08-09 with SSC3-G2 stage 2a, and it is a gap in flight rather than
+# a difference of opinion. v3's parser takes a `using` clause and a context bound and resolves the
+# instance by the argument's type; the projection refuses `using` because UniML's own AST has
+# nowhere to keep `[A]` — `SpikeAst.Def` is `(name, params, ret, body, span)` — and telling a type
+# VARIABLE from a type is the whole of what resolution does. Closing it means a field in UniML's
+# dialect and its parser, which is a different artifact and a separate claim
+# (BUGS.md v3-uniml-def-has-no-type-parameters).
+#
+# THE DEFAULT FRONT IS UNIML, so until that lands the feature is reachable only with
+# `SSC3_FRONT=v3`. That is the honest statement of what stage 2a shipped.
+declare -a KNOWN_V3_ONLY=(usingp summon2)       # v3 accepts, uniml refuses
 # `absval` was here for one commit. The projection accepted a trait's non-`def` member and dropped it
 # SILENTLY; it now refuses, which is not a new decision — `20-core-language.md` and UniFront's own
 # `AbstractVal` case already said v3's traits carry methods, not abstract state. This gate went red
@@ -44,9 +54,11 @@ declare -a KNOWN_V3_ONLY=()                     # v3 accepts, uniml refuses
 # UniML ALREADY accepted the file. A construct one front takes at Tier 0 is expressible at Tier 0,
 # so what was missing was v3's parser, not a checker — three lines in `skipType`.
 #
-# BOTH LISTS ARE NOW EMPTY, and that is a claim worth stating plainly rather than leaving as an
-# absence: over the corpus and the probe set, the two fronts accept and refuse exactly the same
-# programs. The next entry added here is a REGRESSION unless it arrives with the reason.
+# BOTH LISTS WERE EMPTY for the length of one commit — over the corpus and the probe set the two
+# fronts accepted and refused exactly the same programs — and `KNOWN_V3_ONLY` filled again the same
+# day with `usingp` and `summon2`, for the reason written against it above. Stating it here rather
+# than deleting the paragraph, because "was empty once" is the fact that makes the current two
+# entries a debt with a date on it instead of the normal condition.
 declare -a KNOWN_UNIML_ONLY=()                          # uniml accepts, v3 refuses
 
 available="$($SSC3 front 2>/dev/null | sed -n 's/^available: //p')"

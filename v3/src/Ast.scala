@@ -155,8 +155,20 @@ enum Stmt:
   * and it means the IR, the executor and the bridge need to know nothing about it. */
 final case class HandleArm(op: Int, params: List[String], k: String, body: Expr, pos: Pos)
 
+/** `tpe` is the parameter's declared type AS WRITTEN — `Show[A]`, `Int`, `List[A]` — and `given_`
+  * marks a parameter that came from a `(using …)` clause or a context bound.
+  *
+  * THE SECOND PLACE THIS FRONT CARRIES A TYPE, after `ObjectDef.givenOf`, and for the same reason:
+  * `display(42)` has to find the instance that `Show[A]` selects when `A` is `Int`, and neither the
+  * parameter's type nor the instance's can be reconstructed once discarded. It is TEXT, not a
+  * parsed type — Tier 0 has nothing to parse it into, and text is exactly enough to substitute a
+  * type argument into and compare (SPRINT §52, G2 stage 2a).
+  *
+  * Both are defaulted, so the eight other places that build a `Param` — lambdas, case-class fields,
+  * for-comprehension desugaring — compile unchanged. */
 final case class Param(name: String, pos: Pos, default: Option[Expr] = None,
-                       byName: Boolean = false)
+                       byName: Boolean = false, tpe: Option[String] = None,
+                       given_ : Boolean = false)
 /** A `case class` declaration. Only the constructor SHAPE is kept: the field names and their
   * order, which is exactly what the IR's type table needs and all a Tier 0 program can use. */
 /** `parents` are the traits/classes named after `extends`/`with`. They are kept, not discarded,
@@ -170,7 +182,22 @@ final case class ClassDef(name: String, fields: List[Param], methods: List[Def],
   * members carry no body and exist only so a call to them is not an unknown name; concrete ones are
   * inherited by every class that extends it. */
 final case class TraitDef(name: String, methods: List[Def], parents: List[String], pos: Pos)
-final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
+/** `tparams` are the names in `[A]`, `[A, B]`, `[A: Monoid]` — the type VARIABLES, so a call site
+  * can tell `A` (something to solve for) from `Int` (something to match). Their bounds are not kept:
+  * `[A: Monoid]` becomes a `given_` parameter of type `Monoid[A]` in `params`, which is what the
+  * bound MEANS and is the form the resolution already understands. */
+/** `givenParams` are the parameters a CONTEXT BOUND stands for — `[A: Monoid]` means
+  * `(using Monoid[A])` — kept OUT of `params` on purpose.
+  *
+  * They belong to `params` by the time anything lowers them, and `Lower` puts them there. Putting
+  * them there in the PARSER made v3's printed AST differ from UniML's on every program with a
+  * context bound, because UniML drops the bound entirely: `front-diff.sh` reported
+  * `std-semigroup-monoid` and `tagless-context-bounds` as disagreements, both of them
+  * `(params (p "xs") (p "__given0"))` against `(params (p "xs"))`. The two fronts really do differ
+  * here — that is `BUGS.md v3-uniml-def-has-no-type-parameters`, declared in the capability gate —
+  * but the difference belongs in ONE place, not in every tree the differential compares. */
+final case class Def(name: String, params: List[Param], body: Expr, pos: Pos,
+                     tparams: List[String] = Nil, givenParams: List[Param] = Nil)
 /** A `.ssc` file is a SCRIPT: `def`s are declarations and everything else is the program body,
   * executed in order. That is the project's model, not a v3 invention — measured on the corpus,
   * top-level statements were the single largest reason v3 could not read a case. */

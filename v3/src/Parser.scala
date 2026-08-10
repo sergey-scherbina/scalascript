@@ -879,7 +879,13 @@ object Parser:
       throw ParseFail(p, "trailing input inside `${…}`: " + src)
     e
 
-  private def parseArgs(ts0: List[Tok]): (List[Expr], List[Tok]) =
+  private def parseArgs(ts1: List[Tok]): (List[Expr], List[Tok]) =
+    // `f(x)(using inst)` — the keyword is DROPPED and the instance becomes an ordinary argument.
+    // It can be, because a `using` PARAMETER is already an ordinary parameter by the time the
+    // lowering sees it: passing one explicitly is passing an argument. Writing it out is also how
+    // a program overrides resolution, so it must keep working when `resolveGivenArgs` would have
+    // chosen the same instance — and it does, because a filled arity is not filled again.
+    val ts0 = if isId(peek(ts1), "using") then ts1.tail else ts1
     if isPunct(peek(ts0), ")") then (Nil, ts0.tail)
     else
       var out: List[Expr] = Nil
@@ -1506,10 +1512,12 @@ object Parser:
     // which is what `summon[Monoid[A]]` can be matched against — the ARGUMENT is precisely what
     // Tier 0 erases, so keeping it would be an unenforced notion of types in the front (I-2).
     // Read before `skipType` discards the rest.
-    val givenOf = peek(ts.tail) match
-      case Tok.TId(h, _) if !keywords.contains(h) => Some(h)
-      case _                                     => None
-    ts = skipType(ts.tail)
+    // THE WHOLE DECLARED TYPE, not just its head. G1 kept `Monoid` because nothing could use more;
+    // stage 2a has to tell `Show[Int]` from `Show[String]`, and the head is identical for both.
+    // The head is still what a headline match needs, and it is `takeWhile(_ != '[')` away.
+    val afterTy0 = skipType(ts.tail)
+    val givenOf = { val t = typeTextOf(ts.tail, afterTy0); if t.isEmpty then None else Some(t) }
+    ts = afterTy0
     if !isId(peek(ts), "with") then
       throw ParseFail(posOf(ts),
         "only `given name: T with …` is supported at Tier 0 — an instance is reached BY NAME, so " +
@@ -1518,12 +1526,63 @@ object Parser:
     val (members, vals, t2) = parseMembers(ts.tail, "object")
     (ObjectDef(name, members, vals, p, givenOf), t2)
 
+  /** The text of a type, reassembled from the tokens `skipType` consumes. `Show[A]`, `List[Int]`.
+    *
+    * Joined WITHOUT spaces, so `Map[String, Int]` reads `Map[String,Int]` — the text is only ever
+    * compared with another built the same way, never shown, so what matters is that one spelling
+    * cannot produce two strings. A comma keeps its place because it distinguishes arities. */
+  private def typeTextOf(ts0: List[Tok], stop: List[Tok]): String =
+    val n = ts0.length - stop.length
+    ts0.take(if n > 0 then n else 0).map {
+      case Tok.TId(s, _)    => s
+      case Tok.TPunct(s, _) => s
+      case Tok.TOp(s, _)    => s
+      case Tok.TInt(s, _)   => s
+      case _                => ""
+    }.mkString.trim
+
+  /** The type-parameter NAMES and the `given_` parameters their context bounds stand for.
+    *
+    * `[A]` gives `(List("A"), Nil)`; `[A: Monoid: Pretty]` gives
+    * `(List("A"), List(Monoid[A], Pretty[A]))`, because a context bound IS a using parameter —
+    * `20-core-language.md` says so and `tagless-context-bounds.ssc`'s own prose says so:
+    * *"`[A: TC]` desugars to `(using TC[A])`"*. Synthesised names are positional (`__given0`) and
+    * never written by a program, which is what keeps them from colliding.
+    *
+    * Bounds other than a context bound — `[A <: B]`, `[A >: B]` — are consumed and dropped: they
+    * constrain a type, and Tier 0 has no checker to constrain one with. */
+  private def parseTypeParams(ts0: List[Tok], p: Pos): (List[String], List[Param], List[Tok]) =
+    if !isPunct(peek(ts0), "[") then (Nil, Nil, ts0)
+    else
+      var ts = ts0.tail
+      var names: List[String] = Nil
+      var givens: List[Param] = Nil
+      var depth = 1
+      var idx = 0
+      while depth > 0 && !peek(ts).isInstanceOf[Tok.TEof] do
+        peek(ts) match
+          case Tok.TPunct("[", _) => depth += 1; ts = ts.tail
+          case Tok.TPunct("]", _) => depth -= 1; ts = ts.tail
+          case Tok.TId(n, np) if depth == 1 && !keywords.contains(n) =>
+            names = n :: names
+            ts = ts.tail
+            // `: Bound` — one or several, each a context bound on the name just read.
+            while isPunct(peek(ts), ":") do
+              val after = skipType(ts.tail)
+              val bound = typeTextOf(ts.tail, after)
+              if bound.nonEmpty then
+                givens = Param("__given" + idx, np, None, false, Some(bound + "[" + n + "]"), true) :: givens
+                idx = idx + 1
+              ts = after
+          case _ => ts = ts.tail
+      (names.reverse, givens.reverse, ts)
+
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
     val t0 = expectKw(ts0, "def")
     val (name, _, t1) = expectName(t0)
-    val afterName = skipBrackets(t1)
+    val (tparams, boundGivens, afterName) = parseTypeParams(t1, p)
     // A PARAMETERLESS `def` — `def empty: List[A] = Nil` — has no parameter clause at all. It was
     // 116 of 333 remaining refusals, the single largest cause, and every one of them came from the
     // standard library rather than from a test: `def empty:` is how a library writes a constant.
@@ -1535,33 +1594,55 @@ object Parser:
       var ts0 = skipTypeAnn(afterName)
       // ABSTRACT: no `=`, so no body. Only meaningful inside a trait, and given a placeholder body
       // rather than an Option because every later phase then keeps ONE shape of `Def` to handle.
-      if !isOp(peek(ts0), "=") then return (Def(name, Nil, Expr.Name("__abstract__", p), p), ts0)
+      if !isOp(peek(ts0), "=") then
+        return (Def(name, Nil, Expr.Name("__abstract__", p), p, tparams, boundGivens), ts0)
       ts0 = expectOp(ts0, "=")
       val (body0, tEnd) = parseBody(ts0)
-      return (Def(name, Nil, body0, p), tEnd)
-    val t2 = expectPunct(afterName, "(")
+      return (Def(name, Nil, body0, p, tparams, boundGivens), tEnd)
     var params: List[Param] = Nil
-    var ts = t2
-    if !isPunct(peek(ts), ")") then
-      var go = true
-      while go do
-        val (pn, pp, t) = expectName(ts)
-        // `x: => A` — a BY-NAME parameter. Detected here rather than inside `skipType` because the
-        // marker has to survive as a fact about the parameter; `skipType` discards what it reads,
-        // which is right for a type and wrong for this.
-        val byName = isPunct(peek(t), ":") && isOp(peek(t.tail), "=>")
-        ts = if byName then skipType(t.tail.tail) else skipTypeAnn(t)
-        val (dflt, tD) = parseDefault(ts)
-        ts = tD
-        params = Param(pn, pp, dflt, byName) :: params
-        if isPunct(peek(ts), ",") then ts = ts.tail else go = false
-    ts = expectPunct(ts, ")")
+    var ts = afterName
+    // EVERY parameter list, not the first. `def display[A](a: A)(using s: Show[A])` is two, and a
+    // curried `def lock(a: Int)(b: Int)` is two more; both flatten into one list here, which is
+    // what the rest of the compiler already assumes — `Expr.Apply` over a `Call` is normalised
+    // against the flattened arity in `Lower`. The `using` keyword marks every parameter of the
+    // clause it opens, and is dropped once that mark is on them.
+    var moreLists = true
+    while moreLists do
+      ts = expectPunct(ts, "(")
+      var isGiven = false
+      if isId(peek(ts), "using") then
+        isGiven = true
+        ts = ts.tail
+      if !isPunct(peek(ts), ")") then
+        var go = true
+        while go do
+          val (pn, pp, t) = expectName(ts)
+          // `x: => A` — a BY-NAME parameter. Detected here rather than inside `skipType` because the
+          // marker has to survive as a fact about the parameter; `skipType` discards what it reads,
+          // which is right for a type and wrong for this.
+          val byName = isPunct(peek(t), ":") && isOp(peek(t.tail), "=>")
+          val afterTy = if byName then skipType(t.tail.tail) else skipTypeAnn(t)
+          val tpe =
+            if isPunct(peek(t), ":") then
+              val txt = typeTextOf(if byName then t.tail.tail else t.tail, afterTy)
+              if txt.isEmpty then None else Some(txt)
+            else None
+          ts = afterTy
+          val (dflt, tD) = parseDefault(ts)
+          ts = tD
+          params = Param(pn, pp, dflt, byName, tpe, isGiven) :: params
+          if isPunct(peek(ts), ",") then ts = ts.tail else go = false
+      ts = expectPunct(ts, ")")
+      moreLists = isPunct(peek(ts), "(")
+    // A context bound's parameter does NOT go into `params` here — see `Ast.Def.givenParams` for
+    // why. `Lower` appends it, and until then the printed tree is the same one UniML prints.
     ts = skipTypeAnn(ts)
-    if !isOp(peek(ts), "=") then (Def(name, params.reverse, Expr.Name("__abstract__", p), p), ts)
+    if !isOp(peek(ts), "=") then
+      (Def(name, params.reverse, Expr.Name("__abstract__", p), p, tparams, boundGivens), ts)
     else
       ts = expectOp(ts, "=")
       val (body, t3) = parseBody(ts)
-      (Def(name, params.reverse, body, p), t3)
+      (Def(name, params.reverse, body, p, tparams, boundGivens), t3)
 
   def parse(src: String): Program =
     var ts = Lexer.lex(src)

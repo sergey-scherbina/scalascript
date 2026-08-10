@@ -1034,29 +1034,159 @@ object Lower:
     * What stage 2 (the checker proper) adds is exactly the ambiguous case — and when it lands,
     * this function is where the single-instance fast path can stay, since a checker will agree
     * with it whenever it applies. */
+  /** The head of a declared type: `Show` for `Show[Int]`, `Show` for `Show`. */
+  private def typeHead(t: String): String = t.takeWhile(c => c != '[').trim
+
   private def resolveSummons(defs: List[Def], objects: List[ObjectDef]): List[Def] =
-    val instances: Map[String, List[String]] =
+    val instances: List[(String, String)] =           // (declared type, instance name)
       objects.flatMap(o => o.givenOf.map(t => (t, o.name)))
-             .groupBy((t, _) => t).map((t, ps) => (t, ps.map((_, n) => n)))
-    // No early exit on "does this program mention `summon`": answering that costs the same
-    // traversal as doing the work, and the first version of the guard was a `mapDeep` used for its
-    // side effect, which did not even parse.
-    locally:
+    // AN IN-SCOPE `using` PARAMETER WINS OVER A GLOBAL INSTANCE, and that is what makes a generic
+    // function work at all. Inside `def combineAndPretty[A: Pretty]`, `summon[Pretty[A]]` must be
+    // the parameter the call site filled in — the instance that matches THIS call's `A` — and not
+    // one of the module's `Pretty` instances picked by counting. A global is consulted only when
+    // no parameter offers the trait, which is the non-generic case G1 already handled.
+    def fixIn(d: Def): Def =
+      val fromParams: Map[String, String] =
+        d.params.filter(_.given_).flatMap(pm => pm.tpe.map(t => (typeHead(t), pm.name))).toMap
       def fix(e: Expr): Expr = mapDeep(e, x => x match
         case Expr.Call("__summon__", List(Expr.StrLit(head, _)), p) =>
-          instances.get(head) match
-            case Some(one :: Nil) => Expr.Name(one, p)
-            case Some(many) =>
-              throw LowerFail(p, "`summon[" + head + "[…]]` has " + many.length +
-                " instances to choose from — " + many.sorted.mkString(", ") +
-                " — and which one a call needs is a fact about its TYPE, which Tier 0 erases. " +
-                "Name the instance you mean; type-directed resolution is v3/SPRINT.md SSC3-G2 " +
-                "stage 2")
+          fromParams.get(head) match
+            case Some(pn) => Expr.Name(pn, p)
             case None =>
-              throw LowerFail(p, "`summon[" + head + "[…]]` finds no `given` declaring `" + head +
-                "` in this module or anything it imports")
+              instances.filter((t, _) => typeHead(t) == head).map((_, n) => n) match
+                case one :: Nil => Expr.Name(one, p)
+                case Nil =>
+                  throw LowerFail(p, "`summon[" + head + "[…]]` finds no `given` declaring `" +
+                    head + "` in this module or anything it imports, and no `using` parameter of " +
+                    "this function offers one")
+                case many =>
+                  throw LowerFail(p, "`summon[" + head + "[…]]` has " + many.length +
+                    " instances to choose from — " + many.sorted.mkString(", ") +
+                    " — and this function has no `using` parameter of that trait to say which. " +
+                    "Add one — `def f[A: " + head + "]` — or name the instance you mean")
         case other => other)
-      defs.map(d => d.copy(body = fix(d.body)))
+      d.copy(body = fix(d.body))
+    defs.map(fixIn)
+
+  /** A call to a function with `using` parameters gets them FILLED IN, by matching each one's
+    * declared type against the instances in scope — SSC3-G2 stage 2a (v3/SPRINT.md §52).
+    *
+    * `def display[A](a: A)(using s: Show[A])` called as `display(42)`: the explicit argument `42`
+    * is an `Int`, the parameter it fills is declared `A`, so `A` is `Int`; the using parameter's
+    * `Show[A]` becomes `Show[Int]`; and exactly one `given` declares that type. The call becomes
+    * `display(42, showInt)`.
+    *
+    * WHAT IT INFERS IS DELIBERATELY SMALL: a literal's type, and nothing else. That covers the
+    * shape typeclass code actually takes at a call site — a value flows in and its type picks the
+    * instance — and it means the answer is never a guess. When it cannot infer, or when the
+    * substituted type matches no instance or several, the call is LEFT ALONE: the arity check then
+    * refuses it by name, with a position. Filling in "the only instance of that trait" instead
+    * would be the spelling-based shortcut §52 rejected, and `Show[Int]` beside `Show[String]` is
+    * exactly where it would answer wrongly.
+    *
+    * An EXPLICIT `(using showInt)` at the call site needs nothing from this pass: the parser
+    * flattens it into an ordinary argument, so the arity already matches and the call is skipped. */
+  private def resolveGivenArgs(defs: List[Def], objects: List[ObjectDef]): List[Def] =
+    val instances: List[(String, String)] = objects.flatMap(o => o.givenOf.map(t => (t, o.name)))
+    val byName: Map[String, Def] = defs.map(d => (d.name, d)).toMap
+    var extra: List[Def] = Nil
+    var made: Set[String] = Set.empty
+
+    def litType(e: Expr): Option[String] = e match
+      case Expr.IntLit(_, _)  => Some("Int")
+      case Expr.StrLit(_, _)  => Some("String")
+      case Expr.BoolLit(_, _) => Some("Boolean")
+      case _                  => None
+
+    def substitute(t: String, binds: Map[String, String]): String =
+      binds.foldLeft(t) { (acc, kv) =>
+        // Whole-word replacement: `A` inside `Show[A]` but not the `A` of `Array`.
+        val (v, c) = kv
+        acc.split("(?=[\\[\\],])|(?<=[\\[\\],])").map(seg => if seg == v then c else seg).mkString
+      }
+
+    val instanceNames: Set[String] = instances.map((_, n) => n).toSet
+
+    // `f(a)(using inst)` arrives as an `Apply` over a `Call`, because the pass that flattens
+    // curried argument lists runs per-def much later than this whole-program one. Normalising it
+    // here — only when the trailing list is instance names — keeps that ordering untouched.
+    def flatten(e: Expr): Expr = e match
+      case Expr.Apply(Expr.Call(fn, as1, cp), as2, _)
+        if as2.nonEmpty && as2.forall { case Expr.Name(n, _) => instanceNames.contains(n)
+                                        case _ => false } =>
+        Expr.Call(fn, as1 ++ as2, cp)
+      case other => other
+
+    // FLATTENED IN A PASS OF ITS OWN, before any specialisation. `mapDeep` rebuilds children first,
+    // so doing it inline let the inner `display(99)` be specialised from the literal BEFORE the
+    // outer `(using showInt)` was ever looked at — leaving the instance dangling as an argument to
+    // a function that no longer took one.
+    def flattenAll(e: Expr): Expr = mapDeep(e, flatten)
+
+    def fix(e: Expr): Expr = mapDeep(e, x =>
+      x match
+      // AN EXPLICIT `(using showInt)` — the program names the instance itself. Same specialisation,
+      // and it needs one for the same reason: the argument it wrote is an `object`, which has no
+      // value to pass. Handled before the inferring case so that writing the instance out always
+      // beats working it out, which is what `display(99)(using showInt)` is asking for.
+      case Expr.Call(fn, as, p)
+        if byName.get(fn).exists(d => d.params.exists(_.given_) && as.length == d.params.length) &&
+           as.takeRight(byName(fn).params.count(_.given_)).forall {
+             case Expr.Name(n, _) => instanceNames.contains(n); case _ => false } =>
+        val d = byName(fn)
+        val k = d.params.count(_.given_)
+        val names = as.takeRight(k).collect { case Expr.Name(n, _) => n }
+        val explicit = d.params.filterNot(_.given_)
+        val nm = fn + "$" + names.mkString("$")
+        if !made.contains(nm) then
+          made = made + nm
+          val subst: Map[String, String] = d.params.filter(_.given_).map(_.name).zip(names).toMap
+          def rename(e2: Expr): Expr = mapDeep(e2, y => y match
+            case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
+            case other                                 => other)
+          extra = d.copy(name = nm, params = explicit, body = rename(fix(d.body))) :: extra
+        Expr.Call(nm, as.dropRight(k), p)
+      case Expr.Call(fn, as, p) =>
+        byName.get(fn) match
+          case Some(d) if d.params.exists(_.given_) && as.length == d.params.count(!_.given_) =>
+            val explicit = d.params.filterNot(_.given_)
+            val binds = explicit.zip(as).flatMap { (pm, a) =>
+              pm.tpe.filter(t => d.tparams.contains(t)).flatMap(t => litType(a).map(ct => (t, ct)))
+            }.toMap
+            val gs = d.params.filter(_.given_)
+            val chosen = gs.map { g =>
+              g.tpe.map(t => substitute(t, binds)).flatMap { concrete =>
+                instances.filter((it, _) => it == concrete).map((_, n) => n) match
+                  case one :: Nil => Some(one)
+                  case _          => None
+              }
+            }
+            if !chosen.forall(_.isDefined) then x
+            else
+              // MONOMORPHISATION, not a dictionary. An instance is an `object` — a NAMESPACE at
+              // Tier 0, with no runtime value — so `display(42, showInt)` cannot work: there is
+              // nothing named `showInt` to pass, and that is exactly what the first attempt hit
+              // (`unknown name 'showInt'`). What CAN be done is specialise the callee: a copy of
+              // `display` in which the `using` parameter's name is replaced by the instance's, so
+              // `s.show(a)` becomes `showInt.show(a)` — the qualified call that already works and
+              // is how `typeclass-monoid` has been running since G1.
+              //
+              // One copy per (function, instances) pair, named after them, so two call sites with
+              // the same instances share it and a program with `Show[Int]` and `Show[String]` gets
+              // one of each rather than one wrong one.
+              val names = chosen.flatten
+              val nm = fn + "$" + names.mkString("$")
+              if !made.contains(nm) then
+                made = made + nm
+                val subst: Map[String, String] = gs.map(_.name).zip(names).toMap
+                def rename(e: Expr): Expr = mapDeep(e, y => y match
+                  case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
+                  case other                                 => other)
+                extra = d.copy(name = nm, params = explicit, body = rename(fix(d.body))) :: extra
+              Expr.Call(nm, as, p)
+          case _ => x
+      case other => other)
+    defs.map(d => d.copy(body = fix(flattenAll(d.body)))) ++ extra
 
   /** Every `Expr.MethodRef` becomes either an ordinary no-argument `MethodCall` or a LAMBDA that
     * calls the method with the arguments it declares. Nothing downstream sees a `MethodRef`.
@@ -2051,7 +2181,19 @@ object Lower:
     // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
     // second list is how one consumer ends up reading the un-rewritten version.
-    val allDefs = resolveMethodRefs(resolveSummons(rewriteByName(allDefsEager), p.objects), sigs)
+    // `resolveGivenArgs` runs BEFORE `resolveSummons`: it fills a call's `using` arguments, and the
+    // body it fills them for may itself `summon` one of those parameters. Both run before
+    // `resolveMethodRefs`, whose eta-expansion needs the final arity.
+    // `resolveSummons` runs FIRST, so a `summon` in a generic body becomes the `using` PARAMETER's
+    // name; `resolveGivenArgs` then specialises that body per instance by renaming exactly those
+    // parameters. The other order leaves a `summon` inside the specialised copy with no parameter
+    // left to resolve against.
+    // A CONTEXT BOUND BECOMES A PARAMETER HERE, not in the parser: the two fronts print the same
+    // tree that way, and only this file has to know that `[A: Monoid]` means `(using Monoid[A])`.
+    val withBounds = allDefsEager.map(d =>
+      if d.givenParams.isEmpty then d else d.copy(params = d.params ++ d.givenParams))
+    val allDefs = resolveMethodRefs(
+      resolveGivenArgs(resolveSummons(rewriteByName(withBounds), p.objects), p.objects), sigs)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //
