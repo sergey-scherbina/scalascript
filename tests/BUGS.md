@@ -8540,12 +8540,12 @@ a judgement about the whole suite's budget, not this row alone.
 
 ## install-dev-does-not-restage-the-F-front — an edit to `fsub.ssc` is invisible after installing
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
-     gate: -
-     fixed-in: - -->
+     gate: scripts/launcher-input-digest
+     fixed-in: 8265d8208 -->
 
 **Status:** OPEN (found 2026-08-10 while fixing `case A | B` in F — the fix appeared not to work,
 and the reason was that it had never been installed).
@@ -8587,6 +8587,34 @@ needs it:
 ```sh
 for f in $(find bin -name fsub.ssc); do cp specs/v2.2-p6.5-fsub.ssc "$f"; done
 ```
+
+### FIXED 2026-08-09/10 by a sibling — `8265d8208`, and VERIFIED here rather than taken on trust
+
+The mechanism was not `--dev` skipping a task. `install.sh` keeps a toolchain CACHE keyed on
+`scripts/launcher-input-digest`; on a HIT it restores `bin/lib` and skips `sbt cli/installBin`,
+which is the task that stages `fsub.ssc`. The digest excluded `specs/` as a top-level tree, so
+editing the F front did not change the key — cache HIT, old front restored, exit 0.
+
+`8265d8208` ("the launcher digest did not cover the F front") adds the exception:
+`specs/*.ssc` and `specs/*.ssc0` are included even though `specs/` is otherwise excluded.
+
+**Verified on `origin/main`, not assumed** — the same probe that found the defect, run against the
+fix:
+
+```console
+digest before        d216f84d252199b8…
+digest after F edit  1c139d1eb6990b27…      <- differs, so the cache key moves
+digest after restore d216f84d252199b8…      <- and the change is reversible
+```
+
+A changed key is a cache MISS, a MISS runs `cli/installBin`, and `installBin` is what copies
+`specs/v2.2-p6.5-fsub.ssc` into both staged trees. So the loop "edit F → install → measure" now
+measures what was edited.
+
+**Closed on the mechanism, and here is the limit of that.** What was measured is the DIGEST, which
+is the whole cache key; a full `install.sh --dev` was not re-run end to end to watch the staged file
+change. If a future edit to F still fails to reach `bin/`, this entry is the first thing to
+disbelieve.
 
 **How long this could have been true is worth measuring** — `case A | B` has been broken in F for
 as long as `parseCtorArm1` has existed, and a front whose edits do not reach the artifact is a
