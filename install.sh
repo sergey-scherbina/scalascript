@@ -132,12 +132,24 @@ fi
 _cache_entry=""
 [ -n "$_digest" ] && _cache_entry="$CACHE_ROOT/$_digest"
 
-if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ]; then
+# A hit needs the LAUNCHERS as well as lib/. `cli/installBin` is what writes `bin/ssc`,
+# `bin/ssc-standard` and `bin/ssc-tools`, and a hit skips it — but only `bin/ssc` is tracked in git,
+# so in a FRESH worktree the other two simply never existed. Every fresh checkout of main failed at
+# the launcher guard below with "Stage did not produce executable launcher …/bin/ssc-standard",
+# while the checkout that published the entry kept working because its launchers were already
+# there. An entry published before this fix has no `bin/`, so it is treated as a MISS and rebuilt —
+# that is what heals the ones already on disk, rather than requiring anyone to clear a cache.
+if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ] && [ -d "$_cache_entry/bin" ]; then
   echo "Toolchain cache HIT ($_digest) — restoring bin/lib instead of building."
   echo "  from: $_cache_entry"
   rm -rf "$LIB"
   mkdir -p "$BIN"
   cp -R "$_cache_entry/lib" "$LIB"
+  for _l in "$_cache_entry"/bin/*; do
+    [ -f "$_l" ] || continue
+    cp "$_l" "$BIN/$(basename "$_l")"
+    chmod +x "$BIN/$(basename "$_l")"
+  done
   # The witness below asserts a build RAN; a restore is not a build, so it is skipped rather than
   # faked. What replaces it is the same assertion the build path makes afterwards: the four staged
   # artefacts must be present, and they are checked for both paths further down.
@@ -189,6 +201,20 @@ if [ -n "$_cache_entry" ] && [ ! -d "$_cache_entry/lib" ]; then
     # Renaming `lib` itself is the atomic step that actually matters: a reader tests `-d entry/lib`,
     # so it sees no lib or a complete one, never a partial copy.
     mkdir -p "$_cache_entry"
+    # Launchers FIRST, lib second. A reader tests `-d entry/lib` and now also `-d entry/bin`, and
+    # `lib` is the last thing published, so an entry is never visible as a hit while incomplete.
+    if [ -d "$BIN" ]; then
+      rm -rf "$_tmp/bin"; mkdir -p "$_tmp/bin"
+      # EVERY file `bin/` holds, not a named three. The guard below only checks ssc, ssc-standard
+      # and ssc-tools, but `installBin` also writes ssc-js, ssc-wasm, ssc-spark, ssc-provider and
+      # sscc — and a restored toolchain missing those is the same defect one command further on,
+      # discovered later and by someone else. `lib` is a directory and is copied separately.
+      for _l in "$BIN"/*; do
+        [ -f "$_l" ] && cp "$_l" "$_tmp/bin/"
+      done
+      rm -rf "$_cache_entry/bin"
+      mv "$_tmp/bin" "$_cache_entry/bin" 2>/dev/null || true
+    fi
     if mv "$_tmp/lib" "$_cache_entry/lib" 2>/dev/null; then
       echo "Toolchain cached as $_digest — other worktrees on this base will not rebuild."
     fi
