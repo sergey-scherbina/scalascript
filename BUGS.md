@@ -675,11 +675,31 @@ merged program — `Pos` would need a path, or `merge` would need to record a pe
 
 ## v3-uniml-def-has-no-type-parameters — so the default front cannot resolve a `using` clause
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: gap
-     gate: v3/front-capability-gate.sh -->
+     gate: v3/front-capability-gate.sh
+     fixed-in: 1bce01a88 -->
+
+**FIXED 2026-08-09 (SSC3-U1).** `SpikeAst.Def` now carries `tparams` and `bounds`, and a `using`
+parameter's TYPE ARGUMENTS survive as `def.usingtypearg` leaves. `tagless-resolution` runs on BOTH
+fronts with identical output and identical trees; the declared probes `usingp` and `summon2` came
+out of the capability gate in the same commit, which the gate demanded. **N rose 188 → 189**, which
+is the point: the feature is now on the front a user actually gets.
+
+**Three wrong guesses before a diagnostic settled it, and the third was the real one.** The first
+`skipTypeParams` in `parseDef` — there for `def Source[A].method` — was eating a PLAIN def's `[A]`
+before the collecting call saw it. A type parameter lexes as `spike.uid`, the uppercase kind, so
+matching `spike.id` collected nothing. And the type of a `using` parameter arrived as `Show`, not
+`Show[A]`, because the dialect erases type arguments — which is exactly the difference instance
+resolution matches on. One `System.err.println` of what the projection received answered in a
+single run what two rounds of reading had not.
+
+**A measurement I got wrong and had to throw out:** two probes I recorded as passing on BOTH fronts
+were run while `UniFront.scala` did not compile, so `Front.default` fell back to v3 and I was
+comparing v3 with itself. Third time in one day for that trap — `ssc3 front` is the check, and it
+is now the first thing I run after touching that file.
 
 `SpikeAst.Def` is `(name, params, ret, body, span)`. There is nowhere for `[A]` to go, so UniML's
 dialect discards a definition's type parameters — and telling a type VARIABLE from a type is the

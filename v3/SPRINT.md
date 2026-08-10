@@ -2752,8 +2752,18 @@ Sergiy: *"это нужно исправить … Остальное все т�
 Ordered by what unblocks what, and each entry says what it is DONE BY — a measurement, not a
 feeling. Anything that turns out bigger than its entry gets split rather than stretched.
 
-- [ ] **U1 — UniML keeps a definition's type parameters, and the projection stops refusing
-      `using`.** The declared divergence (`usingp`, `summon2` in `front-capability-gate.sh`) exists
+- [x] **U1 — UniML keeps a definition's type parameters, and the projection stops refusing
+      `using`.** DONE 2026-08-09. `N` rose 188 → 189, both declared probes came out of the gate in
+      the same commit, and `tagless-resolution` runs on the DEFAULT front with identical trees.
+      Three wrong guesses first — the qualified-name `skipTypeParams` ate a plain def's `[A]`; a
+      type parameter lexes as `spike.uid`, not `spike.id`; and the dialect erased a `using`
+      parameter's type ARGUMENTS, which is the one thing resolution matches on. A one-line
+      diagnostic answered in one run what two rounds of reading had not.
+      The gates found two more, both "two places know one fact and disagree": v3 printed
+      `f(a)(using x)` as an `Apply` where UniML printed one flat call, and a context bound became a
+      parameter AFTER `sigs` was built, so `checkArity` passed a short call to the IR verifier,
+      which refuses without a position — a CRASH rather than a refusal.
+      **Superseded entry:** The declared divergence (`usingp`, `summon2` in `front-capability-gate.sh`) exists
       because `SpikeAst.Def` is `(name, params, ret, body, span)` — nowhere for `[A]`. THIS IS THE
       FIRST ITEM because the default front is UniML: until it lands, stage 2a is reachable only
       with `SSC3_FRONT=v3` and the corpus number cannot move.
