@@ -5,7 +5,7 @@ started: 2026-08-10T18:10:20Z
 heartbeat: 2026-08-10T18:10:20Z
 status: claimed-before-planning
 items: scljet-jdbc-facade-bytecode-class-too-large
-paths: file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala
+paths: file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala file:tests/e2e/bytecode-fallback-visible.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
