@@ -1,0 +1,13 @@
+#!/usr/bin/env ssc
+---
+name: no-paren-list-method
+version: 0.1.0
+description: headOption on a list is emitted as a Rust field access; length beside it lowers.
+---
+```scalascript
+def main(): Unit =
+  val kept = ["a", "bb", "ccc"].drop(1).filter(r => r.length > 1)
+  println("control = " + kept.length)
+  println("defect  = " + kept.headOption.getOrElse("-"))
+main()
+```

@@ -56,6 +56,50 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## no-paren-list-method-becomes-a-field — headOption on a list is emitted as a Rust field access, so it lands as 'no field headOption on Vec' — the by-name refusal covers calls but not no-paren member access
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-10
+     ssc-version: 7fea7a711
+     repro: repro/no-paren-list-method-becomes-a-field.ssc
+     kind: bug -->
+
+Four lines, control on the line above the defect:
+
+    ssc run    control = 2      defect = bb          (both fine)
+
+    ssc-tools build-rust
+      error[E0609]: no field `headOption` on type `Vec<String>`
+        kept.headOption.unwrap_or("-".to_string())
+
+`kept.length` on the line above compiles, so list methods as such are fine. `headOption` is
+written WITHOUT parentheses, so it arrives as a select rather than an apply, and this lane emits
+it as a Rust FIELD access on the `Vec` — a field no `Vec` has.
+
+**This is the shape you already fixed, reaching one form further.** `rust-list-methods` made an
+unlowered method on a known List/String receiver refuse BY NAME instead of passing through, and
+that is what makes the next instance cheap to find. It fires on a method CALL; a no-paren
+member access slips past it and becomes a field. Two consequences worth separating:
+
+  * `headOption` has no lowering (`lastOption`, `head`, `tail`, `isEmpty` are worth checking for
+    the same reason — I did not, so treat that as a guess, not a report).
+  * Whatever the answer for `headOption`, the REFUSAL should cover the no-paren form too, or the
+    next one lands on a user as `no field X on type Vec<...>` again.
+
+Rozum's `public-matrix.ssc` reaches this through `hit.map(...).getOrElse("null")` where `hit`
+came from `.drop(1).filter(...)` — the same family, arriving as `unwrap_or` on a `Vec<String>`.
+
+Worth recording how I got here, because I nearly filed it as my own mistake: I read
+`hit.map(...).getOrElse(...)` on a List, concluded `getOrElse` belongs to Option, and "fixed" my
+source with `.headOption`. That made it WORSE (4 errors, and rustc then called the receiver
+`Option<String>`), which is what sent me to a minimal repro instead of a second guess.
+
+Toolchain built from `7fea7a711` — your main with both merged rozum fixes — stamp == tree, banner
+silent, detached worktree outside your checkout.
+
+Measured effect of those two on our file, since it is the honest way to say thank you:
+**33 errors at the start, 16 yesterday, 2 now.** One of the two is the `Request` handler branch;
+this is the other. No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
