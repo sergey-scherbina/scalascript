@@ -34,11 +34,11 @@ case class Dataset(items: List[Any]):
   def count(): Int = items.length
   def isEmpty(): Boolean = items.isEmpty
   def first(): Option[Any] = if items.isEmpty then None else Some(items.head)
-  def take(n: Int): Dataset = Dataset(items.take(n))
-  def map(f: Any => Any): Dataset = Dataset(items.map(f))
-  def filter(p: Any => Boolean): Dataset = Dataset(items.filter(p))
-  def mkString(sep: String): String = items.mkString(sep)
-  def reduce(f: (Any, Any) => Any): Any = items.reduce(f)
+  def take(__n: Int): Dataset = Dataset(items.take(__n))
+  def map(__fn: Any => Any): Dataset = Dataset(items.map(__x => __fn(__x)))
+  def filter(__pred: Any => Boolean): Dataset = Dataset(items.filter(__x => __pred(__x)))
+  def mkString(__sep: String): String = items.mkString(__sep)
+  def reduce(__fn: (Any, Any) => Any): Any = items.reduce((a, b) => __fn(a, b))
   def sum(): Any = items.sum
   def avg(): Any = items.sum.toDouble / items.length.toDouble
   def min(): Any =
@@ -46,32 +46,39 @@ case class Dataset(items: List[Any]):
   def max(): Any =
     if items.isEmpty then throw RuntimeException("Dataset.max: empty dataset") else items.max
   def sorted(): Dataset = Dataset(items.sorted)
-  def sortBy(f: Any => Any): Dataset = Dataset(items.sortBy(f))
+  def sortBy(__fn: Any => Any): Dataset = Dataset(items.sortBy(__x => __fn(__x)))
   def distinct(): Dataset = Dataset(items.distinct)
-  def takeOrdered(n: Int): Dataset = Dataset(items.sorted.take(n))
-  def top(n: Int): Dataset = Dataset(items.sorted.reverse.take(n))
-  def zip(other: Dataset): Dataset = Dataset(items.zip(other.items))
-  def flatMap(f: Any => List[Any]): Dataset = Dataset(items.flatMap(f))
-  def foreach(f: Any => Any): Unit = items.foreach(f)
-  // `items.map(x => key(x))` and NOT `items.map(key)`. Passing a function VALUE where a lambda is
-  // expected does not behave the same here — the building blocks were verified working in isolation
-  // and only the eta-reduced spelling failed, with `method '_2' on 3`.
-  def reduceByKey(key: Any => Any)(f: (Any, Any) => Any): Dataset =
-    Dataset(items.map(x => key(x)).distinct
-                 .map(k => items.filter(x => key(x) == k).reduce((p, q) => f(p, q))))
+  def takeOrdered(__n: Int): Dataset = Dataset(items.sorted.take(__n))
+  def top(__n: Int): Dataset = Dataset(items.sorted.reverse.take(__n))
+  def zip(__other: Dataset): Dataset = Dataset(items.zip(__other.items))
+  def flatMap(__fn: Any => List[Any]): Dataset = Dataset(items.flatMap(__x => __fn(__x)))
+  def foreach(__fn: Any => Any): Unit = items.foreach(__x => __fn(__x))
+  // IT RETURNS `(__key, reduced)` PAIRS, keeping the __key beside the value, and that is not a design
+  // choice — the corpus reads it. `dataset-groupBy.ssc` destructures `case (__k, v)` and then prints
+  // `v._2`, so `v` is itself the reduced ELEMENT, a `(word, count)` pair. Returning just the reduced
+  // element — my first version — makes `v` the bare count and `v._2` fails with `method '_2' on 3`.
+  //
+  // That error cost the longest detour of this file: it survived two wrong hypotheses (placeholder
+  // expansion, then eta-reduced `map(__key)`) because BOTH spellings work in isolation and so does
+  // the whole call reproduced by hand. Only reading the test's LAST TWO LINES explained it. The
+  // shape of a returned value is part of the contract, and a probe that stops at "it runs" cannot
+  // see it.
+  def reduceByKey(__key: Any => Any)(__fn: (Any, Any) => Any): Dataset =
+    Dataset(items.map(__x => __key(__x)).distinct
+                 .map(__k => (__k, items.filter(__x => __key(__x) == __k).reduce((__pred, __q) => __fn(__pred, __q)))))
   def zipWithIndex: Dataset = Dataset(items.zipWithIndex)
-  def drop(n: Int): Dataset = Dataset(items.drop(n))
-  def fold(z: Any)(f: (Any, Any) => Any): Any = items.foldLeft(z)(f)
-  def union(other: Dataset): Dataset = Dataset(items ++ other.items)
-  def intersect(other: Dataset): Dataset =
-    Dataset(items.filter(x => other.items.contains(x)).distinct)
-  def groupBy(f: Any => Any): Dataset =
-    Dataset(items.map(f).distinct.map(k => (k, items.filter(x => f(x) == k))))
+  def drop(__n: Int): Dataset = Dataset(items.drop(__n))
+  def fold(__zero: Any)(__fn: (Any, Any) => Any): Any = items.foldLeft(__zero)((a, b) => __fn(a, b))
+  def union(__other: Dataset): Dataset = Dataset(items ++ __other.items)
+  def intersect(__other: Dataset): Dataset =
+    Dataset(items.filter(__x => __other.items.contains(__x)).distinct)
+  def groupBy(__fn: Any => Any): Dataset =
+    Dataset(items.map(__x => __fn(__x)).distinct.map(__k => (__k, items.filter(__x => __fn(__x) == __k))))
   // A CLOSURE, not a Map, and the corpus decides that rather than taste: it only ever APPLIES the
-  // result — `freq(k)` — and Tier 0 can neither build a Map from a list (`toMap` is absent) nor add
-  // to one (`Map + (k -> v)` is refused). A user-defined `apply` is not callable either. A function
+  // result — `freq(__k)` — and Tier 0 can neither build a Map from a list (`toMap` is absent) nor add
+  // to one (`Map + (__k -> v)` is refused). A user-defined `apply` is not callable either. A function
   // value satisfies every use the corpus makes and needs nothing the language does not have.
-  def countByValue(): Any => Any = (k: Any) => items.filter(x => x == k).length
+  def countByValue(): Any => Any = (__k: Any) => items.filter(__x => __x == __k).length
   def runLocal(): Dataset = Dataset(items)
   def runParallel(): Dataset = Dataset(items)
 

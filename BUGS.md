@@ -6714,3 +6714,39 @@ built: with `uniml.cp` pointed at an empty directory, `ssc3 ast <file> uniml` ex
 `could not compile the uniml front` and prints nothing, so the differential's own probe fails the
 gate by name. The fallback applies to `Front.default` — which is what `exec` and `run` use, and why
 `exec-gate` ran on v3's own front — never to an EXPLICIT front request. No guard needed.
+
+## v3-a-parameter-does-not-shadow-a-top-level-function-in-the-arity-check
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: v3/front-gate.sh -->
+
+**A library method whose PARAMETER is named `f` breaks when the user's program also defines a
+top-level `f` of a different arity.** The arity check resolves the name against the global function
+table instead of the enclosing parameter, so the parameter does not shadow.
+
+```text
+prelude   def map(f: Any => Any): Dataset = Dataset(items.map(x => f(x)))
+user      def f(a: Int, b: Int): Int = a + b
+result    ssc3: <user file>:38:60: call to 'f' passes 1 argument(s), it takes 2
+```
+
+Note the position: line 38 of the PRELUDE, reported against the user's file, which is three lines
+long. That is a second defect and it is filed with this one.
+
+**Why it appeared only now.** Until the prelude landed, v3 had no code that lives beside an
+arbitrary user program and is reused by all of them. A prelude is exactly that, and it hit this the
+day it gained a library — three fixtures (`bitwise`, `enum-qualified`, `operator-continuation`) went
+red at once, all of them programs that happen to define `f`. The names at risk are the ordinary
+ones: `f`, `p`, `n`, `k`, `x`.
+
+**Worked around, not fixed, and the distinction matters.** `v3/prelude/index.ssc` renames every
+method parameter to `__fn`, `__pred`, `__x` and the like. That protects the library from the defect;
+it does nothing about the defect, and any other module written to live beside user code will hit it
+again. The real fix — a parameter shadows a top-level name in `checkArity` — is in `Lower.scala`,
+held by five claims on the day this was written.
+
+**Repro in three lines**, no prelude needed: a file defining `def f(a: Int, b: Int): Int = a + b`
+and `def g(f: Any => Any): Any = f(1)` refuses `g` with the arity of the top-level `f`.
