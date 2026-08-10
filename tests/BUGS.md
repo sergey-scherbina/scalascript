@@ -1,7 +1,7 @@
 ## typed-pattern-against-an-any-does-not-test-the-type
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 333a7ddc8
      lane: v2-rust
      area: codegen
      confirmed: yes
@@ -35,7 +35,7 @@ to decide how each type is represented to user code.
 ## map-getorelse-emits-copied-on-a-string
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 333a7ddc8
      lane: v2-rust
      area: codegen
      confirmed: yes
