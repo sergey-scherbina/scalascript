@@ -258,7 +258,11 @@ object Loader:
     var traits: List[TraitDef] = Nil
     var effects: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
+    var origin: Map[String, String] = Map.empty
     units.foreach { u =>
+      // Only for units that are NOT the root: a declaration in the file the user named needs no
+      // redirection, and recording it would make every ordinary diagnostic print a path twice.
+      if u.path != root.path then u.program.defs.foreach(d => origin = origin.updated(d.name, u.path))
       defs = defs ++ u.program.defs
       classes = classes ++ u.program.classes
       objects = objects ++ u.program.objects
@@ -276,4 +280,4 @@ object Loader:
     // rebuild silently dropped it — a merged program had no effect declarations at all, and the
     // symptom was `unknown name 'Bump'` in the LOWERING, three layers from the cause. A defaulted
     // field is invisible exactly where a case class is reconstructed by hand.
-    Program(defs, top, classes, objects, traits, effects)
+    Program(defs, top, classes, objects, traits, effects, origin)

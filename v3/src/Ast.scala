@@ -230,7 +230,14 @@ final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[Cl
                            * is what a trait body already parses to. Kept in its OWN field because
                            * the two mean different things downstream — a trait's methods are
                            * dispatched, an effect's are PERFORMED. */
-                         effects: List[TraitDef] = Nil)
+                         effects: List[TraitDef] = Nil,
+                         /** Declaration name → the path of the UNIT it came from, filled by
+                           * `Loader.merge` and EMPTY for a single-file program. `merge`
+                           * concatenates every unit's declarations, so this is the only surviving
+                           * record of which file a declaration was written in — without it a
+                           * diagnostic can only name the file the user typed on the command line,
+                           * and prints an imported unit's line against it. */
+                         origin: Map[String, String] = Map.empty)
 
 object Expr:
   def posOf(e: Expr): Pos = e match

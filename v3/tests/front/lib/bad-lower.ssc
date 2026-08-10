@@ -1,0 +1,5 @@
+// Imported by `imported-lower-error.ssc`. The call below is a LOWERING failure, not a parse one —
+// the file parses fine — which is the case `Loader.closureWith` cannot re-throw with this unit's
+// path, because lowering happens after `merge` has dissolved the unit boundary.
+def importedHelper(): Int =
+  nosuchfunction(1)

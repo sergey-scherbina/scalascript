@@ -298,7 +298,7 @@ object Cli:
               case e: LoadError    => Console.err.println("ssc3: " + e.message); 1
               case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail    => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
               case e: BridgeV2.Unsupported =>
                 Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
           // The IR the front produced, in canonical form — for reading and for diffing.
@@ -312,7 +312,7 @@ object Cli:
               case e: LoadError => Console.err.println("ssc3: " + e.message); 1
               case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
           // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
           // tail call and a frame is data.
           case "exec" if args.length >= 2 =>
@@ -334,7 +334,7 @@ object Cli:
               case e: LoadError => Console.err.println("ssc3: " + e.message); 1
               case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // Times `workload()` so v3 can appear in bench/run.sc beside v1 and v2.
@@ -430,7 +430,7 @@ object Cli:
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError  => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // WHICH FRONT ANSWERED. Not decoration: the swap makes the front depend on the working
@@ -457,7 +457,7 @@ object Cli:
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "performs" if args.length >= 2 =>
             val path = args(1)
@@ -475,7 +475,7 @@ object Cli:
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "front" =>
             println("front: " + Front.default)

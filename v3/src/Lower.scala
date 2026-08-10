@@ -9,8 +9,20 @@ package ssc3
 // reused across an expression, which is wasteful and is the right trade for V-0: the bridge stores
 // the whole frame in one array, so frame size costs allocation once per call and nothing per step.
 
-final case class LowerFail(pos: Pos, message: String)
-    extends RuntimeException(pos.show + ": " + message)
+// `origin` is the path of the UNIT the failing declaration came from, when that is not the file the
+// user named. `Loader.merge` concatenates every unit's declarations into one `Program` and the unit
+// boundary is gone by the time lowering runs, so a `LowerFail` used to be printed against the ROOT
+// path with an IMPORTED unit's line — `tests/conformance/tkv2-busi-home.ssc:119` on a file 71 lines
+// long, for a site that is really `std/ui/form.ssc:119`. A position past the end of the file it
+// names costs the reader three commands to disbelieve (BUGS.md
+// `v3-lowerfail-reports-the-root-path-with-an-imported-unit's-line`).
+//
+// Defaulted, so every existing `throw LowerFail(pos, msg)` is untouched: the path is attached ONCE,
+// where the per-def loop knows which declaration it is lowering.
+final case class LowerFail(pos: Pos, message: String, origin: Option[String] = None)
+    extends RuntimeException(pos.show + ": " + message):
+  def at(path: Option[String]): LowerFail =
+    if origin.nonEmpty || path.isEmpty then this else copy(origin = path)
 
 object Lower:
 
@@ -2506,7 +2518,12 @@ object Lower:
     allDefsH.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
-      val (body, r, st) = lower(d.body, names, resolved ++ tupleClasses, zeroArityNames, st0)
+      // ONE place, because every message this lowering can produce passes through here. Attaching
+      // the origin at each `throw` site instead would be forty edits and would drift the first time
+      // somebody adds a forty-first.
+      val (body, r, st) =
+        try lower(d.body, names, resolved ++ tupleClasses, zeroArityNames, st0)
+        catch case e: LowerFail => throw e.at(p.origin.get(d.name))
       consts = st.consts
       prims = st.prims
       types = st.types

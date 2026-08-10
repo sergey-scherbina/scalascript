@@ -1,0 +1,6 @@
+// A refusal whose SITE is in an imported unit. Before `Program.origin`, this reported the ROOT
+// file's path with the imported unit's line — a position past the end of a file the reader did not
+// write. No `.expected`, so `front-gate.sh` requires the refusal to carry a source position.
+[importedHelper](lib/bad-lower.ssc)
+
+def main(): Unit = println(importedHelper())
