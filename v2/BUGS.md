@@ -10677,6 +10677,15 @@ somebody's working tree. `scljet-hello` reaches this defect because the concat f
 carried it past `Tuple4.isEmpty` — the same "one blocker down, the next one up" as the three
 rostered cases above, in a fourth example and a gate nobody was watching.
 
+**CORRECTION 2026-08-10 — "wire it in the same commit that fixes this" was my own advice and it is
+now WRONG.** The VM defect is fixed, and that turned this gate from failing-in-seconds into
+HANGING: it runs `scljet-hello` on both lanes with no bound, and that program now takes >1800 s on
+F where it took 39 s on legacy. Wiring it as it stood would have added an hour-plus hang to
+whatever suite took it. It now bounds both lanes (`BC_FALLBACK_TIMEOUT`, default 420 s) and reports
+a cap breach as a NAMED failure — never a pass, because "slow" and "correct" are different answers
+and a gate that conflates them is how a perf wall hides behind a green row. **Wiring still waits**,
+now on the F cost rather than on the correctness defect.
+
 **And that is the second half: the gate has NO CALLER.** `grep` over `.github/`, `scripts/` and
 `tests/` finds nothing that invokes it, and it is not in `scripts/smoke-ci`. It was added by
 `af4725ed9` — the commit whose entire point was that a silent fallback certified VM-vs-VM parity —

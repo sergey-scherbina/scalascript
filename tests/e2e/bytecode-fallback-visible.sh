@@ -28,17 +28,43 @@ if [[ ! -x "$ssc" ]]; then
 fi
 
 # run_lanes <file> — fills $vm_out/$bc_out/$bc_err/$bc_rc for one program.
+#
+# BOTH LANES ARE BOUNDED, and that is not defensive tidiness — it is required as of 2026-08-10.
+# This gate's oversized subject is `scljet-hello`, and until today it failed in SECONDS: the
+# fallback fired and the VM lane it fell back to died immediately on `app: not a function`
+# (v2/BUGS.md scljet-app-not-a-function-after-the-concat-fix). Fixing that made the program RUN —
+# and running is where the cost is. Measured the same day: 39 s on the legacy front, over 1800 s on
+# F, which is the front `ssc run` uses by default. Unbounded, this gate would run it TWICE and hang
+# for over an hour.
+#
+# A timeout is reported as a NAMED failure, never as a pass. "Slow" and "correct" are different
+# answers and a gate that conflates them is how a perf wall hides behind a green row.
+BC_FALLBACK_TIMEOUT=${BC_FALLBACK_TIMEOUT:-420}
 run_lanes() {
   local f="$1"
-  vm_out=$("$ssc" run "$f" 2>"$sandbox/vm.err")
-  bc_out=$("$ssc" run --bytecode "$f" 2>"$sandbox/bc.err"); bc_rc=$?
+  vm_out=$(timeout "$BC_FALLBACK_TIMEOUT" "$ssc" run "$f" 2>"$sandbox/vm.err"); vm_rc=$?
+  bc_out=$(timeout "$BC_FALLBACK_TIMEOUT" "$ssc" run --bytecode "$f" 2>"$sandbox/bc.err"); bc_rc=$?
   bc_err=$(cat "$sandbox/bc.err")
+}
+
+# timed_out <label> — true when either lane hit the cap, and says which.
+timed_out() {
+  local label="$1"
+  if [[ $vm_rc -eq 124 || $bc_rc -eq 124 ]]; then
+    echo "FAIL [$label] exceeded ${BC_FALLBACK_TIMEOUT}s (vm_rc=$vm_rc bc_rc=$bc_rc) — a TIMEOUT, not a verdict."
+    echo "     The F front costs >46x the legacy front on this subject (39s vs >1800s, measured"
+    echo "     2026-08-10). See v2/BUGS.md f-front-compile-cost-7x-on-scljet. Raising"
+    echo "     BC_FALLBACK_TIMEOUT hides it; it is not a fix."
+    return 0
+  fi
+  return 1
 }
 
 # expect_marker <label> <file> — the program is too large for one class: fallback, announced.
 expect_marker() {
   local label="$1" f="$2"
   run_lanes "$f"
+  if timed_out "$label"; then fails=$((fails+1)); return; fi
   if [[ $bc_rc -ne 0 ]]; then
     echo "FAIL [$label] --bytecode exited $bc_rc; the link-time fallback is supposed to keep it 0"
     echo "     stderr: $bc_err"; fails=$((fails+1)); return
@@ -57,6 +83,7 @@ expect_marker() {
 expect_no_marker() {
   local label="$1" f="$2"
   run_lanes "$f"
+  if timed_out "$label"; then fails=$((fails+1)); return; fi
   if [[ $bc_rc -ne 0 ]]; then
     echo "FAIL [$label] --bytecode exited $bc_rc"; echo "     stderr: $bc_err"; fails=$((fails+1)); return
   fi
