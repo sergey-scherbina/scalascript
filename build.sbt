@@ -1425,6 +1425,52 @@ lazy val backendCss = project
 // to inject the JS runtime into SPA-mode pages.  Stage 5 (Backend SPI §8 —
 // HTTP/WS intrinsics) extracts this so the server lives behind the SPI and
 // backends no longer reference each other.
+// ── interpreter test lanes: fast vs shell-out, and the shell-out half by DOMAIN ───────────────────
+//
+// MEASURED 2026-08-10, which is why this exists rather than a bigger timeout:
+//
+//     one shell-out suite (JvmGenSqlRuntimeTest)   221 s for   4 tests   (~55 s/test)
+//     two in-process suites                         43 s for 143 tests  (~0.3 s/test, mostly startup)
+//
+// ~180x per test. 31 of 156 test files shell out to `scala-cli` or `node`, holding 262 of the 1854
+// tests. A manual `backendInterpreter/test` therefore blows any timeout on a host with other agents
+// on it — and worse, NOTHING RUNS THE SUITE: it is in neither `ci.yml` nor smoke, whose own comment
+// records that this directory's coverage is the corpus lanes alone. That is how 14 tests sat red
+// without anyone noticing.
+//
+// THE HEAVY SET IS DERIVED FROM THE SOURCES, NOT LISTED. A new test that shells out joins it by
+// construction; a hand-written list is the thing that goes stale, and this repository has paid for
+// that shape more than once. Classification by what the file actually calls:
+//
+//     scala-cli only → jvm      node only → js      both → cross
+def sscHeavyTestSuites(testSrc: File): Map[String, String] = {
+  def scan(d: File): Seq[File] =
+    if (!d.isDirectory) Seq.empty
+    else IO.listFiles(d).flatMap(f => if (f.isDirectory) scan(f) else if (f.getName.endsWith(".scala")) Seq(f) else Seq.empty)
+  scan(testSrc).flatMap { f =>
+    val t   = IO.read(f)
+    val cli = t.contains("scala-cli")
+    val js  = t.contains("node") && (t.contains("os.proc") || t.contains("ProcessBuilder") || t.contains("scala-cli"))
+    val proc = t.contains("os.proc") || t.contains("ProcessBuilder")
+    if (!cli && !proc) None
+    else {
+      val domain = if (cli && js) "cross" else if (js) "js" else "jvm"
+      Some(f.getName.stripSuffix(".scala") -> domain)
+    }
+  }.toMap
+}
+
+lazy val testFast     = taskKey[Unit]("interpreter tests that do NOT shell out — the lane to run often")
+lazy val testSlow     = taskKey[Unit]("only the shell-out tests — run when you need them, with time")
+lazy val testSlowJvm  = taskKey[Unit]("shell-out tests that drive scala-cli (JVM codegen)")
+lazy val testSlowJs   = taskKey[Unit]("shell-out tests that drive node (JS codegen)")
+lazy val testSlowCross= taskKey[Unit]("shell-out tests that drive BOTH — cross-backend agreement")
+
+def sscSlowNames(domain: String, testSrc: File, all: Seq[String]): Seq[String] = {
+  val heavy = sscHeavyTestSuites(testSrc)
+  all.filter(n => heavy.get(n.split('.').last).contains(domain))
+}
+
 lazy val backendInterpreter = project
   .in(file("v1/runtime/backend/interpreter"))
   // jsonPlugin % Test: the std JSON codec is self-hosted (json.ssc + json-core.ssc);
@@ -1461,7 +1507,39 @@ lazy val backendInterpreter = project
       IO.write(typedOut, typedDataJar.getAbsolutePath)
       IO.write(graphOut, graphJar.getAbsolutePath)
       Seq(wireOut, sqlOut, typedOut, graphOut)
-    }.taskValue
+    }.taskValue,
+    // One filter, four entry points. `definedTestNames` is what sbt discovered, so a suite that is
+    // renamed or deleted cannot linger in a stale list here.
+    testFast := Def.taskDyn {
+      val heavy = sscHeavyTestSuites((Test / sourceDirectory).value).keySet
+      val names = (Test / definedTestNames).value.filterNot(n => heavy.contains(n.split('.').last))
+      if (names.isEmpty) Def.task(streams.value.log.warn("testFast: no suites matched — is the filter inverted?"))
+      else (Test / testOnly).toTask(names.mkString(" ", " ", ""))
+    }.value,
+    testSlow := Def.taskDyn {
+      val heavy = sscHeavyTestSuites((Test / sourceDirectory).value).keySet
+      val names = (Test / definedTestNames).value.filter(n => heavy.contains(n.split('.').last))
+      if (names.isEmpty) Def.task(streams.value.log.warn("testSlow: no shell-out suites found"))
+      else (Test / testOnly).toTask(names.mkString(" ", " ", ""))
+    }.value,
+    // Spelled three times rather than parameterised: a helper taking the project would be a
+    // recursive reference to `backendInterpreter` from inside its own settings, which sbt refuses.
+    // The SELECTION is shared — `sscSlowNames` — so only the bucket name differs here.
+    testSlowJvm := Def.taskDyn {
+      val names = sscSlowNames("jvm", (Test / sourceDirectory).value, (Test / definedTestNames).value)
+      if (names.isEmpty) Def.task(streams.value.log.warn("testSlowJvm: no scala-cli suites found"))
+      else (Test / testOnly).toTask(names.mkString(" ", " ", ""))
+    }.value,
+    testSlowJs := Def.taskDyn {
+      val names = sscSlowNames("js", (Test / sourceDirectory).value, (Test / definedTestNames).value)
+      if (names.isEmpty) Def.task(streams.value.log.warn("testSlowJs: no node suites found"))
+      else (Test / testOnly).toTask(names.mkString(" ", " ", ""))
+    }.value,
+    testSlowCross := Def.taskDyn {
+      val names = sscSlowNames("cross", (Test / sourceDirectory).value, (Test / definedTestNames).value)
+      if (names.isEmpty) Def.task(streams.value.log.warn("testSlowCross: no cross-backend suites found"))
+      else (Test / testOnly).toTask(names.mkString(" ", " ", ""))
+    }.value
   )
 
 // JMH microbenchmarks for the interpreter.
