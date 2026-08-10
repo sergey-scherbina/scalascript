@@ -1,0 +1,18 @@
+slug: rozum-agent-and-double-run
+branch: feature/rozum-agent-and-double-run
+agent: claude-code
+started: 2026-08-10T07:36:11Z
+heartbeat: 2026-08-10T07:36:11Z
+status: investigating
+items: rozum-agent-family-v2-diverges-again rozum-agent-schema-derived-js-and-v2-gaps trailing-main-call-runs-twice
+paths: file:v2/BUGS.md file:tests/BUGS.md file:tests/e2e/trailing-main-call-runs-once.sh
+scope: |
+  The two rozum entries that are NOT rust-lane, plus a divergence I have watched three times today
+  and not filed: a file ending in a bare `main()` call prints its output TWICE on bin/ssc and once
+  on the rust binary.
+  Both agent entries are from 2026-07-28/29 and may have moved: today's Stub work makes
+  `Stub("Mirror.isProduct")` FATAL rather than an `if: condition not Bool`, so the second entry's
+  symptom cannot still read the way it is written. REPRODUCE BEFORE DIAGNOSING -- that is the whole
+  lesson of the last two days.
+  Paths start narrow on purpose; widen when the reproduction says where the fix goes.
+next: run contract.sc for the four cases, run the schema-derived example, and isolate the double run
