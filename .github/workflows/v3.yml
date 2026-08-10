@@ -192,6 +192,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/front-diff.sh
 
+      # The prelude is the mechanism that unblocked option 3 of the DATASET decision — a library in
+      # ScalaScript instead of host surface. Cheap (it writes its own probe prelude into a temp dir
+      # and never touches the tree) and it checks the two properties that broke or would break
+      # silently: the printed `Ast` must stay free of the prelude, or every `.expected` fixture is
+      # rewritten; and an empty program must still be refused, which is a consistency check between
+      # `Loader`'s emptiness test and `Lower.scala`'s.
+      - name: prelude
+        if: ${{ !cancelled() }}
+        run: v3/prelude-gate.sh
+
       # THE SELF-TEST RUNS FIRST, and that ordering is the point. This gate's green means "no method
       # is over the JVM's compile limit except the ones declared" — a claim nothing else in CI can
       # contradict, because a program whose methods are too big to compile is still CORRECT. So the

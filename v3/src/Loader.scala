@@ -204,10 +204,44 @@ object Loader:
   // `Front.default`, not `Front.v3`: with the uniml front registered this is what makes `build`,
   // `ir`, `exec` and `emit-v2` run on it rather than only `ast`, which took a front argument and so
   // was the ONLY command the differential could ever have reached.
-  def closure(rootPath: String): List[Unit3] = closure(rootPath, Front.default)
+  /** THE PRELUDE — a module loaded before the user's program, so its declarations are ambient.
+    *
+    * WHY IT EXISTS. `v3/BACKLOG.md`'s DATASET decision offered three ways to give v3 host surface
+    * and the owner took the third: write the library IN ScalaScript, over lists, so both lanes get
+    * it with no host surface at all. That is the option the project's own rule points at — new
+    * intrinsics go to a plugin, never the core — and the backlog recorded it as blocked on exactly
+    * one missing mechanism: the corpus calls `Dataset.of` with NO import, v3's module system is
+    * markdown links, and there was no way for a name to be in scope without one.
+    *
+    * WHY IT IS NOT IN THE PRINTED AST, and this is the part that matters. `ssc3 ast` renders
+    * `merge(closure(path, front))` — the TWO-argument overload — and every fixture in
+    * `.expected` fixture under `v3/tests/front/` is a byte-comparison against that render. A prelude visible there
+    * would rewrite all of them and put its own declarations into every future diff, so the front
+    * differential would spend most of its comparison on a module nobody is editing.
+    *
+    * The split is principled rather than convenient: a prelude changes what NAMES RESOLVE TO in the
+    * lowering, and changes nothing about how the user's text parses. `ssc3 ast` shows what the user
+    * wrote. Every execution path — `exec`, `run`, `run --bridge`, `ir`, `Specialize` — goes through
+    * the ONE-argument overload, and that is the one that carries the prelude.
+    *
+    * ABSENT BY DEFAULT IN A TREE THAT HAS NO PRELUDE FILE: `preludeRoot` returns `None` when the
+    * path does not exist, so a checkout without `v3/prelude/` behaves exactly as before this
+    * change. `SSC3_PRELUDE=` (empty) turns it off; `SSC3_PRELUDE=<path>` points it elsewhere. A
+    * mechanism that cannot be turned off cannot be measured — the gate needs both states to show
+    * what the prelude actually changed. */
+  private def preludeRoot: Option[String] =
+    val e = System.getenv("SSC3_PRELUDE")
+    val p = if e == null then "v3/prelude/index.ssc" else e
+    if p.isEmpty then None
+    else
+      val n = normalise(p)
+      if exists(n) then Some(n) else None
+
+  def closure(rootPath: String): List[Unit3] =
+    closureWith(rootPath, t => Front.parse(t, Front.default), preludeRoot)
 
   def closure(rootPath: String, front: String): List[Unit3] =
-    closureWith(rootPath, t => Front.parse(t, front))
+    closureWith(rootPath, t => Front.parse(t, front), None)
 
   /** The parse step is a PARAMETER, not a name looked up in a table.
     *
@@ -216,6 +250,9 @@ object Loader:
     * front reuse the module graph instead of reimplementing it, which it briefly did NOT: the first
     * version of the uniml front parsed one file and every cross-file import silently vanished. */
   def closureWith(rootPath: String, parseWith: String => Program): List[Unit3] =
+    closureWith(rootPath, parseWith, None)
+
+  def closureWith(rootPath: String, parseWith: String => Program, prelude: Option[String]): List[Unit3] =
     var seen: List[String] = Nil
     var out: List[Unit3] = Nil
 
@@ -241,8 +278,41 @@ object Loader:
             case e: LexError  => throw LoadError(path + ":" + e.getMessage)
         out = out :+ Unit3(canon, prog)
 
+    // THE ROOT IS VISITED FIRST AND THE PRELUDE IS PREPENDED, which reads backwards until you see
+    // what it buys.
+    //
+    // The ORDER of the result is fixed: `merge` reads `units.last` as the root — the only unit
+    // whose bare statements survive — so the user's file must come last, or a prelude would run the
+    // program's statements and drop its own. That is why the prelude is PREPENDED rather than
+    // appended.
+    //
+    // But it is visited SECOND, because whether to load it at all depends on the root. A file that
+    // declares nothing and executes nothing is refused with `empty program`, and
+    // `v3/tests/front/trait-refused.ssc` — a trait with one abstract `def` and nothing else — is a
+    // fixture for exactly that. A prelude loaded unconditionally makes EVERY program non-empty, so
+    // that refusal disappeared and the front gate went red saying "the front emits for anything".
+    // It was right.
+    //
+    // The rule here is Loader's own and stands on its own feet: a prelude exists to put names in
+    // scope FOR CODE, and a unit with no declarations and no statements has no code. It happens to
+    // coincide with `Lower.scala`'s emptiness test, and THAT COINCIDENCE IS A LIABILITY — two
+    // predicates in two files that must agree. It is written this way because `Lower.scala` is held
+    // by five other claims today; the right shape is one predicate, and `v3/prelude-gate.sh` fails
+    // if the two ever disagree, which is the part that makes the duplication survivable rather than
+    // merely tolerated.
+    //
+    // `seen` carries over, so a module the prelude and the program BOTH import is loaded once and
+    // keeps its position in the root's half. Loading the prelude as the root is a no-op for the
+    // same reason: it is already seen, so the result is the single unit it always was.
     visit(rootPath)
-    out
+    val rootUnits = out
+    val rootProg = rootUnits.last.program
+    val rootHasCode = rootProg.defs.nonEmpty || rootProg.topLevel.nonEmpty
+    if prelude.isEmpty || !rootHasCode then rootUnits
+    else
+      out = Nil
+      prelude.foreach(visit)
+      out ++ rootUnits
 
   /** One program from the closure: every unit's declarations, but only the ROOT's statements.
     *
