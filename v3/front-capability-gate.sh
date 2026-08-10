@@ -156,6 +156,10 @@ check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 # LISTS, NOT A CEILING. A count lets one divergence close while another opens and reports nothing;
 # the bidirectional `check_set` above cannot — a row that stops diverging must come OUT of the list
 # in the same commit, which is what caught `type-lambda-native` as closeable.
+# `tagless-program` and `tagless-resolution` came OUT on 2026-08-09 with SSC3-U1 and stage 2b:
+# UniML's dialect now keeps a definition's type parameters and every parameter's type ARGUMENTS,
+# so the projection resolves the instances v3's own front resolves and both fronts accept them.
+# The gate demanded this removal in the same commit, which is what these lists are for.
 declare -a KNOWN_CONF_V3_ONLY=(
   content
   direct-syntax
@@ -167,8 +171,6 @@ declare -a KNOWN_CONF_V3_ONLY=(
   optional
   prisms
   tagless-direct-syntax
-  tagless-program
-  tagless-resolution
   traversal
 )
 

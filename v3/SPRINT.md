@@ -2770,7 +2770,15 @@ feeling. Anything that turns out bigger than its entry gets split rather than st
       *Done when:* both declared probes come OUT of the gate's list in the same commit (the gate
       demands it), `tagless-resolution` runs on the DEFAULT front, and `N` RISES — it is a
       conformance case, so the corpus is the witness.
-- [ ] **2b — inference past a literal.** `tagless-context-bounds` is the row. Three pieces, each
+- [x] **2b — inference past a literal.** DONE 2026-08-09. `tagless-context-bounds` runs on BOTH
+      fronts — `15 / hello, world / #60 / combined=7 / combined=hi / 42 / haha`, every value checked
+      against the source — and `N` rose 189 → 190. All three pieces this entry named were needed,
+      plus two it did not: the generic definition stays behind as a TEMPLATE and was arity-checked
+      like running code (dropped now, but only when no call to it survives, so an unsolved call
+      still gets `passes 1 argument(s)` rather than `unknown function`); and type arguments were
+      being kept only for `using` parameters, so `xs: List[A]` arrived as `List` on the uniml path
+      and the row ran on one front and not the other.
+      **Superseded description:** `tagless-context-bounds` is the row. Three pieces, each
       measurable on its own: a constructor's type (`List(1,2,3)` is `List[Int]`), structural
       matching of `List[A]` against `List[Int]`, and propagating the enclosing specialisation's
       binding into the calls its body makes (`combineAll(xs)` inside `combineAndPretty`).
