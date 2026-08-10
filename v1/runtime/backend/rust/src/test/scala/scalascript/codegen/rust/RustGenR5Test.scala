@@ -67,9 +67,40 @@ class RustGenR5Test extends AnyFunSuite:
 
   test("HTTP template covers the required types"):
     val t = RustRuntimeTemplates.HttpRs
-    assert(t.contains("pub type RouteHandler"))
+    // Was `pub type RouteHandler`. It is an enum now because a handler declared against
+    // `Request` needs a second shape beside the original `&str` one; keeping a type alias
+    // as well would have preserved this line while hiding that there are two.
+    assert(t.contains("pub enum RouteHandler"))
+    assert(t.contains("Str(Box<dyn Fn(&str) -> String"), "the original String surface must survive")
+    assert(t.contains("pub fn _http_route_req("))
     assert(t.contains("pub fn _http_route("))
     assert(t.contains("pub fn _http_serve(port: i64)"))
     assert(t.contains("tokio::runtime::Runtime"))
     assert(t.contains("hyper::server::conn::http1"))
     assert(t.contains("service_fn(handle_request)"))
+
+  // `std/http.ssc` declares `handler: Request => Response` and `Request` is a case class in
+  // that same file, so a handler written to the declared type must receive one. The entry is
+  // chosen per call site: reported from rozum as `route-handler-type-disagrees`, where a
+  // declared handler failed with `expected Request, found String` while an untyped lambda
+  // compiled only because its parameter was inferred as whatever the runtime passed.
+  test("route picks the Request entry for a declared handler and leaves an untyped lambda alone"):
+    val src =
+      """```scalascript
+      |[route, serve, Request, Response](std/http.ssc)
+      |
+      |def show(req: Request): String = req.path
+      |
+      |def main(): Unit =
+      |  route("GET", "/lambda", p => "ok")
+      |  route("GET", "/show", r => show(r))
+      |main()
+      |```
+      |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains("_http_route_req("), s"declared handler did not reach the Request entry:\n$g")
+    assert(g.contains("__h(Request {"), s"the Request was not built in generated code:\n$g")
+    // The untyped lambda must still register through the original String entry — this is the
+    // half that makes the change additive, so it is asserted rather than assumed.
+    assert(g.contains("_http_route(\"GET\".to_string(), \"/lambda\""),
+           s"an untyped lambda changed shape:\n$g")

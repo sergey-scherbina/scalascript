@@ -25,7 +25,16 @@
       |    CURRENT_COOKIES.with(|c| c.borrow().get(&name).cloned().unwrap_or_default())
       |}
       |
-      |pub type RouteHandler = Box<dyn Fn(&str) -> String + Send + Sync>;
+      |/// A registered handler. Two shapes, because `std/http.ssc` declares
+      |/// `handler: Request => Response` while this lane has only ever passed the path/body
+      |/// as a `&str`. `Str` is that original surface, untouched: an untyped lambda
+      |/// (`route("GET", "/", p => "ok")`) still receives exactly what it received before.
+      |/// `Req` is chosen by the walker ONLY when the handler's parameter is DECLARED
+      |/// `Request`, so nothing that compiles today changes shape.
+      |pub enum RouteHandler {
+      |    Str(Box<dyn Fn(&str) -> String + Send + Sync>),
+      |    Req(Box<dyn Fn(RequestParts) -> String + Send + Sync>),
+      |}
       |
       |static ROUTES: std::sync::OnceLock<
       |    Arc<Mutex<Vec<(String, String, Arc<RouteHandler>)>>>
@@ -43,12 +52,56 @@
       |    path:    String,
       |    handler: impl Fn(String) -> String + Send + Sync + 'static,
       |) {
-      |    let h: RouteHandler = Box::new(move |s: &str| handler(s.to_string()));
+      |    let h = RouteHandler::Str(Box::new(move |s: &str| handler(s.to_string())));
       |    routes().lock().unwrap().push((
       |        method.to_uppercase(),
       |        path,
       |        Arc::new(h),
       |    ));
+      |}
+      |
+      |/// The pieces of a request this lane can actually produce, handed to the walker so the
+      |/// generated code can build the `Request` case class declared in `std/http.ssc`.
+      |///
+      |/// The struct is assembled THERE and not here on purpose: `Request` is a ScalaScript
+      |/// case class, so its Rust struct is emitted into `mod generated` only when a program
+      |/// reaches it. A runtime that named `crate::generated::Request` would break every
+      |/// program that serves without one — and reachability-driven emission is exactly what
+      |/// this backend now does. So the runtime stays in platform terms and hands over parts.
+      |pub struct RequestParts {
+      |    pub method:  String,
+      |    pub path:    String,
+      |    pub body:    String,
+      |    pub headers: std::collections::HashMap<String, String>,
+      |    pub cookies: std::collections::HashMap<String, String>,
+      |    pub query:   std::collections::HashMap<String, String>,
+      |    pub form:    std::collections::HashMap<String, String>,
+      |}
+      |
+      |/// `route(method, path, handler)` for a handler whose parameter is DECLARED `Request`.
+      |/// Emitted by the walker instead of `_http_route` in that case only.
+      |#[allow(dead_code)]
+      |pub fn _http_route_req(
+      |    method:  String,
+      |    path:    String,
+      |    handler: impl Fn(RequestParts) -> String + Send + Sync + 'static,
+      |) {
+      |    let h = RouteHandler::Req(Box::new(move |v| handler(v)));
+      |    routes().lock().unwrap().push((method.to_uppercase(), path, Arc::new(h)));
+      |}
+      |
+      |/// Split a urlencoded string (`a=1&b=2`) into pairs — used for BOTH the URI query and a
+      |/// form body, which share the encoding. Percent-decoding is deliberately NOT done here:
+      |/// hyper hands the raw query and every other field on this lane is raw too, so decoding
+      |/// exactly one of them would be the only place a value silently changed shape.
+      |fn urlencoded_pairs(raw: &str) -> std::collections::HashMap<String, String> {
+      |    raw.split('&')
+      |        .filter(|p| !p.is_empty())
+      |        .map(|p| match p.split_once('=') {
+      |            Some((k, v)) => (k.to_string(), v.to_string()),
+      |            None         => (p.to_string(), String::new()),
+      |        })
+      |        .collect()
       |}
       |
       |/// `serve(port)` — start the HTTP server and block until killed.
@@ -78,6 +131,15 @@
       |) -> Result<Response<Full<Bytes>>, hyper::Error> {
       |    let method = req.method().to_string();
       |    let path   = req.uri().path().to_owned();
+      |    // Taken BEFORE `into_body()` consumes the request. `query` is the one field this lane
+      |    // never parsed; the rest were already being read a few lines below for routing and
+      |    // for the cookie header, and then discarded.
+      |    let query_raw = req.uri().query().unwrap_or("").to_owned();
+      |    let header_pairs: Vec<(String, String)> = req
+      |        .headers()
+      |        .iter()
+      |        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+      |        .collect();
       |    // Snapshot the Cookie header BEFORE the body is consumed (into_body takes `req`), so the
       |    // handler can read per-request cookies via `requestCookie(name)` for auth/session.
       |    let cookie_hdr = req
@@ -89,19 +151,25 @@
       |    // Read the body so POST/PUT handlers see what was submitted; GET/HEAD handlers still
       |    // receive the path (routing is by exact method+path, so the handler keeps its context).
       |    let body_bytes = req.into_body().collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+      |    let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
       |    let arg = if method == "GET" || method == "HEAD" {
       |        path.clone()
       |    } else {
-      |        String::from_utf8_lossy(&body_bytes).into_owned()
+      |        body_text.clone()
       |    };
+      |    // Parsed once and used twice: for the thread-local below (the String surface reads it
+      |    // through `requestCookie`) and for the `cookies` field of a `Request`.
+      |    let cookie_pairs: Vec<(String, String)> = cookie_hdr
+      |        .split(';')
+      |        .filter_map(|pair| pair.split_once('='))
+      |        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+      |        .collect();
       |    // Publish this request's cookies to the thread-local for the (sync) handler — no await follows.
       |    CURRENT_COOKIES.with(|c| {
       |        let mut m = c.borrow_mut();
       |        m.clear();
-      |        for pair in cookie_hdr.split(';') {
-      |            if let Some((k, v)) = pair.split_once('=') {
-      |                m.insert(k.trim().to_string(), v.trim().to_string());
-      |            }
+      |        for (k, v) in &cookie_pairs {
+      |            m.insert(k.clone(), v.clone());
       |        }
       |    });
       |    let out = {
@@ -113,7 +181,33 @@
       |        let chosen = exact.or_else(|| {
       |            guard.iter().find(|(m, p, _)| m == &method && p.ends_with('/') && path.starts_with(p.as_str()))
       |        });
-      |        chosen.map(|(_, _, h)| h(&arg))
+      |        chosen.map(|(_, _, h)| match &**h {
+      |            RouteHandler::Str(f) => f(&arg),
+      |            // Built HERE and not before the lookup: a route registered with the String
+      |            // surface must cost exactly what it cost before this existed.
+      |            // Every field but `query` was already in hand for routing, the cookie header
+      |            // and the body — this assembles what was being thrown away.
+      |            // Assembled HERE and not before the lookup: a route registered with the
+      |            // String surface must cost exactly what it cost before this existed. Every
+      |            // field but `query`/`form` was already in hand for routing, the cookie header
+      |            // and the body — this hands over what was being thrown away.
+      |            RouteHandler::Req(f) => f(RequestParts {
+      |                method:  method.clone(),
+      |                path:    path.clone(),
+      |                body:    body_text.clone(),
+      |                headers: header_pairs.iter().cloned().collect(),
+      |                cookies: cookie_pairs.iter().cloned().collect(),
+      |                query:   urlencoded_pairs(&query_raw),
+      |                // A form body is urlencoded, same shape as the query — but only when the
+      |                // request says so. Parsing every body as a form would turn a JSON POST
+      |                // into one bogus key.
+      |                form:    if header_pairs.iter().any(|(k, v)|
+      |                                k == "content-type"
+      |                                && v.starts_with("application/x-www-form-urlencoded"))
+      |                         { urlencoded_pairs(&body_text) }
+      |                         else { std::collections::HashMap::new() },
+      |            }),
+      |        })
       |    };
       |    if let Some(body) = out {
       |        // Content-Type by path extension first — so a route can serve a service

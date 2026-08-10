@@ -2787,7 +2787,7 @@ object RustCodeWalk:
           // clone is elided by rustc, so it costs nothing. The `seq(i) = v` *store* path keeps
           // the target bare (handled in `Term.Assign`) — you can't assign to a clone.
           case Some(n) => Right(s"$n[($joined) as usize].clone()")
-          case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx)
+          case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx, args.values.toList)
 
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
@@ -3068,6 +3068,35 @@ object RustCodeWalk:
       case _                     => false
     }
 
+  /** Does the 3rd argument of a `route(...)` call take a `Request`?
+   *
+   *  Three shapes reach here and all three appear in real code:
+   *    route("GET", p, (r: Request) => …)   — declared on the lambda
+   *    route("GET", p, r => handler(r))     — declared on the def the lambda calls, which is
+   *                                           how it is usually written, so following the
+   *                                           call through is the case that matters
+   *    route("GET", p, handler)             — a bare def reference
+   *  Anything else is `false`, which keeps the String surface — the safe direction, since a
+   *  wrong `true` would hand a `Value` to code expecting a `String`. */
+  private def handlerDeclaresRequest(argTerms: List[m.Term]): Boolean =
+    def firstParamIsRequest(defName: String): Boolean =
+      _defBodies.get(defName).exists { d =>
+        d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).headOption
+          .exists(_.decltpe.exists { case m.Type.Name("Request") => true; case _ => false })
+      }
+    val handlerArg = if argTerms.size == 3 then argTerms.lastOption else None
+    handlerArg.exists {
+      case f: m.Term.Function =>
+        val declared = f.paramClause.values.headOption
+          .exists(_.decltpe.exists { case m.Type.Name("Request") => true; case _ => false })
+        declared || (f.body match
+          case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) => firstParamIsRequest(n)
+          case m.Term.Block(List(m.Term.Apply.After_4_6_0(m.Term.Name(n), _))) => firstParamIsRequest(n)
+          case _                                                              => false)
+      case m.Term.Name(n) => firstParamIsRequest(n)
+      case _              => false
+    }
+
   private def defReturnsEither(name: String): Boolean =
     _defBodies.get(name).flatMap(_.decltpe).exists { t =>
       mapType(t, name, Set.empty).toOption.exists(_.startsWith("Either<"))
@@ -3223,16 +3252,52 @@ object RustCodeWalk:
       callee:       Option[QualifiedName],
       renderedArgs: List[String],
       joined:       String,
-      ctx:          Ctx
+      ctx:          Ctx,
+      // The argument TERMS, not just their rendered text: `route`'s entry point is chosen by
+      // what the handler declares, and that question cannot be answered from rendered Rust.
+      argTerms:     List[m.Term]
   ): Either[List[Diagnostic], String] =
     val intr = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
     intr match
-      case Some((_, RuntimeCall(target))) =>
+      case Some((_, RuntimeCall(target0))) =>
+        // `route(m, p, handler)` has two runtime entries: the original String surface and
+        // `_http_route_req`, which hands the handler a `Request`. Pick by what the handler
+        // DECLARES, so nothing that compiles today changes shape — an untyped lambda keeps
+        // receiving the path/body string it has always received.
+        val target =
+          if target0 == "crate::runtime::http::_http_route" && handlerDeclaresRequest(argTerms)
+          then "crate::runtime::http::_http_route_req"
+          else target0
+        // For the Request entry the handler is wrapped in an adapter that builds the
+        // `Request` case class from the parts the runtime hands over. The struct literal is
+        // emitted HERE, in generated code, because that is where `Request` exists — the
+        // runtime cannot name a type that only appears when a program reaches it.
+        val requestArgs =
+          if target == "crate::runtime::http::_http_route_req" && renderedArgs.length == 3 then
+            val inner = renderedArgs(2)
+            val empty = "std::collections::HashMap::new()"
+            val adapter = List(
+              // The Box carries the parameter type: Rust does not infer a closure literal's
+              // parameter from a direct call, so `(inner)(Request{…})` is E0282. The
+              // ascription also states the Send + Sync the runtime entry requires.
+              s"{ let __h: Box<dyn Fn(Request) -> String + Send + Sync> = Box::new($inner);",
+              "  move |__rp: crate::runtime::http::RequestParts| __h(Request {",
+              "  method: __rp.method, path: __rp.path, body: __rp.body,",
+              "  headers: __rp.headers, cookies: __rp.cookies, query: __rp.query, form: __rp.form,",
+              "  // Not producible on this lane, and empty rather than absent so a handler reading",
+              "  // one gets an empty map instead of failing to compile: files (multipart is not",
+              "  // parsed here), session (no signed-session support), params (this router matches",
+              "  // an exact path then a `/` prefix and has no `:name` patterns to bind).",
+              s"  files: $empty, session: $empty, params: $empty, json: None,",
+              "}) }"
+            ).mkString("\n")
+            renderedArgs.take(2) :+ adapter
+          else renderedArgs
         val effectiveArgs =
           if (target == "crate::runtime::ui::_ui_data_table_view" ||
               target == "crate::runtime::tui::_tui_data_table_view") && renderedArgs.length == 3
-          then renderedArgs :+ "\"id\".to_string()"
-          else renderedArgs
+          then requestArgs :+ "\"id\".to_string()"
+          else requestArgs
         val effectiveJoined = effectiveArgs.mkString(", ")
         // A small set of intrinsics take their args by reference so the
         // caller can re-use a `String` after the call (e.g. fs round-trip
