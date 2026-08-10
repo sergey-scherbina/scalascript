@@ -125,7 +125,12 @@ object McpIntrinsics:
 /** Private helpers — kept inside an object so the public intrinsic map
  *  stays a single `val`.  Thread-local stash for the builder so
  *  parallel scalatest suites don't trample each other. */
-private object Mcp:
+// `private[mcp]` rather than `private`: the intent is that this stays off the
+// public intrinsic surface, and package-private keeps that while letting the
+// plugin's OWN tests drive it. It was file-private, which is why nothing in
+// the repository drove `dispatchAuthorized` — the header validation it feeds
+// was unreachable from a test, not merely untested.
+private[mcp] object Mcp:
 
   /** Thread-local holds the currently-configured builder between
    *  `mcpServer { ... }` and `serveMcp(...)` calls. */
