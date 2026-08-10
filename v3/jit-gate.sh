@@ -285,7 +285,17 @@ check_identity() {
     # on/off of one. That is the technique `00-charter.md` credits with finding 8 defects in UniML
     # that point examples had missed, turned on the executor itself.
     clo="$(v3/ssc3 exec --closures "$f" 2>&1)"
-    if [ "$on" != "$off" ]; then
+    # SSC3-J1d: a FOURTH arm. `Optimize` rewrites the instruction list itself — it folds a `Move`
+    # into the instruction before it and a register disappears — so it is the pass with the most
+    # room to change what a program prints, and it gets its own comparison rather than riding on
+    # the specializer's.
+    noopt="$(v3/ssc3 exec --no-optimize "$f" 2>&1)"
+    if [ "$on" != "$noopt" ]; then
+      echo "  FAIL $name — OPTIMIZING changed the output:"
+      diff <(printf '%s\n' "$noopt") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-optimize, right = default."
+      fail=1
+    elif [ "$on" != "$off" ]; then
       echo "  FAIL $name — specializing CHANGED the output:"
       diff <(printf '%s\n' "$off") <(printf '%s\n' "$on") | sed 's/^/         /'
       fail=1

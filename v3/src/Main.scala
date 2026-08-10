@@ -239,7 +239,12 @@ object Cli:
     // answer per invocation and both switches are visible in the same three lines. `Exec` reads the
     // flag when it builds its tables, so it must be set before the module is handed over.
     Exec.useClosures(args.contains("--closures"))
-    if args.contains("--no-specialize") then m else Specialize.module(m)
+    // SSC3-J1d. `Optimize` runs AFTER `Specialize`, because copy propagation folds a `Move` into the
+    // instruction before it and that instruction's `kind` is what the specializer just proved — fold
+    // first and the proof would be attached to an instruction that no longer exists.
+    // `--no-optimize` is the OFF arm of its measurement, the same shape as `--no-specialize`.
+    val specialized = if args.contains("--no-specialize") then m else Specialize.module(m)
+    if args.contains("--no-optimize") then specialized else Optimize.module(specialized)
 
   def run(args: List[String]): Int =
     try

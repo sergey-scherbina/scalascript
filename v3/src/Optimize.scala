@@ -1,0 +1,188 @@
+package ssc3
+
+// SSC3-J1d — fewer instructions, not a cheaper dispatch. Design: `specs/ssc3-jit.md` §10.
+//
+// THE EVIDENCE THIS PASS EXISTS ON. Three changes in this ladder moved exactly what they targeted
+// and lost on the clock — closure compilation replaced the dispatch, the long bank routed it through
+// a second loop, frame pooling was refuted before it was written — while the one change that clearly
+// won, J0c, did nothing but make the EXISTING dispatch inlinable. The executor is dispatch-bound and
+// its dispatch is already good, so the remaining lever is the number of dispatches.
+//
+// `bench/corpus/arith-loop.ssc` is ten instructions per iteration and FOUR of them are artefacts of
+// the lowering: two `Const` reloading loop-invariant literals, and two `Move` copying a fresh result
+// register into the variable's register because the front allocates a new register per expression
+// and never coalesces.
+//
+//     (const 4 1)  (bin lt 5 1 4)  (un not 6 5)  (brif 6 1)
+//     (bin add 7 3 1)  (move 3 7)  (const 8 2)  (bin add 9 1 8)  (move 1 9)  (br 0)
+//
+// A rewrite of DATA, which is what `10-ssc-ir.md` says optimization is here — the instruction set,
+// the verifier and the text form are untouched, and the output is an ordinary `Module` that the
+// verifier re-checks.
+//
+// Written in the Scala 3 ∩ ScalaScript 2 subset.
+
+object Optimize:
+
+  /** Every pass, in order. Runs AFTER `Verify` and its result is verified again — invariant I-4
+    * applies to a pass as much as to a program. */
+  def module(m: Module): Module =
+    m.copy(funcs = m.funcs.map(f => f.copy(body = copyProp(f))))
+
+  // ── copy propagation ───────────────────────────────────────────────────────────────────────────
+  //
+  // `<something> -> r` immediately followed by `Move(d, r)`, where `r` is used NOWHERE else, becomes
+  // the same something writing straight to `d`. Two instructions become one and a register dies.
+  //
+  // The conditions are deliberately narrow, because the cheap version of this is the one that is
+  // obviously correct:
+  //
+  //   * ADJACENT, so nothing can read `d` in between and no control flow can enter between them;
+  //   * `r` written exactly once and read exactly once IN THE WHOLE FUNCTION — counted over the
+  //     flattened body, so a use inside any nested region counts. A register the front reuses is
+  //     therefore never touched;
+  //   * `r` is not a parameter, and neither register is out of range.
+  //
+  // `d` may be read by the instruction being rewritten (`Bin(add, 7, 3, 1); Move(3, 7)` becomes
+  // `Bin(add, 3, 3, 1)`) and that is safe on this executor because every instruction reads its
+  // operands before assigning its destination — `regs(d) = f(regs(a), regs(b))`. Stated because it
+  // is the one aliasing question this rewrite raises.
+
+  private def copyProp(f: Func): List[Instr] =
+    val reads = new Array[Int](f.nregs)
+    val writes = new Array[Int](f.nregs)
+    var all = Instr.flatten(f.body)
+    while all.nonEmpty do
+      val i = all.head
+      val d = dstOf(i)
+      if d >= 0 && d < f.nregs then writes(d) = writes(d) + 1
+      var rs = readsOf(i)
+      while rs.nonEmpty do
+        val r = rs.head
+        if r >= 0 && r < f.nregs then reads(r) = reads(r) + 1
+        rs = rs.tail
+      all = all.tail
+    rewrite(f, f.body, reads, writes)
+
+  /** Regions are rewritten too, and each region's body is its own adjacency scope: a pair may not
+    * straddle the end of a `Block` or an arm of an `If`, because the instruction after the region is
+    * not the instruction after the pair. */
+  private def rewrite(f: Func, body: List[Instr], reads: Array[Int], writes: Array[Int]): List[Instr] =
+    var out: List[Instr] = Nil
+    var rest = body
+    while rest.nonEmpty do
+      val head = descend(f, rest.head, reads, writes)
+      val tail = rest.tail
+      var fused = false
+      if tail.nonEmpty then
+        tail.head match
+          case Instr.Move(d, s) =>
+            val w = dstOf(head)
+            if w >= 0 && w == s && s >= f.nparams && s < f.nregs && d >= 0 && d < f.nregs && d != s
+               && writes(s) == 1 && reads(s) == 1 then
+              out = retarget(head, d) :: out
+              rest = tail.tail
+              fused = true
+          case _ => ()
+      if !fused then
+        out = head :: out
+        rest = tail
+    out.reverse
+
+  private def descend(f: Func, i: Instr, reads: Array[Int], writes: Array[Int]): Instr = i match
+    case Instr.Block(b) => Instr.Block(rewrite(f, b, reads, writes))
+    case Instr.Loop(b)  => Instr.Loop(rewrite(f, b, reads, writes))
+    case Instr.If(c, t, e) => Instr.If(c, rewrite(f, t, reads, writes), rewrite(f, e, reads, writes))
+    case Instr.Switch(s, arms, df) =>
+      Instr.Switch(s, arms.map(a => SwitchArm(a.tag, rewrite(f, a.body, reads, writes))),
+                   rewrite(f, df, reads, writes))
+    case Instr.Try(d, b, exn, h) =>
+      Instr.Try(d, rewrite(f, b, reads, writes), exn, rewrite(f, h, reads, writes))
+    case Instr.Handle(d, b, arms) =>
+      Instr.Handle(d, rewrite(f, b, reads, writes),
+                   arms.map(a => HandlerArm(a.op, a.params, a.k, rewrite(f, a.body, reads, writes))))
+    case other => other
+
+  /** The same instruction writing somewhere else. Exhaustive over the writing opcodes, with a
+    * `-1`-returning `dstOf` guarding the call site, so an opcode this does not know is never fused
+    * rather than silently retargeted to the wrong place. */
+  private def retarget(i: Instr, d: Int): Instr = i match
+    case Instr.Const(_, k)          => Instr.Const(d, k)
+    case Instr.Move(_, a)           => Instr.Move(d, a)
+    case Instr.Un(op, k, _, a)      => Instr.Un(op, k, d, a)
+    case Instr.Bin(op, k, _, a, b)  => Instr.Bin(op, k, d, a, b)
+    case Instr.Call(_, fn, as)      => Instr.Call(d, fn, as)
+    case Instr.CallV(_, c, as)      => Instr.CallV(d, c, as)
+    case Instr.MkClos(_, fn, cs)    => Instr.MkClos(d, fn, cs)
+    case Instr.MkData(_, t, as)     => Instr.MkData(d, t, as)
+    case Instr.Field(_, a, t, ix)   => Instr.Field(d, a, t, ix)
+    case Instr.Tag(_, a)            => Instr.Tag(d, a)
+    case Instr.NewArr(_, n)         => Instr.NewArr(d, n)
+    case Instr.ArrGet(_, a, ix)     => Instr.ArrGet(d, a, ix)
+    case Instr.ArrLen(_, a)         => Instr.ArrLen(d, a)
+    case Instr.GlobGet(_, g)        => Instr.GlobGet(d, g)
+    case Instr.Invoke(_, nm, r, as) => Instr.Invoke(d, nm, r, as)
+    case Instr.Prim(_, p, as)       => Instr.Prim(d, p, as)
+    case other                      => other
+
+  /** The register an instruction writes, or `-1`.
+    *
+    * `Try`, `Handle`, `Perform` and `Resume` write a destination and are DELIBERATELY absent: they
+    * carry regions or suspend, so "the instruction immediately after" is not a thing this rewrite
+    * may reason about. Returning `-1` for them means they are never fused. */
+  private def dstOf(i: Instr): Int = i match
+    case Instr.Const(d, _)        => d
+    case Instr.Move(d, _)         => d
+    case Instr.Un(_, _, d, _)     => d
+    case Instr.Bin(_, _, d, _, _) => d
+    case Instr.Call(d, _, _)      => d
+    case Instr.CallV(d, _, _)     => d
+    case Instr.MkClos(d, _, _)    => d
+    case Instr.MkData(d, _, _)    => d
+    case Instr.Field(d, _, _, _)  => d
+    case Instr.Tag(d, _)          => d
+    case Instr.NewArr(d, _)       => d
+    case Instr.ArrGet(d, _, _)    => d
+    case Instr.ArrLen(d, _)       => d
+    case Instr.GlobGet(d, _)      => d
+    case Instr.Invoke(d, _, _, _) => d
+    case Instr.Prim(d, _, _)      => d
+    case _ => -1
+
+  /** Every register an instruction READS. Over-listing is safe here (it only prevents a fusion);
+    * UNDER-listing is not, so a region form lists nothing and is excluded by `dstOf` instead. */
+  private def readsOf(i: Instr): List[Int] = i match
+    case Instr.Move(_, a)          => List(a)
+    case Instr.Un(_, _, _, a)      => List(a)
+    case Instr.Bin(_, _, _, a, b)  => List(a, b)
+    case Instr.If(c, _, _)         => List(c)
+    case Instr.BrIf(c, _)          => List(c)
+    case Instr.Call(_, _, as)      => as
+    case Instr.CallV(_, c, as)     => c :: as
+    case Instr.MkClos(_, _, cs)    => cs
+    case Instr.TailCall(_, as)     => as
+    case Instr.Ret(a)              => List(a)
+    case Instr.MkData(_, _, as)    => as
+    case Instr.Field(_, a, _, _)   => List(a)
+    case Instr.Tag(_, a)           => List(a)
+    case Instr.Switch(s, _, _)     => List(s)
+    case Instr.NewArr(_, n)        => List(n)
+    case Instr.ArrGet(_, a, ix)    => List(a, ix)
+    case Instr.ArrSet(a, ix, v)    => List(a, ix, v)
+    case Instr.ArrLen(_, a)        => List(a)
+    case Instr.GlobSet(_, a)       => List(a)
+    case Instr.Perform(_, _, as)   => as
+    case Instr.Resume(_, k, v)     => List(k, v)
+    case Instr.Invoke(_, _, r, as) => r :: as
+    case Instr.Prim(_, _, as)      => as
+    case _ => Nil
+
+  /** How many instructions a module contains, counting inside every region. The number this pass is
+    * judged on, and it does not depend on host load. */
+  def instrCount(m: Module): Int =
+    var n = 0
+    var fs = m.funcs
+    while fs.nonEmpty do
+      n = n + Instr.flatten(fs.head.body).length
+      fs = fs.tail
+    n

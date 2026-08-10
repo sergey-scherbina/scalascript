@@ -640,4 +640,8 @@ object SpecializeMain:
       // "the analysis found nothing" rather than "it was asked too early".
       val (lb, tot) = Specialize.bankCensus(m1)
       println("banks:  long " + lb + " of " + tot + " register(s)")
+      // SSC3-J1d. Counted before and after `Optimize`, because the number this pass is judged on is
+      // how many instructions the executor has to dispatch — and unlike a wall clock it does not
+      // depend on what else the host is doing.
+      println("instrs: " + Optimize.instrCount(m1) + " -> " + Optimize.instrCount(Optimize.module(m1)))
     else print(Text.write(m1))
