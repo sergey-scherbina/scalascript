@@ -3000,6 +3000,17 @@ object RustCodeWalk:
       m.Term.Select(_, m.Term.Name("toString" | "trim")),
       args
     ) if args.values.isEmpty => true
+    // A call to a def DECLARED to return String. Without this, `"\\u" + hex(a) + hex(b)` lowered the
+    // first link to `format!` and the rest to Rust's `+`, and `String + String` does not compile —
+    // `Add<&str> for String` is the only impl, hence 7 x `expected &str, found String` on a real
+    // file. The annotation was in the signature the whole time; `_returnTypes` has held it since the
+    // `Any` boundary, and this is the same "a declared type must survive to the emitter" as the
+    // List-return case. Once the whole chain is `format!`, no `+` on Strings is emitted at all.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) if _returnTypes.get(f).contains("String") => true
+    // A concat whose either side is a string is itself a string — `(a + b) + c` must see that its
+    // LHS is one, or the outer link falls through to `+`.
+    case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, args) =>
+      isStringExpr(l) || args.values.headOption.exists(isStringExpr)
     case _ => false
 
   /** Best-effort check that a term is an `Either`-shaped expression so we can

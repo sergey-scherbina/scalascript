@@ -304,13 +304,21 @@ the checks.
 
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: v2-rust
      area: runtime
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
      reported-at: 2026-08-09
      confirmed: yes
      gate: none -->
+
+**Fixed, and re-measured 2026-08-10 rather than remembered — this entry sat `open` after the work
+landed, which is the failure it exists to prevent:**
+
+```
+jsonParse("[1,2]")     rust: List(1, 2)     bin/ssc: List(1, 2)
+```
 
 Found while clearing the last error out of rozum's six-line repro, and it is worse than the error
 it was hiding: **the two rust JSON intrinsics implement a different contract from the language.**
@@ -419,7 +427,8 @@ reduced it. Filed here rather than left in a census note so it has a slug to be 
 
 ## json-core-emitted-rust-does-not-compile
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING2
      lane: v2-rust
      area: codegen
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
@@ -428,6 +437,26 @@ reduced it. Filed here rather than left in a census note so it has a slug to be 
      repro: repro/json-core-emitted-rust.ssc
      confirmed: yes
      gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**Closed 2026-08-10 on a re-measurement, with the residual named rather than waved at.** The
+reported program builds and runs — `{"a":"b"}` / `parsed`, matching `bin/ssc`. What remains is a
+different, smaller thing and it has its own numbers: a program that calls `json-core`'s defs
+DIRECTLY (rather than reaching the `jsonParse`/`jsonStringify` intrinsics) went 41 -> 13 -> **8**
+rustc errors, the last step being the borrow class below.
+
+**The borrow class is gone, and it was one rule, exactly as the reporter predicted.** They wrote:
+*"15 of 17 mismatches are this one shape… if it is one lowering rule, it is worth knowing before
+someone budgets for individual sites."* It was. `"\\u" + hex(a) + hex(b)` lowered its FIRST link to
+`format!` and the rest to Rust's `+`, and `String + String` does not compile — `Add<&str> for
+String` is the only impl. The walker did not recognise a call to a def DECLARED to return `String`
+as a string expression, nor a concat as being one itself; both now come from `_returnTypes`, the
+same "a declared type must survive to the emitter" as the `List` return. With the whole chain a
+`format!`, no `+` on Strings is emitted at all.
+
+The 8 that remain are NOT that shape: 2 x E0599, 2 x E0004 (non-exhaustive match), 1 x E0282, and 3
+without a code. A different tail, for whoever takes it next.
+
+Original report follows.
 
 Six lines — import `std/json`, call `jsonStringify` once and `jsonParse` once — lowered cleanly and
 then failed `cargo build` with 155 errors. Two of the reported classes are FIXED, one was already
