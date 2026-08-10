@@ -1971,10 +1971,29 @@ with pipelining ON. So a green build proves nothing about re-enabling it, and ne
 run taken after a repairing build — that mistake was made twice here already.
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
-<!-- status: open
+<!-- status: duplicate
      lane: apparatus
      area: build
-     gate: none -->
+     gate: none
+     duplicate-of: coord-claim-items-prose-reserves-english-words -->
+
+**DUPLICATE 2026-08-10 — of `scripts/BUGS.md coord-claim-items-prose-reserves-english-words`, and
+the evidence above has been folded into it rather than left here.** That entry is canonical because
+the fix is in `scripts/coord-claim` and `.githooks/pre-push`: routing is by the module that owns the
+FIX, not by where the reporter was working when they hit it.
+
+Worth naming what happened, because it is the same failure this bug describes. Two agents filed the
+same defect six days apart and the overlap guard did not notice, since one claim's `items` said
+`coord-claim-items-prose-reserves-english-words` and the other's said something else entirely — the
+guard compares tokens, and two honest descriptions of one defect share no tokens. A guard that
+mistakes `the` for a work item also misses two real duplicates; those are the same flaw seen from
+its two sides.
+
+The evidence kept from this report and now living in the canonical entry: the actual refusal text
+from 2026-08-04, the four attempts misdiagnosed as contention, and the observation that prose
+`--items` is ACCEPTED whenever its words happen not to collide — so the trap fires at random and
+gets rarer as claims are released.
+
 
 **Found 2026-08-04** claiming `v2-emitter-outline` with
 `--items "E-4 outline the arm fallback, gate on emitted size"`:

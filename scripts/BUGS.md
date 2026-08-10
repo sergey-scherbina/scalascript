@@ -24,6 +24,27 @@ guard reserves every English word in the sentence.
 have appeared in `items` fields, and 261 of them are not id-shaped** — `a`, `an`, `and`, `because`,
 `blow`, `already`. Prose is the norm, not one agent's slip.
 
+**A SECOND agent hit this on 2026-08-04 and filed it separately — folded in here, because a
+duplicate entry is the same failure this bug causes.** Claiming `v2-emitter-outline` with
+`--items "E-4 outline the arm fallback, gate on emitted size"`:
+
+```
+✋ claim REFUSED — it overlaps a live claim. This is NOT a race; retrying will not help.
+  item 'the' is already claimed by 'uniml-ssc3-frontend-readiness'
+```
+
+Their diagnosis adds what mine did not: **the refusal costs minutes because everything about it
+points elsewhere.** The message asserts "this is NOT a race" while the observable symptom — a
+rejected push — is exactly what a race produces, and four attempts in that session were
+misdiagnosed as contention and retried, which the message explicitly says will not help. Naming
+`'the'` as the colliding item reads as nonsense until you know items are tokenised, and nothing in
+the output says so. Retrying with `--items E-4-outline-arm-fallback` succeeded immediately.
+
+They also noted the worst property of the distribution: earlier claims in that same session used
+prose `--items` and were ACCEPTED, purely because their words happened not to collide with a live
+claim. The trap fires at random, and gets rarer as claims are released — which is the worst possible
+schedule for learning it exists.
+
 Two visible consequences, both observed today:
 
 - `scripts/board` lists a live claim's task as **`a`** — the first word of
@@ -46,9 +67,19 @@ spent.
    use: `smoke-suite-over-its-own-budget`, `SSC3-J1c`, `P4b-4`, `mcp-2026-07-28`) take part in
    overlap detection. Removes the harm without refusing anyone's habit.
 
+3. *Say so in the refusal*: "items are compared as whitespace-separated tokens". The cheapest of
+   the three and it does not change behaviour at all — it only makes the cause readable from the
+   output, which is where the minutes actually go.
+
 Not implemented here because the choice changes how every agent's claim is validated, and the guard
 is the thing standing between two agents doing the same work — a blast radius worth a decision rather
 than a drive-by.
+
+**Duplicate folded in 2026-08-10:** `tests/BUGS.md
+coord-claim-items-tokenised-so-prose-collides-on-stop-words`, filed 2026-08-04, now
+`status: duplicate`. Canonical here because the fix is in `scripts/coord-claim` and
+`.githooks/pre-push` — routing is by the module that owns the FIX, not by where the reporter
+happened to be working.
 
 
 ## routing-authority-is-declared-but-not-implemented — `fixed-in` outranks `lane` on paper only, and nothing checks either
