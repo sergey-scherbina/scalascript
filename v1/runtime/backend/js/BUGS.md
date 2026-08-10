@@ -47,6 +47,28 @@ done under `scharAt`; JS is coercion-only, exactly as the decision asks.
 re-running the gate is what surfaced `'a' * 2` → `aa` and `1 + 'a'` → `1a`; by hand I had found only
 the two the report named.
 
+**And the literal was only half of it.** `val c = 'a'` emits `const c = "a"`, so `c == 97` and
+`c + 1` were wrong in exactly the same way while every literal shape read green — the more common
+shape, since a char usually reaches an operator through a name. Fixed with the machinery already
+there for this class of question: `rebindNumericEvidence` makes a `val`/`var` binding authoritative
+for its name, so a `charLitVars` entry is set and cleared beside `longVars`, and the operand widens
+to `(c).charCodeAt(0)` when its sibling is numeric.
+
+That evidence is **name-keyed and module-global**, which is what makes it dangerous: `js-char-int-eq-namescope-collision`
+(fixed `d034e2798`) is the same set leaking a sibling function's param. So a declared param clears
+`charLitVars` at both registration sites, and the gate carries a `def shifted(c: Int)` next to a
+`val c = 'a'` in `main`. Without the clear that emits `c.charCodeAt(0)` on a NUMBER — a TypeError at
+runtime, not a wrong answer.
+
+Verified in the emitted JS rather than only through the lane output, so "the branch fires" is not an
+inference: `c == 97` → `_arith('==', (c).charCodeAt(0), 97)`, and `c == d` → `_arith('==', c, d)`,
+unwidened, because two char names compare as characters.
+
+**The TYPE TEST is a separate, still-open entry:** `js-char-type-test-cannot-tell-Char-from-String`.
+`case _: Char` needs the value to carry the `_Char` box — the representation change this fix
+deliberately does not make. Both defects were filed under one slug and `bugs-index-gate` refused the
+duplicate on the way in, which is how they came to be told apart at all.
+
 ## js-control-direct-tests-never-run — the repair landed with 496 lines of tests and nothing runs them
 <!-- status: fixed
      lane: js
@@ -993,6 +1015,11 @@ keeps the name because two things already cite it — `specs/gateless-triage.md`
 `tests/e2e/v2-char-numeric-position.sh` — and both describe that defect, not this one. This entry is
 about the TYPE TEST, and its heading now says so.
 
+**Still open after that fix, and it is the harder half.** The widening is done by COERCION at the
+operator; the type test needs the value to carry the `_Char` box, which is the representation change
+that fix deliberately does not make. Re-measured 2026-08-10: `bin/ssc` answers `other`, not `Char` —
+the native lane has its own gap (`v2-char-is-an-int`), so this entry's original claim that "the JVM,
+INT and the reference all answer Char" no longer holds for `bin/ssc`.
 
 ## js-pass-error-not-formatted-by-its-module-function — a case class from a PACKAGED module lost its body methods, so `toString` printed the raw record
 <!-- status: fixed

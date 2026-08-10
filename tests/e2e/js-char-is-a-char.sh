@@ -41,6 +41,12 @@ def classify(c: Char): String =
     case 'z' => "last"
     case _   => "middle"
 
+// `c` here is an Int PARAM with the same name as the char val in main. The numeric evidence
+// JsGen keeps is name-keyed and module-global, so without a clear this function would inherit
+// main's `val c = 'a'` and emit `c.charCodeAt(0)` on a number — a TypeError, not a wrong answer.
+// That is why this shape is in the gate and not just in the entry.
+def shifted(c: Int): Int = c + 1
+
 def main(): Unit =
   val s = "abc"
   // Numeric contexts: a char widens to its code point.
@@ -61,6 +67,20 @@ def main(): Unit =
   println(classify('a'))
   println(classify('m'))
   println(List('a', 'b'))
+  // A NAME bound to a char literal is the same defect one step removed: `val c = 'a'` emits
+  // `const c = "a"`, so every numeric operator on `c` was a string operator too.
+  val c = 'a'
+  val d = 'a'
+  println(c == 97)
+  println(c + 1)
+  println(c < 98)
+  println(shifted(98))
+  // …and the boundary again, on names: two char names compare as CHARS, not as codes.
+  println(c == d)
+  println(c == 'a')
+  println(c == s.charAt(0))
+  println(c + "b")
+  println(classify(c))
 EOF
 
 "$SSC" run "$tmp/char.ssc" > "$tmp/ssc.txt" 2>"$tmp/ssc.err" || {

@@ -494,6 +494,14 @@ class JsGen(
   // detection and `.toInt` handling keep working; `longVars`/isLongExpr only
   // OVERRIDE the native-operator emission.
   private val longVars = scala.collection.mutable.Set[String]()
+  // Names bound to a CHAR LITERAL, which emits a one-character JS string. Used only to
+  // widen the name to its code point in a NUMERIC infix context, the same widening
+  // `Lit.Char` gets there (js-char-is-a-plain-string). Name-keyed and module-global like
+  // intVars/longVars, so it carries the same shadowing hazard and the same cure: a
+  // val/var binding is authoritative (rebindNumericEvidence) and a declared param clears
+  // it. Without the clear, an `Int` param `c` in a sibling function would inherit a
+  // `val c = 'a'` and emit `c.charCodeAt(0)` on a NUMBER — a TypeError, not a wrong answer.
+  private val charLitVars = scala.collection.mutable.Set[String]()
   private val longFunctions = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Double or :Float return type — their call sites can use isNumericExpr.
   private val numericFunctions = scala.collection.mutable.Set.empty[String]
@@ -642,10 +650,12 @@ class JsGen(
   private def withParamTypeEvidence[A](paramVals: Seq[Term.Param])(f: => A): A =
     val saved = paramVals.map { pv =>
       val n = pv.name.value
-      (n, intVars.contains(n), longVars.contains(n), numericVars.contains(n))
+      (n, intVars.contains(n), longVars.contains(n), numericVars.contains(n), charLitVars.contains(n))
     }
     paramVals.foreach { pv =>
       val n = pv.name.value
+      // A PARAM is never a char literal, whatever a same-named local elsewhere was bound to.
+      charLitVars -= n
       pv.decltpe match
         case Some(Type.Name("Long"))             => longVars += n; intVars += n; numericVars -= n
         case Some(Type.Name("Int"))              => intVars += n; longVars -= n; numericVars -= n
@@ -655,10 +665,11 @@ class JsGen(
         case None                                => ()
     }
     try f
-    finally saved.foreach { (n, wasInt, wasLong, wasNum) =>
+    finally saved.foreach { (n, wasInt, wasLong, wasNum, wasCharLit) =>
       if wasInt then intVars += n else intVars -= n
       if wasLong then longVars += n else longVars -= n
       if wasNum then numericVars += n else numericVars -= n
+      if wasCharLit then charLitVars += n else charLitVars -= n
     }
 
   /** Statically-known numeric type of a scalar expression, or None. */
@@ -859,6 +870,8 @@ class JsGen(
       case Some(Type.Name("Long")) => longFunctions += d.name.value
       case _                       => ()
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pv =>
+      // A param is never a char literal — clear evidence leaked from a same-named local.
+      charLitVars -= pv.name.value
       pv.decltpe match
         // Long is tracked in BOTH sets: longVars (so isLongExpr → `_arith`) and
         // intVars (the `.toInt`/int-division heuristics; the isLongExpr guard runs
@@ -2779,6 +2792,9 @@ class JsGen(
     // equality includes source position) — use a pattern check. (js-long-param-evidence.)
     val declaredLong = declT.exists { case Type.Name("Long") => true; case _ => false }
     if isLongExpr(rhs) || declaredLong then longVars += name else longVars -= name
+    rhs match
+      case Lit.Char(_) => charLitVars += name
+      case _           => charLitVars -= name
     if isIntExpr(rhs) then { intVars += name; numericVars -= name; true }
     else if isNumericExpr(rhs) then { numericVars += name; intVars -= name; true }
     else { intVars -= name; numericVars -= name; false }
@@ -5492,8 +5508,16 @@ class JsGen(
           Some(freshHoistConst(s"Object.freeze(Object.assign([${elems.mkString(", ")}], {_isTuple: true}))"))
         else None
       tupleHoist.orElse(constResult).getOrElse {
-        val lhsJs = genExpr(lhs)
-        val rhsJs = if args.length == 1 then genExpr(args.head) else args.map(genExpr).mkString(", ")
+        // A NAME bound to a char literal widens the same way the literal does, but at the
+        // JS level: `val c = 'a'` emits `const c = "a"`, so `c == 97` needs its code point.
+        // Term-level widening (above) cannot express this — it would have to fabricate a
+        // call — and there is nothing to constant-fold here anyway. js-char-is-a-plain-string.
+        def operandJs(t: Term, sibling: Term): String = t match
+          case Term.Name(n) if charLitVars.contains(n) && isNumericExpr(sibling) =>
+            s"(${genExpr(t)}).charCodeAt(0)"
+          case _ => genExpr(t)
+        val lhsJs = if args.length == 1 then operandJs(lhs, args.head) else genExpr(lhs)
+        val rhsJs = if args.length == 1 then operandJs(args.head, lhs) else args.map(genExpr).mkString(", ")
         op.value match
           case "::" => s"[${genExpr(lhs)}, ...(${genExpr(args.head)})]"
           case ":+" => s"[...($lhsJs), ${genExpr(args.head)}]"
