@@ -1,5 +1,4 @@
-# generation: 1612
+# generation: 1613
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
-ledger-is-derived	claude-code	2026-08-10T20:20:45Z	ledger-rows-outlive-their-claims	file:scripts/coord-ledger file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md file:tests/coord/coord-claim-broad.sh
 rust-no-paren-member	claude-code	2026-08-10T20:43:38Z	no-paren-list-method-becomes-a-field	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR5Test.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:INBOX.md
