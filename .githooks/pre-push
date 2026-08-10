@@ -82,6 +82,71 @@ done
 [ -n "$local_tip" ] || exit 0
 case "$remote_tip" in ""|0000000000000000000000000000000000000000) exit 0 ;; esac
 
+# ── an orphaned `fixed-in:` must not reach main ──────────────────────────────────────────────────
+#
+# `tests/e2e/bugs-index-gate.sh` already refuses a `fixed-in:` sha that is not an ancestor of HEAD —
+# but it runs in SMOKE, which is AFTER the push, so the first people to learn are everyone else.
+# THREE entries did this in two days (`rust-backend-two-tests-red…`,
+# `lower-has-six-hand-written-Expr-walkers…`, `smoke-suite-over-its-own-budget`), each turning the
+# suite red for the whole repository until its owner noticed.
+#
+# THE CAUSE IS STRUCTURAL, NOT CARELESSNESS, which is why a line in a document would not have helped:
+# the sha is written into the entry in the same commit as the fix, and the rebase-and-push loop then
+# REWRITES that commit. The value was true when it was typed. Closing the entry in a SECOND commit,
+# after the fix has landed, is what survives — and the message says so, because a guard that only
+# refuses teaches `--no-verify`.
+#
+# PLACED HERE, ABOVE THE CLAIM-OVERLAP CHECKS, and that position was found by a control rather than
+# chosen. The first version sat at the END of the file, below `[ -n "$incoming" ] || exit 0` — the
+# early exit for a push that adds no claim file — so it ran only when the same push happened to add
+# a claim, which is almost never. Its first "it refuses" test passed only because that branch
+# carried a claim-update commit. **A guard downstream of an early exit is a guard that does not run**,
+# and the way that was caught was asking the opposite question: does a push it should IGNORE come
+# back clean, and does the one it should catch still get caught from a branch that carries nothing
+# else?
+#
+# ONLY THE SHAS THIS PUSH ADDS are checked. A pre-existing orphan on main belongs to another entry,
+# and blocking unrelated work on it would make the guard the problem.
+# JUDGE ONLY A PUSH THAT COULD LAND. If the remote tip is not an ancestor of what is being pushed,
+# git will refuse it as a non-fast-forward anyway, and every sha already on main then looks like an
+# orphan of THIS branch — which is a false refusal on a stale branch, before the rebase that would
+# have made it right. Caught by the control: a perfectly valid ancestor sha was refused from a
+# branch that had simply not been rebased yet. A guard that refuses correct work teaches
+# `--no-verify`, and this hook's own comments say that is the habit that lets the next real problem
+# through.
+if git merge-base --is-ancestor "$remote_tip" "$local_tip" 2>/dev/null; then
+orphans=""
+while read -r fx; do
+  [ -n "$fx" ] || continue
+  git cat-file -e "$fx^{commit}" 2>/dev/null || continue      # unknown here: not this hook's call
+  git merge-base --is-ancestor "$fx" "$local_tip" 2>/dev/null && continue
+  orphans="$orphans  $fx
+"
+done <<EOF
+$(git diff "$remote_tip" "$local_tip" -- '*BUGS.md' 2>/dev/null \
+   | sed -n 's/^+.*fixed-in:[[:space:]]*\([0-9a-f]\{7,40\}\).*/\1/p' | LC_ALL=C sort -u)
+EOF
+
+if [ -n "$orphans" ]; then
+  cat >&2 <<EOF
+
+✋ pre-push: a \`fixed-in:\` sha you are adding is not an ancestor of what you are pushing.
+
+$orphans
+It exists in your object store but not in this history — the classic shape is that you wrote it into
+the entry in the SAME commit as the fix, and the rebase-and-push loop then rewrote that commit. The
+value was true when you typed it.
+
+What survives a rebase: land the change first, read the sha back with \`git rev-parse\`, and close
+the entry in a SECOND commit. Three entries turned SMOKE red for the whole repository this way in
+two days, which is why this is refused here instead of discovered after it lands.
+
+Override (rarely correct): git push --no-verify
+EOF
+  exit 1
+fi
+fi
+
 # Field lookup: `items:`/`paths:` from a claim blob, whitespace-separated.
 field() { # field <sha>:<path> <name>
   git show "$1" 2>/dev/null | sed -n "s/^$2:[[:space:]]*//p" | head -1
