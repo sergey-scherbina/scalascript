@@ -5,7 +5,7 @@ started: 2026-08-10T15:54:54Z
 heartbeat: 2026-08-10T15:54:54Z
 status: claimed-before-planning
 items: v3-uniml-jar-goes-stale-and-breaks-the-kernel-build
-paths: file:v3/uniml-classpath.sh file:BUGS.md file:v3/SPRINT.md
+paths: file:v3/uniml-classpath.sh file:BUGS.md file:v3/SPRINT.md file:v3/ssc3
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
