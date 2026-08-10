@@ -455,6 +455,36 @@ SSC
     failed=1
   fi
 
+  # The RESULT of a seq-producing method must still be indexable. A user isolated this against a
+  # control in the same file: a LITERAL list of tuples indexed fine, only the `zipWithIndex` result
+  # did not — so the lowering was right and what got lost was the is-a-list FACT about the local,
+  # which made `zwi(0)` lower to a CALL (`expected function, found Vec<(String, i64)>`). The
+  # control is kept here for the same reason it was useful there.
+  cat > "$tmp/zwi.ssc" <<'SSC'
+def main(): Unit =
+  val lit = [("a", 1), ("b", 2)]
+  println("literal = " + lit(0)._1)
+  val xs = ["a", "b"]
+  val zwi = xs.zipWithIndex
+  println("zipWith = " + zwi(0)._1)
+  val srt = [3, 1, 2].sorted
+  println("sorted  = " + srt(0))
+SSC
+  set +e
+  zwb=$("$SSC" build-rust "$tmp/zwi.ssc" -o "$tmp/zwibin" 2>&1); zwrc=$?
+  zw_rust=$("$tmp/zwibin" 2>&1)
+  zw_ref=$("$ROOT/bin/ssc" run "$tmp/zwi.ssc" 2>/dev/null)
+  set -e
+  if [[ $zwrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — indexing a seq-method result does not build" >&2
+    echo "--- output: $(printf '%s' "$zwb" | tail -5)" >&2
+    failed=1
+  elif [[ "$zw_rust" != "$zw_ref" || -z "$zw_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on seq-method results" >&2
+    echo "--- rust: $(printf '%s' "$zw_rust" | tr '\n' '|')   ssc: $(printf '%s' "$zw_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # JSON is checked against the default lane, because the bug it replaced was a CONTRACT mismatch
   # that compiled: `jsonParse` returned a String on this lane and a value everywhere else, so the
   # only assertion that would have caught it is "the two lanes say the same thing".

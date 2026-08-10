@@ -1,3 +1,77 @@
+## zipwithindex-result-is-not-indexable
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-09
+     ssc-version: 4a93c440c
+     repro: repro/zipwithindex-result-is-not-indexable.ssc
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**The reporter's control is what made this quick, and it is worth copying.** In the same five-line
+file: a LITERAL list of tuples indexes fine (`lit(0)._1`), plain `Vec<String>` indexes fine, only
+the `zipWithIndex` RESULT does not. That says the lowering landed a day earlier is correct — the
+`(element, index)` order, `._1`/`._2`, all of it — and what is missing is the *is-a-list fact* about
+the local it was bound to.
+
+`collectLocalSeqs` records which locals hold an indexable seq, so `xs(i)` lowers to `xs[i as usize]`
+rather than a call. Its `SeqMethods` set knew `toList`, `split`, `toArray`… and not `zipWithIndex`,
+so `zwi(0)` lowered to a CALL: `expected function, found Vec<(String, i64)>`.
+
+Added `zipWithIndex`, and `sorted`/`reverse`/`distinct` beside it — same property, same bug waiting.
+The gate keeps the reporter's control: literal, `zipWithIndex` result and `sorted` result, all
+compared against `bin/ssc`.
+
+## map-get-lowers-to-an-owned-key
+
+<!-- status: fixed
+     fixed-in: 3c7b2ff27
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-09
+     ssc-version: ba40b376a
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+Already fixed when it was filed, by `3c7b2ff27` — the report is against `ba40b376a`, which is the
+CLAIM commit for that work, so it predates the arm by hours. `m.get(k)` lowers to
+`q.get(&k).cloned()`: the `&` is the borrow they identified, and `.cloned()` is the other half they
+named, `Option<&String>` → `Option<String>`, which is why it now prints as well as compiles.
+
+Re-measured rather than assumed: their repro builds and prints `get = Some(1)` / `size = 2`, the
+same as `bin/ssc`.
+
+Their wider point stands and was worth filing: on a real 184-line file, 15 of 17 mismatches were
+this ONE shape, not a long tail of sites. That is the argument for fixing shapes, and it is the
+second time this week it has paid.
+
+## build-rust-std-imports-unlowerable
+
+<!-- status: fixed
+     fixed-in: 3c7b2ff27
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-08
+     ssc-version: 7eecad50a
+     repro: repro/std-imports-lower-and-run.ssc
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**Closed on the reporter's own answer:** they re-measured on a current toolchain and it does not
+reproduce — 0 errors, 0 `::`/Cons/Nil occurrences, a 446912-byte binary — and said so rather than
+leaving the question open. Confirmed here independently: the repro builds and prints `registered
+true`, matching `bin/ssc`.
+
+Neither of us can name the commit that fixed it; the report predates a fortnight of rust-lane work
+(`::`/Cons/Nil lowering, reachability, the intrinsic contract). `fixed-in` points at the last of
+those rather than claiming a cause — the honest statement is "does not reproduce", which is what
+both measurements say.
+
 ## list-methods-pass-through-to-rust
 
 <!-- status: fixed

@@ -1086,7 +1086,14 @@ object RustCodeWalk:
     val arrays = scala.collection.mutable.Set.empty[String]
     // Methods that yield an indexable (immutable) seq, so `val xs = e.split(",")` / `.toList`
     // makes `xs(i)` lower to `xs[(i) as usize]`.
-    val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq")
+    // Methods whose RESULT is an indexable seq. `zipWithIndex` and `sorted`/`reverse`/`distinct`
+    // belong here for the same reason `toList` does: the value they bind is a `Vec`, and a local
+    // that is not recorded as one makes `xs(0)` lower to a CALL — `expected function, found
+    // Vec<(String, i64)>`. A user isolated exactly that against a control in the same file: a
+    // LITERAL list of tuples indexed fine, only the `zipWithIndex` result did not, which is what
+    // showed the lowering was right and the is-a-list FACT was what got lost.
+    val SeqMethods = Set("split", "toList", "toArray", "toVector", "toSeq", "toIndexedSeq",
+                         "zipWithIndex", "sorted", "reverse", "distinct")
     def seqCtor(rhs: m.Term): Option[Boolean] = rhs match  // Some(isArray) iff a seq ctor
       case m.Term.Apply.After_4_6_0(fn, _) =>
         val nm = fn match
