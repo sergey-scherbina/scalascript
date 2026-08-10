@@ -1,0 +1,11 @@
+slug: prepush-fixedin-orphan
+branch: feature/prepush-fixedin-orphan
+agent: claude-code
+started: 2026-08-10T16:47:42Z
+heartbeat: 2026-08-10T16:47:42Z
+status: claimed-before-planning
+items: orphan-fixedin-lands-red
+paths: file:.githooks/pre-push
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
