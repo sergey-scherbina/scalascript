@@ -3,7 +3,10 @@ def strLen   = (s) => #slen(s)
 def strCat   = (a, b) => #sconcat(a, b)
 def strEq    = (a, b) => #seq(a, b)
 def strCmp   = (a, b) => #scmp(a, b)
-def charAt   = (s, i) => #scodeAt(s, i)              -- the code unit at index i
+def charAt   = (s, i) => #scharAt(s, i)              -- the CHARACTER at index i (a Char: prints as
+                                                     -- the character, compares and adds as its code
+                                                     -- unit, because CharV extends IntV). Use
+                                                     -- #scodeAt directly where a NUMBER is meant.
 def substr   = (s, a, b) => #sslice(s, a, b)
 def fromChars = (codes) => #sfromCodes(codes)        -- [Int code] -> String
 def strContains = (s, sub) => #i.ge(#sindexOf(s, sub), 0)

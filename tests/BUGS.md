@@ -415,11 +415,50 @@ refusals naming their cause.
 
 ## charat-returns-char-on-v1-and-int-everywhere-else
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: multi
      area: runtime
      confirmed: yes
      gate: none -->
+
+**Settled 2026-08-10 by the project owner: `println(s.charAt(0))` must print the CHARACTER on every
+backend, and everything that treats the result as a number must keep working — coerce where needed
+rather than convert the world.** All four lanes now agree:
+
+```
+val s = "aé"     charAt(0)   charAt(0) == 97   charAt(0) + 1
+bin/ssc (F)         a             true              98
+--bytecode          a             true              98
+--v1                a             true              98
+build-rust          a             true              98
+```
+
+**The consensus already existed in the kernel** and only `charAt` had not been moved onto it:
+`CharV extends IntV`, so a Char IS its code point at all 273 numeric match sites and carries the
+character at the few text sites (`v2-char-is-an-int` established that for char LITERALS). The change
+is a second primitive, `scharAt`, beside `scodeAt` — NOT a change to `scodeAt`, because that one is
+what the compiler's own passes use to build escapes (`escChar(#scodeAt(s, i))`), where the value must
+render as a NUMBER.
+
+**Two things this cost, both worth recording:**
+
+1. The active front is F, whose lowering lives in `specs/v2.2-p6.5-fsub.ssc` — not in
+   `v2/lib/ssc1-lower.ssc0`, which is the legacy front. Editing the legacy one changed nothing and
+   `SSC_FRONT=legacy` printing `a` while the default printed `97` is what showed it.
+2. **F is written in ScalaScript and its own lexer calls `charAt`.** Its char-literal token carried
+   the raw result, and that token is later FORMATTED INTO TEXT as `(lit (int <value>))` — so with a
+   Char there it emitted `(lit (int x))`, which parses as 0: `'x' == 120` went false and `'a' + 1`
+   went 1. One `.toInt` at that single site fixes it; the other 79 uses of `charAt` in the front are
+   comparisons and arithmetic and are unaffected by construction. `tests/e2e/v2-char-numeric-position.sh`
+   caught it, which is exactly the control half it was written to be.
+
+On the Rust lane there is no inheritance, so the property is spelled out: `SscChar` Displays as the
+character and carries `PartialEq<i64>`, `PartialOrd<i64>`, `Add`/`Sub` to i64, `From<SscChar> for
+i64` and the `SscInt` coercion — every numeric use degrades to the code unit exactly as Scala's Char
+does.
+
+Original finding follows.
 
 Found by a DIFFERENTIAL, while gating the Rust backend's new `charAt`: the gate compared the Rust
 binary against another lane and they disagreed. Three lanes, one program, `val s = "aé漢"`:

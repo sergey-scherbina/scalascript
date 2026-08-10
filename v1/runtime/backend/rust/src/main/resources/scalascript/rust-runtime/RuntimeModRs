@@ -130,8 +130,39 @@
       |#[allow(dead_code)]
       |pub fn _to_int<T: SscToInt>(x: T) -> i64 { x.ssc_to_int() }
       |
+      |// A Char on the Rust lane. Rust has no inheritance, so the property `CharV extends IntV` gives
+      |// the v2 kernel for free is spelled out here: Display prints the CHARACTER, and every numeric
+      |// use — comparison against a code unit, arithmetic, coercion into an `Int` slot — degrades to
+      |// i64 exactly as Scala's Char does. `charAt` returning a bare i64 printed `97` where every
+      |// other lane printed `a`.
+      |#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+      |pub struct SscChar(pub i64);
+      |impl std::fmt::Display for SscChar {
+      |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      |        match char::from_u32(self.0 as u32) {
+      |            Some(c) => write!(f, "{}", c),
+      |            // A lone surrogate is not a `char`; printing the code unit is the honest fallback
+      |            // and cannot be mistaken for a character.
+      |            None    => write!(f, "{}", self.0),
+      |        }
+      |    }
+      |}
+      |impl PartialEq<i64> for SscChar { fn eq(&self, o: &i64) -> bool { self.0 == *o } }
+      |impl PartialEq<SscChar> for i64 { fn eq(&self, o: &SscChar) -> bool { *self == o.0 } }
+      |impl PartialOrd<i64> for SscChar { fn partial_cmp(&self, o: &i64) -> Option<std::cmp::Ordering> { self.0.partial_cmp(o) } }
+      |impl std::ops::Add<i64> for SscChar { type Output = i64; fn add(self, o: i64) -> i64 { self.0 + o } }
+      |impl std::ops::Sub<i64> for SscChar { type Output = i64; fn sub(self, o: i64) -> i64 { self.0 - o } }
+      |impl From<SscChar> for i64 { fn from(c: SscChar) -> i64 { c.0 } }
+      |impl From<SscChar> for crate::value::Value {
+      |    fn from(c: SscChar) -> crate::value::Value { crate::value::Value::Str(c.to_string()) }
+      |}
+      |impl crate::value::SscInt for SscChar { fn ssc_int(self) -> i64 { self.0 } }
+      |
       |#[allow(dead_code)]
-      |pub fn _str_char_at(s: &str, i: i64) -> i64 {
+      |pub fn _str_char_at(s: &str, i: i64) -> SscChar { SscChar(_str_code_at(s, i)) }
+      |
+      |#[allow(dead_code)]
+      |pub fn _str_code_at(s: &str, i: i64) -> i64 {
       |    s.encode_utf16()
       |        .nth(i as usize)
       |        .unwrap_or_else(|| panic!("charAt({}): index out of range for a string of {} code units", i, s.encode_utf16().count()))

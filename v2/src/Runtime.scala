@@ -1517,6 +1517,12 @@ object Prims:
     }
     case "sslice"    => a => StrV(str(a, 0).substring(int(a, 1).toInt, int(a, 2).toInt))
     case "scodeAt"   => a => IntV(str(a, 0).charAt(int(a, 1).toInt).toLong)
+    // `scharAt` is `scodeAt` that remembers it is a Char. Two primitives rather than one changed
+    // one, because `#scodeAt` is what the COMPILER's own passes use to build escapes
+    // (`escChar(#scodeAt(s, i))` in backend-js-gen / backend-rust-gen) — there the value must render
+    // as a NUMBER, and CharV renders as the character. `CharV extends IntV`, so every numeric use
+    // of the result is unchanged; only text sites see the difference.
+    case "scharAt"   => a => CharV(str(a, 0).charAt(int(a, 1).toInt))
     case "sfromCodes"=> a => StrV(unlist(a(0)).map(v => asInt(v).toChar).mkString)
     case "__fInterpolate__" => a =>
       if a.isEmpty then StrV("")
@@ -2185,7 +2191,12 @@ object Prims:
         case (StrV(s), "dropRight", List(IntV(n)))       => StrV(s.dropRight(n.toInt))
         case (StrV(s), "substring", List(IntV(i)))      => StrV(s.substring(i.toInt))
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
-        case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
+        // A Char, not a bare Int. `CharV extends IntV`, so every numeric site still sees the code
+        // point — `charAt(i) != 92`, storing into a `List[Int]`, arithmetic — and only the sites
+        // that produce TEXT see the character. That is the same design `v2-char-is-an-int` landed
+        // for char LITERALS; `charAt` was simply never moved onto it, so `println(s.charAt(0))`
+        // printed `97` here and `a` on the interpreter.
+        case (StrV(s), "charAt", List(IntV(i)))         => CharV(s.charAt(i.toInt))
         // `codePointAt` was missing entirely on this lane — `"abc".codePointAt(0)` died with
         // `no dispatch for .codePointAt`, while int answers 97. Found because it is how
         // examples/uploads.ssc reads a byte out of an upload, so it blocked the multipart work

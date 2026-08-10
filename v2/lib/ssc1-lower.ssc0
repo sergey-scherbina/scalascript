@@ -1509,7 +1509,7 @@ def resolveMethodCall = (robj, method, rargs) =>
   else if #seq(method, "charAt") then
     match rargs {
       case Cons(idx, idxRest) =>
-        Pair("prim", Pair("scodeAt", Cons(robj, Cons(idx, Nil))))
+        Pair("prim", Pair("scharAt", Cons(robj, Cons(idx, Nil))))
     }
   else if #seq(method, "substring") then
     match rargs {
