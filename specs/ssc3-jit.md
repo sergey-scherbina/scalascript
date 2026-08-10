@@ -327,6 +327,54 @@ into single instructions at load time — keep the exact loop J0c tuned and simp
 instructions through it. That is the one item from §3 J1 that was never built, and it is now the
 only one the evidence points at.
 
+## 10 · J1d — fewer instructions, and the honest state of the ladder
+
+Copy propagation: `<something> → r` immediately followed by `Move(d, r)`, with `r` written once and
+read once in the whole function, becomes the same something writing straight to `d`. A rewrite of
+data; the instruction set, verifier and text form are untouched.
+
+**Established, load-independently:**
+
+| workload | instructions |
+|---|---|
+| `arith-loop` | 20 → **16** |
+| `nested-loop` | 34 → **28** |
+| `list-fold` | 56 → 54 |
+| `recursion-fib` | 18 → 17 |
+
+`arith-loop`'s LOOP BODY goes from 10 to 8 — a fifth of the dispatches in the corpus's hottest loop,
+gone. Two of the remaining eight are still `Const` reloading loop-invariant literals, which is the
+next pass and not this one.
+
+**Not established: any speedup.** 8 alternating pairs on one binary — `arith-loop` 3 of 8 at 0.81×,
+`nested-loop` 6 of 8 at 1.13×, `list-fold` 3 of 8 at 0.91×, at host load 42–45. A 20 % effect is an
+order below this host's ~2× resolution floor, so these numbers say nothing in either direction and
+the ratios must not be quoted as a regression.
+
+### 10.1 · Where the ladder actually stands, stated plainly
+
+Five attempts, and the score is one clear win:
+
+| | mechanism | did the mechanism work? | did the clock move? |
+|---|---|---|---|
+| J0a/b | derived tables, `invoke` split | yes — never-compiled → compiled | **yes**, 7 of 8 pairs |
+| J0c | `step` under the inline limit | yes — `inline (hot)` | part of the same win |
+| J1b | `Exec` reads `kind` | yes | no, 5 of 10 |
+| J2 | closure compilation | yes | **worse**, 1 of 8 |
+| J1c | unboxed long bank | yes — 10.5× less allocated | **worse**, 3 of 8 |
+| J1d | copy propagation | yes — 20 % fewer instructions | unmeasurable here |
+
+**The one thing that worked was making the existing dispatch cheaper to run, not replacing it and
+not feeding it less.** Everything since has moved its own target and left the clock alone or worse.
+
+**So the honest recommendation is to stop optimising this executor on this host.** Not because the
+remaining ideas are bad — loop-invariant hoisting and superinstructions both reduce dispatch counts
+further, and both are cheap — but because **nothing under about 2× can be told from noise here**, and
+four consecutive measurements have proved that rather than assumed it. The next person with a quiet
+machine should re-run the `bench/history.tsv` rows for J1b, J1c and J1d before writing any new code:
+two of those three may already be wins nobody can see, and one of them is a revert that might have
+been unnecessary.
+
 **Kept from this attempt:** `Specialize.longBanks` and its `--banks` gate. The analysis is correct,
 hand-checked and asserted, and it is what any future unboxing needs on day one — including the
 `F64` extension the `float-loop` fixture is watching for. **Not kept:** the executor lane, because

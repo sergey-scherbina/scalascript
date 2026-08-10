@@ -2540,6 +2540,27 @@ cheaper dispatch but FEWER of them: superinstructions, fusing `Bin(Lt); BrIf` an
 load time, which keep the exact loop J0c tuned and push fewer instructions through it. That is the
 one §3 J1 item never built, and now the only one the evidence points at.
 
+- [x] **SSC3-J1d — copy propagation.** `cf8cd36e4`. `<something> → r` followed by `Move(d, r)`, with
+      `r` written and read exactly once in the function, folds into one instruction.
+      **Established, load-independently:** `arith-loop` 20 → **16** instructions, `nested-loop`
+      34 → 28, `list-fold` 56 → 54, `recursion-fib` 18 → 17. The LOOP BODY of `arith-loop` goes
+      10 → 8 — a fifth of the dispatches in the corpus's hottest loop.
+      **Not established: any speedup.** 3 of 8 / 6 of 8 / 3 of 8 at host load 42–45; a 20 % effect is
+      an order below this host's ~2× floor. The ratios are noise in both directions.
+      *Gate:* `--no-optimize` is the OFF arm and `--identity` gained a fourth comparison for it —
+      this is the pass that rewrites the instruction list itself, so it does not ride on the
+      specializer's arm.
+
+**WHERE THE LADDER STANDS, and it is the most useful line on this board.** Six attempts, one clear
+win. J0a/b/c — make the EXISTING dispatch cheaper to run — moved the clock 7 of 8 pairs. Everything
+since moved its own mechanism and left the clock alone or worse: J1b read the `kind` field (5 of 10),
+J2 replaced the dispatch (1 of 8, worse), J1c allocated 10.5× less (3 of 8, worse), J1d executes 20 %
+fewer instructions (unmeasurable). **The recommendation is to stop optimising this executor on this
+host** — not because hoisting and superinstructions are bad ideas, but because four consecutive
+measurements have PROVED, rather than assumed, that nothing under ~2× is visible here. Whoever gets a
+quiet machine should first re-run the `bench/history.tsv` rows for J1b, J1c and J1d: two may be wins
+nobody can see, and one is a revert that might not have been necessary.
+
 **FRAME POOLING IS REFUTED — do not build it.** It was the obvious next move: `recursion-fib` is the
 slowest row, nothing has moved it, and `callFunc` allocates a frame per call. The assumption was
 checked before any code was written and it is false — `java -Xlog:gc` over that workload reports
