@@ -1164,6 +1164,11 @@ jobs:
       - name: F keeps a chain of ++ a list
         run: tests/e2e/f-std-ui-gate.sh
 
+      # Not an F gate: the REFERENCE front's lexer, and the one divergence this week where it was
+      # the wrong one. Asserts BOTH fronts identically, because the two agreeing is the property.
+      - name: A plain string literal ends at its closing quote
+        run: tests/e2e/ref-front-string-literal-gate.sh
+
       # THE CORRECTNESS COUNTERPART TO THE COVERAGE CENSUS, and the reason it is worth its runtime:
       # every silent divergence found in front F this week — an arm body returning its first
       # statement, a curried extern losing its block, an extern vararg gaining a list it should not
