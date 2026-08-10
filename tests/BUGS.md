@@ -1,3 +1,57 @@
+## typed-pattern-against-an-any-does-not-test-the-type
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: v2-rust
+     area: codegen
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**Found while reviewing a colleague's branch, and it is the sharper of the two things that review
+turned up.** `Pat.Typed` is dropped everywhere in the Rust walker, with a comment explaining why:
+the ascription is normally the subject's OWN type, so it carries nothing. Against an `Any` it
+carries all of it — the arms are discriminating — and dropping it made the FIRST typed arm
+irrefutable:
+
+```
+def describe(x: Any): String = x match
+  case l: List[Any]        => "list:" + l.length
+  case m: Map[String, Any] => "map:"  + m.get("k")
+
+describe(Map("k" -> 9))    rust: list:1     bin/ssc: map:Some(9)
+```
+
+It compiled and it ran. That is worse than the build error it replaced, and it only became
+reachable because I had just widened an argument coercion — so the sequence is worth stating: a fix
+that makes more programs COMPILE can move a defect from loud to silent, and the way to notice is to
+compare lanes rather than to check that the error went away.
+
+Now each typed arm emits a runtime test on the variant (`matches!(v, Value::List(_))`, `ssc_is` for
+a case class), and a type with no test I can name is a REFUSAL rather than a bind-all — a bind-all
+is exactly how this got here. The binding stays a `Value`, which composes with the dynamic
+accessors landed the same day: a body that says `l.length` reaches the contents without this having
+to decide how each type is represented to user code.
+
+## map-getorelse-emits-copied-on-a-string
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: v2-rust
+     area: codegen
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+`Map.getOrElse` lowered to `.get(&k).copied().unwrap_or(d)`, and `copied` requires `Copy`, which
+`String` does not implement — so `Map[String,String].getOrElse` did not compile at all (E0277).
+`.cloned()` accepts everything `.copied()` did and costs the same for a `Copy` type, so there is no
+case where the narrower one was right.
+
+A test asserted the old form, which is to say it froze the defect; it now asserts `.cloned()` and
+says which bug the previous wording was protecting.
+
+Found while building a probe for something else, where it MASKED the defect being hunted — which is
+its own argument for fixing it rather than routing around it.
+
 ## jsonparse-null-is-none-on-every-lane
 
 <!-- status: fixed

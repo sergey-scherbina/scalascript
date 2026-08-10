@@ -2094,7 +2094,11 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         k <- renderTerm(args.values(0), ctx)
         d <- renderTerm(args.values(1), ctx)
-      yield s"$q.get(&$k).copied().unwrap_or($d)"
+      // `.cloned()`, not `.copied()`: `copied` requires `Copy`, which `String` — the most common
+      // Map value in real code — does not implement (E0277). `cloned` accepts everything `copied`
+      // does and costs the same for a Copy type, so there is no case where the narrower one was
+      // right. Found while probing something else, where it MASKED the defect being hunted.
+      yield s"$q.get(&$k).cloned().unwrap_or($d)"
     // Partial function `{ case p => body; … }` (e.g. `xs.map { case (k, v) => … }`)
     // → a Rust closure that matches its single argument: `move |__pf| match __pf { … }`.
     case pf: m.Term.PartialFunction =>
@@ -3072,6 +3076,16 @@ object RustCodeWalk:
   /** Best-effort check that a term is an Option-shaped expression so we can
    *  route `.map/.flatMap/.getOrElse` to Rust `Option`.
    */
+  /** A literal or a literal-shaped construction — the things a program writes straight into an
+   *  argument. Narrow on purpose: it decides whether to WRAP an argument, and wrapping something
+   *  that is already a `Value` is free (`From<T> for T`), while wrapping an arbitrary expression
+   *  could hide a genuine type error behind a conversion. */
+  private def isLiteralish(t: m.Term): Boolean = t match
+    case _: m.Lit                                                  => true
+    case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array" | "Map" | "Set"), _) => true
+    case m.Term.Tuple(_)                                           => true
+    case _                                                         => false
+
   /** A receiver the walker KNOWS is a Rust `Vec`: a local bound to a seq constructor, or a list
    *  literal written in place. Deliberately narrow — it decides whether an unlowered method is a
    *  refusal or a pass-through, and a wrong `true` refuses working code. */
@@ -3835,7 +3849,12 @@ object RustCodeWalk:
     val argIsCaseClass = arg match
       case m.Term.Apply.After_4_6_0(m.Term.Name(c), _) => ctx.ctorMap.get(c).exists(_.isStruct)
       case _ => false
-    if target == "crate::value::Value" then argIsCaseClass || argIsValue
+    // Into a plain `Any`: a LITERAL counts too. This asked for a case class or an already-`Value`
+    // and so let `f(List(1,2,3))` through untouched against a parameter declared `Any` —
+    // `expected Value, found Vec<i64>`. `Value::from` is the identity on a Value and a lift on
+    // everything else, so widening this costs nothing and closes the case a list, map or scalar
+    // literal written straight at an `Any` parameter.
+    if target == "crate::value::Value" then argIsCaseClass || argIsValue || isLiteralish(arg)
     // A CONTAINER of `Any` — `Map[String, Any]`, `List[Any]` — is the same boundary one level down:
     // `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own. The element
     // map below is the identity when the argument already holds `Value`s, so this can fire on any
@@ -3870,6 +3889,30 @@ object RustCodeWalk:
     // what the body passes around anyway. If a body genuinely needs the struct, rustc says so;
     // guessing a conversion here is how a coercion layer starts lying.
     case _                      => expr
+
+  /** The runtime test for `case x: T` when the subject is an `Any`.
+   *
+   *  `Pat.Typed` is dropped everywhere else in this file, and the comment there says why: the
+   *  ascription is normally the subject's OWN type, so it carries no information. Against an `Any`
+   *  it carries all of it — the arms are discriminating — and dropping it made the FIRST arm
+   *  irrefutable: `case l: List[Any]` matched a Map and answered `list:1` where every other lane
+   *  said `map:Some(9)`. It compiled and ran, which is the worse failure.
+   *
+   *  `None` means "no test I can name", and the caller refuses rather than guessing — a bind-all is
+   *  how this got here. */
+  private def anyVariantTest(tpe: m.Type, subj: String, ctx: Ctx): Option[String] = tpe match
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq"), _) =>
+      Some(s"matches!($subj, crate::value::Value::List(_))")
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Map"), _) =>
+      Some(s"matches!($subj, crate::value::Value::Map(_))")
+    case m.Type.Name("String")           => Some(s"matches!($subj, crate::value::Value::Str(_))")
+    case m.Type.Name("Int" | "Long")     => Some(s"matches!($subj, crate::value::Value::Int(_))")
+    case m.Type.Name("Double" | "Float") => Some(s"matches!($subj, crate::value::Value::Double(_))")
+    case m.Type.Name("Boolean")          => Some(s"matches!($subj, crate::value::Value::Bool(_))")
+    // A case class living in an `Any` is an `Obj` tagged with its name.
+    case m.Type.Name(n) if ctx.ctorMap.contains(n) =>
+      Some(s"""crate::value::ssc_is(&$subj, "$n")""")
+    case _ => None
 
   /** `match` where the SUBJECT is an `Any`.
    *
@@ -3920,6 +3963,23 @@ object RustCodeWalk:
                          case None    => Right("")
               body  <- renderTerm(c.body, armCtx)
             yield (s"""crate::value::ssc_is(&__any, "$ctor")$guard""", bOk.mkString + wrapArm(body))
+        // `case x: T` — test the variant, then bind the value itself. The binding stays a `Value`
+        // on purpose: `Value` answers `len`/`get`/`iter` (landed with the dynamic accessors), so a
+        // body written against the narrowed type reaches its contents without this having to decide
+        // how each type is represented to user code.
+        case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), tpe) =>
+          anyVariantTest(tpe, "__any", ctx) match
+            case Some(test) =>
+              for
+                guard <- c.cond match
+                           case Some(g) => renderTerm(g, ctx).map(gr => s" && ($gr)")
+                           case None    => Right("")
+                body  <- renderTerm(c.body, ctx)
+              yield (test + guard, s"let $n = __any.clone(); ${wrapArm(body)}")
+            case None =>
+              Left(List(unsupported(
+                s"def `${ctx.defName}`: `case ${n}: ${tpe.syntax}` against an `Any` has no runtime " +
+                s"test on this lane — a bind-all here would make the arm match everything")))
         case m.Pat.Var(m.Term.Name(n)) =>
           for body <- renderTerm(c.body, ctx)
           yield ("true", s"let $n = __any.clone(); ${wrapArm(body)}")
@@ -3976,6 +4036,9 @@ object RustCodeWalk:
       case _              => false
     val hasStructCtorArm = cases1.exists(_.pat match
       case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), _) => ctx.ctorMap.get(ctor).exists(_.isStruct)
+      // A typed arm against an `Any` needs the same path: it has to TEST the variant, and the
+      // typed path below drops the ascription, which makes the first such arm irrefutable.
+      case m.Pat.Typed(_, _)                               => true
       case _                                               => false)
     if subjectIsAny && hasStructCtorArm then return renderAnyMatch(subject, cases1, ctx, wrapArm)
     // A `String` subject must be matched as `&str` for string-literal patterns

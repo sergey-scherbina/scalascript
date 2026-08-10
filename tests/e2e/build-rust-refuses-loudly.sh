@@ -517,6 +517,37 @@ SSC
     failed=1
   fi
 
+  # A typed pattern against an `Any` must TEST the type, and a Map value must survive `getOrElse`.
+  # Both came out of reviewing a colleague's branches. The first is the sharper one: dropping the
+  # ascription made the first arm irrefutable, so `case l: List[Any]` answered for a Map — it
+  # compiled and ran and was wrong, which is worse than the build error it replaced.
+  cat > "$tmp/anymatch.ssc" <<'SSC'
+def describe(x: Any): String = x match
+  case l: List[Any] => "list:" + l.length
+  case m: Map[String, Any] => "map:" + m.get("k")
+  case other => "other"
+
+def main(): Unit =
+  println(describe(List(1, 2, 3)))
+  println(describe(Map("k" -> 9)))
+  val mm = Map("a" -> "x")
+  println(mm.getOrElse("a", ""))
+SSC
+  set +e
+  amb=$("$SSC" build-rust "$tmp/anymatch.ssc" -o "$tmp/ambin" 2>&1); amrc=$?
+  am_rust=$("$tmp/ambin" 2>&1)
+  am_ref=$("$ROOT/bin/ssc" run "$tmp/anymatch.ssc" 2>/dev/null)
+  set -e
+  if [[ $amrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — a typed match on an Any does not build" >&2
+    echo "--- output: $(printf '%s' "$amb" | tail -5)" >&2
+    failed=1
+  elif [[ "$am_rust" != "$am_ref" || -z "$am_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on a typed Any match" >&2
+    echo "--- rust: $(printf '%s' "$am_rust" | tr '\n' '|')   ssc: $(printf '%s' "$am_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # JSON is checked against the default lane, because the bug it replaced was a CONTRACT mismatch
   # that compiled: `jsonParse` returned a String on this lane and a value everywhere else, so the
   # only assertion that would have caught it is "the two lanes say the same thing".

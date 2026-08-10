@@ -222,7 +222,11 @@ class RustGenR23Test extends AnyFunSuite:
     assert(g.contains("HashMap::new()"))
     assert(g.contains("let mut m2 ="))
     assert(g.contains(".insert(1i64, 10i64);"))
-    assert(g.contains(".get(&k).copied().unwrap_or(0i64)"))
+    // `.cloned()`, not `.copied()`. The old assertion froze a defect: `copied` requires `Copy`,
+    // which `String` — the most common Map value in real code — does not implement, so
+    // `Map[String,String].getOrElse` did not compile at all (E0277). `cloned` accepts everything
+    // `copied` did and costs the same for a Copy type.
+    assert(g.contains(".get(&k).cloned().unwrap_or(0i64)"))
 
   test("Either[L, R] lowers to pub enum and supports map/flatMap/fold"):
     val src =
