@@ -1,0 +1,18 @@
+#!/usr/bin/env ssc
+---
+name: concat-a-value-from-getorelse
+version: 0.1.0
+description: Concatenating a String that came through Map.get(...).getOrElse — beside a plain val that works.
+---
+```scalascript
+def dir(): String =
+  "/tmp"
+
+def main(): Unit =
+  val plain = "s1"
+  println("plain = " + (dir() + "/" + plain))
+  val m = Map("stamp" -> "s2")
+  val viaGet = m.get("stamp").getOrElse("")
+  println("viaGet= " + (dir() + "/" + viaGet))
+main()
+```

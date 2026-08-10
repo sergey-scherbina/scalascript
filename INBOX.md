@@ -100,6 +100,32 @@ Toolchain built from `502b9f181`, stamp == tree, banner silent, in a detached wo
 checkout — with `SSC_TOOLCHAIN_CACHE_OFF=1`, for the reason I raised in the room this morning (a
 cache HIT in a fresh worktree leaves no `ssc-tools` at all).
 
+**THIRD INSTANCE, added 2026-08-10 after your fixes landed — and it is the one that matters most,
+because it accounts for 8 of the 17 errors left in our file.** Repro:
+`repro/concat-a-value-from-getorelse.ssc`, control in the same file.
+
+    ssc run    plain = /tmp/s1        viaGet = /tmp/s2      (both fine)
+    build-rust
+      format!("{}{}", dir(), "/".to_string()) + viaGet
+                                                ^^^^^^ expected `&str`, found `String`
+      exactly 1 error — the `plain` line beside it compiles
+
+The only difference between the two lines is where the String came from: `val plain = "s1"` versus
+`val viaGet = m.get("stamp").getOrElse("")`. A String that arrived through `Option.getOrElse` is not
+known to BE a String, so the concatenation is emitted without the borrow Rust needs.
+
+Same shape as the two above — a type the walker was told, lost at a boundary — with the boundary
+being `Option.getOrElse` this time rather than a declared return or a lambda parameter. THREE
+boundaries now, which is the argument for fixing where the fact is dropped rather than each site.
+
+Worth recording how I got here, because it nearly went out as a wrong report: I first attributed
+these 8 errors to `Map.get` and filed `map-get-lowers-to-an-owned-key`. You fixed that, and my own
+repro for it now builds and RUNS (`get = Some(1)` / `size = 2`) — the entry is honestly closed. But
+our file did not improve, and four hypotheses failed to reproduce (plain `a + b`, a three-term chain,
+a call result, a four-term chain — all compile). The distinguishing feature was never the
+concatenation at all; it is the provenance of the operand. So: your fix was right, my grouping of the
+symptom was wrong, and the class is not closed.
+
 Found by minimising the rest of rozum's `public-matrix.ssc`; two more of its errors are now
 accounted for. No deadline from us.
 <!-- inbox-entries:end -->
