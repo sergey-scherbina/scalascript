@@ -551,11 +551,23 @@ val suite = List(
   // dropped, so a "fix" that merely stopped shaking fails it. (js-unused-val-drops-side-effecting-call)
   Check("v1/runtime/backend/js", "js-shaker-effectful-binding",
         "tests/e2e/js-shaker-keeps-effectful-binding.sh", List(), 180000),
+  // 25 rows, `bin/ssc` as the reference: a char in a NUMERIC context is its code point, and in a
+  // TEXT context it is a character. It asserts BOTH sides, which is the point — a fix that widened
+  // unconditionally would pass a gate checking only the numeric half while breaking every char
+  // comparison in the corpus. (js-char-is-a-plain-string.)
+  Check("v1/runtime/backend/js", "js-char-is-a-char", "tests/e2e/js-char-is-a-char.sh", List(), 120000),
   // Runs BOTH v2 fronts and asserts `ssc info --front-report` says F. An F decline is a SILENT
   // downgrade onto the fallback, so a gate that cannot tell the two apart is green either way.
   // (v2-char-is-an-int — the control half: a Char must keep its code point in numeric position.)
   Check("v2", "v2-char-numeric-position",
         "tests/e2e/v2-char-numeric-position.sh", List(), 240000),
+  // `case _: Char` across FOUR lanes against `--v1`, which the type-ascription census measured
+  // against real Scala on the JVM and which matched on all fourteen types. It refuses to judge at
+  // all when `--v1` stops matching that census, so an agreeing pair of wrong lanes cannot read
+  // green. Cross-lane by construction — the same question was wrong three different ways at once,
+  // twice in the kernel's `__isTag__` and once in JsGen's type-test mapping.
+  // (js-char-type-test-cannot-tell-Char-from-String.)
+  Check(".", "char-type-test", "tests/e2e/char-type-test.sh", List(), 180000),
   // Network: one `git fetch --depth 1` per gitlink against the submodule's remote. Generous timeout
   // because a slow or flaky network must read as "this run could not tell", not as a repo defect.
   Check("scripts", "submodule-gitlinks-resolve", "tests/e2e/submodule-gitlink-resolves.sh", List(), 120000),
