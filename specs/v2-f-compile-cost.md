@@ -167,3 +167,45 @@ Whether any of this is a regression. Result 1 above records `scljet-jdbc` at 27.
 today's >1200 s — but `legacy` moved 9.35 s → 88 s on the same case over the same period, and no
 change of ours is in `legacy` at all. Something shared moved by roughly 9×, so cross-day absolute
 numbers cannot carry a regression claim. Only same-day ratios are evidence here.
+
+### Result 3b (same day) — a MINIMAL PAIR, and the link to the class-size limit
+
+The pair is one line apart, same file, same imports, and it carries its own control:
+
+```scalascript
+    val db = jdbcOpen(image)
+    println("opened")                                        F 21s   legacy 25s   parity
+```
+```scalascript
+    val db = jdbcOpen(image)
+    val r  = jdbcExecuteUpdate(db, "INSERT INTO books VALUES (2, 'x', 1985)")
+    println("no match")                                      F >400s  legacy 55s   >7x
+```
+
+**The legacy column is why this is a finding and not an anecdote** — it was missing from the first
+eight probes of Result 3, and without it "F is slow here" is an assumption. Added.
+
+Two more candidates died today:
+
+- **a single-quoted substring inside a double-quoted string** (`'x'` inside the SQL). Every slow
+  variant had one and every fast one did not, which is a real correlation and a wrong cause: on its
+  own, `val sql = "… (2, 'x', 1985)"` is 3 s.
+- **the `--bytecode` class-size fallback firing.** It fires for BOTH members of the pair — the fast
+  one included — so its presence does not discriminate.
+
+**But the fallback is still the lead, because of what it means here.** These runs are `run --v2`,
+and the message comes from F's OWN nested `coreir.eval`: the front tries direct ASM and falls back
+to VM interpretation when the emitted class is too large (`specs/v2-f-bytecode-probe.md`, the
+V-6b.3 work, which measured direct ASM at **4.38× faster** on the product SClJet F0). Both members
+fall back; the difference is the SIZE of the nested eval each one forces.
+
+**So the F cost and `scljet-jdbc-facade-bytecode-class-too-large` are the same problem seen from two
+sides.** The class-size limit is what denies F its fast path, and the ~4.38× it loses is the right
+order for the gap measured here. Splitting `ssc/gen/Entry` is therefore not only a `--bytecode`
+capacity fix; it is the candidate fix for this entry. That prediction is cheap to test the moment
+the split lands: re-run this minimal pair and see whether the fallback stops firing and the >400 s
+row collapses.
+
+**Which phase, for this pair:** `B` prints `opened`, so its front finished; `B5` prints nothing at a
+300 s cap, so its front did not. Consistent with the reached-graph result — `B5` reaches the SQL
+engine through `jdbcExecuteUpdate` and `B` does not.
