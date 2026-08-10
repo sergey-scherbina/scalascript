@@ -1,0 +1,21 @@
+#!/usr/bin/env ssc
+---
+name: type-lost-across-a-boundary
+version: 0.1.0
+description: Two shapes where the rust lane loses a type it was told, each beside a control that works.
+---
+```scalascript
+def rowsOf(s: String): List[String] =
+  s.split(",").toList
+
+def main(): Unit =
+  val direct = ["a", "b"]
+  println("control-index  = " + direct(0))
+  val rows = rowsOf("x,y")
+  println("declared-index = " + rows(0))
+  println("control-toInt  = " + ("120".toInt + 1))
+  val m = Map("tail" -> "7")
+  val v = m.get("tail").map(s => s.toInt).getOrElse(120)
+  println("lambda-toInt   = " + v)
+main()
+```

@@ -229,6 +229,52 @@ ignore it; I did not want to file a second entry on an unminimised symptom.
 
 Progress from our side, for calibration: rozum's `public-matrix.ssc` went 33 -> 29 -> 20 errors over
 today's three landings. No deadline from us.
+## type-lost-across-a-boundary — A declared List[String] return indexes as a call, and toInt on a lambda parameter becomes String-as-i32 — both with controls in the same file that compile
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-10
+     ssc-version: 502b9f181
+     repro: repro/type-lost-across-a-boundary.ssc
+     kind: bug -->
+
+Two shapes, each with a CONTROL in the same file that compiles — that pairing is the report:
+
+    ssc run repro/type-lost-across-a-boundary.ssc
+      control-index  = a      declared-index = x
+      control-toInt  = 121    lambda-toInt   = 7      (all four fine)
+
+    ssc-tools build-rust repro/type-lost-across-a-boundary.ssc     (exactly 2 errors)
+      error[E0618]: expected function, found `Vec<String>`
+        let rows = rowsOf("x,y".to_string());   rows(0i64)
+      error[E0605]: non-primitive cast: `String` as `i32`
+        m.get(&"tail".to_string()).cloned().map(move |s| { (s as i32 as i64) })
+
+**1. A DECLARED `List[String]` return is not remembered as a list.** `val direct = ["a","b"];
+direct(0)` compiles — the control proves plain indexing is fine. `def rowsOf(s: String):
+List[String]` … `rows(0)` emits a CALL. The annotation is right there in the signature, so this is
+not an inference limit; the fact is stated and dropped. Same family as
+`zipwithindex-result-is-not-indexable` I filed yesterday, and stronger evidence for it: there the
+type came from a stdlib method, here from an explicit user annotation, so a fix aimed only at
+`zipWithIndex`'s return type would not cover it.
+
+**2. `toInt` on a lambda parameter becomes a primitive cast.** `"120".toInt` compiles — control. But
+`m.get("tail").map(s => s.toInt)` emits `s as i32`, and `String as i32` is not a cast Rust has. The
+receiver's type is known to rustc (`String`, it says so), so the walker had it and the lowering did
+not use it; the fallback emits an `as` rather than a parse or a refusal.
+
+**The shape, since you told me the shape half pays.** Both are one thing: a type the walker WAS told
+is lost at a boundary — a declared return in (1), a lambda parameter in (2) — and the fallback emits
+Rust that cannot typecheck instead of refusing by name. Your `rust-list-methods` refusal covers a
+method with no lowering on a KNOWN List/String receiver; neither of these reaches it, because here
+the receiver's type is what went missing. If a refusal can fire on "I am emitting an index/cast for a
+receiver whose type I no longer know", it would have named both of these before rustc did.
+
+Toolchain built from `502b9f181`, stamp == tree, banner silent, in a detached worktree outside your
+checkout — with `SSC_TOOLCHAIN_CACHE_OFF=1`, for the reason I raised in the room this morning (a
+cache HIT in a fresh worktree leaves no `ssc-tools` at all).
+
+Found by minimising the rest of rozum's `public-matrix.ssc`; two more of its errors are now
+accounted for. No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
