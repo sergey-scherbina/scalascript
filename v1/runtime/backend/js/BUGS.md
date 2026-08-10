@@ -13,7 +13,7 @@ Newest first.
      area: codegen
      kind: wrong-output
      gate: tests/e2e/js-char-is-a-char.sh
-     fixed-in: PENDING -->
+     fixed-in: b37f7b0fc -->
 
 **FIXED 2026-08-10.** Six shapes disagreed with `bin/ssc` and `--v1`, which already agreed with each
 other:
@@ -968,7 +968,7 @@ wrong than before, where the answer depended on the order the arms happened to b
 **The gate runs BOTH arm orders**, because a case written with one order would have passed on the old
 code for whichever value suited it — green in both states, the failure this repo keeps paying for.
 
-## js-char-is-a-plain-string — `case _: Char` cannot be told from `case _: String`
+## js-char-type-test-cannot-tell-Char-from-String — `case _: Char` matches a String
 <!-- status: open
      lane: js
      area: codegen
@@ -985,6 +985,14 @@ guess, and `case _: String` on a genuine one-character string must keep working.
 **Representation gap.** Same family as `Set`-vs-`List` on this lane and `v2-char-is-an-int` on the
 native one; it needs char literals to carry the box before the question has an answer. Answering
 `String` is at least consistent with what the value IS.
+
+**Renamed 2026-08-10 — it was NOT the entry the slug now refers to.** `b37f7b0fc` filed a new entry
+the same day under `js-char-is-a-plain-string` (a char literal not widening in a numeric context),
+which turned `bugs-index` red on `main`: two entries, one slug, in this same file. The NEWER one
+keeps the name because two things already cite it — `specs/gateless-triage.md` and
+`tests/e2e/v2-char-numeric-position.sh` — and both describe that defect, not this one. This entry is
+about the TYPE TEST, and its heading now says so.
+
 
 ## js-pass-error-not-formatted-by-its-module-function — a case class from a PACKAGED module lost its body methods, so `toString` printed the raw record
 <!-- status: fixed
