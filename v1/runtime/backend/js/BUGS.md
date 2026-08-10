@@ -13,10 +13,10 @@ Newest first.
      area: codegen
      kind: wrong-output
      gate: tests/e2e/js-char-is-a-char.sh
-     fixed-in: b37f7b0fc -->
+     fixed-in: a95f3abda -->
 
-**FIXED 2026-08-10.** Six shapes disagreed with `bin/ssc` and `--v1`, which already agreed with each
-other:
+**FIXED 2026-08-10** in two commits: `b37f7b0fc` (literals) and `a95f3abda` (names bound to one).
+Six shapes disagreed with `bin/ssc` and `--v1`, which already agreed with each other:
 
 | | `'x' == 120` | `1 + 'a'` | `'a' + 1` | `'a' * 2` | `'a' < 98` |
 |---|---|---|---|---|---|
