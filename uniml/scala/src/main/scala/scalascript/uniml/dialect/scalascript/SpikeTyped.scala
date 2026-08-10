@@ -197,7 +197,7 @@ object SpikeTyped:
         // A `using` parameter's TYPE ARGUMENTS, appended to the type it belongs to as they
         // arrive. `Show` and `Show[A]` are the same head and different types, and resolution
         // matches on the whole of it.
-        case Some("def.usingtypearg") =>
+        case Some("def.typearg") =>
           tpe = tpe.map { t =>
             val txt = if t.text.endsWith("]") then t.text.dropRight(1) + "," + lex(c) + "]"
                       else t.text + "[" + lex(c) + "]"

@@ -1092,11 +1092,57 @@ object Lower:
     var extra: List[Def] = Nil
     var made: Set[String] = Set.empty
 
-    def litType(e: Expr): Option[String] = e match
+    /** A type's head and its arguments: `List[Int]` is `("List", ["Int"])`, `Int` is `("Int", [])`.
+      * Splitting on the TOP-LEVEL commas only, so `Map[String,List[Int]]` gives two. */
+    def split(t: String): (String, List[String]) =
+      val i = t.indexOf('[')
+      if i < 0 || !t.endsWith("]") then (t, Nil)
+      else
+        val inner = t.substring(i + 1, t.length - 1)
+        var depth = 0; var cur = new StringBuilder; var out: List[String] = Nil
+        inner.foreach { c =>
+          if c == '[' then { depth += 1; cur += c }
+          else if c == ']' then { depth -= 1; cur += c }
+          else if c == ',' && depth == 0 then { out = cur.toString :: out; cur = new StringBuilder }
+          else cur += c
+        }
+        (t.substring(0, i), (cur.toString :: out).reverse.filter(_.nonEmpty))
+
+    /** Solve a parameter's declared type against an argument's actual one: `List[A]` against
+      * `List[Int]` binds `A` to `Int`. Structural and total — no subtyping, no variance, nothing
+      * that Tier 0 could not check by comparing two strings.
+      *
+      * Returns None when they cannot match, and the CALLER treats that as "do not specialise",
+      * never as "pick something": a call this cannot solve is left for the arity check to refuse
+      * by name. */
+    def unify(pat: String, con: String, tvars: List[String]): Option[Map[String, String]] =
+      if tvars.contains(pat) then Some(Map(pat -> con))
+      else if pat == con then Some(Map.empty)
+      else
+        val (ph, pa) = split(pat); val (ch, ca) = split(con)
+        if ph != ch || pa.length != ca.length || pa.isEmpty then None
+        else pa.zip(ca).foldLeft(Option(Map.empty[String, String])) { (acc, pc) =>
+          acc.flatMap(m => unify(pc._1, pc._2, tvars).map(m ++ _))
+        }
+
+    /** What an argument's type IS, as far as this pass can tell.
+      *
+      * A literal; a `List(…)`/`Vector(…)` of literals, which is what a call site actually writes;
+      * or a NAME whose type the enclosing specialisation already fixed — that last one is what
+      * carries `A = Int` from `combineAndPretty(List(10, 20, 30))` into the `combineAll(xs)` its
+      * body makes, and without it a generic function calling another generic function can never be
+      * resolved. Anything else is None, and None means "leave the call alone". */
+    def argType(e: Expr, env: Map[String, String]): Option[String] = e match
       case Expr.IntLit(_, _)  => Some("Int")
       case Expr.StrLit(_, _)  => Some("String")
       case Expr.BoolLit(_, _) => Some("Boolean")
-      case _                  => None
+      case Expr.Name(n, _)    => env.get(n)
+      case Expr.Call(ctor, as, _) if (ctor == "List" || ctor == "Vector") && as.nonEmpty =>
+        val ts = as.map(a => argType(a, env))
+        if ts.forall(_.isDefined) && ts.map(_.get).distinct.length == 1 then
+          Some(ctor + "[" + ts.head.get + "]")
+        else None
+      case _ => None
 
     def substitute(t: String, binds: Map[String, String]): String =
       binds.foldLeft(t) { (acc, kv) =>
@@ -1106,6 +1152,35 @@ object Lower:
       }
 
     val instanceNames: Set[String] = instances.map((_, n) => n).toSet
+
+    /** `val m = intMonoid` — an instance BOUND TO A NAME, replaced by the instance everywhere and
+      * the binding dropped.
+      *
+      * An `object` is a namespace with no runtime value, so the `val` cannot stand: after the
+      * specialisation renames `summon[Monoid[A]]` to `intMonoid`, `describeMonoid`'s
+      * `val m = summon[Monoid[A]]` left a bare object name and the program failed with
+      * `unknown name 'intMonoid'` — a refusal where the code is correct Scala. Aliasing it away is
+      * what makes `m.combine(a, m.empty)` the qualified call that works. */
+    def dropInstanceAliases(e: Expr): Expr = mapDeep(e, x => x match
+      case Expr.Block(sts, res, bp) =>
+        val aliases = sts.collect {
+          case Stmt.Val(n, Expr.Name(inst, _), _, _) if instanceNames.contains(inst) => (n, inst)
+        }.toMap
+        if aliases.isEmpty then x
+        else
+          val kept = sts.filter {
+            case Stmt.Val(n, Expr.Name(inst, _), _, _) => !(aliases.get(n).contains(inst))
+            case _                                     => true
+          }
+          def sub(y: Expr): Expr = mapDeep(y, z => z match
+            case Expr.Name(n, np) if aliases.contains(n) => Expr.Name(aliases(n), np)
+            case other                                   => other)
+          Expr.Block(kept.map {
+            case Stmt.Exp(v)             => Stmt.Exp(sub(v))
+            case Stmt.Val(n, v, iv, vp)  => Stmt.Val(n, sub(v), iv, vp)
+            case other                   => other
+          }, res.map(sub), bp)
+      case other => other)
 
     // `f(a)(using inst)` arrives as an `Apply` over a `Call`, because the pass that flattens
     // curried argument lists runs per-def much later than this whole-program one. Normalising it
@@ -1123,7 +1198,24 @@ object Lower:
     // a function that no longer took one.
     def flattenAll(e: Expr): Expr = mapDeep(e, flatten)
 
-    def fix(e: Expr): Expr = mapDeep(e, x =>
+    /** Build the specialised copy, once per name, with the bindings its call site solved.
+      *
+      * `childEnv` is what makes a generic body resolvable: each explicit parameter's declared type
+      * with the call's bindings substituted in, so inside the copy `xs` is known to be `List[Int]`
+      * and the `combineAll(xs)` it contains can be solved in turn. */
+    def specialise(d: Def, nm: String, names: List[String], binds: Map[String, String]): Unit =
+      if !made.contains(nm) then
+        made = made + nm
+        val explicit = d.params.filterNot(_.given_)
+        val subst: Map[String, String] = d.params.filter(_.given_).map(_.name).zip(names).toMap
+        def rename(e: Expr): Expr = mapDeep(e, y => y match
+          case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
+          case other                                 => other)
+        val childEnv = explicit.flatMap(pm => pm.tpe.map(t => (pm.name, substitute(t, binds)))).toMap
+        extra = d.copy(name = nm, params = explicit,
+                       body = dropInstanceAliases(rename(fix(d.body, childEnv)))) :: extra
+
+    def fix(e: Expr, env: Map[String, String]): Expr = mapDeep(e, x =>
       x match
       // AN EXPLICIT `(using showInt)` — the program names the instance itself. Same specialisation,
       // and it needs one for the same reason: the argument it wrote is an `object`, which has no
@@ -1136,23 +1228,21 @@ object Lower:
         val d = byName(fn)
         val k = d.params.count(_.given_)
         val names = as.takeRight(k).collect { case Expr.Name(n, _) => n }
-        val explicit = d.params.filterNot(_.given_)
         val nm = fn + "$" + names.mkString("$")
-        if !made.contains(nm) then
-          made = made + nm
-          val subst: Map[String, String] = d.params.filter(_.given_).map(_.name).zip(names).toMap
-          def rename(e2: Expr): Expr = mapDeep(e2, y => y match
-            case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
-            case other                                 => other)
-          extra = d.copy(name = nm, params = explicit, body = rename(fix(d.body))) :: extra
+        specialise(d, nm, names, Map.empty)
         Expr.Call(nm, as.dropRight(k), p)
       case Expr.Call(fn, as, p) =>
         byName.get(fn) match
           case Some(d) if d.params.exists(_.given_) && as.length == d.params.count(!_.given_) =>
             val explicit = d.params.filterNot(_.given_)
-            val binds = explicit.zip(as).flatMap { (pm, a) =>
-              pm.tpe.filter(t => d.tparams.contains(t)).flatMap(t => litType(a).map(ct => (t, ct)))
-            }.toMap
+            val binds = explicit.zip(as).foldLeft(Option(Map.empty[String, String])) { (acc, pa) =>
+              acc.flatMap { m =>
+                val (pm, a) = pa
+                (pm.tpe, argType(a, env)) match
+                  case (Some(pt), Some(at)) => unify(pt, at, d.tparams).map(m ++ _).orElse(Some(m))
+                  case _                    => Some(m)
+              }
+            }.getOrElse(Map.empty)
             val gs = d.params.filter(_.given_)
             val chosen = gs.map { g =>
               g.tpe.map(t => substitute(t, binds)).flatMap { concrete =>
@@ -1165,28 +1255,39 @@ object Lower:
             else
               // MONOMORPHISATION, not a dictionary. An instance is an `object` — a NAMESPACE at
               // Tier 0, with no runtime value — so `display(42, showInt)` cannot work: there is
-              // nothing named `showInt` to pass, and that is exactly what the first attempt hit
-              // (`unknown name 'showInt'`). What CAN be done is specialise the callee: a copy of
-              // `display` in which the `using` parameter's name is replaced by the instance's, so
-              // `s.show(a)` becomes `showInt.show(a)` — the qualified call that already works and
-              // is how `typeclass-monoid` has been running since G1.
+              // nothing named `showInt` to pass. What CAN be done is specialise the callee, so
+              // `s.show(a)` becomes `showInt.show(a)` — the qualified call that already works.
               //
-              // One copy per (function, instances) pair, named after them, so two call sites with
-              // the same instances share it and a program with `Show[Int]` and `Show[String]` gets
-              // one of each rather than one wrong one.
+              // One copy per (function, instances) pair, so two call sites with the same instances
+              // share it and a program with `Show[Int]` and `Show[String]` gets one of each.
               val names = chosen.flatten
               val nm = fn + "$" + names.mkString("$")
-              if !made.contains(nm) then
-                made = made + nm
-                val subst: Map[String, String] = gs.map(_.name).zip(names).toMap
-                def rename(e: Expr): Expr = mapDeep(e, y => y match
-                  case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
-                  case other                                 => other)
-                extra = d.copy(name = nm, params = explicit, body = rename(fix(d.body))) :: extra
+              specialise(d, nm, names, binds)
               Expr.Call(nm, as, p)
           case _ => x
       case other => other)
-    defs.map(d => d.copy(body = fix(flattenAll(d.body)))) ++ extra
+    val fixed = defs.map(d => d.copy(body = fix(flattenAll(d.body), Map.empty)))
+    // THE GENERIC DEFINITION IS A TEMPLATE, and it is dropped once nothing calls it.
+    //
+    // Monomorphisation leaves the original behind: `combineAll[A: Monoid](xs: List[A])` still has
+    // its `using` parameter and a body full of calls that only a specialisation can resolve. Kept,
+    // it is lowered and ARITY-CHECKED like any other function, so `combineAndPretty`'s
+    // `combineAll(xs)` — which is resolvable only with the enclosing `A` — refused the whole
+    // program at `31:28` while the copies that actually run were correct.
+    //
+    // Dropped only when no call to it SURVIVES. A call this pass could not solve is still there,
+    // and keeping the template for it means the reader gets `passes 1 argument(s), it takes 2` —
+    // which names the problem — instead of `unknown function`, which names the fix I made.
+    val all = fixed ++ extra
+    val templates = fixed.filter(_.params.exists(_.given_)).map(_.name).toSet
+    if templates.isEmpty then all
+    else
+      var called = Set.empty[String]
+      all.foreach(d => mapDeep(d.body, x => { x match
+        case Expr.Call(fn, _, _) if templates.contains(fn) => called = called + fn
+        case _ => ()
+      ; x }))
+      all.filterNot(d => templates.contains(d.name) && !called.contains(d.name))
 
   /** Every `Expr.MethodRef` becomes either an ordinary no-argument `MethodCall` or a LAMBDA that
     * calls the method with the arguments it declares. Nothing downstream sees a `MethodRef`.

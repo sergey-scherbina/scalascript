@@ -913,9 +913,12 @@ object SpikeParse:
           // projection was receiving `s:Show(using)` where it needed `Show[A]`, so nothing could
           // ever match an instance declared `Show[Int]`.
           //
-          // Only for `using`. An ordinary parameter's type is still erased, because nothing reads
-          // it and keeping it would put an unenforced notion of types into every signature.
-          if usingClause && c.peekKind == "spike.lbracket" then
+          // FOR EVERY PARAMETER, not just `using`. It was limited to `using` on the reasoning that
+          // nothing read an ordinary parameter's type — and stage 2b reads it: solving `List[A]`
+          // against `List[Int]` is how a call site's type argument is found at all. With the head
+          // alone, `xs: List[A]` arrived as `List` and `tagless-context-bounds` could not resolve
+          // on this front while it ran on the other.
+          if c.peekKind == "spike.lbracket" then
             c.advance()
             var d0 = 1
             while d0 > 0 && !c.eof do
@@ -923,7 +926,7 @@ object SpikeParse:
                 case "spike.lbracket" => d0 += 1; c.advance()
                 case "spike.rbracket" => d0 -= 1; c.advance()
                 case k if k == "spike.id" || k == "spike.uid" =>
-                  c.advance().foreach(t => kids += Node.Leaf(t, Some("def.usingtypearg")))
+                  c.advance().foreach(t => kids += Node.Leaf(t, Some("def.typearg")))
                 case _ => c.advance()
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
           // a default value `param: T = expr` — captured (def.dflt) so defNodes can emit the funcdefaults node
