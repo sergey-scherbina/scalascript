@@ -940,7 +940,11 @@ object RustCodeWalk:
       // Rust patterns — the value is a `Value::Obj`, not the struct — so it lowers to an
       // `ssc_is`/`ssc_field` chain instead. This is the ONLY type knowledge the boundary needs, and
       // it comes from declarations, never from inference.
-      anyNames: Set[String] = Set.empty
+      anyNames: Set[String] = Set.empty,
+      // Names DECLARED numeric in this def (parameters). Used only to keep `.toInt` on a known
+      // numeric receiver as a direct cast; everything not in here takes the total helper, which is
+      // correct either way — so a missing name costs readability, never a compile error.
+      numericNames: Set[String] = Set.empty
   ):
     def enumNames: Set[String] = ctorMap.values.map(_.enumName).toSet
     @annotation.unused def topValNames: Set[String] = topVals.map(_._1).toSet
@@ -1035,7 +1039,12 @@ object RustCodeWalk:
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         localSignals = collectLocalSignals(d.body),
-                        anyNames = anyParams)
+                        anyNames = anyParams,
+                        numericNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                          .collect { case p if p.decltpe.exists {
+                              case m.Type.Name("Int" | "Long" | "Short" | "Byte" | "Double" | "Float") => true
+                              case _ => false
+                            } => p.name.value }.toSet)
       val effName = defEffectName(d)
       val pNames  = extractParamNames(d)
       val useTCO  = pNames.nonEmpty && hasTailCallPath(name, pNames.size, d.body)
@@ -1103,6 +1112,13 @@ object RustCodeWalk:
           case _ => ""
         if nm == "Array" then Some(true)
         else if nm == "Vector" || nm == "List" || SeqMethods.contains(nm) then Some(false)
+        // A call to a def DECLARED to return a list. `def rowsOf(s: String): List[String]` says so
+        // in its signature, and the fact was being dropped: the local bound to `rowsOf(x)` was not
+        // recorded as a seq, so `rows(0)` lowered to a CALL (`expected function, found
+        // Vec<String>`). Not an inference limit — the annotation is right there, and
+        // `_returnTypes` has held it since the Any boundary work; this is the first consumer to
+        // ask. Reported with a control: `val direct = ["a","b"]; direct(0)` compiles.
+        else if _returnTypes.get(nm).exists(_.startsWith("Vec<")) then Some(false)
         else None
       // No-arg seq conversions: `e.toList` / `e.toArray`.
       case m.Term.Select(_, m.Term.Name(n)) if SeqMethods.contains(n) => Some(false)
@@ -1814,8 +1830,16 @@ object RustCodeWalk:
         // so `.toInt` must yield an i64 too — otherwise an `as i32` result
         // can't be passed to an `i64` (Int) parameter (E0308).  Truncate to
         // 32-bit for `Int` wraparound semantics, then widen back to i64.
+        // A receiver whose type the walker still knows keeps the direct forms — they read better
+        // in the emitted crate and the goldens are written against them. Everything else goes
+        // through a TOTAL helper rather than an `as` cast: `s as i32` for a `String` is not a cast
+        // Rust has (E0605), and that is what a lambda parameter got, because the parameter's type
+        // was known to rustc and not to us. `ssc_to_int` is implemented for i64, f64 and String, so
+        // it is right whichever the receiver turns out to be — the same trick as the `Any`
+        // coercions, and it beats a refusal because the program keeps working.
         if isStringToIntExpr(qual) then Right(s"($q.parse::<i64>().unwrap_or(0))")
-        else Right(s"($q as i32 as i64)")
+        else if isNumericExpr(qual, ctx) then Right(s"($q as i32 as i64)")
+        else Right(s"crate::runtime::_to_int($q)")
       }
     case m.Term.Select(qual, m.Term.Name("toDouble")) =>
       renderTerm(qual, ctx).map(q => s"($q as f64)")
@@ -3012,6 +3036,20 @@ object RustCodeWalk:
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
+    case _ => false
+
+  /** A receiver the walker still knows to be numeric: a numeric literal, or arithmetic over them.
+   *  Deliberately narrow — everything it says `false` to gets the total helper, which is correct
+   *  either way, so a wrong `false` costs readability and a wrong `true` costs a compile error. */
+  private def isNumericExpr(term: m.Term, ctx: Ctx): Boolean = term match
+    case _: m.Lit.Int | _: m.Lit.Long | _: m.Lit.Double | _: m.Lit.Float => true
+    // A parameter DECLARED numeric is known, and `def asInt(l: Long): Int = l.toInt` must keep
+    // emitting `(l as i32 as i64)` — the helper would be correct there too, but the direct cast is
+    // what the emitted crate reads like and what the goldens are written against. The point of this
+    // change is receivers whose type did NOT survive, not every receiver.
+    case m.Term.Name(n) if ctx.numericNames.contains(n) => true
+    case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+" | "-" | "*" | "/" | "%"), _, args) =>
+      isNumericExpr(l, ctx) && args.values.forall(isNumericExpr(_, ctx))
     case _ => false
 
   private def isOptionExpr(term: m.Term): Boolean = term match

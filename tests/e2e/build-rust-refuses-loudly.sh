@@ -485,6 +485,38 @@ SSC
     failed=1
   fi
 
+  # A type the walker WAS TOLD must survive to the emitter. Both shapes come from a user report
+  # that paired each with a CONTROL in the same file — that pairing is what proved neither was an
+  # inference limit: the declared annotation and the working literal sit side by side.
+  #   1. `def rowsOf(...): List[String]` — the RESULT must index, not lower to a call.
+  #   2. `.toInt` on a lambda parameter — `String as i32` is not a cast Rust has.
+  cat > "$tmp/typelost.ssc" <<'SSC'
+def rowsOf(s: String): List[String] = s.split(",")
+
+def main(): Unit =
+  val direct = ["a", "b"]
+  println("control-index  = " + direct(0))
+  val rows = rowsOf("x,y")
+  println("declared-index = " + rows(0))
+  println("control-toInt  = " + "121".toInt)
+  val m = Map("tail" -> "7")
+  println("lambda-toInt   = " + m.get("tail").map(s => s.toInt))
+SSC
+  set +e
+  tlb=$("$SSC" build-rust "$tmp/typelost.ssc" -o "$tmp/tlbin" 2>&1); tlrc=$?
+  tl_rust=$("$tmp/tlbin" 2>&1)
+  tl_ref=$("$ROOT/bin/ssc" run "$tmp/typelost.ssc" 2>/dev/null)
+  set -e
+  if [[ $tlrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — a declared type lost at a boundary does not build" >&2
+    echo "--- output: $(printf '%s' "$tlb" | tail -5)" >&2
+    failed=1
+  elif [[ "$tl_rust" != "$tl_ref" || -z "$tl_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on the declared-type cases" >&2
+    echo "--- rust: $(printf '%s' "$tl_rust" | tr '\n' '|')   ssc: $(printf '%s' "$tl_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # JSON is checked against the default lane, because the bug it replaced was a CONTRACT mismatch
   # that compiled: `jsonParse` returned a String on this lane and a value everywhere else, so the
   # only assertion that would have caught it is "the two lanes say the same thing".

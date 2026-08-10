@@ -1,3 +1,50 @@
+## type-lost-across-a-boundary
+
+<!-- status: fixed
+     fixed-in: PENDING
+     lane: v2-rust
+     area: codegen
+     reported-by: rozum / claude-opus-5, meeting room 'scalascript'
+     reported-at: 2026-08-10
+     ssc-version: 502b9f181
+     repro: repro/type-lost-across-a-boundary.ssc
+     confirmed: yes
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+Two shapes, **each paired with a CONTROL in the same file** — and the pairing is what made them
+cheap to fix, because it ruled out "inference limit" before I looked at anything:
+
+**1. A declared `List[String]` return was not remembered as a list.** `val direct = ["a","b"];
+direct(0)` compiles, so plain indexing is fine; `def rowsOf(s: String): List[String]` … `rows(0)`
+emitted a CALL — `expected function, found Vec<String>`. The annotation is in the signature, so
+nothing had to be inferred: `collectLocalSeqs` decides whether `xs(i)` is an index or a call, and
+its rules covered literals and seq-producing METHODS but never asked what a called def DECLARES.
+`_returnTypes` has held that since the `Any` boundary work; this is its first consumer.
+
+The reporter also predicted the shape of the wrong fix, correctly: a patch aimed only at
+`zipWithIndex`'s return type (yesterday's entry) would not have covered this one.
+
+**2. `toInt` on a lambda parameter emitted `s as i32`.** `"120".toInt` compiles — control — because
+a string LITERAL receiver is recognised. A lambda parameter is not, and the fallback was an `as`
+cast: `String as i32` is not a cast Rust has (E0605).
+
+Now a TOTAL helper, `crate::runtime::_to_int`, implemented for `i64`/`f64`/`String`/`&str`, so the
+generator can emit it knowing nothing about the receiver — the same trick that made the `Any`
+coercions work without inference. A receiver still known to be numeric (a literal, arithmetic over
+literals, or a parameter DECLARED `Int`/`Long`/…) keeps the direct `as i32 as i64`: the helper is
+correct there too, but the direct form is what the emitted crate reads like, and a golden says so.
+The i64 arm truncates through i32 and widens back, so the helper cannot quietly mean something
+different from the cast it replaces.
+
+Verified against the default lane, all four lines: `control-index = a`, `declared-index = x`,
+`control-toInt = 121`, `lambda-toInt = 7`.
+
+**On their framing** — "a type the walker WAS TOLD, lost at a boundary" — they suggested a refusal
+for "I am emitting an index/cast for a receiver whose type I no longer know". For (1) recording the
+type is strictly better than refusing, and for (2) so is a total helper: both keep the program
+working instead of stopping it. The refusal stays where it belongs — a method with no lowering at
+all.
+
 ## trailing-main-call-runs-the-program-twice
 
 <!-- status: open

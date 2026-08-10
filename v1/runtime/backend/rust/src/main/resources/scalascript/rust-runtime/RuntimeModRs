@@ -114,6 +114,22 @@
       |// (`\` and `u`) and stores whole strings as `List[Int]`. Indexing Rust's `chars()` instead
       |// would agree on ASCII and disagree on every astral character, which is the kind of
       |// difference that shows up as one wrong emoji in production and nowhere in a test.
+      |// `toInt` where the receiver's type did not survive to the emitter — a lambda parameter, a
+      |// field read. `s as i32` is not a cast Rust has for a String (E0605), and that is what such a
+      |// receiver used to get. Implemented for every type `toInt` is legal on in ScalaScript, so the
+      |// generator can emit it knowing nothing about the receiver.
+      |//
+      |// The i64 arm truncates through i32 and widens back, preserving the Int wraparound the direct
+      |// lowering has: this helper must not quietly mean something different from `x as i32 as i64`.
+      |#[allow(dead_code)]
+      |pub trait SscToInt { fn ssc_to_int(self) -> i64; }
+      |impl SscToInt for i64    { fn ssc_to_int(self) -> i64 { self as i32 as i64 } }
+      |impl SscToInt for f64    { fn ssc_to_int(self) -> i64 { self as i32 as i64 } }
+      |impl SscToInt for String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |impl SscToInt for &str   { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |#[allow(dead_code)]
+      |pub fn _to_int<T: SscToInt>(x: T) -> i64 { x.ssc_to_int() }
+      |
       |#[allow(dead_code)]
       |pub fn _str_char_at(s: &str, i: i64) -> i64 {
       |    s.encode_utf16()
