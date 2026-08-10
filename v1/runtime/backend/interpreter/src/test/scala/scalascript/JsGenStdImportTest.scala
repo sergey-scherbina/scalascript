@@ -996,7 +996,15 @@ class JsGenStdImportTest extends AnyFunSuite:
   test("content-toolkit runtime emits when the toolkit is imported transitively"):
     val source  = os.read(TestPaths.repoRoot / "examples" / "content-toolkit-transitive" / "app.ssc")
     val module  = Parser.parse(source)
-    val baseDir = TestPaths.repoRoot / "examples"
+    // baseDir is THIS EXAMPLE'S OWN directory, not `examples/`, and only for these two.
+    // `6b9fc4352` changed both files to import the sibling as `./studio.ssc` — the form every
+    // other multi-file example uses and the one the corpus resolves, relative to the importing
+    // FILE. This suite resolves relative to `examples/`, where the old directory-prefixed
+    // spelling was the correct one, so the two consumers disagreed and `generate` returned "".
+    // Aligned with the corpus rather than reverting the example: the corpus is the authority on
+    // how an import resolves, and the other 31 uses of `examples/` in this file still hold
+    // because their examples still spell imports the other way.
+    val baseDir = TestPaths.repoRoot / "examples" / "content-toolkit-transitive"
     val caps    = JsGen.detectCapabilities(module, Some(baseDir))
     val runtime = JsGen.generateRuntime(caps)
     val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
@@ -1016,7 +1024,9 @@ class JsGenStdImportTest extends AnyFunSuite:
   test("contentToolkitBlock resolves a block defined in a transitively-imported module"):
     val source   = os.read(TestPaths.repoRoot / "examples" / "content-toolkit-transitive-register" / "app.ssc")
     val module   = Parser.parse(source)
-    val baseDir  = TestPaths.repoRoot / "examples"
+    // Same as above: this example imports its sibling as `./studio.ssc`, so it must be resolved
+    // from its own directory.
+    val baseDir  = TestPaths.repoRoot / "examples" / "content-toolkit-transitive-register"
     val caps     = JsGen.detectCapabilities(module, Some(baseDir))
     val runtime  = JsGen.generateRuntime(caps)
     val moduleJs = JsGen.generate(module, baseDir = Some(baseDir))
