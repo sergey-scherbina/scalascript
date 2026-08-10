@@ -199,6 +199,46 @@ version coordinate is on its fourth declaration
 An identifier alphabet that disagrees between the front and the language it compiles does not
 produce a build error; it produces two parses of one file.
 
+## WHAT THE REMAINING REFUSALS ACTUALLY ARE — a census, 2026-08-09
+
+Measured after the day's language work took `N` from 188 to 191. The point of counting was to find
+the next LEVER, and the honest answer is that there is not one — there are several subsystems, and
+naming them is worth more than another guess at which construct to add.
+
+`corpus-report.sh` at `N = 191 / 368`, `UNSUPPORTED = 171`:
+
+    51  unknown name '…'
+    34  call to unknown function '…'
+    26  the host function '…' is not implemented on this lane
+     9  the marker '…' is outside SSC3 core Tier 0
+     9  a `trait` member that is not a `def`
+     9  `extension` is outside SSC3 core Tier 0
+     6  '…' is not a declared effect operation
+
+**The first three are 111 of the 171, and they are NOT language gaps.** Resolving the names in the
+first two buckets, over the conformance corpus:
+
+    12  Dataset        6  suspend        4  Async       3  Parser      3  math
+     2  RoundingMode   2  jsonParse      2  BigInt      2  Array       2  List
+     … then a tail of one each
+
+**`Dataset` is the largest single item and it is not a missing import.** `std/mapreduce/dataset.ssc`
+exists and defines it; the cases that use it carry `requires: Feature.Dataset` in their frontmatter
+and NO import link, so it is a LANE FEATURE the runtime is expected to provide, the way the other
+lanes do. Ten conformance cases stop on the bare name. `suspend`/`Async` (10 together) are the same
+shape for coroutines.
+
+**So the remaining corpus does not yield to one task.** It is: a Dataset feature (≈12), an
+async/coroutine feature (≈10), `extension` behaviour (9 refusals plus the three rows §54's X1
+names), and a long tail where each name is its own small piece of library. Anyone planning from the
+histogram alone would read "51 unknown names" as one job; it is at least four, and the biggest two
+are runtime FEATURES rather than modules to import.
+
+**Not started here because both files it needs were claimed** — `Exec.scala` by
+`v3-charat-on-the-executor` and `Lower.scala` by `v3-lowerfail-names-the-right-file` — and a
+census is what could be done without them. §51's design conclusion for `extension` still stands and
+is the shortest path to three rows when those files free up.
+
 ## THE TYPE CHECKER — DECIDED 2026-08-09: v3 gets one. See `v3/SPRINT.md` §52
 
 ⚠ **This section is now HISTORY, kept for the reasoning.** Sergiy took the decision on 2026-08-09
