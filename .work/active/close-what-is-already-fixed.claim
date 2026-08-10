@@ -5,7 +5,7 @@ started: 2026-08-10T13:09:32Z
 heartbeat: 2026-08-10T13:09:32Z
 status: implementing
 items: jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else json-core-emitted-rust-does-not-compile
-paths: file:tests/BUGS.md
+paths: file:tests/BUGS.md mod:v1/runtime/backend/rust
 scope: |
   Two entries I fixed today are still `status: open` on the board. That is the same disease I have
   repaired for other agents twice this week: a board that says open for work that landed teaches
