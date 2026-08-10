@@ -1771,7 +1771,37 @@ its stated budget for as long as that step has been broken.
 | `tests` | 384.2 s of 634.9 s (60 %), of which `sbt-plugin-scripted` 102.9 s |
 | everything else | 250.7 s |
 
-**Decided by the project owner, asked with the numbers above in hand: RAISED to 750 s on
+**AND 750 s AGED THE SAME WAY, in two days. STEP 2 IS DONE 2026-08-10: the budget is no longer a
+number.** The suite grew 72 → 78 checks and started failing runs with every check GREEN — 755.5 s,
+760.3 s, 775.5 s against 750. A fourth raise buys the same few weeks.
+
+Twelve CI samples now exist, which is what step 1 said to wait for. All at 78 checks, so the spread
+is host speed and nothing else:
+
+```
+probe ms   161   166   168   172   184   191   218   218   234   247   259   288
+suite  s  597.7 695.3 683.4 594.1 669.4 600.2 748.4 775.5 760.3 771.6 743.2 755.5
+```
+
+Least squares `suite ≈ 435.7 + 1.263 × probe`, r² = 0.56 — the probe explains just over half the
+spread, which is why the rule carries an 80 s margin rather than trusting the line.
+
+**Why relative, when a bigger absolute also stops the flapping.** Both cost the same in false reds on
+those twelve runs — absolute 850 and relative+80 each fail 0/12, where today's 750 fails 4/12. They
+differ in what they let PAST, which is the only thing a budget is for: absolute 850 is blind to
+growth of 74–256 s (median 155), relative+80 to 16–157 s (median 79). It tightens to 719 s on a fast
+runner instead of carrying slow-day slack everywhere.
+
+**CLAMPED TO THE SAMPLED RANGE, a correction that only running it produced.** The samples span
+161–288 ms; a dev host under sibling builds probed 1289 ms and the un-clamped fit answered 2144 s — a
+budget so large it stops being a guard exactly when a bloated suite could hide behind a slow machine.
+Beyond the range the line is extrapolation, not measurement, so the rule never exceeds 879 s.
+`SSC_SMOKE_BUDGET` still pins an absolute number.
+
+**This entry stays OPEN.** The rule is fitted to twelve samples at ONE suite size; the next honest
+step is refitting when the suite changes shape, and nothing yet forces that.
+
+**Previously: decided by the project owner, asked with the numbers in hand: RAISED to 750 s on
 2026-08-08.** `scripts/smoke-ci.ssc` says a raise "was refused twice before by agents including me,
 and correctly: an agent lifting a cap on its own work is how the cap stops meaning anything", and
 both prior raises (500 s, 600 s) were the owner's, so this one was put to them rather than applied.

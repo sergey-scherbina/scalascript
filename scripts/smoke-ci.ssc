@@ -90,6 +90,7 @@ wrong:
 | 500 s | 509.9 s | RED on the cap alone at 65/65 green — the suite had grown to 65 checks |
 | 600 s | 634.9 s | 72/72 green, RED on the cap alone (run 31253238252) — and the 600 s was never met by a suite doing all of its work, see below |
 | 750 s | RAISED 2026-08-08, on the project owner's instruction |
+| host-relative | 2026-08-10 — the number stops being a constant; see `budgetFor` |
 
 The third row is the lesson: the dominant check varies by ±25 % between runs on a shared runner, so a
 cap fitted to one sample encodes that sample's luck. POLICY P-6.6 says one measurement is a
@@ -126,6 +127,17 @@ fitted by. It is still the project owner's decision, asked for and given on 2026
 numbers in hand, and `tests/BUGS.md smoke-suite-over-its-own-budget` stays OPEN: 750 s is headroom
 for 72 checks, not an answer to what the push path should contain. The alternative offered and not
 taken was moving `sbt-plugin-scripted` (16 % of the run) to the sbt job.
+
+**AND THEN IT STOPPED BEING A NUMBER (2026-08-10).** Every raise above was fitted to observed totals,
+and each one aged the same way: the suite grew from 72 checks to 78, and 750 s started failing runs
+with 78/78 GREEN — 755.5 s, 760.3 s, 775.5 s. A fourth raise would buy the same few weeks.
+
+The default is now derived from the host-speed probe (`budgetFor`), on twelve CI samples rather than
+on a guess, and the comparison that justified it is in that function's comment: a plain absolute
+850 s and the relative rule BOTH flap zero times on those samples, but the relative one is blind to
+half as much growth (median 79 s against 155 s) because it tightens on a fast host instead of
+carrying slow-day slack everywhere. `SSC_SMOKE_BUDGET` still pins an absolute number when someone
+wants one, and a broken probe falls back to 850.
 
 When a run overruns THIS, read the per-check timings before touching the number; that is the whole
 point of printing them. Uniform inflation across every check is a loaded host, not a slow suite. One
@@ -675,6 +687,48 @@ def hostProbeMillis(): Int =
     i = i + 1
   (System.nanoTime() - startedAt) / 1000000
 
+// STEP 2 of `scripts/SPRINT.md smoke-budget-drift`, which step 1 left informational on purpose:
+// "the budget stays absolute until there are enough CI samples to set a reference honestly".
+// Twelve now exist, harvested 2026-08-10 from completed smoke runs — every one at 78 checks, so the
+// spread below is host speed and nothing else:
+//
+//     probe ms   161   166   168   172   184   191   218   218   234   247   259   288
+//     suite  s  597.7 695.3 683.4 594.1 669.4 600.2 748.4 775.5 760.3 771.6 743.2 755.5
+//
+// Least squares: suite ≈ 435.7 + 1.263 × probe. r² = 0.56 — the probe explains just over half the
+// spread, so the margin below is NOT decoration; residuals run −77 s to +64 s.
+//
+// WHY RELATIVE WHEN A BIGGER ABSOLUTE WOULD ALSO STOP THE FLAPPING — the comparison that decided it,
+// on those twelve runs, none of which was red because a CHECK found a defect:
+//
+//     absolute 750 (today)   4/12 runs fail      absolute 850          0/12 fail
+//     relative, no margin    7/12 fail           relative + 80 s       0/12 fail
+//
+// Both zero-flap rules cost the same in false reds. They differ in what they let PAST, which is the
+// only thing a budget is for: absolute 850 is blind to growth of 74–256 s (median 155), relative+80
+// to 16–157 s (median 79). On a fast host the relative threshold is 131 s TIGHTER than 850; on a slow
+// one it is 30 s looser. That is the whole point — do not punish a slow day, do catch a grown suite —
+// and a fixed second-count cannot do it by construction, as this file's own budget section says.
+//
+// A probe of 0 falls back to the last pinned absolute, because a budget derived from a broken
+// instrument is worse than a stale constant. Probes ABOVE the sampled range are clamped rather than
+// extrapolated — see the function.
+def budgetFor(probeMillis: Int, pinned: String): Int =
+  if pinned != "" then pinned.toInt()
+  else if probeMillis <= 0 then 850
+  else
+    // CLAMPED TO THE SAMPLED RANGE, and this is the correction that running it produced. The twelve
+    // samples span 161–288 ms; a dev host under sibling builds probed 1289 ms, and the un-clamped fit
+    // answered 2144 s — a budget so large it stops being a guard at exactly the moment a bloated
+    // suite would hide behind a slow machine. Outside the range the line is EXTRAPOLATION, not
+    // measurement, and a guard may never be more generous than its evidence.
+    // Anyone who genuinely needs a bigger number on a loaded host has SSC_SMOKE_BUDGET.
+    val lo = 161
+    val hi = 288
+    val clamped = if probeMillis < lo then lo else (if probeMillis > hi then hi else probeMillis)
+    val predicted = 436 + (1263 * clamped) / 1000   // the fit, in integer arithmetic
+    predicted + 80                                  // the margin the residuals require
+
 def runCheck(check: Check): Outcome =
   val startedAt = System.nanoTime()
   // A command that cannot be STARTED (renamed script, lost +x bit) throws out of `exec`. Left
@@ -725,7 +779,9 @@ def showTally(tally: LaneTally): String =
 def main() =
   val argv = args
   val listOnly = argv.contains("--list")
-  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "750").toInt()
+  // ABSOLUTE ONLY AS AN OVERRIDE. `SSC_SMOKE_BUDGET` still pins a number when someone wants one;
+  // with it unset the budget is derived from the host-speed probe below. See `budgetFor`.
+  val budgetOverride = envOrElse("SSC_SMOKE_BUDGET", "").trim()
   val modules = declaredModules()
 
   // The hierarchy check comes FIRST: a suite that silently drops a check because its module name
@@ -739,16 +795,18 @@ def main() =
 
   if listOnly then
     println("smoke-ci — " + suite.length.toString() + " checks, budget " +
-            budgetSeconds.toString() + "s")
+            (if budgetOverride == "" then "host-relative" else budgetOverride + "s"))
     suite.foreach(check =>
       println("  " + pad(check.module, 34) + check.name + "  (" + check.cmd + ")"))
     exit(0)
 
   val probeMillis = hostProbeMillis()
+  val budgetSeconds = budgetFor(probeMillis, budgetOverride)
   println("smoke-ci — " + suite.length.toString() + " checks across " +
           modules.length.toString() + " declared modules, budget " +
           budgetSeconds.toString() + "s, host probe " + probeMillis.toString() +
-          "ms (100 process spawns; informational — the budget is still absolute)")
+          "ms (100 process spawns" +
+          (if budgetOverride == "" then "; budget derived from it)" else "; budget PINNED by SSC_SMOKE_BUDGET)"))
   println("")
 
   var outcomes = List[Outcome]()
