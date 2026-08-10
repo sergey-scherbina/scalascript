@@ -1,7 +1,7 @@
 ## type-lost-across-a-boundary
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 8e6545753
      lane: v2-rust
      area: codegen
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
