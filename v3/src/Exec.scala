@@ -1539,6 +1539,15 @@ object Exec:
     case "io.println" =>
       println(if args.isEmpty then "" else showV(m, args.head))
       Value.VUnit
+    // A CLOCK, and it is `io.nanoTime` because that is what v2 already calls it
+    // (`v2/src/Runtime.scala`): the bridge emits `(prim <name> …)` verbatim, so a name v2 does not
+    // know would be a program that runs on one lane and is refused on the other. Same name, one
+    // prim, both lanes.
+    //
+    // This is what `Prim` is FOR. Invariant I-1 says everything outside the kernel reaches the
+    // language through `Prim` and the plugin SPI, so routing a clock through it is the boundary
+    // WORKING, not the boundary moving — the note in SSC3-3d that implied otherwise was wrong.
+    case "io.nanoTime" => Value.VInt(System.nanoTime())
     case "__autoOutput__" =>
       // Prints only a non-Unit value, exactly as v2 does — the rule the front relies on so that a
       // `println(…)` tail does not print twice.

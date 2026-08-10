@@ -1,0 +1,22 @@
+# A clock — SSC3-3d
+
+`nanoTime()` is the language's name; `io.nanoTime` is the prim's, and it is v2's own name for the
+same thing. The bridge emits prim names verbatim, so a different name would be a program that runs
+on the executor and is refused on the bridge — invariant I-3, from the one decision this feature
+actually had to make.
+
+**THE VALUE IS NEVER PRINTED, and that is a rule rather than a habit.** `exec-gate.sh` runs every
+fixture on the executor AND on the v2 bridge and requires identical output; a clock is the first
+prim whose result differs on every call, so printing one would make that gate fail forever and for
+the wrong reason. What is printed here is what a clock GUARANTEES — that it does not go backwards,
+that it is positive, and that a difference is a number — none of which depends on when it runs.
+
+```scalascript
+val t0 = nanoTime()
+val t1 = nanoTime()
+val elapsed = t1 - t0
+
+println(t0 > 0)
+println(t1 >= t0)
+println(elapsed >= 0)
+```

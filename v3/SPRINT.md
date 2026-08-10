@@ -72,7 +72,14 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
       one is not.
 
-- [ ] **SSC3-3d — a clock prim, so v3 can be timed by the same harness as everything else.**
+- [x] **SSC3-3d — a clock prim, so v3 can be timed by the same harness as everything else.**
+      DONE 2026-08-09. `nanoTime()` in the language, `io.nanoTime` as the prim — **v2's own name for
+      it**, because the bridge emits prim names verbatim and a different one would run on the
+      executor and be refused on the bridge. One prim, both lanes, no mapping and no refusal.
+      Both constraints this entry named are met: `v3/tests/front/clock.ssc` CALLS the clock and
+      prints only what a clock guarantees — that it does not go backwards, that it is positive, and
+      that a difference is a number — so `exec-gate.sh` reports `clock -> true/true/true (both
+      lanes agree)` rather than failing forever on a value that differs every run.
       v3 has no way to read a clock: the prim table is `io.println` plus collection operations. That
       is why the v3 bench column added on 2026-08-07 (`847707e98`) runs its rep loop DRIVER-SIDE in
       `ssc3 bench`, while every other column in `bench/run.sc` is timed by a wrapper written in

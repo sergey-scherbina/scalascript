@@ -17,7 +17,10 @@ object Lower:
   /** Names the language provides, mapped to the v2 prim spelling the bridge emits. Deliberately a
     * TABLE and not a fallthrough: an unknown name is a `LowerFail` naming it, so a typo becomes a
     * diagnostic at the source position rather than an unbound global three layers down. */
-  private val builtins: List[(String, String)] = List("println" -> "io.println", "__autoOutput__" -> "__autoOutput__", "__throw__" -> "__throw__")
+  // `nanoTime()` is the language's name for the clock and `io.nanoTime` is the prim's, which is
+  // v2's own name for it — the bridge emits prim names verbatim, so choosing a different one would
+  // be a program that runs on the executor and is refused on the bridge (invariant I-3).
+  private val builtins: List[(String, String)] = List("println" -> "io.println", "__autoOutput__" -> "__autoOutput__", "__throw__" -> "__throw__", "nanoTime" -> "io.nanoTime")
 
   /** Constructors the language provides. `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the
     * oracle, not assumed — so it is ordinary `MkData` over the type table rather than a special
