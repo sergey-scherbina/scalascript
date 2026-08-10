@@ -1,3 +1,42 @@
+## trailing-main-call-runs-the-program-twice
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     confirmed: yes
+     gate: none -->
+
+A file that ends with a bare `main()` call runs its body TWICE on two lanes and once on the third.
+Isolated against a control in the same shape:
+
+```
+def main(): Unit =
+  println("once")
+main()                        ← the trailing call
+
+bin/ssc run            once | once
+ssc-tools run --bytecode      once | once
+ssc-tools run --v1     once
+
+and with the trailing call REMOVED, every lane prints it once.
+```
+
+`ssc run` invokes `def main()` as the entry point, so an explicit top-level `main()` is a second
+call — literally correct on the native and bytecode lanes, and the interpreter suppresses one.
+
+**Why it is filed rather than fixed by me:** the two readings are both defensible — "the entry point
+is auto-invoked, so your call is a second one" against "an explicit call means the program says how
+to start itself" — and picking one silently changes what every existing script does. It needs a
+decision, not a patch.
+
+**It is not academic.** Every repro in `repro/` that a user has sent us ends with `main()`, and each
+time I have compared lanes I have had to mentally discount a doubled block; I watched it three times
+across two days before writing it down, which is exactly how a real divergence becomes background
+noise. Whichever way it is settled, the lanes should agree.
+
+Recommendation, if it helps: the interpreter's reading. A script that calls `main()` and gets two
+runs is the surprising one, and users are writing that file shape today.
+
 ## zipwithindex-result-is-not-indexable
 
 <!-- status: fixed

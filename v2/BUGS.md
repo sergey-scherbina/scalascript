@@ -3973,10 +3973,28 @@ Part (1) is in `v2/src`, which was held by a live claim (`v2-backend-matrix-gaps
 found, which is why this is filed complete rather than half-landed.
 
 ## rozum-agent-family-v2-diverges-again — four cases that were PASS hours ago now DIVERGE
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: native
      area: front
      gate: tests/conformance/contract.sc -->
+
+**Closed 2026-08-10 on the entry's OWN reproduce command, which is the only evidence that settles a
+case that has flip-flopped:**
+
+```
+scala-cli --server=false tests/conformance/contract.sc -- --lanes int,v2 \
+  --only 'rozum-agent,rozum-agent-pool,rozum-agent-schema-derived,rozum-agent-streaming'
+
+  PASS cells: 8/8   SKIP cases: 0   baseline: 0   roster: 566
+  ✓ contract GREEN
+```
+
+**`fixed-in` names the commit that VERIFIED this, not a cause.** The entry is from 2026-07-29 and
+the window it points at has since had a fortnight of front work in it; naming a culprit I have not
+bisected would be worse than saying so. The entry's own instruction — that a re-baseline would HIDE
+this and is the wrong response — was followed: the baseline is untouched and the cells pass on their
+merits.
 
 **Status:** OPEN, **not caused by the claim that found it** (`v2-backend-matrix-gaps`, 2026-07-29).
 Proven by control build, not assumed: the same four cases diverge identically with that claim's
@@ -5932,9 +5950,29 @@ should bind names, not print; INT is arguably right: a `.ssc` document IS its bl
 an owner decision rather than a patch.
 
 ## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
-<!-- status: open
+<!-- status: fixed
+     fixed-in: PENDING
      lane: native
      area: front -->
+
+**Closed 2026-08-10. BOTH halves, measured on all three lanes rather than the two the entry names:**
+
+```
+int (--v1)   Done | Derived posted. | Explicit posted. | 2
+v2 (bin/ssc) Done | Derived posted. | Explicit posted. | 2
+js (run-js)  Done | Derived posted. | Explicit posted. | 2
+```
+
+The v2 half was already recorded as cleared, leaving `Stub("Mirror.isProduct")` — that is gone, and
+it could not have survived today in any case: `Stub` reaching output is now fatal, so the symptom
+as written would be a hard error rather than an `if: condition not Bool`.
+
+The JS half the entry calls "untouched" also passes. One cosmetic thing seen while checking it and
+deliberately not filed: the emitter writes `_call(RunOptions, )` with a trailing comma. In a JS call
+that is legal, so it is ugly rather than broken — recorded here so the next reader does not chase
+it as the defect.
+
+`fixed-in` names the verifying commit, not a cause: this entry is from 2026-07-28.
 
 **Status:** OPEN — **but the v2 half is CLEARED, and what it was hiding is now visible** (updated
 2026-07-28 by `f-try-multistmt-def-body`). The predicted outcome held: fixing
