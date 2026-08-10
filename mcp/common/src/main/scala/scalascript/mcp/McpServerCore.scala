@@ -85,6 +85,15 @@ class McpServerBuilder:
   @volatile private[mcp] var clientCapabilities: ujson.Value = ujson.Obj()
   private[mcp] var onRootsListChanged: () => Unit = () => ()
 
+  // MCP 2026-07-28 — live `subscriptions/listen` streams, keyed by the numeric
+  // id of the request that opened them. HTTP does not strictly need this (the
+  // connection is the handle), but stdio does: every subscription shares one
+  // channel there, so `notifications/cancelled` naming a request id is the ONLY
+  // way a client can end one. Keeping both transports in the same registry
+  // means cancellation-by-id has one implementation rather than two.
+  private[mcp] val liveSubscriptions =
+    java.util.concurrent.ConcurrentHashMap[Long, Subscription]()
+
   // v1.17.x — pagination.  All four list endpoints (tools / resources /
   // resourceTemplates / prompts) apply the same page-size cap when set.
   // Default 0 means pagination disabled: every list returns its full
@@ -621,7 +630,19 @@ object McpServerCore:
                 else if m == McpProtocol.Method.RootsListChanged then
                   try builder.onRootsListChanged() catch case _: Throwable => ()
               case Right(JsonRpc.Message.Request(method, params, id)) =>
-                write(dispatch(builder, method, params, id, serverName, serverVersion))
+                if method == McpProtocol.Method.SubscriptionsListen
+                   && McpProtocol.parseRequestMeta(params).isModern then
+                  // The response IS the stream, and on stdio it is multiplexed
+                  // onto this same channel — so unlike HTTP there is nothing to
+                  // hold open and we MUST NOT block: the loop has to keep
+                  // reading, or the client could never send the cancellation
+                  // that ends the subscription.
+                  McpServerCore.openSubscription(builder, params, id, write)
+                else
+                  write(dispatch(builder, method, params, id, serverName, serverVersion))
+      // EOF: the transport is gone, so every stream on it is over. Without this
+      // a subscription outlives its channel and its writer targets a closed pipe.
+      builder.liveSubscriptions.values.forEach(_.close())
       try builder.onDisconnected() catch case _: Throwable => ()
     finally unsubscribe()
 
@@ -650,8 +671,14 @@ object McpServerCore:
     val honoured  = requested          // every type in the filter is serviceable
     val ended     = java.util.concurrent.CountDownLatch(1)
     val close     = builder.addListenSubscriber(write, honoured, id, () => ended.countDown())
+    val numericId = id.numOpt.map(_.toLong)
+    val sub = Subscription(id, () => {
+      close()
+      numericId.foreach(builder.liveSubscriptions.remove)
+    }, ended)
+    numericId.foreach(n => builder.liveSubscriptions.put(n, sub))
     write(McpProtocol.subscriptionsAcknowledged(id, honoured))
-    Subscription(id, close, ended)
+    sub
 
   /** Graceful closure: answer the long-lived request itself, then let the
    *  transport drop the stream. The ABSENCE of this response is what tells a
@@ -1022,6 +1049,13 @@ object McpServerCore:
       case Some(id) =>
         val flag = builder.inflightCancel.get(id)
         if flag != null then flag.set(true)
+        // MCP 2026-07-28 — on stdio this is how a client ends a subscription:
+        // there is no connection to close, every stream shares one channel, so
+        // the request id is the only handle. A cancelled id may be an in-flight
+        // CALL or a live SUBSCRIPTION and the client does not distinguish, so
+        // neither does this: both lookups run, and at most one will match.
+        val sub = builder.liveSubscriptions.get(id)
+        if sub != null then sub.close()
       case None => ()
 
   /** Run a tool/resource/prompt handler with cancellation + progress

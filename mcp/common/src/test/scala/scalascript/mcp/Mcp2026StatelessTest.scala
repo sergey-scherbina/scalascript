@@ -815,3 +815,112 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     noException should be thrownBy b.notifyToolsListChanged()
     noException should be thrownBy b.notifyToolsListChanged()
     healthy.methods should have size 2
+
+  // ── P4b-4: stdio — one channel, so the request id is the only handle ─
+
+  private def listenFrame(id: Int, filter: ujson.Obj) = JsonRpc.encodeRequest(
+    McpProtocol.Method.SubscriptionsListen,
+    ujson.Obj("notifications" -> filter,
+      "_meta" -> ujson.Obj(
+        McpProtocol.MetaKey.ProtocolVersion    -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj())), id.toLong)
+
+  test("stdio: a listen request opens a stream WITHOUT blocking the read loop"):
+    // The load-bearing property. If serve() blocked the way the HTTP callback
+    // does, the client could never send the cancellation that ends the
+    // subscription — the loop would not be reading. So a SECOND request after
+    // the listen must still be answered.
+    val b = new McpServerBuilder
+    b.tool("echo", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    val out = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val inbox = java.util.concurrent.LinkedBlockingQueue[String]()
+    inbox.put(listenFrame(1, ujson.Obj("toolsListChanged" -> true)))
+    inbox.put(JsonRpc.encodeRequest(McpProtocol.Method.ToolsList, ujson.Obj(), 2L))
+    val t = new Thread(new Runnable { def run(): Unit =
+      McpServerCore.serve(b, () => Option(inbox.poll(1, java.util.concurrent.TimeUnit.SECONDS)),
+        s => { out.add(s); () }, "srv", "9.9.9") })
+    t.setDaemon(true); t.start()
+    eventuallyQ(out, 2)
+    val frames = out.toArray.map(_.toString).toList
+    frames.head should include (McpProtocol.Method.SubscriptionsAcknowledged)
+    frames(1) should include ("\"id\":2")          // the loop kept reading
+    b.liveSubscriptions.size shouldBe 1
+    t.interrupt()
+
+  test("stdio: notifications/cancelled naming the listen id ends that subscription"):
+    // WAIT FOR THE SUBSCRIPTION TO EXIST BEFORE CANCELLING IT. The first
+    // version queued both frames up front and then waited for
+    // `liveSubscriptions.isEmpty` — which is true at t=0, before the listen is
+    // even read, so it passed instantly and every later assertion measured a
+    // server that had not started. That is why the same case failed with three
+    // different numbers on three runs: the test was green-by-accident at the
+    // wrong moment, not racy in the code under test.
+    val b = new McpServerBuilder
+    val out = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val inbox = java.util.concurrent.LinkedBlockingQueue[String]()
+    inbox.put(listenFrame(7, ujson.Obj("toolsListChanged" -> true)))
+    val t = new Thread(new Runnable { def run(): Unit =
+      // `take()`, not `poll(timeout)`: a timeout returns None, serve() reads that as
+      // EOF, and the EOF teardown closes every subscription — which would empty the
+      // registry whether or not cancellation works. Measured: with the cancellation
+      // disabled these cases still passed. Blocking forever means the ONLY thing that
+      // can empty the registry is the cancel.
+      McpServerCore.serve(b, () => Some(inbox.take()),
+        s => { out.add(s); () }, "srv", "9.9.9") })
+    t.setDaemon(true); t.start()
+    eventuallyCond(b.liveSubscriptions.size == 1)
+    out.peek should include (McpProtocol.Method.SubscriptionsAcknowledged)
+    inbox.put(JsonRpc.encodeNotification(McpProtocol.Method.Cancelled, ujson.Obj("requestId" -> 7)))
+    eventuallyCond(b.liveSubscriptions.isEmpty)
+    t.interrupt()
+
+  test("stdio: a cancelled id may be a CALL or a SUBSCRIPTION, and both lookups run"):
+    // A client does not distinguish them — it cancels a request id — so neither
+    // does the server. An id that matches neither must be harmless.
+    val b = new McpServerBuilder
+    val out = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val inbox = java.util.concurrent.LinkedBlockingQueue[String]()
+    inbox.put(listenFrame(3, ujson.Obj("toolsListChanged" -> true)))
+    val t = new Thread(new Runnable { def run(): Unit =
+      // `take()`, not `poll(timeout)`: a timeout returns None, serve() reads that as
+      // EOF, and the EOF teardown closes every subscription — which would empty the
+      // registry whether or not cancellation works. Measured: with the cancellation
+      // disabled these cases still passed. Blocking forever means the ONLY thing that
+      // can empty the registry is the cancel.
+      McpServerCore.serve(b, () => Some(inbox.take()),
+        s => { out.add(s); () }, "srv", "9.9.9") })
+    t.setDaemon(true); t.start()
+    eventuallyCond(b.liveSubscriptions.size == 1)
+    inbox.put(JsonRpc.encodeNotification(McpProtocol.Method.Cancelled,
+      ujson.Obj("requestId" -> 999)))              // matches nothing
+    Thread.sleep(80)
+    b.liveSubscriptions.size shouldBe 1            // untouched — and no exception
+    inbox.put(JsonRpc.encodeNotification(McpProtocol.Method.Cancelled,
+      ujson.Obj("requestId" -> 3)))
+    eventuallyCond(b.liveSubscriptions.isEmpty)
+    t.interrupt()
+
+  test("stdio: EOF closes every stream on that channel"):
+    // Without this a subscription outlives its transport and writes to a dead pipe.
+    val b = new McpServerBuilder
+    val out = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val inbox = java.util.concurrent.LinkedBlockingQueue[String]()
+    inbox.put(listenFrame(4, ujson.Obj("toolsListChanged" -> true)))
+    inbox.put(listenFrame(5, ujson.Obj("promptsListChanged" -> true)))
+    val eof = java.util.concurrent.atomic.AtomicBoolean(false)
+    val t = new Thread(new Runnable { def run(): Unit =
+      McpServerCore.serve(b,
+        () => if eof.get then None else Option(inbox.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS)),
+        s => { out.add(s); () }, "srv", "9.9.9") })
+    t.setDaemon(true); t.start()
+    eventuallyCond(b.liveSubscriptions.size == 2)
+    eof.set(true)
+    eventuallyCond(b.liveSubscriptions.isEmpty)
+
+  private def eventuallyQ(q: java.util.concurrent.ConcurrentLinkedQueue[String], n: Int): Unit =
+    eventuallyCond(q.size >= n)
+
+  private def eventuallyCond(cond: => Boolean): Unit =
+    var i = 0
+    while i < 100 && !cond do { Thread.sleep(20); i += 1 }
+    assert(cond, s"condition still false after ${i * 20}ms")
