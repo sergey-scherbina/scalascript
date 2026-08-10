@@ -10529,6 +10529,102 @@ lets them run past that point and reach this:
 
 All four run correctly on the int lane; `scljet-crud` prints four rowid lines there.
 
+### CAUSE FOUND AND FIXED 2026-08-10 — F drops the alternatives in `case A | B`
+
+**Eighteen lines, no scljet:**
+
+```scalascript
+sealed trait Kind
+case object LeafA extends Kind
+case object LeafB extends Kind
+case object Other extends Kind
+
+def single(k: Kind): String = k match
+  case LeafA | LeafB => "leaf"
+  case Other => "other"
+
+def blocky(k: Kind): String = k match
+  case LeafA | LeafB =>
+    val tag = "le"
+    tag + "af"
+  case Other => "other"
+```
+
+    single(LeafA)  F -> leaf                                    legacy/int -> leaf
+    single(LeafB)  F -> ssc: match: no arm for LeafB/0          legacy/int -> leaf
+    blocky(LeafA)  F -> ssc: app: not a function: 0 … <closure/0>   legacy/int -> leaf
+
+**One cause, and the two symptoms look unrelated.** `parseArmBody` reads the token after a pattern
+tag as the arrow and skips it with `tl(ts)`. For `A | B` that token is the PIPE (`lexPipe`, code
+63), so the body is parsed starting at `B => …`:
+
+- with a single-expression body the second alternative simply never becomes an arm — `no arm for B`;
+- with a BLOCK body, `B =>` followed by an indented block reads as a **trailing block argument**
+  (`fsub.ssc:717`, `f { block }` → `(app f (lam 0 block))`), so the arm body becomes an
+  APPLICATION — and that is the `app: not a function: 0 — applied to 1 argument(s): <closure/0>`
+  that cost five corpus rows, two gates and a CI job.
+
+**`scljet/btree.ssc` has exactly that shape**: `case TableLeafPage | IndexLeafPage =>` with a block
+body. Splitting that one arm by hand in a scratch copy made the entire scljet read path run under F,
+byte-identical to legacy — which is how the minimal repro and the corpus failure were tied together
+rather than assumed to be the same thing.
+
+**How it was found, because the route matters more than the answer.** Instrumenting the RUNTIME
+went nowhere for a day. Instrumenting the `.ssc` took one run: `println` markers inside
+`cursorAdvance` showed F entering the `Cons` arm and never reaching the marker inside the leaf arm,
+which pointed at the `match` on `page.header.kind` — and the alternative pattern is the one
+construct the skeleton I wrote yesterday did NOT have. That skeleton was recorded as a negative
+result; it is what said which construct was missing.
+
+**FIXED** in `parseCtorArm1` — an alternative list becomes one arm per tag with the same body
+(`parseAltArm`/`altArms`). Parenthesised alternatives (`case Cons(h, t) | Nil =>`) are deliberately
+left on the old path: they would need the binders to agree across alternatives, which is why Scala
+forbids binders there at all.
+
+**Gate: `tests/e2e/f-alternative-pattern-gate.sh`**, seven rows over int / F / legacy, verified in
+BOTH states — red on the unpatched front naming `no arm for LeafB/0` with int and legacy green, and
+green after. It keeps the BLOCK row deliberately: a gate with only the single-expression shape goes
+green while scljet stays broken, because that shape fails on the second tag and scljet's first tag
+is the common one. Smoke registration is OWED — `scripts/smoke-ci.ssc` is held by
+`smoke-budget-relative-to-host`; the overlap guard refused it and it is recorded rather than taken.
+
+**Measured effect on the rostered cases** (v2 lane, patched front):
+
+    scljet-crud         rc=0   delete 1,3: rowids List(2, 5) (2 pages)
+    scljet-full         rc=0   journaled write … rollback restores original: true
+    scljet-write-table  rc=0   wrote 1024 bytes, 2 pages, schema format 4, 3 rows in table nums
+    scljet-jdbc         reaches `-- insert two more rows --`, then exceeds a 500 s cap
+
+**AND THE OTHER THREE HIT A WALL THE FIX EXPOSED RATHER THAN CAUSED.** `scljet-hello`,
+`scljet-unique-index` and `scljet-jdbc` all exceed **1800 s** on F now. They used to fail in
+seconds, so "it got slower" was a real possibility and not one to wave away — two measurements
+settle it.
+
+The control, same example, the front my change does not touch:
+
+    main bin,    legacy front, scljet-hello   rc=0   39s
+    patched bin, legacy front, scljet-hello   rc=0   38s
+
+**39 seconds.** So the cost is not the program's, and my first instinct — "these are simply the
+biggest examples" — is wrong; the same source runs in well under a minute on the other front.
+
+The A/B that exonerates the fix, same front F, examples F could already run:
+
+    main bin    F  scljet-write-table  rc=0   9s      main bin    F  scljet-bytes  rc=0   8s
+    patched bin F  scljet-write-table  rc=0   9s      patched bin F  scljet-bytes  rc=0  10s
+
+Identical within noise. **The fix is not the slowdown.** What it did was let these three programs
+RUN, and running is where the cost is: before, F compiled them and died at the first alternative
+pattern, so the wall was never reached.
+
+**So the number to carry forward is 39 s legacy versus >1800 s F on the same program — over 46×,
+where `f-front-compile-cost-7x-on-scljet` records ~7×.** That gap is the next blocker for these
+three, it is now measured rather than inferred, and it was invisible for as long as F failed fast.
+
+`scljet-jdbc` is therefore back to being the TIMEOUT its neighbour
+(`corpus-contract-scljet-jdbc-v2-timeout`) was originally filed for — with the difference that the
+timeout is now known to be F-specific and not the case's own cost.
+
 ### PINNED TO THE F FRONT 2026-08-10 — legacy runs the same file correctly
 
 The missing control. Yesterday `ssc info --front-report` said `F`, which says which front COMPILED

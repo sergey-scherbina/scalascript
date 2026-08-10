@@ -1705,7 +1705,36 @@ def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2
 // followed by one. A plain `case Ctor(..)` (no `.`) is unchanged.
 def ctorTag(ts) = if isTok(hd(tl(ts)), 2, 31) then (snd(hd(tl(tl(ts)))), tl(tl(tl(ts)))) else (snd(hd(ts)), tl(ts))
 def parseCtorArm(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseCtorArm1(nm, r, menv, cx) }
-def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx)
+// An ALTERNATIVE pattern — `case A | B => body` — is one arm per tag with the SAME body. Without
+// this, `parseArmBody` below did `tl(ts)` on the assumption that the token after the tag is the
+// arrow; for `A | B` that token is the `|` (lexPipe, code 63), so the body was parsed starting at
+// `B => …` and the second alternative never became an arm at all. Two symptoms, one cause, and
+// they look unrelated until you know that:
+//
+//   case A | B => "x"           -- A answers "x"; B says `match: no arm for B/0`
+//   case A | B =>\n  <block>    -- even A dies, with `app: not a function: 0 … <closure/0>`,
+//                                  because `B =>` followed by an indented block reads as a
+//                                  trailing block argument and the arm body became an APPLICATION
+//
+// The second is what took five scljet corpus cases, two gates and a CI job down: `btree.ssc`'s
+// `case TableLeafPage | IndexLeafPage =>` has a block body (v2/BUGS.md
+// scljet-app-not-a-function-after-the-concat-fix). Splitting that one arm by hand made the whole
+// scljet read path run under F, which is how the two were tied together.
+//
+// ONLY bare tags. A parenthesised alternative (`case Cons(h, t) | Nil =>`) would need the binders
+// to agree across alternatives — Scala forbids binders there for that reason — so an alternative
+// carrying `(` is left to the old path rather than guessed at.
+def isAltPipe(ts) = isTok(hd(ts), 2, 63)
+def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else (if isAltPipe(ts) then parseAltArm(Cons(nm, Nil), tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx))
+def parseAltArm(tags, ts, menv, cx) = ctorTag(ts) match { case (nm2, r) => parseAltArm1(Cons(nm2, tags), r, menv, cx) }
+def parseAltArm1(tags, ts, menv, cx) = if isAltPipe(ts) then parseAltArm(tags, tl(ts), menv, cx) else (if isTok(hd(ts), 2, 21) then parseAltGiveUp(tags, ts, menv, cx) else parseAltBody(tags, ts, menv, cx))
+// A parenthesised alternative: fall back to the pre-existing single-tag path on the LAST tag, which
+// is what F did before this arm existed. Not correct, but unchanged — and it cannot reach the block
+// form above, because that needs the arrow.
+def parseAltGiveUp(tags, ts, menv, cx) = parseCtorArm2(hd(tags), tl(ts), menv, cx)
+def parseAltBody(tags, ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseArmsMore(altArms(tags, erase(body, cx)), r, menv, cx) }
+// `tags` is accumulated head-first, so recursing tail-first restores source order.
+def altArms(tags, b) = tags match { case Nil => "" case h :: t => join2(altArms(t, b), "(arm " ++ h ++ " 0 " ++ b ++ ")") }
 def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
 def parseArmBody(nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ erase(body, cx) ++ ")", r, menv, cx) }
 def parseArmsMore(a, ts, menv, cx) = parseArms(ts, menv, cx) match { case (more, r) => ((joinArm(a, fst(more)), snd(more)), r) }

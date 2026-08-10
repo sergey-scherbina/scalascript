@@ -8537,3 +8537,57 @@ attached, not a guess.
 
 **Not fixed here** because `scripts/smoke-ci.ssc` is not in this claim's scope and the right cap is
 a judgement about the whole suite's budget, not this row alone.
+
+## install-dev-does-not-restage-the-F-front — an edit to `fsub.ssc` is invisible after installing
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: -
+     fixed-in: - -->
+
+**Status:** OPEN (found 2026-08-10 while fixing `case A | B` in F — the fix appeared not to work,
+and the reason was that it had never been installed).
+
+`build.sbt` maps the F front into the toolchain:
+
+```scala
+root / "specs" / "v2.2-p6.5-fsub.ssc" -> nativeFrontDir / "tower" / "bin" / "fsub.ssc",
+```
+
+**and `./install.sh --dev` exits 0 without re-staging it.** Measured: edit
+`specs/v2.2-p6.5-fsub.ssc`, run `./install.sh --dev` (exit 0, zero `[error]` lines), then
+
+```console
+$ grep -c parseAltArm specs/v2.2-p6.5-fsub.ssc                              3
+$ grep -c parseAltArm bin/lib/standard/native-front/tower/bin/fsub.ssc      0
+$ grep -c parseAltArm bin/lib/native-front/tower/bin/fsub.ssc               0
+```
+
+Copying the file into both staged paths by hand made the same fix work immediately.
+
+**Why this is worse than a stale build.** The launcher's own staleness check compares a digest of
+the build's inputs and did not fire, so nothing warned. So the loop "edit F → install → measure"
+silently measures the OLD front, and the natural conclusion is *the fix does not work* — which is
+a wrong conclusion reached through a correct-looking procedure. Two of this repository's standing
+rules exist for exactly this shape (`validate the probe reaches the shipped artifact`, and the
+`--dev exits 0 on a failed compile` note), and neither covers a file that is COPIED rather than
+compiled.
+
+**Both staged trees are affected**, which matters: `bin/lib/native-front/` and
+`bin/lib/standard/native-front/` are separate copies and a fix that updates one still leaves the
+other stale for whichever launcher reads it.
+
+**Not diagnosed further here.** Whether `--dev` skips that mapping deliberately (it is a "dev"
+install) or the mapping sits in a task `--dev` does not run is the first thing to establish; the
+fix is only interesting after that. Until then the workaround is one line, and anyone touching F
+needs it:
+
+```sh
+for f in $(find bin -name fsub.ssc); do cp specs/v2.2-p6.5-fsub.ssc "$f"; done
+```
+
+**How long this could have been true is worth measuring** — `case A | B` has been broken in F for
+as long as `parseCtorArm1` has existed, and a front whose edits do not reach the artifact is a
+plausible reason a defect that size survived.
