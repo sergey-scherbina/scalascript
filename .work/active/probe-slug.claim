@@ -1,0 +1,11 @@
+slug: probe-slug
+branch: feature/probe-slug
+agent: claude-code
+started: 2026-08-10T20:31:29Z
+heartbeat: 2026-08-10T20:31:29Z
+status: claimed-before-planning
+items: map-getorelse-expr-receiver SSC3-J1c
+paths: file:x
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
