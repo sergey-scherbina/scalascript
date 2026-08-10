@@ -1,0 +1,11 @@
+slug: digest-misses-the-front
+branch: feature/digest-misses-the-front
+agent: claude-code
+started: 2026-08-10T09:31:20Z
+heartbeat: 2026-08-10T09:31:20Z
+status: claimed-before-planning
+items: launcher-digest-includes-nested-specs-so-a-doc-commit-forces-a-rebuild
+paths: file:scripts/launcher-input-digest file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
