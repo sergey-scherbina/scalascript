@@ -157,6 +157,35 @@ indices are captured, and the dispatch switch becomes a call. This is the rung n
 and being in the portable subset it is the one that makes v3 fast *as a self-hosted compiler* and not
 only as a JVM program.
 
+#### J2's design, settled 2026-08-10
+
+**One type.** `Op = Array[Value] => Signal` — a compiled instruction, taking the frame and returning
+the same four-case `Signal` the tree-walker returns. A compiled body is an `Array[Op]` and the
+dispatch loop is `while i < ops.length do ops(i)(regs)`.
+
+**What it removes, per instruction, per execution:** the pattern match on `Instr`, and the operand
+decode. `Instr.Const(d, k)` becomes a closure that has already resolved `k` to a `Value` and
+captured it — not an array read, not a pool index, nothing. `Bin` has its two source registers and
+its proved `kind` baked in. A region no longer re-walks a `List[Instr]` and re-dispatches every
+instruction inside it on every iteration of its loop.
+
+**Coverage is a decision, not a limit.** The opcode set is closed (§2, L1), so the compiler could
+handle all of it — but it does not have to on day one, and pretending otherwise is how v1's bail
+list started. Every instruction the compiler does not specialize becomes
+`regs => Exec.stepOne(m, i, regs)`: the exact interpreter arm, reached through one closure. So the
+lane is COMPLETE from its first commit and gets faster as opcodes move across, and there is no
+program it refuses.
+
+**Behind `--closures`, default off, and that is the measurement design rather than caution.** Two
+execution strategies over the same IR, selectable in one binary, is the best A/B rig available here
+(§8.1) *and* a differential: `--identity` gains a second comparison in which two independent
+executions of every corpus program must agree byte for byte. That is the technique the charter
+credits with finding 8 defects in UniML, applied to the executor itself.
+
+**What it does NOT do:** touch the frame. `callFunc` still allocates `new Array[Value](nregs)` per
+call, so `recursion-fib` is expected not to move — the same control that made the J0 numbers mean
+something, kept deliberately for J2.
+
 ### J3 · Host bytecode behind a by-name seam — a separate decision
 
 The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,
