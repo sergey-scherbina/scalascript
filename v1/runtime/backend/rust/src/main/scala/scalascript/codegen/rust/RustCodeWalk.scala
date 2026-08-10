@@ -1140,8 +1140,27 @@ object RustCodeWalk:
       // No-arg seq conversions: `e.toList` / `e.toArray`.
       case m.Term.Select(_, m.Term.Name(n)) if SeqMethods.contains(n) => Some(false)
       case _ => None
+    // A SEQ-PRESERVING CALL ON SOMETHING ALREADY KNOWN TO BE A SEQ.
+    //
+    // `filter`, `drop` and their neighbours are NOT in `SeqMethods`, because the name alone does
+    // not say: `Option` has `filter` and `map` too, and recording an Option as a seq is the wrong
+    // direction — it would refuse working code, which is what that set's own comment warns about.
+    // Asking about the RECEIVER settles it: a chain rooted in a list literal is a list at every
+    // step. `val kept = ["a","bb"].drop(1).filter(…)` was not recorded, so `kept.headOption`
+    // reached a user as `no field headOption on type Vec<String>`
+    // (INBOX no-paren-list-method-becomes-a-field).
+    val SeqPreserving = Set("filter", "filterNot", "drop", "take", "dropRight", "takeRight",
+                            "sortBy", "sortWith", "tail", "init")
+    def rootedInSeq(t: m.Term): Boolean = t match
+      case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(n)), _)
+        if SeqPreserving.contains(n) || SeqMethods.contains(n) => rootedInSeq(q)
+      case m.Term.Select(q, m.Term.Name(n)) if SeqPreserving.contains(n) => rootedInSeq(q)
+      case _ => false
     def record(n: String, rhs: m.Term): Unit =
-      seqCtor(rhs).foreach { isArr => seqs += n; if isArr then arrays += n }
+      seqCtor(rhs) match
+        case Some(isArr) => seqs += n; if isArr then arrays += n
+        case None        => if rootedInSeq(rhs) then seqs += n
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
@@ -2002,6 +2021,36 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(field)) if isTupleAccessor(field) =>
       renderTerm(qual, ctx).map(q => s"$q.${field.drop(1).toInt - 1}")
     // Struct / case-class field access: `v.x` → `v.x` in Rust.
+    // `xs.headOption` / `xs.lastOption` — WITHOUT parentheses, which is how they are written.
+    // `Vec::first`/`last` hand back a reference, and Scala's are `Option[T]`, so the borrow is
+    // cloned away exactly as `Map::get` is a few hundred lines down.
+    case m.Term.Select(qual, m.Term.Name("headOption")) if isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"$q.first().cloned()")
+    case m.Term.Select(qual, m.Term.Name("lastOption")) if isKnownVecReceiver(qual, ctx) =>
+      renderTerm(qual, ctx).map(q => s"$q.last().cloned()")
+
+    // AN UNLOWERED NO-PAREN MEMBER ON A KNOWN List/String IS REFUSED, not emitted.
+    //
+    // The arm below is right for a case class — `p.name` IS a field — and wrong for everything
+    // else, and it does not ask which the receiver is. So `kept.headOption` became
+    // `kept.headOption` in Rust and rustc said `no field 'headOption' on type 'Vec<String>'`:
+    // this backend's gap, reported on the user's line. (INBOX no-paren-list-method-becomes-a-field.)
+    //
+    // The by-name refusal for method CALLS already existed and did not reach here, because a
+    // no-paren member arrives as a select and never as an apply — which is the whole of why the
+    // report says the refusal, not just `headOption`, is the load-bearing half.
+    //
+    // Scoped to receivers whose type is KNOWN, for the same reason that one is: a field access on
+    // anything else must keep passing through.
+    case m.Term.Select(qual, m.Term.Name(meth))
+        if (isKnownVecReceiver(qual, ctx) || isStringExpr(qual)) && !isTupleAccessor(meth) =>
+      val what = if isStringExpr(qual) then "String" else "List"
+      Left(List(unsupported(
+        s"def `${ctx.defName}` reads `$meth` on a $what and the rust backend has no lowering " +
+        s"for it — written without parentheses, the name would be emitted as a Rust FIELD, " +
+        s"and no Vec or String has one"
+      )))
+
     case m.Term.Select(qual, m.Term.Name(field)) =>
       renderTerm(qual, ctx).map(q => s"$q.$field")
     // A user effect op call `Eff.op(args)` → `_eff.op(args)` (tagless-final dispatch).

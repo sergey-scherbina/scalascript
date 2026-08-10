@@ -83,6 +83,40 @@ class RustGenCodeWalkTest extends AnyFunSuite:
 
   // ── R.1 capability surface — anything outside hello-world fails ─────
 
+  test("headOption without parentheses lowers, and does not become a Rust field"):
+    // INBOX no-paren-list-method-becomes-a-field. `renderTerm`'s catch-all turns any no-paren
+    // select into `q.field`, which is right for a case class and wrong for a Vec: rustc reported
+    // `no field \`headOption\` on type \`Vec<String>\`` on the USER's line.
+    val src =
+      """```scalascript
+        |def main(): Unit =
+        |  val kept = ["a", "bb"].filter(r => r.length > 1)
+        |  println(kept.headOption.getOrElse("-"))
+        |main()
+        |```
+        |""".stripMargin
+    val g = assets(src)("src/generated/ssc_program.rs")
+    assert(g.contains(".first().cloned()"), s"headOption did not lower:\n$g")
+    assert(!g.contains(".headOption"), s"headOption survived as a field access:\n$g")
+
+  test("Failed: an unlowered no-paren member on a List is refused, not emitted as a field"):
+    // The half that matters more than `headOption` itself: the by-name refusal already existed
+    // for method CALLS and could not reach a select, so the NEXT unlowered member would have
+    // reached a user as `no field X on type Vec<…>` again.
+    val src =
+      """```scalascript
+        |def main(): Unit =
+        |  val kept = ["a", "bb"].filter(r => r.length > 1)
+        |  println(kept.thereIsNoSuchMember)
+        |main()
+        |```
+        |""".stripMargin
+    val ds = diagnostics(src)
+    assert(ds.exists {
+      case Diagnostic.Generic(m, _) => m.contains("thereIsNoSuchMember") && m.contains("List")
+      case _                        => false
+    }, s"expected a named refusal, got: $ds")
+
   test("Failed: param with a non-primitive type yields a structured diagnostic"):
     // R.2 accepts primitives, enums, function types, and List/Vec (with
     // type args).  A truly-out-of-scope type still surfaces a diagnostic.
