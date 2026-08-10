@@ -8953,6 +8953,22 @@ attached, not a guess.
 **Not fixed here** because `scripts/smoke-ci.ssc` is not in this claim's scope and the right cap is
 a judgement about the whole suite's budget, not this row alone.
 
+### A SECOND INSTANCE 2026-08-10 — `build-rust-refuses-loudly`, 162 s against a 180 s cap
+
+Same shape, found the same way: it went red in-suite as a TIMEOUT and passes standalone.
+
+    in-suite     FAIL 180.1s   exit code -1 — TIMED OUT against its 180s guard
+    standalone   ok   162s
+
+**10 % of headroom.** So this is a FAMILY, not one badly-chosen number, and the entry is worth
+reading as such: caps in this suite are being set from an unloaded host and the suite itself runs
+its checks in parallel, so the loaded number is the one that matters and it is not the one used.
+
+`entry-auto-invoke-once` failed in the same run and is NOT part of the family — 49 s against a 120 s
+cap standalone, comfortable, and its in-suite timeout was contention on a host that had been
+building all day. The difference between the two is the margin, which is the whole point: 10 % is a
+cap inside its variance and 60 % is a bad afternoon.
+
 ## install-dev-does-not-restage-the-F-front — an edit to `fsub.ssc` is invisible after installing
 
 <!-- status: fixed
