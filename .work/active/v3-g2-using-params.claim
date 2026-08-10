@@ -1,0 +1,11 @@
+slug: v3-g2-using-params
+branch: feature/v3-g2-using-params
+agent: claude-code
+started: 2026-08-10T06:53:55Z
+heartbeat: 2026-08-10T06:53:55Z
+status: claimed-before-planning
+items: SSC3-G2-stage1 using-params context-bounds summon-resolution
+paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:v3/tests/front/using-param.ssc file:v3/tests/front/using-param.expected file:v3/tests/front/using-ambiguous.ssc file:v3/SPRINT.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
