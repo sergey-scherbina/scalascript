@@ -394,11 +394,37 @@ capability and a repaired differential before anything could report it. There is
 
 ## v3-uniml-jar-goes-stale-and-breaks-the-kernel-build — it does not, and the real cost is a Scala compile error printed OVER the diagnostic
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: build
      kind: apparatus
-     gate: none -->
+     gate: v3/uniml-classpath.sh --check
+     fixed-in: a5a6e3e2f -->
+
+**Fixed 2026-08-10 in `a5a6e3e2f`, and the fix is a DIAGNOSIS rather than a rebuild** — the driver
+still may not run sbt, so it cannot repair the classpath; what it can do is stop misreporting it.
+`uniml-classpath.sh` stamps a digest of UniML's own sources beside the classpath and gains
+`--check` (0 current, 1 stale, 2 nothing cached). The driver captures the compile's stderr instead
+of letting it through and asks why ONLY when that compile already failed: a stale stamp gets a
+three-line message naming the cause and the command that fixes it, with the compiler's output
+suppressed as the symptom it is, while a FRESH stamp still gets the compiler's full output, because
+then it is a real error about this tree.
+
+The check sits on the failure path deliberately: 0.09 s over 152 files, and `front-diff.sh` runs the
+driver once per fixture, so paying it on every invocation would be a real cost for a rare condition.
+
+Proven in both directions before landing: a planted stale stamp with a broken `uniml.cp` produces
+the named cause, the fallback and exit 0 with no compiler noise; a planted TYPE ERROR in
+`UniFront.scala` with a fresh stamp still shows the compiler's error in full. Both files restored
+byte-identical.
+
+**The entry's own second half — the misattributed gate — is what this cost me most.** Every fresh
+worktree opened for SSC3-J0, J1, J2, J1c and J1d began with `exec-gate` or `front-gate` RED on a
+sibling's fixture, and each time the first hypothesis was "my change broke it". That is five more
+occurrences on top of the two recorded below, all of the same shape: the checkout is stale and the
+diagnostic points at the code.
+
+### Original report (superseded 2026-08-10)
 
 **THE TITLE IS THE FIRST FRAMING AND IT IS WRONG, kept because the correction is the entry.**
 `v3/.jars/uniml.cp` is not invalidated when UniML's sources change, so a tree whose classpath
