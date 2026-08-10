@@ -15,15 +15,39 @@
 # that suite's setup.
 name: v3
 
+# `v2/**` IS IN THE TRIGGER, and leaving it out cost a red `main` nobody could have seen coming.
+#
+# v3 has two lanes and invariant I-3 says they agree. The `exec` lane is v3's own interpreter; the
+# `--bridge` lane emits Core IR and runs it **on the v2 runtime**. So `v2/src/Runtime.scala` is not
+# a neighbouring project — it is half of what `exec-gate.sh` compares, and a path filter of `v3/**`
+# made that half unwatched.
+#
+# Measured 2026-08-10. `f39448c96` changed `charAt` to yield a Char on every lane, touching
+# `v2/src/Runtime.scala` and `v2/lib/string.ssc0` and nothing under `v3/`. This workflow did not
+# run. Four commits later a push that touched only two gate SCRIPTS and a markdown file triggered
+# it, and `executor differential` went red on `char-literals`:
+#
+#     executor  x/121/A/98/true/sq      <- v3's own interpreter, still the character CODE
+#     bridge    x/121/A/b/true/sq       <- the v2 runtime, now the CHARACTER
+#
+# The lanes had disagreed for four commits. The claim that made the change scoped
+# `v2/src/Runtime.scala` and the rust backend — reasonably, since nothing told anyone that v3's
+# executor implements the same primitive.
+#
+# THE COST IS REAL AND IS THE POINT: v3's gates now run on every push that touches `v2/`. That is
+# the price of the bridge lane being a bridge. The alternative is what just happened — the
+# divergence is found by whoever next touches an unrelated file under `v3/`.
 on:
   push:
     branches: [main]
     paths:
       - 'v3/**'
+      - 'v2/**'
       - '.github/workflows/v3.yml'
   pull_request:
     paths:
       - 'v3/**'
+      - 'v2/**'
       - '.github/workflows/v3.yml'
   workflow_dispatch:
 

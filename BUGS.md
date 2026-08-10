@@ -6348,3 +6348,44 @@ The second half — `v3/front-diff.sh` in no workflow — is closed by the same 
 entry: it is now a step in `.github/workflows/v3.yml`. Added AFTER the gate went green, which was
 the whole reason it was not added when this was filed. The window in which a front-to-front
 disagreement can sit unnoticed is no longer "until someone remembers to run it".
+
+## v3-executor-still-returns-the-charAt-CODE-while-the-bridge-returns-the-character
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/exec-gate.sh -->
+
+**`main` is red on this now.** v3's two lanes disagree, which invariant I-3 forbids:
+
+```text
+v3/tests/front/char-literals.ssc
+  executor  x/121/A/98/true/sq      <- v3's own interpreter: the character CODE
+  bridge    x/121/A/b/true/sq       <- the v2 runtime: the CHARACTER
+```
+
+Reproduced locally, not read off a CI log: `v3/ssc3 exec` against `v3/ssc3 run --bridge`.
+
+**Cause, attributed by construction.** `f39448c96` — *charAt is a Char on every lane* — changed
+`v2/src/Runtime.scala` and `v2/lib/string.ssc0`. v3's `--bridge` lane RUNS ON that runtime, so it
+followed immediately; v3's own executor implements the same primitive separately and did not. The
+claim behind the change (`charat-is-a-char`) scopes `v2/src/Runtime.scala`, the rust backend and
+two test files — reasonably, because nothing in the tree says that v3's executor is a fourth
+implementation of `charAt`. "Every lane" turned out to mean every lane the author could see.
+
+**Why it sat for four commits.** `.github/workflows/v3.yml` triggered on `v3/**` only. A change to
+the v2 runtime — half of what `exec-gate.sh` compares — could not turn this workflow red. It went
+red when a push touching two gate SCRIPTS and a markdown file happened to match the path filter.
+That half is fixed in the same commit that files this: the trigger now includes `v2/**`, at the
+cost of v3's gates running on every v2 push, which is the price of the bridge lane being a bridge.
+
+**Not fixed here, and not for want of trying.** `v3/src/Exec.scala` is held by
+`v3-dataset-vertical-slice`; `charat-is-a-char` is live and mid-decision on its next item. The fix
+is one of two things, and the choice belongs to those two agents rather than to a third party
+reading the symptom: v3's executor adopts the Char, or the decision is narrowed to say which lanes
+"every lane" covers.
+
+Same shape as `v3-two-fronts-differ-in-CAPABILITY` and as the loader's stale search path, both
+found today: a differential is blind to the component its two sides SHARE, and a path filter is
+blind to the dependency it does not name.
