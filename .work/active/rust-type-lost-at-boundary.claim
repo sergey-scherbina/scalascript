@@ -1,0 +1,18 @@
+slug: rust-type-lost-at-boundary
+branch: feature/rust-type-lost-at-boundary
+agent: claude-code
+started: 2026-08-10T07:53:05Z
+heartbeat: 2026-08-10T07:53:05Z
+status: implementing
+items: type-lost-across-a-boundary
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:INBOX.md
+scope: |
+  rozum, with a control for each shape in the same file:
+  1. a DECLARED `List[String]` return is not remembered as a list, so `rows(0)` emits a CALL. The
+     annotation is in the signature -- not an inference limit, a stated fact dropped. I already
+     collect `_returnTypes` for the Any boundary; collectLocalSeqs simply never consulted it.
+  2. `toInt` on a lambda parameter emits `s as i32` -- `String as i32` is not a cast Rust has.
+  Their framing is right: both are a type the walker WAS TOLD, lost at a boundary. For (2) a TOTAL
+  helper beats a refusal -- implemented for i64/f64/String it is correct whatever the walker knows,
+  which is the same trick that made the Any coercions work.
+next: record call-of-a-List-returning-def as a seq; route toInt through a total helper
