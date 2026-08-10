@@ -1390,8 +1390,7 @@ the paired freeze; the cost of doing it alone is recorded under
      area: front
      kind: divergence
      gate: sbt backendInterpreter/testOnly *PackageRootImportTest*
-     fixed-in: fa9249f0e
-     fixed-in: - -->
+     fixed-in: fa9249f0e -->
 
 Found 2026-08-05 while implementing `native-front-has-no-package-namespace`, checking whether the
 new namespace should honour `exports:`. It should not, and does not — **both lanes expose a

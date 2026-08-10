@@ -10491,6 +10491,42 @@ lets them run past that point and reach this:
 
 All four run correctly on the int lane; `scljet-crud` prints four rowid lines there.
 
+### PINNED TO THE F FRONT 2026-08-10 — legacy runs the same file correctly
+
+The missing control. Yesterday `ssc info --front-report` said `F`, which says which front COMPILED
+the file and not that the other one would do better. One environment variable settles it — same
+file, same lane, same binary:
+
+```text
+SSC_FRONT=F        ->  built ok / ssc: app: not a function: 0 — applied to 1 argument(s): <closure/0>
+SSC_FRONT=legacy   ->  built ok / rowids List(1)
+```
+
+**So this is an F LOWERING defect, not a VM one**, and the VM's `applyFallback` is only where it
+surfaces. That halves the search: the question is no longer "what applies 0 to a thunk" anywhere in
+the runtime, it is "what does F emit here that legacy does not". Combined with the two facts already
+recorded — the app site is a one-argument `App` inside a match arm, and F emits `(app x (lam 0 …))`
+from exactly ONE construct, the trailing block argument (`fsub.ssc:717`) — the next step is a diff
+of the two fronts' IR for `scljet/btree.ssc` around `cursorAdvance`.
+
+**Found by a THIRD red gate, and this one IS wired.** `tests/e2e/v2-f-nested-bytecode-fast-path.sh`
+runs in `.github/workflows/ci.yml:311`, and it fails on exactly this asymmetry:
+
+```text
+ok   [hello] stdout exact; F=6s legacy=5s
+ok   [hello] small first F0 stayed on VM
+FAIL [scljet] exit mismatch: F=1 legacy=0
+     F stderr:      … nested F0 direct-ASM / … fell back to the VM lane / app: not a function: 0
+     legacy stderr: … fell back to the VM lane                              (exit 0)
+```
+
+Its `F=1 legacy=0` IS the differential, printed in CI, and it is what made me run the A/B above. So
+the nightly `ci.yml` is red for this defect too — a third gate, after
+`tests/e2e/bytecode-fallback-visible.sh` (unwired) and the five rostered corpus rows.
+
+**Count of what this one defect now blocks: five corpus cases, two gates, and a CI job.** That is
+the argument for its priority, and it is measured rather than asserted.
+
 **IT ALSO TURNS A GATE RED, AND NOTHING REPORTS IT.** `tests/e2e/bytecode-fallback-visible.sh`
 asserts that an oversized example still exits 0 — the `--bytecode` link-time fallback runs the VM
 instead, and the VM answer is correct. That held until this defect: the fallback fires, prints its
@@ -10835,3 +10871,68 @@ build on this lane, and a program has to be rewritten around the backend to comp
 **No gate.** `tests/e2e/list-concat-chain-gate.sh` covers int, v2 and `--bytecode`; adding the Rust
 lane needs a `cargo` guard and a per-case build (~40 s here), so it belongs in the corpus contract
 rather than the push path.
+
+## reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-09
+     ssc-version: 6b9fc4352
+     confirmed: yes
+     fixed-in: 7d172273e
+     gate: tests/e2e/ref-front-string-literal-gate.sh -->
+
+**The REFERENCE front is the wrong one here, and F is right** — worth saying plainly, because every
+other entry filed this week runs the other way.
+
+A plain (non-interpolated) string literal containing `${` is lexed as if the interpolation had
+started, and the literal runs on past its closing quote:
+
+```
+def h(s: String): String = "${" + s + "}"
+def main(): Unit = println(h("x"))
+
+F                 ${x}                    correct
+reference front   ${" + s + "}            swallowed the rest of the expression as text
+
+def main(): Unit = println("${")
+
+F                 ${                      correct
+reference front   ${")                    swallowed the quote and the paren
+```
+
+Found while reducing `runtime/std/ui/content.ssc`, whose `ContentInline.Expr` arm renders an
+un-evaluated expression exactly this way: `textNode("${" + source + "}")`. Any program that prints a
+literal `${` is affected on the default lane.
+
+Not fixed here: this claim was an F gap and this is the reference front's lexer, which is a different
+subsystem and a different owner's area.
+
+### MOVED here from `tests/BUGS.md` 2026-08-10, and its two stale fields corrected
+
+`scripts/board-ownership-check` reported it as the one NEW misfiling in the repository: the entry
+sat in the `tests` board while its `fixed-in` commit `7d172273e` changed `v2/lib/ssc1-front.ssc0`,
+which `v2` owns. The `lane: native` field routes here too (`tests/fixtures/modules.tsv`), so both
+rules agree — nothing was weighed, they just pointed the same way.
+
+**`gate: none` was stale.** `7d172273e` added `tests/e2e/ref-front-string-literal-gate.sh` in the
+same commit; the field now names it.
+
+**AND THAT GATE IS RED — 3 failures, measured today**, which is why `status` stays `open`:
+
+```text
+✓ ctl-simple-interp        v=5
+✓ ctl-quote-inside-interp  r=in
+✓ ctl-nested-braces        n=7
+✓ ctl-interp-then-text     a=1 done
+✗ ctl-plain-after-interp   F='${'  reference='${")'  — wanted '${' from both
+```
+
+**So `fixed-in: 7d172273e` names a PARTIAL fix, and that is worth saying out loud**: a `fixed-in`
+on an open entry reads as "done" to anyone skimming headers, and this one is the field that decides
+where the ownership checker files the entry. The commit narrowed the defect; the reference front
+still swallows the closing quote after an interpolation. Left in place because it is factually the
+commit that attacked this, and because it is what routes the entry to the board that owns the code
+— but the status is the field to believe.

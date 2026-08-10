@@ -46,44 +46,6 @@ gate asserts the other direction too.
 Their slice needs more of this class (`Value.get`, `Value.exists`, a `Value: From<Option<Value>>`
 bound). Those now announce themselves by name instead of arriving as rustc errors in generated code.
 
-## reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
-
-<!-- status: open
-     lane: native
-     area: front
-     reported-by: claude-code
-     reported-at: 2026-08-09
-     ssc-version: 6b9fc4352
-     confirmed: yes
-     fixed-in: 7d172273e
-     gate: none -->
-
-**The REFERENCE front is the wrong one here, and F is right** — worth saying plainly, because every
-other entry filed this week runs the other way.
-
-A plain (non-interpolated) string literal containing `${` is lexed as if the interpolation had
-started, and the literal runs on past its closing quote:
-
-```
-def h(s: String): String = "${" + s + "}"
-def main(): Unit = println(h("x"))
-
-F                 ${x}                    correct
-reference front   ${" + s + "}            swallowed the rest of the expression as text
-
-def main(): Unit = println("${")
-
-F                 ${                      correct
-reference front   ${")                    swallowed the quote and the paren
-```
-
-Found while reducing `runtime/std/ui/content.ssc`, whose `ContentInline.Expr` arm renders an
-un-evaluated expression exactly this way: `textNode("${" + source + "}")`. Any program that prints a
-literal `${` is affected on the default lane.
-
-Not fixed here: this claim was an F gap and this is the reference front's lexer, which is a different
-subsystem and a different owner's area.
-
 ## f-placeholder-u0-reduced-but-not-solved
 
 <!-- status: open
