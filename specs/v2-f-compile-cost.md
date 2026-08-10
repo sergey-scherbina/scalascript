@@ -83,3 +83,87 @@ concatenation. Qualify that before investing:
 A cheaper line worth pricing first, since Result 2 says the cost is proportional: F's own algorithmic
 complexity. A ~13× ratio that grows with input suggests a super-linear step in F that the reference
 front does not have — finding it may be worth more than changing the execution lane.
+
+## Result 3 (2026-08-10) — the cost tracks the REACHED call graph, not the program or its imports
+
+Measurable for the first time on `scljet-hello`, because until 2026-08-10 F died on it at the first
+alternative pattern (`v2/BUGS.md scljet-app-not-a-function-after-the-concat-fix`). Every row below
+is `bin/ssc run --v2`, one host, consecutive minutes, `legacy` as the control wherever it is quoted.
+
+### The finding
+
+**Calling `jdbcOpen` costs 24 s. Calling `jdbcExecuteUpdate` from the same module, same file, same
+position, does not finish in 300 s.** Nothing else changes between those two programs.
+
+```scalascript
+buildTableDatabase(…) match
+  case Left(e) => println("nope")
+  case Right(image) =>
+    val db = jdbcOpen(image)          // this alone: 24 s
+    val r  = jdbcExecuteUpdate(db, "INSERT INTO books VALUES (2, 'x', 1985)")
+    println("no match")               // adding this line: >300 s, cap
+```
+
+So the unit of cost is **what the program REACHES**, not what it declares, imports or nests. F
+appears to lower the reachable subgraph on demand: `jdbcExecuteUpdate` pulls in the SQL engine,
+`jdbcOpen` does not.
+
+### Eight probes, and each one KILLED a candidate rather than confirming it
+
+| probe | F | verdict |
+|---|---|---|
+| `scljet-hello`'s full import list, body `println("imports only")` | 47 s (legacy 56 s) | **not the imports** — F is faster here |
+| the three `def`s of `hello`, nothing called | 25 s | not the definitions |
+| + top-level `match` with a short arm | 24 s | not the top-level match |
+| + a call to a TRIVIAL `def` from that arm | 53 s | not "calling a def" |
+| + a call to `jdbcExecuteUpdate` from that arm | **>300 s** | ← here |
+| the same, with a `match` on its result | >300 s | not the match |
+| the same, `match` without a field access | >300 s | not the field access |
+| 1→5 nested top-level `match`es, no imports | 8/9/11/10/14 s | **not nesting depth** |
+| 50/100/200/400 near-identical defs in one file | 4/5/6/8 s | **not program size in defs** |
+
+The last two are worth keeping because they refute the hypothesis this document carried in Result 2
+— "the cost SCALES with program size, so a super-linear step inside F is the likely remaining
+cause". Program size in defs is flat and linear; so is nesting. The scaling variable is the reached
+call graph.
+
+### Which phase — settled by one observation
+
+Whether the program has PRINTED anything separates front cost from run cost, and it costs one run:
+
+    scljet-hello  F       200 s cap -> no output at all      the front has NOT finished
+    scljet-hello  legacy  200 s cap -> the complete output
+    scljet-jdbc   F       prints `-- insert two more rows --` before its cap -> its front DID finish
+
+**So the two slow cases are slow in different phases** and no single probe settles both. Run the
+print test first.
+
+### The prediction was written down first, then TESTED — and it held
+
+If the cost is the reached subgraph, a program importing FAR LESS than `hello` but calling one
+function deep in the SQL engine must be just as slow. Two imported names from `jdbc.ssc` against
+`hello`'s dozen:
+
+```scalascript
+[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[jdbcOpen, jdbcExecuteUpdate](std/scljet/jdbc.ssc)
+
+buildTableDatabase(…) match
+  case Left(e) => println("nope")
+  case Right(image) =>
+    val r = jdbcExecuteUpdate(jdbcOpen(image), "INSERT INTO books VALUES (2, 'x', 1985)")
+    println("done")
+```
+
+**`rc=124` at a 400 s cap** — indistinguishable from `hello`, with a sixth of the imports. Had it
+been fast, this result would have been wrong and the reached-graph story with it; it was written
+before the run for exactly that reason.
+
+**This is also the smallest reproduction on record**: ten lines, two modules, one call.
+
+### What is NOT established
+
+Whether any of this is a regression. Result 1 above records `scljet-jdbc` at 27.94 s on F against
+today's >1200 s — but `legacy` moved 9.35 s → 88 s on the same case over the same period, and no
+change of ours is in `legacy` at all. Something shared moved by roughly 9×, so cross-day absolute
+numbers cannot carry a regression claim. Only same-day ratios are evidence here.

@@ -6080,6 +6080,39 @@ budget, now completes in 27.9 s and PASSED the v2 lane in the 2026-07-28 corpus-
 Still open: ~2.8-3.0× remains, and `specs/v2-f-compile-cost.md` Result 2 (the cost SCALES with
 program size, so a super-linear step inside F is the likely remaining cause) has not been retested.
 
+### NARROWED 2026-08-10 to TEN LINES — the cost tracks the REACHED CALL GRAPH
+
+Full measurement table in `specs/v2-f-compile-cost.md` Result 3. The finding, and the smallest
+reproduction on record:
+
+```scalascript
+[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[jdbcOpen, jdbcExecuteUpdate](std/scljet/jdbc.ssc)
+
+buildTableDatabase(…) match
+  case Left(e) => println("nope")
+  case Right(image) =>
+    val r = jdbcExecuteUpdate(jdbcOpen(image), "INSERT INTO books VALUES (2, 'x', 1985)")
+    println("done")
+```
+
+`rc=124` at a 400 s cap. **Calling `jdbcOpen` alone is 24 s; adding the `jdbcExecuteUpdate` call
+does not finish in 300 s** — same module, same file, same position, nothing else changed.
+
+**EIGHT probes, each of which KILLED a candidate**: not the imports (hello's full import list with
+an empty body is 47 s on F against 56 s on legacy — F is FASTER), not the definitions (25 s), not
+the top-level `match` (24 s), not calling a def (a trivial one is 53 s), not the `match` on the
+result, not the field access, not nesting depth (1→5 nested top-level matches: 8/9/11/10/14 s), and
+not program size in defs (50→400 defs: 4/5/6/8 s).
+
+Those last two refute what this entry and `v2-f-compile-cost.md` Result 2 have said all along — that
+the cost scales with PROGRAM SIZE and the cause is a super-linear step over it. Size in defs is flat
+and linear. The scaling variable is what the program REACHES.
+
+**The prediction was written down before it was run, and it held.** If the reached subgraph is the
+unit, a file importing a sixth of what `hello` imports but calling one deep function must be just as
+slow — it is, at the same cap. Had it been fast, this result would have been wrong.
+
 ### RE-MEASURED 2026-08-10 — and the "super-linear step inside F" framing is REFUTED
 
 Measurable for the first time on the two biggest cases, because until today F died on them at the
