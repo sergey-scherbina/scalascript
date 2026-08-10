@@ -100,3 +100,27 @@ class RustGenTryCatchTest extends AnyFunSuite:
         |```""".stripMargin)
     assert(msg.contains("one `catch` arm"), msg)
     assert(msg.contains("2"), msg)
+
+  // ── a top-level `val` whose initializer calls a std intrinsic ─────────────────────────────────
+
+  test("a top-level val's initializer is routed exactly like the same call in a def body"):
+    // `cwd()` is a REGISTERED INTRINSIC (RustIntrinsics), which is the whole point: `collectTopVals`
+    // built its context with an EMPTY intrinsic map, so a bare `cwd()` survived into the emitted
+    // Rust and the crate failed with `cannot find function`. A method call like `"abc".length`
+    // would NOT have caught this — the walker renders it identically with or without the table,
+    // which is exactly what my first version of this test did, and it passed in both states.
+    //
+    // The val must be REFERENCED: top-level vals are emitted as a `let` preamble inside the bodies
+    // that use them, so an unused one appears nowhere and the test would be vacuous a second way.
+    val g = gen(
+      """```scalascript
+        |val here = cwd()
+        |def viaVal(): String = here
+        |def viaBody(): String = cwd()
+        |```""".stripMargin)
+    val letLine  = g.linesIterator.find(_.contains("let here")).getOrElse("")
+    assert(letLine.nonEmpty, s"the referenced top-level val emitted no `let`:\n$g")
+    // AGREEMENT between the two positions is the property, not a spelling: a hard-coded expected
+    // string would break the day the routing target is renamed for an unrelated reason.
+    assert(!letLine.contains(" cwd()"), s"top-level val still emits an UNROUTED call: $letLine")
+    assert(letLine.contains("runtime::"), s"top-level val was not routed: $letLine")

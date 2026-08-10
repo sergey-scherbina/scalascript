@@ -108,7 +108,7 @@ object RustCodeWalk:
 
     // topVals must be collected after ctorMap so enum ctors are resolved correctly.
     // Given instances are injected as `let name = StructName;` bindings.
-    val baseTopVals = collectTopVals(module, ctorMap)
+    val baseTopVals = collectTopVals(module, ctorMap, intrinsics, userDefs)
     // Populate trait→instance resolver for summon[Trait[A]] (first given wins).
     _summonResolve.clear()
     givens.foreach { g =>
@@ -395,8 +395,19 @@ object RustCodeWalk:
    *  blocks.  These are emitted as `let name = init;` preamble in every
    *  `Defn.Def` body so that HOF bench fixtures like `val xs: List[Int] =
    *  List(1, 2, 3, …)` are accessible inside `workload()`. */
-  private def collectTopVals(module: ast.Module, ctorMap: Map[String, EnumCtor]): List[TopVal] =
-    val ctx0 = Ctx(Map.empty, Set.empty, ctorMap, Nil, "<topval>")
+  private def collectTopVals(
+      module: ast.Module,
+      ctorMap: Map[String, EnumCtor],
+      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      userDefs: Set[String]
+  ): List[TopVal] =
+    // INTRINSICS AND userDefs, not empty maps. This built `Ctx(Map.empty, Set.empty, …)`, so a
+    // top-level val's initializer was rendered with no routing table at all: `val ok = exists("/tmp")`
+    // emitted a bare `exists(...)` and the crate failed with `error[E0425]: cannot find function
+    // 'exists' in this scope`, while the SAME call inside a def body routed to
+    // `crate::runtime::_exists`. The initializer is ordinary code and needs the ordinary context
+    // (BUGS.md `rust-toplevel-val-calling-an-intrinsic-does-not-compile`).
+    val ctx0 = Ctx(intrinsics, userDefs, ctorMap, Nil, "<topval>")
     val found = scala.collection.mutable.ListBuffer.empty[TopVal]
     module.sections.foreach(s => sectionTopVals(s, ctx0, found))
     found.toList
