@@ -103,6 +103,7 @@ object Lower:
   /** Names a lambda body reads from OUTSIDE itself. Those become the closure's captures, and they
     * are computed rather than guessed: capturing everything in scope would grow every closure with
     * the enclosing frame, and capturing nothing would silently read the wrong register. */
+  // EXPR-WALKER
   private def freeVars(e: Expr, bound: List[String]): List[String] = e match
     case Expr.Name(n, _)          => if bound.contains(n) then Nil else List(n)
     case Expr.Bin(_, l, r, _)     => freeVars(l, bound) ++ freeVars(r, bound)
@@ -974,6 +975,7 @@ object Lower:
     * Field names are NOT rewritten: they are already bound as locals at the top of the method body,
     * so an unqualified `x` resolves by ordinary scoping and a local `val x` shadows it, exactly as
     * it would anywhere else. */
+  // EXPR-WALKER
   private def selfCalls(e: Expr, ms: List[String]): Expr =
     def go(x: Expr): Expr = selfCalls(x, ms)
     e match
@@ -1408,6 +1410,7 @@ object Lower:
             case other                                 => other))
       defs.map(forceUses).map(d => d.copy(body = thunkArgs(d.body)))
 
+  // EXPR-WALKER
   private def mapDeep(e: Expr, f: Expr => Expr): Expr =
     def go(x: Expr): Expr = mapDeep(x, f)
     val rebuilt = e match
@@ -1471,6 +1474,7 @@ object Lower:
     * would box loop counters that no lambda ever sees. The binding rules mirror `freeVars` exactly,
     * because a name shadowed by an inner binder is a DIFFERENT name and boxing the outer one on its
     * account would be a wrong answer of its own. */
+  // EXPR-WALKER
   private def assignedFree(e: Expr, bound: List[String]): List[String] = e match
     case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ assignedFree(v, bound)
     case Expr.Name(_, _)          => Nil
@@ -1545,6 +1549,7 @@ object Lower:
     * application, `ArrSet` — so this needs no new instruction, no new prim, and nothing added to
     * the vocabulary the bridge shares with v2. The alternative was a `cell` prim family, which
     * would have been a second way to say the same thing. */
+  // EXPR-WALKER
   private def boxLocals(e: Expr, boxed: List[String]): Expr =
     if boxed.isEmpty then e
     else
@@ -1966,6 +1971,7 @@ object Lower:
     * A parameter or local of the same name shadows, so the rewrite skips a lambda whose parameter
     * takes the name — the same scope care `selfCalls` needs, and the reason neither can be a plain
     * `mapDeep`. */
+  // EXPR-WALKER
   private def qualifyMembers(e: Expr, obj: String, own: List[String]): Expr =
     def go(x: Expr): Expr = qualifyMembers(x, obj, own)
     e match
@@ -1981,6 +1987,12 @@ object Lower:
       // `unknown name 'entries'`. It cost exactly one corpus row (188 → 187), which is what the
       // A/B against `origin/main` on the SAME front was run to find.
       case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
+      // A NAMED ARGUMENT'S VALUE. Found by `walker-gate.sh` on the day it was written, with a
+      // two-line reproduction: `Box(v = secret, tag = "x")` inside `object Store` reported
+      // `unknown name 'secret'`, because the object's own `val` was never qualified inside the
+      // argument. The same hole `mapDeep` had, in a different walker — which is the entry's whole
+      // point (BUGS.md lower-has-six-hand-written-Expr-walkers…).
+      case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
       case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
       case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
       case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)

@@ -655,11 +655,28 @@ corpus in the meantime will read 75 and think a compiler regressed. It did not.
 
 ## lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: codegen
      kind: bug
-     gate: none -->
+     gate: v3/walker-gate.sh
+     fixed-in: PENDING -->
+
+**GATED 2026-08-09 by `v3/walker-gate.sh`, and it found a real bug on its first run.** The `Expr`
+cases that carry child expressions are read from `Ast.scala` — 21 of 28 — so a new case is required
+of every walker the day it is declared and the list cannot go stale. A function opts IN by carrying
+`// EXPR-WALKER` above its `def`, rather than being guessed at by shape.
+**`qualifyMembers` did not descend into `NamedArg`**, so an object's own `val` was never qualified
+inside a named argument: `Box(v = secret, tag = "x")` inside `object Store` reported
+`unknown name 'secret'`. Two lines to reproduce, and it is the SAME hole `mapDeep` had, in a
+different walker — which is this entry's whole point. Fixed in the same commit.
+**The rest are DECLARED per walker and per case**, not waved through: `freeVars` skips 3,
+`selfCalls` 7, `assignedFree` 4, `boxLocals` 3. Whether each is safe depends on when that walker
+runs and nobody has checked; a line comes out the day its walker learns the case, and the gate goes
+red if one does and the declaration stays. My first declaration was over-broad — copied from a
+truncated run — and the gate said so: *"selfCalls now handles Interp Update; drop it from KNOWN"*.
+**Self-test first**, like the jit gate: an invented case must be missing from every walker, so a
+green run cannot be a check that never reads the bodies.
 
 `v3/src/Lower.scala` walks `Expr` in SIX separate hand-written recursions — `mapDeep`,
 `qualifyMembers`, `freeVars`, the curried-call normaliser, `assignedFree`, and the lowering itself.

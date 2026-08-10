@@ -148,6 +148,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/effects-gate.sh
 
+      # EVERY HAND-WRITTEN `Expr` WALKER HANDLES EVERY CASE THAT HAS CHILDREN. Six of them live in
+      # `Lower.scala` and nothing failed when one missed a case — most end in a catch-all, so the
+      # compiler is satisfied and the walk silently skips a subtree. Three were missed in one day
+      # while adding a single node, each announcing itself hours apart and one of them a hole that
+      # PREDATED the node. Self-test first, for the same reason the jit gate runs its own.
+      - name: walkers — self-test
+        if: ${{ !cancelled() }}
+        run: v3/walker-gate.sh --self-test
+      - name: walkers
+        if: ${{ !cancelled() }}
+        run: v3/walker-gate.sh
+
       # THE ONE GATE HERE THAT IS NOT A DIFFERENTIAL, and that is why it exists. Every check above
       # compares two things that should agree — two fronts, two lanes. The import resolver has no
       # second opinion to compare against: both fronts share it, so a file NEITHER front can load
