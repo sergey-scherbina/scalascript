@@ -72,10 +72,10 @@ class McpResourceTemplatesTest extends AnyFunSuite with Matchers:
       ujson.Obj("uri" -> "file:///special.md"), ujson.Num(1))
     ujson.read(reply.trim)("result")("contents")(0)("text").str shouldBe "from-exact"
 
-  test("resources/read returns MethodNotFound when neither exact nor template matches"):
+  test("resources/read returns InvalidParams when neither exact nor template matches"):
     val builder = new McpServerBuilder
     builder.resourceTemplate("file:///{path}", None, None, None,
       uri => ResourceHandlerResult(uri, Nil))
     val reply = McpServerCore.dispatch(builder, McpProtocol.Method.ResourcesRead,
       ujson.Obj("uri" -> "other:///foo"), ujson.Num(1))
-    ujson.read(reply.trim)("error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound
+    ujson.read(reply.trim)("error")("code").num shouldBe JsonRpc.ErrorCode.InvalidParams

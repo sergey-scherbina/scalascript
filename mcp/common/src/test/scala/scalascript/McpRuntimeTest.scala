@@ -89,11 +89,14 @@ class McpRuntimeTest extends AnyFunSuite with Matchers:
     js("result")("isError").bool shouldBe false
     js("result")("content")(0)("text").str shouldBe "hello"
 
-  test("dispatch: tools/call on unknown tool returns MethodNotFound error"):
+  // InvalidParams, not MethodNotFound: `tools/call` EXISTS — it is the `name`
+  // parameter that does not resolve. The unknown-METHOD case below is the
+  // control and still answers MethodNotFound.
+  test("dispatch: tools/call on unknown tool returns InvalidParams error"):
     val params = ujson.Obj("name" -> "missing", "arguments" -> ujson.Obj())
     val reply  = McpServerCore.dispatch(new McpServerBuilder, McpProtocol.Method.ToolsCall, params, ujson.Num(5))
     val js     = ujson.read(reply.trim)
-    js("error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound
+    js("error")("code").num shouldBe JsonRpc.ErrorCode.InvalidParams
     js("error")("message").str should include ("unknown tool: missing")
 
   test("dispatch: handler exception becomes isError=true ToolResult"):

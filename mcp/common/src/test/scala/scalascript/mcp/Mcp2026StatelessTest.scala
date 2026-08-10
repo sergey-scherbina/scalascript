@@ -104,7 +104,9 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     val js = ujson.read(McpServerCore.dispatch(
       new McpServerBuilder, McpProtocol.Method.ToolsCall, params, ujson.Num(7)).trim)
     js.obj.keySet should not contain "result"
-    js("error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound
+    // InvalidParams since P1c — the tool name did not resolve, the method exists.
+    // What this case is actually about is the absence of result/resultType above.
+    js("error")("code").num shouldBe JsonRpc.ErrorCode.InvalidParams
 
   test("stampComplete merges into an existing _meta rather than replacing it"):
     val stamped = McpProtocol.stampComplete(
@@ -564,3 +566,24 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
                          else ujson.Obj()
       val legacy = ujson.read(McpServerCore.dispatch(b, m, legacyParams, ujson.Num(61)).trim)
       withClue(s"legacy $m: ") { legacy.obj.keySet should not contain "error" }
+
+  // ── P1c: an unknown NAME is not an unknown METHOD ───────────────────
+
+  test("a name that does not resolve is InvalidParams; an unknown method is MethodNotFound"):
+    // The whole point of the change, stated as one case so the distinction
+    // cannot quietly collapse into a blanket code again. 2026-07-28 renumbered
+    // resource-not-found to -32602 and forbids -32002; we emitted neither, we
+    // emitted -32601, which tells a client the SERVER lacks the capability
+    // rather than that its argument was wrong.
+    val b = twoToolServer()
+    b.prompt("p", None, Nil, _ => PromptHandlerResult(None, Nil))
+    val cases = List(
+      McpProtocol.Method.ToolsCall     -> ujson.Obj("name" -> "nope", "arguments" -> ujson.Obj()),
+      McpProtocol.Method.ResourcesRead -> ujson.Obj("uri"  -> "mem://nope"),
+      McpProtocol.Method.PromptsGet    -> ujson.Obj("name" -> "nope"))
+    for (m, params) <- cases do
+      val js = ujson.read(McpServerCore.dispatch(b, m, params, ujson.Num(70)).trim)
+      withClue(s"$m: ") { js("error")("code").num shouldBe JsonRpc.ErrorCode.InvalidParams }
+    // Control: a method that really does not exist still says so.
+    ujson.read(McpServerCore.dispatch(b, "no/such/method", ujson.Obj(), ujson.Num(71)).trim)(
+      "error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound

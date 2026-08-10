@@ -831,7 +831,7 @@ object McpServerCore:
             case m: Map[String, Any] @unchecked => m
             case _                              => Map.empty[String, Any]
           builder.tools.get(name) match
-            case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown tool: $name")
+            case None => notFound(id, s"unknown tool: $name")
             case Some(reg) =>
               withRequestTracking(builder, id, params) {
                 try
@@ -861,7 +861,7 @@ object McpServerCore:
                 .find(t => uriMatchesTemplate(t.uriTemplate, uri))
                 .map(_.handler))
           handler match
-            case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown resource: $uri")
+            case None => notFound(id, s"unknown resource: $uri")
             case Some(h) =>
               withRequestTracking(builder, id, params) {
                 try
@@ -954,7 +954,7 @@ object McpServerCore:
             case m: Map[String, Any] @unchecked => m
             case _                              => Map.empty[String, Any]
           builder.prompts.get(name) match
-            case None => JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, s"unknown prompt: $name")
+            case None => notFound(id, s"unknown prompt: $name")
             case Some(reg) =>
               withRequestTracking(builder, id, params) {
                 try
@@ -990,6 +990,23 @@ object McpServerCore:
               try handler.map(_(argValue)).getOrElse(Nil)
               catch case _: Throwable => Nil  // handler exceptions → empty completions
             JsonRpc.encodeResult(id, McpProtocol.completionResult(values))
+
+  /** A named thing the request asked for does not exist.
+   *
+   *  `InvalidParams`, not `MethodNotFound`, and the distinction is the plain
+   *  JSON-RPC one: `tools/call`, `resources/read` and `prompts/get` all EXIST —
+   *  it is the parameter naming a tool, uri or prompt that does not resolve.
+   *  Answering `-32601` told the client the method was unknown, which sends it
+   *  looking for a capability problem instead of a bad argument.
+   *
+   *  For `resources/read` this is also mandated: 2026-07-28 renumbered
+   *  resource-not-found from `-32002` to `-32602` and forbids emitting `-32002`
+   *  at all. We never emitted `-32002`, so nothing needs a compatibility path;
+   *  we emitted the OTHER wrong code. Tools and prompts are not named by the
+   *  changelog, but they are the same defect, and fixing one of three is how a
+   *  second decision site survives. */
+  private def notFound(id: ujson.Value, msg: String): String =
+    JsonRpc.encodeError(id, JsonRpc.ErrorCode.InvalidParams, msg)
 
   private def invalidParams(id: ujson.Value, msg: String): String =
     JsonRpc.encodeError(id, JsonRpc.ErrorCode.InvalidParams, msg)
