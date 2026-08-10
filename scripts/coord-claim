@@ -3,6 +3,7 @@
 # coord-claim — claim a task atomically, BEFORE planning it (specs/claim-mutex.md).
 #
 #   scripts/coord-claim <slug> --items "<id> [<id>…]" --paths "<prefix> […]" [--agent <id>]
+#   scripts/coord-claim … --dry-run     validate and print, write and push nothing
 #
 # Writes `.work/active/<slug>.claim`, adds the matching `.work/active/LEDGER.tsv` line and bumps the
 # ledger's generation counter, then commits and pushes to origin/main in ONE commit.
@@ -27,6 +28,33 @@ set -euo pipefail
 # enough that the next reader (me) started to fix it again. This asserts the property the guard
 # actually checks, and it carries its own negative control: the OLD form is re-created here and must
 # be detected as disagreeing, so a green from this cannot mean "the check does not look".
+# ── `--items` are IDS, and the guard compares them as TOKENS ──────────────────────────────────────
+#
+# The pre-push overlap guard splits every live claim's `items:` on whitespace and compares the
+# tokens, so a sentence here RESERVES EACH OF ITS WORDS. A later claim is then refused with
+# `item 'the' is already claimed by …`, which reads as nonsense until you know items are tokenised —
+# and the symptom, a rejected push, is exactly what a real race looks like. Measured 2026-08-04: four
+# attempts in one session were misdiagnosed as contention and retried, which the refusal explicitly
+# says will not help. Worse, prose is ACCEPTED whenever its words happen not to collide, so the trap
+# fires at random and gets rarer as claims are released — the worst schedule for learning it exists.
+#
+# Refusing it HERE is the only place the message can be actionable: at push time the claim is already
+# written and the reader is looking at a word, not at their own sentence.
+#
+# The rule is "contains a hyphen, underscore, slash or digit", which is what every id in use looks
+# like — BUGS slugs are kebab-case and SPRINT ids carry digits. Measured over 200 revisions of the
+# ledger: 37 of 257 distinct claims would have been refused, 14%, every one of them prose.
+bad_item_tokens() {
+  _bad=""
+  for _it in $1; do
+    case "$_it" in
+      [A-Za-z0-9]*) case "$_it" in *[-_/0-9]*) ;; *) _bad="$_bad $_it" ;; esac ;;
+      *) _bad="$_bad $_it" ;;
+    esac
+  done
+  printf '%s' "${_bad# }"
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   fails=0
   _paths="mod:v3/tests/jit file:BUGS.md"
@@ -57,18 +85,49 @@ broad: $_broad"; fi
     echo "  ok   the old form (a literal \\n in the heredoc) is detected as disagreeing"
   fi
 
+  # ── --items must be ids, not prose ──────────────────────────────────────────────────────────────
+  # Three assertions, and the third is the one that makes the first two mean something: a check that
+  # rejected everything would satisfy "prose is refused" while being useless.
+  _prose="a top-level val whose initializer calls a std intrinsic"
+  _got="$(bad_item_tokens "$_prose")"
+  if [ -n "$_got" ]; then
+    echo "  ok   prose --items is refused, naming [$_got]"
+  else
+    echo "  FAIL prose --items was accepted, so the guard will reserve its words"; fails=$((fails + 1))
+  fi
+
+  # Every id shape actually in use. If this ever fails, the rule is refusing real work, which is a
+  # far worse failure than the one it prevents.
+  _ids="map-getorelse-expr-receiver SSC3-J1c P4b-4 mcp-2026-07-28 v2/BUGS.md E-4 smoke_budget"
+  _got="$(bad_item_tokens "$_ids")"
+  if [ -z "$_got" ]; then
+    echo "  ok   real ids pass: slugs, SPRINT ids, dated ids, paths, underscores"
+  else
+    echo "  FAIL the rule refuses ids that are in use: [$_got]"; fails=$((fails + 1))
+  fi
+
+  # The negative control for the negative control: a token that is prose-shaped BUT sits next to
+  # valid ids must still be caught. A rule that only looked at the first token would pass the first
+  # assertion above and miss the real case, where a sentence follows a legitimate id.
+  _got="$(bad_item_tokens "E-4 outline the arm fallback")"
+  case " $_got " in
+    *" the "*) echo "  ok   a sentence AFTER a valid id is still caught" ;;
+    *) echo "  FAIL only the first token is examined — [$_got]"; fails=$((fails + 1)) ;;
+  esac
+
   echo
-  if [ "$fails" = 0 ]; then echo "coord-claim --self-test: OK (3 checks, the negative control among them)"; exit 0; fi
+  if [ "$fails" = 0 ]; then echo "coord-claim --self-test: OK (6 checks, two negative controls among them)"; exit 0; fi
   echo "coord-claim --self-test: $fails FAILED"; exit 1
 fi
 
-slug=""; items=""; paths=""; broad=""; agent="${SSC_AGENT_ID:-claude-code}"
+slug=""; items=""; paths=""; broad=""; dryrun=0; agent="${SSC_AGENT_ID:-claude-code}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --items) items="$2"; shift 2 ;;
     --paths) paths="$2"; shift 2 ;;
     --broad) broad="$2"; shift 2 ;;
     --agent) agent="$2"; shift 2 ;;
+    --dry-run) dryrun=1; shift ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     # A SECOND bare word is refused instead of winning. `--items` and `--paths` each take exactly one
     # argument — a quoted list — so writing `--items A B` unquoted leaves `B` as a positional, and the
@@ -177,6 +236,44 @@ Claim FIRST, then plan: a claim is one cheap revocable commit, while planning ta
 that gap is the whole race window.
 EOF
   exit 2
+fi
+
+_bad_items="$(bad_item_tokens "$items")"
+if [ -n "$_bad_items" ]; then
+  printf '\n✋ --items takes IDS, and these are not:  %s\n\n' "$_bad_items" >&2
+  cat >&2 <<'EOF'
+The pre-push overlap guard compares items as WHITESPACE-SEPARATED TOKENS across every live claim, so
+a sentence here reserves each of its words. Someone's next claim is then refused with
+
+  item 'the' is already claimed by '<your-slug>'
+
+which reads as nonsense unless you already know items are tokenised — and a rejected push is exactly
+what a real race looks like, so it costs minutes to diagnose. It also fires at RANDOM: prose is
+accepted whenever its words happen not to collide, and gets rarer as claims are released, which is
+the worst possible schedule for learning the trap exists.
+
+An id is a BUGS slug or a SPRINT id — `map-getorelse-expr-receiver`, `SSC3-J1c`, `P4b-4`,
+`mcp-2026-07-28`. They all carry a hyphen, underscore, slash or digit; that is the rule applied here.
+
+THE SENTENCE IS NOT UNWANTED, IT IS IN THE WRONG FIELD. The claim file has `scope:` for exactly
+this: free prose, never compared with anything. Put the ids in --items and the description there,
+which is also what the next agent reads when deciding whether your work overlaps theirs.
+EOF
+  exit 2
+fi
+
+# ── --dry-run: validate and say what WOULD be written, touching nothing ───────────────────────────
+# Added the same hour it was needed. Exercising the ACCEPT path of the check above meant running the
+# real tool, which claimed `probe-slug` and pushed it to origin/main before I could stop it. A tool
+# whose only mode is "do it" cannot be tested, so its accept path is the one nobody checks — which is
+# the half that decides whether the refusal is over-eager.
+if [ "$dryrun" = 1 ]; then
+  printf 'dry-run: would claim %s\n' "$slug"
+  printf '  items: %s\n' "$items"
+  printf '  paths: %s\n' "$paths"
+  [ -n "$broad" ] && printf '  broad: %s\n' "$broad"
+  printf '  (nothing written, nothing pushed)\n'
+  exit 0
 fi
 
 MAIN=$(git worktree list | head -1 | awk '{print $1}')

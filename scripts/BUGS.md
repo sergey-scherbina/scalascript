@@ -9,12 +9,49 @@ Newest first.
 
 ## coord-claim-items-prose-reserves-english-words — a claim written in prose reserves "a", "an", "the"
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: other
      kind: bug
      gate: none
-     fixed-in: - -->
+     fixed-in: PENDING -->
+
+**FIXED 2026-08-10 — refused at CLAIM time, where the message can be acted on.** `scripts/coord-claim`
+now rejects `--items` tokens that are not id-shaped (a hyphen, underscore, slash or digit — what
+every id in use carries) and the refusal carries the explanation that was missing: items are compared
+as whitespace-separated tokens, so a sentence reserves each of its words. **The sentence is not
+unwanted, it is in the wrong field** — the claim file already has `scope:` for prose, and it is never
+compared with anything, so the message says to put it there.
+
+That last point is what made option 1 viable rather than a ban on a habit. The objection to refusing
+prose was that it refuses how the field is actually used; pointing at the field that already exists
+for the purpose answers it.
+
+**MY EARLIER NUMBER WAS THE WRONG UNIT and overstated the disruption by 5x.** This entry originally
+said "261 of 370 distinct tokens are not id-shaped", which counts TOKENS and is therefore weighted by
+how long each sentence was. The decision needs claims, not words. Re-measured over 200 revisions of
+the ledger: **37 of 257 distinct claims — 14% — would have been refused, every one of them prose.**
+A first attempt at that count said 80%, because it counted ledger ROWS, and a long-lived claim
+appears in every revision it survives.
+
+**Option 3 folded in rather than done separately.** Its content — say that items are tokenised — is
+in this refusal. What is NOT done is the same sentence in `.githooks/pre-push`, which still matters
+for the transition: live claims that already carry prose keep reserving their words until released,
+and that guard is where the reader meets the symptom. That file is held by the live claim
+`ledger-is-derived`, so it is one line for whoever holds it next.
+
+**`--dry-run` added the same hour, for a reason worth recording.** Exercising the ACCEPT path of the
+new check meant running the real tool — which claimed `probe-slug` and pushed it to `origin/main`
+before I could stop it (removed immediately; no worktree, no branch, no commits). A tool whose only
+mode is "do it" cannot be tested, so its accept path is the one nobody checks — and on a validator
+that is exactly the half deciding whether the refusal is over-eager. `--dry-run` validates and prints
+what would be written, touching nothing.
+
+Six self-test checks now, two of them negative controls: prose is refused and named; every id shape
+in use passes (`map-getorelse-expr-receiver`, `SSC3-J1c`, `P4b-4`, `mcp-2026-07-28`, `v2/BUGS.md`,
+`E-4`, `smoke_budget`); and a sentence FOLLOWING a valid id is still caught, which a rule that only
+examined the first token would have missed while passing the other two.
+
 
 The overlap guard splits a claim's `items:` field on whitespace and treats every token as an item id.
 `items:` is documented as a list of ids, but **prose is what agents actually write**, and then the
