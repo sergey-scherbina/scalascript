@@ -3974,7 +3974,7 @@ found, which is why this is filed complete rather than half-landed.
 
 ## rozum-agent-family-v2-diverges-again — four cases that were PASS hours ago now DIVERGE
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 378234276
      lane: native
      area: front
      gate: tests/conformance/contract.sc -->
@@ -5951,7 +5951,7 @@ an owner decision rather than a patch.
 
 ## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 378234276
      lane: native
      area: front -->
 
