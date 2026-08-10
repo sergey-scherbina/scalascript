@@ -6112,6 +6112,26 @@ multiplier on F at all; something specific to those two.
 
    So F pays no penalty for compiling the facade's module closure.
 
+**CORRECTION, SAME DAY — the conclusion below is WRONG for `scljet-hello`, and the probe that
+produced it was too small.** Discriminating front cost from run cost takes one observation: whether
+the program has PRINTED anything yet. At a 200 s cap:
+
+    scljet-hello  F       -> no output at all          (the front has not finished)
+    scljet-hello  legacy  -> the complete program output
+
+So for `hello` the cost IS in F's compilation. The parity probe below imported ONE name with a body
+of `println("imported")`; that does not lower the same closure as a program which imports a dozen
+names and uses them, so it was never evidence about `hello`.
+
+**And the two slow cases are slow in DIFFERENT PHASES**, which is why one probe could not settle
+both: `scljet-jdbc` prints `-- insert two more rows --` before it hits the cap, so its front
+FINISHED and the remaining cost is runtime; `scljet-hello` prints nothing, so its front did not.
+Any future attempt should check which phase it is looking at first — the print test costs one run.
+
+**With that correction, the parity probe below still stands for what it actually measured** — F pays
+no penalty for pulling the facade's module closure into a trivial program — and the sentence that
+follows it does not.
+
 **Therefore the gap is NOT in F's compilation, and this entry's title and hypothesis both point the
 wrong way.** Compiling the same modules costs the same on both fronts; the difference appears only
 when the program RUNS real work through them. The next question is what F EMITS for the jdbc path
