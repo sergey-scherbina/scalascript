@@ -2,10 +2,13 @@ slug: digest-misses-the-front
 branch: feature/digest-misses-the-front
 agent: claude-code
 started: 2026-08-10T09:31:20Z
-heartbeat: 2026-08-10T09:31:20Z
-status: claimed-before-planning
+heartbeat: 2026-08-10T12:05:00Z
+status: in-progress
 items: launcher-digest-includes-nested-specs-so-a-doc-commit-forces-a-rebuild
-paths: file:scripts/launcher-input-digest file:scripts/BUGS.md
+paths: file:scripts/launcher-input-digest file:scripts/BUGS.md file:tests/e2e/launcher-digest-gate.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Filed as friction (a doc commit under v3/specs forces a rebuild). Same one-line cause points the
+  other way and there it is dangerous: `specs/` excluded wholesale hid the F FRONT from the digest,
+  so smoke-ci could not see a change to the default compiler. Fixing the digest widens the claim to
+  its own gate, which was green on the defect.
+next: land the digest fix + the two gate cases, then release
