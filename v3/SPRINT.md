@@ -2746,6 +2746,43 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
         type CONSTRUCTOR — `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside
         `Logged[Option]`. Not reachable by substituting a type argument into text.
 
+## 54 · PLAN FOR 2026-08-09/10 — every remaining typeclass row, in dependency order
+
+Sergiy: *"это нужно исправить … Остальное все тоже, обязательно"*. So this is a queue, not a menu.
+Ordered by what unblocks what, and each entry says what it is DONE BY — a measurement, not a
+feeling. Anything that turns out bigger than its entry gets split rather than stretched.
+
+- [ ] **U1 — UniML keeps a definition's type parameters, and the projection stops refusing
+      `using`.** The declared divergence (`usingp`, `summon2` in `front-capability-gate.sh`) exists
+      because `SpikeAst.Def` is `(name, params, ret, body, span)` — nowhere for `[A]`. THIS IS THE
+      FIRST ITEM because the default front is UniML: until it lands, stage 2a is reachable only
+      with `SSC3_FRONT=v3` and the corpus number cannot move.
+      *Done when:* both declared probes come OUT of the gate's list in the same commit (the gate
+      demands it), `tagless-resolution` runs on the DEFAULT front, and `N` RISES — it is a
+      conformance case, so the corpus is the witness.
+- [ ] **2b — inference past a literal.** `tagless-context-bounds` is the row. Three pieces, each
+      measurable on its own: a constructor's type (`List(1,2,3)` is `List[Int]`), structural
+      matching of `List[A]` against `List[Int]`, and propagating the enclosing specialisation's
+      binding into the calls its body makes (`combineAll(xs)` inside `combineAndPretty`).
+      *Done when:* `tagless-context-bounds` runs on both fronts and `N` rises again.
+- [ ] **2c — higher-kinded.** `tagless-program` and `tagless-multi-file` select on a type
+      CONSTRUCTOR: `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside `Logged[Option]`.
+      Substituting a type argument into text does not reach it — the instance is chosen by what the
+      VALUE is, so this needs either the receiver's runtime tag or a real kind-aware match. Expect
+      this to be the one that splits.
+      *Done when:* both rows run, or the entry is replaced by what measurement showed instead.
+- [ ] **X1 — `extension [M](ref: ActorRef[M])`.** `v3-extension-type-params`: a type-parameterised
+      extension is a parse error, and it is the whole of what stands between
+      `actors-bounded-mailbox` / `actors-process-info` and the module they import. Read §51 first —
+      a name-based extension rewrite was tried and reverted at `N 188 → 130`.
+- [ ] **W1 — one walker, or a test that every walker handles every case.**
+      `lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree`. Three were missed in
+      one day, each with a different symptom; the middle one was a hole that predated the node.
+      *Done when:* adding a case to `Expr` without touching a walker FAILS a test.
+- [ ] **E1 — `handle`'s return clause, and E2 — a clock prim (SSC3-3d).** Both need
+      `v3/src/Exec.scala`, held by `ssc3-unboxed-frame` at the time of writing. Taken the moment it
+      frees; not started behind someone else's claim.
+
 ## 53 · The spike mirrored a reference BUG that the reference had already fixed
 
 A sweep of the uniml front over 120 files of `examples/` and the standard library — a wider oracle
