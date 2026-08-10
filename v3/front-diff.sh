@@ -163,27 +163,37 @@ done
 if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   echo
   echo "── the conformance corpus ────────────────────────────────────────────────"
-  cagree=0; cdiff=0; conly=0
+  cagree=0; cdiff=0; conly_v3=0; conly_uniml=0; cneither=0
   cdiffs="$work/corpus-diffs.txt"; : > "$cdiffs"
+  # BOTH FRONTS ARE ASKED EVEN WHEN THE FIRST REFUSES. The loop used to short-circuit — if v3's
+  # front failed it counted the file and moved on without ever asking UniML — which is why the one
+  # number it produced could not tell a capability gap from a gap both fronts share. Asking twice
+  # costs one extra invocation on the ~49 files v3 refuses, and buys the distinction the whole
+  # guard below rests on.
   for f in tests/conformance/*.ssc; do
     cname="$(basename "$f" .ssc)"
-    "$SSC3" ast "$f" v3 > "$work/c.v3" 2>/dev/null || { conly=$((conly + 1)); continue; }
-    [ -s "$work/c.v3" ] || { conly=$((conly + 1)); continue; }
-    if ! "$SSC3" ast "$f" uniml > "$work/c.uniml" 2>/dev/null || [ ! -s "$work/c.uniml" ]; then
-      conly=$((conly + 1)); continue
-    fi
-    if diff -q <(canon < "$work/c.v3") <(canon < "$work/c.uniml") >/dev/null; then
-      cagree=$((cagree + 1))
-    else
-      cdiff=$((cdiff + 1))
-      printf '%s\t%s\n' "$cname" "$(diff <(canon < "$work/c.v3") <(canon < "$work/c.uniml") | head -2 | tr '\n' ' ' | cut -c1-110)" >> "$cdiffs"
+    v3ok=0; unok=0
+    "$SSC3" ast "$f" v3    > "$work/c.v3"    2>/dev/null && [ -s "$work/c.v3" ]    && v3ok=1
+    "$SSC3" ast "$f" uniml > "$work/c.uniml" 2>/dev/null && [ -s "$work/c.uniml" ] && unok=1
+    if [ "$v3ok" = 1 ] && [ "$unok" = 1 ]; then
+      if diff -q <(canon < "$work/c.v3") <(canon < "$work/c.uniml") >/dev/null; then
+        cagree=$((cagree + 1))
+      else
+        cdiff=$((cdiff + 1))
+        printf '%s\t%s\n' "$cname" "$(diff <(canon < "$work/c.v3") <(canon < "$work/c.uniml") | head -2 | tr '\n' ' ' | cut -c1-110)" >> "$cdiffs"
+      fi
+    elif [ "$v3ok" = 1 ]; then conly_v3=$((conly_v3 + 1))
+    elif [ "$unok" = 1 ]; then conly_uniml=$((conly_uniml + 1))
+    else cneither=$((cneither + 1))
     fi
   done
   cboth=$((cagree + cdiff))
+  ccap=$((conly_v3 + conly_uniml))
   echo "  both fronts print: $cboth; they AGREE on $cagree, differ on $cdiff"
-  echo "  (only one front prints: $conly — a v3 refusal is not a disagreement)"
+  echo "  one front only: $ccap (v3 $conly_v3, uniml $conly_uniml) — a capability gap, guarded below"
+  echo "  NEITHER front prints: $cneither — a gap the two SHARE, counted by the corpus report, not guarded here"
   [ "$cdiff" -gt 0 ] && sed 's/^/    /' "$cdiffs" | head -8
-  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-273}"
+  CFLOOR="${SSC3_FRONT_CORPUS_FLOOR:-277}"
   if [ "$cagree" -lt "$CFLOOR" ]; then
     echo "  FAIL corpus agreement $cagree REGRESSED below the floor $CFLOOR"
     fail=1
@@ -212,8 +222,22 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # right there, is true and is also the reason nobody looked.
   #
   # It moved from a dozen to 128 in a single commit (the loader following `std-to-repo-root`), and
-  # that particular move was an IMPROVEMENT: 116 files went from "neither front can load this" to
-  # "the default front loads it", which is why 270 + 128 is now exactly the whole corpus. But the
+  # that particular move was an IMPROVEMENT: 116 files went from "the default front cannot load
+  # this" to "it loads".
+  #
+  # CORRECTION, 2026-08-10, and it is the reason this number is now three numbers. I first wrote
+  # here that 270 + 128 covering the corpus meant no file was left that NEITHER front can load.
+  # That does not follow and it is false: `conly` counts every file where AT LEAST ONE front failed,
+  # so a file both fronts refuse lands in it too. Measured, twice, on two trees: of the 123, eleven
+  # are v3-only, seventy-four are uniml-only, and **thirty-eight are refused by both**
+  # (`actors-bounded-mailbox` is one — v3 says `expected ')', found :`, UniML says `extension` is
+  # outside Tier 0). Guarding those 38 as a front divergence would be wrong twice over: they are a
+  # shared Tier-0 gap, already counted by the corpus report's UNSUPPORTED bucket, and they move for
+  # reasons that have nothing to do with the fronts drifting apart.
+  #
+  # `v3/front-capability-gate.sh` owns the per-row statement of WHICH files diverge, by name, in
+  # both directions. This file keeps the counts, split so that one cannot hide behind another. But
+  # the
   # bucket grows the other way too, and that direction is invisible: a construct taught to one
   # front and not the other widens the capability gap without touching either number above. That is
   # `v3-two-fronts-differ-in-CAPABILITY` exactly, and it is why the entry says an output
@@ -222,9 +246,9 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # So the guard is a CEILING, and it is expected to be LOWERED over time rather than raised: as
   # v3's own front catches up, files move from one-sided into agreement and this falls. Raising it
   # is a deliberate act that says the gap widened and someone decided that was acceptable.
-  CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-123}"
-  if [ "$conly" -gt "$CONECEIL" ]; then
-    echo "  FAIL corpus ONE-SIDED files rose to $conly, above the ceiling $CONECEIL"
+  CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-85}"
+  if [ "$ccap" -gt "$CONECEIL" ]; then
+    echo "  FAIL corpus ONE-SIDED files rose to $ccap (v3 $conly_v3, uniml $conly_uniml), above the ceiling $CONECEIL"
     echo "       one front accepts these and the other refuses them; that gap is not visible in"
     echo "       the agree/differ numbers above, which is the whole reason this ceiling exists."
     fail=1
