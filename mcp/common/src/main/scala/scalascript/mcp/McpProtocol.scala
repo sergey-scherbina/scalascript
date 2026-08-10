@@ -428,6 +428,85 @@ object McpProtocol:
         obj
       case other => other   // non-object result: nothing to stamp onto
 
+  // ─── MCP 2026-07-28 — Multi Round-Trip Requests (MRTR) ─────────────
+
+  /** `resultType` values the core protocol defines. An unrecognised value is
+   *  invalid to a client, so these are the only two we may emit. */
+  val ResultTypeComplete      = "complete"
+  val ResultTypeInputRequired = "input_required"
+
+  /** One server→client request, carried INSIDE a result instead of being sent
+   *  as its own JSON-RPC request. That inversion is the whole of MRTR. */
+  case class InputRequest(method: String, params: ujson.Value)
+
+  /** The three client requests a server may answer with an `InputRequiredResult`.
+   *  The spec says MUST NOT on anything else, so this is a closed set rather
+   *  than a hint — answering `tools/list` with one would be a protocol error. */
+  val MrtrCapableMethods: Set[String] =
+    Set(Method.PromptsGet, Method.ResourcesRead, Method.ToolsCall)
+
+  /** Build an `InputRequiredResult`.
+   *
+   *  `requestState` is opaque to the client and **attacker-controlled on the way
+   *  back**: the spec requires integrity protection whenever it influences
+   *  authorization, resource access or business logic, and replay defences
+   *  (principal, TTL, originating-request identifier) inside the protected
+   *  payload. This builder deliberately does not invent a format — it carries
+   *  whatever the caller minted, so the protection lives with the code that
+   *  knows what the state means.
+   *
+   *  Throws when both fields are empty: the spec requires at least one, and a
+   *  result asking for nothing while claiming input is required would leave a
+   *  conforming client retrying an identical request forever. */
+  def inputRequiredResult(
+    inputRequests: Map[String, InputRequest] = Map.empty,
+    requestState:  Option[String]            = None
+  ): ujson.Value =
+    require(inputRequests.nonEmpty || requestState.isDefined,
+      "InputRequiredResult must carry at least one of inputRequests or requestState")
+    val obj = ujson.Obj("resultType" -> ResultTypeInputRequired)
+    if inputRequests.nonEmpty then
+      obj("inputRequests") = ujson.Obj.from(inputRequests.map { (key, r) =>
+        key -> (ujson.Obj("method" -> r.method, "params" -> r.params): ujson.Value)
+      })
+    requestState.foreach(s => obj("requestState") = s)
+    obj
+
+  /** The client's answers on a retry, keyed by the identifiers the server
+   *  assigned. Absent or malformed reads as empty — a server that needs an
+   *  answer it did not get is told by the spec to ask AGAIN with a fresh
+   *  `InputRequiredResult`, not to error, so there is nothing to throw about. */
+  def parseInputResponses(params: ujson.Value): Map[String, ujson.Value] =
+    try
+      params.objOpt.flatMap(_.get("inputResponses")).flatMap(_.objOpt)
+        .map(_.toMap).getOrElse(Map.empty)
+    catch case _: Throwable => Map.empty
+
+  /** The opaque state the client echoed back, if any. Never inspected here. */
+  def parseRequestState(params: ujson.Value): Option[String] =
+    try params.objOpt.flatMap(_.get("requestState")).flatMap(_.strOpt)
+    catch case _: Throwable => None
+
+  /** Methods `2026-07-28` deleted, and which therefore MUST NOT be answered on
+   *  the modern path.
+   *
+   *  `ping` is gone outright; `logging/setLevel` is replaced by a per-request
+   *  `io.modelcontextprotocol/logLevel` in `_meta`. They stay fully served on
+   *  the LEGACY path — they exist in the revisions a legacy client negotiated,
+   *  and removing them there would break the era we promised to keep.
+   *
+   *  A modern client calling one gets `MethodNotFound`, which is the honest
+   *  answer: in the revision it asked for, the method does not exist. */
+  val RemovedInModern: Set[String] = Set(Method.Ping, Method.LoggingSetLevel)
+
+  /** True iff this request is a RETRY of an MRTR round trip.
+   *
+   *  Load-bearing for caching: the spec says a result produced from a request
+   *  carrying `inputResponses` or `requestState` MUST NOT be cached, because it
+   *  depends on inputs that are not part of the cache key. */
+  def isMrtrRetry(params: ujson.Value): Boolean =
+    parseInputResponses(params).nonEmpty || parseRequestState(params).isDefined
+
   // ─── MCP 2026-07-28 — CacheableResult ───────────────────────────────
 
   /** `ttlMs` + `cacheScope`, which the revision makes MANDATORY on the six

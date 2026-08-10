@@ -484,3 +484,83 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
         "arguments" -> ujson.Obj("region" -> "us-west1", "query" -> "SELECT 1"))).render()
     ujson.read(McpServerCore.handleHttpRequest(sqlServer(), legacy, "srv", "9.9.9", Map.empty).trim)
       .obj.keySet should not contain "error"
+
+  // ── P3a: MRTR wire types and the modern-only removals ───────────────
+
+  private val elicitReq = McpProtocol.InputRequest("elicitation/create",
+    ujson.Obj("mode" -> "form", "message" -> "Your GitHub username",
+              "requestedSchema" -> ujson.Obj("type" -> "object")))
+
+  test("InputRequiredResult carries resultType, its requests and its state"):
+    val r = McpProtocol.inputRequiredResult(Map("github_login" -> elicitReq), Some("opaque-blob"))
+    r("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    r("inputRequests")("github_login")("method").str shouldBe "elicitation/create"
+    r("inputRequests")("github_login")("params")("message").str shouldBe "Your GitHub username"
+    r("requestState").str shouldBe "opaque-blob"
+
+  test("either field alone is enough, but neither is not"):
+    // The spec requires at least one. A result asking for nothing while saying
+    // input is required leaves a conforming client retrying forever.
+    McpProtocol.inputRequiredResult(Map("k" -> elicitReq)).obj.keySet should not contain "requestState"
+    McpProtocol.inputRequiredResult(requestState = Some("s")).obj.keySet should not contain "inputRequests"
+    an [IllegalArgumentException] should be thrownBy McpProtocol.inputRequiredResult()
+
+  test("only three client requests may be answered with one"):
+    McpProtocol.MrtrCapableMethods shouldBe
+      Set(McpProtocol.Method.PromptsGet, McpProtocol.Method.ResourcesRead, McpProtocol.Method.ToolsCall)
+    McpProtocol.MrtrCapableMethods should not contain McpProtocol.Method.ToolsList
+
+  test("inputResponses and requestState are read off a retry, defensively"):
+    val retry = ujson.Obj(
+      "inputResponses" -> ujson.Obj("github_login" -> ujson.Obj("action" -> "accept")),
+      "requestState"   -> "opaque-blob")
+    McpProtocol.parseInputResponses(retry).keySet shouldBe Set("github_login")
+    McpProtocol.parseRequestState(retry) shouldBe Some("opaque-blob")
+    McpProtocol.isMrtrRetry(retry) shouldBe true
+    for junk <- List[ujson.Value](ujson.Obj(), ujson.Str("x"), ujson.Arr(),
+                                  ujson.Obj("inputResponses" -> ujson.Str("nope"))) do
+      withClue(s"$junk: ") {
+        McpProtocol.parseInputResponses(junk) shouldBe empty
+        McpProtocol.isMrtrRetry(junk) shouldBe false
+      }
+
+  test("an input_required result keeps its type and gets NO cache hints"):
+    // Stamping it "complete" would tell the client the request had finished
+    // while handing it a body full of questions.
+    val b = new McpServerBuilder
+    b.resource("mem://ask", None, None, u => ResourceHandlerResult(u, Nil))
+    val stamped = McpProtocol.stampComplete(
+      McpProtocol.inputRequiredResult(Map("k" -> elicitReq)), "srv", "9.9.9",
+      resultType = McpProtocol.ResultTypeInputRequired, cache = None)
+    stamped("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    stamped.obj.keySet should not contain "ttlMs"
+    stamped.obj.keySet should not contain "cacheScope"
+
+  test("a result produced from an MRTR RETRY is not cacheable either"):
+    // Different reason from the above and it needs its own case: the result may
+    // be perfectly `complete`, but it depends on inputs outside the cache key.
+    val b = twoToolServer()
+    b.resource("mem://a", None, None, u => ResourceHandlerResult(u, Nil))
+    val plain = modernResult(b, McpProtocol.Method.ResourcesRead,
+      modernParams("uri" -> ujson.Str("mem://a")))
+    plain.obj.keySet should contain ("ttlMs")                       // control: normally cacheable
+    val onRetry = modernResult(b, McpProtocol.Method.ResourcesRead,
+      modernParams("uri" -> ujson.Str("mem://a"), "requestState" -> ujson.Str("blob")))
+    onRetry("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    onRetry.obj.keySet should not contain "ttlMs"
+    onRetry.obj.keySet should not contain "cacheScope"
+
+  test("ping and logging/setLevel are gone on the modern path, kept on the legacy one"):
+    val b = new McpServerBuilder
+    for m <- McpProtocol.RemovedInModern.toList.sorted do
+      val params = if m == McpProtocol.Method.LoggingSetLevel then modernParams("level" -> ujson.Str("info"))
+                   else modernParams()
+      val modern = ujson.read(McpServerCore.dispatch(b, m, params, ujson.Num(60)).trim)
+      withClue(s"modern $m: ") {
+        modern("error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound
+        modern("error")("message").str should include ("removed in")
+      }
+      val legacyParams = if m == McpProtocol.Method.LoggingSetLevel then ujson.Obj("level" -> "info")
+                         else ujson.Obj()
+      val legacy = ujson.read(McpServerCore.dispatch(b, m, legacyParams, ujson.Num(61)).trim)
+      withClue(s"legacy $m: ") { legacy.obj.keySet should not contain "error" }

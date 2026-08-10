@@ -645,9 +645,15 @@ object McpServerCore:
     val ctx = McpProtocol.parseRequestMeta(params)
     rejectModern(ctx, id) match
       case Some(errorFrame) => errorFrame
+      case None if ctx.isModern && McpProtocol.RemovedInModern.contains(method) =>
+        // Deleted by 2026-07-28. Answering anyway would be pretending to speak a
+        // revision while serving a method it does not contain — and the legacy
+        // path still answers both, so nothing a legacy client relies on moves.
+        JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound,
+          s"method not found: $method (removed in ${McpProtocol.ModernProtocolVersion})")
       case None =>
         val frame = dispatchCore(builder, method, params, id, serverName, serverVersion)
-        if ctx.isModern then stampFrame(builder, method, frame, serverName, serverVersion) else frame
+        if ctx.isModern then stampFrame(builder, method, params, frame, serverName, serverVersion) else frame
 
   /** Validate the modern per-request metadata, returning the error frame to
    *  send instead of dispatching — or `None` to proceed.
@@ -683,6 +689,7 @@ object McpServerCore:
   private def stampFrame(
     builder:       McpServerBuilder,
     method:        String,
+    params:        ujson.Value,
     frame:         String,
     serverName:    String,
     serverVersion: String
@@ -698,8 +705,21 @@ object McpServerCore:
           // whether a token validator is registered, which is the one fact we have
           // rather than a guess: with auth on, every result belongs to some caller's
           // authorization context and may not be shared across contexts.
-          val hints = McpProtocol.cacheHintsFor(method, authenticated = builder.tokenValidator.isDefined)
-          js.obj("result") = McpProtocol.stampComplete(result, serverName, serverVersion, cache = hints)
+          // An InputRequiredResult declares its own resultType and must KEEP it —
+          // overwriting it with "complete" would tell the client the request had
+          // finished while handing it a body full of questions.
+          val declared = result.objOpt.flatMap(_.get("resultType")).flatMap(_.strOpt)
+          val rt       = declared.getOrElse(McpProtocol.ResultTypeComplete)
+          // Two independent reasons a result carries no cache hints, and both are
+          // the spec's: an input_required result is an interim answer, and ANY
+          // result produced from a retry carrying inputResponses or requestState
+          // depends on inputs that are not part of the cache key.
+          val cacheable = rt == McpProtocol.ResultTypeComplete && !McpProtocol.isMrtrRetry(params)
+          val hints =
+            if !cacheable then None
+            else McpProtocol.cacheHintsFor(method, authenticated = builder.tokenValidator.isDefined)
+          js.obj("result") =
+            McpProtocol.stampComplete(result, serverName, serverVersion, resultType = rt, cache = hints)
           js.render() + "\n"
     catch case _: Throwable => frame
 
