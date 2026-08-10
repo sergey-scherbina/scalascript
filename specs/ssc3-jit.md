@@ -281,6 +281,58 @@ of control as before, predicted from the mechanism rather than after the fact. `
 **The long bank is allocated only when the function has a long-bank register**, because a second
 array per call would otherwise make every call-heavy program worse to speed up a loop-heavy one.
 
+### 9.1 · It worked, and it was still slower — the executor is DISPATCH-bound
+
+The design above was implemented, measured and **reverted from the executor**. The analysis stays,
+the lane does not.
+
+**The mechanism did exactly what it promised.** `arith-loop` went from ~4 087 MB of young generation
+to **~391 MB — 10.5× less allocated** — with the answers unchanged. That number is load-independent
+and it is not in dispute.
+
+**The wall clock refused to follow.** 8 alternating pairs per workload, one host, two class
+directories of the same tree:
+
+| workload | banked | pre-J1c | banked won | |
+|---|---|---|---|---|
+| `arith-loop` | 83.1 ms | 61.0 | 3 of 8 | 0.73× |
+| `nested-loop` | 98.7 ms | 112.7 | 5 of 8 | 1.14× |
+| `list-fold` | 30.2 ms | 23.9 | 2 of 8 | 0.79× |
+
+The tell is `list-fold`: it has almost no long-bank registers, so the bank cannot help it, and it got
+**worse**. That is not a workload effect, it is an overhead every program pays — a function with one
+long-bank register sends EVERY instruction down the banked path, and the opcodes that are not in the
+banked hot core land in a 2 302-byte `stepBankedRest` instead of the 236-byte `step` that J0c got
+inlined.
+
+Splitting the banked core the way J0c split `step` was tried, and it worked as a threshold —
+`stepBanked` came to 356 bytes ("hot method too big"), then 314 with `Mul` moved out, and
+`-XX:+PrintInlining` says `inline (hot)`. **It changed the wall clock by nothing.**
+
+**So the hypothesis this section was built on is refuted, and precisely:** §8.2 concluded that GC
+*pause* was 0.5 % but the 25 GB of allocation was "real", and that reducing it was the target.
+Reducing it by 10.5× bought nothing. Young-generation allocation on this JVM is close to free in
+both halves — the pause AND the allocation itself — and what the executor's time actually goes into
+is DISPATCH.
+
+**That is the through-line of the whole ladder, and it is worth more than any single result here.**
+Three changes in a row moved the thing they targeted and lost on the clock: closure compilation
+(§8.1) replaced the dispatch and lost; the long bank left the dispatch alone but routed it through a
+second loop and lost; and the one change that clearly won — J0c — did nothing except make the
+existing dispatch *inlinable*. The executor is dispatch-bound, and the dispatch is already good.
+
+**What that says to do next, and it is not more of this:** stop trying to make a dispatch cheaper
+and reduce the NUMBER of dispatches. Superinstructions — fusing `Bin(Lt); BrIf` and `Const; Bin`
+into single instructions at load time — keep the exact loop J0c tuned and simply push fewer
+instructions through it. That is the one item from §3 J1 that was never built, and it is now the
+only one the evidence points at.
+
+**Kept from this attempt:** `Specialize.longBanks` and its `--banks` gate. The analysis is correct,
+hand-checked and asserted, and it is what any future unboxing needs on day one — including the
+`F64` extension the `float-loop` fixture is watching for. **Not kept:** the executor lane, because
+an unused fast path with an invariant coupled to an analysis in another file is debt, and this one
+was measurably negative.
+
 ### J3 · Host bytecode behind a by-name seam — a separate decision
 
 The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,

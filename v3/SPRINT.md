@@ -2516,6 +2516,30 @@ by measurement rather than by taste.**
       closure calling its successor instead of returning to a loop, is what the literature actually
       measures. Different experiment, not a tweak.
 
+- [x] **SSC3-J1c — the two-bank frame: built, measured, REVERTED from the executor.** The mechanism
+      worked — `arith-loop` went from ~4 087 MB of young generation to **~391 MB, 10.5× less**, with
+      answers unchanged. The clock refused to follow: `arith-loop` 3 of 8 pairs at 0.73×,
+      `list-fold` 2 of 8 at 0.79×, only `nested-loop` 5 of 8 at 1.14×.
+      **The tell is `list-fold`**, which has almost no long-bank registers and still got worse: one
+      long-bank register sends EVERY instruction down the banked path, and anything outside the
+      banked hot core meets a 2 302-byte `stepBankedRest` instead of the 236-byte `step` J0c
+      inlined. Splitting that core to 314 bytes and confirming `inline (hot)` changed the clock by
+      nothing.
+      **So §8.2's conclusion is itself refuted:** reducing allocation 10.5× bought nothing, and
+      young-generation allocation is close to free in both halves — the pause AND the allocation.
+      *Kept:* `Specialize.longBanks` and the `--banks` gate — correct, hand-checked, and what any
+      future unboxing needs on day one. *Not kept:* the executor lane, because an unused fast path
+      with an invariant coupled to another file is debt.
+
+**THE THROUGH-LINE, and it is worth more than any single row above.** Three changes moved the thing
+they targeted and lost on the clock — closure compilation replaced the dispatch, the long bank
+routed it through a second loop, frame pooling was refuted before it was written — and the one
+change that clearly won, J0c, did nothing but make the existing dispatch INLINABLE. **The executor
+is dispatch-bound and its dispatch is already good.** The next thing to try is therefore not a
+cheaper dispatch but FEWER of them: superinstructions, fusing `Bin(Lt); BrIf` and `Const; Bin` at
+load time, which keep the exact loop J0c tuned and push fewer instructions through it. That is the
+one §3 J1 item never built, and now the only one the evidence points at.
+
 **FRAME POOLING IS REFUTED — do not build it.** It was the obvious next move: `recursion-fib` is the
 slowest row, nothing has moved it, and `callFunc` allocates a frame per call. The assumption was
 checked before any code was written and it is false — `java -Xlog:gc` over that workload reports
