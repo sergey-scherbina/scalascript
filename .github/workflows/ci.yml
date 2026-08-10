@@ -1149,6 +1149,12 @@ jobs:
       # is in. That guard is `tests/e2e/lib/ssc-usable.sh` and it is a functional probe, because the
       # `-x bin/ssc` test these gates used before is not the question and made all four report FAIL
       # in a fresh worktree.
+      # Homed here rather than in smoke for a second reason on top of the budget one: `smoke-ci.ssc`
+      # was held by another claim when this gate was written, and the overlap guard refused it. The
+      # F gates already live here, so this is where it belongs anyway.
+      - name: F keeps every alternative in `case A | B`
+        run: tests/e2e/f-alternative-pattern-gate.sh
+
       - name: F lowers a bare call to a sibling member
         run: tests/e2e/f-bare-member-call-gate.sh
 
