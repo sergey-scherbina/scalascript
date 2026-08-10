@@ -924,3 +924,98 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     var i = 0
     while i < 100 && !cond do { Thread.sleep(20); i += 1 }
     assert(cond, s"condition still false after ${i * 20}ms")
+
+  // ── P2d-1: the client envelope, checked against OUR OWN server ──────
+
+  /** The strongest available gate for this pair: whatever the client builds,
+   *  the server's validator must accept. Two sides of one rule cannot drift
+   *  apart while this holds, and neither side is graded by its own opinion. */
+  private def serverAccepts(method: String, params: ujson.Value): Option[String] =
+    val meta = McpProtocol.clientMeta("test-client", "0.1.0")
+    val body = McpProtocol.withClientMeta(params, meta)
+    // Run the request through the REAL server, not just the header validator.
+    // The first version called validateRequestHeaders only, and a negative
+    // control showed what that missed: dropping the REQUIRED clientCapabilities
+    // left this gate green, because that field is checked in dispatch and not
+    // in the header validator. A round-trip gate that exercises one of the two
+    // checks is not a round trip.
+    val frame = McpServerCore.handleHttpRequest(
+      routableServer(), JsonRpc.encodeRequest(method, body, 1L), "srv", "9.9.9",
+      McpProtocol.mirroredHeaders(method, body))
+    val js = ujson.read(frame.trim)
+    js.obj.get("error").map(e => s"${e("code").num.toInt}: ${e("message").str}")
+
+  /** A server that can actually answer each method the round trip names. */
+  private def routableServer(): McpServerBuilder =
+    val b = new McpServerBuilder
+    b.tool("echo", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    // The non-ASCII case needs a real tool by that name: the strengthened round
+    // trip goes all the way to the handler, so an unregistered name now fails
+    // for a legitimate reason rather than passing on a header check alone.
+    b.tool("Hello, 世界", None, ujson.Obj(), _ => ToolHandlerResult(Nil, isError = false))
+    b.prompt("p", None, Nil, _ => PromptHandlerResult(None, Nil))
+    b.resource("file:///a", None, None, u => ResourceHandlerResult(u, Nil))
+    b
+
+  test("what the client builds, the server accepts — for every method"):
+    serverAccepts(McpProtocol.Method.ToolsList, ujson.Obj()) shouldBe None
+    serverAccepts(McpProtocol.Method.ToolsCall,
+      ujson.Obj("name" -> "echo", "arguments" -> ujson.Obj())) shouldBe None
+    serverAccepts(McpProtocol.Method.PromptsGet, ujson.Obj("name" -> "p")) shouldBe None
+    serverAccepts(McpProtocol.Method.ResourcesRead, ujson.Obj("uri" -> "file:///a")) shouldBe None
+    serverAccepts(McpProtocol.Method.ServerDiscover, ujson.Obj()) shouldBe None
+
+  test("a non-ASCII name survives the round trip, because both sides use the sentinel"):
+    // The case that breaks if only one side knows about the encoding.
+    serverAccepts(McpProtocol.Method.ToolsCall,
+      ujson.Obj("name" -> "Hello, 世界", "arguments" -> ujson.Obj())) shouldBe None
+    McpProtocol.mirroredHeaders(McpProtocol.Method.ToolsCall,
+      ujson.Obj("name" -> "Hello, 世界"))(McpProtocol.Header.Name) should startWith ("=?base64?")
+
+  test("clientMeta carries what the server REQUIRES, not merely what is polite"):
+    val m = McpProtocol.clientMeta("c", "1.0")
+    m(McpProtocol.MetaKey.ProtocolVersion).str shouldBe McpProtocol.ModernProtocolVersion
+    m.value.keySet should contain (McpProtocol.MetaKey.ClientCapabilities)   // required, so present
+    m(McpProtocol.MetaKey.ClientInfo)("name").str shouldBe "c"
+    m.value.keySet should not contain McpProtocol.MetaKey.LogLevel           // optional, so absent
+    McpProtocol.clientMeta("c", "1.0", logLevel = Some("debug"))(
+      McpProtocol.MetaKey.LogLevel).str shouldBe "debug"
+
+  test("merging _meta does not switch off a progressToken the caller set"):
+    // `_meta` is a shared namespace; replacing it would silently drop an opt-in
+    // the caller made, and nothing would report it.
+    val params = ujson.Obj("name" -> "echo",
+      "_meta" -> ujson.Obj("progressToken" -> "tok-1"))
+    val merged = McpProtocol.withClientMeta(params, McpProtocol.clientMeta("c", "1.0"))
+    merged("_meta")("progressToken").str shouldBe "tok-1"
+    merged("_meta")(McpProtocol.MetaKey.ProtocolVersion).str shouldBe McpProtocol.ModernProtocolVersion
+
+  test("Mcp-Name is sent for exactly the three methods that mirror a name"):
+    for m <- McpProtocol.NameHeaderSource.keys do
+      val field = McpProtocol.NameHeaderSource(m)
+      McpProtocol.mirroredHeaders(m, ujson.Obj(field -> "x")).keySet should contain (McpProtocol.Header.Name)
+    for m <- List(McpProtocol.Method.ToolsList, McpProtocol.Method.ServerDiscover,
+                  McpProtocol.Method.SubscriptionsListen) do
+      McpProtocol.mirroredHeaders(m, ujson.Obj()).keySet should not contain McpProtocol.Header.Name
+
+  test("client and server agree about x-mcp-header, including the absent case"):
+    val schema = ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "region" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "Region"),
+      "n"      -> ujson.Obj("type" -> "integer", "x-mcp-header" -> "N")))
+    val args = ujson.Obj("region" -> "西部", "n" -> 42)
+    val sent = McpProtocol.mirroredParamHeaders(schema, args)
+    McpProtocol.validateParamHeaders(sent, schema, args) shouldBe None
+    // The rule both sides must share: a value that is absent carries NO header.
+    val partial = ujson.Obj("n" -> 42)
+    val sentPartial = McpProtocol.mirroredParamHeaders(schema, partial)
+    sentPartial.keySet should not contain (McpProtocol.Header.ParamPrefix + "Region")
+    McpProtocol.validateParamHeaders(sentPartial, schema, partial) shouldBe None
+
+  test("an invalid x-mcp-header schema makes the client send nothing"):
+    // A conforming client must exclude such a tool from tools/list, so it should
+    // never call one; emitting no headers rather than guessing is the
+    // conservative half of that, and the server rejects the call anyway.
+    val bad = ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "p" -> ujson.Obj("type" -> "number", "x-mcp-header" -> "P")))
+    McpProtocol.mirroredParamHeaders(bad, ujson.Obj("p" -> 1)) shouldBe empty
+    McpProtocol.validateParamHeaders(Map.empty, bad, ujson.Obj("p" -> 1)).isDefined shouldBe true

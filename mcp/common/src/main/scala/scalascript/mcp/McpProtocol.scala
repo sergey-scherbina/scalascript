@@ -243,6 +243,77 @@ object McpProtocol:
     if plain then v
     else "=?base64?" + java.util.Base64.getEncoder.encodeToString(v.getBytes("UTF-8")) + "?="
 
+  // ─── MCP 2026-07-28 — the CLIENT side of the envelope ──────────────
+
+  /** The `_meta` a modern request must carry.
+   *
+   *  `protocolVersion` and `clientCapabilities` are REQUIRED on every request —
+   *  a server rejects their absence with `-32602` — while `clientInfo` is a
+   *  SHOULD. So capabilities default to an empty object rather than being
+   *  omitted: an empty object means "I declare none", which is a statement,
+   *  whereas leaving the key out is a malformed request. */
+  def clientMeta(
+    clientName:    String,
+    clientVersion: String,
+    capabilities:  ujson.Value    = ujson.Obj(),
+    logLevel:      Option[String] = None
+  ): ujson.Obj =
+    val m = ujson.Obj(
+      MetaKey.ProtocolVersion    -> ModernProtocolVersion,
+      MetaKey.ClientInfo         -> ujson.Obj("name" -> clientName, "version" -> clientVersion),
+      MetaKey.ClientCapabilities -> capabilities)
+    logLevel.foreach(l => m(MetaKey.LogLevel) = l)
+    m
+
+  /** Merge the client `_meta` into a request's params.
+   *
+   *  Merges rather than replaces because `_meta` is a SHARED namespace: a caller
+   *  may already have put `progressToken` there to opt into progress
+   *  notifications, and overwriting it would silently switch that off. Keys we
+   *  own win; everything else survives. */
+  def withClientMeta(params: ujson.Value, meta: ujson.Obj): ujson.Value =
+    val obj = params match
+      case o: ujson.Obj => o
+      case _            => ujson.Obj()
+    val existing = obj.value.get("_meta") match
+      case Some(m: ujson.Obj) => m
+      case _                  => ujson.Obj()
+    meta.value.foreach((k, v) => existing(k) = v)
+    obj("_meta") = existing
+    obj
+
+  /** The standard headers a modern client MUST mirror onto a POST.
+   *
+   *  `Mcp-Name` only for the three methods that have a name to mirror, and
+   *  encoded through the sentinel when it cannot ride as plain ASCII — the
+   *  server decodes before comparing, so an unencoded non-ASCII name would be
+   *  a mismatch against its own body. */
+  def mirroredHeaders(method: String, params: ujson.Value): Map[String, String] =
+    val base = Map(
+      Header.ProtocolVersion -> ModernProtocolVersion,
+      Header.Method          -> method)
+    NameHeaderSource.get(method).flatMap { field =>
+      try params.objOpt.flatMap(_.get(field)).flatMap(_.strOpt) catch case _: Throwable => None
+    } match
+      case Some(name) => base + (Header.Name -> encodeHeaderValue(name))
+      case None       => base
+
+  /** The `Mcp-Param-{Name}` headers for a `tools/call`, read off the tool's
+   *  `x-mcp-header` annotations.
+   *
+   *  Returns empty for a schema that violates the annotation rules. A
+   *  conforming CLIENT is required to exclude such a tool from `tools/list`
+   *  entirely, so it should never be calling one — emitting no headers rather
+   *  than guessing is the conservative half of that. */
+  def mirroredParamHeaders(inputSchema: ujson.Value, arguments: ujson.Value): Map[String, String] =
+    xMcpHeaderParams(inputSchema) match
+      case Left(_)       => Map.empty
+      case Right(params) =>
+        params.iterator.flatMap { ph =>
+          valueAt(arguments, ph.path).flatMap(headerTextOf)
+            .map(v => (Header.ParamPrefix + ph.headerName) -> encodeHeaderValue(v))
+        }.toMap
+
   /** Validate the mirrored headers against the body they claim to describe.
    *  Returns `Some(message)` naming the first violation, or `None` when they
    *  agree.
