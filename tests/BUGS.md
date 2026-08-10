@@ -416,7 +416,7 @@ refusals naming their cause.
 ## charat-returns-char-on-v1-and-int-everywhere-else
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: f39448c96
      lane: multi
      area: runtime
      confirmed: yes
