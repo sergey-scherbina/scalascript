@@ -1,0 +1,16 @@
+slug: js-char-is-a-char
+branch: feature/js-char-is-a-char
+agent: claude-code
+started: 2026-08-10T15:54:23Z
+heartbeat: 2026-08-10T15:54:23Z
+status: investigating
+items: js-char-is-a-plain-string
+paths: mod:v1/runtime/backend/js file:v1/runtime/backend/js/BUGS.md file:tests/e2e/js-char-is-a-char.sh
+scope: |
+  Completing the owner's decision of 2026-08-10 -- `println(s.charAt(0))` prints the CHARACTER and
+  a Char still counts as its code unit -- on the JS backend, which the decision names ("on all
+  backends") and which today's work did not touch. The entry says a char LITERAL emits a plain JS
+  string, so `'x' == 120` is false there while every other lane says true; the runtime already has
+  a `_Char` box with `_isChar`, used for Char RESULTS but not literals.
+  MEASURE FIRST on a fresh build: the shared checkout is stale, and its numbers are the old code.
+next: measure js against the default lane, then decide the scope from that
