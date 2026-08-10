@@ -68,6 +68,10 @@ object McpProtocol:
     // round trip, and doubles as the stdio probe a dual-era client uses
     // to tell a modern server from a legacy one.
     val ServerDiscover        = "server/discover"
+    // MCP 2026-07-28 — one long-lived request replaces both `resources/subscribe`
+    // and the GET stream. Its RESPONSE is the stream.
+    val SubscriptionsListen       = "subscriptions/listen"
+    val SubscriptionsAcknowledged = "notifications/subscriptions/acknowledged"
 
   /** MCP 2026-07-28 — reserved `_meta` keys.  The revision moved protocol
    *  version, client identity and client capabilities out of the
@@ -428,6 +432,100 @@ object McpProtocol:
         obj
       case other => other   // non-object result: nothing to stamp onto
 
+  // ─── MCP 2026-07-28 — subscriptions/listen ─────────────────────────
+
+  /** Which change notifications a client asked for.
+   *
+   *  Every field is opt-IN and the server **MUST NOT** send a type the client
+   *  did not request — so an all-false filter is a legitimate subscription that
+   *  delivers nothing but its own acknowledgement, not a malformed one. */
+  case class NotificationFilter(
+    toolsListChanged:      Boolean      = false,
+    promptsListChanged:    Boolean      = false,
+    resourcesListChanged:  Boolean      = false,
+    resourceSubscriptions: List[String] = Nil
+  ):
+    def isEmpty: Boolean =
+      !toolsListChanged && !promptsListChanged && !resourcesListChanged && resourceSubscriptions.isEmpty
+
+    def toJson: ujson.Value =
+      val o = ujson.Obj()
+      if toolsListChanged     then o("toolsListChanged")     = true
+      if promptsListChanged   then o("promptsListChanged")   = true
+      if resourcesListChanged then o("resourcesListChanged") = true
+      if resourceSubscriptions.nonEmpty then
+        o("resourceSubscriptions") = ujson.Arr.from(resourceSubscriptions.map(ujson.Str(_)))
+      o
+
+    /** Does this filter admit `method` (for a resource update, `uri`)?
+     *  The one place that decides what may go out on a stream. */
+    def admits(method: String, uri: Option[String] = None): Boolean = method match
+      case Method.ToolsListChanged     => toolsListChanged
+      case Method.PromptsListChanged   => promptsListChanged
+      case Method.ResourcesListChanged => resourcesListChanged
+      case Method.ResourcesUpdated     => uri.exists(resourceSubscriptions.contains)
+      case _                           => false
+
+  /** Read the filter off a `subscriptions/listen` request. Absent or malformed
+   *  reads as the empty filter — nothing is delivered, which is the safe
+   *  direction: the failure mode of guessing wrong here is sending a client
+   *  notifications it never asked for. */
+  def parseNotificationFilter(params: ujson.Value): NotificationFilter =
+    try
+      params.objOpt.flatMap(_.get("notifications")).flatMap(_.objOpt) match
+        case None => NotificationFilter()
+        case Some(n) =>
+          def flag(k: String) = n.get(k).flatMap(_.boolOpt).getOrElse(false)
+          val uris = n.get("resourceSubscriptions").flatMap(_.arrOpt)
+            .map(_.iterator.flatMap(_.strOpt).toList).getOrElse(Nil)
+          NotificationFilter(flag("toolsListChanged"), flag("promptsListChanged"),
+                             flag("resourcesListChanged"), uris)
+    catch case _: Throwable => NotificationFilter()
+
+  /** Stamp a notification with the subscription it belongs to.
+   *
+   *  Mandatory on every message delivered on a listen stream: on stdio all
+   *  subscriptions share one channel, so without this a client cannot tell
+   *  which of its streams a notification came from. Merges into an existing
+   *  `_meta` rather than replacing it. */
+  def tagSubscription(notification: ujson.Value, subscriptionId: ujson.Value): ujson.Value =
+    notification match
+      case obj: ujson.Obj =>
+        val params = obj.value.get("params") match
+          case Some(p: ujson.Obj) => p
+          case _                  => ujson.Obj()
+        val meta = params.value.get("_meta") match
+          case Some(m: ujson.Obj) => m
+          case _                  => ujson.Obj()
+        meta(MetaKey.SubscriptionId) = subscriptionId
+        params("_meta") = meta
+        obj("params")   = params
+        obj
+      case other => other
+
+  /** The acknowledgement, which the server MUST send FIRST on a subscription
+   *  and before any notification belonging to it.
+   *
+   *  `notifications` echoes the subset actually honoured — a type the server
+   *  does not support is omitted rather than silently accepted, so a client can
+   *  compare what it asked for against what it will get. */
+  def subscriptionsAcknowledged(subscriptionId: ujson.Value, honoured: NotificationFilter): String =
+    JsonRpc.encodeNotification(Method.SubscriptionsAcknowledged,
+      tagSubscription(
+        ujson.Obj("params" -> ujson.Obj("notifications" -> honoured.toJson)),
+        subscriptionId)("params"))
+
+  /** The graceful-closure response to the long-lived request itself: an empty
+   *  result carrying the subscription id.
+   *
+   *  Its ABSENCE is the signal — a stream that drops without this told the
+   *  client nothing, and the client may reconnect. So this is emitted on an
+   *  orderly teardown and never on a transport failure. */
+  def subscriptionClosedResult(subscriptionId: ujson.Value): ujson.Value =
+    ujson.Obj(
+      "resultType" -> ResultTypeComplete,
+      "_meta"      -> ujson.Obj(MetaKey.SubscriptionId -> subscriptionId))
+
   // ─── MCP 2026-07-28 — Multi Round-Trip Requests (MRTR) ─────────────
 
   /** `resultType` values the core protocol defines. An unrecognised value is
@@ -497,7 +595,10 @@ object McpProtocol:
    *
    *  A modern client calling one gets `MethodNotFound`, which is the honest
    *  answer: in the revision it asked for, the method does not exist. */
-  val RemovedInModern: Set[String] = Set(Method.Ping, Method.LoggingSetLevel)
+  val RemovedInModern: Set[String] = Set(
+    Method.Ping, Method.LoggingSetLevel,
+    // Replaced by `subscriptions/listen`, whose filter carries the resource URIs.
+    Method.ResourcesSubscribe, Method.ResourcesUnsubscribe)
 
   /** True iff this request is a RETRY of an MRTR round trip.
    *

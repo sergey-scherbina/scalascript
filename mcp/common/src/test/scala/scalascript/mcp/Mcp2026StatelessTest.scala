@@ -554,7 +554,10 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
 
   test("ping and logging/setLevel are gone on the modern path, kept on the legacy one"):
     val b = new McpServerBuilder
-    for m <- McpProtocol.RemovedInModern.toList.sorted do
+    // Scoped to these two; the resources/subscribe pair has its own case in P4a,
+    // and the set's exact membership is asserted below so a fifth member cannot
+    // be added without a test naming it.
+    for m <- List(McpProtocol.Method.Ping, McpProtocol.Method.LoggingSetLevel) do
       val params = if m == McpProtocol.Method.LoggingSetLevel then modernParams("level" -> ujson.Str("info"))
                    else modernParams()
       val modern = ujson.read(McpServerCore.dispatch(b, m, params, ujson.Num(60)).trim)
@@ -566,6 +569,9 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
                          else ujson.Obj()
       val legacy = ujson.read(McpServerCore.dispatch(b, m, legacyParams, ujson.Num(61)).trim)
       withClue(s"legacy $m: ") { legacy.obj.keySet should not contain "error" }
+    McpProtocol.RemovedInModern shouldBe Set(
+      McpProtocol.Method.Ping, McpProtocol.Method.LoggingSetLevel,
+      McpProtocol.Method.ResourcesSubscribe, McpProtocol.Method.ResourcesUnsubscribe)
 
   // ── P1c: an unknown NAME is not an unknown METHOD ───────────────────
 
@@ -587,3 +593,80 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     // Control: a method that really does not exist still says so.
     ujson.read(McpServerCore.dispatch(b, "no/such/method", ujson.Obj(), ujson.Num(71)).trim)(
       "error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound
+
+  // ── P4a: subscriptions/listen, the protocol layer ───────────────────
+
+  test("the filter is opt-in: an unrequested type is never admitted"):
+    // The spec's MUST NOT. This predicate is the single place that decides what
+    // may leave on a stream, so it is where the rule has to be true.
+    val onlyTools = McpProtocol.NotificationFilter(toolsListChanged = true)
+    onlyTools.admits(McpProtocol.Method.ToolsListChanged)     shouldBe true
+    onlyTools.admits(McpProtocol.Method.PromptsListChanged)   shouldBe false
+    onlyTools.admits(McpProtocol.Method.ResourcesListChanged) shouldBe false
+    onlyTools.admits(McpProtocol.Method.ResourcesUpdated, Some("file:///a")) shouldBe false
+    McpProtocol.NotificationFilter().isEmpty shouldBe true
+
+  test("resource updates are admitted per-URI, not per-type"):
+    val f = McpProtocol.NotificationFilter(resourceSubscriptions = List("file:///a", "file:///b"))
+    f.admits(McpProtocol.Method.ResourcesUpdated, Some("file:///a")) shouldBe true
+    f.admits(McpProtocol.Method.ResourcesUpdated, Some("file:///c")) shouldBe false
+    f.admits(McpProtocol.Method.ResourcesUpdated, None)              shouldBe false
+    f.admits(McpProtocol.Method.ToolsListChanged)                    shouldBe false
+
+  test("the filter is parsed off the request, and malformed input subscribes to nothing"):
+    val asked = ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true,
+      "resourceSubscriptions" -> ujson.Arr("file:///project/config.json")))
+    val f = McpProtocol.parseNotificationFilter(asked)
+    f.toolsListChanged shouldBe true
+    f.promptsListChanged shouldBe false
+    f.resourceSubscriptions shouldBe List("file:///project/config.json")
+    // Guessing wrong here means pushing notifications nobody asked for, so every
+    // unusable shape resolves to the empty filter.
+    for junk <- List[ujson.Value](ujson.Obj(), ujson.Str("x"), ujson.Arr(),
+                                  ujson.Obj("notifications" -> ujson.Str("all")),
+                                  ujson.Obj("notifications" -> ujson.Obj("toolsListChanged" -> "yes"))) do
+      withClue(s"$junk: ") { McpProtocol.parseNotificationFilter(junk).isEmpty shouldBe true }
+
+  test("every message on a stream carries the subscription id"):
+    // On stdio all subscriptions share one channel — without this a client
+    // cannot tell which of its streams a notification belongs to.
+    val n = ujson.read(JsonRpc.encodeNotification(
+      McpProtocol.Method.ResourcesUpdated, ujson.Obj("uri" -> "file:///a")).trim)
+    val tagged = McpProtocol.tagSubscription(n, ujson.Num(1))
+    tagged("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 1
+    tagged("params")("uri").str shouldBe "file:///a"      // payload preserved
+
+  test("tagging merges into an existing _meta rather than replacing it"):
+    val n = ujson.read(JsonRpc.encodeNotification(McpProtocol.Method.ResourcesUpdated,
+      ujson.Obj("uri" -> "file:///a", "_meta" -> ujson.Obj("com.example/keep" -> "yes"))).trim)
+    val tagged = McpProtocol.tagSubscription(n, ujson.Num(7))
+    tagged("params")("_meta")("com.example/keep").str shouldBe "yes"
+    tagged("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 7
+
+  test("the acknowledgement echoes only what was honoured, and carries the id"):
+    val honoured = McpProtocol.NotificationFilter(
+      toolsListChanged = true, resourceSubscriptions = List("file:///project/config.json"))
+    val ack = ujson.read(McpProtocol.subscriptionsAcknowledged(ujson.Num(1), honoured).trim)
+    ack("method").str shouldBe McpProtocol.Method.SubscriptionsAcknowledged
+    ack("params")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 1
+    ack("params")("notifications")("toolsListChanged").bool shouldBe true
+    // Omitted, not false: a client compares what it asked for against what it gets.
+    ack("params")("notifications").obj.keySet should not contain "promptsListChanged"
+    ack.obj.keySet should not contain "id"                 // a notification has no id
+
+  test("graceful closure is an empty result carrying the id"):
+    val r = McpProtocol.subscriptionClosedResult(ujson.Num(1))
+    r("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    r("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 1
+
+  test("resources/subscribe and unsubscribe are gone on the modern path, kept on legacy"):
+    val b = new McpServerBuilder
+    for m <- List(McpProtocol.Method.ResourcesSubscribe, McpProtocol.Method.ResourcesUnsubscribe) do
+      McpProtocol.RemovedInModern should contain (m)
+      val modern = ujson.read(McpServerCore.dispatch(
+        b, m, modernParams("uri" -> ujson.Str("file:///a")), ujson.Num(80)).trim)
+      withClue(s"modern $m: ") { modern("error")("code").num shouldBe JsonRpc.ErrorCode.MethodNotFound }
+      val legacy = ujson.read(McpServerCore.dispatch(
+        b, m, ujson.Obj("uri" -> "file:///a"), ujson.Num(81)).trim)
+      withClue(s"legacy $m: ") { legacy.obj.keySet should not contain "error" }
