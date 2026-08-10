@@ -5,7 +5,13 @@ started: 2026-08-10T18:10:37Z
 heartbeat: 2026-08-10T18:10:37Z
 status: claimed-before-planning
 items: v3-extension-type-params
-paths: file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md
+paths: file:v3/src/Lower.scala file:specs/ssc3-extensions.md file:v3/extension-gate.sh file:BUGS.md file:v3/SPRINT.md file:v3/src/Parser.scala file:v3/src/Ast.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+  `extension` is REFUSED in Parser.scala today; the feature needs the parser to accept a
+  declaration, the AST to carry it and Lower to lift each def to a top-level function whose
+  first parameter is the receiver, plus a call-site rewrite. §51 records a reverted attempt
+  (N 188 -> 130, CRASH 0 -> 131) and its lesson: a bare name-based rewrite catches `.map` on a
+  list. The conservative form is sound in one direction — rewrite only when the name is neither
+  a built-in method nor declared by any class in the merged program — and the built-in
+  vocabulary is kept honest by a gate that derives it from Exec rather than by a hand list.
 next: plan the task into SPRINT.md, then implement
