@@ -600,13 +600,69 @@ Not filed against the move itself, which is a claim in flight (`std-to-repo-root
 here for the same reason. What this entry is for is the NUMBER: anyone measuring v3 against the
 corpus in the meantime will read 75 and think a compiler regressed. It did not.
 
-## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
+## lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree
 
 <!-- status: open
      lane: v3
      area: codegen
-     kind: gap
+     kind: bug
      gate: none -->
+
+`v3/src/Lower.scala` walks `Expr` in SIX separate hand-written recursions — `mapDeep`,
+`qualifyMembers`, `freeVars`, the curried-call normaliser, `assignedFree`, and the lowering itself.
+Adding one node to `Expr` means finding all six, and **nothing fails when you miss one**: the
+compiler is satisfied because most of them end in a catch-all arm.
+
+**Measured 2026-08-09 while adding `Expr.MethodRef`.** Three were missed, and each announced itself
+differently, hours apart:
+
+| walker | symptom | how it was found |
+|---|---|---|
+| `mapDeep` (receiver) | `call to unknown function '__summon__'` | first build |
+| `mapDeep` (`NamedArg` — a hole that PREDATES this node) | 116 corpus cases refused | corpus sweep |
+| `qualifyMembers` | `unknown name 'entries'`, exactly one row, N 188 → 187 | A/B against `origin/main` |
+
+The middle one is the warning: `mapDeep` had no `NamedArg` case at all, so `rewriteByName` and
+`resolveSummons` have been silently skipping the insides of `f(x = …)` for as long as they have
+existed. A missed rewrite is a WRONG PROGRAM, not a refusal, which is why nothing caught it; the
+new node was refused when unresolved, and that is the only reason the hole became visible.
+
+**What would fix it** is one traversal the others are written in terms of, or a single `children`
+function per node that every walker consumes. Either way the property to gate is *"every walker
+handles every case"*, which a test can assert by construction — build one value of each `Expr` case
+and require each walker to visit its children.
+
+## v3-lowerfail-reports-the-root-path-with-an-imported-unit's-line
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: none -->
+
+`ssc3 ir tests/conformance/tkv2-busi-home.ssc` reports
+`tests/conformance/tkv2-busi-home.ssc:119:3: call to 'vstack' passes 1 argument(s), it takes 2`.
+That file is **71 lines long and does not contain `vstack`**. The real site is
+`std/ui/form.ssc:119`, reached through the import graph.
+
+`Loader.closureWith` already solves this for the FRONT — a `ParseFail` inside an imported unit is
+caught and re-thrown with that unit's path — and the same entry records why: *"the imported unit's
+line number with the importer's path, pointing at a line that has nothing to do with the error, in
+a file the reader did not write"*. A `LowerFail` happens after `Loader.merge`, where the unit
+boundary is gone, so nothing can do the same.
+
+Cost measured while chasing something else: three commands to discover the position pointed past
+the end of the file it named. Fixing it means carrying the unit with each declaration into the
+merged program — `Pos` would need a path, or `merge` would need to record a per-def origin.
+
+## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
+
+<!-- status: fixed
+     lane: v3
+     area: codegen
+     kind: gap
+     gate: v3/front-gate.sh
+     fixed-in: 89f6f3e0a -->
 
 `bench/corpus/typeclass-fold.ssc` — `xs.foldLeft(summon[Monoid[A]].empty)(summon[Monoid[A]].combine)`
 → `refusing to run invalid IR: func combineAll #2: call to intSum.combine passes 0 arguments, it
@@ -625,6 +681,32 @@ method reference with no argument list, where the method takes `n > 0` parameter
 the rule silently turns a genuine arity ERROR into a lambda, and a program that should be refused
 starts running and printing something. Check that first; the answer decides whether the fix is
 three lines or needs the front to carry the distinction.
+
+**FIXED 2026-08-09 — and the trap was REAL, which is why the front now carries the distinction.**
+Measured before writing any rule: `M.add` and `M.zero()` both printed `(send (name "M") …)`, so
+"no arguments" could not tell a value from an error. UniML's dialect had kept them apart all along
+(`Select` versus `Apply(Select, …)`) and the projection was collapsing them.
+
+`Ast.Expr.MethodRef` is a selection with no argument list. Both fronts emit it, `AstText` prints it
+as `(sel …)` — deliberately NOT as `send`, so `front-diff.sh` can see a front that stops emitting
+it — and `Lower.resolveMethodRefs` turns every one into either an ordinary no-argument call or a
+lambda calling the method with the arguments it declares. A separate case rather than a flag on
+`MethodCall`: a `Boolean` would have said the same and added a wildcard to all THIRTY of its
+pattern sites.
+
+**Eta-expansion is restricted to a receiver that NAMES its target**, so it can only turn a refused
+program into a running one, never change one that already ran: `Obj.m` resolves to one definition
+and its arity is known, while `x.m` on a value is decided by the receiver's tag at run time and two
+classes may declare `m` differently.
+
+**`checkArity` grew the object-method case in the same commit**, because the two spellings now
+differ and the failing one has to say where: `M.add()` was reaching the verifier, which reports
+without a position and is classified CRASH. It now reads
+`eta-arity-error.ssc:18:11: call to 'M.add' passes 0 argument(s), it takes 2`.
+
+**`bench/corpus/typeclass-fold.ssc` runs — the first of §52's five rows.** `VInt(16500)`, checked
+as 1+2+…+10 = 55 times 300 against the source rather than against itself. Fixtures
+`eta-expansion` (10, 12, sum) and `eta-arity-error` (refused, both fronts).
 
 ## v3-extension-type-params — `extension [M](ref: ActorRef[M])` is refused, and it stands between two conformance cases and their module
 
