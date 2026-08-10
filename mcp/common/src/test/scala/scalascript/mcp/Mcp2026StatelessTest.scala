@@ -369,3 +369,118 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
                 McpProtocol.Header.Method          -> McpProtocol.Method.ToolsList)
     ujson.read(McpServerCore.handleHttpRequest(echoServer(), listBody, "srv", "9.9.9", h).trim)
       .obj.keySet should not contain "error"
+
+  // ── P2c: x-mcp-header → Mcp-Param-{Name} ────────────────────────────
+
+  /** The spec's own worked example: one annotated param, one plain one. */
+  private val sqlSchema = ujson.Obj(
+    "type" -> "object",
+    "properties" -> ujson.Obj(
+      "region" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "Region"),
+      "query"  -> ujson.Obj("type" -> "string")),
+    "required" -> ujson.Arr("region", "query"))
+
+  private def sqlServer(): McpServerBuilder =
+    val b = new McpServerBuilder
+    b.tool("execute_sql", None, sqlSchema, _ => ToolHandlerResult(Nil, isError = false))
+    b
+
+  private def sqlCall(args: ujson.Obj) = ujson.Obj(
+    "jsonrpc" -> "2.0", "id" -> 50, "method" -> McpProtocol.Method.ToolsCall,
+    "params" -> modernParams("name" -> ujson.Str("execute_sql"), "arguments" -> args)).render()
+
+  private def sqlHeaders(extra: (String, String)*) =
+    Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.Header.Method          -> McpProtocol.Method.ToolsCall,
+        McpProtocol.Header.Name            -> "execute_sql") ++ extra
+
+  private def sqlPost(args: ujson.Obj, h: Map[String, String]) =
+    ujson.read(McpServerCore.handleHttpRequest(sqlServer(), sqlCall(args), "srv", "9.9.9", h).trim)
+
+  test("x-mcp-header: a matching Mcp-Param header is accepted"):
+    val js = sqlPost(ujson.Obj("region" -> "us-west1", "query" -> "SELECT 1"),
+                     sqlHeaders("Mcp-Param-Region" -> "us-west1"))
+    js.obj.keySet should not contain "error"
+
+  test("x-mcp-header: the four presence/absence combinations behave as the spec says"):
+    val full = ujson.Obj("region" -> "us-west1", "query" -> "SELECT 1")
+    val bare = ujson.Obj("query" -> "SELECT 1")
+    // value present + header present + equal -> ok (above). The three failures:
+    sqlPost(full, sqlHeaders())("error")("code").num shouldBe
+      McpProtocol.ErrorCode.HeaderMismatch                                   // omitted while present
+    sqlPost(full, sqlHeaders("Mcp-Param-Region" -> "eu-west1"))("error")("code").num shouldBe
+      McpProtocol.ErrorCode.HeaderMismatch                                   // disagrees
+    sqlPost(bare, sqlHeaders("Mcp-Param-Region" -> "us-west1"))("error")("code").num shouldBe
+      McpProtocol.ErrorCode.HeaderMismatch                                   // sent while absent
+    // argument absent AND header absent -> nothing to disagree about
+    sqlPost(bare, sqlHeaders()).obj.keySet should not contain "error"
+
+  test("x-mcp-header: a null argument is treated as absent, not as the string null"):
+    sqlPost(ujson.Obj("region" -> ujson.Null, "query" -> "SELECT 1"), sqlHeaders())
+      .obj.keySet should not contain "error"
+
+  test("x-mcp-header: a non-ASCII value is compared after decoding the sentinel"):
+    val js = sqlPost(ujson.Obj("region" -> "西部", "query" -> "SELECT 1"),
+      sqlHeaders("Mcp-Param-Region" -> McpProtocol.encodeHeaderValue("西部")))
+    js.obj.keySet should not contain "error"
+
+  test("x-mcp-header: integers are decimal and booleans lowercase"):
+    val b = new McpServerBuilder
+    b.tool("t", None, ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "n" -> ujson.Obj("type" -> "integer", "x-mcp-header" -> "N"),
+      "f" -> ujson.Obj("type" -> "boolean", "x-mcp-header" -> "F"))),
+      _ => ToolHandlerResult(Nil, isError = false))
+    val body = ujson.Obj("jsonrpc" -> "2.0", "id" -> 51, "method" -> McpProtocol.Method.ToolsCall,
+      "params" -> modernParams("name" -> ujson.Str("t"),
+        "arguments" -> ujson.Obj("n" -> 42, "f" -> true))).render()
+    val h = Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+                McpProtocol.Header.Method -> McpProtocol.Method.ToolsCall,
+                McpProtocol.Header.Name -> "t", "Mcp-Param-N" -> "42", "Mcp-Param-F" -> "true")
+    ujson.read(McpServerCore.handleHttpRequest(b, body, "srv", "9.9.9", h).trim)
+      .obj.keySet should not contain "error"
+
+  test("x-mcp-header: nested properties are reachable, arrays and oneOf are not"):
+    val nested = ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "outer" -> ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+        "inner" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "Inner")))))
+    McpProtocol.xMcpHeaderParams(nested) shouldBe
+      Right(List(McpProtocol.ParamHeader("Inner", List("outer", "inner"))))
+    // Under `items` the annotation is simply not collected — there is no single
+    // path to read it from, which is the reason the spec forbids it.
+    val inArray = ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "xs" -> ujson.Obj("type" -> "array", "items" -> ujson.Obj("type" -> "object",
+        "properties" -> ujson.Obj("k" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "K"))))))
+    McpProtocol.xMcpHeaderParams(inArray) shouldBe Right(Nil)
+
+  test("x-mcp-header: the annotation constraints are enforced, each for its own reason"):
+    def one(prop: ujson.Obj) =
+      McpProtocol.xMcpHeaderParams(ujson.Obj("type" -> "object", "properties" -> ujson.Obj("p" -> prop)))
+    one(ujson.Obj("type" -> "number",  "x-mcp-header" -> "N")).isLeft shouldBe true   // no canonical text
+    one(ujson.Obj("type" -> "string",  "x-mcp-header" -> "")).isLeft shouldBe true    // empty
+    one(ujson.Obj("type" -> "string",  "x-mcp-header" -> "bad name")).isLeft shouldBe true  // not a token
+    one(ujson.Obj("type" -> "string",  "x-mcp-header" -> "a\rb")).isLeft shouldBe true      // CR
+    one(ujson.Obj("type" -> "object",  "x-mcp-header" -> "O")).isLeft shouldBe true   // not primitive
+    val dup = ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "a" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "Reg"),
+      "b" -> ujson.Obj("type" -> "string", "x-mcp-header" -> "REG")))
+    McpProtocol.xMcpHeaderParams(dup).isLeft shouldBe true                            // case-insensitive clash
+    one(ujson.Obj("type" -> "string",  "x-mcp-header" -> "Ok")).isRight shouldBe true // control
+
+  test("x-mcp-header: an invalid annotation makes the CALL fail, not silently pass"):
+    val b = new McpServerBuilder
+    b.tool("bad", None, ujson.Obj("type" -> "object", "properties" -> ujson.Obj(
+      "p" -> ujson.Obj("type" -> "number", "x-mcp-header" -> "P"))),
+      _ => ToolHandlerResult(Nil, isError = false))
+    val body = ujson.Obj("jsonrpc" -> "2.0", "id" -> 52, "method" -> McpProtocol.Method.ToolsCall,
+      "params" -> modernParams("name" -> ujson.Str("bad"), "arguments" -> ujson.Obj("p" -> 1))).render()
+    val h = Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+                McpProtocol.Header.Method -> McpProtocol.Method.ToolsCall, McpProtocol.Header.Name -> "bad")
+    ujson.read(McpServerCore.handleHttpRequest(b, body, "srv", "9.9.9", h).trim)(
+      "error")("message").str should include ("inputSchema is invalid")
+
+  test("x-mcp-header: a legacy call is untouched by any of this"):
+    val legacy = ujson.Obj("jsonrpc" -> "2.0", "id" -> 53, "method" -> McpProtocol.Method.ToolsCall,
+      "params" -> ujson.Obj("name" -> "execute_sql",
+        "arguments" -> ujson.Obj("region" -> "us-west1", "query" -> "SELECT 1"))).render()
+    ujson.read(McpServerCore.handleHttpRequest(sqlServer(), legacy, "srv", "9.9.9", Map.empty).trim)
+      .obj.keySet should not contain "error"

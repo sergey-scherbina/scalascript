@@ -605,7 +605,20 @@ object McpServerCore:
         // two copies disagree is one that two components would act on differently —
         // which is why the spec makes this -32020 rather than a warning.
         val ctx = McpProtocol.parseRequestMeta(params)
-        McpProtocol.validateRequestHeaders(headers, method, params, ctx) match
+        val standard = McpProtocol.validateRequestHeaders(headers, method, params, ctx)
+        // `Mcp-Param-*` mirrors tool ARGUMENTS, so the check needs the tool's own
+        // inputSchema and only exists for tools/call. Modern requests only, same
+        // reasoning as the standard headers: a legacy client's revision has no
+        // x-mcp-header, so it cannot be held to it.
+        val paramLevel =
+          if standard.isDefined || !ctx.isModern || method != McpProtocol.Method.ToolsCall then None
+          else
+            val obj  = params.objOpt
+            val name = obj.flatMap(_.get("name")).flatMap(_.strOpt)
+            val args = obj.flatMap(_.get("arguments")).getOrElse(ujson.Obj())
+            name.flatMap(builder.tools.get).flatMap(reg =>
+              McpProtocol.validateParamHeaders(headers, reg.inputSchema, args))
+        standard.orElse(paramLevel) match
           case Some(why) =>
             JsonRpc.encodeError(id, McpProtocol.ErrorCode.HeaderMismatch, s"Header mismatch: $why")
           case None =>

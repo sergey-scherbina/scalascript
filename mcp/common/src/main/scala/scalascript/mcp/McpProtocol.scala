@@ -285,6 +285,114 @@ object McpProtocol:
                       Some(s"${Header.Name} header '$h' does not match body value '$b'")
                     case _ => None
 
+  // ─── MCP 2026-07-28 — x-mcp-header (Mcp-Param-{Name}) ──────────────
+
+  /** One tool parameter a server has asked to see mirrored into a header.
+   *  `path` is the chain of `properties` keys from the schema root to it. */
+  case class ParamHeader(headerName: String, path: List[String])
+
+  /** RFC 9110 §5.1 `tchar` — the characters a header field-name may contain. */
+  private val TChar: Set[Char] =
+    (('a' to 'z') ++ ('A' to 'Z') ++ ('0' to '9')).toSet ++ "!#$%&'*+-.^_`|~".toSet
+
+  /** Collect the `x-mcp-header` annotations in a tool's `inputSchema`.
+   *
+   *  Returns `Left(reason)` when the schema violates the annotation rules, and
+   *  a rejection is the CORRECT outcome rather than a nuisance: the spec makes
+   *  a conforming client exclude such a tool from `tools/list` entirely, so a
+   *  server that emits one has published a tool nobody may call. Better to
+   *  find that here than to have every client silently drop it.
+   *
+   *  The traversal only follows `properties` chains — never `items`, never a
+   *  composition or conditional keyword, never `$ref`. That restriction is the
+   *  spec's, and the reason is that a header must be extractable from the
+   *  arguments by a fixed path; anything reachable only through `oneOf` or an
+   *  array index has no single path to read. */
+  def xMcpHeaderParams(inputSchema: ujson.Value): Either[String, List[ParamHeader]] =
+    val found = scala.collection.mutable.ListBuffer.empty[ParamHeader]
+    var error: Option[String] = None
+
+    def walk(node: ujson.Value, path: List[String]): Unit =
+      if error.isEmpty then node match
+        case obj: ujson.Obj =>
+          obj.value.get("properties").flatMap(_.objOpt).foreach { props =>
+            props.foreach { (key, sub) =>
+              if error.isEmpty then
+                val here = path :+ key
+                sub.objOpt.foreach { s =>
+                  s.get("x-mcp-header").foreach { ann =>
+                    ann.strOpt match
+                      case None => error = Some(s"x-mcp-header on '${here.mkString(".")}' is not a string")
+                      case Some(name) if name.isEmpty =>
+                        error = Some(s"x-mcp-header on '${here.mkString(".")}' is empty")
+                      case Some(name) if !name.forall(TChar.contains) =>
+                        error = Some(s"x-mcp-header '$name' is not a valid HTTP field-name token")
+                      case Some(name) =>
+                        val ty = s.get("type").flatMap(_.strOpt).getOrElse("")
+                        // `number` is excluded BY NAME in the spec, not as an oversight:
+                        // a float has no single canonical string form, so header and body
+                        // could never be compared without a rounding rule.
+                        if ty == "number" then
+                          error = Some(s"x-mcp-header '$name' is on a `number` parameter, which is not permitted")
+                        else if !Set("string", "integer", "boolean").contains(ty) then
+                          error = Some(s"x-mcp-header '$name' is on type '$ty'; only string, integer and boolean may be mirrored")
+                        else if found.exists(_.headerName.equalsIgnoreCase(name)) then
+                          error = Some(s"x-mcp-header '$name' is not case-insensitively unique")
+                        else found += ParamHeader(name, here)
+                  }
+                  walk(sub, here)   // nested objects are fine — every step is a `properties` key
+                }
+            }
+          }
+        case _ => ()
+
+    try walk(inputSchema, Nil) catch case e: Throwable => error = Some(s"malformed inputSchema: ${e.getMessage}")
+    error.toLeft(found.toList)
+
+  /** Read the value at a `properties` path out of the call arguments. */
+  private def valueAt(args: ujson.Value, path: List[String]): Option[ujson.Value] =
+    path.foldLeft(Option(args)) { (cur, key) =>
+      cur.flatMap(_.objOpt).flatMap(_.get(key))
+    }.filterNot(_ == ujson.Null)
+
+  /** The canonical header text for a mirrored value, before sentinel encoding.
+   *  Integers are decimal, booleans lowercase — the spec fixes both. */
+  private def headerTextOf(v: ujson.Value): Option[String] = v match
+    case ujson.Str(s)  => Some(s)
+    case ujson.Bool(b) => Some(if b then "true" else "false")
+    case ujson.Num(n)  => Some(if n == n.floor && !n.isInfinite then n.toLong.toString else n.toString)
+    case _             => None
+
+  /** Validate the `Mcp-Param-{Name}` headers of a `tools/call` against its
+   *  arguments.
+   *
+   *  The asymmetry is the spec's and it matters: a value PRESENT in the body
+   *  must have its header, a value absent or null must NOT, and either
+   *  violation is `-32020`. A client that quietly omits a header while sending
+   *  the value is non-conforming precisely because an intermediary routing on
+   *  that header would then route on nothing. */
+  def validateParamHeaders(
+    headers:     Map[String, String],
+    inputSchema: ujson.Value,
+    arguments:   ujson.Value
+  ): Option[String] =
+    xMcpHeaderParams(inputSchema) match
+      case Left(why) => Some(s"tool inputSchema is invalid: $why")
+      case Right(Nil) => None
+      case Right(params) =>
+        val lower = headers.map((k, v) => k.toLowerCase -> v)
+        params.iterator.map { p =>
+          val hName = Header.ParamPrefix + p.headerName
+          val sent  = lower.get(hName.toLowerCase).map(decodeHeaderValue)
+          val body  = valueAt(arguments, p.path).flatMap(headerTextOf)
+          (sent, body) match
+            case (None, None)                 => None
+            case (Some(h), None)              => Some(s"$hName sent as '$h' but the argument is absent")
+            case (None, Some(b))              => Some(s"$hName is missing though the argument is present as '$b'")
+            case (Some(h), Some(b)) if h != b => Some(s"$hName header '$h' does not match body value '$b'")
+            case _                            => None
+        }.collectFirst { case Some(why) => why }
+
   /** `data` payload for `MissingRequiredClientCapability` (-32021). */
   def missingCapabilityData(required: List[String]): ujson.Value =
     ujson.Obj("requiredCapabilities" -> ujson.Arr.from(required.map(ujson.Str(_))))
