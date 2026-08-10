@@ -1801,6 +1801,49 @@ see the cause from the output alone.
      fixed-in: -
      gate: scripts/smoke-ci -->
 
+**MEASURED 2026-08-10 — the budget cannot do the job it is documented to do, and this is the number
+that says so.** Nine successful CI runs harvested, per check. On a median probe the derived budget is
+791 s and the suite's median total is 647.9 s. **Double the most expensive check** — `sbt-plugin-scripted`,
+126.0 s normalised — and the total reaches 767.5 s: still UNDER budget, still green. A check can
+double and the guard whose stated purpose is "one check that grew is the signal this budget exists
+for" will not notice. Its SHARE, meanwhile, goes 18.5 % -> 31.2 %, +12.7 pp.
+
+**And the two suite sizes this entry said were missing now exist: 78 and 79.** The 79th check to be
+registered is `launcher-set-complete`, and it costs **0.0 s**. A rule that scaled the budget by the
+NUMBER of checks would have credited it the average, 8.5 s — **164x its real cost**. Nine of the 79
+checks cost under 0.05 s while one costs 126.0 s. Checks are not interchangeable, so counting them
+cannot be the fix.
+
+**A share is the more stable unit, measured rather than assumed: across those nine runs the share is
+tighter than the second-count for 61 of 78 checks.** Host speed inflates every check together — the
+suite total's spread is 74.3 s while the per-check spreads in quadrature come to only 25.2 s, which
+is what a common multiplier looks like — so a share cancels it and a second-count does not.
+
+**Honest negative, recorded because it kills the obvious version of the fix.** Replacing the
+hand-fitted intercept with the sum of per-check baselines does NOT predict better: mean absolute
+error 37.8 s derived versus 34.0 s fitted (max 64.9 versus 80.1). The residual is host variance the
+probe does not capture — the same r² = 0.56 as before. So the win from a per-check table is NOT a
+sharper total. It is that growth becomes self-accounting (a 0.0 s check adds 0.0 s) and that a single
+grown check becomes visible at all.
+
+**Landed 2026-08-10:** `tests/smoke-baseline.tsv`, 79 rows normalised to a reference host, and
+`tests/smoke-baseline-harvest.sh` that regenerates it from CI. The tool READS the fit constants out
+of `scripts/smoke-ci.ssc` rather than copying them, and dies if their shape moved, because a stale
+normalisation biases every row silently. It reads the PRINTED probe rather than inverting the budget:
+inversion is exact only inside the clamp, and one run in nine was outside it — real probe 141 ms, and
+the inversion answered 160.7 with no sign anything was wrong. Self-test A/B'd against three
+deliberate breakages (no clamp, accept a pinned-budget run, impute an average for a 0 s check); each
+fails with its own message, and the first attempt at those controls proved nothing because the copies
+sat outside the repo and died before reaching the assertion.
+
+**Not yet done, and deliberately:** wiring the share comparison into `scripts/smoke-ci.ssc`. That
+file is held by a live claim, `interpreter-test-fast-slow-split`, whose whole purpose is to change
+which interpreter tests run on the push path — that is, to change the suite's SHAPE. Refitting a
+baseline to a shape that is about to change is the same mistake as fitting it at one size. The table
+regenerates in one command once that lands. Decided with the project owner: the budget self-scales
+and the per-check share is reported but does NOT fail the suite until there is enough data to know
+its real spread.
+
 **MEASURED AGAIN 2026-08-08, and this time the cause is neither of the two below. Run 31253238252:
 72/72 green, 634.9 s of the 600 s cap, `freeze-consistency` 3.0 s.** The cold-resolve cause recorded
 below is dead — that check is 3 s, not 95 s. What changed is that `sbt-plugin-scripted` went from
