@@ -1973,10 +1973,10 @@ existing `snapshotViaCargo` harness already does the hard part.
 
 ## keyword-import-of-a-missing-module-is-a-silent-no-op — the link form of the same import says "not found"
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
-     fixed-in: -
+     fixed-in: f467a9ba8
      gate: tests/e2e/keyword-import-missing-module.sh -->
 
 **GATED 2026-08-04 by `keyword-import-silent`, and deliberately NOT fixed.**
@@ -2100,6 +2100,37 @@ occurs, and the rule needs only the two.
 **Order, corrected:** no missing modules block this. Implement the diagnostic against declared
 packages plus host resolution, fix the single import in `international-bank-rails.ssc`, then retire
 `tests/e2e/keyword-import-missing-module.sh` as its own header describes.
+
+
+**IMPLEMENTED 2026-08-10 in `f467a9ba8`, per the decision above.** `NativeSourceClosure` now
+recognises the keyword form and reports a module nothing declares:
+
+```
+ssc: native frontend import not found: std.nosuchmodule_9d4f.anything from kw.ssc
+     — no module declares `package: std.nosuchmodule_9d4f.anything`
+```
+
+**Scoped to `std.`, from the count rather than from caution:** `std` is the only import root whose
+names land in a declared package (18 of 19); `scalascript` (95 imports), `scala` (32), `actors` (11),
+`org` (8), `nodes` (6), `java` (3) resolve to ZERO because they are host and plugin surfaces. The
+gate pins that they stay silent, and that a real `std` package still imports — without the second
+the check could pass by refusing everything.
+
+**Resolution reads `package:` from front matter**, accepting a declared package, an ancestor of one,
+or a member of one (`import std.json.parse`). Not paths: `std.pdf` is declared by `std/pdf-gen.ssc`,
+so a path check calls three correct imports missing — the error in my own first measurement.
+
+**THE FIRST IMPLEMENTATION COMPILED, LOOKED RIGHT, AND DID NOT FIRE**, and that is the part worth
+keeping. It matched keyword imports only INSIDE a fence, while fences are optional — a bare `.ssc` is
+code from line one, and both the probe and this gate's own fixture are exactly that shape. The
+pre-flight sweep I had written to predict the blast radius shared the bug and therefore agreed with
+it. Only the end-to-end run disagreed.
+
+**One program needed fixing**, measured before and after across all 1569 `.ssc` files:
+`examples/international-bank-rails.ssc` imported `std.payments.swift.*`, which nothing declares —
+`SwiftProvider` comes from the swift plugin. The line is removed rather than repointed because there
+is no module to point it at, and removing it cannot change behaviour: the front never saw it. After
+the fix the sweep reports zero.
 
 
 ## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
