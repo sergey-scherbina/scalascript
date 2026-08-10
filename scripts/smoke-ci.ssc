@@ -150,7 +150,7 @@ first one — reading only one would drop a whole lane while still printing a co
 
 ```scalascript
 [exec, ProcessOptions, ProcessResult](std/process.ssc)
-[readFile](std/fs.ssc)
+[readFile, exists](std/fs.ssc)
 [args, envOrElse, exit](std/os.ssc)
 
 // ── The suite ────────────────────────────────────────────────────────────────
@@ -351,6 +351,12 @@ val suite = List(
   // `bin/ssc-tools` and every command after that failed for a reason that looked like the change
   // under test. This suite runs LOCALLY from the pre-push hook, which is exactly where that lives.
   Check("tests", "launcher-set-complete", "tests/e2e/launcher-set-complete.sh", List(), 60000),
+  // The budget's own arithmetic. It became data-driven on 2026-08-10 — a sum over
+  // `tests/smoke-baseline.tsv` rather than a constant — which means a wrong parse or a missing
+  // fallback can now make the budget unmeetable and turn main red for everyone, with every check
+  // green. One `--budget` invocation answering for five tables, no suite run — the toolchain boot
+  // dominates, so it is ~10 s rather than the ~50 s five separate invocations cost.
+  Check("tests", "smoke-budget-derivation", "tests/e2e/smoke-budget-gate.sh", List(), 120000),
   // The entry-point rule, frozen on all three lanes: 0/1/2 explicit `main()` calls mean 1/1/2 runs.
   // Cheap (six short runs) and it guards a divergence that was invisible for two days because the
   // doubled block looked like the user's own file.
@@ -614,6 +620,43 @@ def tsvRows(): List[List[String]] =
 
 def declaredModules(): List[String] = tsvRows().map(row => row(0))
 
+// ── The per-check baseline, measured rather than fitted ───────────────────────
+//
+// `tests/smoke-baseline.tsv` is what this suite COSTS, one row per check, normalised to a reference
+// host and regenerated from real CI runs by `tests/smoke-baseline-harvest.sh`.
+//
+// It exists because the constant it replaces was not one. `436` was the cost of the 78 checks this
+// suite had on 2026-08-10 written as a number, so every check registered since ate the margin until
+// the cap had to be raised again — 420, 500, 600, 750, four times, each buying a few weeks.
+//
+// A COUNT would not have worked, and that is measured rather than argued: the 79th check registered,
+// `launcher-set-complete`, costs 0.0 s. Scaling the budget by the NUMBER of checks would have
+// credited it the average, 8.5 s — 164x. Nine of 79 cost under 0.05 s while one costs 126 s.
+//
+// Columns are INTEGER — tenths of a second, basis points of the run — because the alternative is a
+// hand-rolled decimal parser here, and `split(".")` is a coin-flip on whether the separator is read
+// as a regex. 1260 is 126.0 s; 1864 is 18.64 %.
+// `SSC_SMOKE_BASELINE` points the reader at another table. It exists for the gate: the budget is now
+// data-driven, and a rule whose input cannot be substituted can only be tested by editing the file
+// the whole repository shares.
+def baselinePath(): String =
+  val custom = envOrElse("SSC_SMOKE_BASELINE", "").trim()
+  if custom != "" then custom else "tests/smoke-baseline.tsv"
+
+def baselineRowsAt(path: String): List[List[String]] =
+  if !exists(path) then List()
+  else
+    readFile(path).split("\n")
+      .filter(line => line.length > 0 && !line.startsWith("#"))
+      .map(line => line.split("\t"))
+      .filter(row => row.length >= 3)
+
+def baselineRows(): List[List[String]] = baselineRowsAt(baselinePath())
+
+def baselineField(rows: List[List[String]], name: String, col: Int): Int =
+  val hit = rows.filter(row => row(0) == name)
+  if hit.length == 0 then -1 else hit(0)(col).toInt()
+
 // run.sc prints one verdict line per lane, labelled `[INT]`, `[JS ]`, `[JS/v2]`, `[JVM]`,
 // `[JVM/v2]`, `[V2 ]`. Book each against the module that owns that backend. The v2-front lanes
 // (`JS/v2`, `JVM/v2`, `V2`) all belong to `v2` — the thing under test there is the front, not the
@@ -725,7 +768,7 @@ def hostProbeMillis(): Int =
 // A probe of 0 falls back to the last pinned absolute, because a budget derived from a broken
 // instrument is worse than a stale constant. Probes ABOVE the sampled range are clamped rather than
 // extrapolated — see the function.
-def budgetFor(probeMillis: Int, pinned: String): Int =
+def budgetFor(probeMillis: Int, pinned: String, baselineSeconds: Int): Int =
   if pinned != "" then pinned.toInt()
   else if probeMillis <= 0 then 850
   else
@@ -738,8 +781,39 @@ def budgetFor(probeMillis: Int, pinned: String): Int =
     val lo = 161
     val hi = 288
     val clamped = if probeMillis < lo then lo else (if probeMillis > hi then hi else probeMillis)
-    val predicted = 436 + (1263 * clamped) / 1000   // the fit, in integer arithmetic
-    predicted + 80                                  // the margin the residuals require
+    if baselineSeconds <= 0 then
+      // NO TABLE, or one this build cannot read. Fall back to the constant it replaced rather than
+      // to a smaller number: a missing baseline must leave the budget exactly as good as it was, and
+      // never tighter than the suite, or a lost file turns main red for everyone.
+      val predicted = 436 + (1263 * clamped) / 1000   // the fit, in integer arithmetic
+      predicted + 80                                  // the margin the residuals require
+    else
+      // THE SAME LINE, used as a host FACTOR on what the suite actually contains, so that
+      // registering a check raises the budget by THAT check's cost and nobody has to raise a cap.
+      //
+      // THE MARGIN IS SIZED BY THE RESIDUALS, which is the only criterion that survives the table
+      // being refreshed. Replayed over nine real CI runs, `actual - sum x factor` runs -33.6 s to
+      // +68.8 s; 123 leaves 54 s over the worst observed, and 0 of the 9 would have gone red.
+      //
+      // An earlier draft justified 123 as "it equals the old rule at the reference host". That was
+      // true of the table I calibrated against and FALSE two hours later when the table was
+      // regenerated from twelve runs instead of nine — a margin defended by a coincidence is a
+      // margin that goes stale silently. Against today's suite the derived budget is about 30 s
+      // LOOSER than the constant it replaces, and that is not slack: the suite grew 78 -> 80 checks
+      // while the constant stayed at 78, which is the whole defect being fixed.
+      //
+      // What this is NOT is a decision to tighten or loosen the push path. That has been the project
+      // owner's call three times and would be theirs again; an agent moving it as a side effect of a
+      // refactor is how a cap stops meaning anything. If the number here needs to be stricter, the
+      // margin is the knob and the owner turns it.
+      //
+      // The derived total does NOT predict better than the fitted one — mean absolute error 37.8 s
+      // against 34.0 s — because the residual is host variance the probe does not capture (r2 0.56).
+      // The win is that growth self-accounts, and that `most expensive checks` can now name a check
+      // that grew, which no total-time cap can do.
+      val num = 436000 + 1263 * clamped
+      val den = 436000 + 1263 * 224                   // the reference host: the clamp's midpoint
+      (baselineSeconds * num) / den + 123
 
 def runCheck(check: Check): Outcome =
   val startedAt = System.nanoTime()
@@ -805,6 +879,29 @@ def main() =
     println("The module list is the source of module identity. Add the module there, or fix the name.")
     exit(1)
 
+  // `--budget` prints the number and exits. It exists so the budget can be TESTED: the rule is now
+  // data-driven, and a property like "a bigger baseline gives a bigger budget" is worth nothing if
+  // checking it costs a ten-minute suite run. See tests/e2e/smoke-budget-gate.sh.
+  if argv.contains("--budget") then
+    // EVERY table in ONE invocation, because booting this toolchain costs 10 s and the gate needs
+    // five answers. The first version took a single table and the gate paid 50 s for arithmetic that
+    // takes microseconds — measured, after registering it in the suite with a comment claiming
+    // "about a second". Each line is <table>TAB<key>TAB<value> so the reader never has to count
+    // lines or track block boundaries.
+    val probeForBudget = hostProbeMillis()
+    val tables = argv.filter(a => a != "--budget")
+    val wanted = if tables.length == 0 then List(baselinePath()) else tables
+    wanted.foreach(path =>
+      val rows = baselineRowsAt(path)
+      val seconds =
+        suite.map(check => baselineField(rows, check.name, 1))
+             .filter(tenths => tenths > 0).foldLeft(0)((a, b) => a + b) / 10
+      println(path + "\tbudget\t" + budgetFor(probeForBudget, budgetOverride, seconds).toString())
+      println(path + "\tbaseline-rows\t" + rows.length.toString())
+      println(path + "\tbaseline-seconds\t" + seconds.toString())
+      println(path + "\tprobe-ms\t" + probeForBudget.toString()))
+    exit(0)
+
   if listOnly then
     println("smoke-ci — " + suite.length.toString() + " checks, budget " +
             (if budgetOverride == "" then "host-relative" else budgetOverride + "s"))
@@ -813,12 +910,21 @@ def main() =
     exit(0)
 
   val probeMillis = hostProbeMillis()
-  val budgetSeconds = budgetFor(probeMillis, budgetOverride)
+  // Summed over the whole suite: a check with no row contributes nothing here and is charged its
+  // MEASURED cost at the end instead, so a table that has fallen behind can never cause a red.
+  val baseline = baselineRows()
+  val baselineSeconds =
+    suite.map(check => baselineField(baseline, check.name, 1))
+         .filter(tenths => tenths > 0).foldLeft(0)((a, b) => a + b) / 10
+  val budgetSeconds = budgetFor(probeMillis, budgetOverride, baselineSeconds)
   println("smoke-ci — " + suite.length.toString() + " checks across " +
           modules.length.toString() + " declared modules, budget " +
           budgetSeconds.toString() + "s, host probe " + probeMillis.toString() +
           "ms (100 process spawns" +
           (if budgetOverride == "" then "; budget derived from it)" else "; budget PINNED by SSC_SMOKE_BUDGET)"))
+  if budgetOverride == "" then
+    println("           budget from " + baseline.length.toString() + " per-check baselines totalling " +
+            baselineSeconds.toString() + "s at the reference host (tests/smoke-baseline.tsv)")
   println("")
 
   var outcomes = List[Outcome]()
@@ -918,7 +1024,13 @@ def main() =
   // loud; what changes is that a loaded host no longer blocks the pre-push discipline it exists to
   // support.
   val onCi = envOrElse("CI", "") != ""
-  val overBudget = totalTenths > budgetSeconds * 10
+  // A CHECK WITH NO BASELINE ROW CANNOT CAUSE A RED. It was not in the table the budget came from,
+  // so charging it its own measured cost is the only honest arithmetic — and it is the fail-safe
+  // direction: registering a check is never the thing that turns main red for everyone. It is named
+  // below instead, which is the action that actually needs taking.
+  val unbudgeted = ran.filter(o => baselineField(baseline, o.name, 1) < 0)
+  val unbudgetedTenths = unbudgeted.map(o => o.tenths).foldLeft(0)((a, b) => a + b)
+  val overBudget = totalTenths > budgetSeconds * 10 + unbudgetedTenths
 
   println("")
   println("checks: " + (ran.length - failed.length).toString() + "/" +
@@ -948,10 +1060,43 @@ def main() =
   if ranked.length > 0 && totalTenths > 0 then
     println("")
     println("most expensive checks")
+    // AGAINST THE BASELINE SHARE, because the total cannot see this. Measured 2026-08-10: on a median
+    // probe the budget is 791 s and the suite is 647.9 s, so DOUBLING the most expensive check
+    // reaches 767.5 s and stays green. A check can double without the guard whose stated purpose is
+    // catching exactly that saying a word. Its share, meanwhile, moves 18.5 % to 31.2 %.
+    //
+    // A share and not a second-count, and that is measured too: across nine CI runs the share was
+    // the tighter unit for 61 of 78 checks. The suite total's spread is 74.3 s while the per-check
+    // spreads in quadrature come to 25.2 s — the signature of a common multiplier, which is host
+    // speed, which a share cancels and a second-count does not.
+    //
+    // THE MARKER IS CI-ONLY, for the same reason the budget only FAILS on CI. The first local run
+    // flagged `ci-status-guard` as GREW +9pp: baseline 3.1 s, measured 81.5 s — and this file already
+    // records that the identical check takes 4.0 s on a runner and 72-78 s here at load 19. A share
+    // cancels UNIFORM inflation; a dev host under other agents' builds does not inflate uniformly,
+    // it inflates whatever happens to be spawning processes. Locally the baseline is still printed,
+    // so the number is there to read; what is suppressed is the accusation.
+    //
+    // REPORTED, NOT ENFORCED, and deliberately: the spread of a per-check share across hosts is not
+    // yet known, and a new way to turn main red before its false-positive rate is measured is how a
+    // gate gets ignored. Sergiy's call on 2026-08-10.
     ranked.take(3).foreach(o =>
       val pct = (o.tenths * 100) / totalTenths
+      val wasBp = baselineField(baseline, o.name, 2)
+      val nowBp = (o.tenths * 10000) / totalTenths
       println("  " + pad(o.module + " " + o.name, 46) + showSeconds(o.tenths) +
-              "   " + pct.toString() + "% of the run"))
+              "   " + pct.toString() + "% of the run" +
+              (if wasBp < 0 then "   (no baseline)"
+               else "   baseline " + (wasBp / 100).toString() + "%" +
+                    (if nowBp - wasBp >= 200 && onCi then "  GREW +" + ((nowBp - wasBp) / 100).toString() + "pp"
+                     else ""))))
+
+  if unbudgeted.length > 0 then
+    println("")
+    println("  " + unbudgeted.length.toString() + " check(s) have no baseline row: " +
+            unbudgeted.map(o => o.name).mkString(", "))
+    println("  charged their measured " + showSeconds(unbudgetedTenths) +
+            " so they cannot fail the run — refresh with tests/smoke-baseline-harvest.sh")
 
   if failed.length > 0 then
     println("")

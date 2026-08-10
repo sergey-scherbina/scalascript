@@ -36,12 +36,18 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS=12
+MIN_RUNS=6
+SEARCH=120        # how far back to LOOK for successful runs; unrelated to how many we want.
+                  # It was RUNS*3, which silently returned 3 usable runs on a day when CI was
+                  # churning cancelled builds — and a median over 3 points is not a median.
 OUT="$REPO_ROOT/tests/smoke-baseline.tsv"
 DRY=0
 SELFTEST=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --runs)      RUNS="$2"; shift 2 ;;
+    --min-runs)  MIN_RUNS="$2"; shift 2 ;;
+    --search)    SEARCH="$2"; shift 2 ;;
     --out)       OUT="$2"; shift 2 ;;
     --dry-run)   DRY=1; shift ;;
     --self-test) SELFTEST=1; shift ;;
@@ -127,9 +133,13 @@ if len(sizes) > 1:
     print(f"# the cost of the union rather than of any one run.")
 for name, reason in rejected:
     print(f"# rejected\t{name}\t{reason}")
-print("# check\tseconds\tshare-pct")
+# INTEGER columns on purpose. The consumer is scripts/smoke-ci.ssc, and hand-rolling a decimal
+# parser in that language subset is a source of bugs with nothing to buy it -- `.split(".")` alone
+# is a coin-flip on whether the separator is a regex. Tenths of a second and basis points of the
+# run are exact in Int and read fine (1260 = 126.0 s, 1864 = 18.64 %).
+print("# check\ttenths\tshare-bp")
 for c in names:
-    print(f"{c}\t{base[c]:.1f}\t{base[c] / total * 100:.2f}")
+    print(f"{c}\t{round(base[c] * 10)}\t{round(base[c] / total * 10000)}")
 PARSER
 
 if [[ $SELFTEST -eq 1 ]]; then
@@ -158,19 +168,19 @@ host. Got:
 $out"
   grep -qE "^alpha	[0-9.]+" <<<"$out" || die "self-test: no row for a check that ran:
 $out"
-  grep -qE "^beta	0\.0	" <<<"$out" || die "self-test: a 0.0s check must keep its measured 0.0 rather than
+  grep -qE "^beta	0	" <<<"$out" || die "self-test: a 0.0s check must keep its measured 0.0 rather than
 be imputed an average — that imputation is the defect this table exists to remove:
 $out"
   # The clamp is the reason the probe is read rather than inverted, so assert it BITES: at probe 141,
   # below the clamp floor, a 90.0s check must normalise to more than 90.0s (the reference host is
   # slower than the clamp floor), and to exactly what the clamped factor gives.
-  g="$(grep -E "^gamma	" <<<"$out" | cut -f2)"
+  g="$(grep -E "^gamma	" <<<"$out" | cut -f2)"   # tenths
   python3 -c "
 import sys
 A,B,LO,HI,REF=$FIT_A,$FIT_B,$CLAMP_LO,$CLAMP_HI,$REF_PROBE
 f=(A+B*max(LO,min(HI,141))/1000.0)/(A+B*REF/1000.0)
-want=round(90.0/f,1); got=float('$g')
-sys.exit(0 if abs(want-got)<0.05 else 1)" \
+want=round(900.0/f); got=float('$g')
+sys.exit(0 if abs(want-got)<=1 else 1)" \
     || die "self-test: a probe below the clamp floor was not normalised by the CLAMPED factor —
 this is the exact case where inverting the budget gave 160.7 for a real probe of 141. got gamma=$g"
   echo "smoke-baseline-harvest --self-test: OK  (fit ${FIT_A} + ${FIT_B}/1000 x probe, clamp ${CLAMP_LO}-${CLAMP_HI}, reference ${REF_PROBE}ms)"
@@ -180,7 +190,7 @@ fi
 command -v gh >/dev/null 2>&1 || die "gh is not installed; this reads completed CI runs"
 
 echo "harvesting up to $RUNS successful smoke runs (fit ${FIT_A} + ${FIT_B}/1000 x probe, reference host ${REF_PROBE}ms)"
-gh run list --workflow smoke.yml --limit $((RUNS * 3)) --json databaseId,conclusion \
+gh run list --workflow smoke.yml --limit "$SEARCH" --json databaseId,conclusion \
   | python3 -c "import json,sys; [print(r['databaseId']) for r in json.load(sys.stdin) if r['conclusion']=='success']" \
   > "$work/ids.txt" || die "could not list smoke runs"
 
@@ -192,6 +202,12 @@ while read -r id; do
 done < "$work/ids.txt"
 [[ $n -gt 0 ]] || die "no run logs could be downloaded"
 echo "  downloaded $n run log(s)"
+# A MEDIAN OVER THREE POINTS IS NOT A MEDIAN, and the first real use of this tool produced exactly
+# that: CI was churning cancelled builds, only 3 successes were inside the search window, and a
+# table was written without a word of complaint. Refuse instead — a thin table is worse than none,
+# because the budget derived from it looks just as authoritative.
+[[ $n -ge $MIN_RUNS ]] || die "only $n usable run(s) in the last $SEARCH; want at least $MIN_RUNS.
+Widen with --search N, or lower the bar deliberately with --min-runs N."
 
 FIT_A="$FIT_A" FIT_B="$FIT_B" CLAMP_LO="$CLAMP_LO" CLAMP_HI="$CLAMP_HI" REF_PROBE="$REF_PROBE" \
   python3 "$work/parse.py" "$work"/*.log > "$work/out.tsv" || die "the parser failed"

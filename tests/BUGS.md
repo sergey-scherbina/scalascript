@@ -1970,11 +1970,83 @@ see the cause from the output alone.
 
 
 ## smoke-suite-over-its-own-budget — every check green, the suite red, main red for everyone
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: -
+     fixed-in: 279a60e9b
      gate: scripts/smoke-ci -->
+
+**FIXED 2026-08-10 — the budget is no longer a number, it is a sum over what the suite contains.**
+`scripts/smoke-ci.ssc` now derives it from `tests/smoke-baseline.tsv`: one row per check, normalised
+to a reference host, regenerated from real CI runs by `tests/smoke-baseline-harvest.sh`. Registering
+a check raises the budget by THAT check's cost, so there is no fifth raise to make.
+
+**What did NOT change, deliberately: how strict the push path is.** Raising or lowering the cap has
+been the project owner's decision three times and stays theirs. The margin is the knob; it is sized
+by the residuals, `actual - sum x factor`, which run −33.6 s to +68.8 s over nine replayed CI runs.
+123 leaves 54 s over the worst observed and 0 of the 9 would have gone red — the same false-red rate
+as the rule it replaces.
+
+An earlier draft justified that 123 differently: "it equals the old rule at the reference host". True
+of the table it was calibrated against, and false two hours later when the table was regenerated from
+twelve runs instead of nine. **A margin defended by a coincidence goes stale silently**, so the
+justification is now the residuals, which survive a refresh. Against today's suite the derived budget
+is about 30 s LOOSER than the constant — not slack: the suite grew 78 → 80 checks while the constant
+stayed at 78, which is the defect.
+
+**Fail-safe in three directions, because this file can now turn `main` red for everyone:**
+
+| state | budget |
+| --- | --- |
+| no table, or an unreadable one | falls back to the constant it replaced, exactly |
+| a check with no row | charged its MEASURED cost at the end, and named in the output |
+| a pinned `SSC_SMOKE_BUDGET` | unchanged |
+
+The second one matters most: registering a check must never be the thing that turns main red, so an
+unknown check is charged what it actually took and the run says `N check(s) have no baseline row …
+refresh with tests/smoke-baseline-harvest.sh`.
+
+**And the per-check share is now printed against its baseline**, which is the half a total-time cap
+cannot do at all: on a median probe the budget is 791 s and the suite 647.9 s, so doubling the most
+expensive check reaches 767.5 s and stays green, while its share moves 18.5 % → 31.2 %. Reported,
+not enforced — the owner's call, since the spread of a share across hosts is not yet measured and a
+new way to redden main before its false-positive rate is known is how a gate gets ignored.
+
+**Gated by `tests/e2e/smoke-budget-gate.sh`, registered in smoke as `smoke-budget-derivation`.** It
+asserts the ARITHMETIC from the inputs `--budget` prints rather than a pinned number, so refreshing
+the table cannot make it stale — a pinned expectation gets "fixed" by updating it, which is how a
+gate stops asserting anything.
+
+**Two things the controls found that reading would not have.**
+
+*One control passed on deliberately broken code.* Dropping the reader's `row.length >= 3` filter left
+the gate GREEN, because the garbage fixture was lines with no tabs — and a line with no tabs matches
+no check NAME, so the filter never mattered to it. The row that matters is a TRUNCATED one for a
+*real* check: `sbt-plugin-scripted` with nothing after it, which is what reaches `row(1)` on a
+one-element list and kills the runner. Added as a sixth case, and the control now fails — by the
+suite dying, which is the failure mode predicted.
+
+*The registration comment claimed a cost the check did not have.* Written as "about a second", it
+measured 49.8 s: the gate needed five answers and each `--budget` invocation boots the toolchain, at
+10 s a boot. `--budget` now answers for every table given in ONE invocation and the check is 7 s.
+Registering something on the push path with a guessed cost, in the very suite whose budget this
+entry is about, is the joke that writes itself.
+
+Six cases: no table, the real table, a doubled table, a dropped row, a garbage table, a truncated
+row. A/B'd against four deliberate breakages — wrong fallback, wrong margin, rows matched on the
+wrong column, no column-count filter — each failing with its own message.
+
+**The GREW marker is CI-only**, and that too came from running it: the first local run flagged
+`ci-status-guard` at +9pp, baseline 3.1 s against 81.5 s measured. This file already records that the
+same check takes 4.0 s on a runner and 72-78 s here at load 19. A share cancels UNIFORM inflation,
+and a dev host under other agents' builds does not inflate uniformly — it inflates whatever is
+spawning processes. The baseline share is still printed locally; what is suppressed is the
+accusation.
+
+**A defect the tool found in itself:** the first real harvest wrote a table from THREE runs without
+complaint, because the search window was tied to the number of runs wanted and CI was churning
+cancelled builds that day. A median over three points is not a median. It now refuses below
+`--min-runs` (default 6) and leaves the existing table untouched when it does.
 
 **MEASURED 2026-08-10 — the budget cannot do the job it is documented to do, and this is the number
 that says so.** Nine successful CI runs harvested, per check. On a median probe the derived budget is
