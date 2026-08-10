@@ -381,6 +381,11 @@ STALE. Every narrowing step after that came from the harness rejecting a draft, 
      fixed-in: 61836a9b5
      gate: tests/e2e/f-bare-member-call-gate.sh -->
 
+
+**This is the F half of `v2-getorelse-two-arg-falls-into-option-helper`, not a separate
+defect.** That entry is the original report and holds the conformance gate; it stayed `open`
+for two days after this landed because the fix was filed here instead of reopening it. Closed
+2026-08-10 on measurement.
 **FIXED, and MY LANE COMPARISON ABOVE WAS WRONG — corrected here rather than left standing.** I
 reported "BOTH native fronts fail", having forced the reference front with `SSC_FRONT=default`.
 That is not a recognised value: the switch is `SSC_FRONT=legacy`, and anything else leaves F on
@@ -2269,10 +2274,47 @@ effect" on the default front too), so only `empty` needed the alias and F is no 
 two — verified, since routing them through the companion path could have diverged.
 
 ## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     gate: tests/conformance/map-getorelse-expr-receiver.ssc -->
+     gate: tests/conformance/map-getorelse-expr-receiver.ssc
+     fixed-in: 61836a9b5  -->
+
+**FIXED — CLOSED 2026-08-10 ON MEASUREMENT, and the reason it stayed open for two days is worth
+more than the fix.** The defect had TWO halves, one per front, and each was fixed by a different
+commit: `560ce09e9` (legacy, 2026-07-31) and `61836a9b5` (F, 2026-08-08). But the F half was filed
+as a NEW entry — `f-getOrElse-on-a-case-class-field-passes-the-receiver`, which carries
+`status: fixed` and its own gate — so this one, the original report, was never revisited. Two
+entries, one defect, and the one holding the conformance gate is the one that kept saying `open`.
+
+Every shape this entry lists, re-measured on a clean build at `bda66d04a`, F confirmed by
+`ssc info --front-report`:
+
+    val m = Map("a" -> "1"); m.getOrElse("a", "X")   1     tracked variable
+    b.m.getOrElse("a", "X")                          1     field selector
+    Map("a" -> "1").getOrElse("a", "X")              1     literal receiver
+    wrap(m).getOrElse("a", "X")                      1     call result
+    m.getOrElse("zz", "X")                           X     miss
+    (Some("s"): Option[String]).getOrElse("X")       s     the 1-arg Option form, undisturbed
+    (None: Option[String]).getOrElse("X")            X     Option miss
+
+Identical on native/F, `--v1` and `--v2`. The shipped case is green on all four lanes **with the
+memo disabled**, which matters because a memoised PASS keyed on a toolchain digest is not a
+measurement of today's compiler:
+
+    map-getorelse-expr-receiver:  PASS [INT]  PASS [JS ]  PASS [JVM]  PASS [V2 ]
+
+The mechanism is visible in the F source and matches what the legacy lowerer does: `selMethodOr`
+routes `getOrElse` by ARITY — one argument to `_sel_getOrElse`, the `lam 2` Option helper, and two
+to `emitCallMethod`, where `__method__` already has the `(MapV, "getOrElse", List(k, d))` arm.
+
+**The pattern to take from this, since it is the second time on this same entry:** a defect present
+on two fronts gets fixed one front at a time, and the second fix arrives as a NEW report because the
+symptom is narrower by then. Reopen the original instead — it is the one carrying the gate, and a
+gate attached to an entry that says `open` after it has gone green is how a green gate stops being
+read. The earlier note in this entry (`REOPENED 2026-08-01`) had it right in principle and simply
+predates the F fix by a week.
+
 
 > **REOPENED 2026-08-01 — fixed on the LEGACY front, and F is the default one.** `560ce09e9` says
 > "legacy front" in its own subject line and the entry went to `fixed`; the gate still fails:
