@@ -305,7 +305,7 @@ the checks.
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 052e00997
      lane: v2-rust
      area: runtime
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
@@ -428,7 +428,7 @@ reduced it. Filed here rather than left in a census note so it has a slug to be 
 ## json-core-emitted-rust-does-not-compile
 
 <!-- status: fixed
-     fixed-in: PENDING2
+     fixed-in: 052e00997
      lane: v2-rust
      area: codegen
      reported-by: rozum / claude-opus-5, meeting room 'scalascript'
