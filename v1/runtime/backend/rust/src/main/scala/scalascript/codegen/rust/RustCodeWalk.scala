@@ -1274,7 +1274,12 @@ object RustCodeWalk:
       // `opt.getOrElse(<string>)`: in a well-typed program the element type and the
       // default agree, so a String default makes the whole expression a String.
       case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), args) =>
-        args.values.headOption.exists(isStr)
+        // The DEFAULT is the LAST argument, not the first: `Option.getOrElse(d)` has one, but
+        // `Map.getOrElse(key, d)` has two and its first is the KEY. Reading the first made
+        // `m.getOrElse("k", 0)` — a String key, an Int value — look like a String, so `n + 1`
+        // lowered to `format!` and printed 71 where every other lane printed 8. Compiled clean,
+        // ran clean, wrong answer.
+        args.values.lastOption.exists(isStr)
       // A call to a def whose DECLARED return type is `String`. Mirrors `defReturnsEither`
       // below — the declaration is stated, so this reads it rather than guessing.
       case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)                => defReturnsString(n)
