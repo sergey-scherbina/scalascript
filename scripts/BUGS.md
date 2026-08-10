@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## coord-claim-items-prose-reserves-english-words — a claim written in prose reserves "a", "an", "the"
+
+<!-- status: open
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: none
+     fixed-in: - -->
+
+The overlap guard splits a claim's `items:` field on whitespace and treats every token as an item id.
+`items:` is documented as a list of ids, but **prose is what agents actually write**, and then the
+guard reserves every English word in the sentence.
+
+**Measured 2026-08-10 over the last 120 revisions of `.work/active/LEDGER.tsv`: 370 distinct tokens
+have appeared in `items` fields, and 261 of them are not id-shaped** — `a`, `an`, `and`, `because`,
+`blow`, `already`. Prose is the norm, not one agent's slip.
+
+Two visible consequences, both observed today:
+
+- `scripts/board` lists a live claim's task as **`a`** — the first word of
+  `v3-lowerfail-names-the-right-file`'s sentence.
+- A push was **refused** with `item 'an' is already claimed by 'v3-lowerfail-names-the-right-file'`.
+  It was a redundant no-op push, so nothing was lost, but the refusal was entirely spurious.
+
+**Why this is worse than cosmetic.** A guard that refuses pushes for spurious reasons teaches agents
+to reach for `--no-verify`, and the next refusal it issues — a real one — gets overridden by reflex.
+This guard has been right every other time it fired today, which is exactly the credibility being
+spent.
+
+**Two candidate fixes, and the measurement argues for the second.**
+
+1. *Validate at claim time*: refuse `--items` tokens that are not id-shaped. Correct by the
+   documentation, but 261 of 370 historical tokens fail it, so it refuses how the field is actually
+   used and every agent hits it before learning why.
+2. *Make the guard ignore non-id tokens*: prose stays allowed as a human note, and only tokens that
+   look like ids (containing a hyphen, underscore, slash or digit, per the slugs and SPRINT ids in
+   use: `smoke-suite-over-its-own-budget`, `SSC3-J1c`, `P4b-4`, `mcp-2026-07-28`) take part in
+   overlap detection. Removes the harm without refusing anyone's habit.
+
+Not implemented here because the choice changes how every agent's claim is validated, and the guard
+is the thing standing between two agents doing the same work — a blast radius worth a decision rather
+than a drive-by.
+
+
 ## routing-authority-is-declared-but-not-implemented — `fixed-in` outranks `lane` on paper only, and nothing checks either
 
 <!-- status: open
