@@ -1,0 +1,11 @@
+slug: v3-catch-binds-the-thrown-value
+branch: feature/v3-catch-binds-the-thrown-value
+agent: claude-code
+started: 2026-08-10T18:10:43Z
+heartbeat: 2026-08-10T18:10:43Z
+status: claimed-before-planning
+items: the v3 executor binds the message string to the caught name; the bridge and the reference bind the thrown VALUE, so a typed arm matches on one lane only
+paths: file:v3/src/Exec.scala file:v3/tests/front BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
