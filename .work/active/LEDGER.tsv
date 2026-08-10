@@ -1,4 +1,4 @@
-# generation: 1588
+# generation: 1589
 #slug	agent	started	items	paths
 mcp-p2d1-client-envelope	claude-code	2026-08-10T18:10:10Z	mcp-2026-07-28 P2d-1	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
 entry-class-multi	claude-code	2026-08-10T18:10:20Z	scljet-jdbc-facade-bytecode-class-too-large	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala file:tests/e2e/bytecode-fallback-visible.sh
@@ -37,3 +37,4 @@ mcp-p4b4-stdio-cancel	claude-code	2026-08-10T16:38:34Z	mcp-2026-07-28 P4b-4	file
 v3-lowerfail-names-the-right-file	claude-code	2026-08-10T16:40:14Z	a LowerFail from an imported unit reports the ROOT path with the imported unit's line, pointing past the end of a file the reader did not write	file:v3/src/Ast.scala file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/tests/front BUGS.md
 char-type-test	claude-code	2026-08-10T16:42:03Z	js-char-type-test-cannot-tell-Char-from-String	file:specs/type-ascription-matrix.md file:v2/src/Runtime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/e2e/char-type-test.sh
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+v3-no-handler-position	claude-code	2026-08-10T18:48:12Z	v3-no-handler-error-has-no-position	file:v3/src/Exec.scala file:v3/effects-gate.sh file:BUGS.md
