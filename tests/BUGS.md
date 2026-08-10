@@ -1,3 +1,41 @@
+## orphan-fixedin-lands-red — a rewritten `fixed-in:` turns SMOKE red for everyone, three times in two days
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     gate: .githooks/pre-push
+     fixed-in: c4b13d4f6 -->
+
+`tests/e2e/bugs-index-gate.sh` refuses a `fixed-in:` sha that is not an ancestor of HEAD, and it is
+right to — such a sha is invisible in a fresh clone. But it runs in SMOKE, **after** the push, so the
+first people to learn are everyone else. Three entries did it on 2026-08-09/10:
+`rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work`,
+`lower-has-six-hand-written-Expr-walkers-and-nothing-checks-they-agree`, and
+`smoke-suite-over-its-own-budget`. Each turned the suite red repo-wide until its owner noticed.
+
+**The cause is structural rather than careless, and that is why the rule that existed did not help.**
+The sha goes into the entry in the SAME commit as the fix; the rebase-and-push loop then rewrites
+that commit. The value was true when it was typed. What survives is closing the entry in a SECOND
+commit, after the fix has landed — which is what the refusal now tells you to do, because a guard
+that only refuses teaches `--no-verify`.
+
+Checked in `.githooks/pre-push`, on the `+` side of the diff only, so a pre-existing orphan belongs
+to another entry and cannot block unrelated work.
+
+**Two defects of my own in the guard, both found by controls rather than by reading it.** The first
+version sat below `[ -n "$incoming" ] || exit 0` and therefore ran only when the push also added a
+claim file — *a guard downstream of an early exit is a guard that does not run*, and its first
+"it refuses" test passed only because that branch happened to carry a claim-update commit. The
+second was a FALSE refusal, the worse direction: from a branch not yet rebased, every sha already on
+main looks like an orphan of that branch, so a valid ancestor was refused. It now judges only a push
+that could actually land.
+
+Three controls, all observed: orphan → exit 1 naming the sha; valid ancestor → exit 0; no `BUGS.md`
+in the push → exit 0.
+
+**This entry is itself the demonstration**: the guard landed in one commit, and the sha above was
+read back with `git rev-parse` afterwards and written in this, the second one.
+
 ## typed-pattern-against-an-any-does-not-test-the-type
 
 <!-- status: fixed
