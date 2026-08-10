@@ -14,7 +14,7 @@ Newest first.
      area: other
      kind: bug
      gate: none
-     fixed-in: PENDING -->
+     fixed-in: e341d8402 -->
 
 **FIXED 2026-08-10 — refused at CLAIM time, where the message can be acted on.** `scripts/coord-claim`
 now rejects `--items` tokens that are not id-shaped (a hyphen, underscore, slash or digit — what
