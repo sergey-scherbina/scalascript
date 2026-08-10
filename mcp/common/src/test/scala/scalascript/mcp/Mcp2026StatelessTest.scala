@@ -744,9 +744,9 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
   test("closing the stream emits the graceful-closure response, and unsubscribes"):
     val b = new McpServerBuilder
     val sink = new Sink
-    val close = McpServerCore.openSubscription(b,
+    val sub = McpServerCore.openSubscription(b,
       ujson.Obj("notifications" -> ujson.Obj("toolsListChanged" -> true)), ujson.Num(5), sink.write)
-    close()
+    sub.close()
     McpServerCore.closeSubscription(ujson.Num(5), sink.write)
     b.notifyToolsListChanged()                       // after close: nothing more
     val last = sink.frames.last
@@ -754,3 +754,64 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     last("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
     last("result")("_meta")(McpProtocol.MetaKey.SubscriptionId).num shouldBe 5
     sink.methods should not contain McpProtocol.Method.ToolsListChanged
+
+  // ── P4b-2: a subscription has a lifetime, and one way to end ────────
+
+  /** A sink whose writes start failing — a client that closed its connection. */
+  private class DyingSink(failAfter: Int):
+    val frames = scala.collection.mutable.ListBuffer.empty[String]
+    val write: String => Unit = s =>
+      if frames.size >= failAfter then throw java.io.IOException("connection reset")
+      frames += s
+
+  test("a failed write ends THAT stream and leaves the others alone"):
+    // On HTTP this is how a client cancels: it closes the connection and the
+    // next write fails. The other streams are untouched, exactly as a broadcast
+    // would leave them — the difference is only that this one gets torn down.
+    val b = new McpServerBuilder
+    val dying = new DyingSink(failAfter = 1)      // survives the ack, dies on the first notification
+    val healthy = new Sink
+    val dead = McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true)), ujson.Num(20), dying.write)
+    val alive = McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true)), ujson.Num(21), healthy.write)
+    dead.isEnded shouldBe false
+    b.notifyToolsListChanged()
+    dead.isEnded shouldBe true                    // the write failure ended it
+    alive.isEnded shouldBe false                  // and only it
+    b.notifyToolsListChanged()
+    healthy.methods.count(_ == McpProtocol.Method.ToolsListChanged) shouldBe 2
+
+  test("await returns once the subscription ends, however it ends"):
+    // The point of the latch: client close, cancellation and teardown are ONE
+    // event for the transport, not three code paths.
+    val b = new McpServerBuilder
+    val sink = new Sink
+    val sub = McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true)), ujson.Num(22), sink.write)
+    sub.await(50) shouldBe false                  // still open
+    sub.close()
+    sub.await(50) shouldBe true                   // and now it returns
+
+  test("close is idempotent, because the three sources may race"):
+    val b = new McpServerBuilder
+    val sink = new Sink
+    val sub = McpServerCore.openSubscription(b, ujson.Obj("notifications" -> ujson.Obj(
+      "toolsListChanged" -> true)), ujson.Num(23), sink.write)
+    sub.close(); sub.close(); sub.close()
+    sub.isEnded shouldBe true
+    b.notifyToolsListChanged()
+    sink.methods should not contain McpProtocol.Method.ToolsListChanged
+
+  test("a BROADCAST subscriber still swallows its write error and stays"):
+    // The other half of the decision. A legacy channel has no owner to notify
+    // and no id to tear down, so one dead peer must not remove itself or
+    // disturb the loop — unchanged from before this revision.
+    val b = new McpServerBuilder
+    val dying = new DyingSink(failAfter = 0)
+    val healthy = new Sink
+    b.addSubscriber(dying.write)
+    b.addSubscriber(healthy.write)
+    noException should be thrownBy b.notifyToolsListChanged()
+    noException should be thrownBy b.notifyToolsListChanged()
+    healthy.methods should have size 2

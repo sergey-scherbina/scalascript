@@ -288,12 +288,25 @@ class McpServerBuilder:
   def addListenSubscriber(
     write:          String => Unit,
     filter:         McpProtocol.NotificationFilter,
-    subscriptionId: ujson.Value
+    subscriptionId: ujson.Value,
+    onWriteFailure: () => Unit = () => ()
   ): () => Unit =
-    val wrap: String => Unit = s => try write(s) catch case _: Throwable => ()
-    val sub = Subscriber(wrap, Some(filter), Some(subscriptionId))
-    subscribers.add(sub)
-    () => { subscribers.remove(sub); () }
+    // The write error is handled DIFFERENTLY here than for a broadcast, and the
+    // difference is not "swallow or not" — it is who the failure concerns.
+    // A broadcast swallows because one dead peer must not silence the others.
+    // A listen stream has an OWNER, and on HTTP a failed write is precisely how
+    // the client cancels: it closed the connection. So this removes ITSELF from
+    // the set (the other streams are untouched, same as a broadcast) and then
+    // tells its owner the subscription is over.
+    var self: Subscriber = null
+    val wrap: String => Unit = s =>
+      try write(s)
+      catch case _: Throwable =>
+        if self != null then subscribers.remove(self)
+        try onWriteFailure() catch case _: Throwable => ()
+    self = Subscriber(wrap, Some(filter), Some(subscriptionId))
+    subscribers.add(self)
+    () => { subscribers.remove(self); () }
 
   /** Broadcast a server-initiated notification to every active
    *  subscriber.  No id (notifications never expect a reply).  Frames
@@ -485,6 +498,37 @@ case class ResourceHandlerResult(uri: String, contents: List[ujson.Value])
 
 case class PromptHandlerResult(description: Option[String], messages: List[ujson.Value])
 
+/** A live `subscriptions/listen` stream, from the server's side.
+ *
+ *  Its whole purpose is to give the three ways a subscription can end — the
+ *  client closing its connection, `notifications/cancelled` naming this
+ *  request, and server teardown — ONE event instead of three code paths. The
+ *  transport blocks on `await()` and stops blocking when any of them fires,
+ *  which is also why the SSE callback holding the stream open needs no
+ *  cancellation logic of its own. */
+final class Subscription private[mcp] (
+  val id: ujson.Value,
+  private val unsubscribe: () => Unit,
+  private val ended: java.util.concurrent.CountDownLatch
+):
+  /** Park until the subscription ends. Cheap: the server runs one virtual
+   *  thread per connection, and this is a Loom-aware block, so the carrier is
+   *  released rather than pinned. */
+  def await(): Unit = ended.await()
+
+  /** Park until the subscription ends or `timeoutMs` elapses; false on timeout. */
+  def await(timeoutMs: Long): Boolean =
+    ended.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+
+  /** End it from this side — server teardown, or a `notifications/cancelled`
+   *  naming this request. Idempotent, because all three sources may race and
+   *  the transport will call it in a `finally` regardless. */
+  def close(): Unit =
+    unsubscribe()
+    ended.countDown()
+
+  def isEnded: Boolean = ended.getCount == 0
+
 /** One server→client channel. `filter` is `None` for a legacy connection —
  *  stdio's single writer, a WS connection — which receives every notification
  *  untagged, exactly as before this revision. `Some(f)` is a
@@ -601,12 +645,13 @@ object McpServerCore:
     params:  ujson.Value,
     id:      ujson.Value,
     write:   String => Unit
-  ): () => Unit =
+  ): Subscription =
     val requested = McpProtocol.parseNotificationFilter(params)
     val honoured  = requested          // every type in the filter is serviceable
-    val close     = builder.addListenSubscriber(write, honoured, id)
+    val ended     = java.util.concurrent.CountDownLatch(1)
+    val close     = builder.addListenSubscriber(write, honoured, id, () => ended.countDown())
     write(McpProtocol.subscriptionsAcknowledged(id, honoured))
-    close
+    Subscription(id, close, ended)
 
   /** Graceful closure: answer the long-lived request itself, then let the
    *  transport drop the stream. The ABSENCE of this response is what tells a
