@@ -1215,6 +1215,34 @@ object Lower:
         extra = d.copy(name = nm, params = explicit,
                        body = dropInstanceAliases(rename(fix(d.body, childEnv)))) :: extra
 
+    /** Specialise for instances NAMED AT THE CALL SITE, wherever they sit in the argument list.
+      *
+      * `greet("Alice", consoleOption, optionMonad)` passes two instances as ORDINARY arguments —
+      * no `using`, no `summon`, and `tagless-program` is written that way throughout. At Tier 0 an
+      * instance is an `object`, a namespace with no runtime value, so the call failed with
+      * `unknown name 'consoleOption'`; the same specialisation answers it, with the parameters at
+      * those POSITIONS renamed rather than the trailing `using` ones.
+      *
+      * This subsumes the explicit `(using inst)` case, which is the same thing with the instances
+      * at the end, so there is one code path rather than two that must agree.
+      *
+      * WHAT MADE THIS SMALLER THAN PLANNED: §54 filed it as "higher-kinded — selects on a type
+      * CONSTRUCTOR, `Monad[Option]` beside `Monad[List]`", expecting kind-aware matching. Reading
+      * the file first showed there is nothing to infer: the program NAMES both instances at every
+      * call. Kinds would be needed to work them out, and nobody asked for them to be worked out. */
+    def specialiseAt(d: Def, nm: String, picks: List[(Int, String)]): Unit =
+      if !made.contains(nm) then
+        made = made + nm
+        val subst: Map[String, String] =
+          picks.map((i, inst) => (d.params(i).name, inst)).toMap
+        val kept = d.params.zipWithIndex.filterNot((_, i) => picks.exists((j, _) => j == i))
+                           .map((pm, _) => pm)
+        def rename(e: Expr): Expr = mapDeep(e, y => y match
+          case Expr.Name(n, np) if subst.contains(n) => Expr.Name(subst(n), np)
+          case other                                 => other)
+        extra = d.copy(name = nm, params = kept,
+                       body = dropInstanceAliases(rename(fix(d.body, Map.empty)))) :: extra
+
     def fix(e: Expr, env: Map[String, String]): Expr = mapDeep(e, x =>
       x match
       // AN EXPLICIT `(using showInt)` — the program names the instance itself. Same specialisation,
@@ -1222,15 +1250,16 @@ object Lower:
       // value to pass. Handled before the inferring case so that writing the instance out always
       // beats working it out, which is what `display(99)(using showInt)` is asking for.
       case Expr.Call(fn, as, p)
-        if byName.get(fn).exists(d => d.params.exists(_.given_) && as.length == d.params.length) &&
-           as.takeRight(byName(fn).params.count(_.given_)).forall {
-             case Expr.Name(n, _) => instanceNames.contains(n); case _ => false } =>
+        if byName.get(fn).exists(d => as.length == d.params.length) &&
+           as.exists { case Expr.Name(n, _) => instanceNames.contains(n); case _ => false } =>
         val d = byName(fn)
-        val k = d.params.count(_.given_)
-        val names = as.takeRight(k).collect { case Expr.Name(n, _) => n }
-        val nm = fn + "$" + names.mkString("$")
-        specialise(d, nm, names, Map.empty)
-        Expr.Call(nm, as.dropRight(k), p)
+        val picks = as.zipWithIndex.collect {
+          case (Expr.Name(n, _), i) if instanceNames.contains(n) => (i, n)
+        }
+        val nm = fn + "$" + picks.map((_, n) => n).mkString("$")
+        specialiseAt(d, nm, picks)
+        Expr.Call(nm, as.zipWithIndex.filterNot((_, i) => picks.exists((j, _) => j == i))
+                       .map((a2, _) => a2), p)
       case Expr.Call(fn, as, p) =>
         byName.get(fn) match
           case Some(d) if d.params.exists(_.given_) && as.length == d.params.count(!_.given_) =>

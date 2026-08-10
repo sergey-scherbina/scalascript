@@ -2783,7 +2783,20 @@ feeling. Anything that turns out bigger than its entry gets split rather than st
       matching of `List[A]` against `List[Int]`, and propagating the enclosing specialisation's
       binding into the calls its body makes (`combineAll(xs)` inside `combineAndPretty`).
       *Done when:* `tagless-context-bounds` runs on both fronts and `N` rises again.
-- [ ] **2c — higher-kinded.** `tagless-program` and `tagless-multi-file` select on a type
+- [x] **2c — instances NAMED at the call site, wherever they sit.** DONE 2026-08-09, and the entry
+      below was WRONG about what this row needs. `tagless-program` runs — output identical to
+      `tests/conformance/expected/tagless-program.txt`, four lines — and `N` rose 190 → 191.
+      **There was nothing to infer.** The program names both instances in every call:
+      `greet("Alice", consoleOption, optionMonad)`, no `using`, no `summon`. It failed with
+      `unknown name 'consoleOption'` because a `given` is an `object` at Tier 0 and objects are not
+      values. Kinds would be needed to WORK OUT the instance, and nothing asks for that here. So the
+      fix is the existing specialisation applied at argument POSITIONS rather than to a trailing
+      `using` clause — which also subsumes the explicit `(using inst)` branch, leaving one code path
+      where there were two that had to agree.
+      **The split this entry predicted did happen, along a different line:** `tagless-multi-file` is
+      blocked by `extension` INSIDE a `given` (`a trait member that is not a def`), which is X1's
+      family, not resolution's.
+      **Superseded description:** `tagless-program` and `tagless-multi-file` select on a type
       CONSTRUCTOR: `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside `Logged[Option]`.
       Substituting a type argument into text does not reach it — the instance is chosen by what the
       VALUE is, so this needs either the receiver's runtime tag or a real kind-aware match. Expect
