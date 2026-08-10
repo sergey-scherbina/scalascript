@@ -287,7 +287,13 @@ STALE
   # deliberately not running. A self-test must assert what the check DOES in the environment it is
   # in; asserting more makes the gate a liar about itself. Reproduced with `git clone --depth 1`
   # before and after, which is the only control that distinguishes these two states.
-  if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]; then
+  # ONE DECISION, READ BACK — not a second `git rev-parse`. The check already decides shallowness
+  # and PRINTS it ("note: shallow clone — …"), so the assertion consumes that instead of recomputing
+  # the same fact. Two computations of one fact can disagree, and when they do this assertion demands
+  # a report the check deliberately skipped: run 31329355192 failed exactly there while the run an
+  # hour later, on the same code, printed "shallow clone — … not asserted" and passed. The comment
+  # above already records this turning every push red once; recomputing was why it could happen twice.
+  if printf '%s' "$out" | grep -q "note: shallow clone"; then
     echo "--- self-test: shallow clone — the stale-open report is skipped by the check, so it is not asserted"
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
