@@ -6080,6 +6080,50 @@ budget, now completes in 27.9 s and PASSED the v2 lane in the 2026-07-28 corpus-
 Still open: ~2.8-3.0× remains, and `specs/v2-f-compile-cost.md` Result 2 (the cost SCALES with
 program size, so a super-linear step inside F is the likely remaining cause) has not been retested.
 
+### RE-MEASURED 2026-08-10 — and the "super-linear step inside F" framing is REFUTED
+
+Measurable for the first time on the two biggest cases, because until today F died on them at the
+first alternative pattern (`scljet-app-not-a-function-after-the-concat-fix`). One host, consecutive
+minutes, `bin/ssc run --v2`:
+
+| program | front F | legacy | ratio |
+|---|---|---|---|
+| `scljet-crud` | 39 s `rc=0` | 35 s `rc=0` | **1.1×** |
+| `scljet-jdbc` | **>1200 s** (cap) | 88 s `rc=0` | **>13.6×** |
+| `scljet-hello` | **>1200 s** (cap) | 46 s `rc=0` | **>26×** |
+
+**`crud` IMPROVED — 2.8× to 1.1×** — while the other two blew up. So the remaining cost is not a
+multiplier on F at all; something specific to those two.
+
+**THREE PROBES, and each killed a hypothesis rather than confirming one.**
+
+1. **Program size in defs — NOT it.** A ladder of 50/100/200/400 near-identical defs in ONE file:
+   F `4 s / 5 s / 6 s / 8 s`, legacy `3 s / 3 s / 3 s / 5 s`. Flat and linear; no super-linear step.
+   The ladder was the wrong dimension and this repository already says why — the unit that matters
+   is the TRANSITIVE MODULE CLOSURE, not defs in a file.
+2. **The distinguishing import — identified.** `crud` imports `index.ssc` + `mutate.ssc`; `hello`
+   and `jdbc` import `index.ssc` + **`jdbc.ssc`**, the JDBC facade. That is exactly the split
+   between the parity row and the two blown-up rows.
+3. **But COMPILING that closure is at PARITY, which is the decisive one.** A file whose entire body
+   is `println("imported")`, importing nothing else:
+
+       import mutate.ssc only    F 18 s   legacy 14 s
+       import jdbc.ssc only      F 32 s   legacy 37 s      <- F is FASTER
+
+   So F pays no penalty for compiling the facade's module closure.
+
+**Therefore the gap is NOT in F's compilation, and this entry's title and hypothesis both point the
+wrong way.** Compiling the same modules costs the same on both fronts; the difference appears only
+when the program RUNS real work through them. The next question is what F EMITS for the jdbc path
+that legacy does not — a code-shape question, not a compiler-speed one — and the cheap next step is
+an IR diff of the two fronts for `jdbc.ssc`, not more timing.
+
+**What is NOT established**, said plainly: whether this is a regression. The 2026-07-28 row above
+records `jdbc` at 27.94 s on F, and today it exceeds 1200 s — but legacy moved 9.35 s → 88 s over
+the same period on the same case, and my changes are not in legacy at all. So the machine or
+something shared moved by roughly 9×, and cross-day absolute numbers cannot carry a regression
+claim. Only the same-day RATIOS above are evidence.
+
 **Original measurement** (2026-07-27, same tree/build, `examples/scljet-crud.ssc`, `v2` lane) —
 kept so the delta above is checkable:
 
