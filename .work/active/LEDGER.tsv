@@ -1,4 +1,4 @@
-# generation: 1497
+# generation: 1498
 #slug	agent	started	items	paths
 rust-type-lost-at-boundary	claude-code	2026-08-10T07:53:05Z	type-lost-across-a-boundary	mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:INBOX.md
 rozum-agent-and-double-run	claude-code	2026-08-10T07:36:11Z	rozum-agent-family-v2-diverges-again rozum-agent-schema-derived-js-and-v2-gaps trailing-main-call-runs-twice	file:v2/BUGS.md file:tests/BUGS.md file:tests/e2e/trailing-main-call-runs-once.sh file:tests/e2e/launcher-set-complete.sh
@@ -27,5 +27,4 @@ keyword-import-not-found	claude-code	2026-08-10T06:45:21Z	decided: import of a m
 ssc3-j2-closures	claude-code	2026-08-10T06:45:51Z	SSC3-J2	file:v3/src/Compile.scala file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:specs/ssc3-jit.md file:v3/SPRINT.md file:bench/history.tsv file:v3/tests/jit
 main-red-and-gate-wiring	claude-code	2026-08-10T06:53:42Z	main-red-and-gate-wiring	file:BUGS.md file:.github/workflows/ci.yml
 f-app-not-a-function	claude-code	2026-08-10T07:03:25Z	scljet-app-not-a-function-after-the-concat-fix	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/bytecode-fallback-visible.sh file:tests/e2e/f-alternative-pattern-gate.sh
-smoke-budget-relative-to-host	claude-code	2026-08-10T07:30:05Z	smoke-suite-over-its-own-budget	file:scripts/smoke-ci.ssc file:tests/BUGS.md
 mcp-p3a-mrtr-wire	claude-code	2026-08-10T07:52:41Z	mcp-2026-07-28 P3a	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
