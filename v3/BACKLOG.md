@@ -119,7 +119,7 @@ so these cases stop counting. It would move `N` without moving anything real, an
 comment already settled the policy — *"still counted and still listed — a silent skip would hide
 work"*.
 
-## The two fronts disagree on WHERE a by-name argument becomes a thunk — 29 corpus cases
+## The two fronts disagree on WHERE a by-name argument becomes a thunk — CLOSED, 0 cases
 
 Measured 2026-08-08 **on `origin/main` in a clean worktree**, before any of my own uncommitted work:
 `front-diff.sh` reads 263 corpus cases printed by both fronts, 234 agreeing and **29 differing**,
@@ -138,6 +138,21 @@ is reporting.
 ALREADY wrapped, the uniml lane gets a thunk of a thunk, and that is a wrong answer rather than a
 printed difference. All 29 are `actors-*` cases and every one is currently UNSUPPORTED for other
 reasons, so the corpus cannot see it either way yet.
+
+**MEASURED AGAIN 2026-08-10 AND IT IS CLOSED, which is why the heading changed rather than a note
+being tacked on below it.** `front-diff.sh` reads `both fronts print: 277; they AGREE on 277, differ
+on 0`, and the gate is GREEN.
+
+Checked the way that separates a fix from a disappearance, because a differential goes quiet for
+both reasons: `actors-bounded-mailbox` and `actors-cluster-config` are PRINTED BY BOTH fronts and
+their canonical trees are identical. They are not sitting in the one-front-only bucket. Earlier the
+same day both fronts refused `actors-bounded-mailbox` outright — v3's own with `expected ')', found
+:`, UniML with `` `extension` is outside Tier 0 `` — so this section's own closing sentence stopped
+being true the moment they began printing, and the agreement is an answer rather than a silence.
+
+`rewriteByName` still has three references in `Lower.scala`, so the two READINGS converged rather
+than one being deleted. The warning above — a thunk of a thunk is a wrong ANSWER, not a printed
+difference — therefore still holds and is simply no longer urgent.
 
 Owned by `ssc3-effect-protocol`, which holds `v3/src/Lower.scala` and landed the by-name rewrite.
 Filed here rather than fixed because choosing where by-name lives is that claim's decision.
