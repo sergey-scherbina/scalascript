@@ -3201,10 +3201,19 @@ object RustCodeWalk:
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
       true
-    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap" | "getOrElse")), args)
+    // `map` and `flatMap` KEEP the Option; `getOrElse` does not — it is the unwrap.
+    //
+    // They were one case, and it answered `true` for all three: `kept.headOption.getOrElse("-")`
+    // was judged an Option, so the printing path wrapped it in `match … { Some(__v) => … }` ON TOP
+    // of the `unwrap_or` the lowering had already emitted, and rustc reported `mismatched types`
+    // twice on one line. Found by running the reported repro after the field-access half was
+    // fixed — the codegen tests were green, because the shape only breaks when something
+    // downstream asks whether the result is still an Option.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap")), args)
         if isOptionExpr(inner) =>
-      // recursive chain case: `Some(x).map(...).getOrElse(...)`
+      // recursive chain case: `Some(x).map(...)`
       args.values.size == 1
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), _) => false
     // Collection methods that RETURN an Option. Needed because printing one has to render it the
     // Scala way -- Rust's `Option` has no `Display`, so `"x = " + xs.find(p)` did not compile at
     // all until this list knew what produces an Option.
