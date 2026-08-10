@@ -1,0 +1,11 @@
+slug: v3-clock-prim
+branch: feature/v3-clock-prim
+agent: claude-code
+started: 2026-08-10T14:31:14Z
+heartbeat: 2026-08-10T14:31:14Z
+status: claimed-before-planning
+items: SSC3-3d clock-prim
+paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/src/BridgeV2.scala file:v3/tests/front/clock.ssc file:v3/tests/front/clock.expected file:v3/exec-gate.sh file:v3/SPRINT.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
