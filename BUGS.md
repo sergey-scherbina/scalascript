@@ -536,11 +536,26 @@ in `std/json-core.ssc`. The import mechanism is done; those are two other gaps s
 
 ## std-move-left-scljet-behind — 113 corpus cases lost their import, and N fell 188 → 75 on main
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
      kind: bug
-     gate: v3/corpus-report.sh -->
+     gate: v3/corpus-report.sh
+     fixed-in: 8c33bf3d0 -->
+
+**FIXED 2026-08-09 by `git mv scljet std/scljet`.** The move had put the subtree at the repo ROOT
+while its six siblings — `cluster`, `dsl`, `mapreduce`, `mcp`, `parsing`, `ui` — went under `std/`,
+so it was the odd one out rather than a decision. **229 links point at `std/scljet/…` and ZERO at
+the root path**, and the modules inside link each other relatively (`](index.ssc)`), so the whole
+directory moves without a single link edit. Nothing outside `.ssc` referenced the root location
+either: the only matches are a plugin DIRECTORY called `scljet-jdbc-plugin` and prose in an old
+BUGS entry.
+
+**Verified by sample rather than by the full sweep, and the reason is recorded.** The host was at
+load 70–88 with 15 JVMs and the memory guard killed two 368-case runs; a corpus sweep under that
+load turns timeouts into false CRASHes. Of 12 affected cases, all 12 failed with `cannot find the
+import` before, and after: **10 accept, 0 fail on the import**, 2 fail on their own unrelated
+constructs. The full N re-measurement is owed on a quiet host.
 
 **Measured 2026-08-09 on `origin/main`, by a sweep run for an unrelated change.**
 
