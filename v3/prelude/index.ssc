@@ -1,0 +1,102 @@
+# The v3 prelude
+
+Loaded before every program v3 EXECUTES, so the names here need no import. Not loaded when printing
+an `Ast` — `Loader.preludeRoot` says why that split is principled rather than convenient.
+
+Keep this module cheap: it is parsed and lowered on every invocation, including twice per case on a
+368-file corpus sweep.
+
+## Dataset
+
+`v3/BACKLOG.md`'s DATASET decision, option 3, chosen by the owner: written IN ScalaScript over
+lists, so BOTH v3 lanes get one implementation and v3 grows no host surface. Options 1 (implement it
+twice, in `Exec.scala` and the shared `v2/src` kernel) and 2 (give `run-ir` a plugin path) were
+declined.
+
+**`of` takes sixteen defaulted parameters and a sentinel, and that is not a style choice.** Tier 0
+has no varargs — `def of(xs: Any*)` parses as ONE parameter and `Dataset.of(1, 2, 3)` is refused
+with "passes 3 argument(s), it takes 1" — and no arity overloading either: two `def`s of one name
+leave the first winning. Both were measured before this was written. Sixteen covers the corpus,
+whose widest call is ten.
+
+The sentinel is a distinguished value rather than `0` or an empty string, because the corpus writes
+`Dataset.of(1, 2, 0, 3)` and `Dataset.of("", "a")` — a sentinel a caller can pass by accident is a
+silently truncated dataset.
+
+```scalascript
+case class DsAbsent()
+
+case class RuntimeException(message: String):
+  def getMessage: String = message
+
+case class Dataset(items: List[Any]):
+  def collect(): List[Any] = items
+  def count(): Int = items.length
+  def isEmpty(): Boolean = items.isEmpty
+  def first(): Option[Any] = if items.isEmpty then None else Some(items.head)
+  def take(n: Int): Dataset = Dataset(items.take(n))
+  def map(f: Any => Any): Dataset = Dataset(items.map(f))
+  def filter(p: Any => Boolean): Dataset = Dataset(items.filter(p))
+  def mkString(sep: String): String = items.mkString(sep)
+  def reduce(f: (Any, Any) => Any): Any = items.reduce(f)
+  def sum(): Any = items.sum
+  def avg(): Any = items.sum.toDouble / items.length.toDouble
+  def min(): Any =
+    if items.isEmpty then throw RuntimeException("Dataset.min: empty dataset") else items.min
+  def max(): Any =
+    if items.isEmpty then throw RuntimeException("Dataset.max: empty dataset") else items.max
+  def sorted(): Dataset = Dataset(items.sorted)
+  def sortBy(f: Any => Any): Dataset = Dataset(items.sortBy(f))
+  def distinct(): Dataset = Dataset(items.distinct)
+  def takeOrdered(n: Int): Dataset = Dataset(items.sorted.take(n))
+  def top(n: Int): Dataset = Dataset(items.sorted.reverse.take(n))
+  def zip(other: Dataset): Dataset = Dataset(items.zip(other.items))
+  def flatMap(f: Any => List[Any]): Dataset = Dataset(items.flatMap(f))
+  def foreach(f: Any => Any): Unit = items.foreach(f)
+  // `items.map(x => key(x))` and NOT `items.map(key)`. Passing a function VALUE where a lambda is
+  // expected does not behave the same here — the building blocks were verified working in isolation
+  // and only the eta-reduced spelling failed, with `method '_2' on 3`.
+  def reduceByKey(key: Any => Any)(f: (Any, Any) => Any): Dataset =
+    Dataset(items.map(x => key(x)).distinct
+                 .map(k => items.filter(x => key(x) == k).reduce((p, q) => f(p, q))))
+  def zipWithIndex: Dataset = Dataset(items.zipWithIndex)
+  def drop(n: Int): Dataset = Dataset(items.drop(n))
+  def fold(z: Any)(f: (Any, Any) => Any): Any = items.foldLeft(z)(f)
+  def union(other: Dataset): Dataset = Dataset(items ++ other.items)
+  def intersect(other: Dataset): Dataset =
+    Dataset(items.filter(x => other.items.contains(x)).distinct)
+  def groupBy(f: Any => Any): Dataset =
+    Dataset(items.map(f).distinct.map(k => (k, items.filter(x => f(x) == k))))
+  // A CLOSURE, not a Map, and the corpus decides that rather than taste: it only ever APPLIES the
+  // result — `freq(k)` — and Tier 0 can neither build a Map from a list (`toMap` is absent) nor add
+  // to one (`Map + (k -> v)` is refused). A user-defined `apply` is not callable either. A function
+  // value satisfies every use the corpus makes and needs nothing the language does not have.
+  def countByValue(): Any => Any = (k: Any) => items.filter(x => x == k).length
+  def runLocal(): Dataset = Dataset(items)
+  def runParallel(): Dataset = Dataset(items)
+
+object Dataset:
+  def fromList(xs: List[Any]): Dataset = Dataset(xs)
+  def of(a: Any = DsAbsent(), b: Any = DsAbsent(), c: Any = DsAbsent(), d: Any = DsAbsent(),
+         e: Any = DsAbsent(), f: Any = DsAbsent(), g: Any = DsAbsent(), h: Any = DsAbsent(),
+         i: Any = DsAbsent(), j: Any = DsAbsent(), k: Any = DsAbsent(), l: Any = DsAbsent(),
+         m: Any = DsAbsent(), n: Any = DsAbsent(), o: Any = DsAbsent(), p: Any = DsAbsent()): Dataset =
+    var xs: List[Any] = List()
+    if a != DsAbsent() then xs = xs :+ a
+    if b != DsAbsent() then xs = xs :+ b
+    if c != DsAbsent() then xs = xs :+ c
+    if d != DsAbsent() then xs = xs :+ d
+    if e != DsAbsent() then xs = xs :+ e
+    if f != DsAbsent() then xs = xs :+ f
+    if g != DsAbsent() then xs = xs :+ g
+    if h != DsAbsent() then xs = xs :+ h
+    if i != DsAbsent() then xs = xs :+ i
+    if j != DsAbsent() then xs = xs :+ j
+    if k != DsAbsent() then xs = xs :+ k
+    if l != DsAbsent() then xs = xs :+ l
+    if m != DsAbsent() then xs = xs :+ m
+    if n != DsAbsent() then xs = xs :+ n
+    if o != DsAbsent() then xs = xs :+ o
+    if p != DsAbsent() then xs = xs :+ p
+    Dataset(xs)
+```
