@@ -26,7 +26,7 @@ Newest first.
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 53dbd0a2d
      lane: int
      area: build
      kind: apparatus
