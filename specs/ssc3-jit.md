@@ -253,6 +253,34 @@ anything in J0 and it now has a measurement pointing at it.
 This is the second time in two days that checking an optimization's assumption before writing it
 changed the answer — §8.1 for J2, this for the pool. The check cost one run each time.
 
+## 9 · J1c — the two-bank frame, and the measurement that named it
+
+**The assumption was checked first, and this time it held.** `arith-loop` makes exactly one call, so
+its frame is allocated once — and it still reclaims **~4 087 MB** of young generation in a bench run.
+Nothing else in that program allocates: every megabyte is a `Value.VInt` or `Value.VBool` boxing an
+arithmetic result. `recursion-fib` reclaims ~16 519 MB, frames and boxing together. GC *pause* is
+0.5 % (§8.2), so what costs is producing the garbage, not collecting it.
+
+**The design.** A frame gains a second bank, `Array[Long]`, beside its `Array[Value]`. A register
+lives in the long bank when every instruction that writes it writes a value the specializer proved
+`I64`. `Bin`/`Un`/`Move`/`Const` then read and write `long` directly and allocate nothing;
+everything else — `Call` arguments, `Ret`, `MkData`, `Invoke`, `Prim` — boxes on the way out, which
+is orders of magnitude rarer than once per operation.
+
+**This is the payoff for J1.** The specializer proves 34.5 % of the corpus's arithmetic instructions
+and, so far, that has bought exactly nothing measurable (§8, J1b): choosing an arithmetic branch on
+a proved kind is not worth anything when the branch still allocates its result. Consuming the same
+proof to skip the allocation is the first use of it with a mechanism behind it.
+
+**Scope, stated so the number is not oversold.** Parameters stay boxed in this pass: they arrive as
+`List[Value]` from the caller, so unboxing them is a calling-convention change and a bigger one.
+That means `recursion-fib`, whose hot value is a parameter, is expected NOT to move — the same shape
+of control as before, predicted from the mechanism rather than after the fact. `arith-loop` and
+`nested-loop`, whose hot registers are locals, are where the 4 GB is.
+
+**The long bank is allocated only when the function has a long-bank register**, because a second
+array per call would otherwise make every call-heavy program worse to speed up a loop-heavy one.
+
 ### J3 · Host bytecode behind a by-name seam — a separate decision
 
 The shape is settled by precedent (`v2/src/Jit.scala`): the kernel names a class as a **string**,
