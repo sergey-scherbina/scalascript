@@ -1431,6 +1431,15 @@ object Lower:
     else
       def fix(e: Expr): Expr = mapDeep(e, x => x match
         case Expr.MethodCall(recv, m, args, p) if eligible(m) => Expr.Call(m, recv :: args, p)
+        // AN INFIX USE ARRIVES AS `Bin`, not as a `MethodCall`. `3 ~ 4` parses as a binary operator
+        // — that is what `prec` is for — so an extension named `~` is reached here and nowhere
+        // else. Missing this arm left the def parsing, the use parsing, and the LOWERING refusing
+        // with `operator '~' is outside…`, which reads like a parser gap and is not one.
+        //
+        // The same three conditions, so a built-in operator can never be captured: `+` and `<` are
+        // not top-level def names, so `eligible` is false for them by construction rather than by a
+        // list this arm would have to keep.
+        case Expr.Bin(op, l, r, p) if eligible(op) => Expr.Call(op, List(l, r), p)
         case other => other)
       defs.map(d => d.copy(body = fix(d.body)))
 

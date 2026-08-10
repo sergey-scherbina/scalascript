@@ -53,7 +53,20 @@ object Parser:
       case ':'             => 7
       case '+' | '-'       => 8
       case '*' | '/' | '%' => 9
-      case _               => 0
+    // SCALA'S TOP BAND — "all other special characters" bind TIGHTER than `* / %`, and leaving them
+    // at 0 meant "not an operator at all". The character this reaches is `~`, and only `~`: the
+    // lexer's `isOpChar` is the closed set `+ - * / % < > = ! & | ^ ~`, so `@` and `#` never arrive
+    // here and cannot be captured by a catch-all.
+    //
+    // `tests/conformance/f-tilde-arrow-ext.ssc` states the consequence as its own comment and then
+    // checks it: `1 <~ 2 ~ 3` must be `1 <~ (2 ~ 3)` = 1 * 1000 + 203, because `~` outranks `<~`.
+    // With `~` at 0 the file could not parse at all once `extension` started defining `~` — the def
+    // parsed and the USE did not.
+    //
+    // A catch-all rather than `case '~' =>`, for the reason the comment above gives: the rule is
+    // Scala's and a new operator character should need no edit here. Prefix `~0` is unaffected —
+    // that is the unary parser, which does not consult this function.
+      case _               => 10
 
   /** Scala's other half of the same rule: precedence comes from the FIRST character, associativity
     * from the LAST. An operator ending in `:` is right-associative — `1 :: 2 :: Nil` must group as
@@ -756,6 +769,18 @@ object Parser:
       val (e, t) = parseUnary(ts.tail); (Expr.Neg(e, p), t)
     case Tok.TOp("!", p) =>
       val (e, t) = parseUnary(ts.tail); (Expr.Not(e, p), t)
+    // PREFIX `~` IS `x ^ -1`, and that identity is exact for two's complement — which is what
+    // `Int` is here (`Lit.LInt` is 64-bit, wrapping). Desugared rather than given an AST node
+    // because a node would have to be added to `Expr`, rendered in `AstText` and lowered, and the
+    // UniML projection would have to produce the identical one or `front-diff` reports a
+    // difference neither front is wrong about. `^` already exists on both sides and lowers to
+    // `BinOp.BXor`, so both fronts emit the same tree with nothing new to keep in step.
+    //
+    // `tests/conformance/f-tilde-arrow-ext.ssc` needs it: the file defines `~` as an EXTENSION and
+    // then checks that prefix `~0` still means bitwise NOT — "atom position, not after an atom",
+    // as its own comment puts it.
+    case Tok.TOp("~", p) =>
+      val (e, t) = parseUnary(ts.tail); (Expr.Bin("^", e, Expr.IntLit(-1L, p), p), t)
     case _ => parsePostfix(ts)
 
   private def parsePrimary(ts0: List[Tok]): (Expr, List[Tok]) =

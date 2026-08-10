@@ -23,6 +23,42 @@ Newest first.
 
 
 
+## v3-extension-unblocks-two-files-into-a-lane-DIFF — they run now, and fail differently on each lane
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: v3/corpus-report.sh -->
+
+**Introduced deliberately and measured, 2026-08-10, by `v3-extension-type-params`.** Accepting
+`extension` took `tests/conformance/indent-block-statements.ssc` and `indent-config-format.ssc` from
+*refused by both fronts* to *lowered and executed*, and there the two lanes disagree — which
+invariant I-3 forbids:
+
+```text
+exec    ssc3: … method 'map' on #30(-?[0-9]+)'
+bridge  test1 FAIL: unknown parser node
+expect  test1: 1 section(s) …
+```
+
+**Neither lane is right**, so this is not a silent wrong answer: both fail, in different words. What
+the change bought is that they fail LATER, which is how the gap became visible at all — both files
+build a parser-combinator library out of `extension` operators, and the executor's method table has
+no `map` for the value they build.
+
+The trade is recorded rather than hidden: the same commit moved **N from 171 to 194 of 368**, where
+§51's earlier attempt at extensions moved it from 188 to 130. Two new DIFFs against twenty-three new
+passes.
+
+**Not the same as CRASH moving 3 → 4.** That fourth is `js-effect-multishot-long-fold` reaching
+`v2 bridge V-0 does not translate perform` — a file arriving at the bridge's declared effect wall,
+not a new defect.
+
+**What would close it:** the executor's method table needs whatever `map` these files call on their
+parser value, and the bridge needs the same. Until then the two lanes should at least fail the SAME
+way, and they do not.
+
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
 <!-- status: fixed

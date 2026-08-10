@@ -174,7 +174,19 @@ declare -a KNOWN_CONF_V3_ONLY=(
   traversal
 )
 
+# THREE ENTRIES ADDED 2026-08-10 WITH `extension`, AND NONE OF THEM IS ABOUT EXTENSIONS.
+# Accepting `extension` (v3-extension-type-params) let the UniML front walk PAST a construct both
+# fronts used to stop at, into later parts of those files that v3's parser has never handled. The
+# files were refused before and are refused now; what changed is WHERE, and only on one front.
+# Each row names the gap that actually blocks it, so closing that gap deletes the row — and this
+# gate fails the day a declared divergence closes, which is what stops the list becoming a
+# graveyard.
+#   actors-bounded-mailbox   std/actors.ssc:558 — a non-`def` member in an `object`
+#   actors-process-info      the same file, the same line
+#   indent-block-statements  tests/conformance/indent-block-statements.ssc:113 — an expression
+#                            form v3's parser does not have
 declare -a KNOWN_CONF_UNIML_ONLY=(
+  actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-coordinator
   actors-cluster-visibility
   actors-global-registry

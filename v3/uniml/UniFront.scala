@@ -476,6 +476,11 @@ object UniFront:
     case U.Prefix(op, x, s) =>
       if op == "-" then Expr.Neg(expr(x), pos(s))
       else if op == "!" then Expr.Not(expr(x), pos(s))
+      // Prefix `~` is bitwise NOT, and `~x` IS `x ^ -1` in two's complement. Desugared to the same
+      // `Bin` v3's own parser produces, so the two trees stay byte-identical — a dedicated AST node
+      // would have to be added, rendered and lowered on both sides, and the second copy is where
+      // the fronts drift.
+      else if op == "~" then Expr.Bin("^", expr(x), Expr.IntLit(-1L, pos(s)), pos(s))
       else no("the prefix operator '" + op + "'", s)
 
     // Four UniML call shapes, two v3 ones. UniML keeps them apart because the CST does; here is
