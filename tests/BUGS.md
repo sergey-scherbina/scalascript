@@ -77,7 +77,7 @@ all.
 ## trailing-main-call-runs-the-program-twice
 
 <!-- status: fixed
-     fixed-in: PENDING
+     fixed-in: 0e9eb28db
      gate: tests/e2e/entry-auto-invoke-once.sh
      lane: multi
      area: runtime
