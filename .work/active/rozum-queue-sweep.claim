@@ -1,0 +1,19 @@
+slug: rozum-queue-sweep
+branch: feature/rozum-queue-sweep
+agent: claude-code
+started: 2026-08-10T06:50:47Z
+heartbeat: 2026-08-10T06:50:47Z
+status: implementing
+items: build-rust-std-imports-unlowerable map-get-lowers-to-an-owned-key zipwithindex-result-is-not-indexable
+paths: mod:v1/runtime/backend/rust file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md file:INBOX.md
+scope: |
+  Everything rozum has waiting, taken together because they are one lane and one user:
+  1. std-imports-unlowerable -- the reporter has ANSWERED it themselves: does not reproduce, close
+     it. No code work; route it out with their answer preserved.
+  2. map-get-lowers-to-an-owned-key -- reported against ba40b376a, which PREDATES the `get` arm I
+     landed in 3c7b2ff27 (`q.get(&k).cloned()` covers both the borrow and the Option<&String>).
+     VERIFY on current main rather than assume; if fixed, say so with a measurement.
+  3. zipwithindex-result-is-not-indexable -- mine, and the reporter isolated it against a control:
+     a literal list of tuples indexes fine, only the zipWithIndex RESULT does not. The value is not
+     recorded as a seq, so `zwi(0)` lowers to a call.
+next: build all three repros on current main, then fix what survives
