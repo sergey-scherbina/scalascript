@@ -1,0 +1,18 @@
+#!/usr/bin/env ssc
+---
+name: route-handler-type-disagrees
+version: 0.1.0
+description: A handler written to the declared Request => Response type, beside an untyped lambda that works.
+---
+```scalascript
+[route, serve, Request, Response](std/http.ssc)
+
+def handler(req: Request): String =
+  "ok"
+
+def main(): Unit =
+  route("GET", "/lambda", p => "ok")
+  route("GET", "/named", r => handler(r))
+  println("registered")
+main()
+```

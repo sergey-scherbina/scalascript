@@ -169,6 +169,45 @@ This closes out the accounting on rozum's `public-matrix.ssc`: of its 17 remaini
 `getOrElse` instance I added to `type-lost-across-a-boundary`, 2 are the other two instances there,
 3 are this, and 4 are small ones I have not minimised yet. Nothing in that file is unexplained now.
 No deadline from us.
+## route-handler-type-disagrees — A route handler written to the declared Request => Response type fails to compile — the runtime passes a String, so only an untyped lambda works
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-10
+     ssc-version: dbe3881d4
+     repro: repro/route-handler-type-disagrees.ssc
+     kind: bug -->
+
+Eight lines, one error, and a control on the line above it that registers fine:
+
+    route("GET", "/lambda", p => "ok")        ← compiles
+    route("GET", "/named",  r => handler(r))  ← error[E0308]: expected `Request`, found `String`
+
+    def handler(req: Request): String = "ok"
+
+`std/http.ssc:66` declares `extern def route(method: String, path: String, handler: Request =>
+Response): Unit`. A handler written to that declared type does not compile, because the Rust runtime
+`_http_route` calls the closure with a `String`. The declaration promises `Request`; the
+implementation delivers `String`.
+
+**The control is the uncomfortable half.** An untyped lambda compiles — its parameter is inferred as
+whatever the runtime actually passes, so it accidentally agrees with the implementation and
+disagrees with the declaration. That means the lane is usable only by NOT writing the type the
+signature tells you to write, and an author who follows `std/http.ssc` is the one who fails. It also
+means no existing example would have caught this, if they all use lambdas.
+
+I did not check which side you consider correct — whether `Request` should be materialised by the
+runtime or the extern should say `String` — because that is a spec question about what a handler
+receives, not something the error tells you. Both fixes are one line and they are not equivalent to
+a user.
+
+Toolchain built from `dbe3881d4`, stamp == tree, banner silent, detached worktree outside your
+checkout.
+
+This is the last shape in rozum's `public-matrix.ssc`. With it, all 17 of its remaining errors are
+accounted for: 8 the `getOrElse` concat instance, 2 the other instances in
+`type-lost-across-a-boundary`, 3 `typed-pattern-does-not-narrow`, 1 here, and 3 that are downstream
+of the declared-return one (they disappear when it does). Nothing unexplained is left in that file.
+No deadline from us.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
