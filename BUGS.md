@@ -23,6 +23,29 @@ Newest first.
 
 
 
+## std-ui-fetch-plugin-two-red-tests-nobody-filed
+
+<!-- status: open
+     lane: int
+     area: runtime
+     kind: bug
+     gate: sbt fetchPlugin/test -->
+
+**Measured 2026-08-10 on a CLEAN tree** — `git status` empty, nothing of mine in it — while
+verifying a different entry in the same suite:
+
+```
+FAIL  std/ui data imports rowEditAction for public rowEdit helper
+FAIL  std/ui data exposes remoteTable composing fetchRowsSource + dataTableView (nested rowsPath)
+```
+
+`sbt fetchPlugin/test`: **14 passing, 2 failing.**
+
+**NO ENTRY ON ANY BOARD NAMES EITHER**, which is the reason this exists rather than a diagnosis: a
+suite that is red with nobody watching cannot tell the next person whether they broke something. I
+did not investigate the cause — the tests are about `std/ui/data.ssc` exposing `rowEditAction` and
+`remoteTable`, and both are named precisely enough to start from.
+
 ## v3-ci-gates-job-has-never-been-green — one red gate hid five others on every run
 
 <!-- status: fixed
@@ -2821,9 +2844,11 @@ what users run; this defect confines the tools route to the EOF branch. The conf
 honestly test.
 
 ## std-ui-fetchUrlSignalTo-declared-never-implemented — a std primitive that exists only as documentation
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     gate: sbt fetchPlugin/test
+     fixed-in: unrecorded -->
 
 **Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane`.
 
@@ -2858,6 +2883,29 @@ FEATURE, not dead weight, and deleting the declaration would discard a deliberat
 **No corpus gain, and that is not a reason to skip it.** `control-center-live` also binds a port, so it
 stays a SKIP either way — the value here is that `std/ui/primitives.ssc` stops advertising a primitive
 that does not exist on any backend. Wants its own slice; sized, not started.
+**VERIFIED IMPLEMENTED 2026-08-10 — all three sites this entry sized are done.** Measured rather
+than read, because the entry's own inventory is what had gone stale:
+
+1. **Interpreter intrinsic** — `fetchUrlSignalTo` has three registrations in `FetchIntrinsics.scala`,
+   and the plugin's suite carries two tests for it, one of them named *"Fetch plugin still has a
+   fetchUrlSignalTo site — it was deleted by accident once"*. `sbt fetchPlugin/test`: both pass.
+2. **`signals.mjs`** — three sites, including the read-side re-fetch this entry asked for: a
+   `collectSig(fg.urlSig)` dependency registration and *"resolve the URL from its signal (fresh
+   reactive value) at fetch time"*.
+3. **JsGen** — needs no edit, and this entry's framing of it was slightly off. `JsGen.scala:1511` is
+   not an emit ALLOW-LIST but a capability TRIGGER, applied with `.exists(allText.contains)` —
+   substring, so the neighbouring `fetchUrlSignal` already matches inside `fetchUrlSignalTo` and the
+   signals runtime is included. Adding the longer name would change nothing.
+
+**The plugin also moved** — `v1/runtime/plugins/fetch-plugin`, not `v1/runtime/std/fetch-plugin` as
+cited here. Following the path in the entry finds nothing, which reads like the absence it reports.
+
+**Two tests in that suite are RED and are not this**: `std/ui data imports rowEditAction for public
+rowEdit helper` and `std/ui data exposes remoteTable composing fetchRowsSource + dataTableView`. The
+tree was clean when measured — `git status` empty — so they are pre-existing, and **no entry on any
+board names them**. `sbt fetchPlugin/test` is 14 passing, 2 failing.
+
+
 ## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
 <!-- status: fixed
      lane: multi
