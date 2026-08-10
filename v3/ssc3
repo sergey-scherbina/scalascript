@@ -168,12 +168,30 @@ uniml_classpath() {
 # two states it is in proves nothing about either.
 SSC3_FRONT_SEL="v3"
 if [ "${SSC3_FRONT:-auto}" != "v3" ] && uniml_available; then
-  if _ucp="$(uniml_classpath)"; then
+  # THE COMPILER'S STDERR IS CAPTURED, NOT PASSED THROUGH, and that is the whole fix.
+  #
+  # `uniml.cp` names sbt's output directories, whose CONTENTS change without the file changing — so
+  # after a rebase, a sibling's commit or a fresh worktree it points at stale classes and
+  # `v3/uniml/UniFront.scala` fails to compile against them. What used to reach the terminal was the
+  # Scala compiler's full error, ABOVE this script's own one-line diagnostic. Read top-down that says
+  # "the kernel does not compile", and on 2026-08-09 it cost a discarded measurement round and twice
+  # a red `front-gate` attributed to the commit under test instead of to the checkout.
+  #
+  # So: hold the output, ask WHY, and print the answer instead of the symptom. A genuine kernel error
+  # is still shown in full — it is only the known cause that gets replaced by its name.
+  _ulog="$(mktemp)"
+  if _ucp="$(uniml_classpath 2>"$_ulog")"; then
     SSC3=(java -cp "$_ucp" ssc3.ssc3uniml)
     SSC3_FRONT_SEL="uniml"
+  elif ! "$ROOT/v3/uniml-classpath.sh" --check >/dev/null 2>&1; then
+    echo "ssc3: the UniML classpath was built from different uniml/ sources than this tree has." >&2
+    echo "      Run  v3/uniml-classpath.sh  and re-run. Using v3's own front meanwhile." >&2
+    echo "      (the compiler error is suppressed: it is a symptom of the stale classpath, not of your tree)" >&2
   else
+    cat "$_ulog" >&2
     echo "ssc3: the uniml front is present but did not compile — using v3's own front" >&2
   fi
+  rm -f "$_ulog"
 fi
 
 cmd="${1:-}"
