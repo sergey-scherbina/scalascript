@@ -11,7 +11,7 @@ import scalascript.parser.Parser
 class MoneyStdTest extends AnyFunSuite with Matchers:
 
   private lazy val moneySrc: String =
-    os.read(TestPaths.repoRoot / "runtime" / "std" / "money.ssc")
+    os.read(TestPaths.repoRoot / "std" / "money.ssc")
 
   /** Append a driver section to the module and run the whole thing. */
   private def runWith(driver: String): String =

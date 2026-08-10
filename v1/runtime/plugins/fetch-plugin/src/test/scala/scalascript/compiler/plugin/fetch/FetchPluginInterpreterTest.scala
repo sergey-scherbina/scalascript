@@ -215,7 +215,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
       case other => fail(s"expected DataTable foreign value, got $other")
 
   test("std/ui data imports rowEditAction for public rowEdit helper"):
-    val source = os.read(repoRoot / "runtime" / "std" / "ui" / "data.ssc")
+    val source = os.read(repoRoot / "std" / "ui" / "data.ssc")
     val primitiveImport =
       source.linesIterator.find(_.contains("](primitives.ssc)")).getOrElse("")
 
@@ -226,7 +226,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     )
 
   test("std/ui data exposes remoteTable composing fetchRowsSource + dataTableView (nested rowsPath)"):
-    val source = os.read(repoRoot / "runtime" / "std" / "ui" / "data.ssc")
+    val source = os.read(repoRoot / "std" / "ui" / "data.ssc")
     val primitiveImport =
       source.linesIterator.find(_.contains("](primitives.ssc)")).getOrElse("")
     assert(

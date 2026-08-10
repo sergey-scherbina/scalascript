@@ -149,7 +149,7 @@ class SingletonFailoverTest extends AnyFunSuite:
     val stdRepoRoot: String =
       def findStd(p: os.Path, depth: Int): Option[os.Path] =
         if depth == 0 then None
-        else if os.exists(p / "runtime" / "std" / "cluster" / "singleton.ssc") then Some(p)
+        else if os.exists(p / "std" / "cluster" / "singleton.ssc") then Some(p)
         else findStd(p / os.up, depth - 1)
       findStd(os.pwd, 6).map(_.toString)
         .getOrElse(fail("can't locate runtime/std/cluster/singleton.ssc above os.pwd"))

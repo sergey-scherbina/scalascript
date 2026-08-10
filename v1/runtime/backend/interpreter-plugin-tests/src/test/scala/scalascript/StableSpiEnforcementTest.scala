@@ -45,7 +45,7 @@ class StableSpiEnforcementTest extends AnyFunSuite:
     !(t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"))
 
   test("value-surface plugins depend only on scalascript-plugin-api (no scalascript.interpreter)"):
-    val stdDir = TestPaths.repoRoot / "runtime" / "std"
+    val stdDir = TestPaths.repoRoot / "v1" / "runtime" / "plugins"
     assert(os.exists(stdDir), s"runtime/std not found at $stdDir")
 
     val offenders =
@@ -66,7 +66,7 @@ class StableSpiEnforcementTest extends AnyFunSuite:
     )
 
   test("the exemptions are real and still need migration (no stale exemptions)"):
-    val stdDir = TestPaths.repoRoot / "runtime" / "std"
+    val stdDir = TestPaths.repoRoot / "v1" / "runtime" / "plugins"
     // Each exempt plugin must STILL reference scalascript.interpreter; if it's already clean, the
     // exemption is stale and should be removed so the strict check covers it.
     val staleExemptions =

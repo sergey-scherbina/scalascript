@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets
 class MoneyCrossBackendTest extends AnyFunSuite with Matchers:
 
   private lazy val moneySrc: String =
-    os.read(TestPaths.repoRoot / "runtime" / "std" / "money.ssc")
+    os.read(TestPaths.repoRoot / "std" / "money.ssc")
 
   // A driver exercising allocation, arithmetic, minor units, and formatting.
   private val driver =
