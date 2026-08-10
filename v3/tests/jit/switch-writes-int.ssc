@@ -1,0 +1,35 @@
+# switch-writes-int
+
+A method call on a data value lowers to `Instr.Switch` — an arm per constructor tag with an
+`Invoke` as the default — and `Exec.stepBanked` DELEGATES `Switch` to the shared interpreter, which
+knows nothing about the long bank and writes `regs(d)`. A register such an arm writes must therefore
+never be long-bank: its `long` slot would go stale and the next arithmetic read would take an old
+value. `Specialize.longBanks` disqualifies every register written inside a `Switch`, `Try` or
+`Handle` for that reason.
+
+**This fixture does NOT prove that rule fires, and pretending otherwise would be the worse mistake.**
+It was written to, and it could not: removing the disqualification leaves this file's count at
+6 of 23 and its answer at 6. The reason is that today's `Switch` arms write through `Invoke`,
+`Call` and `Field`, none of which `writesInt` admits, so those registers are disqualified by an
+earlier rule and the new one has nothing left to remove. Every shape the front currently emits is
+already safe for a second, unrelated reason — which is exactly the situation the rule exists to stop
+being load-bearing.
+
+So what this fixture is: **a change detector on a `Switch`-bearing program.** If the lowering ever
+emits an arm that writes a plain constant, this count moves and the file goes red, which is the
+moment somebody has to look. The rule is defensive, the fixture watches the condition that would
+make it necessary, and neither claim is dressed up as the other.
+
+```scalascript
+case class Box(v: Int):
+  def get(): Int = v
+
+def main(): Unit =
+  var acc = 0
+  var i = 0
+  while i < 4 do
+    val b = Box(i)
+    acc = acc + b.get()
+    i = i + 1
+  println(acc)
+```

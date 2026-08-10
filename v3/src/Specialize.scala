@@ -437,6 +437,27 @@ object Specialize:
             changed = true
         // A handler's binders are written by the runtime, not by an instruction, so they are
         // disqualified explicitly rather than by falling through `writesInt`.
+        // ── THE REGIONS THE EXECUTOR DELEGATES ────────────────────────────────────────────────
+        //
+        // `Exec.stepBanked` answers `Block`, `Loop` and `If` itself and carries the banks into
+        // them. `Switch`, `Try` and `Handle` it hands to the shared interpreter, which knows
+        // nothing about banks and writes `regs(d)` — so a long-bank register written INSIDE one of
+        // those would leave its `long` slot stale and the next read would get an old value.
+        //
+        // Found by reading rather than by a failing test, and the test would not have found it:
+        // registers written inside a `Try` are already never proved, because the specializer treats
+        // a handler's entry state conservatively, and a corpus `Switch` writing an integer local
+        // simply did not exist among the fixtures. **A hazard that only one of three regions
+        // happens to avoid, for an unrelated reason, is not covered.** Disqualifying all three here
+        // makes it a property of this analysis instead of a coincidence of another one.
+        ins match
+          case Instr.Switch(_, _, _) | Instr.Try(_, _, _, _) | Instr.Handle(_, _, _) =>
+            var inner = Instr.flatten(Instr.children(ins))
+            while inner.nonEmpty do
+              val w = dstOf(inner.head)
+              if w >= 0 && w < f.nregs && ok(w) then { ok(w) = false; changed = true }
+              inner = inner.tail
+          case _ => ()
         ins match
           case Instr.Handle(_, _, arms) =>
             var as = arms
@@ -457,19 +478,76 @@ object Specialize:
     while i < f.nregs do
       if !written(i) then ok(i) = false
       i = i + 1
+
+    // ── GROUNDING, and it closes the hole the optimistic start opens ──────────────────────────
+    //
+    // The loop above starts every register a candidate and only ever removes, which is what makes
+    // it easy to read as sound — but it lets a CYCLE justify itself. `r = r + 1` with no
+    // initialiser has one writer, that writer is `Bin(I64)` over `r` and a constant, and `ok(r)`
+    // was assumed true to begin with, so it survives. The register is never actually assigned, so
+    // it holds `unit` at entry while the long bank holds 0, and the two lanes disagree.
+    //
+    // This is the same trap `entryState` names and refuses for the flow-sensitive analysis, walked
+    // into one function later. The fix is a SECOND fixpoint in the other direction: a register is
+    // GROUNDED when some writer traces back to an integer constant, and a candidate that is not
+    // grounded is dropped. Least fixpoint, so a cycle with no constant in it never starts.
+    val grounded = new Array[Boolean](f.nregs)
+    var growing = true
+    while growing do
+      growing = false
+      var gs = Instr.flatten(f.body)
+      while gs.nonEmpty do
+        val ins = gs.head
+        val d = dstOf(ins)
+        if d >= 0 && d < f.nregs && !grounded(d) then
+          val g = ins match
+            case Instr.Const(_, k) => kindOfLit(m.consts(k)) == Kd.KInt
+            case Instr.Move(_, a)  => a >= 0 && a < f.nregs && grounded(a)
+            case Instr.Bin(op, kind, _, a, b) =>
+              kind == NumKind.I64 && !isCompare(op) &&
+                a >= 0 && a < f.nregs && grounded(a) && b >= 0 && b < f.nregs && grounded(b)
+            case _ => false
+          if g then { grounded(d) = true; growing = true }
+        gs = gs.tail
+    i = 0
+    while i < f.nregs do
+      if !grounded(i) then ok(i) = false
+      i = i + 1
     ok
 
   private def writesReg(i: Instr): Int = dstOf(i)
 
-  /** Does this instruction store a proved integer into its destination? */
+  /** Does this instruction store a proved integer into its destination?
+    *
+    * DELIBERATELY NARROWER THAN WHAT IS PROVABLE. `Un(Neg, I64, …)`, `Tag` and `ArrLen` all store
+    * integers too and are all excluded, because the executor's invariant is stronger than "this
+    * register holds an integer": it is **only `Const`, `Move` and `Bin` may write a long-bank
+    * register**, and those three are exactly the opcodes `Exec.stepBanked` answers itself. Every
+    * other opcode reaches the shared interpreter, which knows nothing about banks.
+    *
+    * That turns a property that would have to be argued across forty instruction arms into one a
+    * reader checks by looking at this list and at the three cases of `stepBanked`. The cost is
+    * precision on `Un`/`Tag`/`ArrLen`; the alternative is an invariant nobody can verify. */
   private def writesInt(m: Module, i: Instr, ok: Array[Boolean]): Boolean = i match
     case Instr.Const(_, k) => kindOfLit(m.consts(k)) == Kd.KInt
     // A copy is an integer exactly when its source is one, which is what makes this a fixpoint.
     case Instr.Move(_, a)  => a >= 0 && a < ok.length && ok(a)
-    case Instr.Bin(op, kind, _, _, _) => kind == NumKind.I64 && !isCompare(op)
-    case Instr.Un(op, kind, _, _)     => kind == NumKind.I64 && op != UnOp.Not
-    case Instr.Tag(_, _)    => true
-    case Instr.ArrLen(_, _) => true
+    // BOTH OPERANDS MUST THEMSELVES BE LONG-BANK, not merely `kind == I64`, and this is a
+    // correctness rule that a gate had to teach me.
+    //
+    // `kind` is a CLAIM the IR makes, and `v3/tests/jit/wrong-kind.ssir` is a module where the
+    // claim is a lie: two STRINGS added under an `i64` annotation. Trusting the field alone made
+    // `d` long-bank, the executor's fallback correctly produced `VStr("ab")` and stored it in the
+    // Value slot, the `long` slot stayed unwritten — and the next sync overwrote the string with
+    // `VInt(0)`. The program printed `0` where every other lane prints `ab`.
+    //
+    // Requiring the operands closes the set under itself: a long-bank register is written only by
+    // an integer constant, by a copy of a long-bank register, or by arithmetic on two of them. It
+    // is grounded in `LInt` constants and therefore CANNOT hold a non-integer, whatever the `kind`
+    // field says. The executor's invariant stops depending on the IR telling the truth.
+    case Instr.Bin(op, kind, _, a, b) =>
+      kind == NumKind.I64 && !isCompare(op) &&
+        a >= 0 && a < ok.length && ok(a) && b >= 0 && b < ok.length && ok(b)
     case _ => false
 
   /** How many registers across the module the executor could keep unboxed, and out of how many. The

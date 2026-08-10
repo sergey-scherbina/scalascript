@@ -101,6 +101,29 @@ object Exec:
     closureLane = on
     compiled = new Array[Array[Op]](0)  // force `prepare` to rebuild rather than serve the old lane
 
+  // ── SSC3-J1c — the long bank ──────────────────────────────────────────────────────────────────
+  //
+  // `arith-loop` allocates ONE frame and still reclaims ~4 GB of young generation: every megabyte is
+  // a `Value.VInt` boxing an arithmetic result. `Specialize.longBanks` says which registers never
+  // need that box; this is the half that stops allocating them.
+  //
+  // THE INVARIANT, and everything below depends on it: **only `Const`, `Move` and `Bin` may write a
+  // long-bank register**, which is enforced on the analysis side by `Specialize.writesInt` listing
+  // exactly those three. So `stepBanked` answers all of them itself, and any other opcode reaches
+  // the shared interpreter — which knows nothing about banks and must therefore never see a
+  // long-bank register it could write.
+  //
+  // Reads are handled the other way round: before delegating, `syncBanks` writes every long slot
+  // back into the `Value` frame, so the interpreter sees an ordinary frame and needs no changes at
+  // all. That costs a store per long register per delegated instruction, which is why the opcodes a
+  // loop body is made of are the ones `stepBanked` keeps.
+  private var banksOf: Array[Array[Boolean]] = new Array[Array[Boolean]](0)
+  private var hasBank: Array[Boolean] = new Array[Boolean](0)
+  /** `VBool` is allocated per comparison otherwise, and a loop compares once per iteration. Two
+    * instances for the whole run; `Value.VBool` is immutable, so sharing them is sharing a bit. */
+  private var vTrue: Value = Value.VBool(true)
+  private var vFalse: Value = Value.VBool(false)
+
   private var constPool: Array[Value] = new Array[Value](0)
   /** The same pool as STRINGS, for `Invoke`, whose name is a pool index that must be an `LStr`. */
   private var constStr: Array[String] = new Array[String](0)
@@ -156,6 +179,23 @@ object Exec:
         while fi < funcTable.length do
           compiled(fi) = Compile.func(m, funcTable(fi))
           fi = fi + 1
+      // SSC3-J1c. Computed once per program, beside the other derived tables. `hasBank` is the
+      // per-function answer to "is the banked loop worth entering at all", so a function with no
+      // unboxable register runs exactly the path it ran before this change — no extra array, no
+      // extra branch in its dispatch loop.
+      banksOf = new Array[Array[Boolean]](m.funcs.length)
+      hasBank = new Array[Boolean](m.funcs.length)
+      var bi = 0
+      while bi < funcTable.length do
+        val b = Specialize.longBanks(m, funcTable(bi))
+        banksOf(bi) = b
+        var any = false
+        var r = 0
+        while r < b.length do
+          if b(r) then any = true
+          r = r + 1
+        hasBank(bi) = any
+        bi = bi + 1
 
   /** One live `Handle`: the arms, and the FRAME they read. `specs/10-ssc-ir.md` §3 puts an arm's
     * `params` and `k` in the handling function's frame, so the frame has to travel with the arms —
@@ -364,13 +404,213 @@ object Exec:
       while i < fn.nregs do
         regs(i) = Value.VUnit
         i = i + 1
-      val sig = if closureLane then Compile.run(compiled(fi), regs) else exec(m, fn.body, regs)
+      val sig =
+        if closureLane then Compile.run(compiled(fi), regs)
+        else if hasBank(fi) then
+          // The long bank is allocated ONLY for a function that has one, because a second array per
+          // call would make every call-heavy program worse in order to speed up a loop-heavy one.
+          execBanked(m, fn.body, regs, new Array[Long](fn.nregs), banksOf(fi))
+        else exec(m, fn.body, regs)
       sig match
         case Signal.Ret(v)       => result = v; running = false
         case Signal.Done         => result = Value.VUnit; running = false
         case Signal.Branch(d)    => throw ExecError("a branch left the function body (depth " + d + ")")
         case Signal.Tail(g, as)  => fi = g; args = as
     result
+
+  // ── SSC3-J1c — the banked lane ────────────────────────────────────────────────────────────────
+  //
+  // A SECOND dispatch loop rather than a flag inside the first one, chosen once per call. J0c got
+  // `step` to 236 bytes and INLINED into `exec`, and adding bank checks to it would have grown it
+  // past `FreqInlineSize` and taken that back — the J2 lesson, that an earlier win constrains the
+  // next change, applied before it could bite instead of after. A function with no long-bank
+  // register runs the original loop, untouched, and pays nothing for this feature existing.
+
+  private def sync1(regs: Array[Value], longs: Array[Long], banks: Array[Boolean], r: Int): Unit =
+    if r >= 0 && r < banks.length && banks(r) then regs(r) = Value.VInt(longs(r))
+
+  private def syncList(regs: Array[Value], longs: Array[Long], banks: Array[Boolean], rs: List[Int]): Unit =
+    var xs = rs
+    while xs.nonEmpty do
+      sync1(regs, longs, banks, xs.head)
+      xs = xs.tail
+
+  /** Make the `Value` frame valid for what THIS instruction is about to read, so an interpreter that
+    * knows nothing about banks sees an ordinary frame.
+    *
+    * ONLY THE OPERANDS, and that is a correctness-neutral performance fix with a measurement behind
+    * it. The first version synced every long register before every delegated instruction, and
+    * `arith-loop`'s loop body contains a `Un` — so a program that should have stopped allocating
+    * three `VInt` per iteration allocated EIGHT instead, and measured allocation went 4 087 MB →
+    * 8 647 MB. The gate was green throughout; only `-Xlog:gc` said anything.
+    *
+    * The default arm syncs EVERYTHING. An instruction whose operands are not listed is slow and
+    * correct, which is the only direction this may be wrong in — and the region forms genuinely
+    * need it, because their sub-bodies read whatever they like. */
+  private def syncFor(i: Instr, regs: Array[Value], longs: Array[Long], banks: Array[Boolean]): Unit = i match
+    case Instr.Un(_, _, _, a)        => sync1(regs, longs, banks, a)
+    case Instr.Call(_, _, as)        => syncList(regs, longs, banks, as)
+    case Instr.TailCall(_, as)       => syncList(regs, longs, banks, as)
+    case Instr.CallV(_, c, as)       => sync1(regs, longs, banks, c); syncList(regs, longs, banks, as)
+    case Instr.MkClos(_, _, caps)    => syncList(regs, longs, banks, caps)
+    case Instr.MkData(_, _, as)      => syncList(regs, longs, banks, as)
+    case Instr.Field(_, a, _, _)     => sync1(regs, longs, banks, a)
+    case Instr.Tag(_, a)             => sync1(regs, longs, banks, a)
+    case Instr.NewArr(_, n)          => sync1(regs, longs, banks, n)
+    case Instr.ArrGet(_, arr, idx)   => sync1(regs, longs, banks, arr); sync1(regs, longs, banks, idx)
+    case Instr.ArrSet(arr, idx, v)   => sync1(regs, longs, banks, arr); sync1(regs, longs, banks, idx); sync1(regs, longs, banks, v)
+    case Instr.ArrLen(_, arr)        => sync1(regs, longs, banks, arr)
+    case Instr.GlobSet(_, a)         => sync1(regs, longs, banks, a)
+    case Instr.Invoke(_, _, r, as)   => sync1(regs, longs, banks, r); syncList(regs, longs, banks, as)
+    case Instr.Prim(_, _, as)        => syncList(regs, longs, banks, as)
+    case Instr.Perform(_, _, as)     => syncList(regs, longs, banks, as)
+    case Instr.Resume(_, k, v)       => sync1(regs, longs, banks, k); sync1(regs, longs, banks, v)
+    case Instr.GlobGet(_, _)         => ()
+    case _ =>
+      var r = 0
+      while r < banks.length do
+        if banks(r) then regs(r) = Value.VInt(longs(r))
+        r = r + 1
+
+  private def execBanked(m: Module, body: List[Instr], regs: Array[Value],
+                         longs: Array[Long], banks: Array[Boolean]): Signal =
+    var rest = body
+    var out: Signal = Signal.Done
+    var running = true
+    while running && rest.nonEmpty do
+      val s = stepBanked(m, rest.head, regs, longs, banks)
+      if s == Signal.Done then rest = rest.tail
+      else
+        out = s
+        running = false
+    out
+
+  /** The three opcodes that may touch a long-bank register, plus the region forms that have to
+    * carry the banks into their sub-bodies. Everything else syncs and delegates. */
+  private def stepBanked(m: Module, i: Instr, regs: Array[Value],
+                         longs: Array[Long], banks: Array[Boolean]): Signal = i match
+
+    case Instr.Const(d, k) =>
+      if banks(d) then
+        // Proved `I64` by the analysis, so the pool entry is a `VInt` — read once, stored as a
+        // primitive. This is the store that used to be an allocation.
+        constPool(k) match
+          case Value.VInt(n) => longs(d) = n
+          case v             => regs(d) = v
+      else regs(d) = constPool(k)
+      Signal.Done
+
+    case Instr.Move(d, a) =>
+      if banks(d) && banks(a) then longs(d) = longs(a)
+      else if banks(d) then
+        regs(a) match
+          case Value.VInt(n) => longs(d) = n
+          case v             => regs(d) = v
+      else if banks(a) then regs(d) = Value.VInt(longs(a))
+      else regs(d) = regs(a)
+      Signal.Done
+
+    case Instr.Bin(op, kind, d, a, b) =>
+      // THE POINT OF THE WHOLE CHANGE. Two unboxed operands and an unboxed destination: a `long`
+      // operation with no allocation at all. A comparison lands in the second arm — its operands
+      // are unboxed but its result is a boolean, and `vTrue`/`vFalse` keep even that from
+      // allocating.
+      if kind == NumKind.I64 && banks(a) && banks(b) then
+        val x = longs(a)
+        val y = longs(b)
+        if banks(d) then
+          longs(d) = op match
+            case BinOp.Add  => x + y
+            case BinOp.Sub  => x - y
+            case BinOp.Mul  => x * y
+            case BinOp.Div  => if y == 0L then throw ExecError("/ by zero") else x / y
+            case BinOp.Rem  => if y == 0L then throw ExecError("% by zero") else x % y
+            case BinOp.BAnd => x & y
+            case BinOp.BOr  => x | y
+            case BinOp.BXor => x ^ y
+            case BinOp.Shl  => x << y
+            case BinOp.Shr  => x >> y
+            case BinOp.UShr => x >>> y
+            // A comparison cannot reach here: the analysis refuses a long bank for a register a
+            // comparison writes, so `banks(d)` is false for one. Named rather than left to a
+            // MatchError — see `stepRest`'s tail for the same reasoning.
+            case _ => throw ExecError("a comparison wrote a long-bank register, which the analysis forbids")
+        else
+          regs(d) = op match
+            case BinOp.Lt => if x < y then vTrue else vFalse
+            case BinOp.Le => if x <= y then vTrue else vFalse
+            case BinOp.Gt => if x > y then vTrue else vFalse
+            case BinOp.Ge => if x >= y then vTrue else vFalse
+            case BinOp.Eq => if x == y then vTrue else vFalse
+            case BinOp.Ne => if x != y then vTrue else vFalse
+            case _        => binI64(m, op, Value.VInt(x), Value.VInt(y))
+        Signal.Done
+      else
+        // Mixed or unproved: box whatever is banked and take the ordinary path.
+        val x = if banks(a) then Value.VInt(longs(a)) else regs(a)
+        val y = if banks(b) then Value.VInt(longs(b)) else regs(b)
+        val v = binK(m, op, kind, x, y)
+        if banks(d) then
+          v match
+            case Value.VInt(n) => longs(d) = n
+            case other         => regs(d) = other
+        else regs(d) = v
+        Signal.Done
+
+    // Regions have to carry the banks inward; their branch arithmetic is the same as `stepRest`'s.
+    case Instr.Block(b) =>
+      execBanked(m, b, regs, longs, banks) match
+        case Signal.Branch(0) => Signal.Done
+        case Signal.Branch(d) => Signal.Branch(d - 1)
+        case other            => other
+    case Instr.Loop(b) =>
+      var out: Signal = Signal.Done
+      var looping = true
+      while looping do
+        execBanked(m, b, regs, longs, banks) match
+          case Signal.Branch(0) => ()
+          case Signal.Branch(d) => out = Signal.Branch(d - 1); looping = false
+          case Signal.Done      => looping = false
+          case other            => out = other; looping = false
+      out
+    case Instr.If(c, t, e) =>
+      val cond = if banks(c) then longs(c) != 0L else truthy(regs(c))
+      execBanked(m, if cond then t else e, regs, longs, banks) match
+        case Signal.Branch(0) => Signal.Done
+        case Signal.Branch(d) => Signal.Branch(d - 1)
+        case other            => other
+
+    // Cheap and on every loop's back edge, so they stay here rather than paying a sync.
+    case Instr.Br(d)      => Signal.Branch(d)
+    case Instr.BrIf(c, d) =>
+      val cond = if banks(c) then longs(c) != 0L else truthy(regs(c))
+      if cond then Signal.Branch(d) else Signal.Done
+    case Instr.Ret(a)     => Signal.Ret(if banks(a) then Value.VInt(longs(a)) else regs(a))
+
+    // `Un` is here for one reason: a `while` loop's condition is `Bin(Lt) ; Un(Not) ; BrIf`, so
+    // leaving `Not` to the delegation path put a sync in every iteration of every loop in the
+    // language. It never writes a long-bank register (`Specialize.writesInt` does not admit it), so
+    // it only has to read one.
+    case Instr.Un(op, kind, d, a) =>
+      if op == UnOp.Not then
+        // Answered here rather than delegated, because `Value.VBool(!truthy(x))` allocates and this
+        // is once per loop iteration. Measured: with the sync fixed but `Not` still delegating,
+        // `arith-loop` reclaimed 1 063 MB against a 4 087 MB baseline; answering it takes the last
+        // per-iteration allocation out. Same shared instances as the comparison arm.
+        val t = if banks(a) then longs(a) != 0L else truthy(regs(a))
+        regs(d) = if t then vFalse else vTrue
+        Signal.Done
+      else
+        if banks(a) then regs(a) = Value.VInt(longs(a))
+        stepOne(m, i, regs)
+
+    case other =>
+      // The interpreter knows nothing about banks, so it gets a frame that looks ordinary for what
+      // this instruction reads. It can never WRITE a long-bank register — `Specialize.writesInt`
+      // admits only `Const`, `Move` and `Bin`, and registers written inside a delegated region are
+      // disqualified there — so nothing has to be read back.
+      syncFor(other, regs, longs, banks)
+      stepOne(m, other, regs)
 
   private def exec(m: Module, body: List[Instr], regs: Array[Value]): Signal =
     var rest = body
