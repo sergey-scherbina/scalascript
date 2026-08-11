@@ -194,6 +194,55 @@ in that file next has the line number and the shape.
 Filed separately from the report it came in with because one half is fixed (`f8e7f6ba8`) and one is
 not, and a single entry cannot carry both statuses honestly.
 
+## rust-last-eight-individual-badrust — three of the eight fixed, and the no-paren refusal finally reaches an untyped receiver
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 17a140d8e
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**BADRUST 8 → 5, COMPILES 39 → 42, nothing lost.** `std/auth`, `std/scljet/index` and `std/ui/theme`
+compile now. Five fixes, each a different defect:
+
+* **`format!` nesting.** `+` is left-associative and each concat nested one `format!`, so
+  `std/ui/theme.ssc` — a stylesheet built from ~50 of them — hit `recursion limit reached while
+  expanding format!`. Chains now FLATTEN into one call with N placeholders. The walk descends only
+  while the inner node is itself a concat, so `1 + 2 + "x"` keeps `(1 + 2)` as one numeric operand.
+* **The built-in `Either` could not become an `Any`.** Every user enum got `impl From<…> for Value`;
+  the built-in one was written by hand and missed it — `Value: From<Either<VfsError, i64>>`
+  (`std/scljet/index.ssc`). Now generic in both parameters.
+* **The auth crate did not build at all.** `argon2 = "0.5"` without features: `password_hash::rand_core::OsRng`
+  is re-exported only with `rand`, so `std/auth.ssc` emitted a crate that failed on an IMPORT.
+* **Seq inference stopped at a name.** `var uRemaining = units` bound a `List[Int]` PARAM to a local
+  and the local was not recorded, because the pre-pass computed param-seqs and local-seqs separately
+  and unioned them afterwards — neither could see the other. The param set is the seed now.
+* **`nonEmpty`/`head`/`tail`/`reverse`/… lower** on a known seq instead of refusing. Refusing them
+  would have been honest and useless: `while xs.nonEmpty do { … xs.head … xs.tail }` is one line of
+  `std/scljet/text.ssc`.
+
+**AND THE OPEN HALF OF THE ORIGINAL REPORT IS CLOSED** — `rust-no-paren-member-becomes-a-field-silently`.
+The old refusal asked about the RECEIVER, so a lambda parameter, whose type this lane does not know,
+slipped past: `revParts.reverse` in `std/fs.ssc` reached rustc as `attempted to take value of method
+reverse`. Asking about the NAME settles it — no case class has a field called `reverse` or
+`nonEmpty` — so an unlowered collection member refuses wherever it appears and every other field
+access passes through untouched.
+
+**That fix was FORCED BY THE GATE, and the sequence is the lesson.** Lowering the common members
+removed an early refusal from `std/fs` and `std/litdoc`, which then ran on and broke later:
+REFUSED → BADRUST, twice, on modules I was not touching. The survey called it a regression and was
+right — the user had traded a message for rustc noise. The name-based refusal is what paid for the
+lowering.
+
+**Still BADRUST, five, each a feature rather than a slip:**
+
+| module | error | what it needs |
+|---|---|---|
+| `std/either`, `std/index` | `E0107`, `E0308` | generic enums — `rust-generic-enum-drops-its-parameters` |
+| `std/scljet/text` | `E0308` | a return type declared in ANOTHER module maps to `i64` |
+| `std/ui/component` | `E0382` | a `String` read twice needs a clone the multiUse pass misses |
+| `std/ui/state` | `E0618` | a `Value`-typed field called as a function |
+
 ## rust-emits-a-reference-with-no-rust-side — an unresolved call was emitted as-is, so rustc blamed generated code the user never wrote
 <!-- status: fixed
      lane: v2-rust
