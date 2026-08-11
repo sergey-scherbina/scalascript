@@ -14,7 +14,7 @@ Newest first.
      area: build
      kind: bug
      gate: none
-     fixed-in: PENDING -->
+     fixed-in: 4c5c01cc6 -->
 
 The launcher's staleness refusal ended at `Rebuild: (cd … && ./install.sh --dev). Silence:
 SSC_NO_BUILD_CHECK=1`. Every reader prices that rebuild at ten minutes, so the rational move is the
