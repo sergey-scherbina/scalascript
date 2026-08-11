@@ -438,8 +438,15 @@ fn main() {
  *  Against a whole `workload()` call on an IR walker that is small, and it flatters v3 slightly on
  *  the cheapest rows.
  *
- *  A blank v3 cell usually means the FRONT declined the program, not that it ran slowly — v3
- *  compiles 23 of the 36 corpus files as of 2026-08-07 (no effects, typeclasses or type lambdas).
+ *  A blank v3 cell means the row produced no number, and as of 2026-08-11 that is no longer
+ *  usually a front refusal: v3 ACCEPTS all 36 corpus files. **The count is not repeated here on
+ *  purpose.** It said "23 of the 36 as of 2026-08-07" and was read as v3 barely covering the
+ *  table while the real figure had reached 34 — a number in a comment rots, and this one rotted
+ *  by half in four days.
+ *
+ *  `v3/bench-corpus-gate.sh` computes it on every run and names the rows that do not compute; it
+ *  is also what now fails when a row STOPS computing, which is how `typeclass-fold` was able to
+ *  regress for three days while the conformance number `N` never moved.
  */
 def runV3Bench(file: java.io.File): Option[Double] =
   val buf = new java.io.ByteArrayOutputStream

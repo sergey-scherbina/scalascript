@@ -2783,7 +2783,14 @@ repository has paid for that confusion more than once.
       counter, and that flatters it on the cheapest rows") can now be removed instead of disclaimed.
       *Done when:* v3 goes through `runSscBenchBackend`'s wrapper like every other column, and the
       comment explaining the exception is deleted rather than edited.
-- [ ] **B2 — the harness's coverage claim is stale by a factor of one and a half.** `bench/run.sc`
+- [x] **B2 — the harness's coverage claim is stale by a factor of one and a half.** DONE
+      2026-08-11. The number is REMOVED rather than corrected: a count in a comment rots, and this
+      one rotted by half in four days — "23 of the 36 as of 2026-08-07" read as v3 barely covering
+      the table while the real figure had reached 34. The comment now points at
+      `v3/bench-corpus-gate.sh`, which computes it on every run and names the rows that do not,
+      and it also corrects what a blank cell MEANS: v3 accepts all 36, so a blank is a row that
+      produced no number, not a front refusal.
+      **Superseded description:** `bench/run.sc`
       says "v3 compiles 23 of the 36 corpus files as of 2026-08-07". Measured 2026-08-11: it
       ACCEPTS all 36 and COMPUTES 34. The two that do not — `effect-pure`, `effect-stream` — want a
       library function and a `Stream`, not a compiler change, and a blank cell should say which.
