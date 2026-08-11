@@ -394,7 +394,16 @@ if [ -n "$problems" ]; then
 $(printf "$problems")
 
 Two agents doing the same work under different slugs is exactly what this guard exists to stop
-(specs/claim-mutex.md). Before pushing, either:
+(specs/claim-mutex.md).
+
+If the line above names an ORDINARY ENGLISH WORD as the item, that is not a race: `items:` are
+compared as WHITESPACE-SEPARATED TOKENS, so a claim whose `--items` holds a sentence reserves every
+one of its words until it is released. `scripts/coord-claim` refuses prose since e341d8402, but
+claims made before that keep their words, and this message is where you meet the symptom. Read the
+other claim (`git show origin/main:.work/active/<slug>.claim`); if its `items:` is a sentence, that
+is the whole conflict.
+
+Before pushing, either:
   - pick different work:            git ls-tree origin/main .work/active/
   - triage the other claim first:   /multi-agent triage <slug>     (stale heartbeat ⇒ release it)
   - or, if you are DELIBERATELY re-checking that agent's result, name your claim 'verify-<slug>' —
