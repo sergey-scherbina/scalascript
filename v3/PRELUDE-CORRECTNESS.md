@@ -17,7 +17,14 @@ appended to the user's file — and every defect here is the compiler treating i
 
 ## P-1 — a parameter does not shadow a top-level function in the arity check
 
-**Status: open. Filed as `v3-a-parameter-does-not-shadow-a-top-level-function-in-the-arity-check`.**
+**Status: FIXED 2026-08-11.** `checkArity` now carries the names bound inside the def — parameters,
+lambda parameters, `Try`'s binder, local `val`s and local `def`s — and does not look a bound name up
+in the global table. Conservative on purpose: the set is collected over the WHOLE def rather than
+per-scope, so it can MISS an error and cannot invent one, and inventing one was the defect.
+
+VERIFIED BY REMOVING THE WORKAROUND, which is what makes it a fix rather than a claim: the prelude's
+parameters are back to `f`, `p`, `x`, and front-gate, exec-gate, prelude-gate and the `dataset-*`
+cases are green. Per-scope tracking remains as a follow-up.
 
 ```text
 prelude   def map(f: Any => Any): Dataset = Dataset(items.map(x => f(x)))

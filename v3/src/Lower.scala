@@ -1787,9 +1787,41 @@ object Lower:
     * Emitting a call the verifier will reject is a defect in this file whatever the cause: the
     * lowering knows both numbers AND the source position, and the verifier knows neither. Runs
     * after `fillDefaults`, since that is what makes a short argument list legitimate. */
-  private def checkArity(e: Expr, sigs: List[(String, List[Param])]): Expr =
+  private def boundNames(e: Expr): Set[String] =
+    var out = Set.empty[String]
+    mapDeep(e, x => { x match
+      case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
+      case Expr.Try(_, n, _, _)  => out = out + n
+      case Expr.Block(sts, _, _) => sts.foreach {
+        case Stmt.Val(n, _, _, _) => out = out + n
+        case Stmt.LocalDef(d)     => out = out + d.name ++ d.params.map(_.name)
+        case _                    => ()
+      }
+      case _ => ()
+    ; x })
+    out
+
+  /** THE NAMES BOUND INSIDE THIS DEF ARE NOT GLOBAL FUNCTIONS, and forgetting that REFUSED CORRECT
+    * PROGRAMS. `sigs` is the whole program's table, so a call to a name that is really a PARAMETER
+    * was checked against a top-level function of the same name:
+    *
+    *     def f(a: Int, b: Int) = a + b        // a top-level name
+    *     def g(f: Any => Any)  = f(1)         // and also a parameter
+    *     -> call to 'f' passes 1 argument(s), it takes 2
+    *
+    * Three lines, no prelude. Found BY the prelude — the first v3 code that lives beside an
+    * arbitrary user program — when three front fixtures went red at once for defining `f`, and the
+    * corpus carries the same message on three conformance cases independently.
+    *
+    * CONSERVATIVE ON PURPOSE: the bound set is collected over the WHOLE def instead of tracked
+    * per-scope, so a global function shadowed anywhere inside a def goes unchecked everywhere
+    * inside it. That direction is the safe one — it can MISS an error and cannot invent one, and
+    * inventing one is exactly this defect. Per-scope tracking is P-1's follow-up in
+    * `v3/PRELUDE-CORRECTNESS.md`. */
+  private def checkArity(e: Expr, sigs: List[(String, List[Param])], params: Set[String]): Expr =
+    val bound = params ++ boundNames(e)
     mapDeep(e, x => x match
-      case Expr.Call(fn, as, p) =>
+      case Expr.Call(fn, as, p) if !bound.contains(fn) =>
         sigs.find((n, _) => n == fn) match
           // A ZERO-ARITY def APPLIED to arguments is legitimate and has its own lowering arm:
           // `def mkAdd = (a) => a + 1` then `mkAdd(3)` calls `mkAdd` with nothing and applies the
@@ -1812,7 +1844,7 @@ object Lower:
       // whose flattened `def`s carry no receiver parameter. A class method is `C.m` with the
       // receiver first and is not reachable through a name here, so this cannot misjudge it: the
       // lookup simply misses and the expression is left alone.
-      case Expr.MethodCall(Expr.Name(obj, _), nm, as, p) =>
+      case Expr.MethodCall(Expr.Name(obj, _), nm, as, p) if !bound.contains(obj) =>
         sigs.find((n, _) => n == obj + "." + nm) match
           case Some((_, ps)) if ps.isEmpty && as.nonEmpty => x
           case Some((_, ps)) if ps.length != as.length =>
@@ -2509,7 +2541,7 @@ object Lower:
         case other => other))
     val allDefsH = allDefsE.map(resolveHandles)
       .map { d =>
-        val e0 = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs)
+        val e0 = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs, d.params.map(_.name).toSet)
         // Boxing runs LAST, on the tree every other pass has finished with: `expandPlaceholders`
         // creates lambdas, and a lambda created after the analysis would capture a var the analysis
         // never saw.
