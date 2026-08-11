@@ -605,5 +605,46 @@ else
   echo "build-rust-refuses-loudly: no cargo — emission checked, SEMANTICS NOT checked" >&2
 fi
 
+# ── An Option must survive a BINDING ─────────────────────────────────────────
+# `xs.find(p).map(f).getOrElse(d)` lowered correctly while the expression was WHOLE, and the same
+# chain over `val bound = xs.find(p)` lowered as a LIST map — so `getOrElse` became `unwrap_or` on a
+# `Vec<String>`, which has no such method (E0599). Reported by rozum; the diagnosis came with it.
+#
+# Checked on the EMITTED TEXT rather than with cargo: the two lines here differ only by the binding,
+# so the defect is visible without paying for a sixth crate build (see the cost note at the top).
+# The signal is `collect::<Vec<_>>()` followed by `unwrap_or` — an Option unwrap applied to a
+# collected Vec is precisely the shape of an Option that was lost, and it names the defect class
+# rather than one method: whatever else gains a lowering, `unwrap_or` on a Vec is always wrong.
+cat > "$tmp/optbind.ssc" <<'SSC'
+def main(): Unit =
+  val xs = ["a", "bb", "ccc"]
+  println("inline = " + xs.find(s => s.length > 1).map(s => s + "!").getOrElse("-"))
+  val bound = xs.find(s => s.length > 1)
+  println("bound  = " + bound.map(s => s + "!").getOrElse("-"))
+SSC
+set +e
+out5=$("$SSC" emit-rust "$tmp/optbind.ssc" -o "$tmp/optbind-crate" 2>&1); rc5=$?
+set -e
+if [[ $rc5 -ne 0 ]]; then
+  echo "build-rust-refuses-loudly: FAILED — emit-rust rejected a valid find/map/getOrElse program" >&2
+  echo "--- output: $out5" >&2
+  failed=1
+else
+  emitted=$(cat "$tmp/optbind-crate"/src/generated/*.rs 2>/dev/null || true)
+  if [[ -z "$emitted" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — no generated source to inspect for the Option binding" >&2
+    failed=1
+  elif [[ "$emitted" == *"collect::<Vec<_>>().unwrap_or"* ]]; then
+    echo "build-rust-refuses-loudly: FAILED — an Option lost its type through a val binding" >&2
+    echo "    the chain over the bound name lowered as a LIST map, so unwrap_or lands on a Vec:" >&2
+    printf '%s\n' "$emitted" | grep -n 'collect::<Vec<_>>().unwrap_or' | head -2 >&2
+    failed=1
+  # The inline form has always worked; if it stops, this gate must not read as the binding defect.
+  elif [[ "$emitted" != *".unwrap_or("* ]]; then
+    echo "build-rust-refuses-loudly: FAILED — neither getOrElse lowered at all; the probe tests nothing" >&2
+    failed=1
+  fi
+fi
+
 [[ $failed -eq 0 ]] || { echo "build-rust-refuses-loudly: FAILED" >&2; exit 1; }
-echo "build-rust-refuses-loudly: OK (both import forms reach the crate; a refusal names the def; lists lower)"
+echo "build-rust-refuses-loudly: OK (both import forms reach the crate; a refusal names the def; lists lower; an Option survives a binding)"

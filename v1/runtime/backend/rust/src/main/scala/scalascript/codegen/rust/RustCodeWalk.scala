@@ -923,6 +923,12 @@ object RustCodeWalk:
       localArrays:  Set[String] = Set.empty,
       // Local val/var names known to hold a String (so `a + b` over them is String concat).
       localStrings: Set[String] = Set.empty,
+      // Local val/var names known to hold an Option. Without this the Option-shape was known
+      // while the expression was WHOLE and lost the moment it passed through a binding:
+      // `xs.find(p).map(f).getOrElse(d)` compiled, and the same chain over `val hit = xs.find(p)`
+      // lowered as a LIST map, so `getOrElse` became `unwrap_or` on a `Vec<String>`.
+      // (option-bound-to-a-val-is-not-tracked, reported by rozum.)
+      localOptions: Set[String] = Set.empty,
       // Names bound by the enclosing closure(s) (params + pattern binds).  Inside a
       // closure, a non-Copy bare-name arg that is NOT one of these is a *captured*
       // value, so it's cloned at by-value calls to avoid moving it out of an FnMut.
@@ -1054,6 +1060,8 @@ object RustCodeWalk:
         .collect { case p if p.decltpe.exists { case m.Type.Name("Any") => true; case _ => false } => p.name.value }
         .toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
+                        localOptions = collectLocalOptions(d.body,
+                          Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         localSignals = collectLocalSignals(d.body),
                         anyNames = anyParams,
@@ -1328,6 +1336,38 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     strs.toSet
+
+  /** Local val/var names bound to an Option-producing expression.
+   *
+   *  The walker knew the Option shape only while the expression was WHOLE:
+   *  `xs.find(p).map(f).getOrElse(d)` lowered correctly, and the identical chain over
+   *  `val hit = xs.find(p)` lowered as a LIST map, so `getOrElse` became `unwrap_or` on a
+   *  `Vec<String>` — `error[E0599]: no method named unwrap_or found for struct Vec<String>`.
+   *  A binding erased the type. Reported by rozum with the diagnosis attached: the walker has
+   *  `localSeqs` and `localStrings` and there was no `localOptions` beside them.
+   *
+   *  Deliberately built on `isOptionExpr` rather than a second list of Option-producing methods:
+   *  a copy would answer differently the day one of them gains a lowering, and this whole defect
+   *  is one representation known in two places disagreeing.
+   *  (option-bound-to-a-val-is-not-tracked.)
+   */
+  private def collectLocalOptions(body: m.Term, ctx: Ctx): Set[String] =
+    val opts = scala.collection.mutable.Set.empty[String]
+    // A name bound to an Option val is itself an Option (`val a = xs.find(p); val b = a`), so the
+    // context grows as the walk proceeds rather than being computed once against the empty set.
+    def isOpt(rhs: m.Term): Boolean = isOptionExpr(rhs, ctx.copy(localOptions = opts.toSet))
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isOpt(v.rhs) then opts += n
+          case _                               => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isOpt(v.body) then opts += n
+          case _                               => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
+    opts.toSet
 
   /** Local val/var names bound to a `Signal`, mapped to their **element type**
    *  ("String" / "Int" / "Double" / "Boolean", default "String") — by a `Signal[T]`
@@ -2149,7 +2189,7 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("getOrElse")),
       args
-    ) if args.values.size == 2 && !isOptionExpr(qual) =>
+    ) if args.values.size == 2 && !isOptionExpr(qual, ctx) =>
       for
         q <- renderTerm(qual, ctx)
         k <- renderTerm(args.values(0), ctx)
@@ -2326,7 +2366,7 @@ object RustCodeWalk:
     // xs.map(f) → xs.iter().cloned().map(move |p| body).collect::<Vec<_>>()
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "map")
@@ -2354,7 +2394,7 @@ object RustCodeWalk:
     // for a method the backend had no lowering for (reported by a user porting a real service).
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("find")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "find")
@@ -2364,7 +2404,7 @@ object RustCodeWalk:
     // is how they were found rather than guessed.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name(meth @ ("exists" | "forall"))), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = meth)
@@ -2376,7 +2416,7 @@ object RustCodeWalk:
     // should say so.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("get")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual)
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual)
          && !isKnownVecReceiver(qual, ctx) =>
       for
         q <- renderTerm(qual, ctx)
@@ -2387,7 +2427,7 @@ object RustCodeWalk:
     // `Option<usize>`.
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("indexOf")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         v <- renderTerm(args.values.head, ctx)
@@ -2397,7 +2437,7 @@ object RustCodeWalk:
     // Only for Vec expressions (not range/iterator chains).
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("filter")), args
-    ) if args.values.size == 1 && !isOptionExpr(qual) && !isRangeExpr(qual) =>
+    ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>
       for
         q <- renderTerm(qual, ctx)
         body <- renderVecIterBody(args.values.head, q, ctx, method = "filter")
@@ -2450,7 +2490,7 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("map")),
         args
-    ) if isOptionExpr(qual) && args.values.size == 1 =>
+    ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
         f <- renderTerm(args.values.head, ctx)
@@ -2459,7 +2499,7 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("flatMap")),
         args
-    ) if isOptionExpr(qual) && args.values.size == 1 =>
+    ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
         f <- renderTerm(args.values.head, ctx)
@@ -2468,7 +2508,7 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("getOrElse")),
         args
-    ) if isOptionExpr(qual) && args.values.size == 1 =>
+    ) if isOptionExpr(qual, ctx) && args.values.size == 1 =>
       for
         q <- renderTerm(qual, ctx)
         d <- renderTerm(args.values.head, ctx)
@@ -3197,7 +3237,7 @@ object RustCodeWalk:
       isNumericExpr(l, ctx) && args.values.forall(isNumericExpr(_, ctx))
     case _ => false
 
-  private def isOptionExpr(term: m.Term): Boolean = term match
+  private def isOptionExpr(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name("None") => true
     case m.Term.Apply.After_4_6_0(m.Term.Name("Some"), args) if args.values.size == 1 =>
       true
@@ -3210,7 +3250,7 @@ object RustCodeWalk:
     // fixed — the codegen tests were green, because the shape only breaks when something
     // downstream asks whether the result is still an Option.
     case m.Term.Apply.After_4_6_0(m.Term.Select(inner, m.Term.Name("map" | "flatMap")), args)
-        if isOptionExpr(inner) =>
+        if isOptionExpr(inner, ctx) =>
       // recursive chain case: `Some(x).map(...)`
       args.values.size == 1
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), _) => false
@@ -3219,6 +3259,8 @@ object RustCodeWalk:
     // all until this list knew what produces an Option.
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption" | "get")), _) => true
     case m.Term.Select(_, m.Term.Name("headOption" | "lastOption"))                                      => true
+    // A NAME bound to any of the above. The pre-pass records it; see `collectLocalOptions`.
+    case m.Term.Name(n) => ctx.localOptions.contains(n)
     case _ => false
 
   /** Best-effort check that a term is a range or Source expression.
@@ -4479,7 +4521,7 @@ object RustCodeWalk:
       // An Option reaching a string position prints as Scala prints it -- `Some(b)` / `None`.
       // Rust's `Option` implements no `Display`, so this is not formatting taste: without it the
       // emitted `format!("{}", xs.find(p))` does not compile (E0277), which is what a user hit.
-      case other if isOptionExpr(other) =>
+      case other if isOptionExpr(other, ctx) =>
         renderTerm(other, ctx).map(e =>
           "match " + e + " { Some(__v) => format!(\"Some({})\", __v), None => \"None\".to_string() }")
       case other                               => renderTerm(other, ctx)

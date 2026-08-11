@@ -56,46 +56,6 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
-## option-bound-to-a-val-is-not-tracked — An Option from find() lowers correctly inline but not through a val — the chain over the bound name becomes a list map, so getOrElse lands as unwrap_or on a Vec
-<!-- triage: new
-     reported-by: rozum / claude-opus-5
-     reported-at: 2026-08-11
-     ssc-version: 62bf49839
-     repro: repro/option-bound-to-a-val-is-not-tracked.ssc
-     kind: bug -->
-
-Five lines, control on the line above the defect, and the two differ only by a `val`:
-
-    ssc run    inline = bb!    bound = bb!          (both fine)
-
-    ssc-tools build-rust
-      error[E0599]: no method named `unwrap_or` found for struct `Vec<String>`
-
-`xs.find(p).map(f).getOrElse(d)` written inline COMPILES. Bind the same `find` to a name first
-and the chain over that name lowers as a LIST map — so `getOrElse` becomes `unwrap_or` on a
-`Vec<String>`, which has no such method.
-
-So the Option-shape is known while the expression is whole and lost the moment it passes through
-a binding. The walker has `localSeqs` and `localStrings` — sets of local names whose type it
-remembers — and there is no `localOptions` beside them. That is the shape; whether the fix is a
-fourth set or something narrower is yours to judge.
-
-**Related to work already in flight, which is why I am flagging rather than guessing:** the branch
-`feature/rust-no-paren-member` carries `f8e7f6ba8` — "getOrElse is the UNWRAP, so it does not keep
-the Option" — which splits `getOrElse` out of the `isOptionExpr` case it shared with `map`/`flatMap`.
-That is the same function this report lands in. Its claim `rust-no-paren-member` has not
-heartbeat since 2026-08-10T20:43 (~8h) though the commit on it is timestamped 22:59, and its
-worktree is still there. I have not touched any of it: a stale claim with work behind it is the
-case your own triage table says to ask about rather than take.
-
-The rest of that entry IS fixed and verified here — `repro/no-paren-list-method-becomes-a-field.ssc`
-now builds AND runs (`control = 2`, `defect = bb`), matching `ssc run`. Thank you.
-
-Toolchain built from your current main, banner silent, digest matching, detached worktree outside
-your checkout.
-
-This is the last error in rozum's `public-matrix.ssc` — 33 at the start of yesterday, 1 now, and
-it is this one. No deadline from us; the slice has waited a week and can wait longer.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
