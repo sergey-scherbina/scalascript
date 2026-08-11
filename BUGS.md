@@ -128,7 +128,7 @@ Filed separately from the report it came in with because one half is fixed (`f8e
 not, and a single entry cannot carry both statuses honestly.
 
 ## rust-std-corpus-badrust-column — 25 of 131 std modules emit Rust that rustc rejects; two shapes account for most of it
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: feature
@@ -136,7 +136,53 @@ not, and a single entry cannot carry both statuses honestly.
      reported-at: 2026-08-11
      ssc-version: 1334bea8f
      repro: repro/std-rust-survey.tsv
+     fixed-in: b5cf2cc4f
      gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**BOTH SHAPES FIXED 2026-08-11. Measured on the corpus, which is the only number that means
+anything here: BADRUST 25 → 17, COMPILES 31 → 39, REFUSED unchanged at 75.** Eight modules moved
+BADRUST → COMPILES — `cluster/index`, `scljet/values`, and six of the eight `std/ui` — and NOTHING
+moved into REFUSED, so no capability was traded away for the count.
+
+**`E0277` — an enum could not become an `Any`.** A case-class struct has had
+`impl From<Name> for Value` since `Any` first mapped to `Value`; an enum never did. So
+`case class RouteEntry(body: List[TkNode])` emitted `Value::from(x.body)` and rustc said
+`Value: From<TkNode> is not satisfied`. `enumLift` now emits the same `Value::Obj(ctor, fields)`
+convention the struct uses. Fixing it immediately surfaced the next missing coercion — `Value` had a
+`Tuple` variant that nothing could produce from a Rust tuple — so `From<(A, B)>` through `(A, B, C, D)`
+joined the total-coercion set.
+
+**`E0562` — a field cannot hold `impl Trait`.** `mapType` said so itself: *"R.2.4 only renders
+function types at parameter positions; stored closure values (`Box<dyn Fn>` boxing) land in a later
+slice."* This is that slice. A function type in FIELD position renders `Rc<dyn Fn…>` — `Rc`, not
+`Box`, because the type derives `Clone` and `Box<dyn Fn>` is not `Clone`.
+
+**Three consequences, each found by building rather than by reading, and each worth the record:**
+
+1. **Neither `Rc` nor `Box` gives `Debug`,** so a closure-bearing type cannot derive it — and
+   dropping the derive CASCADES: `RouteEntry` holds `Vec<TkNode>` and derives `Debug` too, so rustc
+   then blamed a type with no closure in it. Every holder would have to drop it, and every holder of
+   those. One generated `Debug` at the source ends the cascade; it prints the constructor name,
+   which is honest, because the fields it would print are partly closures.
+2. **A stored callback needs `+ 'static`.** `Rc::new(key)` on a bare `impl Fn` parameter is `E0310`,
+   "may not live long enough". The closures this lane emits are `move |…|` over owned captures, so
+   the bound states what was already true. Two goldens assert the parameter text and were updated
+   with that reason written beside them.
+3. **THREE renderers make fields, not one** — `renderEnumCase` (a `Defn.Enum` variant),
+   `renderClassCtor` (a `sealed trait` + case class variant) and `renderClass` (a struct). Fixing
+   the first two left `std/cluster/index.ssc` still failing on a `pub start:` field, and fixing the
+   struct then re-ran the whole `Debug`/`From` consequence for structs. The position had to be
+   threaded, not post-processed: a function nested in `List[A => B]` boxes too.
+
+**A closure lifts into `Any` as `Value::Unit`.** A closure has no data representation, and refusing
+to generate `From` for any type containing one would have taken `Any` away from eight modules for a
+field nobody reads back.
+
+**What is left, honestly:** 17 modules still emit bad Rust — `std/ui/form` (six error classes),
+`std/ui/state` (`E0618`), `std/scljet/text` and `std/scljet/index` (`E0277` of other shapes), and
+twelve more. The two shapes that were CONCENTRATED are gone; the rest are individual.
+
+
 
 **A measurement nobody here had taken, and it reproduces.** rozum put all 131 `std/**/*.ssc` through
 `build-rust`. Re-run independently with this gate's own classifier, the totals match their prose
@@ -264,32 +310,9 @@ passes.
 `v2 bridge V-0 does not translate perform` — a file arriving at the bridge's declared effect wall,
 not a new defect.
 
-**MEASURED 2026-08-11, and it takes TWO layers, not one.**
-
-*Layer 1 — dispatch when the extension's name shadows a built-in.* `Lower.rewriteExtensionCalls`
-refuses to rewrite `p.map(f)` because `map` is a built-in name, and that refusal is right: a rewrite
-that ignores the vocabulary is what took N from 188 to 130 in §51. So the call reaches the built-in
-`map`, which has no arm for a `Parser` value. A fallback in `Exec.invoke` — after every class arm and
-the whole built-in table have declined, call a top-level function of that name — was written and
-measured: **N = 204 with it and 204 without**, all gates green. It is SAFE and it is NOT SUFFICIENT,
-and it is also too permissive as written, matching on name and arity alone so a genuinely missing
-method becomes a call to an unrelated function.
-
-*The precise form of layer 1*, which needs no IR change: lift an extension under a MANGLED name
-(`extension$map`) and have the fallback look only for that. The marker then lives in a field that
-already exists — a function's name — so the instruction set, the verifier, the text form and the
-bridge are untouched. Both fronts must mangle identically or `front-diff` reports it.
-
-*Layer 2 — `matchPrefix`, and it is a decision rather than a line of code.* Past `map`, these files
-call `input.matchPrefix(pat): Option[String]`, which does not exist. The patterns they use are a
-small subset — `[ \t]*`, `[^\n]+`, `[ \t]*\n`, `-?[0-9]+`: character classes with negation, `*`,
-`+`, `?`, literals — but it is REGEX, and `30-portable-subset.md` bans regex from the kernel. The
-three ways out are the kernel (against the subset), a `Prim` (the host door), or a matcher written in
-ScalaScript in `std/` — which is where the project's own rule points ("new intrinsics go to
-`std/`, never to core"). Choosing among them is a language/library boundary call.
-
-Until layer 2 exists these two files cannot pass, whatever layer 1 does. The branch
-`feature/v3-extension-dynamic-fallback` holds the unmangled fallback with its measurement.
+**What would close it:** the executor's method table needs whatever `map` these files call on their
+parser value, and the bridge needs the same. Until then the two lanes should at least fail the SAME
+way, and they do not.
 
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
