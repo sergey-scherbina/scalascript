@@ -2541,7 +2541,16 @@ object Lower:
         case other => other))
     val allDefsH = allDefsE.map(resolveHandles)
       .map { d =>
-        val e0 = checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs, d.params.map(_.name).toSet)
+        // THE ORIGIN IS ATTACHED HERE TOO, and leaving it off is P-2 of
+        // `v3/PRELUDE-CORRECTNESS.md`. `LowerFail` has carried an `origin` since before the
+        // prelude, and it is set at ONE place — around the lowering of a def's BODY, further down.
+        // These passes run EARLIER, so every message they produce arrived with no origin and
+        // `Main` fell back to the path the user named. A three-line fixture was told its error was
+        // at line 38, which is a line in the PRELUDE: positions are already counted inside their
+        // own file, it is the FILE that was lost.
+        val e0 =
+          try checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs, d.params.map(_.name).toSet)
+          catch case e: LowerFail => throw e.at(p.origin.get(d.name))
         // Boxing runs LAST, on the tree every other pass has finished with: `expandPlaceholders`
         // creates lambdas, and a lambda created after the analysis would capture a var the analysis
         // never saw.

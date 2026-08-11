@@ -88,6 +88,18 @@ case "$none" in
   *) say FAIL "missing prelude path: expected the ordinary unknown-name refusal, got '$none'"; fail=1 ;;
 esac
 
+# AN ERROR IN THE PRELUDE MUST NAME THE PRELUDE. It used to be reported against the file the user
+# named, so a three-line fixture was told its error was at line 38 — a line in the prelude. Positions
+# were always counted inside their own file; it was the FILE that was lost, because `LowerFail`'s
+# origin is attached in one place per pass and the early passes had none.
+printf 'def two(a: Int, b: Int): Int = a + b\ndef bad(): Int = two(1)\n' > "$T/bad-prelude.ssc"
+blame="$(SSC3_PRELUDE="$T/bad-prelude.ssc" "$SSC3" build "$T/use.ssc" 2>&1 >/dev/null | tail -1)"
+case "$blame" in
+  *bad-prelude.ssc:2:*) say ok "an error in the prelude names the prelude, at its own line number" ;;
+  *use.ssc*)  say FAIL "the prelude's error was blamed on the user's file: $blame"; fail=1 ;;
+  *) say FAIL "unexpected diagnostic for a broken prelude: $blame"; fail=1 ;;
+esac
+
 echo
 [ "$fail" = 0 ] && echo "== v3 prelude gate: GREEN ==" || echo "== v3 prelude gate: RED =="
 [ "$fail" = 0 ]

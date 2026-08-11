@@ -42,7 +42,12 @@ WORKAROUND MUST COME OUT when this is fixed, and its removal is how the fix gets
 
 ## P-2 — a position from one unit is reported against another file
 
-**Status: open.**
+**Status: FIXED 2026-08-11.** `LowerFail` has carried an `origin` since before the prelude, attached
+at ONE place per pass — but only around the lowering of a def's BODY. `checkArity`, `fillDefaults`,
+`flattenCurried` and `expandPlaceholders` run EARLIER, so everything they refuse arrived with no
+origin and `Main` fell back to the path the user named. Same one-place discipline applied to that
+pass. Line numbers were never the problem: they are already counted inside their own file, and it
+was the FILE that was lost. Checked in `prelude-gate.sh` with a deliberately broken prelude.
 
 A three-line fixture reported `bitwise.ssc:38:60`. Line 38 is in the PRELUDE. Line numbers must be
 counted inside their own file and carry that file's name.
