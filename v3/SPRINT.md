@@ -2753,6 +2753,59 @@ objection only because it REFUSES ambiguity instead of guessing; anything that g
         type CONSTRUCTOR — `Monad[Option]` beside `Monad[List]`, `Logged[List]` beside
         `Logged[Option]`. Not reachable by substituting a type argument into text.
 
+## 55 · PLAN — the version comparison is not measurable yet, and the bridge is why (claim `v3-bench-and-bridge-plan`)
+
+Sergiy asked to return to benchmarking v1 against v2 against v3, to runtime and JIT work, and to
+"the problems v2 backends have under the v3 front". **The third is not a separate question**:
+`ssc3 run` executes THROUGH `BridgeV2`, so the corpus number this repository tracks — `N = 191/368`
+— already measures v3-front-on-v2-backend. What is separate is that the harness cannot yet compare
+the three versions honestly, and three specific things make it so.
+
+Ordered so that each entry is measurable when the one before it lands. **Numbers first, optimisation
+after** — until the apparatus is fixed, "slow" and "measured wrong" are indistinguishable, and this
+repository has paid for that confusion more than once.
+
+- [ ] **R1 — EFFECTS CROSS THE BRIDGE, or the bridge refuses them BY NAME.** `BridgeV2` has zero
+      cases for `Instr.Handle`, `Instr.Perform` and `Instr.Resume` — measured, `grep -c` is 0 — so
+      an effectful program lowers to v2 Core IR with those instructions silently missing. Found on
+      2026-08-09 when a `handle` fixture printed the right answer on the executor and NOTHING on
+      the bridge; that is why `v3/tests/effects/` needed an executor-only gate.
+      **A silent nothing is the worst of the three outcomes.** The order of work is therefore:
+      refuse by name FIRST (so no program can quietly lose its effects), then carry what v2 can
+      express.
+      *Done when:* an effectful program either runs identically on both lanes or is refused with a
+      position naming the instruction, and `v3/tests/effects/` fixtures can move back beside the
+      differential.
+- [ ] **B1 — one timing wrapper for every column.** `bench/run.sc` times v3 differently and says
+      why in its own comment: the shared wrapper calls `nanoTime()` as ordinary ScalaScript and
+      "v3 has no clock". **v3 has one since 2026-08-09** — `nanoTime()` → `io.nanoTime`, the same
+      prim name v2 uses. The asymmetry the comment admits ("v3 is not charged for executing the rep
+      counter, and that flatters it on the cheapest rows") can now be removed instead of disclaimed.
+      *Done when:* v3 goes through `runSscBenchBackend`'s wrapper like every other column, and the
+      comment explaining the exception is deleted rather than edited.
+- [ ] **B2 — the harness's coverage claim is stale by a factor of one and a half.** `bench/run.sc`
+      says "v3 compiles 23 of the 36 corpus files as of 2026-08-07". Measured 2026-08-11: it
+      ACCEPTS all 36 and COMPUTES 34. The two that do not — `effect-pure`, `effect-stream` — want a
+      library function and a `Stream`, not a compiler change, and a blank cell should say which.
+      *Done when:* the number is derived by the harness or dated in the text, so it cannot rot the
+      same way twice.
+- [ ] **B3 — a regression in `bench/corpus` is invisible to every gate.** `typeclass-fold` computed
+      16500, stopped computing when stage 2b landed, and `N` never moved — because
+      `corpus-report.sh` reads `tests/conformance` and the bench corpus is a SEPARATE set. Caught
+      by hand on 2026-08-11, three days after it could have been.
+      *Done when:* a gate runs the bench corpus for a NUMBER (not a timing) and fails when a row
+      that computed stops computing. Cheap: `--warmup 1 --reps 1` and check for `BENCH_SINK`.
+- [ ] **B4 — the three-version table, on a quiet host.** Only after B1–B3. Load was 29 when this
+      was written and identical code spreads by 2.5× at load 5.5, so a table taken now would be
+      published noise.
+      *Done when:* `bench/run.sc` runs with all three versions and every backend, on a host below
+      load 5, with the run recorded in `bench/history.tsv`.
+- [ ] **J1 — read the table before touching the JIT.** Runtime and JIT work is what Sergiy asked
+      for and it is LAST on purpose: the one measurement this repository already has says the
+      biggest v3 cost is `Exec.invoke` at 13415 bytecodes, which HotSpot never compiles — a fact
+      about method SIZE, not about the algorithm. Whether that still dominates is a question for
+      B4's table.
+
 ## 54 · PLAN FOR 2026-08-09/10 — every remaining typeclass row, in dependency order
 
 Sergiy: *"это нужно исправить … Остальное все тоже, обязательно"*. So this is a queue, not a menu.
