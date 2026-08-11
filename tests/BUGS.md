@@ -36,6 +36,49 @@ divergent rows only — which is cheap in practice, since divergences are the sm
 Filed rather than fixed here because the gate's thresholds are frozen against the current meaning,
 and changing what the number means changes what the freeze is worth.
 
+## job-timeout-fires-before-the-suite-budget-can — the outer cap was tighter than the measured one
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none
+     fixed-in: 138335a54 -->
+
+**73 % of pushes reached no verdict, and the cause is not what I first said it was.** I diagnosed it
+as a newer push superseding the run and proposed removing `cancel-in-progress`. `smoke.yml` has no
+`concurrency:` block at all — there was nothing to remove. `cancelled` is how GitHub reports an
+exhausted **job timeout**.
+
+Measured over the last 38 completed runs:
+
+| conclusion | n | median | range |
+| --- | --- | --- | --- |
+| cancelled | 28 | 20.4 min | **20.1 – 20.6** |
+| success | 7 | 16.8 min | 14.3 – 20.0 |
+| failure | 3 | 16.1 min | 14.8 – 19.5 |
+
+Every cancelled run sits inside half a minute of `timeout-minutes: 20`. Not a race, not a hang — the
+cap.
+
+**And the cap had become tighter than the guard it sits outside of.** Step timings from a successful
+run: launcher build 3.3 min, suite 12.5 min, job 17.2 min. The suite's OWN budget — derived from
+per-check baselines since 2026-08-10 and scaling with what the suite contains — runs 719–875 s on CI,
+so the worst case is ~19 min against a 20 min cap. **The measured guard could never fire; the crude
+one always got there first.**
+
+Raised to 30, which leaves ~11 min over the worst observed case, and the rule is now written beside
+it: this cap must stay strictly looser than the suite's budget plus build time, or the guard with the
+measurement behind it is dead code.
+
+**This argues with a sentence that stood in the file** — *"read the per-check timings the runner
+prints — do not raise it. Raising a cap instead of reading the growth is exactly how
+`corpus-contract.yml` went 13 runs with zero green."* Correct when written, and the correct instinct
+in general. What changed is that reading the growth is now what the suite's own budget does
+automatically, on every run, with a per-check table behind it. That budget still must not be raised
+without measuring — `smoke-suite-over-its-own-budget` is about exactly that — and it is not what was
+raised here.
+
 ## cancelled-exact-run-preempts-the-descendant-search — 73% of pushes got no verdict at all
 
 <!-- status: fixed
