@@ -1,0 +1,28 @@
+// Mixed Int/Double COMPARISON — the companion to `mixed-numeric.ssc`, which covers arithmetic.
+//
+// Until 2026-08-11 v3's two lanes disagreed on every line below. The executor refused the four
+// ordering operators (`Lt on Int 1 and Double 2`) and answered `1 == 1.0` with FALSE, while the
+// bridge computed all of them and agreed with Scala. Equality was the dangerous half: a refusal
+// stops the program, a wrong `false` just sends it down the other branch.
+//
+// Both operand orders, because the arms are homogeneous and each direction misses them separately.
+println(1 < 2.0)
+println(2.0 > 1)
+println(1 <= 1.0)
+println(1.0 >= 1)
+println(1 == 1.0)
+println(1.0 == 1)
+println(1 != 1.0)
+println(1 != 2.0)
+
+// Guards against widening TOO far. `eq` is shared by `==`, by collection equality and by pattern
+// matching, so an over-eager numeric arm there would be felt far from this file:
+println(1 == "1")        // a number is not its own spelling
+println('a' == 97)       // …but a char IS its code point, which predates this change
+// FALSE, and deliberately so even though Scala says true: the executor, the bridge and interp all
+// answer `false` here, and this fixture asserts the state where they AGREE. The first draft of the
+// fix widened inside `eq`, which made this line `true` on the executor alone — repairing the scalar
+// divergence by opening a collection one. This line is the guard against that regression returning.
+println(List(1) == List(1.0))
+println(2 == 3)
+println(1.5 == 1.5)

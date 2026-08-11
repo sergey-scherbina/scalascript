@@ -49,6 +49,13 @@ the same reason. Deliberately narrow in two ways, both measured rather than assu
   v2 and so belongs in the root `BUGS.md`, where it is NOT yet filed — it is carried as a follow-up
   in `v3/SPRINT.md` rather than referenced here as if it already existed.
 
+  **SUPERSEDED the next day — see `v3-mixed-int-double-compare` below.** The paragraph above was
+  right about what it had measured and wrong about what it concluded, and the missing measurement
+  was v3's OWN bridge: it widens comparisons too, so the executor's refusal was not "the majority
+  position", it was v3 disagreeing with itself. Left in place rather than rewritten, because the
+  shape of the error is worth keeping: a survey of the OTHER lanes answered a question that was
+  about THIS one.
+
 **Guard.** `v3/tests/front/mixed-numeric.ssc` + `.expected`. Fixtures in that directory are run by
 `v3/exec-gate.sh` on the executor AND through the bridge, and the two outputs are compared, so a
 future one-lane fix cannot pass it. Verified to fail without the fix: reverting `Exec.scala` alone
@@ -57,3 +64,46 @@ makes the fixture die on its first line with `Add on Int 1 and Double 2`.
 **Found from.** §55 B1 (one timing wrapper for every column): the shared bench wrapper's last line
 is `_ssc_reps * 1000000.0` with an Int counter, so this refusal — not any parser gap — is what
 stopped the wrapper from running on v3 at all.
+
+## v3-mixed-int-double-compare — `1 == 1.0` was `false` on the executor and `true` on the bridge
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/exec-gate.sh (fixture v3/tests/front/mixed-compare.ssc, run on BOTH lanes) -->
+
+**Measured 2026-08-11**, the day after `v3-mixed-int-double-arith` fixed the arithmetic half and
+deliberately left this one alone. The deferral was wrong, and one measurement it had not taken says
+why — the same file on the same commit, executor versus bridge:
+
+| expression   | `ssc3 run` (executor) | `ssc3 run --bridge` | Scala |
+|---|---|---|---|
+| `1 < 2.0`    | `Lt on Int 1 and Double 2` | `true`  | `true`  |
+| `2.0 > 1`    | `Gt on Double 2 and Int 1` | `true`  | `true`  |
+| `1 == 1.0`   | **`false`**                | `true`  | `true`  |
+| `1 != 1.0`   | **`true`**                 | `false` | `false` |
+
+The earlier entry declined to widen comparisons on the grounds that interp and v2 disagree with
+each other, so any choice would take a side. That survey asked about the OTHER lanes and the
+question was about THIS one: v3's two lanes disagreed on every mixed comparison, which is I-3, and
+the bridge's answers are also Scala's.
+
+**Equality was the dangerous half.** An ordering comparison REFUSED stops the program and gets
+looked at. `1 == 1.0` returning `false` is a wrong answer that nothing reports: the program simply
+takes the other branch.
+
+**Fixed** by adding `Lt/Le/Gt/Ge/Eq/Ne` to the widening arms already in `binOp`, so a mixed pair is
+retried as two Doubles.
+
+**Where it is NOT fixed, deliberately.** The first draft widened inside `eq` — the helper shared by
+scalar `==`, collection equality and pattern matching — which also made `List(1) == List(1.0)` true.
+That is Scala's answer, but measurement says every lane here disagrees with Scala together: the
+executor, the bridge AND interp all answer `false`. Widening there would have repaired one
+divergence by opening another where the lanes were consistent. Fix what disagrees; leave what
+agrees. The both-lanes fixture caught this in one run — it is asserted at its current value so the
+regression cannot come back silently.
+
+**Still open, and not v3's:** interp answers `1 == 1.0` with `false` while the v2 runtime answers
+`true`, and the native front refuses every mixed comparison at type-check with `cannot unify
+Int vs Float`. Filed as `lanes-disagree-on-mixed-numeric-comparison` in the root `BUGS.md`.

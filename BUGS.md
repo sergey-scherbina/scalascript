@@ -23,6 +23,41 @@ Newest first.
 
 
 
+## lanes-disagree-on-mixed-numeric-comparison — `1 == 1.0` is `false` on interp, `true` on the v2 runtime, and a TYPEERR through the native front
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-11**, while fixing the same defect in v3 (`v3/BUGS.md`
+`v3-mixed-int-double-compare`). Three lanes, three different answers, and none of them is Scala's
+on every row:
+
+| expression | interp (`run --v1`) | native front (`bin/ssc run`) | v2 runtime (`ssc3 run --bridge`) | Scala |
+|---|---|---|---|---|
+| `1 < 2.0`  | `true`  | `TYPEERR: cannot unify Int: Int vs Float` | `true`  | `true`  |
+| `1 <= 1.0` | `true`  | same TYPEERR | `true`  | `true`  |
+| `1 == 1.0` | **`false`** | same TYPEERR | `true`  | `true`  |
+| `1 != 1.0` | **`true`**  | same TYPEERR | `false` | `false` |
+
+Two distinct defects share this entry because they are the same question asked of two components:
+
+- **interp orders correctly but compares for equality WITHOUT widening.** `1 < 2.0` is `true`
+  while `1 == 1.0` is `false`. That is a wrong answer, not a refusal — the program takes the other
+  branch and nothing is reported. This is the one to fix first.
+- **the native front refuses mixed comparison at type-check** while the v2 runtime it feeds
+  computes it happily: the same `1 == 1.0` is a TYPEERR through `bin/ssc run` and `true` through
+  the bridge, which reaches v2 without that checker. So v2's checker and v2's runtime disagree
+  about whether the program is even legal.
+
+Not fixed here, and deliberately not decided here either: whichever way it goes, one lane's ANSWERS
+change, and this entry was opened from a v3 fix whose claim covered neither v1 nor the native front.
+
+**Arithmetic is NOT affected** — `1 * 2.0`, `7 / 2.0` and the rest widen on interp, native and v2
+alike. This entry is comparison only.
+
 ## an-objects-defaults-are-taken-from-another-objects-member-of-the-same-name — `B.of(5)` is filled from `A.of`
 
 <!-- status: fixed
