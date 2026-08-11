@@ -1,3 +1,3 @@
-# generation: 1616
+# generation: 1617
 #slug	agent	started	items	paths
-v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md file:v3/src/Lower.scala file:v3/src/Main.scala file:v3/PRELUDE-CORRECTNESS.md
+v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
