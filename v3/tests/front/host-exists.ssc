@@ -1,0 +1,5 @@
+extern def exists(path: String): Boolean
+
+def main(): Unit =
+  println(exists("v3/tests/front/host-exists.ssc"))
+  println(exists("v3/tests/front/no-such-file-here.ssc"))

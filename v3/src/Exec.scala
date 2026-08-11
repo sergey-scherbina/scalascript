@@ -1742,6 +1742,23 @@ object Exec:
     // language through `Prim` and the plugin SPI, so routing a clock through it is the boundary
     // WORKING, not the boundary moving — the note in SSC3-3d that implied otherwise was wrong.
     case "io.nanoTime" => Value.VInt(System.nanoTime())
+    // FILE IO, and the name is v2's for the same reason the clock's is: the bridge emits
+    // `(prim <name> …)` verbatim, so the only host functions v3 may perform are ones the v2 VM
+    // performs identically. That intersection IS invariant I-3 — a host function on one lane and
+    // not the other is a program that runs here and dies there — and `Lower.hostPrims` is the table
+    // that keeps both halves in step.
+    //
+    // ONE PRIM, AND THE OTHER TWO WERE REMOVED RATHER THAN LEFT LYING HERE. I first implemented
+    // `io.readFile`/`io.writeFile` too, over Scala `String`s, because the NAMES matched
+    // `std/fs.ssc`. v2's do not: `Runtime.scala:1943` reads to `BytesV` and writes from bytes, and
+    // the bridge died with `expected Bytes, got "hello from ScalaScript"` on the first probe.
+    // Deleting them is the point — an implementation that disagrees with v2's semantics, reachable
+    // by nothing today, is a trap set for whoever next adds a line to `hostPrims`. When those two
+    // arrive they arrive on both lanes together, with v3 modelling v2's bytes.
+    case "io.exists" =>
+      args.head match
+        case Value.VStr(path) => Value.VBool(new java.io.File(path).exists)
+        case v                => throw ExecError("exists takes a path: " + show(v))
     case "__autoOutput__" =>
       // Prints only a non-Unit value, exactly as v2 does — the rule the front relies on so that a
       // `println(…)` tail does not print twice.

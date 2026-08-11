@@ -2214,6 +2214,43 @@ object Lower:
         Expr.Block(out, res.map(x => qualifyMembers(x, obj, live)), p)
       case other => other
 
+  /** HOST FUNCTIONS BOTH LANES CAN DO — the extern's name to the prim that performs it.
+    *
+    * `extern def readFile(path: String): String` in `std/fs.ssc` declares a host function and says
+    * nothing about how it is performed. Until now v3 answered every one of them the same way: a
+    * `__throw__` naming the function, which the corpus counts 28 times. That refusal is honest and
+    * stays for everything not listed here.
+    *
+    * WHY A TABLE, AND WHY THIS TABLE. The bridge lane runs on the v2 VM, which implements exactly
+    * ten prims — `io.args env eprint exists exit nanoTime print println readFile writeFile` — and
+    * the entries below are the ones `v3/src/Exec.scala` also implements. **That intersection is not
+    * a compromise, it is the invariant**: I-3 says the two lanes agree about every program, so a
+    * host function on one lane and not the other would be a program that runs here and dies there.
+    * The table is the shape that makes the invariant unbreakable rather than merely tested — a name
+    * is added only when BOTH sides have it.
+    *
+    * WHAT IS DELIBERATELY ABSENT, and the list is short because it was MEASURED rather than
+    * assumed. My first version mapped `readFile` and `writeFile` too, on the strength of the names
+    * matching. They do not match in SHAPE: `v2/src/Runtime.scala:1943` reads a file to **BytesV**
+    * and writes from bytes, while `std/fs.ssc` declares `readFile(path): String`. The executor
+    * accepted the program and the bridge died with `expected Bytes, got "hello from ScalaScript"` —
+    * the two lanes disagreeing, which is precisely what this table exists to prevent, produced by
+    * the table itself because I matched on a name instead of a signature.
+    *
+    * Expressing them is possible and is NOT guessed at here: v2 has `utf8->str` and `str->utf8`, so
+    * the body would be `utf8->str(io.readFile(p))` — but the IR is SHARED, so `Exec` would then
+    * have to model v2's `BytesV`, and v3 has no byte value at all. That is a real piece of work
+    * with its own measurement, and it is where `readBytes`/`writeBytes` belong too, since those two
+    * DO match v2's shape exactly. Written down rather than half-built.
+    *
+    * `deleteFile` — what `tests/conformance/dataset-shape` still needs — is absent from v2's VM
+    * entirely. A v3-only `io.deleteFile` would break I-3 the same way. It keeps the honest refusal.
+    *
+    * The extern's own PARAMETERS become the prim's arguments, in order, so the signature the user
+    * wrote is what is passed — no separate argument list to drift out of step with the declaration. */
+  private val hostPrims: Map[String, String] = Map(
+    "exists" -> "io.exists")
+
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true
     case _                            => false
@@ -2494,10 +2531,15 @@ object Lower:
     // the whole reason the first attempt at this was rejected: an unpositioned run-time failure is
     // classified CRASH, and rightly.
     val externDefs = p.defs.filter(isAbstract).map { d =>
-      val at = d.pos.line.toString + ":" + d.pos.col.toString
-      d.copy(body = Expr.Prim("__throw__",
-        List(Expr.StrLit(at + ": the host function '" + d.name +
-                         "' is not implemented on this lane", d.pos)), d.pos))
+      hostPrims.get(d.name) match
+        case Some(prim) =>
+          Def(d.name, d.params, Expr.Prim(prim, d.params.map(q => Expr.Name(q.name, d.pos)), d.pos),
+              d.pos, d.tparams, d.givenParams)
+        case None =>
+          val at = d.pos.line.toString + ":" + d.pos.col.toString
+          d.copy(body = Expr.Prim("__throw__",
+            List(Expr.StrLit(at + ": the host function '" + d.name +
+                             "' is not implemented on this lane", d.pos)), d.pos))
     }
     val allDefs0 = (p.defs.filterNot(isAbstract) ++ externDefs ++ objectDefs ++ methodDefs) :+ entryDef
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
@@ -2640,7 +2682,12 @@ object Lower:
     // function reachable through any same-named method and refuse the 113 all over again. What an
     // under-approximation can miss is a gap reached only through dynamic dispatch, which then fails
     // at run time exactly as it did before; nothing gets worse, some things get better.
-    val gapNames = p.defs.filter(isAbstract).map(d => d.name)
+    // `hostPrims` IS SUBTRACTED, because a host function this lane performs is not a gap. Without
+    // this line the table above changes nothing: an `extern` reached from the entry is refused
+    // HERE, at the call, before its body is ever consulted — so `writeFile` kept its refusal while
+    // its declaration had already been lowered to `(prim io.writeFile …)`. The two places that
+    // decide what an `extern` means have to read the same table.
+    val gapNames = p.defs.filter(isAbstract).map(d => d.name).filterNot(hostPrims.contains)
     if gapNames.nonEmpty then
       val byName = allDefsH.map(d => (d.name, d)).toMap
       def callees(e: Expr): List[String] =
