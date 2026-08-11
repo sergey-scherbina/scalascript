@@ -1,0 +1,11 @@
+slug: flatmap-nonlist-census
+branch: feature/flatmap-nonlist-census
+agent: claude-code
+started: 2026-08-11T23:49:50Z
+heartbeat: 2026-08-11T23:49:50Z
+status: claimed-before-planning
+items: v3-handle-has-no-return-clause
+paths: file:v3/src/Exec.scala file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
