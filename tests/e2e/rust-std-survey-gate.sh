@@ -12,7 +12,7 @@
 #   BADRUST   emits Rust that rustc REJECTS. This is the only column that is a defect by itself.
 #
 # So the useful assertion is not "everything compiles" — 57% is honestly refused and that is fine.
-# It is that **a module never moves from REFUSED to BADRUST**: a lowering that starts emitting where
+# It is that **a module never moves from REFUSED to BADRUST, and never leaves COMPILES**: a lowering that starts emitting where
 # it used to refuse has replaced a clear message with a rustc error in generated code the user did
 # not write. Movement the other way — BADRUST to REFUSED, or either to COMPILES — is progress, and
 # this gate asks you to record it rather than blocking it.
@@ -93,8 +93,23 @@ join -t"$(printf '\t')" -j1 \
   <(cut -f1,2 "$tmp/now.tsv" | LC_ALL=C sort) > "$tmp/pairs.tsv" || true
 
 regressions=$(awk -F'\t' '$2 != "BADRUST" && $3 == "BADRUST" {print "  " $1 ": " $2 " -> BADRUST"}' "$tmp/pairs.tsv")
+# A module leaving COMPILES is a CAPABILITY LOSS and reads as progress under the BADRUST rule alone.
+# Measured 2026-08-11: a refusal written against DECLARATIONS rather than against what is actually
+# rendered took nine modules out of COMPILES while the BADRUST column fell — the gate said
+# "IMPROVED" and only the baseline diff, read by hand, showed it. A gate that can be satisfied by
+# giving up capability is the failure it exists to prevent.
+lost=$(awk -F'\t' '$2 == "COMPILES" && $3 != "COMPILES" {print "  " $1 ": COMPILES -> " $3}' "$tmp/pairs.tsv")
 progress=$(awk -F'\t'   '$2 == "BADRUST" && $3 != "BADRUST" {print "  " $1 ": BADRUST -> " $3}' "$tmp/pairs.tsv")
 newmods=$(comm -13 <(cut -f1 "$BASE" | LC_ALL=C sort) <(cut -f1 "$tmp/now.tsv" | LC_ALL=C sort))
+
+if [[ -n "$lost" ]]; then
+  echo "rust-std-survey: a module that COMPILED no longer does" >&2
+  echo "$lost" >&2
+  echo "" >&2
+  echo "The BADRUST column falling does not pay for this. A refusal is better than bad Rust, but" >&2
+  echo "not better than working Rust — check the refusal is scoped to what is actually EMITTED." >&2
+  exit 1
+fi
 
 if [[ -n "$regressions" ]]; then
   echo "rust-std-survey: a module that used to be REFUSED now emits Rust that rustc rejects" >&2

@@ -77,6 +77,16 @@ object RustCodeWalk:
     val rustBlocks        = collectRustBlocks(module)
     val givens            = collectGivens(module)
     val userDefs          = defs.map(_.name.value).toSet
+    // OVERLOADING has no Rust. Two `def`s of one name — `def text(s: String): ToolResult` beside
+    // `def text(s: String, mimeType: String = "text/plain"): ResourceResult` in std/mcp/types.ssc,
+    // or an `extension` method declared on several receivers in std/monaderror.ssc — emitted two
+    // `pub fn text`, and rustc said `error[E0428]: the name text is defined multiple times`. It is
+    // a language gap, not a codegen slip, so it is refused by NAME like every other one: a message
+    // saying which def and why beats rustc pointing at generated code the user never wrote.
+    // Mangling was the alternative and is worse: every call site would have to agree on the mangled
+    // name, and the ONE this lane cannot see is a call from another module.
+    // (rust-std-e0428-duplicate-definition.)
+    val extensionMembers = collectExtensionMembers(module)
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
     val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
@@ -85,8 +95,17 @@ object RustCodeWalk:
     val userTypeNames: Set[String] =
       standaloneCases.map(_.name.value).toSet ++
       traitEnums.map { case SealedTraitEnum(t, _) => t.name.value }.toSet
+    // The built-in `Either` is a FALLBACK — for a module that uses `Either[L, R]` without defining
+    // it. `std/either.ssc` defines its own, and emitting both produced `error[E0428]: the name
+    // Either is defined multiple times`, in the one module whose whole subject is that type (and in
+    // `std/index.ssc`, which re-exports it). A fallback that overrides the real definition is not a
+    // fallback. (rust-std-e0428-duplicate-definition.)
+    val sourceDefinesEither =
+      enums.exists(_.name.value == "Either") ||
+      traitEnums.exists { case SealedTraitEnum(t, _) => t.name.value == "Either" } ||
+      standaloneCases.exists(_.name.value == "Either")
     val enumRendered =
-      (if needsEitherType(module) then List(renderBuiltinEitherEnum()) else Nil) ++
+      (if needsEitherType(module) && !sourceDefinesEither then List(renderBuiltinEitherEnum()) else Nil) ++
       enums.map(renderEnum) ++
       traitEnums.map { case SealedTraitEnum(t, caseClasses) => renderTraitEnum(t, caseClasses, userTypeNames) }
     val structRendered    = standaloneCases.map(c => renderStruct(c, userTypeNames))
@@ -175,8 +194,30 @@ object RustCodeWalk:
           seen = seen ++ next
           frontier = next
         defs.filter(d => seen.contains(d.name.value))
+    // BOTH refusals below are scoped to what is actually RENDERED, not to what is declared, and
+    // that distinction is the whole of their correctness. The emitter walks a reachability graph
+    // (`defsToRender` above), so a duplicate or an extension member that nothing reaches is never
+    // emitted and never hurt anybody. Checking declarations instead cost NINE modules their
+    // COMPILES status on the first attempt — std/cluster/*, std/geo, std/nodes and more, every one
+    // of them compiling perfectly well with an unreachable overload in the file. Caught by reading
+    // the survey baseline diff, not by the gate, which only asserts that BADRUST does not grow.
+    val renderedNames = defsToRender.map(_.name.value).toSet
+    val extensionErrs = extensionMembers.filter((n, _) => renderedNames.contains(n)).map { (n, recv) =>
+      unsupported(s"def `$n` is an `extension` member reading its receiver `$recv`; this lane drops the receiver, so the body would reference a name that does not exist")
+    }
     val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
     val (errors, ok) = results.partitionMap(identity)
+    // Overloading is counted on what actually EMITS, which is one level deeper than "reachable".
+    // `extern def getCurrentPosition()` and `extern def getCurrentPosition(opts)` in std/geo.ssc are
+    // both reachable AND both render to NOTHING — an extern with no `@rust` has no Rust side — so
+    // there is no collision in the output and the module compiles. Counting declarations cost nine
+    // modules their COMPILES status; counting reachable ones still cost three. The output is the
+    // only thing rustc sees, so it is the only thing worth refusing about.
+    val overloadErrs =
+      ok.filter(_.render.trim.nonEmpty).groupBy(_.name)
+        .collect { case (n, ds) if ds.size > 1 => (n, ds.size) }.toList.sortBy(_._1).map { (n, k) =>
+          unsupported(s"def `$n` emits $k times (overloading); Rust has no overloading and this lane does not mangle names")
+        }
     // An `extern def` with no `@rust` and no intrinsic renders to NOTHING, deliberately — an extern
     // nobody calls needs no Rust side. But when something DOES call it the call is still emitted,
     // and the user gets rustc's `cannot find function __jsonCoreEncodeValue` pointing into
@@ -209,7 +250,7 @@ object RustCodeWalk:
             s"(no `@rust(...)`, no intrinsic); called from ${from.map(f => s"`$f`").mkString(", ")}"
           )
         }
-    val allErrs = enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs
     if allErrs.nonEmpty then Left(allErrs)
     else
       val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
@@ -373,6 +414,42 @@ object RustCodeWalk:
   // ── Defn.Def collection ──────────────────────────────────────────────
 
   /** Top-level defs across every parsed `scalascript`/`ssc`/`scala` block. */
+  /** Extension members, paired with the name of the RECEIVER they were declared on.
+   *
+   *  A parsed statement list is FLAT: `collectDefs` deep-collects `Defn.Def`, so
+   *  `extension (u: Uuid) def asString: String = u` arrives as an ordinary top-level def and the
+   *  receiver is simply gone. It emitted `pub fn asString() -> String { u }` — `error[E0425]:
+   *  cannot find value u in this scope`, in four std modules.
+   *
+   *  The CALL site already refuses these (`reads shout on a String and the rust backend has no
+   *  lowering for it`), so the definition is not merely broken, it is uncallable. Refused by name
+   *  here for the same reason.
+   *
+   *  Deliberately narrow: only a member whose body READS the receiver. One that does not compiles
+   *  today, and refusing it as well would cost a module its COMPILES status for dead code that
+   *  hurts nobody. Measured before choosing — exactly one COMPILES module declares an extension.
+   *  (rust-std-e0425-name-not-found.)
+   */
+  private def collectExtensionMembers(module: ast.Module): List[(String, String)] =
+    def fromSection(s: ast.Section): List[(String, String)] =
+      s.content.flatMap {
+        case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+          node.tree.collect { case eg: m.Defn.ExtensionGroup =>
+            val recv = eg.paramClauses.flatMap(_.values).headOption.map(_.name.value)
+            recv.toList.flatMap { r =>
+              eg.body.collect { case d: m.Defn.Def if readsName(d.body, r) => (d.name.value, r) }
+            }
+          }.flatten.toList
+        case _ => Nil
+      } ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection)
+
+  /** Does this term read a bare `name` anywhere? */
+  private def readsName(t: m.Tree, name: String): Boolean =
+    t match
+      case m.Term.Name(n) if n == name => true
+      case _                           => t.children.exists(readsName(_, name))
+
   private def collectDefs(module: ast.Module): List[m.Defn.Def] =
     module.sections.flatMap(sectionDefs)
 
@@ -851,6 +928,12 @@ object RustCodeWalk:
   private def renderEnum(e: m.Defn.Enum): Either[List[Diagnostic], GeneratedEnum] =
     val enumName = e.name.value
     val cases    = e.templ.body.stats.collect { case c: m.Defn.EnumCase => c }
+    // NOTE, and it is a filed gap rather than a fix: a TYPE-PARAMETERISED enum renders with its
+    // parameters silently DROPPED, so `enum Either[L, R]` emits `pub enum Either` while call sites
+    // still say `Either<i64, i64>` (E0107). Refusing it was tried and REVERTED: `std/coroutine.ssc`
+    // declares `enum Step[Y, R]`, never references it with arguments, and compiles — a refusal took
+    // a working module away to be more honest about one that was already failing. The real answer
+    // is to emit the parameters, which is a feature. (rust-generic-enum-drops-its-parameters.)
     if cases.isEmpty then
       Left(List(unsupported(s"enum `$enumName` has no `case` variants")))
     else

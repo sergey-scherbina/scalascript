@@ -11,7 +11,7 @@ std/cluster/membership.ssc	BADRUST	error[E0425]
 std/cluster/shard.ssc	COMPILES	
 std/cluster/singleton.ssc	COMPILES	
 std/cluster/types.ssc	REFUSED	[error] Generic(
-std/collection-extras.ssc	BADRUST	error[E0425]
+std/collection-extras.ssc	REFUSED	[error] Generic(
 std/content-bind-core.ssc	COMPILES	
 std/content-core.ssc	REFUSED	[error] Generic(
 std/content.ssc	REFUSED	[error] Generic(
@@ -22,10 +22,10 @@ std/dep-cps-ping.ssc	REFUSED	[error] Generic(
 std/dsl/ast.ssc	COMPILES	
 std/dsl/builders.ssc	REFUSED	[error] Generic(
 std/dsl/passes.ssc	REFUSED	[error] Generic(
-std/dsl/pretty.ssc	BADRUST	
+std/dsl/pretty.ssc	REFUSED	[error] Generic(
 std/dsl/walker.ssc	REFUSED	[error] Generic(
 std/dstreams.ssc	COMPILES	
-std/either.ssc	BADRUST	error[E0428]
+std/either.ssc	BADRUST	error[E0107]
 std/eq.ssc	REFUSED	[error] Generic(
 std/error-handling.ssc	REFUSED	[error] Generic(
 std/foldable-traversable.ssc	REFUSED	[error] Generic(
@@ -38,7 +38,7 @@ std/graphql.ssc	COMPILES
 std/hash.ssc	REFUSED	[error] Generic(
 std/http.ssc	REFUSED	[error] Generic(
 std/i18n.ssc	REFUSED	[error] Generic(
-std/index.ssc	BADRUST	error[E0428]
+std/index.ssc	BADRUST	error[E0308]
 std/json-core.ssc	REFUSED	[error] Generic(
 std/json.ssc	REFUSED	[error] Generic(
 std/litdoc.ssc	REFUSED	[error] Generic(
@@ -55,11 +55,11 @@ std/markdown-html.ssc	REFUSED	[error] Generic(
 std/mcp/client.ssc	REFUSED	[error] Unsupported(
 std/mcp/index.ssc	REFUSED	[error] Unsupported(
 std/mcp/server.ssc	COMPILES	
-std/mcp/types.ssc	BADRUST	error[E0428]
+std/mcp/types.ssc	REFUSED	[error] Generic(
 std/middleware.ssc	BADRUST	error[E0666]
 std/mime.ssc	COMPILES	
 std/monad-control.ssc	REFUSED	[error] Generic(
-std/monaderror.ssc	BADRUST	error[E0428]
+std/monaderror.ssc	REFUSED	[error] Generic(
 std/money.ssc	BADRUST	error[E0425]
 std/nfc.ssc	REFUSED	[error] Unsupported(
 std/nodes.ssc	COMPILES	
@@ -126,6 +126,6 @@ std/ui/state.ssc	BADRUST	error[E0618]
 std/ui/theme.ssc	BADRUST	
 std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	
-std/uuid.ssc	BADRUST	error[E0425]
+std/uuid.ssc	REFUSED	[error] Generic(
 std/yaml-core.ssc	REFUSED	[error] Generic(
 std/yaml.ssc	COMPILES	
