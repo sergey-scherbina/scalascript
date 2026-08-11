@@ -55,7 +55,19 @@ object Parser:
     val isWrapped = isPureScala(clusterStrippedBody)
     // Pure-Scala script (no Markdown headings or fences): wrap in a synthetic section
     val mdSrc =
-      if isWrapped then s"# Script\n\n```scala\n${clusterStrippedBody.trim}\n```\n"
+      // ```scalascript, NOT ```scala. A bare `.ssc` IS ScalaScript — fences have been optional
+      // since 2026-07-09 — and tagging the synthetic fence `scala` made every consumer that
+      // asks `Lang.isScalaScript` answer NO for a whole file. Measured 2026-08-12: a bare file
+      // produced `List(scala)` where the identical fenced source produced `List(scalascript)`,
+      // so `Interpreter.collectScalaTrees` skipped it, `multiShotEffects` came back empty, and a
+      // correct `multi effect` program died with `One-shot violation` — the front dropping a
+      // marker and the runtime blaming the user (BUGS.md multi-effect-marker-is-lost-in-a-bare-ssc).
+      //
+      // Fixed HERE rather than in the consumer: every filter on `isScalaScript` was wrong for a
+      // bare file, and patching them one at a time is how the same shape came back twice in
+      // three days. The line COUNT is unchanged, so the `mdLineToFileLine` arithmetic below —
+      // which subtracts three synthetic header lines — is untouched.
+      if isWrapped then s"# Script\n\n```scalascript\n${clusterStrippedBody.trim}\n```\n"
       else clusterStrippedBody
     val doc = mdParser.parse(mdSrc).asInstanceOf[CmDocument]
     val manifest0 = mergeSourceCluster(fmOpt.map(parseManifest), sourceCluster)
