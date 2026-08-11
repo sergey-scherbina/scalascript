@@ -1,0 +1,11 @@
+slug: mcp-p2d3-connect
+branch: feature/mcp-p2d3-connect
+agent: claude-code
+started: 2026-08-11T15:59:30Z
+heartbeat: 2026-08-11T15:59:30Z
+status: claimed-before-planning
+items: mcp-2026-07-28 P2d-3
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpClientCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
