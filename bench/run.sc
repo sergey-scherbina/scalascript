@@ -427,16 +427,33 @@ fn main() {
 /** The v3 column. v3 is a different PRODUCT, not another backend of the same CLI: it has its own
  *  driver (`v3/ssc3`), its own IR and its own executor, and `bin/ssc --backend v3` does not exist.
  *
- *  It therefore cannot be timed by the shared wrapper the other columns use, because that wrapper
- *  calls `System.nanoTime()` as ordinary ScalaScript and v3 has no clock — its prim table is
- *  `io.println` plus collection operations. `ssc3 bench` does the loop driver-side instead, keeping
- *  the two things that make the numbers comparable: compilation is excluded (lower + verify happen
- *  before the clock starts) and the window doubles until it reaches 100 ms.
+ *  It is not yet timed by the shared wrapper the other columns use. The reason this comment gave
+ *  until 2026-08-11 — "v3 has no clock" — is STALE: v3 has had one since 2026-08-09, spelled
+ *  `nanoTime()` in the language and `io.nanoTime` in the prim table. Two measured gaps remain,
+ *  and they are small and named rather than a standing exception:
  *
- *  The one asymmetry, stated because a reader will otherwise assume it away: v3's rep counter is a
- *  host loop, so v3 is not charged for executing the counter itself, while every other column is.
- *  Against a whole `workload()` call on an IR walker that is small, and it flatters v3 slightly on
- *  the cheapest rows.
+ *    1. THE SPELLING. The wrapper must keep `System.nanoTime()`, because the js backend maps only
+ *       that spelling — it compiles to `Math.round(performance.now() * 1e6)`, while a bare
+ *       `nanoTime()` is emitted verbatim as an undefined JS function and dies at run time. So the
+ *       wrapper cannot move to v3's spelling; v3 has to resolve Scala's. Today it answers
+ *       `unknown name 'System'` (`v3/src/Lower.scala`, the `builtins` table).
+ *    2. THE FALLBACK SINK. For a workload returning anything other than Int/Long/Double/Boolean
+ *       the wrapper declares `var _ssc_sink: Any = null`, and v3 has no `null`. This one is the
+ *       WRAPPER's to fix, not v3's: a null-free language is a feature, and `= 0` serves every lane.
+ *
+ *  Everything else the wrapper uses already runs on v3 — measured 2026-08-11, not assumed:
+ *  underscore numeric literals (`100_000_000L`), nested `while`, a `def` with a parameter,
+ *  `Long`/`Double` vars, and string concatenation of both.
+ *
+ *  `ssc3 bench` does the loop driver-side meanwhile, keeping the two things that make the numbers
+ *  comparable: compilation is excluded (lower + verify happen before the clock starts) and the
+ *  window doubles until it reaches 100 ms.
+ *
+ *  The asymmetry that costs, stated because a reader will otherwise assume it away: v3's rep
+ *  counter, seed increment and sink update are a HOST loop, so v3 is not charged for executing
+ *  them while every other column is. The direction is known — it flatters v3, and most on the
+ *  cheapest rows — but the SIZE is unmeasured, so no adjective here is load-bearing. Closing gaps
+ *  1 and 2 is what makes it zero; that is §55 B1.
  *
  *  A blank v3 cell means the row produced no number, and as of 2026-08-11 that is no longer
  *  usually a front refusal: v3 ACCEPTS all 36 corpus files. **The count is not repeated here on

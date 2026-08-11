@@ -2783,6 +2783,31 @@ repository has paid for that confusion more than once.
       counter, and that flatters it on the cheapest rows") can now be removed instead of disclaimed.
       *Done when:* v3 goes through `runSscBenchBackend`'s wrapper like every other column, and the
       comment explaining the exception is deleted rather than edited.
+      **Scoped by measurement 2026-08-11 — three steps, two of them one-liners.** Everything else
+      the wrapper needs already runs on v3 (underscore literals, nested `while`, a `def` with a
+      parameter, `Long`/`Double` vars, string concat — all probed, not assumed):
+      - **B1a — the wrapper keeps `System.nanoTime()`, so v3 must resolve it.** One entry in the
+        `builtins` table of `v3/src/Lower.scala`: `"System.nanoTime" -> "io.nanoTime"`. It cannot be
+        solved from the wrapper side instead: the js backend maps ONLY that spelling
+        (`Math.round(performance.now() * 1e6)`) and emits a bare `nanoTime()` verbatim as an
+        undefined JS function, so switching the wrapper to v3's spelling breaks the js column.
+        ⚠ BLOCKED while `Lower.scala` is held by claim `v3-prelude-and-dataset` — one line, but in
+        someone else's file. Do not edit it under a different claim.
+      - **B1b — the wrapper's fallback sink must stop using `null`.** `var _ssc_sink: Any = null`
+        in `generateWrapper` (`v1/tools/cli/.../cli/Main.scala:7912`) is the branch for workloads
+        returning anything other than Int/Long/Double/Boolean. v3 has no `null` and should not get
+        one — a null-free language is a feature — so this is the WRAPPER's fix: `= 0` serves every
+        lane. Needs a tools rebuild.
+      - **B1c — one generator, two runners.** The generator lives inside the tools binary and the
+        text is never written out (`os.temp`, deleted after use), so v3 cannot be handed the same
+        bytes today. Add `--emit-wrapper` to the tools `bench` command (print and exit 0), then
+        `runV3Bench` asks tools for the wrapper and runs it with `ssc3 run`. Do NOT reimplement
+        `generateWrapper` inside v3: that is a second decision site for the measurement apparatus,
+        and the first divergence between the two copies would be invisible in every number.
+      *Gate:* the emitted text must be byte-identical for v3 and for the lane it is compared
+      against — otherwise the columns are again measuring two different programs.
+      *Expect the v3 column to get SLOWER when this lands, and say so when publishing:* today v3
+      is not charged for the rep counter, seed increment or sink update, and every other column is.
 - [x] **B2 — the harness's coverage claim is stale by a factor of one and a half.** DONE
       2026-08-11. The number is REMOVED rather than corrected: a count in a comment rots, and this
       one rotted by half in four days — "23 of the 36 as of 2026-08-07" read as v3 barely covering
