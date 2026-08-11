@@ -14,7 +14,7 @@ Newest first.
      area: other
      kind: bug
      gate: tests/coord/coord-release-evidence-level.sh
-     fixed-in: PENDING -->
+     fixed-in: 38aeda378 -->
 
 **Measured 2026-08-11 over 45 days: 468 of 1107 `release-claim:` messages — 43 % — name no commit at
 all.** So "what did this claim actually land?" is not answerable from the record, and every later
