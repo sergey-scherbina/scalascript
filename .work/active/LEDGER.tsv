@@ -1,5 +1,4 @@
-# generation: 1626
+# generation: 1627
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
-rust-std-e0562	claude-code	2026-08-11T07:30:09Z	std-corpus-does-not-lower-to-rust	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:INBOX.md file:BUGS.md file:tests/e2e/rust-std-survey-gate.sh file:repro/std-rust-survey.tsv file:.github/workflows/ci.yml file:tests/rust-std-survey-baseline.tsv
 v3-extension-dynamic-fallback	claude-code	2026-08-11T07:39:59Z	v3-extension-unblocks-two-files-into-a-lane-DIFF	file:v3/src/Exec.scala file:specs/ssc3-extensions.md file:BUGS.md file:v3/extension-gate.sh
