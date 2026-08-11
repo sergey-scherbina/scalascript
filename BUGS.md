@@ -7209,12 +7209,44 @@ whoever wrote it.
 
 ## selfhost-front-qualified-assignment-to-an-object-member-is-ignored
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
      gate: tests/e2e/selfhost-front-gate.sh
-     fixed-in: - -->
+     fixed-in: 842779d44 -->
+
+**FIXED — and the plan recorded here yesterday was wrong on two counts, both found by building it.**
+
+**It is SEVEN call sites, not five.** `bodyExpr`, `parseBlock0`, `armBodyExpr`, `armSeqStmt`,
+`parseTopItem`, `parseDBlock0` and `isDirectBind` all ask `isAssignHead`. Widening the predicate is
+still the right move for exactly the stated reason — a per-site test would manufacture a fourth
+instance of this defect — but the count was taken from a grep that missed two.
+
+**`isDirectBind` would have broken.** It calls `isAssignHead` and then takes `snd(hd(ts))` as the
+name being bound. Widening the predicate blindly would have handed it `Counter` as a bind name. It
+takes `cx` now and asks the corrected predicate.
+
+**The predicate needs `cx`, and that turned out to be a guard rather than a cost.** Without it the
+head cannot ask `isObjVarMember`, and `p.field = 5` on a case class — a feature this front does not
+have — would have become a `cell.set` against a global that does not exist. The signature change
+also forces the compiler to walk the author through all seven sites; none can be forgotten.
+
+**THE BUG IN MY OWN FIX, which is the part worth reading.** The first build was clean and changed
+nothing: `Counter.n = 5` still printed `0`. The head tested `fst(hd(ts)) == 1` — the identifier kind
+that is right for `x = e`. **An object name is kind 3.** Kind 1 is a lower-case identifier, what a
+`var` is; kind 3 is the upper-case one `parseAtom1` routes to `parseCtor`. So the predicate was
+correct in shape and could never fire once, on any program — a check that silently never runs, which
+is the same failure mode as the bug it was written for. Found by relaxing the test one clause at a
+time until something changed, rather than by re-reading it.
+
+**Read and write share one predicate and one cell name.** A qualified read goes through `postSel`,
+which emits `(prim cell.get (global Obj_mem__cell))` under the same `isObjVarMember` test; the write
+is the matching `cell.set`. They cannot drift apart.
+
+Four cases in `tests/e2e/selfhost-front-gate.sh`, including the compound form (which exercises the
+read side) and the same statement inside a `def` (a different dispatcher, working from the one
+edit). Negative control: restoring `== 1` reddens exactly those three and leaves nine green.
 
 **STILL OPEN d2edc53a8, and the cause is now known.** `object Counter: var n = 0` then `Counter.n = 5`
 prints `0`; v3 prints `5` and is the oracle here because **the interpreter itself crashes on this
