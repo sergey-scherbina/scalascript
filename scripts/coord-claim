@@ -349,8 +349,17 @@ git commit -q -m "claim: ${slug} (${items}) [skip ci]"
 # that cannot say WHY it refused is only half a guard.
 push_log=$(mktemp)
 if git push -q origin main >"$push_log" 2>&1; then
-  rm -f "$push_log"
   echo "✓ claimed ${slug}  items='${items}'  paths='${paths}'"
+  # A `file:` overlap is admitted as CO-TENANCY since 2026-08-11 rather than refused, and the hook
+  # says so on stderr — which this used to throw away with the log. An admitted claim that quietly
+  # shares a file with someone is the silent half of the relaxation, and silence is what makes a
+  # relaxation indistinguishable from no guard at all.
+  if grep -q 'CO-TENANT' "$push_log" 2>/dev/null; then
+    printf '\n' >&2
+    grep -A5 'CO-TENANT' "$push_log" >&2
+    printf '\n' >&2
+  fi
+  rm -f "$push_log"
   echo "  now: scripts/new-worktree ${slug}   then plan it into SPRINT.md"
 else
   if grep -q 'overlaps a live claim' "$push_log"; then

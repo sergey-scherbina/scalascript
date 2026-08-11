@@ -58,6 +58,19 @@ setup() { # setup <owner-scopes> <owner-touches-file|no>
 # The hook needs `origin/main` and the owner worktree convention; this lab cannot provide the
 # worktree, so `owner_holds_file` is exercised through its FAIL-CLOSED branch here, and the
 # declared/undeclared distinction is what this level asserts.
+# `verdict` answers admitted/refused; `verdict_says` answers what the hook PRINTED. Since 2026-08-11
+# a file:file overlap is admitted WITH a warning, and "admitted" alone cannot tell that apart from
+# admitted in silence — which would be a guard that stopped saying anything.
+verdict_says() { # verdict_says <new-scope> -> the hook's stderr
+  cd "$LAB/A"
+  printf 'slug: second\nagent: t\nstarted: 2100-01-01T00:00:00Z\nitems: i2\npaths: %s\n' "$1" \
+    > .work/active/second.claim
+  printf 'second\tt\t2100-01-01T00:00:00Z\ti2\t%s\n' "$1" >> .work/active/LEDGER.tsv
+  git add -A >/dev/null; git "${G[@]}" commit -qm "claim: second" >/dev/null
+  git "${G[@]}" -c core.hooksPath="$ROOT/.githooks" push origin main 2>&1 | tr '\n' ' '
+  cd "$LAB"
+}
+
 verdict() { # verdict <new-scope> -> admitted|refused
   cd "$LAB/A"
   printf 'slug: second\nagent: t\nstarted: 2100-01-01T00:00:00Z\nitems: i2\npaths: %s\n' "$1" \
@@ -70,8 +83,17 @@ verdict() { # verdict <new-scope> -> admitted|refused
   cd "$LAB"
 }
 
+# ADVISORY since 2026-08-11: two file: scopes on one path are CO-TENANTS. Measured over 30 days,
+# only 30 % of same-file commit pairs from different claims touched overlapping lines, so refusing
+# all of them bought nothing in the other 70 %. Both halves are asserted — admitted, AND told about.
 setup 'file:v2/lib/a.ssc0' no
-check "declared file vs same file → refused" refused "$(verdict 'file:v2/lib/a.ssc0')"
+check "declared file vs same file → ADMITTED as co-tenants" admitted "$(verdict 'file:v2/lib/a.ssc0')"
+
+setup 'file:v2/lib/a.ssc0' no
+case "$(verdict_says 'file:v2/lib/a.ssc0')" in
+  *CO-TENANT*) check "…and the hook SAYS so" said said ;;
+  *) check "…and the hook SAYS so" said "silent — a relaxation nobody is told about is no guard" ;;
+esac
 
 setup 'file:v2/lib/a.ssc0' no
 check "declared file vs OTHER file → admitted" admitted "$(verdict 'file:v2/lib/b.ssc0')"
@@ -115,8 +137,21 @@ check "module BACKLOG.md is shared → admitted" admitted "$(verdict 'file:scrip
 setup 'file:v2/SPRINT.md' no
 check "module SPRINT.md is shared → admitted" admitted "$(verdict 'file:v2/SPRINT.md')"
 
+# Re-aimed 2026-08-11 rather than deleted. Its point was that the bookkeeping exemption must not
+# swallow real paths, and "refused vs admitted" no longer discriminates that, since both are now
+# admitted. The discriminator is the WARNING: a shared board is admitted in silence because it is
+# not co-tenancy at all, a real file is admitted with CO-TENANT named.
 setup 'file:v2/lib/a.ssc0' no
-check "a NON-bookkeeping file is still exclusive" refused "$(verdict 'file:v2/lib/a.ssc0')"
+case "$(verdict_says 'file:v2/lib/a.ssc0')" in
+  *CO-TENANT*) check "a NON-bookkeeping file is co-tenancy, and named" named named ;;
+  *) check "a NON-bookkeeping file is co-tenancy, and named" named "silent — the exemption is swallowing real paths" ;;
+esac
+
+setup 'file:scripts/BACKLOG.md' no
+case "$(verdict_says 'file:scripts/BACKLOG.md')" in
+  *CO-TENANT*) check "a shared board is NOT co-tenancy" silent "named — a board must never be either refusable or co-tenanted" ;;
+  *) check "a shared board is NOT co-tenancy" silent silent ;;
+esac
 
 setup 'file:scripts/BACKLOG.md' no
 check "same-name file elsewhere is not confused for a real path" admitted "$(verdict 'file:tests/BACKLOG.md')"

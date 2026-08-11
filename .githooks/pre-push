@@ -359,11 +359,33 @@ for new in $incoming; do
         q_lvl=$(scope_level "$q"); q_path=$(scope_path "$q")
         is_shared_bookkeeping "$q_path" && continue
 
-        # Same path at any level, or either side claiming the whole repo: always a conflict.
+        # Same path at any level, or either side claiming the whole repo.
+        #
+        # TWO `file:` SCOPES ON THE SAME PATH ARE A CO-TENANCY, NOT A CONFLICT — advisory since
+        # 2026-08-11, on Sergiy's decision, with the measurement in scripts/BUGS.md
+        # `file-scope-refusal-blocks-work-that-would-not-conflict`. Of 143 commit pairs from
+        # DIFFERENT claims touching the same file within six hours over 30 days, only 43 — 30 % —
+        # touched overlapping line ranges. Refusing all of them to prevent a resolvable conflict in
+        # three of ten bought nothing in the other seven, and cost real work: two tasks in one
+        # session were deferred or abandoned over edits that sat in different functions.
+        #
+        # What is NOT relaxed, and deliberately:
+        #   * ITEM overlap still REFUSES — two agents on the same WORK is the failure the mutex
+        #     exists for, and no amount of merging fixes it.
+        #   * `mod:` and `repo:` still REFUSE. They are edit locks over a subtree (P-2.2); an
+        #     overlap there is not two people in one file, it is one person holding a thousand.
+        #   * a `file:` inside someone's `mod:` is unchanged, below.
         if [ "$p_lvl" = repo ] || [ "$q_lvl" = repo ] || [ "$p_path" = "$q_path" ]; then
-          [ "$p_path" = "$q_path" ] && [ "$p_lvl" = file ] && [ "$q_lvl" = file ] \
-            && problems="$problems\n  file '$p_path' is already claimed by '$old_slug'" \
-            || problems="$problems\n  scope '$p' conflicts with '$q', claimed by '$old_slug'"
+          if [ "$p_path" = "$q_path" ] && [ "$p_lvl" = file ] && [ "$q_lvl" = file ]; then
+            warnings="$warnings\n  CO-TENANT: '$p_path' is also claimed by '$old_slug'."
+            warnings="$warnings\n            Say so in the room before you diverge —"
+            warnings="$warnings\n            @$old_slug I am in <function/section> of $p_path, where are you?"
+            warnings="$warnings\n            Then rebase on origin/main before pushing, and RE-RUN your"
+            warnings="$warnings\n            measurements after the rebase: a verdict taken before it"
+            warnings="$warnings\n            describes a tree that no longer exists."
+          else
+            problems="$problems\n  scope '$p' conflicts with '$q', claimed by '$old_slug'"
+          fi
           continue
         fi
 

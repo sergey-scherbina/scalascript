@@ -7,6 +7,58 @@ grepping for status.
 
 Newest first.
 
+## file-scope-refusal-blocks-work-that-would-not-conflict — a lock over 100% to prevent 30%
+
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: tests/coord/claim-scope-hierarchy.sh
+     fixed-in: PENDING -->
+
+A `file:` scope was an EXCLUSIVE lock: two claims naming the same path refused each other. Since
+2026-08-11, on the project owner's decision, it is a **co-tenancy** — the push is admitted and the
+hook names the other claim.
+
+**The measurement that decided it.** Over 30 days, commit pairs from DIFFERENT claims touching the
+same file within six hours: **143 pairs, 43 with overlapping line ranges — 30 %.** So the lock
+refused ten rival edits to prevent a resolvable conflict in three, and bought nothing in the other
+seven. Attribution came from the `Landed <sha>` references in `release-claim:` messages (1054 shas);
+a first pass said 39 % because it counted consecutive commits, most of which are one agent iterating
+on its own work — not concurrency.
+
+And the direction of the risk is not what a lock protects against. A textual conflict is the
+**visible** failure. The silent one is a clean merge that drops the other's work, which is what
+happens on the files that never had a lock: the boards took 392 commits in 30 days and produced 13
+repair commits for lost entries, every one a merge git was happy with. Locking files does not
+address that; anchoring edits on structure does.
+
+**What is NOT relaxed, and each for its own reason:**
+
+| still refused | why |
+| --- | --- |
+| `items:` overlap | two agents on the same WORK — the failure the mutex exists for, and no merge fixes it |
+| `mod:` / `repo:` overlap | an edit lock over a subtree (P-2.2); that is not two people in one file |
+| `file:` inside a `mod:` its owner declared or touched | unchanged |
+
+**Co-tenancy is loud, and that is half the change.** `coord-claim` used to delete the push log on
+success, so an admitted claim that now shares a file would have said nothing — a relaxation nobody
+is told about is indistinguishable from no guard. It now prints the hook's `CO-TENANT:` block, which
+names the other claim, gives the message to post, and says to rebase *and re-run the measurements
+after the rebase*, because a verdict taken before a rebase describes a tree that no longer exists.
+
+**Gate re-aimed rather than agreed with.** `tests/coord/claim-scope-hierarchy.sh` asserted
+"declared file vs same file → refused"; flipping that to `admitted` alone would have been a test
+agreeing with whatever the code does. It now asserts admitted **and** that the hook SAYS so, via a
+`verdict_says` helper that reads the hook's output. The old "a NON-bookkeeping file is still
+exclusive" case was re-aimed, not deleted: its point was that the bookkeeping exemption must not
+swallow real paths, and since both are now admitted the discriminator became the warning — a real
+file is named as co-tenancy, a shared board is admitted in silence.
+
+A/B'd both ways: reverting the hook to refuse makes three assertions fail; silencing the warning
+while keeping the admission makes two fail. `claim-mutex-conflict`, `claim-hooks`, `coord-claim-runs`
+and `coord-claim --self-test` all still pass.
+
 ## claim-overlap-tells-you-to-avoid-instead-of-talk — the checklist contradicted the policy
 
 <!-- status: fixed

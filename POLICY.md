@@ -47,6 +47,20 @@ Detail and proofs: [`specs/claim-mutex.md`](specs/claim-mutex.md).
   `file:<path>` is the default; `mod:<path>` and `repo:` are refused without
   `--broad "<reason>"`. Measured 2026-07-30: one claim reserved **1777 files, 9 of which changed
   in two days**.
+- **P-2.1b · A `file:` scope is a CO-TENANCY, not an exclusive lock — advisory since 2026-08-11.**
+  Two claims naming the same `file:` path no longer refuse each other; the push is admitted and the
+  hook names the co-tenant. Measured over 30 days: of 143 commit pairs from DIFFERENT claims
+  touching the same file within six hours, **43 — 30 % — touched overlapping line ranges**, so
+  refusing all of them prevented a resolvable conflict in three cases of ten and bought nothing in
+  the other seven. A textual conflict is also the *visible* failure; the silent one is a clean merge
+  that drops the other's work, and that happens on the boards, which never had a lock.
+  What co-tenancy asks of you: **say where you are in the file** (P-5.1), rebase on `origin/main`
+  before pushing, and **re-run your measurements after the rebase** — a verdict taken before it
+  describes a tree that no longer exists.
+  Still refused, and these are the point: an **`items:` overlap** (two agents on the same WORK,
+  which no merge can fix), a `mod:`/`repo:` overlap, and a `file:` inside a `mod:` its owner has
+  declared or touched.
+
 - **P-2.2 · `mod:` is an edit lock, not stewardship.** A module is both a unit of code and a unit
   of ownership, but holding a subtree to signal "this area is mine" blocks a thousand files to
   protect two.
