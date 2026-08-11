@@ -1,3 +1,4 @@
-# generation: 1617
+# generation: 1618
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+board-check-no-copy	claude-code	2026-08-11T06:36:40Z	board-check-contradicts-the-file-it-checks	file:scripts/board file:tests/coord/board-generated.sh
