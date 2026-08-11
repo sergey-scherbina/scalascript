@@ -237,7 +237,17 @@ final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[Cl
                            * record of which file a declaration was written in — without it a
                            * diagnostic can only name the file the user typed on the command line,
                            * and prints an imported unit's line against it. */
-                         origin: Map[String, String] = Map.empty)
+                         origin: Map[String, String] = Map.empty):
+  /** ONE PREDICATE FOR "THIS PROGRAM HAS NO CODE", because there were two and they had to agree.
+    *
+    * `Lower` refuses an empty program; `Loader` skips the prelude for one, since a prelude puts
+    * names in scope FOR CODE and there is none. Same question, and it was written out twice in two
+    * files — P-3 of `v3/PRELUDE-CORRECTNESS.md`, and mine from the day the prelude landed. The
+    * duplication was survivable only because `prelude-gate.sh` fails when they diverge, which is
+    * detection, not correctness.
+    *
+    * It lives on `Program` rather than in either caller: both of them are asking about a program. */
+  def hasCode: Boolean = defs.nonEmpty || topLevel.nonEmpty
 
 object Expr:
   def posOf(e: Expr): Pos = e match

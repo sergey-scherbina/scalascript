@@ -59,7 +59,9 @@ and for nothing else: not classes, not objects, not traits, and not positions.
 
 ## P-3 — the emptiness rule is written twice
 
-**Status: open, and it is mine.**
+**Status: FIXED 2026-08-11.** `Program.hasCode` is the one predicate; `Lower`'s empty-program refusal
+and `Loader`'s "does this unit need a prelude" both read it. It lives on `Program` because both
+callers are asking about a program. N measured at 204 before pushing.
 
 `Loader` decides whether to load the prelude with its own "no defs and no statements" test;
 `Lower.scala:2227` refuses an empty program with another. Two predicates in two files that must
@@ -96,3 +98,26 @@ be measured before the push, not beside it.
 On an empty prelude the difference was below this host's resolution. With a library it is 736 parses
 in one corpus sweep. Measure before optimising, and if it costs, cache the LOWERED form rather than
 the text.
+
+
+## P-6 — a call binds to another MODULE's function of the same name
+
+**Status: open. Reported 2026-08-11, and it is the same defect as P-1, P-2 and P-4.**
+
+Two `std` modules declare one name with different arities. They never appeared in a single program
+before, so nothing forced the question; with a prelude in every program they do, and a call inside
+`scljet/mutate.ssc` now resolves to the OTHER module's function.
+
+The prelude did not create this. `Loader.merge` concatenates every unit's declarations into one flat
+table and a call carries no record of the module it was written in, so resolution cannot prefer the
+caller's own module. That is the fourth place the same missing thing shows up:
+
+- P-1 the arity check forgot a name was bound locally
+- P-2 a diagnostic forgot which file its position came from
+- P-4 the merge forgot which unit a declaration came from
+- P-6 a call forgets which module it was written in
+
+**The shape of the fix follows the other three: provenance.** Resolution inside unit U must prefer
+U's own declarations, then what U imported, and only then the rest. That is more than a filter in
+`merge` — it needs the call site to know its unit, which is the piece none of the earlier fixes
+needed. Measure the corpus BEFORE landing anything here (P-4's first attempt cost 72 cases).

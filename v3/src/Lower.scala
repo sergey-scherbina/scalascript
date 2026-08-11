@@ -2328,7 +2328,7 @@ object Lower:
   def program(p: Program): Module = programOf(p, Nil)
 
   def programOf(p: Program, blockEnds: List[Int]): Module =
-    if p.defs.isEmpty && p.topLevel.isEmpty then throw LowerFail(Pos.none, "empty program")
+    if !p.hasCode then throw LowerFail(Pos.none, "empty program")
     val userMain = p.defs.find(d => d.name == "main" && d.params.isEmpty)
     // Auto-output: the LAST top-level expression of each block becomes `__autoOutput__(v)`, which
     // prints only a non-Unit value — the runtime decides, so the front does not need a type checker

@@ -293,13 +293,11 @@ object Loader:
     // that refusal disappeared and the front gate went red saying "the front emits for anything".
     // It was right.
     //
-    // The rule here is Loader's own and stands on its own feet: a prelude exists to put names in
-    // scope FOR CODE, and a unit with no declarations and no statements has no code. It happens to
-    // coincide with `Lower.scala`'s emptiness test, and THAT COINCIDENCE IS A LIABILITY — two
-    // predicates in two files that must agree. It is written this way because `Lower.scala` is held
-    // by five other claims today; the right shape is one predicate, and `v3/prelude-gate.sh` fails
-    // if the two ever disagree, which is the part that makes the duplication survivable rather than
-    // merely tolerated.
+    // The rule: a prelude exists to put names in scope FOR CODE, and a unit with no declarations
+    // and no statements has no code. It is the SAME question `Lower` asks when it refuses an empty
+    // program, and it used to be written out separately in each file — two predicates that had to
+    // agree, kept honest only by a gate. `Program.hasCode` is now the one predicate and both read
+    // it.
     //
     // `seen` carries over, so a module the prelude and the program BOTH import is loaded once and
     // keeps its position in the root's half. Loading the prelude as the root is a no-op for the
@@ -307,7 +305,7 @@ object Loader:
     visit(rootPath)
     val rootUnits = out
     val rootProg = rootUnits.last.program
-    val rootHasCode = rootProg.defs.nonEmpty || rootProg.topLevel.nonEmpty
+    val rootHasCode = rootProg.hasCode
     if prelude.isEmpty || !rootHasCode then rootUnits
     else
       out = Nil
