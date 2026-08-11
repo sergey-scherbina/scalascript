@@ -830,6 +830,29 @@ and the second job green as before. The previous 48 runs had none of that.
      kind: gap
      gate: none -->
 
+**CORRECTION 2026-08-11 — v3 ALREADY ACCEPTS A RETURN CLAUSE, and the diagnosis below is stale on
+that point.** Run on a rebuilt v3, both fronts:
+
+    val all = handle(program()) {
+      case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      case x => List(x)
+    }
+
+gives **`List(11, 12)`** — the clause parses, lowers and binds the computation's VALUE, which is what
+it is for. So "v3's grammar has only operation arms" is no longer true, and the gap this entry is
+named for is not where it says it is.
+
+**Sergiy confirmed the design 2026-08-11: the explicit return clause, not an implicit lift.** The
+reason, recorded because it outlives the decision: under an implicit rule a wrong program keeps
+looking right — the type fits by construction and nothing asks the author what the answer IS — while
+a written clause does not compile until they say.
+
+**What actually blocks `effect-multishot`, and it is not the grammar.** The fixture writes no
+clause, so it still answers 0; and it cannot simply be given one, because the LANES DISAGREE about
+what the clause means — see `v1-handle-return-clause-binds-the-Return-wrapper`, where v1 binds `x`
+to `Return(11)` instead of `11`. The bench corpus is shared, so writing the clause today would make
+one row print two answers. Order: fix v1's binding, then the fixture can carry the clause.
+
 **Measured 2026-08-09**, after `multi effect` was accepted and multi-shot continuations landed.
 `bench/corpus/effect-multishot.ssc` now parses, lowers and RUNS on both fronts — and returns **0**,
 which there is no reason to believe.
@@ -7065,12 +7088,18 @@ read-only Apple store/renderer review in Rozum.
 
 ## selfhost-front-trailing-operator-continuation-prints-Stub
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/selfhost-front-gate.sh
+     fixed-in: e297493ee -->
+
+**NOT REPRODUCIBLE e297493ee — closed on evidence.** `val x = 1 +` continued on the next line gives `3`
+on F, the same as the interpreter. No `Stub` anywhere. Fixed by somebody with nothing to notice,
+which is what `gate: none` buys.
+
+**Kept as a case in the gate**, for the same reason as its sibling above.
 
 Found 2026-08-06 by building v3's front and comparing lanes. **CORRECTED the same day: these four
 entries first named v1, and v1 is CORRECT on all of them.** The defects are in the SELF-HOSTED
@@ -7100,12 +7129,26 @@ Narrowed: `List(1) ++ List(2)` on ONE line is fine. Only the continuation fails.
 
 ## selfhost-front-while-with-an-assignment-body-runs-nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/selfhost-front-gate.sh
+     fixed-in: e297493ee -->
+
+**FIXED e297493ee, and it was one word.** `parseWhileBody` routes a SINGLE-LINE body to
+`parseWhileExpr`, which called `parseExpr` — and `parseExpr` stops at the `=`, taking the rest of the
+file with it. It now calls `bodyExpr`, which tests for an indexed store and an assignment first.
+`parseIf` has used `bodyExpr` all along, which is exactly why `if c then i = i + 1` worked while the
+`while` did not: one decision, two sites, fixed at one of them.
+
+**Third instance of this mechanism in the same file**, and the other two are documented twenty lines
+above the site — `a(1) = 7` dropped the same way, and a store inside a block. That comment reads
+"two paths, one of them silent, which is the shape this whole bug is made of."
+
+**Three shapes, not the one reported.** `bodyExpr` also covers an indexed store and a compound
+assignment, so `while c do a(0) = a(0) + 1` and `while c do i += 1` were broken identically and just
+as quietly. Nobody had filed them; they are fixed and pinned in the gate too.
 
 ```scalascript
 var i = 0
@@ -7129,12 +7172,19 @@ that had nothing to say.
 
 ## selfhost-front-alternative-pattern-matches-only-its-first-branch
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: tests/e2e/selfhost-front-gate.sh
+     fixed-in: e297493ee -->
+
+**NOT REPRODUCIBLE e297493ee — closed on evidence, not on a guess.** F answers `ab` for BOTH `f(A)` and
+`f(B)`, agreeing with the interpreter, and a three-arm variant (`case A | B` beside `case C`) is
+right as well. Somebody fixed it and nothing recorded when.
+
+**Kept as a case in the gate rather than deleted.** It was filed for a reason and nothing was
+watching it, so it could return exactly as quietly as it went.
 
 ```scalascript
 trait K
@@ -7163,8 +7213,25 @@ whoever wrote it.
      lane: multi
      area: runtime
      kind: bug
-     gate: none
+     gate: tests/e2e/selfhost-front-gate.sh
      fixed-in: - -->
+
+**STILL OPEN e297493ee, and the cause is now known.** `object Counter: var n = 0` then `Counter.n = 5`
+prints `0`; v3 prints `5` and is the oracle here because **the interpreter itself crashes on this
+program** — which is why the gate names its oracle per case instead of once.
+
+**Same mechanism as the `while` bug fixed alongside it, for the third time in this file.**
+`isAssignHead` is a TWO-TOKEN peek — an identifier then an assign operator — and in `Counter.n = 5`
+the second token is `.`. The statement is not recognised as an assignment at all, falls to
+`parseExpr`, and `parseExpr` stops at the `=`.
+
+**Where the fix goes, and where it must NOT go.** In `isAssignHead` itself, so the five sites that
+already ask it — `parseTopItem`, `parseBlock0`, `bodyExpr`, `armBodyExpr`, `armSeqStmt` — get it at
+once. A separate qualified-assignment test at each site would manufacture a fourth instance of the
+very shape this entry is about. The emitter already exists in spirit: a qualified READ goes through
+`postSel`, which emits `(prim cell.get (global Obj_mem__cell))` when `isObjVarMember` holds; the
+write is the matching `cell.set`. The cost is a signature change — `isAssignHead` needs `cx` to
+consult `isObjVarMember` — which is why it is not bundled with the one-word `while` fix.
 
 ```scalascript
 object Cfg:
