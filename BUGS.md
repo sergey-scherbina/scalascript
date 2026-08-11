@@ -7093,9 +7093,9 @@ read-only Apple store/renderer review in Rozum.
      area: front
      kind: bug
      gate: tests/e2e/selfhost-front-gate.sh
-     fixed-in: e297493ee -->
+     fixed-in: d2edc53a8 -->
 
-**NOT REPRODUCIBLE e297493ee — closed on evidence.** `val x = 1 +` continued on the next line gives `3`
+**NOT REPRODUCIBLE d2edc53a8 — closed on evidence.** `val x = 1 +` continued on the next line gives `3`
 on F, the same as the interpreter. No `Stub` anywhere. Fixed by somebody with nothing to notice,
 which is what `gate: none` buys.
 
@@ -7134,9 +7134,9 @@ Narrowed: `List(1) ++ List(2)` on ONE line is fine. Only the continuation fails.
      area: front
      kind: bug
      gate: tests/e2e/selfhost-front-gate.sh
-     fixed-in: e297493ee -->
+     fixed-in: d2edc53a8 -->
 
-**FIXED e297493ee, and it was one word.** `parseWhileBody` routes a SINGLE-LINE body to
+**FIXED d2edc53a8, and it was one word.** `parseWhileBody` routes a SINGLE-LINE body to
 `parseWhileExpr`, which called `parseExpr` — and `parseExpr` stops at the `=`, taking the rest of the
 file with it. It now calls `bodyExpr`, which tests for an indexed store and an assignment first.
 `parseIf` has used `bodyExpr` all along, which is exactly why `if c then i = i + 1` worked while the
@@ -7177,9 +7177,9 @@ that had nothing to say.
      area: front
      kind: bug
      gate: tests/e2e/selfhost-front-gate.sh
-     fixed-in: e297493ee -->
+     fixed-in: d2edc53a8 -->
 
-**NOT REPRODUCIBLE e297493ee — closed on evidence, not on a guess.** F answers `ab` for BOTH `f(A)` and
+**NOT REPRODUCIBLE d2edc53a8 — closed on evidence, not on a guess.** F answers `ab` for BOTH `f(A)` and
 `f(B)`, agreeing with the interpreter, and a three-arm variant (`case A | B` beside `case C`) is
 right as well. Somebody fixed it and nothing recorded when.
 
@@ -7216,7 +7216,7 @@ whoever wrote it.
      gate: tests/e2e/selfhost-front-gate.sh
      fixed-in: - -->
 
-**STILL OPEN e297493ee, and the cause is now known.** `object Counter: var n = 0` then `Counter.n = 5`
+**STILL OPEN d2edc53a8, and the cause is now known.** `object Counter: var n = 0` then `Counter.n = 5`
 prints `0`; v3 prints `5` and is the oracle here because **the interpreter itself crashes on this
 program** — which is why the gate names its oracle per case instead of once.
 
