@@ -1189,3 +1189,86 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     ctx.isModern shouldBe true
     ctx.clientCapabilities.isDefined shouldBe true        // required by the spec
     ctx.clientInfo.isDefined shouldBe true
+
+  // ── P2d-4a: the HTTP era probe, against a real endpoint ─────────────
+
+  /** A real HTTP endpoint that records the JSON-RPC methods it is asked for
+   *  and answers each with a scripted (status, body). Real, because the whole
+   *  point of the HTTP rule is what the STATUS and BODY are, and a stub that
+   *  returns an already-parsed value would skip exactly that. */
+  private def httpEndpoint(reply: String => (Int, String)): (String, scala.collection.mutable.ListBuffer[String], () => Unit) =
+    val seen = scala.collection.mutable.ListBuffer.empty[String]
+    val s = new java.net.ServerSocket(0); val port = s.getLocalPort; s.close()
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", port), 0)
+    server.createContext("/mcp", { ex =>
+      val body = new String(ex.getRequestBody.readAllBytes(), "UTF-8")
+      val method = JsonRpc.parse(body) match
+        case Right(JsonRpc.Message.Request(m, _, _))   => m
+        case Right(JsonRpc.Message.Notification(m, _)) => m
+        case _                                         => "?"
+      seen += method
+      val (status, out) = reply(method)
+      val bytes = out.getBytes("UTF-8")
+      ex.getResponseHeaders.set("Content-Type", "application/json")
+      ex.sendResponseHeaders(status, bytes.length.toLong)
+      ex.getResponseBody.write(bytes); ex.getResponseBody.close()
+    })
+    server.start()
+    (s"http://127.0.0.1:$port/mcp", seen, () => server.stop(0))
+
+  test("HTTP: a 200 discover result settles Modern and sends no initialize"):
+    val discover = JsonRpc.encodeResult(ujson.Num(1),
+      McpProtocol.discoverResult("srv", "9.9.9"))
+    val (url, seen, stop) = httpEndpoint(_ => (200, discover))
+    try
+      val c = new McpHttpClient(url, 5000L)
+      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+      seen.toList shouldBe List(McpProtocol.Method.ServerDiscover)
+    finally stop()
+
+  test("HTTP: a 400 carrying a MODERN error is still Modern — the case request() would lose"):
+    // THE ONE THIS SLICE EXISTS FOR. McpHttpClient.request collapses any non-2xx
+    // into Left(InternalError, "HTTP 400: …"), discarding the JSON-RPC code —
+    // and that code is the whole signal. Probing through request() would read
+    // this modern refusal as legacy and then send `initialize` to a server that
+    // has no such method.
+    val refusal = JsonRpc.encodeError(ujson.Num(1),
+      McpProtocol.ErrorCode.UnsupportedProtocolVersion, "Unsupported protocol version",
+      Some(McpProtocol.unsupportedVersionData("2026-07-28")))
+    val (url, seen, stop) = httpEndpoint(_ => (400, refusal))
+    try
+      val c = new McpHttpClient(url, 5000L)
+      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+      seen.toList should not contain McpProtocol.Method.Initialize
+    finally stop()
+
+  test("HTTP: a 400 with an ordinary error falls back and completes the handshake"):
+    val legacyErr = JsonRpc.encodeError(ujson.Num(1), JsonRpc.ErrorCode.InvalidRequest, "Bad Request")
+    val (url, seen, stop) = httpEndpoint {
+      case McpProtocol.Method.ServerDiscover => (400, legacyErr)
+      case _ => (200, JsonRpc.encodeResult(ujson.Num(2),
+                   ujson.Obj("protocolVersion" -> McpProtocol.ProtocolVersion)))
+    }
+    try
+      val c = new McpHttpClient(url, 5000L)
+      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Legacy
+      seen.toList shouldBe List(McpProtocol.Method.ServerDiscover,
+                                McpProtocol.Method.Initialize,
+                                McpProtocol.Method.Initialized)
+    finally stop()
+
+  test("HTTP: an endpoint that is not MCP at all reads as legacy, not as modern"):
+    // A 404 with an HTML body is the deprecated-transport / wrong-URL case; the
+    // spec has the client fall back rather than assume.
+    val (url, _, stop) = httpEndpoint(_ => (404, "<html>Not Found</html>"))
+    try new McpHttpClient(url, 5000L).connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    finally stop()
+
+  test("HTTP: connect is idempotent — the endpoint is probed once"):
+    val discover = JsonRpc.encodeResult(ujson.Num(1), McpProtocol.discoverResult("srv", "9.9.9"))
+    val (url, seen, stop) = httpEndpoint(_ => (200, discover))
+    try
+      val c = new McpHttpClient(url, 5000L)
+      c.connect("c", "1.0"); c.connect("c", "1.0"); c.connect("c", "1.0")
+      seen.size shouldBe 1
+    finally stop()

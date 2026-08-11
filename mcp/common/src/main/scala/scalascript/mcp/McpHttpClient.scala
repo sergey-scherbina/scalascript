@@ -184,6 +184,47 @@ class McpHttpClient(url: String, timeoutMs: Long):
    *       carry zero+ notifications (dispatched to setNotificationHandler
    *       on arrival) followed by the final response frame.  Lets servers
    *       interleave progress updates with the final tools/call result. */
+  // MCP 2026-07-28 — the era this endpoint speaks, probed once and cached. The
+  // spec says the era is a property of the ORIGIN, not of a request.
+  @volatile private var era: McpProtocol.Era = McpProtocol.Era.Unknown
+
+  /** The era this client settled on, or `Unknown` before `connect()`. */
+  def currentEra: McpProtocol.Era = era
+
+  /** Establish the era, and complete the legacy handshake if that is what this
+   *  endpoint speaks.
+   *
+   *  **The probe cannot go through `request`.** On a non-2xx `request` collapses
+   *  the status and the body into `Left(InternalError, "HTTP 400: …")`, which
+   *  throws away the JSON-RPC error code — and that code is the entire signal
+   *  here: a modern server answers `400` with `-32022` and remains modern,
+   *  while a legacy or unrelated endpoint answers `400` with something else.
+   *  Reading the collapsed error would classify every modern refusal as legacy.
+   *  So this sends its own request and hands the raw status and body to
+   *  `eraFromHttp`. */
+  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L): McpProtocol.Era =
+    if era != McpProtocol.Era.Unknown then era
+    else
+      val meta   = McpProtocol.clientMeta(clientName, clientVersion)
+      val params = McpProtocol.withClientMeta(ujson.Obj(), meta)
+      val body   = JsonRpc.encodeRequest(McpProtocol.Method.ServerDiscover, params, nextId.getAndIncrement())
+      val decided =
+        try
+          val resp = sendOnce(body, if timeoutMs > 0 then timeoutMs else this.timeoutMs)
+          val text = try new String(resp.body().readAllBytes(), "UTF-8") catch case _: Throwable => ""
+          McpProtocol.eraFromHttp(resp.statusCode(), text)
+        catch case _: Throwable => McpProtocol.Era.Legacy   // unreachable endpoint: nothing to speak
+      if decided == McpProtocol.Era.Legacy then
+        request(McpProtocol.Method.Initialize, ujson.Obj(
+          "protocolVersion" -> McpProtocol.ProtocolVersion,
+          "capabilities"    -> ujson.Obj(),
+          "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
+          timeoutMs) match
+          case Right(_) => notify(McpProtocol.Method.Initialized, ujson.Obj())
+          case Left(_)  => ()
+      era = decided
+      decided
+
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
     if closed then return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "client closed"))
     val id   = nextId.getAndIncrement()

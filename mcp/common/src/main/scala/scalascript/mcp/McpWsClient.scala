@@ -137,6 +137,34 @@ class McpWsClient(
     pending.clear()
 
   /** Send a request and block until the response arrives. */
+  // MCP 2026-07-28 — WS is a persistent bidirectional channel, so it takes the
+  // STDIO rule rather than the HTTP one: probe with `server/discover` and read
+  // the JSON-RPC answer. There is no status code to inspect here, which is why
+  // this differs from `McpHttpClient.connect`.
+  @volatile private var era: McpProtocol.Era = McpProtocol.Era.Unknown
+
+  /** The era this client settled on, or `Unknown` before `connect()`. */
+  def currentEra: McpProtocol.Era = era
+
+  /** Probe the era once and complete the legacy handshake only if needed. */
+  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L): McpProtocol.Era =
+    if era != McpProtocol.Era.Unknown then era
+    else
+      val meta    = McpProtocol.clientMeta(clientName, clientVersion)
+      val probe   = request(McpProtocol.Method.ServerDiscover,
+                            McpProtocol.withClientMeta(ujson.Obj(), meta), timeoutMs)
+      val decided = McpProtocol.eraFromProbe(probe)
+      if decided == McpProtocol.Era.Legacy then
+        request(McpProtocol.Method.Initialize, ujson.Obj(
+          "protocolVersion" -> McpProtocol.ProtocolVersion,
+          "capabilities"    -> ujson.Obj(),
+          "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
+          timeoutMs) match
+          case Right(_) => notify(McpProtocol.Method.Initialized, ujson.Obj())
+          case Left(_)  => ()
+      era = decided
+      decided
+
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
     if closed then return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "client closed"))
     val id   = nextId.getAndIncrement()
