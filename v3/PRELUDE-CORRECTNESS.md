@@ -143,3 +143,37 @@ repo root this morning, which is what the loader's stripped-prefix candidate was
 candidate is tried LAST and costs nothing while the directory sits under `std/`, so it is harmless
 either way, but the layout has now moved twice in a day and anything keyed on it should be read
 rather than remembered.
+
+### P-6 — the design, settled 2026-08-11
+
+Written down before any code because the risky part of this entry is scope, not difficulty, and
+because P-4's first attempt proved that a rule which *reads* right can still be the wrong rule.
+
+**Rejected: resolve names against a per-call-site visibility set.** It is the general answer and it
+touches every resolution in the lowering, so every program pays for a defect a handful have. The
+blast radius is the whole compiler; the bug is six modules wide.
+
+**Chosen: rename only what actually collides, at merge time.**
+
+1. Group the units' `defs` by name and keep the names declared by MORE THAN ONE unit. On a program
+   with no collision this set is empty and NOTHING below runs — which is what keeps N at 204 rather
+   than hoping it stays there.
+2. For each colliding name `N` and each unit `U` that declares it, rename `U`'s copy to a
+   unit-unique symbol and rewrite calls to `N` **inside U's own declarations and statements** to
+   that symbol.
+3. A unit that declares `N` therefore always calls its own. That is exactly the reported failure —
+   a call inside `mutate.ssc`, which declares a two-parameter `filterRows`, binding to `sql.ssc`'s
+   three-parameter one.
+
+**What step 3 deliberately does NOT decide:** a unit that calls `N` without declaring it, where two
+imported modules both provide one. That needs the import EDGES, not just the unit list, and it is a
+separate change with a separate measurement. Today's behaviour is unchanged there and it is
+ambiguous; say so rather than pretend the rename closed it.
+
+**Order of work, and the middle step is not optional:**
+- a failing test first — two units declaring one name at two arities, the caller declaring its own;
+- the rename in `Loader.merge`, which needs a deep expression rewriter Loader does not yet have
+  (`Lower.mapDeep` is private and in another file — copy the traversal rather than widen it, since
+  Loader must not depend on the lowering);
+- `./v3/corpus-report.sh` BEFORE the push. Gates do not cover the corpus. P-4's first attempt was
+  gate-green at N = 132.
