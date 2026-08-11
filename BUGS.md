@@ -127,6 +127,49 @@ in that file next has the line number and the shape.
 Filed separately from the report it came in with because one half is fixed (`f8e7f6ba8`) and one is
 not, and a single entry cannot carry both statuses honestly.
 
+## rust-emits-a-reference-with-no-rust-side — an unresolved call was emitted as-is, so rustc blamed generated code the user never wrote
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: d0af1dee3
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-11. BADRUST 12 → 8, COMPILES 39 unchanged.** The apply fallback said it outright:
+
+```scala
+// Fallback: assume closure parameter or local binding;
+// Cargo will reject if not.  See R.2.4.
+```
+
+`std/cluster/membership.ssc` calls `joinCluster` and `connectNode`, defined nowhere in the crate, so
+the user got `error[E0425]: cannot find function joinCluster in this scope` pointing into generated
+Rust. `std/money.ssc` did the same with `RoundingMode.HALF_UP`. It is the disease the extern refusal
+two screens up already names: the backend omitting what it cannot provide and letting rustc talk.
+
+**A DOCUMENTED CONTRACT WAS REVERSED, deliberately.** `RustGenR2Test` asserted "call to an unknown
+free name passes through to Rust (cargo rejects)", and its own comment explained the reason: R.2.4
+widened the apply path so `f(x)` works for a closure parameter, and pass-through was **the flip
+side** of not knowing which names were parameters. That cause is gone — the walker now knows a def's
+own params, closure params, locals, and the `fn`s a verbatim `rust` fence block defines — so the
+flip side has none. The test asserts the refusal now, and that the message NAMES the call.
+
+**THE KNOWN SET HAD TO BE COMPLETED IN TWO ROUNDS, and the second was invisible to the corpus.**
+The first version knew locals but not the def's own parameters, so `def apply(f: Int => Int, x: Int)
+= f(x)` was refused — four of this backend's own tests, one of them literally named "call to a
+closure-typed parameter does not require user-def registration". The std corpus did NOT catch it:
+BADRUST fell by six and no module lost COMPILES, because the modules it broke were already failing.
+`backendRust/test` caught it. **Two suites, two blind spots** — the corpus cannot see a refusal that
+is wrong about code that was already broken, and the unit tests cannot see a defect that only 131
+real programs contain.
+
+Then completing the set moved two modules back from REFUSED to BADRUST, and the survey gate refused
+to let that pass as progress. Honest count: four modules improved, not six.
+
+**Still BADRUST, and they are individual:** `std/auth` (E0432), `std/either` and `std/index`
+(the generic-enum gap, filed separately), `std/scljet/index`, `std/scljet/text`,
+`std/ui/component`, `std/ui/state`, `std/ui/theme`.
+
 ## rust-std-e0428-duplicate-definition — the built-in Either overrode a real one, and overloads emitted twice
 <!-- status: fixed
      lane: v2-rust
