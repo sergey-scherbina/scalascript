@@ -214,6 +214,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/jit-gate.sh
 
+      # SELF-TEST FIRST, same reasoning as the jit gate above. This one asserts that every pattern
+      # reaching `Parser.regex` is inside the subset `std/parsing/regex.ssc` implements — a claim
+      # whose failure mode is silence, because an unsupported pattern refuses at RUN time, in
+      # somebody's parser, not here. So the run that asserts it also proves it can say the
+      # opposite: the self-test feeds it an alternation and fails if that comes back green, and
+      # feeds it a tree with no patterns at all and fails if an empty extraction reads as a pass.
+      #
+      # The gate runs on `v3/ssc3`, not `bin/ssc`: no job in this workflow builds the launcher, so
+      # a gate needing it would be red here for a missing binary rather than for a real finding.
+      - name: regex subset — self-test
+        if: ${{ !cancelled() }}
+        run: v3/regex-subset-gate.sh --self-test
+      - name: regex subset — every Parser.regex pattern is inside it
+        if: ${{ !cancelled() }}
+        run: v3/regex-subset-gate.sh
+
   front-capability:
     name: the two fronts accept the same programs
     runs-on: ubuntu-latest

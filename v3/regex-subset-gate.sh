@@ -43,7 +43,11 @@ done
 SSC="$ROOT/v3/ssc3"
 [ -x "$SSC" ] || SSC="$ROOT/bin/ssc"
 MODULE="$ROOT/std/parsing/regex.ssc"
-PROBE="$ROOT/v3/.regex-subset-probe.ssc"
+# The probe lives in `v3/` so its import can be a plain relative path to the module. Removed on any
+# exit, not only the happy one: a killed run would otherwise leave a stray `.ssc` in a directory
+# other gates walk.
+PROBE="$ROOT/v3/.regex-subset-probe.$$.ssc"
+trap 'rm -f "$PROBE"' EXIT
 
 # The literal shapes a pattern arrives in. The inner alternation keeps an ESCAPED QUOTE from
 # ending the match early: `[^\"]*` is one of the real patterns and a naive `"[^"]*"` truncates it
