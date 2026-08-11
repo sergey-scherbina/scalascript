@@ -264,9 +264,32 @@ passes.
 `v2 bridge V-0 does not translate perform` — a file arriving at the bridge's declared effect wall,
 not a new defect.
 
-**What would close it:** the executor's method table needs whatever `map` these files call on their
-parser value, and the bridge needs the same. Until then the two lanes should at least fail the SAME
-way, and they do not.
+**MEASURED 2026-08-11, and it takes TWO layers, not one.**
+
+*Layer 1 — dispatch when the extension's name shadows a built-in.* `Lower.rewriteExtensionCalls`
+refuses to rewrite `p.map(f)` because `map` is a built-in name, and that refusal is right: a rewrite
+that ignores the vocabulary is what took N from 188 to 130 in §51. So the call reaches the built-in
+`map`, which has no arm for a `Parser` value. A fallback in `Exec.invoke` — after every class arm and
+the whole built-in table have declined, call a top-level function of that name — was written and
+measured: **N = 204 with it and 204 without**, all gates green. It is SAFE and it is NOT SUFFICIENT,
+and it is also too permissive as written, matching on name and arity alone so a genuinely missing
+method becomes a call to an unrelated function.
+
+*The precise form of layer 1*, which needs no IR change: lift an extension under a MANGLED name
+(`extension$map`) and have the fallback look only for that. The marker then lives in a field that
+already exists — a function's name — so the instruction set, the verifier, the text form and the
+bridge are untouched. Both fronts must mangle identically or `front-diff` reports it.
+
+*Layer 2 — `matchPrefix`, and it is a decision rather than a line of code.* Past `map`, these files
+call `input.matchPrefix(pat): Option[String]`, which does not exist. The patterns they use are a
+small subset — `[ \t]*`, `[^\n]+`, `[ \t]*\n`, `-?[0-9]+`: character classes with negation, `*`,
+`+`, `?`, literals — but it is REGEX, and `30-portable-subset.md` bans regex from the kernel. The
+three ways out are the kernel (against the subset), a `Prim` (the host door), or a matcher written in
+ScalaScript in `std/` — which is where the project's own rule points ("new intrinsics go to
+`std/`, never to core"). Choosing among them is a language/library boundary call.
+
+Until layer 2 exists these two files cannot pass, whatever layer 1 does. The branch
+`feature/v3-extension-dynamic-fallback` holds the unmangled fallback with its measurement.
 
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
