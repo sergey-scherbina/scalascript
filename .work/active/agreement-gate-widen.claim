@@ -1,0 +1,11 @@
+slug: agreement-gate-widen
+branch: feature/agreement-gate-widen
+agent: claude-code
+started: 2026-08-11T15:41:20Z
+heartbeat: 2026-08-11T15:41:20Z
+status: claimed-before-planning
+items: the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one
+paths: file:tests/e2e/f-output-agreement-gate.sh file:.github/workflows/smoke.yml file:tests/BUGS.md file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
