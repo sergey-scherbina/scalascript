@@ -1,0 +1,11 @@
+slug: file-scope-is-advisory
+branch: feature/file-scope-is-advisory
+agent: claude-code
+started: 2026-08-11T08:43:18Z
+heartbeat: 2026-08-11T08:43:18Z
+status: claimed-before-planning
+items: file-scope-refusal-blocks-work-that-would-not-conflict
+paths: file:.githooks/pre-push file:scripts/coord-claim file:POLICY.md file:scripts/BUGS.md file:tests/coord/claim-mutex-conflict.sh file:tests/coord/claim-scope-hierarchy.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
