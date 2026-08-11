@@ -53,6 +53,50 @@ git commit -q --allow-empty -m init --no-verify >/dev/null 2>&1 || true
 git add -A; git "${G[@]}" commit -qm init --no-verify >/dev/null; git push -q origin main
 git fetch -q origin
 
+# ── 0. the release note must carry the shas the claim landed ──────────────────
+#
+# Measured 2026-08-11 over 45 days: 468 of 1107 release-claim messages named NO commit at all, 43%,
+# so "what did this claim land?" was not answerable from the record. The shas are now derived from
+# the branch rather than typed from memory.
+#
+# The scenario is built so the PATH FILTER has something to drop: the branch carries one commit in
+# the claim's scope and one outside it, which is what a rebase pulling in a sibling's commit looks
+# like. Asserting only "a sha appears" would pass with no filter at all.
+printf 'a\n' > scope-file; printf 'b\n' > other-file
+git add -A; git "${G[@]}" commit -qm "base for the sha test" --no-verify >/dev/null; git push -q origin main
+SHA_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; sleep 1
+
+git checkout -q -b feature/shalab
+printf 'in scope\n' >> scope-file
+git add -A; git "${G[@]}" commit -qm "touches the claim scope" --no-verify >/dev/null
+SHA_IN="$(git rev-parse --short=9 HEAD)"
+printf 'out of scope\n' >> other-file
+git add -A; git "${G[@]}" commit -qm "a sibling commit a rebase dragged along" --no-verify >/dev/null
+SHA_OUT="$(git rev-parse --short=9 HEAD)"
+git push -q origin feature/shalab:main
+git checkout -q main; git fetch -q origin; git reset -q --hard origin/main
+
+printf 'slug: shalab\nagent: labtest\nbranch: feature/shalab\nstarted: %s\nstatus: in-progress\npaths: file:scope-file\n' \
+  "$SHA_START" > .work/active/shalab.claim
+printf 'shalab\tlabtest\t%s\tI1\tfile:scope-file\n' "$SHA_START" >> .work/active/LEDGER.tsv
+git add -A; git "${G[@]}" commit -qm "seed shalab" --no-verify >/dev/null; git push -q origin main
+
+out=$(bash "$TOOL" shalab --level 3 --note "sha derivation" 2>&1) && rc=0 || rc=$?
+check "release with a branch exits 0" 0 "$rc"
+[ "$rc" -eq 0 ] || printf "        ─ output ─
+%s
+" "$out" | sed "s/^/        /"
+body=$(git log -1 --format=%B)
+contains "the note names the in-scope commit" "$SHA_IN" "$body"
+# ONE check over both halves, because "SHA_OUT is absent" is TRUE of an empty note and would have
+# passed vacuously — it did, on the run where the derivation crashed and the note was empty.
+case "$body" in
+  *"$SHA_OUT"*) filt="the out-of-scope sha leaked in — the path filter is not applied" ;;
+  *"$SHA_IN"*)  filt=ok ;;
+  *)            filt="the note names no sha at all — this assertion would be vacuous" ;;
+esac
+check "the path filter keeps the in-scope sha and drops the other" ok "$filt"
+
 # ── 1. the reported defect: flags are parsed, nothing is swallowed ─────────────
 seed_claim flagform
 out=$(bash "$TOOL" flagform --level 3 --note "contract green" 2>&1) && rc=0 || rc=$?

@@ -95,6 +95,12 @@ branch="$(sed -n 's/^branch: *//p' "$claim" | head -1)"
 # Read while the claim still exists — it is `git rm`ed further down, and the module SPRINT lookup at
 # the end needs the work ids, not just the slug. (scripts/BUGS.md module-sprint-item-written-by-nobody.)
 claim_items="$(sed -n 's/^items: *//p' "$claim" | head -1)"
+# Read here, not at message-composition time: the claim FILE is gone by then (it is what a release
+# removes), and the first version of the sha derivation read it there and died with
+# `sed: .work/active/<slug>.claim: No such file or directory`. The lab caught it; a live release
+# would have failed after the work was already pushed.
+claim_started="$(sed -n 's/^started: *//p' "$claim" | head -1)"
+claim_scope="$(sed -n 's/^paths: *//p' "$claim" | head -1)"
 if [ -z "$branch" ]; then
   # An old single-line claim carries no branch. Say so rather than passing quietly: a check that
   # cannot run must not look like a check that ran.
@@ -158,11 +164,10 @@ git add .work/active/LEDGER.tsv
 # appear here, which is why the line says "touching this claim's scope" rather than "by me".
 landed=""
 if [ -n "$branch" ] && git rev-parse --verify -q "refs/heads/$branch" >/dev/null 2>&1; then
-  started="$(sed -n 's/^started: *//p' "$claim" | head -1)"
   base=""
-  [ -n "$started" ] && base="$(git rev-list -1 --before="$started" origin/main 2>/dev/null || true)"
+  [ -n "$claim_started" ] && base="$(git rev-list -1 --before="$claim_started" origin/main 2>/dev/null || true)"
   scope_paths=""
-  for sc in $(sed -n 's/^paths: *//p' "$claim" | head -1); do
+  for sc in $claim_scope; do
     case "$sc" in repo:|repo) scope_paths=""; break ;; esac
     q="${sc#file:}"; q="${q#mod:}"; scope_paths="$scope_paths $q"
   done

@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## release-claim-messages-name-no-landed-sha — the record does not say what a claim landed
+
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: tests/coord/coord-release-evidence-level.sh
+     fixed-in: PENDING -->
+
+**Measured 2026-08-11 over 45 days: 468 of 1107 `release-claim:` messages — 43 % — name no commit at
+all.** So "what did this claim actually land?" is not answerable from the record, and every later
+question that needs commit-to-claim attribution starts by guessing. It cost real work the same day:
+an analysis of claim overlap recovered 1054 shas from the release notes that *did* carry them and
+still had to drop **1103 of 1246** candidate commit pairs for want of attribution.
+
+**Fixed by deriving the shas instead of asking the author to type them.** `coord-release` already
+knows the claim's `branch:` — it refuses to release with unpushed work on it — so the note now
+carries the commits on that branch that are newer than where `origin/main` stood when the claim
+STARTED, restricted to the claim's own declared paths.
+
+**The path filter is not decoration.** A rebase pulls siblings' commits onto the branch, so the raw
+range is not this claim's work. Measured on this very claim: 2 commits in range, 1 after filtering —
+it dropped a sibling's commit the rebase had brought along. And since a `file:` scope became a
+co-tenancy, a co-tenant's commit can legitimately land in the range, which is why the line reads
+"commits on \<branch\> touching this claim's scope" rather than "by me".
+
+**A defect in my own first version, caught by the lab and not by review:** the derivation read the
+claim file where the message is composed — which is *after* the release has removed it. It died with
+`sed: .work/active/<slug>.claim: No such file or directory`, and it would have done so on a live
+release, after the work was already pushed. The fields are now read beside `branch:`, before
+anything is removed.
+
+**And a vacuous assertion, caught by watching it pass at the wrong moment.** "the out-of-scope sha is
+absent" is TRUE of an empty note, and it passed on exactly the run where the derivation had crashed.
+The two halves are now one check: the note must name the in-scope sha AND not the other, with a
+distinct verdict for "names nothing at all".
+
+A/B'd: dropping the path filter fails the check, disabling the derivation fails two.
+
 ## file-scope-refusal-blocks-work-that-would-not-conflict — a lock over 100% to prevent 30%
 
 <!-- status: fixed
