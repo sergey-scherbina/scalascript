@@ -1,0 +1,11 @@
+slug: v3-bench-corpus-gate
+branch: feature/v3-bench-corpus-gate
+agent: claude-code
+started: 2026-08-11T15:31:38Z
+heartbeat: 2026-08-11T15:31:38Z
+status: claimed-before-planning
+items: B3-a-regression-in-bench-corpus-is-invisible
+paths: file:v3/bench-corpus-gate.sh file:.github/workflows/v3.yml file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
