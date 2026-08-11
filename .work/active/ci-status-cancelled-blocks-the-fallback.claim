@@ -1,0 +1,11 @@
+slug: ci-status-cancelled-blocks-the-fallback
+branch: feature/ci-status-cancelled-blocks-the-fallback
+agent: claude-code
+started: 2026-08-11T11:00:53Z
+heartbeat: 2026-08-11T11:00:53Z
+status: claimed-before-planning
+items: cancelled-exact-run-preempts-the-descendant-search
+paths: file:scripts/ci-status file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
