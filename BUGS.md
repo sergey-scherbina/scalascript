@@ -127,6 +127,82 @@ in that file next has the line number and the shape.
 Filed separately from the report it came in with because one half is fixed (`f8e7f6ba8`) and one is
 not, and a single entry cannot carry both statuses honestly.
 
+## rust-std-e0428-duplicate-definition — the built-in Either overrode a real one, and overloads emitted twice
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 6e31c4b17
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-11.** `error[E0428]: the name X is defined multiple times`, four modules, TWO causes:
+
+* **The fallback `Either` overrode the real one.** It is added "once per crate when a source
+  references `Either[L, R]`" — including in `std/either.ssc`, whose whole subject is that type, and
+  `std/index.ssc`, which re-exports it. A fallback that overrides a real definition is not a
+  fallback; it now yields when the source defines its own.
+* **Overloading has no Rust.** `def text(s: String): ToolResult` beside
+  `def text(s: String, mimeType: String = "text/plain"): ResourceResult`, and `extension` methods
+  declared on several receivers, emitted two `pub fn text`. Refused by name, because it is a
+  language gap rather than a codegen slip, and mangling is worse: every call site would have to
+  agree on the mangled name and the one this lane cannot see is a call from another module.
+
+**THE REFUSAL HAD TO BE SCOPED TWICE, and each miss cost working modules.** Written against
+DECLARATIONS it took NINE modules out of COMPILES — `std/cluster/*`, `std/geo`, `std/nodes` — every
+one of them compiling perfectly well with an unreachable overload in the file, because the emitter
+walks a reachability graph. Scoped to REACHABLE defs it still cost three: `extern def
+getCurrentPosition()` and `extern def getCurrentPosition(opts)` are both reachable and both render
+to NOTHING, since an extern with no `@rust` has no Rust side. It is now counted on what actually
+EMITS, which is the only thing rustc ever sees.
+
+**The gate did not catch that; reading the baseline diff did.** It asserted only that BADRUST must
+not grow, and BADRUST was falling while nine modules stopped compiling. It now guards the COMPILES
+column too — a gate satisfiable by giving up capability is the failure it exists to prevent.
+
+## rust-std-e0425-name-not-found — an extension member emits a body reading a receiver that was dropped
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 6e31c4b17
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-11 for the extension half.** `extension (u: Uuid) def asString: String = u` emitted
+`pub fn asString() -> String { u }` — `error[E0425]: cannot find value u in this scope`. A parsed
+statement list is FLAT: `collectDefs` deep-collects `Defn.Def`, so an extension member arrives as an
+ordinary top-level def and the receiver is simply gone.
+
+The CALL site already refuses these ("reads `shout` on a String and the rust backend has no lowering
+for it"), so the definition is not merely broken, it is **uncallable**. Refused by name for the same
+reason.
+
+**Narrow on purpose: only a member whose body READS the receiver.** One that does not compiles
+today, and refusing it as well would cost a module its COMPILES status for dead code that hurts
+nobody. Measured before choosing — exactly one COMPILES module declares an extension.
+
+**Still open in this class**, and they are individual rather than concentrated: `std/money.ssc`
+(`RoundingMode.HALF_UP`, an unknown external constant emitted rather than refused) and
+`std/cluster/membership.ssc` (`joinCluster` called but never emitted).
+
+## rust-generic-enum-drops-its-parameters — `enum Either[L, R]` emits `pub enum Either`, and call sites still say `Either<i64, i64>`
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+A type-parameterised enum renders with its parameters silently DROPPED, so the declaration and its
+use sites disagree: `error[E0107]: enum takes 0 generic arguments but 2 generic arguments were
+supplied`. Surfaced in `std/either.ssc` and `std/index.ssc` once the duplicate-`Either` defect above
+stopped masking it.
+
+**Refusing it was tried and REVERTED, and that is the useful part.** `std/coroutine.ssc` declares
+`enum Step[Y, R]`, never references it with type arguments, and compiles — so a refusal took a
+WORKING module away in order to be more honest about one that was already failing. The survey gate's
+COMPILES arm is what said so. The real answer is to emit the parameters, which is a feature: the
+variants' field types reference `L`/`R`, so the type renderer needs the parameter names in scope,
+and every def over such an enum needs generics too.
+
 ## rust-std-corpus-badrust-column — 25 of 131 std modules emit Rust that rustc rejects; two shapes account for most of it
 <!-- status: fixed
      lane: v2-rust
