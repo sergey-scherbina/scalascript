@@ -5,7 +5,7 @@ started: 2026-08-11T10:53:44Z
 heartbeat: 2026-08-11T12:40:00Z
 status: implementing
 items: v3-extension-unblocks-two-files-into-a-lane-DIFF
-paths: file:std/parsing/regex.ssc file:std/parsing/combinators.ssc file:v3/regex-subset-gate.sh file:tests/conformance/regex-subset.ssc file:tests/conformance/expected/regex-subset.txt file:.github/workflows/v3.yml file:BUGS.md
+paths: file:std/parsing/regex.ssc file:std/parsing/combinators.ssc file:v3/regex-subset-gate.sh file:tests/conformance/regex-subset.ssc file:tests/conformance/expected/regex-subset.txt file:tests/conformance/contract-roster.tsv file:.github/workflows/v3.yml file:BUGS.md
 scope: |
   Layer 2 of v3-extension-unblocks-two-files-into-a-lane-DIFF: `PRegex` was answered by the HOST
   (java.util.regex, through a native string method), so each lane got its own engine's dialect and
