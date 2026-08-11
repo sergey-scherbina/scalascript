@@ -23,6 +23,62 @@ Newest first.
 
 
 
+## option-bound-to-a-val-is-not-tracked — an Option lowers correctly inline but not through a val, so getOrElse lands as unwrap_or on a Vec
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-11
+     ssc-version: 62bf49839
+     repro: repro/option-bound-to-a-val-is-not-tracked.ssc
+     fixed-in: 8221c43dd
+     gate: tests/e2e/build-rust-refuses-loudly.sh -->
+
+**FIXED 2026-08-11.** Two lines differing only by a binding:
+
+```scala
+println("inline = " + xs.find(s => s.length > 1).map(s => s + "!").getOrElse("-"))   // compiled
+val bound = xs.find(s => s.length > 1)
+println("bound  = " + bound.map(s => s + "!").getOrElse("-"))                        // E0599
+```
+
+The emitted Rust says it plainly — inline took the Option path, bound took the LIST path:
+
+```rust
+… .find(…).map(move |s| { … }).unwrap_or("-".to_string())                       // inline
+bound.iter().cloned().map(|s| { … }).collect::<Vec<_>>().unwrap_or("-".to_string())  // bound
+```
+
+`isOptionExpr` decided the shape from the EXPRESSION only, and had no case for a bare name, so a
+binding erased the type. The walker already keeps `localSeqs` and `localStrings` for exactly this
+purpose; there was no `localOptions` beside them. **The reporter diagnosed it to that line** and
+said the shape was theirs to name but the fix mine to judge — which is what made this cheap.
+
+**Built on `isOptionExpr` rather than a second list of Option-producing methods.** A copy would
+answer differently the day one of them gains a lowering, and this defect IS one representation known
+in two places disagreeing. The pre-pass therefore grows its set as it walks, so `val a = xs.find(p);
+val b = a` tracks through the second binding too.
+
+**`isOptionExpr` now REQUIRES the context rather than defaulting it**, and that decision found a
+bug: the compiler named a twelfth call site (`renderInterpArg`, the arm that prints an Option the
+Scala way) that a defaulted parameter would have left blind — the same defect, reachable through
+string interpolation instead of `println`.
+
+**The gate reads the emitted TEXT, not a cargo build.** The signal is `collect::<Vec<_>>()` followed
+by `unwrap_or`: an Option unwrap applied to a collected Vec is exactly the shape of an Option that
+was lost, and it names the defect CLASS rather than one method. Verified against both artifacts —
+1 match in the emission before the fix, 0 after — and the gate also fails if NEITHER `getOrElse`
+lowers, so a probe that has stopped testing anything cannot read as a pass.
+
+Negative control, on a rebuilt toolchain: with the pre-pass still called but its result emptied,
+`build-rust` returns the reported `E0599` again. The first attempt at that control was VACUOUS —
+removing the call made the method unused, `-Werror` failed the build, and the `rc=0` I measured came
+from the old binary.
+
+This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
+the end.
+
 ## rust-no-paren-member-becomes-a-field-silently — an unlowered no-paren member on a List/String is emitted as a Rust FIELD access, so the by-name refusal never sees it
 <!-- status: open
      lane: v2-rust
