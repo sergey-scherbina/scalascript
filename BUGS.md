@@ -23,6 +23,73 @@ Newest first.
 
 
 
+## multi-effect-marker-is-lost-in-a-bare-ssc — the same program is multi-shot fenced and one-shot bare
+
+<!-- status: open
+     lane: int
+     area: front
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-11 on a freshly built toolchain**, one program, two files that differ only in
+whether the code sits inside a ```` ```scalascript ```` fence:
+
+```
+multi effect NonDet:
+  def choose(options: List[Int]): Int
+
+def program(): Int ! NonDet = NonDet.choose(List(1, 2)) + 10
+
+def main(): Unit =
+  val all = handle(program()) {
+    case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+    case x => List(x)
+  }
+  println(all)
+```
+
+    fenced   List(11, 12)
+    bare     [ERROR] One-shot violation: NonDet.choose resumed more than once
+
+**The declaration is `multi effect` in both.** `Parser.preprocessEffects` injects
+`val __multiShot__ = true` for it, `EffectAnalysis` collects the marker, and
+`Interpreter.collectScalaTrees` filters code blocks with `Lang.isScalaScript(cb.lang)` — a NARROWER
+predicate than the `Lang.isParseable` that `Content.isProgramCode` uses two files away. A bare file's
+synthesised block is the suspect, but I did not confirm which `lang` it carries, so that is a lead
+and not a diagnosis.
+
+**Why it matters more than the one program:** a `multi effect` silently demoted to one-shot does not
+misbehave quietly — it throws where a correct program should run, and the message names a
+"violation" by the USER rather than a marker the front dropped.
+
+**Fences are optional** (2026-07-09), so "bare" is not an exotic spelling: it is what every probe and
+several gate fixtures in this repository use, and it is the second defect of this shape found in two
+days — the other was a keyword-import scanner that only looked inside fences.
+
+## multi-effect-in-braces-does-not-parse — `multi effect E { … }` is `Undefined: multi`
+
+<!-- status: open
+     lane: int
+     area: front
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-11.** `Parser.preprocessEffects` matches
+
+    ^(\s*)(multi\s+)?effect\s+(\w+)(\[[^\]]*\])?(\s+extends\s+[^:]+)?\s*:
+
+— it requires a trailing `:`, so only the INDENTED form is rewritten. The braced form is left
+untouched and `multi` survives as a bare identifier:
+
+    multi effect NonDet { def choose(options: List[Int]): Int }
+    → [ERROR] [line 1, col 1] Undefined: multi
+
+Both spellings are ordinary Scala 3 syntax elsewhere in this language, and the braced one is what a
+reader coming from `object E { … }` writes first. It is a one-line regex change plus the brace-body
+scan the indented branch already does by indentation, but it is NOT free: the rewriter consumes the
+declaration's body by INDENT, so a braced body needs a different terminator. Recorded rather than
+guessed at.
+
 ## option-bound-to-a-val-is-not-tracked — an Option lowers correctly inline but not through a val, so getOrElse lands as unwrap_or on a Vec
 <!-- status: fixed
      lane: v2-rust
@@ -1353,6 +1420,28 @@ real row instead of a 0 that looks like an answer.
 
 **Not a front difference.** v3's own front and the UniML projection agree with each other; the
 divergence is between VERSIONS, which no front differential can see.
+
+⚠ **RE-MEASURED 2026-08-11 ON A FRESHLY BUILT TOOLCHAIN: THE DIVERGENCE DOES NOT REPRODUCE.** This
+entry's own program, run through `bin/ssc-tools run --v1`, answers
+
+    List(11, 12)
+
+— the same as v3. No `Return` wrapper reaches the binder. Nothing in v1 CONSTRUCTS a `Return` value
+either: `grep '"Return"'` across v1 finds three sites and all three are the PATTERN
+(`Pat.Extract(Term.Name("Return"), _)`) in `EffectsRuntime`, `JsGen` and `JvmGen`.
+
+**But the same program in a BARE `.ssc` dies**, and that is a real defect filed separately as
+`multi-effect-marker-is-lost-in-a-bare-ssc`:
+
+    fenced   List(11, 12)
+    bare     [ERROR] One-shot violation: NonDet.choose resumed more than once
+
+So the most likely reading is that the original measurement was taken on a bare file, where the
+handler runs one-shot and the answer is not what either lane means. **Left OPEN rather than closed:**
+I could not reproduce the reported output in any spelling, and "I cannot reproduce it" is not the
+same as "it does not happen" — the entry was written the same day, and the difference may be a tree
+state I no longer have.
+
 
 ## v3-no-handler-error-has-no-position, and no NAME either — the IR carries neither
 
