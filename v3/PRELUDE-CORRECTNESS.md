@@ -96,9 +96,11 @@ be measured before the push, not beside it.
 
 ## P-5 — the prelude is parsed and lowered on EVERY invocation
 
-**Status: MEASURED 2026-08-11. It costs 22–26% of an invocation, and 93% of 398 corpus cases pay it
-for a library they never mention. The fix is not a cache. What to do instead is a decision for the
-owner and is stated at the bottom.**
+**Status: MEASURED, DECIDED AND FIXED 2026-08-11.** It cost 22–26% of an invocation and 93% of 398
+corpus cases paid it for a library they never mention. The owner chose lazy loading over a cache, and
+that the MODULE wins when it and the prelude share a name; both shipped in `11ac84c43`. The options
+as they were put are kept below, because the reasoning is what makes the choice reviewable — but
+they are a RECORD of a decision taken, not a question still open.
 
 **The apparatus first, because this host cannot be trusted with a single A/B.** Load averaged 7.4
 with three other agents' JVMs resident, and identical code has been measured 2.5× apart here at load
@@ -140,7 +142,7 @@ BOUND: lowering is at least 27% of the prelude's cost, parse-plus-render is the 
 properly needs an in-JVM harness, and it is **not decision-relevant** — see below — so it was not
 built.
 
-### What to do — the options, and why the obvious one is wrong
+### What was decided, and why the obvious answer was wrong
 
 **A cache is the wrong instinct and the measurement says so.** Every invocation is a fresh JVM, so a
 cache would have to be on disk; and this repository has been burned twice by digest-keyed caches
@@ -155,7 +157,7 @@ unknown name, retry with the prelude in scope. Note this does NOT require knowin
 names in advance, which is what makes it cheap — asking "does this program mention `Dataset`" would
 mean parsing the prelude to find out, which is the cost being avoided.
 
-**Two things it would change, and neither should be decided quietly:**
+**Two things it changed, both put to the owner rather than decided quietly — and both approved:**
 
 1. **A module that declares a name the prelude also declares.** Today the prelude is loaded first and
    therefore OWNS the name (P-6's rule), so the module's copy is renamed. Loading lazily, a program
@@ -332,3 +334,30 @@ ambiguous; say so rather than pretend the rename closed it.
   Loader must not depend on the lowering);
 - `./v3/corpus-report.sh` BEFORE the push. Gates do not cover the corpus. P-4's first attempt was
   gate-green at N = 132.
+
+**WHAT SHIPPED, and where it differs from the sketch above.**
+
+The retry fires on ANY `LowerFail`, not on a message that looks like a missing name — matching the
+text would make every diagnostic in `Lower` load-bearing, so rewording `unknown name '…'` would
+silently stop programs finding the standard library. And the error the user sees is the one from the
+attempt WITH the prelude, which is exactly what this compiler printed before, so no diagnostic moved.
+
+The laziness is guarded BEHAVIOURALLY, not by a stopwatch: `prelude-gate.sh` points `SSC3_PRELUDE`
+at a file that cannot be parsed, and a program using none of its names still prints its answer —
+which is only possible if the file was never read. A timing check would need a threshold on a host
+that has been measured 2.5× apart at load 5.5; this one is exact.
+
+**AND THE DIAGNOSTIC CLAUSE FOUND A THIRD DEFECT, by contradicting itself.** `Driver.preludeNote`
+produced `unknown name 'Dataset' — 'Dataset' comes from the standard prelude` on
+`tests/conformance/dataset-shape`: both halves accurate, together nonsense, because neither was
+about the MEMBER. `Dataset.fromFile` does not exist (it needs host IO, which option 3 exists to
+avoid), so the lowering fell through to evaluating the receiver as a value — and an object is a
+namespace, not a value, so it arrived at the bare-name arm. It now says `'Dataset' has no member
+'fromFile' — it declares …`.
+
+**That fix cost N 206 → 205 on its first attempt and the corpus is the only thing that noticed.**
+An object's `val`/`var` members are module GLOBALS named `Owner.member`, not functions, so
+`Counter.n` on `object Counter: var n = 0` looked exactly like a missing member and
+`object-var-member-scope` went from PASS to a refusal. All eighteen gates stayed green throughout —
+not one of them has an object with a `var` in it. Third time in one day that gate-green was not
+evidence for a change to name resolution.

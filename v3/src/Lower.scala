@@ -490,6 +490,48 @@ object Lower:
       val (d, st1) = st.fresh
       (acc :+ Instr.Call(d, fns.indexOf(obj + "." + nm), regs.reverse), d, st1)
 
+    // AN OBJECT WITHOUT THAT MEMBER, said as itself instead of as a puzzle.
+    //
+    // `Dataset.fromFile(tmp)` has no `Dataset.fromFile`, so it fell past the arm above and the
+    // lowering tried to evaluate the RECEIVER as a value. An object is a namespace and not a value,
+    // so it arrived at the bare-name arm and came out as `unknown name 'Dataset'` — pointing at a
+    // name that is perfectly well known, while the member that is missing goes unmentioned.
+    //
+    // IT WAS MY OWN NEW CLAUSE THAT MADE THIS UNREADABLE, which is how it was found:
+    // `Driver.preludeNote` resolved `Dataset` against the prelude and produced
+    //
+    //     unknown name 'Dataset' — 'Dataset' comes from the standard prelude
+    //
+    // a message that contradicts itself in one line. Both halves were accurate; together they were
+    // nonsense, because neither was about the member.
+    //
+    // A NAME IS AN OBJECT HERE IF THE PROGRAM HAS ANY `obj.something` — that is exactly what
+    // flattening an `object` produces, so this asks the same table the arm above does and invents
+    // no new notion. `Dataset` in `tests/conformance/dataset-shape` is the live case: the library
+    // is a Tier 0 list library and `fromFile` needs host IO, which option 3 of the DATASET decision
+    // exists to avoid. That is an honest refusal and it should read like one.
+    // ONLY A NULLARY class is excluded, not every class. A bare `Expr.Name` can be a constructor —
+    // `Nil`, `None`, `case Red` — but only when the class takes NO fields; one that takes fields
+    // cannot be spelled as a name and its companion is what a `Name` receiver means. `Dataset` is
+    // exactly that pair (a `case class Dataset(items)` beside an `object Dataset`), and excluding
+    // every class left the very case this arm was written for still reading `unknown name`.
+    // `globalIdx(obj + "." + nm)`, NOT just `globalIdx(obj)`, and the corpus is what said so.
+    // An object's `val`/`var` members are module GLOBALS named `Owner.member` — they are not in
+    // `fns`, which holds functions — so `Counter.n` on an `object Counter: var n = 0` looked to
+    // this arm exactly like a missing member. `object-var-member-scope` went from PASS to a
+    // refusal, N 206 -> 205, caught before the push by the measurement and by nothing else: every
+    // gate stayed green, because no gate has an object with a `var` in it.
+    case Expr.MethodCall(Expr.Name(obj, _), nm, _, p)
+        if st0.lookup(obj).isEmpty && st0.globalIdx(obj) < 0 &&
+           st0.globalIdx(obj + "." + nm) < 0 &&
+           !classes.exists(c => c.name == obj && c.fields.isEmpty) &&
+           !ctors.exists((cn, ar) => cn == obj && ar == 0) &&
+           fns.exists(f => f.startsWith(obj + ".")) =>
+      val members = fns.filter(f => f.startsWith(obj + ".")).map(f => f.substring(obj.length + 1)).sorted
+      throw LowerFail(p, "'" + obj + "' has no member '" + nm + "' — it declares " +
+        (if members.length <= 8 then members.mkString(", ")
+         else members.take(8).mkString(", ") + " and " + (members.length - 8).toString + " more"))
+
     // `p.copy(y = 20)` — a new value of the SAME class with some fields replaced. Dispatched by
     // the receiver's tag like every other method, and each arm builds its own constructor: the
     // fields the call names come from the arguments, the rest are read back off the receiver.
