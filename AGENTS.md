@@ -968,12 +968,37 @@ for wt in $(git worktree list --porcelain | awk '/^worktree / {print $2}'); do
 done
 ```
 
-If a sibling's branch name, modified files, or recent commits overlap
-with your candidate item — pick a different item. Check both
-`git worktree list` (active worktrees) and
+Check both `git worktree list` (active worktrees) and
 `git ls-tree origin/main .work/active/` (authoritative remote claims) before
-deciding what's free. Don't coordinate through chat; the git state is the
-contract.
+deciding what's free.
+
+**Git state is the RECORD of who holds what; the room is where an overlap gets
+RESOLVED.** These are different jobs and this paragraph used to conflate them —
+it said "pick a different item" and "don't coordinate through chat", which is the
+opposite of POLICY §P-5.1 ("contested goes to the room — another agent's claim in
+your way") and §P-2.5. Agents followed this checklist, because this is what gets
+read before starting, and the result was work deferred that one message would
+have unblocked.
+
+So: a claim is only real when it is visible on `origin/main` (§P-2.4b) — that part
+of "the git state is the contract" stands, and a claim announced only in chat is
+not a claim. But when a sibling's scope is in your way, the move is to **say so in
+the room**, naming the file and what you need:
+
+```
+@their-slug I need ~10 lines in budgetFor() of scripts/smoke-ci.ssc.
+You're in the check list. Widen to share, or shall I wait?
+```
+
+Measured 2026-08-10, over 30 days: of 143 pairs of commits from DIFFERENT claims
+touching the same file within six hours, **43 (30%) touched overlapping line
+ranges** — so seven times in ten a rival edit would have merged with no conflict
+at all, and the block bought nothing. In the other three, the two agents needed
+to talk anyway. Picking a different item is right only when the work itself is
+duplicated (§P-2.4c), not when the paths merely touch.
+
+Waiting is also usually short: one claim is one task (§P-2.6), so the honest
+answer to "shall I wait?" is frequently minutes.
 
 If your item already landed on `origin/main` (search recent commits),
 mark it done in `BACKLOG.md` + add a line to `CHANGELOG.md`, then move on.

@@ -7,6 +7,69 @@ grepping for status.
 
 Newest first.
 
+## claim-overlap-tells-you-to-avoid-instead-of-talk — the checklist contradicted the policy
+
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: tests/coord/claim-hooks.sh
+     fixed-in: PENDING -->
+
+`POLICY.md` has said the right thing all along: **P-5.1** — "contested goes to the room — another
+agent's claim in your way" — and **P-2.5**, "a refusal you believe is wrong is a conflict of
+interest. Take it to the room." The room exists for exactly this.
+
+`AGENTS.md` §"Before starting" said the opposite, in the one paragraph an agent reads immediately
+before choosing work:
+
+> If a sibling's branch name, modified files, or recent commits overlap with your candidate item —
+> **pick a different item.** … **Don't coordinate through chat**; the git state is the contract.
+
+Agents follow the checklist, not the policy, because the checklist is the operational text. The
+observable result is work deferred that one message would have unblocked — twice in one session on
+2026-08-10: `scripts/smoke-ci.ssc` (one task split into two claims an hour apart, the two edits in
+different functions) and `.githooks/pre-push` (a one-line message fix left undone and filed as a
+note instead).
+
+**The sentence was half right, which is why it survived.** A claim IS only real when visible on
+`origin/main` (P-2.4b) — a claim announced only in chat is not a claim. That is the RECORD. But
+resolving an overlap is a different job from recording one, and the paragraph collapsed the two.
+
+**MEASURED before changing anything, and the first number was wrong.**
+
+| measurement | result |
+| --- | --- |
+| commit pairs from DIFFERENT claims, same file, within 6 h (30 days) | 143 |
+| of those, touching overlapping line ranges | **43 — 30 %** |
+| first attempt at the same number | 39 %, contaminated |
+| distinct paths ever claimed / claimed by more than one claim | 244 / 82 |
+
+The 39 % counted 1269 pairs of *consecutive* commits, most of which are one agent iterating on their
+own work — that is not concurrency. Attributing commits to claims (via the `Landed <sha>` references
+in `release-claim:` messages, 1054 shas recovered) and keeping only cross-claim pairs gives 30 %.
+
+**So the lock blocks 100 % of rival edits to avoid a conflict in 30 %**, and in the other 70 % it
+buys nothing. And a textual conflict is the *visible* case. The dangerous one is a clean merge that
+silently drops the other's work — which is what actually happens on the files that have NO lock: the
+boards took 392 commits in 30 days and produced 13 repair commits for lost entries, every one of them
+a clean merge git was happy with.
+
+**Fixed by changing what an overlap TELLS you to do, not by removing the lock** (30 % is not rare
+enough for that, and it was my prior that it would be):
+
+- `AGENTS.md` now separates the record from the resolution, keeps "a claim is real on `origin/main`",
+  drops "pick a different item" and "don't coordinate through chat", and gives the message to post.
+- `.githooks/pre-push` offers **asking in the room FIRST**, above "pick different work" and above the
+  `verify-<slug>` escape, with the command and the 30 % figure so the reader knows the odds.
+
+Gates: `tests/coord/{claim-mutex-conflict,claim-hooks,claim-scope-hierarchy,coord-claim-runs}.sh` all
+pass, and the hook was executed the way git invokes it rather than only syntax-checked (P-6.2).
+
+**Left open on purpose:** whether `file:` scopes should become advisory warnings rather than
+refusals. The 30 % says that is a real trade, not a free one, and it changes the contract for every
+agent — a decision, not a drive-by.
+
 ## coord-claim-items-prose-reserves-english-words — a claim written in prose reserves "a", "an", "the"
 
 <!-- status: fixed

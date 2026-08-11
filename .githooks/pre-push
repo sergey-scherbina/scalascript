@@ -404,6 +404,13 @@ other claim (`git show origin/main:.work/active/<slug>.claim`); if its `items:` 
 is the whole conflict.
 
 Before pushing, either:
+  - ASK IN THE ROOM FIRST — this is what it is for, and it is the option that keeps both agents
+    working (POLICY P-5.1, P-2.5). Name the file and what you need; scopes that merely touch are
+    usually shareable, and one claim is one task, so "how long?" is often minutes:
+        mcp__rozum__meeting_submit  "@<their-slug> I need <what> in <file>. Widen to share, or shall I wait?"
+    Measured 2026-08-10: of 143 commit pairs from different claims on the same file within six
+    hours, only 43 (30%) touched overlapping lines — seven times in ten there was nothing to
+    resolve at all.
   - pick different work:            git ls-tree origin/main .work/active/
   - triage the other claim first:   /multi-agent triage <slug>     (stale heartbeat ⇒ release it)
   - or, if you are DELIBERATELY re-checking that agent's result, name your claim 'verify-<slug>' —
