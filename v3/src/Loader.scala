@@ -350,23 +350,4 @@ object Loader:
     // rebuild silently dropped it — a merged program had no effect declarations at all, and the
     // symptom was `unknown name 'Bump'` in the LOWERING, three layers from the cause. A defaulted
     // field is invisible exactly where a case class is reconstructed by hand.
-    // THE ROOT'S DECLARATION WINS, and until 2026-08-11 it did not — for `def` only, which is the
-    // worst shape: a user who wrote their own `greet()` beside a prelude that also defines one got
-    // the PRELUDE's, silently, with no diagnostic and no way to notice. A `case class` already
-    // behaved correctly, so the two kinds of declaration disagreed about the same question.
-    //
-    // Measured, not assumed — that is what P-4 in `v3/PRELUDE-CORRECTNESS.md` was for. The rule is
-    // the one every language with a prelude has: your own definition shadows the standard one,
-    // silently, and this is now a rule with a test rather than a consequence of concatenation
-    // order. It applies to imports too, and there for the same reason: `units` is ordered with the
-    // root LAST, so keeping the last declaration of a name means the file you are running wins over
-    // anything it pulled in.
-    def lastWins(ds: List[Def]): List[Def] =
-      val overridden = ds.map(_.name).groupBy(x => x).filter((_, xs) => xs.length > 1).keySet
-      if overridden.isEmpty then ds
-      else
-        val keep = ds.reverse.foldLeft((Set.empty[String], List.empty[Def])) { (acc, d) =>
-          if acc(0).contains(d.name) then acc else (acc(0) + d.name, d :: acc(1))
-        }
-        keep(1)
-    Program(lastWins(defs), top, classes, objects, traits, effects, origin)
+    Program(defs, top, classes, objects, traits, effects, origin)

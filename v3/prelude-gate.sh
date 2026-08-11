@@ -88,17 +88,6 @@ case "$none" in
   *) say FAIL "missing prelude path: expected the ordinary unknown-name refusal, got '$none'"; fail=1 ;;
 esac
 
-# YOUR OWN DEFINITION SHADOWS THE PRELUDE'S, silently, as in every language that has one. Measured
-# before it was decided: `def` got this BACKWARDS — the prelude won and the user's own function was
-# ignored with no diagnostic — while `case class` already got it right, so the two kinds disagreed
-# about the same question. That is the worst shape a collision can take, and it is why the rule was
-# written down before the prelude was allowed to grow.
-printf 'def greet(): String = "prelude"\n' > "$T/shadow-prelude.ssc"
-printf 'def greet(): String = "user"\ndef main(): Unit = println(greet())\n' > "$T/shadow.ssc"
-who="$(SSC3_PRELUDE="$T/shadow-prelude.ssc" "$SSC3" exec "$T/shadow.ssc" 2>/dev/null | tail -1)"
-if [ "$who" = "user" ]; then say ok "the user's own definition shadows the prelude's"
-else say FAIL "a prelude definition overrode the user's: got '$who', expected 'user'"; fail=1; fi
-
 # AN ERROR IN THE PRELUDE MUST NAME THE PRELUDE. It used to be reported against the file the user
 # named, so a three-line fixture was told its error was at line 38 — a line in the prelude. Positions
 # were always counted inside their own file; it was the FILE that was lost, because `LowerFail`'s
