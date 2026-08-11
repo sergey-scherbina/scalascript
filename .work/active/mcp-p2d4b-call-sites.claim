@@ -1,0 +1,11 @@
+slug: mcp-p2d4b-call-sites
+branch: feature/mcp-p2d4b-call-sites
+agent: claude-code
+started: 2026-08-11T23:50:45Z
+heartbeat: 2026-08-11T23:50:45Z
+status: claimed-before-planning
+items: mcp-2026-07-28 P2d-4b
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpClientCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpHttpClient.scala file:mcp/common/src/main/scala/scalascript/mcp/McpWsClient.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
