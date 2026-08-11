@@ -100,26 +100,34 @@ class RustGenR2Test extends AnyFunSuite:
     assert(g.contains("(inc(n) + 2i64)"),
       s"user-fn call not found in:\n$g")
 
-  test("call to an unknown free name passes through to Rust (cargo rejects)"):
-    // R.2.4 widened the apply path so closure-parameter calls (`f(x)`)
-    // succeed even when `f` is neither a known fn nor a known ctor.
-    // The flip side: unresolved free names like `mystery` are now
-    // emitted as-is and rejected by `cargo build`, not by RustCodeWalk.
+  test("call to an unknown free name is REFUSED, naming it"):
+    // REVERSED 2026-08-11, and the old comment said why it existed: R.2.4 widened the apply path so
+    // closure-parameter calls (`f(x)`) succeed even when `f` is neither a known fn nor a known
+    // ctor, and "the flip side: unresolved free names like `mystery` are now emitted as-is and
+    // rejected by `cargo build`, not by RustCodeWalk."
+    //
+    // The pass-through was a CONSEQUENCE of not knowing the parameters, not a contract anyone
+    // wanted. The walker now knows a def's own params, closure params, locals and the `fn`s a
+    // verbatim `rust` fence block defines, so the flip side has no cause left — and its cost was
+    // measured: six std modules handed the user `error[E0425]: cannot find function joinCluster in
+    // this scope`, pointing into generated code they never wrote. This backend has made the same
+    // call three times already (unimplemented externs, unlowered list methods, no-paren members),
+    // each time with the same reason written beside it.
+    // (rust-emits-a-reference-with-no-rust-side.)
     val src =
       """```scalascript
         |def use(n: Long): Long = mystery(n) + 1
         |```
         |""".stripMargin
     new RustBackend().compile(Normalize(Parser.parse(src)), emptyOpts) match
-      case CompileResult.Segmented(segs) =>
-        val g = segs.collectFirst {
-          case Segment.Asset("src/generated/ssc_program.rs", b, _) => new String(b, "UTF-8")
-        }.getOrElse(fail("generated module missing"))
-        assert(g.contains("(mystery(n) + 1i64)"),
-          s"expected pass-through mystery call:\n$g")
       case CompileResult.Failed(ds) =>
-        fail(s"expected Segmented, got Failed: $ds")
-      case other => fail(s"expected Segmented, got $other")
+        // The message must NAME the call. A refusal that says only "unsupported" moves the search
+        // from generated Rust to the whole source file, which is not an improvement.
+        assert(ds.exists(_.toString.contains("mystery")),
+          s"the refusal does not name the unresolved call:\n$ds")
+      case CompileResult.Segmented(_) =>
+        fail("expected a refusal naming `mystery`, got a crate — the unresolved call passed through")
+      case other => fail(s"expected Failed, got $other")
 
   // ── s"…" interpolation ─────────────────────────────────────────────
 

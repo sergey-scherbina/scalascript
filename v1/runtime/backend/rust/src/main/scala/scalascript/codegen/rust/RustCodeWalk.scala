@@ -75,6 +75,10 @@ object RustCodeWalk:
       c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
     }.toMap
     val rustBlocks        = collectRustBlocks(module)
+    // `fn name(` in a verbatim `rust` fence block: those functions ARE in the crate, and the walker
+    // knows nothing else about them. Without this a call to one is refused as undefined.
+    val rustFnNamesInBlocks: Set[String] =
+      rustBlocks.flatMap(b => """(?m)^\s*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)""".r.findAllMatchIn(b).map(_.group(1))).toSet
     val givens            = collectGivens(module)
     val userDefs          = defs.map(_.name.value).toSet
     // OVERLOADING has no Rust. Two `def`s of one name — `def text(s: String): ToolResult` beside
@@ -205,7 +209,7 @@ object RustCodeWalk:
     val extensionErrs = extensionMembers.filter((n, _) => renderedNames.contains(n)).map { (n, recv) =>
       unsupported(s"def `$n` is an `extension` member reading its receiver `$recv`; this lane drops the receiver, so the body would reference a name that does not exist")
     }
-    val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs))
+    val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks))
     val (errors, ok) = results.partitionMap(identity)
     // Overloading is counted on what actually EMITS, which is one level deeper than "reachable".
     // `extern def getCurrentPosition()` and `extern def getCurrentPosition(opts)` in std/geo.ssc are
@@ -1111,6 +1115,12 @@ object RustCodeWalk:
       // lowered as a LIST map, so `getOrElse` became `unwrap_or` on a `Vec<String>`.
       // (option-bound-to-a-val-is-not-tracked, reported by rozum.)
       localOptions: Set[String] = Set.empty,
+      // The def's OWN parameter names, and every `fn name` a verbatim `rust` fence block defines.
+      // Both are callable and neither is a user def, so a refusal that does not know them refuses
+      // correct programs — `def apply(f: Int => Int, x: Int) = f(x)` is four of this backend's own
+      // tests. (rust-emits-a-reference-with-no-rust-side.)
+      defParams:    Set[String] = Set.empty,
+      rustFnNames:  Set[String] = Set.empty,
       // Names bound by the enclosing closure(s) (params + pattern binds).  Inside a
       // closure, a non-Copy bare-name arg that is NOT one of these is a *captured*
       // value, so it's cloned at by-value calls to avoid moving it out of an FnMut.
@@ -1206,7 +1216,10 @@ object RustCodeWalk:
       userDefs:      Set[String],
       ctorMap:       Map[String, EnumCtor],
       topVals:       List[TopVal],
-      effectfulDefs: Set[String]
+      effectfulDefs: Set[String],
+      // Required rather than defaulted: the ONE call site must pass it, and a default would let a
+      // future second caller refuse a legal call to a fence-defined `fn` without anyone noticing.
+      rustFnNames:   Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
     val name    = d.name.value
     // backend-blocks-p6: @rust("expr") on an extern def emits the expression inline.
@@ -1244,6 +1257,9 @@ object RustCodeWalk:
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
+                        defParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+                          .map(_.name.value).toSet,
+                        rustFnNames = rustFnNames,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         localSignals = collectLocalSignals(d.body),
                         anyNames = anyParams,
@@ -3714,9 +3730,30 @@ object RustCodeWalk:
                     plainName.filter(ctx.userDefs.contains) match
                       case Some(n) => Right(withEff(n, joined))
                       case None    =>
-                        // Fallback: assume closure parameter or local binding;
-                        // Cargo will reject if not.  See R.2.4.
+                        // The fallback used to read "assume closure parameter or local binding;
+                        // Cargo will reject if not" — and that is exactly what it did: `joinCluster`
+                        // and `connectNode` in std/cluster/membership.ssc are called and defined
+                        // NOWHERE in the crate, so the user got `error[E0425]: cannot find function
+                        // joinCluster in this scope`, pointing into generated code they never wrote.
+                        // The same disease the extern refusal above names: the backend omitting what
+                        // it cannot provide and letting rustc do the talking.
+                        //
+                        // A callable local IS still assumed, because the sets below cannot prove a
+                        // name absent — a single-use `val f = …` holding a closure is in none of
+                        // them. So the refusal fires only when the name is in NO set AND takes
+                        // arguments, which is the shape a missing FUNCTION has.
+                        // (rust-emits-a-reference-with-no-rust-side.)
+                        val locallyKnown = (n: String) =>
+                          ctx.closureParams.contains(n) || ctx.multiUse.contains(n) ||
+                          ctx.localSignals.contains(n) || ctx.localSeqs.contains(n) ||
+                          ctx.localStrings.contains(n) || ctx.anyNames.contains(n) ||
+                          ctx.localOptions.contains(n) ||
+                          ctx.defParams.contains(n) || ctx.rustFnNames.contains(n)
                         plainName match
+                          case Some(n) if joined.nonEmpty && !locallyKnown(n) =>
+                            Left(List(unsupported(
+                              s"def `${ctx.defName}` calls `$n`, which this crate does not define — no def, no intrinsic, no local of that name"
+                            )))
                           case Some(n) => Right(withEff(n, joined))
                           case None    => Left(List(unsupported(
                             s"def `${ctx.defName}` calls `${fn.syntax}` which has no resolvable name"

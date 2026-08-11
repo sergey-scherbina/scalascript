@@ -7,7 +7,7 @@ std/bifunctor.ssc	REFUSED	[error] Generic(
 std/cluster/coord-consul.ssc	COMPILES	
 std/cluster/coord-etcd.ssc	COMPILES	
 std/cluster/index.ssc	COMPILES	
-std/cluster/membership.ssc	BADRUST	error[E0425]
+std/cluster/membership.ssc	REFUSED	[error] Generic(
 std/cluster/shard.ssc	COMPILES	
 std/cluster/singleton.ssc	COMPILES	
 std/cluster/types.ssc	REFUSED	[error] Generic(
@@ -56,11 +56,11 @@ std/mcp/client.ssc	REFUSED	[error] Unsupported(
 std/mcp/index.ssc	REFUSED	[error] Unsupported(
 std/mcp/server.ssc	COMPILES	
 std/mcp/types.ssc	REFUSED	[error] Generic(
-std/middleware.ssc	BADRUST	error[E0666]
+std/middleware.ssc	REFUSED	[error] Generic(
 std/mime.ssc	COMPILES	
 std/monad-control.ssc	REFUSED	[error] Generic(
 std/monaderror.ssc	REFUSED	[error] Generic(
-std/money.ssc	BADRUST	error[E0425]
+std/money.ssc	REFUSED	[error] Generic(
 std/nfc.ssc	REFUSED	[error] Unsupported(
 std/nodes.ssc	COMPILES	
 std/openapi.ssc	COMPILES	
@@ -111,7 +111,7 @@ std/ui/content.ssc	REFUSED	[error] Generic(
 std/ui/data.ssc	REFUSED	[error] Generic(
 std/ui/display.ssc	COMPILES	
 std/ui/fetch-json.ssc	REFUSED	[error] Generic(
-std/ui/form.ssc	BADRUST	error[E0277]
+std/ui/form.ssc	REFUSED	[error] Generic(
 std/ui/i18n.ssc	REFUSED	[error] Generic(
 std/ui/input.ssc	COMPILES	
 std/ui/layout.ssc	COMPILES	
