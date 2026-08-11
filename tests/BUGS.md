@@ -36,6 +36,45 @@ divergent rows only — which is cheap in practice, since divergences are the sm
 Filed rather than fixed here because the gate's thresholds are frozen against the current meaning,
 and changing what the number means changes what the freeze is worth.
 
+## cancelled-exact-run-preempts-the-descendant-search — 73% of pushes got no verdict at all
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/ci-status-guard.sh
+     fixed-in: 225060ee2 -->
+
+**Measured 2026-08-11 over the last 60 smoke runs: cancelled 44, success 9, failure 7.** Three
+quarters of pushes never reach a verdict, because a newer push supersedes the run. `cancelled` is RED
+by POLICY P-6.7 and rightly so — but it meant evidence level 1 was close to unobtainable, and every
+release that day settled for level 3.
+
+`scripts/ci-status` already had the answer: `find_covering_descendant` asks whether a later run whose
+commit CONTAINS this one reached a verdict. It was gated on `[[ -z "$run_payload" ]]` — *no run for
+this SHA at all* — so in the 73 % case, where a run exists but was cancelled, **it never ran**, and
+five commits that four separate green runs demonstrably contained all answered RED. The fallback was
+disabled in exactly the case it was written for.
+
+It now also fires when the exact-SHA run reached **no verdict** — `cancelled`, `timed_out`,
+`startup_failure`. Not on `failure`: that is a real verdict about this commit and a later green must
+not paper over it. Verified live — `1184b6e58`, which genuinely failed, still reports RED while
+having green descendants.
+
+**Two mistakes on the way, both caught by the gate rather than by reading.** Filtering descendants on
+`success` alone turned a red descendant into `UNKNOWN`, and `ci-status-guard[desc-red]` failed at
+once with `expected=1 got=2`; a descendant is evidence if it reached a verdict either way, and only
+no-verdict outcomes are skipped. Raising the descendant window 40 → 120 also failed the gate, because
+the guard's fake `gh` encodes that argument; reverted, with the limitation stated in the code — it
+affects only the advisory NOTE, never the verdict.
+
+**NEAREST and LATEST disagree, and picking one silently lies in one direction.** A run containing
+`8c39d9df1` FAILED at 08:48 while six later runs containing the same commit were green. The green
+ones answer what a release actually asks — *does main work with my change in it* — so they decide,
+and a failing descendant inside the window is NAMED in the output rather than dropped.
+
+A/B: with the old trigger that commit reads `CI RED`; with the fix, `CI GREEN (descendant)`.
+
 ## reference-front-answers-three-conformance-files-differently-from-both-other-lanes
 
 <!-- status: open
