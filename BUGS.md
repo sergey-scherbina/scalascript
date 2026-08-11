@@ -1316,6 +1316,44 @@ construct — so the gap is visible rather than silent.
 Closing it is a change to a DIFFERENT artifact — `uniml/scala/.../SpikeAst.scala` and
 `ScalaSpike.scala` — plus the projection, and a classpath rebuild. Worth its own claim.
 
+## v1-handle-return-clause-binds-the-Return-wrapper — the same program answers differently on v1 and v3
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: none -->
+
+**Measured 2026-08-11 on one file, both toolchains rebuilt first.**
+
+    multi effect NonDet:  def choose(options: List[Int]): Int
+    def program(): Int ! NonDet = NonDet.choose(List(1, 2)) + 10
+    val all = handle(program()) {
+      case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+      case x => List(x)
+    }
+
+    v3, both fronts   List(11, 12)
+    v1                List(Return(11), Return(12))
+
+**v1 accepts the return clause and gives its binder the WRAPPER.** `x` is bound to `Return(11)`
+rather than to `11`, so the representation the runtime uses to mark a finished computation reaches
+the program's own value. In every formulation of algebraic effects the return clause binds the
+computation's VALUE — that is what it is for — and v3 does that.
+
+**Why this was looked at.** Sergiy confirmed the explicit return clause as the right language
+design (v3-handle-has-no-return-clause, fixed 2026-08-09), which raised the question left open
+there: `bench/corpus/effect-multishot.ssc` answers 0 because it writes no clause, so should the
+fixture write one? **It cannot yet.** The lanes disagree about what the clause MEANS, so adding it
+would make the corpus row print two different answers rather than one — and the bench corpus is
+shared by every lane.
+
+So the order is: fix this, then the fixture can carry the clause and `effect-multishot` becomes a
+real row instead of a 0 that looks like an answer.
+
+**Not a front difference.** v3's own front and the UniML projection agree with each other; the
+divergence is between VERSIONS, which no front differential can see.
+
 ## v3-no-handler-error-has-no-position, and no NAME either — the IR carries neither
 
 <!-- status: open
