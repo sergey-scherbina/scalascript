@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+#
+# `git stash`, minus the way it loses another agent's work.
+#
+#   scripts/wt-stash push [-- <paths>…]   stash, refusing the case that makes pop dangerous
+#   scripts/wt-stash pop                  pop, but only an entry belonging to THIS branch
+#   scripts/wt-stash list                 the stack, with whose it is
+#   scripts/wt-stash --self-test          prove both refusals fire
+#
+# ── WHY ──────────────────────────────────────────────────────────────────────────────────────────
+#
+# **`git stash` is per REPOSITORY, not per worktree.** Every worktree pushes onto and pops from the
+# same stack, and on a repo where several agents each hold a worktree that stack is shared state
+# nobody treats as shared (`scripts/BUGS.md`, `git-stash-is-repo-global-across-worktrees`).
+#
+# It needs no mistake to bite. The A/B for "is this improvement mine?" is: stash, rebuild, re-run,
+# restore. If the change is already COMMITTED the tree is clean, `git stash` saves nothing **and says
+# so quietly**, and the following `pop` takes whatever is on top — someone else's work in progress.
+# Observed 2026-07-31: `stash@{0}` was another worktree's `reactive-attr-wip`, and popping it dropped
+# 429 lines of a Swift renderer test into a tree that had never touched Swift.
+#
+# TWO REFUSALS, and they are the two ends of that story:
+#
+#   push  refuses when there is NOTHING to stash. That is the trigger: the quiet no-op is what makes
+#         the later pop take a stranger's entry.
+#   pop   refuses when `stash@{0}` was made on a different branch. `git stash list` records `On
+#         <branch>` for exactly this, and nothing consults it.
+#
+# Neither is clever; both are the check the tool already has the information to make and does not.
+set -uo pipefail
+
+branch_now() { git rev-parse --abbrev-ref HEAD 2>/dev/null; }
+
+# `stash@{0}: On feature/x: msg` -> `feature/x`. Also handles `WIP on feature/x: <sha> subject`,
+# which is what `git stash` writes when it is given no message.
+# PURE SHELL, NOT sed. The first version used `s/…\(On\|WIP on\)…/` and printed nothing on this
+# host: `\|` alternation is a GNU extension and macOS ships BSD sed, so the guard would have been
+# silently OFF everywhere it mattered — `pop` refusing every entry, including your own, which is the
+# kind of false refusal that teaches people to bypass the tool. Caught by the self-test on its first
+# run, which is what a self-test is for.
+stash_branch() { # <a `git stash list` line>
+  local rest="${1#*: }"
+  case "$rest" in
+    "On "*)     rest="${rest#On }" ;;
+    "WIP on "*) rest="${rest#WIP on }" ;;
+    *)          return 0 ;;          # unreadable: print nothing, so `pop` refuses rather than guesses
+  esac
+  printf '%s' "${rest%%:*}"
+}
+
+case "${1:---help}" in
+  --self-test)
+    fails=0
+    echo "── wt-stash self-test ──────────────────────────────────────────────────"
+    # The parser, on the two shapes `git stash` actually writes. Synthetic input on purpose: a
+    # self-test that pushes onto the real stack to prove a point about the real stack is the joke
+    # this script exists to stop being funny.
+    for probe in "stash@{0}: On feature/a: ab-probe|feature/a" \
+                 "stash@{0}: WIP on feature/b: 1a2b3c4 subject|feature/b"; do
+      line="${probe%|*}"; want="${probe#*|}"
+      got="$(stash_branch "$line")"
+      if [ "$got" = "$want" ]; then printf '  ok   parsed %-46s -> %s\n' "$line" "$got"
+      else printf '  FAIL parsed %-46s -> %s, want %s\n' "$line" "$got" "$want"; fails=$((fails+1)); fi
+    done
+    # The negative control: a line it cannot read must yield NOTHING, so `pop` refuses rather than
+    # comparing against an empty string and passing. A parser that silently returns "" on an
+    # unexpected shape would turn this guard off exactly when the format changed.
+    if [ -z "$(stash_branch 'stash@{0} garbage with no colon marker')" ]; then
+      echo "  ok   an unreadable line yields nothing, so pop refuses rather than guesses"
+    else
+      echo "  FAIL an unreadable line produced a branch name"; fails=$((fails+1))
+    fi
+    echo
+    [ "$fails" = 0 ] && echo "== wt-stash self-test: PASS (3 checks, the control among them) ==" \
+                     || echo "== wt-stash self-test: $fails FAILED =="
+    exit "$fails"
+    ;;
+
+  push)
+    shift
+    # `--untracked-files=no`, because `git stash push` without `-u` does not save untracked files
+    # and this check must ask the same question the command will. Without it, an untracked file in
+    # the tree — this very script, on its first run — made the check see "dirty" while `git stash`
+    # saw "nothing to save", which is precisely the state the guard exists to refuse.
+    if [ -z "$(git status --porcelain --untracked-files=no)" ]; then
+      cat >&2 <<'EOF'
+✋ wt-stash: nothing to stash — refusing, because this is the case that loses work.
+
+`git stash` would say "No local changes to save" and exit 0, and your next `pop` would take
+whatever is on top of the stack. The stack is per REPOSITORY: on this repo that is another
+agent's worktree, mid-change.
+
+If the change you meant to A/B is already committed, stash is the wrong tool. Swap the files
+instead:  git checkout <sha> -- <paths>     …or take a second worktree.
+EOF
+      exit 1
+    fi
+    git stash push -m "$(branch_now) wt-stash" "$@"
+    ;;
+
+  pop)
+    top="$(git stash list | head -1)"
+    if [ -z "$top" ]; then
+      echo "✋ wt-stash: the stash stack is empty — nothing of yours to restore." >&2
+      exit 1
+    fi
+    owner="$(stash_branch "$top")"
+    mine="$(branch_now)"
+    if [ -z "$owner" ] || [ "$owner" != "$mine" ]; then
+      cat >&2 <<EOF
+✋ wt-stash: stash@{0} does not belong to this branch.
+
+  top of stack : ${top}
+  its branch   : ${owner:-<unreadable>}
+  you are on   : ${mine}
+
+The stack is shared across every worktree of this repository, so this entry is most likely another
+agent's work in progress. Popping it would apply their change into your tree — and if it applied
+cleanly, CONSUME it from the stack, which is how it gets lost rather than merely misplaced.
+
+  see it:        scripts/wt-stash list
+  take it anyway (rarely correct):   git stash pop
+EOF
+      exit 1
+    fi
+    git stash pop
+    ;;
+
+  list)
+    git stash list | while IFS= read -r line; do
+      printf '%-14s %s\n' "[$(stash_branch "$line")]" "$line"
+    done
+    ;;
+
+  *)
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac

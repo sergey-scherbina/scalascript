@@ -1177,10 +1177,26 @@ Two method notes worth keeping:
     coursier, and nothing about the shape of the change made that visible.
 
 ## git-stash-is-repo-global-across-worktrees — an A/B stash can pop ANOTHER agent's work into your tree
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: none -->
+     gate: scripts/wt-stash --self-test -->
+
+**Guarded 2026-08-11 by `scripts/wt-stash`**, which implements the check this entry itself proposed:
+refuse `pop` when `stash@{0}`'s `On <branch>` is not the current branch. It also refuses `push` when
+there is nothing to save, because that quiet no-op is the TRIGGER — the entry above traces the whole
+failure to it.
+
+`push` asks `git status --porcelain --untracked-files=no`, the same question `git stash push`
+answers, which matters: with untracked files counted, the check saw "dirty" while `git stash` saw
+"nothing to save" — the exact state it exists to refuse, passed by its own guard on the first run.
+
+**Its `--self-test` caught the guard being silently OFF.** The branch parser was a `sed` script using
+`\(On\|WIP on\)`, and `\|` is a GNU extension while macOS ships BSD sed — so it matched nothing
+here, and `pop` would have refused EVERY entry including your own. A false refusal is the failure
+that teaches people to bypass the tool, which is worse than the hole. It is pure shell now, with a
+negative control: an unreadable line must yield NOTHING, so `pop` refuses rather than comparing
+against an empty string and passing.
 
 **Found 2026-07-31**, the hard way. `git stash` is **per repository, not per worktree** — every
 worktree pushes onto and pops from the same stack. On a repo where several agents each hold a
