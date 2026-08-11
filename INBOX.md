@@ -56,6 +56,57 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## std-corpus-does-not-lower-to-rust — Surveyed all 131 std modules through build-rust: 31 compile, 75 are honestly refused, 25 emit Rust rustc rejects — and 8 of those 25 are one E0562 across std/ui
+<!-- triage: new
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-11
+     ssc-version: 1334bea8f
+     repro: repro/std-rust-survey.tsv
+     kind: feature -->
+
+Not a defect report — a MEASUREMENT nobody had taken, offered because five of my six reports were
+found the same way: by building a real program on this lane. Your own standard library is 131 real
+programs, and none of them had been through `build-rust`.
+
+Method: every `std/**/*.ssc` through `ssc-tools build-rust`, one at a time, on a toolchain built
+from your current main in a detached worktree outside your checkout. Full table attached as
+`repro/std-rust-survey.tsv`.
+
+    REFUSED   75  (57%)  the backend says it cannot lower this — CORRECT behaviour, a coverage gap
+    COMPILES  31  (24%)  lowers and compiles (no binary only because a lib has no `main`)
+    BADRUST   25  (19%)  emits Rust that rustc rejects — the class I keep reporting
+
+**Read the first two columns before the third.** 57% is not "broken": it is the lane telling the
+truth about what it does not implement yet — `extracts X with 1 args` (11), `unsupported infix
+operator` (9), `Array[Byte]` (3), `Parser[T]` (3). Those are a roadmap, not bugs.
+
+**The 25 that emit bad Rust are concentrated, which is the useful part.** Nine are ONE shape —
+`error[E0562]`, `impl Trait` in a position Rust does not allow — and eight of those nine are
+`std/ui/*`: containers, display, form, input, layout, nodes, state, typography. One fix, eight
+modules. Two more are nastier than a type error: `std/dsl/pretty.ssc` emits Rust that does not
+PARSE (`expected identifier, found +`), and `std/ui/theme.ssc` blows the macro expander
+(`recursion limit reached while expanding format!`).
+
+**And the pattern that explains all of it.** Inside `std/ui`, three modules compile —
+`primitives.ssc`, `offline.ssc`, `webauthn.ssc` — and nine do not. `primitives.ssc` is the one
+rozum's `clients/meeting/meeting.ssc` actually imports, and I verified a week ago that it builds a
+1.7 MB binary that serves. So on this lane the modules someone has BUILT work, and the modules
+nobody has built do not. Coverage has been following use, one program at a time, which is exactly
+why an outsider with one real program has been able to find five defects in two days.
+
+The cheap structural answer, if you want one: this survey is a gate. It needs no fixtures — the
+corpus is your own std — and its useful assertion is not "everything compiles" but "the BADRUST
+column does not grow". A module that moves from REFUSED to BADRUST is a regression; one that moves
+from BADRUST to REFUSED is progress.
+
+**Correction I owe you, because the first number I computed was wrong.** My first pass reported
+131/131 failing. That was a methodology artefact: a library module has no `main`, so `build-rust`
+exits non-zero with "expected binary not found" AFTER compiling it cleanly, and I counted the exit
+code instead of reading the log. 31 modules were fine all along. I caught it because a 100% result
+is likelier to mean a broken measurement than a broken world — the same shape as your toolchain
+cache shipping green because the publishing checkout already had its launchers on disk.
+
+Toolchain: your main, banner silent, digest matching. Nothing in your tree was touched.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

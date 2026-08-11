@@ -1,0 +1,131 @@
+std/actors.ssc	REFUSED	[error] Generic(def `actorRef` uses type `ActorRef[M]`; R.2 accepts primitiv
+std/agent-mcp.ssc	OTHER	[error] Unsupported(McpClient,rust)
+std/agent.ssc	REFUSED	[error] Generic(def `jsonCoreParseStringLoop` reads `reverse` on a List and 
+std/auth.ssc	BADRUST	error[E0432]
+std/bench.ssc	COMPILES	библиотека без main
+std/bifunctor.ssc	REFUSED	[error] Generic(def `bimap` uses type `Tuple2[C, D]`; R.2 accepts primitives
+std/cluster/coord-consul.ssc	COMPILES	библиотека без main
+std/cluster/coord-etcd.ssc	COMPILES	библиотека без main
+std/cluster/index.ssc	BADRUST	error[E0562]
+std/cluster/membership.ssc	BADRUST	error[E0425]
+std/cluster/shard.ssc	COMPILES	библиотека без main
+std/cluster/singleton.ssc	COMPILES	библиотека без main
+std/cluster/types.ssc	REFUSED	[error] Generic(`resolveSeeds` is declared `extern` and the rust backend has
+std/collection-extras.ssc	BADRUST	error[E0425]
+std/content-bind-core.ssc	COMPILES	библиотека без main
+std/content-core.ssc	REFUSED	[error] Generic(def `yamlBuildLines` reads `reverse` on a List and the rust 
+std/content.ssc	REFUSED	[error] Generic(def `contentBindValueText` has unsupported pattern: Term.Nam
+std/coroutine.ssc	COMPILES	библиотека без main
+std/credential.ssc	COMPILES	библиотека без main
+std/crypto.ssc	COMPILES	библиотека без main
+std/dep-cps-ping.ssc	REFUSED	[error] Generic(def `ping` uses unsupported infix operator `!`,Some(rust))
+std/dsl/ast.ssc	COMPILES	библиотека без main
+std/dsl/builders.ssc	REFUSED	[error] Generic(def `builder` uses type `Builder[NoName, NoValue]`; R.2 acce
+std/dsl/passes.ssc	REFUSED	[error] Generic(def `passOf` uses type `Pass[A, B]`; R.2 accepts primitives,
+std/dsl/pretty.ssc	OTHER	error: expected identifier, found `+`
+std/dsl/walker.ssc	REFUSED	[error] Generic(def `defaultVisitor` uses type `Visitor[A]`; R.2 accepts pri
+std/dstreams.ssc	COMPILES	библиотека без main
+std/either.ssc	BADRUST	error[E0428]
+std/eq.ssc	REFUSED	[error] Generic(def `eqv` uses type `Eq[A]`; R.2 accepts primitives, enums, 
+std/error-handling.ssc	REFUSED	[error] Generic(def `raise` uses type `A throws E`; R.2 accepts primitives, 
+std/foldable-traversable.ssc	REFUSED	[error] Generic(def `foldRightList` calls `foldRight` on a List and the rust
+std/free.ssc	REFUSED	[error] Generic(def `enum Free.FlatMap` uses type `Free[F, A]`; R.2 accepts 
+std/fs.ssc	REFUSED	[error] Generic(def `_normSegments` reads `isEmpty` on a List and the rust b
+std/functor-applicative-monad.ssc	REFUSED	[error] Generic(def `ap` for-yield has 2 enumerators; R.2.5 accepts only a s
+std/generators.ssc	COMPILES	библиотека без main
+std/geo.ssc	COMPILES	библиотека без main
+std/graphql.ssc	COMPILES	библиотека без main
+std/hash.ssc	REFUSED	[error] Generic(def `hash` uses type `Hash[A]`; R.2 accepts primitives, enum
+std/http.ssc	REFUSED	[error] Generic(`sessionSetCookie` is declared `extern` and the rust backend
+std/i18n.ssc	REFUSED	[error] Generic(def `firstOf` reads `isEmpty` on a List and the rust backend
+std/index.ssc	BADRUST	error[E0428]
+std/json-core.ssc	REFUSED	[error] Generic(def `jsonCoreParseStringLoop` reads `reverse` on a List and 
+std/json.ssc	REFUSED	[error] Generic(def `jsonCoreParseStringLoop` reads `reverse` on a List and 
+std/litdoc.ssc	REFUSED	[error] Generic(def `collectUntil` reads `isEmpty` on a List and the rust ba
+std/mapreduce/cluster.ssc	REFUSED	[error] Generic(def `healthCheck` uses unsupported infix operator `!`,Some(r
+std/mapreduce/dataset.ssc	COMPILES	библиотека без main
+std/mapreduce/distributed.ssc	REFUSED	[error] Generic(def `struct WireProcessPartitionFrame` uses type `Array[Byte
+std/mapreduce/failure.ssc	REFUSED	[error] Generic(def `withFailurePolicy` uses type `Set[Int]`; R.2 accepts pr
+std/mapreduce/handlers.ssc	REFUSED	[error] Generic(def `register` uses type `NamedHandler[A, B]`; R.2 accepts p
+std/mapreduce/index.ssc	REFUSED	[error] Generic(def `struct WireProcessPartitionFrame` uses type `Array[Byte
+std/mapreduce/shuffle.ssc	REFUSED	[error] Generic(def `struct WireShufflePartialFrame` uses type `Array[Byte]`
+std/mapreduce/typed.ssc	REFUSED	[error] Generic(def `struct WireProcessPartitionFrame` uses type `Array[Byte
+std/markdown-core.ssc	REFUSED	[error] Generic(def `markdownBuildLines` reads `reverse` on a List and the r
+std/markdown-html.ssc	REFUSED	[error] Generic(def `markdownBuildLines` reads `reverse` on a List and the r
+std/mcp/client.ssc	OTHER	[error] Unsupported(McpClient,rust)
+std/mcp/index.ssc	OTHER	[error] Unsupported(McpClient,rust)
+std/mcp/server.ssc	COMPILES	библиотека без main
+std/mcp/types.ssc	BADRUST	error[E0428]
+std/middleware.ssc	BADRUST	error[E0666]
+std/mime.ssc	COMPILES	библиотека без main
+std/monad-control.ssc	REFUSED	[error] Generic(def `untilMResultEither` extracts `Left` with 1 args, expect
+std/monaderror.ssc	BADRUST	error[E0428]
+std/money.ssc	BADRUST	error[E0425]
+std/nfc.ssc	OTHER	[error] Unsupported(NfcNdef,rust)
+std/nodes.ssc	COMPILES	библиотека без main
+std/openapi.ssc	COMPILES	библиотека без main
+std/order.ssc	REFUSED	[error] Generic(def `compare` uses type `Order[A]`; R.2 accepts primitives, 
+std/os.ssc	COMPILES	библиотека без main
+std/parsing/combinators.ssc	REFUSED	[error] Generic(def `~` uses type `Parser[B]`; R.2 accepts primitives, enums
+std/parsing/core.ssc	REFUSED	[error] Generic(def `char` uses type `Parser[Any]`; R.2 accepts primitives, 
+std/parsing/helpers.ssc	REFUSED	[error] Generic(def `string` uses type `Parser[String]`; R.2 accepts primiti
+std/parsing/layout.ssc	REFUSED	[error] Generic(def `string` uses type `Parser[String]`; R.2 accepts primiti
+std/parsing/recovery.ssc	REFUSED	[error] Generic(def `runParser` body contains an unsupported statement: Defn
+std/pdf-gen.ssc	COMPILES	библиотека без main
+std/process.ssc	COMPILES	библиотека без main
+std/pwa.ssc	COMPILES	библиотека без main
+std/remote.ssc	REFUSED	[error] Generic(def `call` calls `remoteCall[A, B]` which has no resolvable 
+std/scljet/address.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/btree.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/bytes.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/freelist.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/header.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/index.ssc	BADRUST	error[E0277]
+std/scljet/jdbc.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/journal.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/jvm-vfs.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/memory-vfs.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/mutate.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/page.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/pager.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/readonly.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/record.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/schema.ssc	REFUSED	[error] Generic(def `readBeLoop` uses unsupported infix operator `<<`,Some(r
+std/scljet/sql.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/text.ssc	BADRUST	error[E0277]
+std/scljet/typedsql.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/values.ssc	BADRUST	error[E0277]
+std/scljet/vfs.ssc	COMPILES	библиотека без main
+std/scljet/wal.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/scljet/write.ssc	REFUSED	[error] Generic(def `fromList` extracts `Left` with 1 args, expected 0,Some(
+std/selective.ssc	REFUSED	[error] Generic(def `selectList` calls `select` on a List and the rust backe
+std/semigroup-monoid.ssc	REFUSED	[error] Generic(def `combineAllOption` reads `isEmpty` on a List and the rus
+std/show.ssc	REFUSED	[error] Generic(def `show` uses type `Show[A]`; R.2 accepts primitives, enum
+std/smtp.ssc	COMPILES	библиотека без main
+std/streams-bridge.ssc	COMPILES	библиотека без main
+std/streams.ssc	REFUSED	[error] Generic(`emit` is declared `extern` and the rust backend has no impl
+std/tcp.ssc	COMPILES	библиотека без main
+std/ui/component.ssc	BADRUST	error[E0382]
+std/ui/containers.ssc	BADRUST	error[E0562]
+std/ui/content.ssc	REFUSED	[error] Generic(def `contentViewBlock` has unsupported pattern: Pat.Extract 
+std/ui/data.ssc	REFUSED	[error] Generic(`dateColumn` is declared `extern` and the rust backend has n
+std/ui/display.ssc	BADRUST	error[E0562]
+std/ui/fetch-json.ssc	REFUSED	[error] Generic(def `jsonCoreParseStringLoop` reads `reverse` on a List and 
+std/ui/form.ssc	BADRUST	error[E0562]
+std/ui/i18n.ssc	REFUSED	[error] Generic(def `pluralCategory` contains an unsupported expression: Ter
+std/ui/input.ssc	BADRUST	error[E0562]
+std/ui/layout.ssc	BADRUST	error[E0562]
+std/ui/lower.ssc	REFUSED	[error] Generic(def `lower` contains an unsupported expression: Term.ApplyTy
+std/ui/nodes.ssc	BADRUST	error[E0562]
+std/ui/offline.ssc	COMPILES	библиотека без main
+std/ui/patterns.ssc	REFUSED	[error] Generic(`fetchActionWith` is declared `extern` and the rust backend 
+std/ui/primitives.ssc	COMPILES	библиотека без main
+std/ui/reactive.ssc	REFUSED	[error] Generic(def `forKeyed` calls `KeyedForNode[A]` which has no resolvab
+std/ui/routing.ssc	REFUSED	[error] Generic(`hashSignal` is declared `extern` and the rust backend has n
+std/ui/state.ssc	BADRUST	error[E0562]
+std/ui/theme.ssc	OTHER	error: recursion limit reached while expanding `format!`
+std/ui/typography.ssc	BADRUST	error[E0562]
+std/ui/webauthn.ssc	COMPILES	библиотека без main
+std/uuid.ssc	BADRUST	error[E0425]
+std/yaml-core.ssc	REFUSED	[error] Generic(def `yamlBuildLines` reads `reverse` on a List and the rust 
+std/yaml.ssc	COMPILES	библиотека без main
