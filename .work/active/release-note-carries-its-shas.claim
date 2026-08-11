@@ -5,7 +5,7 @@ started: 2026-08-11T08:51:37Z
 heartbeat: 2026-08-11T08:51:37Z
 status: claimed-before-planning
 items: release-claim-messages-name-no-landed-sha
-paths: file:scripts/coord-release file:scripts/BUGS.md
+paths: file:scripts/coord-release file:scripts/BUGS.md file:tests/coord/coord-release-evidence-level.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
