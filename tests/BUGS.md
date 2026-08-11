@@ -3325,10 +3325,44 @@ list instead of closing it, so the comprehension desugars with the yield express
 `ssc info --front-report`, which answers "did F actually compile this file" directly.
 
 ## v2-front-for-comprehension-guard-line — a guard on its own line is parsed as a generator
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: front
-     gate: tests/conformance/for-yield-layout.ssc -->
+     gate: tests/conformance/for-yield-layout.ssc
+     fixed-in: bccdc6c4f -->
+
+**FIXED 2026-08-11, and the gate that named this entry could not have caught it.**
+
+`tests/conformance/for-yield-layout.ssc` was this entry's `gate:` and it was GREEN on all four lanes
+while the defect was live — because that case says, in its own prose, that a guard on its own line is
+*"deliberately absent … including it would make this gate red for a reason it does not test"*. Correct
+when written; but the entry pointed at it anyway, so anyone triaging by gate colour would close this
+on evidence that could not fail. **A `gate:` that cannot fail for its defect is worse than
+`gate: none`** — it invites exactly that closure, and it nearly got one out of me today.
+
+**Reproduced first, on a clean build, front confirmed as F:**
+
+```
+for x <- xs if x % 2 == 0 yield x     native List(2, 4)   interp List(2, 4)
+braced, guard on its own line         native ssc: __method__: no dispatch for .map on false
+braceless, guard on its own line      native ssc: __method__: no dispatch for .map on false
+```
+
+**Mechanism — the discriminator is the SEPARATOR, not braces.** `forGuard` tests for `if`
+*immediately* after the generator. With the guard on its own line a separator arrives first, so the
+guard branch is skipped and `forSep` reads that separator as "another generator follows" — the
+guard's boolean is then handed to `flatMap` as a collection, which is the `.map on false`.
+
+The fix routes a separator FOLLOWED BY `if` into the same `forGuardG` the one-line form uses, so both
+layouts desugar identically; repeated guards keep working because `forGuardG` returns to `forSep`.
+
+**Evidence.** Both layouts added to the case and the "deliberately absent" note replaced, since its
+reason is gone — all four lanes green. The gate was then observed FAILING without the fix, by
+reverting it in the staged front (`bin/lib/*/native-front/tower/bin/fsub.ssc`, byte-identical to the
+source, so no rebuild is needed for an A/B): `FAIL [V2] line 10: expected=7 got=ssc: __method__: no
+dispatch for .map on false` — the exact symptom recorded above. Full conformance with the memo
+disabled: **367 passed, 0 failed**, six declared known-red lanes, none of them this.
+
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-for-yield` — it was MASKED until then: the whole
 enclosing shape produced `_err`, so the guard never got far enough to misbehave).
