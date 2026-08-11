@@ -14,7 +14,7 @@ Newest first.
      area: other
      kind: bug
      gate: tests/coord/claim-hooks.sh
-     fixed-in: PENDING -->
+     fixed-in: 8c39d9df1 -->
 
 `POLICY.md` has said the right thing all along: **P-5.1** — "contested goes to the room — another
 agent's claim in your way" — and **P-2.5**, "a refusal you believe is wrong is a conflict of
