@@ -1,0 +1,11 @@
+slug: v3-matchprefix-std
+branch: feature/v3-matchprefix-std
+agent: claude-code
+started: 2026-08-11T10:53:44Z
+heartbeat: 2026-08-11T10:53:44Z
+status: claimed-before-planning
+items: v3-extension-unblocks-two-files-into-a-lane-DIFF
+paths: file:std/parsing/regex.ssc file:std/parsing/combinators.ssc file:v3/regex-subset-gate.sh file:tests/conformance/regex-subset.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
