@@ -1232,7 +1232,8 @@ Two method notes worth keeping:
 <!-- status: fixed
      lane: apparatus
      area: build
-     gate: scripts/wt-stash --self-test -->
+     gate: scripts/wt-stash --self-test
+     fixed-in: 1184b6e58 -->
 
 **Guarded 2026-08-11 by `scripts/wt-stash`**, which implements the check this entry itself proposed:
 refuse `pop` when `stash@{0}`'s `On <branch>` is not the current branch. It also refuses `push` when
