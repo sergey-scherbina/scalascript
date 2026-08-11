@@ -12,6 +12,7 @@ Query: `scripts/bugs-report --module v3`.
      lane: v3
      area: runtime
      kind: bug
+     fixed-in: 9447789af
      gate: v3/exec-gate.sh (fixture v3/tests/front/mixed-numeric.ssc, run on BOTH lanes) -->
 
 **Measured 2026-08-11.** `binOp` in `v3/src/Exec.scala` had only HOMOGENEOUS arms — `(VInt, VInt)`
