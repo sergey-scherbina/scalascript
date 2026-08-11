@@ -1594,7 +1594,15 @@ def skipDoKw(ts) = if isWord(hd(ts), "do") then tl(ts) else ts
 def parseWhile(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (cond, r) => parseWhileBody(erase(cond, cx), skipDoKw(r), env, cx) }
 def parseWhileBody(cond, ts, env, cx) = if isTok(hd(ts), 2, 28) then parseWhileBlk(cond, tl(ts), env, cx) else parseWhileExpr(cond, ts, env, cx)
 def parseWhileBlk(cond, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ b ++ ")", r) }
-def parseWhileExpr(cond, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ erase(b, cx) ++ ")", r) }
+// `bodyExpr`, NOT `parseExpr` — and it is the third instance of the shape the two comments above
+// describe. A single-line body reaches here (`while c do i = i + 1`); `parseExpr` stops at the `=`
+// and the rest of the file goes with it: `var i = 0; while i < 3 do i = i + 1; println(i)` printed
+// NOTHING at exit 0 on this front, and `3` then `after` on INT and on v3. Not a crash, not a partial
+// answer — the whole program disappeared, which reads as a program that had nothing to say.
+// `bodyExpr` is what `parseIf` already uses, which is exactly why `if c then i = i + 1` was fine and
+// this was not: one decision, two sites, fixed at one of them.
+// (BUGS `selfhost-front-while-with-an-assignment-body-runs-nothing`.)
+def parseWhileExpr(cond, ts, env, cx) = bodyExpr(ts, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ erase(b, cx) ++ ")", r) }
 // Assignment: `@@x`(long cell) -> lcell.set, `@x`(cell) -> cell.set, else a top-level var -> the global
 // cell (ssc1-lower assign :3944-3961). The block-var `@@`/`@` scope branches fire once V2 pushes them.
 // A compound `x += e` sets `x` to `x <op> e`: the RHS becomes an arith over the var's CURRENT value
