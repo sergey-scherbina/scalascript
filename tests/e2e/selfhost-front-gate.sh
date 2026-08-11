@@ -89,6 +89,37 @@ case_f "if one-line assignment body" "1/" 'var i = 0
 if i < 3 then i = i + 1
 println(i)'
 
+# ── qualified assignment to an object member ─────────────────────────────────────────────────────
+# selfhost-front-qualified-assignment-to-an-object-member-is-ignored. `Counter.n = 5` is FOUR tokens,
+# so the two-token peek in `isAssignHead` saw a `.` in second position, called it not-an-assignment,
+# and `parseExpr` stopped at the `=`. The write vanished and the read printed the initial value — a
+# wrong answer at exit 0. ORACLE IS v3, not the interpreter: the interpreter CRASHES on this program,
+# which is the reason this gate names an oracle per case instead of once.
+case_f "qualified assign to an object var" "5/" 'object Counter:
+  var n = 0
+Counter.n = 5
+println(Counter.n)'
+
+# The compound form reads the same cell before combining, so it exercises the read side too.
+case_f "qualified compound assign" "13/" 'object Counter:
+  var n = 10
+Counter.n += 3
+println(Counter.n)'
+
+# Not only at top level: the same statement inside a `def` goes through a different dispatcher
+# (`bodyExpr`), and widening the shared predicate is what makes both work from one edit.
+case_f "qualified assign inside a def" "7/" 'object C:
+  var n = 0
+def bump() = C.n = 7
+bump()
+println(C.n)'
+
+# The plain form must keep working — the predicate now answers two shapes and this is the one that
+# was never broken.
+case_f "plain assignment still works" "5/" 'var i = 0
+i = 5
+println(i)'
+
 # ── entries filed as broken that are NOT ──────────────────────────────────────────────────────────
 # Both were reported against F and both answer correctly today. Kept as REGRESSION coverage rather
 # than deleted: they were filed for a reason, nothing recorded when they were fixed, and with no

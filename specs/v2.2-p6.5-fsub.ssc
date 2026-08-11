@@ -1436,7 +1436,7 @@ def phScanTok(t, rest, depth, c0, ct, binder) = if isArgEnd(t, depth) then (c0, 
 // DA12: a body/branch that may be a bare ASSIGNMENT `id = rhs` (Scala 3: `if c then x = e`, `def f=x=e`,
 // `p => x=e`). The oracle parses these positions with parseStmtOrExpr (ssc1-front :1301/1306). parseExpr
 // alone stops at `=` (not a binop) and drops the RHS — so an assignment body silently became a bare read.
-def bodyExpr(ts, env, cx) = if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseAssign(ts, env, cx) else parseExpr(ts, 0, env, cx))
+def bodyExpr(ts, env, cx) = if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts, cx) then parseAssign(ts, env, cx) else parseExpr(ts, 0, env, cx))
 // `if cond then t [else e]`: the ELSE is OPTIONAL — a missing else emits `(lit unit)` (ssc1-front
 // parseIfExpr :1305-1309, mkTup(Nil) → Unit); both branches parse via bodyExpr (assignment-aware).
 // With-else + non-assign branches are byte-identical to the old unconditional-else path.
@@ -1480,7 +1480,7 @@ def parseBlockLamParen(ts, env, cx) = parseBlockLamP(parseParams(tl(ts), env), e
 def parseBlockLamP(pr, env, cx) = pr match { case (env2, r) => parseBlockLamBody(dlen(env2) - dlen(env), env2, tl(r), cx) }
 def parseBlockLamId(ts, env, cx) = parseBlockLamBody(1, snd(hd(ts)) :: env, tl(tl(ts)), cx)
 def parseBlockLamBody(ar, env2, ts, cx) = parseBlock(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 1) then parseBlockDef(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseBlockIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))))
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 1) then parseBlockDef(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseBlockIndexStore(ts, env, cx) else (if isAssignHead(ts, cx) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))))
 def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts, env, cx) else parseBlockExpr(ts, env, cx)
 // A `{ case .. }` case-lambda is a match on the lambda's single param, so it must route through the
 // SAME dispatch as `x match { .. }` (parseMatchArms): a bare-variable / typed / guarded / int / nested
@@ -1564,7 +1564,34 @@ def isVarHead(ts) = isWord(hd(ts), "var")
 def isWhileHead(ts) = isWord(hd(ts), "while")
 // statement-position `id =` (or `id +=`/`-=`/`*=`) is an assignment (`id ==` is code 44, not 20).
 def isAssignOp(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 53) then true else (if isTok(t, 2, 54) then true else isTok(t, 2, 55)))
-def isAssignHead(ts) = if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false
+// TWO shapes, and the second one is why this predicate takes `cx`.
+//
+// `x = e` is the two-token peek this always did. `Counter.n = 5` is FOUR tokens — ident, `.`, ident,
+// `=` — so the old peek saw a `.` in second position, said "not an assignment", and the statement
+// fell to `parseExpr`, which stops at the `=`. `object Counter: var n = 0` then `Counter.n = 5;
+// println(Counter.n)` printed `0` where v3 prints `5`: a wrong answer, silently, at exit 0. That is
+// the THIRD time this file has lost a statement to the same two-token peek — `a(1) = 7` and the
+// single-line `while` body were the first two, both documented within twenty lines of here.
+// (BUGS `selfhost-front-qualified-assignment-to-an-object-member-is-ignored`.)
+//
+// WIDENED HERE rather than tested at the call sites, and that is the point: seven places already ask
+// this question — `bodyExpr`, `parseBlock0`, `armBodyExpr`, `armSeqStmt`, `parseTopItem`,
+// `parseDBlock0` and `isDirectBind`. Adding a separate qualified test to each would manufacture a
+// fourth instance of the very defect, in the shape of a site that someone forgets.
+//
+// `cx` is REQUIRED, not convenience: the head fires only when `isObjVarMember` says the emit will be
+// right. `p.field = v` on a case class is a different feature this front does not have, and claiming
+// it here would turn a missing feature into a wrong `cell.set` against a global that does not exist.
+def isAssignHead(ts, cx) = if isQualAssignHead(ts, cx) then true else (if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false)
+// `Obj . mem <assign-op>`, and `Obj.mem` must be a KNOWN var member of a known object.
+// An OBJECT NAME is token kind 3, not 1. Kind 1 is a lower-case identifier — what a `var` is — and
+// kind 3 is the upper-case one `parseAtom1` routes to `parseCtor`. Objects are conventionally
+// capitalised, so testing `== 1` here (the test that is right for `x = e`) meant this head could
+// never fire once, on any program: the diagnosis was right and the predicate silently never ran.
+// Both kinds are accepted because a lower-case object is legal, just unusual.
+def isQualAssignHead(ts, cx) = if isNameTok(hd(ts)) then isQualAssignP(snd(hd(ts)), tl(ts), cx) else false
+def isQualAssignP(obj, ts, cx) = if isTok(hd(ts), 2, 31) then isQualAssignQ(obj, tl(ts), cx) else false
+def isQualAssignQ(obj, ts, cx) = if isNameTok(hd(ts)) then (if isAssignOp(hd(tl(ts))) then isObjVarMember(obj, snd(hd(ts)), cx) else false) else false
 // `a(i) = rhs` — an indexed store, which Scala defines as `a.update(i, rhs)`.
 // isAssignHead is a TWO-TOKEN peek (ident then `=`), so for `a(1) = 7` the second token is `(`, the
 // statement was not an assignment head at all, it fell to parseExpr, which stops at `=` and drops
@@ -1608,7 +1635,18 @@ def parseWhileExpr(cond, ts, env, cx) = bodyExpr(ts, env, cx) match { case (b, r
 // A compound `x += e` sets `x` to `x <op> e`: the RHS becomes an arith over the var's CURRENT value
 // (calleeOf reads it) — through emitArith so `+` still upgrades to `++` for a string var (ssc1-front
 // mkInf(baseOp, mkVar, rhs) :1541, lowered by the normal arith path).
-def parseAssign(ts, env, cx) = parseAssign2(snd(hd(ts)), snd(hd(tl(ts))), tl(tl(ts)), env, cx)
+// Dispatches on the shape `isAssignHead` accepted. The qualified arm writes the SAME cell the
+// qualified READ reads: `postSel` emits `(prim cell.get (global Obj_mem__cell))` under exactly the
+// `isObjVarMember` test used above, so read and write cannot drift apart — one predicate, one cell
+// name, two directions.
+def parseAssign(ts, env, cx) = if isQualAssignHead(ts, cx) then parseQualAssign(ts, env, cx) else parseAssign2(snd(hd(ts)), snd(hd(tl(ts))), tl(tl(ts)), env, cx)
+// `Obj . mem op rhs` — five leading tokens consumed before the right-hand side.
+def parseQualAssign(ts, env, cx) = parseQualAssign2(snd(hd(ts)), snd(hd(tl(tl(ts)))), snd(hd(tl(tl(tl(ts))))), tl(tl(tl(tl(ts)))), env, cx)
+def parseQualAssign2(obj, mem, op, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (eNode(emitQualAssign(obj, mem, qualRhs(obj, mem, op, erase(rhs, cx), cx), cx)), r) }
+// A compound `Obj.n += e` reads the CURRENT value through the same cell before combining, mirroring
+// what `assignRhs` does for a plain var.
+def qualRhs(obj, mem, op, rhs, cx) = if op == 20 then rhs else emitArith(compoundK(op), "(prim cell.get (global " ++ obj ++ "_" ++ mem ++ "__cell))", rhs, dqOf(cx))
+def emitQualAssign(obj, mem, rhs, cx) = "(prim cell.set (global " ++ obj ++ "_" ++ mem ++ "__cell) " ++ rhs ++ ")"
 def parseAssign2(nm, op, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (eNode(emitAssign(nm, assignRhs(nm, op, erase(rhs, cx), env, cx), env, cx)), r) }
 def compoundK(op) = if op == 53 then 23 else (if op == 54 then 24 else 25)
 def assignRhs(nm, op, rhs, env, cx) = if op == 20 then rhs else emitArith(compoundK(op), calleeOf(nm, env, cx), rhs, dqOf(cx))
@@ -1726,7 +1764,7 @@ def isArmValHead(ts) = isTok(hd(ts), 2, 7)
 def parseArmVal(ts, env, cx) = parseArmVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseArmVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArmValRest(nm, erase(e, cx), r, env, cx) }
 def parseArmValRest(nm, e, ts, env, cx) = armBodyExpr(skipSemisF(ts), nm :: env, cx) match { case (b, r) => (eNode("(let (" ++ e ++ ") " ++ erase(b, cx) ++ ")"), r) }
-def armBodyExpr(ts, aenv, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), aenv, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)))
+def armBodyExpr(ts, aenv, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), aenv, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts, cx) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)))
 def armSeqExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => armSeqCont(e, skipSemisF(r), env, cx) }
 def armSeqCont(e, ts, env, cx) = if armSeqEnd(ts) then (e, ts) else armSeqMore(e, ts, env, cx)
 def armSeqEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 6) then true else isTok(hd(ts), 2, 29))
@@ -1734,7 +1772,7 @@ def armSeqMore(e, ts, env, cx) = armSeqStmt(ts, "" :: env, cx) match { case (b, 
 // The SECOND decision site for the same construct, reached by a different surface form: `a; val n = e; b`
 // puts the val one statement later, where armSeqStmt — not armBodyExpr — dispatches. Left out, the leak
 // survives behind a leading statement and the gate above it stays green.
-def armSeqStmt(ts, env, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx)))
+def armSeqStmt(ts, env, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts, cx) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx)))
 def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ erase(b, cx) ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 // A QUALIFIED ctor pattern `case Enum.Case(..)` drops the enum qualifier and matches on the CASE tag
@@ -2091,7 +2129,7 @@ def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
 // (case, object, name) then any `extends`/body so the walk resumes at the next top-level statement.
 def isCaseObjectHead(ts) = if isTok(hd(ts), 2, 6) then isWord(hd(tl(ts)), "object") else false
 def caseObjectItem(ts, cx) = ((eraseEnumNull(snd(hd(tl(tl(ts))))), ""), skipCCBody(skipExtends(tl(tl(tl(ts))))))
-def parseTopItem(ts, cx) = if isCaseObjectHead(ts) then caseObjectItem(ts, cx) else (if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isIndexStoreHead(ts) then indexStoreTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))))))
+def parseTopItem(ts, cx) = if isCaseObjectHead(ts) then caseObjectItem(ts, cx) else (if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isIndexStoreHead(ts) then indexStoreTopItem(ts, cx) else (if isAssignHead(ts, cx) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))))))
 // DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
 // provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
 // bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
@@ -2665,9 +2703,9 @@ def parseHBindRest(binder, th, body, ts, menv, cx) = parseHArms(ts, "__typed_scr
 def isDirectHead(ts) = if isTok(hd(ts), 2, 50) then isTok(hd(skipGen(ts)), 2, 28) else false
 def parseDirect(ts, env, cx) = parseDirectBlock(hOpen(skipGen(ts)), env, cx)
 def parseDirectBlock(ts, env, cx) = parseDBlock0(skipSemisF(ts), env, cx)
-def parseDBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseDBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseDBlockVar(tl(ts), env, cx) else (if isDirectBind(ts, env) then parseDBind(ts, env, cx) else (if isAssignHead(ts) then parseDBlockAssign(ts, env, cx) else parseDBlockExpr(ts, env, cx))))
+def parseDBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseDBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseDBlockVar(tl(ts), env, cx) else (if isDirectBind(ts, env, cx) then parseDBind(ts, env, cx) else (if isAssignHead(ts, cx) then parseDBlockAssign(ts, env, cx) else parseDBlockExpr(ts, env, cx))))
 def notEnvVar(nm, env) = if lookup("@@@" ++ nm, env) >= 0 then false else (if lookup("@@" ++ nm, env) >= 0 then false else (if lookup("@" ++ nm, env) >= 0 then false else true))
-def isDirectBind(ts, env) = if isAssignHead(ts) then (if isTok(hd(tl(ts)), 2, 20) then notEnvVar(snd(hd(ts)), env) else false) else false
+def isDirectBind(ts, env, cx) = if isAssignHead(ts, cx) then (if isTok(hd(tl(ts)), 2, 20) then notEnvVar(snd(hd(ts)), env) else false) else false
 def parseDBind(ts, env, cx) = parseDBind1(snd(hd(ts)), tl(tl(ts)), env, cx)
 def parseDBind1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => parseDBindRest(nm, erase(rhs, cx), r, env, cx) }
 def parseDBindRest(nm, rhs, ts, env, cx) = parseDirectBlock(ts, nm :: env, cx) match { case (rest, r) => (emitMethodCall("flatMap", rhs, Cons(forLam(rest), Nil), cx), r) }
