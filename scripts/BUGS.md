@@ -7,6 +7,47 @@ grepping for status.
 
 Newest first.
 
+## stale-build-refusal-reads-as-a-ten-minute-rebuild — so the rational move became measuring old code
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none
+     fixed-in: PENDING -->
+
+The launcher's staleness refusal ended at `Rebuild: (cd … && ./install.sh --dev). Silence:
+SSC_NO_BUILD_CHECK=1`. Every reader prices that rebuild at ten minutes, so the rational move is the
+`Silence:` — which measures **the old code**, the exact outcome the refusal exists to prevent. I made
+that trade myself twice today rather than pay for a build to run a six-line repro.
+
+It is usually not ten minutes. `install.sh` restores from a content-addressed toolchain cache, and
+measured 2026-08-11 the shared checkout's own digest was **already in it** — 85 entries, 15 GB. The
+refusal simply never said so.
+
+**Fixed by asking the cache instead of guessing.** `_SSC_NOW_DIGEST` is already computed two lines
+above for the staleness comparison, so one `-d` test answers it exactly. Both branches verified from
+the built launcher:
+
+```
+… ./install.sh --dev) — the toolchain cache ALREADY HAS this tree, so that is a copy — seconds, not a build.
+… ./install.sh --dev) — this tree is not in the toolchain cache yet, so that one is a full build.
+```
+
+The `Silence:` line now also says what silencing costs, rather than offering it as a peer option.
+
+**FOUND WHILE TESTING, NOT FIXED — the refusal cannot see an uncommitted edit.** Verifying the hint
+needed the message to fire, and appending to `v2/src/Runtime.scala` did not fire it; only moving
+`HEAD` did. Reading the template: staleness is set by comparing the built commit with `HEAD`, and the
+digest is used only to CLEAR it, never to set it. So **an agent who edits a compiler source and
+measures without rebuilding is told nothing** — which is `rebuild-before-measuring` all over again,
+and the digest that would catch it exactly is already in hand two lines earlier.
+
+Not changed here because it would warn on every dirty compiler tree, which is the normal working
+state of every agent, and turning that on for everyone is a decision rather than a drive-by. The
+one-line shape is: also set `_SSC_STALE=1` when the digests differ, not only clear it when they
+match.
+
 ## release-claim-messages-name-no-landed-sha — the record does not say what a claim landed
 
 <!-- status: fixed
