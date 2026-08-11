@@ -1,0 +1,13 @@
+#!/usr/bin/env ssc
+---
+name: find-then-map-then-getorelse
+version: 0.1.0
+description: find gives an Option; map+getOrElse over it lowers as a list map.
+---
+```scalascript
+def main(): Unit =
+  val xs = ["a", "bb", "ccc"]
+  println("direct = " + xs.headOption.map(s => s + "!").getOrElse("-"))
+  println("find   = " + xs.find(s => s.length > 1).map(s => s + "!").getOrElse("-"))
+main()
+```

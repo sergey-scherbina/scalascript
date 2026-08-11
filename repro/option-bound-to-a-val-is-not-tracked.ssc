@@ -1,0 +1,14 @@
+#!/usr/bin/env ssc
+---
+name: option-bound-to-a-val
+version: 0.1.0
+description: An Option used inline lowers; the same Option through a val does not.
+---
+```scalascript
+def main(): Unit =
+  val xs = ["a", "bb", "ccc"]
+  println("inline = " + xs.find(s => s.length > 1).map(s => s + "!").getOrElse("-"))
+  val bound = xs.find(s => s.length > 1)
+  println("bound  = " + bound.map(s => s + "!").getOrElse("-"))
+main()
+```
