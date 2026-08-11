@@ -246,7 +246,39 @@ if [ "${SSC3_FRONT_DIFF_CORPUS:-1}" = 1 ] && [ "$nfronts" -ge 2 ]; then
   # So the guard is a CEILING, and it is expected to be LOWERED over time rather than raised: as
   # v3's own front catches up, files move from one-sided into agreement and this falls. Raising it
   # is a deliberate act that says the gap widened and someone decided that was acceptable.
-  CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-85}"
+  # THE CEILING IS DERIVED FROM THE DECLARED LIST, because writing the same quantity down twice in
+  # two files is how it went wrong.
+  #
+  # It was the constant 85 and `v3/front-capability-gate.sh` NAMES every one-sided file in two
+  # arrays. Both guard the same bucket; only one of them can be updated by someone who does not know
+  # the other exists. That is what happened: `3b2606d80` closed two divergences (13 -> 11) and
+  # `10024d732` — extensions, N 171 -> 194, with its costs FILED — moved three more files to
+  # uniml-only (72 -> 75). The lists were updated correctly and honestly in both commits. The number
+  # here was not, because it lives in a different file and this gate was not yet in CI, so nothing
+  # said so. 83 then 86, against a ceiling of 85.
+  #
+  # Bumping it to 86 by hand would re-arm exactly that trap. Deriving it means the ONE deliberate act
+  # is adding a NAME to the declared list — which carries a reason and is reviewed — and the number
+  # follows. The downward pressure the ceiling exists for is not lost: the capability gate already
+  # FAILS when a declared divergence closes and its entry is left behind, so a list that is too long
+  # is caught there, by name, rather than here by a number nobody can attribute.
+  #
+  # The literal stays as a FALLBACK for a tree where the capability gate is absent or unparseable —
+  # and `SSC3_FRONT_CORPUS_ONE_SIDED_CEILING` still overrides both, for bisecting.
+  CAPDECL="$(python3 - "$ROOT/v3/front-capability-gate.sh" <<'PY' 2>/dev/null
+import re, sys
+try: s = open(sys.argv[1]).read()
+except OSError: raise SystemExit(1)
+tot = 0
+for var in ("KNOWN_CONF_V3_ONLY", "KNOWN_CONF_UNIML_ONLY"):
+    m = re.search(r"declare -a " + var + r"=\(([^)]*)\)", s, re.S)
+    if not m: raise SystemExit(1)       # a list that moved is not a list of zero
+    tot += len(m.group(1).split())
+print(tot)
+PY
+)"
+  case "$CAPDECL" in ''|*[!0-9]*) CAPDECL=85 ;; esac
+  CONECEIL="${SSC3_FRONT_CORPUS_ONE_SIDED_CEILING:-$CAPDECL}"
   if [ "$ccap" -gt "$CONECEIL" ]; then
     echo "  FAIL corpus ONE-SIDED files rose to $ccap (v3 $conly_v3, uniml $conly_uniml), above the ceiling $CONECEIL"
     echo "       one front accepts these and the other refuses them; that gap is not visible in"
