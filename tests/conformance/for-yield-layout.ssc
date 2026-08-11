@@ -70,11 +70,31 @@ println(doubled())
 A braceless multi-line `for`-`do` (no `yield`) — `do` was already an opener, so this pins
 that adding `for` did not disturb it.
 
-A guard on its own line is deliberately **absent** here. It fails on the v2 lane in the
-*braced* form too, which already worked before this fix, so it is an independent
-pre-existing gap and not this case's subject: `BUGS.md`
-`v2-front-for-comprehension-guard-line`. Including it would make this gate red for a
-reason it does not test.
+A guard on ITS OWN LINE, both layouts. This was deliberately absent until 2026-08-11,
+with the note "including it would make this gate red for a reason it does not test" —
+correct at the time, and the reason is now gone: `BUGS.md`
+`v2-front-for-comprehension-guard-line` is fixed, and the case that names it as its gate
+could not fail on it, which is worse than naming no gate at all.
+
+The discriminator is the SEPARATOR, not braces. `forGuard` only looked for `if`
+immediately after the generator, so a newline arrived first, `forSep` read it as "another
+generator follows", and the guard's boolean became a generator's collection —
+`__method__: no dispatch for .map on false`. Both layouts are here because the defect was
+reported in the braced form and reproduced in the braceless one.
+
+```scalascript
+val evensBraced = for {
+  x <- xs
+  if x % 2 == 0
+} yield x
+println(evensBraced)
+
+val evensBare = for
+  x <- xs
+  if x % 2 == 0
+yield x
+println(evensBare)
+```
 
 ```scalascript
 for

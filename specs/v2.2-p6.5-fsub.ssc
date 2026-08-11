@@ -1044,7 +1044,14 @@ def forGen(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (genE, r) =
 def forGuard(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 2) then forGuardG(nm, genE, tl(ts), env, cx) else forSep(nm, genE, ts, env, cx)
 def forGuardG(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (g, r) => forSep(nm, emitMethodCall("filter", genE, Cons(forLam(erase(g, cx)), Nil), cx), r, env, cx) }
 def forLam(body) = "(lam 1 " ++ body ++ ")"
-def forSep(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 52) then forFlatMap(nm, genE, tl(ts), env, cx) else forEnd(nm, genE, forSkipClose(ts), env, cx)
+// A SEPARATOR FOLLOWED BY `if` IS A GUARD, NOT THE NEXT GENERATOR. `forGuard` only looks for `if`
+// IMMEDIATELY after the generator, so `for x <- xs if p yield x` worked while the same guard on its
+// own line did not: the separator got here first, was read as "another generator follows", and the
+// guard's boolean became a generator's collection — `__method__: no dispatch for .map on false`,
+// which is the symptom tests/BUGS.md v2-front-for-comprehension-guard-line records.
+// Both layouts route to the SAME forGuardG, so a guard after a newline and a guard on the same line
+// desugar identically, and repeated guards keep working because forGuardG returns here.
+def forSep(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 52) then (if isTok(hd(tl(ts)), 2, 2) then forGuardG(nm, genE, tl(tl(ts)), env, cx) else forFlatMap(nm, genE, tl(ts), env, cx)) else forEnd(nm, genE, forSkipClose(ts), env, cx)
 def forSkipClose(ts) = if isTok(hd(ts), 2, 22) then tl(ts) else (if isTok(hd(ts), 2, 29) then tl(ts) else ts)
 def forFlatMap(nm, genE, ts, env, cx) = parseForFromF(ts, nm :: env, cx) match { case (rRest, r) => (emitMethodCall("flatMap", genE, Cons(forLam(rRest), Nil), cx), r) }
 def forEnd(nm, genE, ts, env, cx) = if isWord(hd(ts), "yield") then forYield(nm, genE, tl(ts), env, cx) else forDo(nm, genE, skipDoKw(ts), env, cx)
