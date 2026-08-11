@@ -1,0 +1,11 @@
+slug: overlap-resolves-in-the-room
+branch: feature/overlap-resolves-in-the-room
+agent: claude-code
+started: 2026-08-11T07:46:54Z
+heartbeat: 2026-08-11T07:46:54Z
+status: claimed-before-planning
+items: claim-overlap-tells-you-to-avoid-instead-of-talk
+paths: file:AGENTS.md file:POLICY.md file:.githooks/pre-push file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
