@@ -93,6 +93,21 @@ case "$mode" in
     have=$(sed -n '/^## In flight/,/^## /p' "$BOARD" | grep -E '^\|' || true)
     want=$(generate)
     if [ "$have" = "$want" ]; then echo "board: in sync with .work/active/"; exit 0; fi
+    # NO TABLE AT ALL is the target state, not a drift. This check was written when SPRINT.md still
+    # carried a copy of the in-flight list; the copy was then REMOVED on purpose — the file says so
+    # in the section itself ("Nothing is listed here on purpose") and the reasoning is in this
+    # script's own header. `--check` kept comparing against a generated table anyway, so on the real
+    # repository it reported SPRINT.md as wrong for being right, and it has been red ever since,
+    # unnoticed because nothing runs it on the push path.
+    #
+    # The comparison is NOT dropped: the moment a table reappears, `have` is non-empty and every
+    # assertion below applies again — which is correct, because then a second copy exists and it
+    # must match. What this arm says is that there is nothing to compare.
+    if [ -z "$have" ]; then
+      echo "board: SPRINT.md carries no in-flight table, which is the intended state — nothing to compare"
+      echo "  (the list is DERIVED; run scripts/board to see it. If you re-add a table here, this check compares it again.)"
+      exit 0
+    fi
     echo "board: SPRINT.md's table does NOT match .work/active/" >&2
     diff <(printf '%s\n' "$have") <(printf '%s\n' "$want") >&2 || true
     echo "" >&2

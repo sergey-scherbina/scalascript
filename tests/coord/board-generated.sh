@@ -61,5 +61,24 @@ check "extra row in SPRINT.md → drift" drift "$r"
 gen --check >/dev/null 2>&1 && r=insync || r=drift
 check "missing rows in SPRINT.md → drift" drift "$r"
 
+# NO TABLE is the intended state and must NOT read as drift — SPRINT.md removed its copy on purpose
+# and `--check` reported it as wrong for years of commits, red and unnoticed because nothing runs it
+# on the push path. Asserted in BOTH directions right here: empty section is in sync, and a table
+# that IS present is still compared, so this arm cannot quietly turn the check into a no-op.
+{ printf '# b\n\n## In flight\n\nRun `scripts/board`. Nothing is listed here on purpose.\n\n## How\n'; } > "$LAB/B.md"
+gen --check >/dev/null 2>&1 && r=insync || r=drift
+check "no table at all → in sync, not drift" insync "$r"
+
+{ printf '# b\n\n## In flight\n\n'; cat "$LAB/table.md"; printf '\n## How\n'; } > "$LAB/B.md"
+python3 -c "
+import sys
+p='$LAB/B.md'
+L=open(p).read().split(chr(10))
+i=[k for k,l in enumerate(L) if l.startswith('## How')][0]
+L.insert(i-1, '| \`ghost2\` | \`v2\` | \`ghost2\` | in progress | x |')
+open(p,'w').write(chr(10).join(L))"
+gen --check >/dev/null 2>&1 && r=insync || r=drift
+check "a table that IS present is still compared" drift "$r"
+
 [ "$fail" -eq 0 ] || { printf '\nboard-generated: FAIL\n' >&2; exit 1; }
 printf 'board-generated: PASS\n'
