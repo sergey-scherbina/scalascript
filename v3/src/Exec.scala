@@ -1457,45 +1457,8 @@ object Exec:
         // "`ssc3 run` uses the v2 runtime", which stopped being true on 2026-08-07 when `run`
         // switched to v3's own executor — a diagnostic that sends the reader to the wrong lane
         // is worse than one that says less.
-        // ── THE EXTENSION FALLBACK — §51's point, WRITTEN BUT NOT MEASURED ───────────────────
-        //
-        // `v3/SPRINT.md` §51 concluded that an extension belongs at "the one point where the merged
-        // program AND the receiver's runtime tag are both known". This is that point: reached only
-        // after every class arm and the whole built-in table have declined.
-        //
-        // WHY THE STATIC REWRITE IS NOT ENOUGH. `Lower.rewriteExtensionCalls` refuses to rewrite a
-        // call whose name is a built-in, because a name-based rewrite that ignores the vocabulary is
-        // what took N from 188 to 130 in §51. That refusal is right and it has a cost:
-        // `std/parsing/combinators.ssc` declares `extension [A](p: Parser[A]) def map`, so `p.map(f)`
-        // is left alone, falls through to the built-in `map` and dies here — the DIFF filed as
-        // `v3-extension-unblocks-two-files-into-a-lane-DIFF`.
-        //
-        // ITS EFFECT IS UNMEASURED, and that is stated rather than glossed. The corpus number on
-        // main dropped 194 → 132 between landing the extensions and writing this, from a name
-        // collision the prelude work exposed (`filterRows` declared with two arities in two std
-        // modules) — so no A/B taken on this tree can attribute anything to this arm. I reverted it
-        // once on that reading and the number did not move, which is how the attribution was caught.
-        // Measure it against a tree where N is back at 194 before trusting it.
-        case _ =>
-          val fi = extensionFor(m, name, args.length + 1)
-          if fi >= 0 then callFunc(m, fi, recv :: args)
-          else throw ExecError("method '" + name + "' on " + show(recv) +
+        case _ => throw ExecError("method '" + name + "' on " + show(recv) +
                     "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
-
-  /** A top-level function that could be an extension method called as `recv.name(…)`: the name
-    * matches and it takes the receiver plus the arguments given, or `-1`.
-    *
-    * ARITY IS PART OF THE MATCH. A name that matches with the wrong arity is not this call's target,
-    * and calling it would turn a missing method into a wrong one — which is exactly the failure
-    * mode the prelude's `filterRows` collision shows at the other end of the same problem. */
-  private def extensionFor(m: Module, name: String, arity: Int): Int =
-    var i = 0
-    var found = -1
-    while i < m.funcs.length do
-      val f = m.funcs(i)
-      if found < 0 && f.name == name && f.nparams == arity then found = i
-      i = i + 1
-    found
 
   private[ssc3] def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
