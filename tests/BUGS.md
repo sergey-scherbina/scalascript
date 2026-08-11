@@ -1,37 +1,68 @@
-## shipped-F-and-F-bootstrapped-from-source-disagree
+## shipped-F-and-F-bootstrapped-from-source-disagree — RETRACTED, it was my stale kernel
 
-<!-- status: open
+<!-- status: wontfix
+     lane: apparatus
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-11
+     confirmed: no
+     gate: tests/e2e/f-char-escape-gate.sh -->
+
+**This entry was WRONG and is retracted the day it was filed.** It claimed the F inside `bin/ssc`
+and the F bootstrapped from `specs/v2.2-p6.5-fsub.ssc` are different programs, on the evidence that
+F0 lowered `'\\'.toInt` to `(prim char (lit (int 92)))` while `bin/ssc` answered 0.
+
+**F0 never produced that IR.** The measurement ran through a kernel jar built days earlier from an
+older `v2/src`. Rebuilt from current sources, F0 does not lower that program at all — it emits
+`(lit (int '\'))` and the runtime refuses it: `int literal: not a canonical INT`. The two Fs were
+never disagreeing; they were both wrong, in the one way this entry did not consider, and my
+instrument was stale in the other.
+
+**Measured properly, they AGREE.** Fifteen self-contained probes covering every construct touched
+this week — arm-body sequences, an inline `val` in an arm, curried defaults, an omitted clause,
+varargs, an extern vararg, `++` chains over lists and strings, placeholders, `${` literals,
+interpolation, a sibling call — **14 of 15 identical**, and the fifteenth is the char-escape bug
+below, present in both. So the week's verifications stand.
+
+**What it cost and what it bought.** An afternoon of alarm about the soundness of every measurement,
+and one real defect that the alarm led to. The rule it earns: **an instrument built from sources has
+a version, and a jar in `/tmp` from two days ago is a different compiler.** `install.sh` has a
+staleness guard for exactly this and my hand-built kernel had none.
+
+## f-char-literal-escape-without-a-named-branch-emits-the-character-not-its-code
+
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-11
      confirmed: yes
-     gate: none -->
+     fixed-in: 7dd1c17a7
+     fixed-in: 39d99eed7
+     gate: tests/e2e/f-char-escape-gate.sh -->
 
-**The F inside `bin/ssc` is not the F you get by compiling `specs/v2.2-p6.5-fsub.ssc`.** Measured on
-one two-line program:
+`escCharCode` maps `\n`, `\t`, `\r` and `\0` to Int literals and fell through returning `e`
+unconverted — but `e` comes from `charAt`, so it is a **Char**. The two escapes with no named branch,
+`'\\'` and `'\''`, reached emitInt as characters:
 
 ```
-def main(): Unit = println('\\'.toInt)
-
-F0, bootstrapped from specs/v2.2-p6.5-fsub.ssc:
-  (def main (lam 0 (app (global println) (prim __method__ "toInt" (prim char (lit (int 92)))))))   correct
-
-bin/ssc, SSC_FRONT_STRICT=1:   0
-bin/ssc, SSC_FRONT=legacy:    92
+'\\'.toInt              F   0    reference  92
+"a\\b".indexOf('\\')    F  -1    reference   1
+'\''.toInt              F   0    reference  39
 ```
 
-F0 lowers the backslash char literal to code point 92, which is right. The shipped F answers 0. Same
-binary, same runtime — only the front differs, so this is not a runtime gap.
+The emitted literal is `(lit (int '\'))`, which is not an integer at all. Through F0 the runtime
+says so — `int literal: not a canonical INT (0|-?[1-9][0-9]*)` — and through `bin/ssc` it is silent
+and answers 0. It survived because **every escape anyone had tested has a named branch**; the two
+that do not are exactly the two that were wrong. The non-escape path one line above already wrote
+`.toInt` explicitly.
 
-**Why it matters beyond one literal:** every F investigation this week used one of these two Fs as
-its oracle, and they are not the same program. The IR-dump instrument
-(`v2/SPRINT.md`, "the instrument") bootstraps F0; the gates and the corpus census run `bin/ssc`. A
-defect present in one and not the other is invisible to whichever tool you happen to pick.
+Fixed: the fall-through returns `e.toInt`. The four named escapes are controls in the gate — they
+were always right, and they are what a "call .toInt everywhere" change would break if the branches
+went instead of the fall-through.
 
-Not chased further here — that is a build-pipeline question (what compiles the staged F, and with
-what), not a lowering one, and it deserves its own claim rather than the tail of a sweep.
-
+Found by sweeping `tests/conformance` with the output-agreement comparison, which the gate excludes
+for runtime (`f-worse-than-the-reference-on-five-conformance-files`). One of the five is now closed.
 ## f-worse-than-the-reference-on-five-conformance-files
 
 <!-- status: open

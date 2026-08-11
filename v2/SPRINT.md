@@ -71,10 +71,17 @@ from. `tests/BUGS.md` `f-worse-than-the-reference-on-five-conformance-files`.
 The gate is NOT widened yet: 73 of 398 timed out at `-P 4` on a contended host, so folding them
 in would add a load-dependent bucket to frozen thresholds. Answer the timeout question first.
 
-**And the two Fs are not the same program.** `'\\'.toInt` lowers to 92 under F bootstrapped from
-`specs/v2.2-p6.5-fsub.ssc` and answers 0 under the F inside `bin/ssc` — same binary, same
-runtime, only the front differs. Every F investigation this week used one or the other as its
-oracle. `shipped-F-and-F-bootstrapped-from-source-disagree`.
+**The two Fs AGREE — my earlier claim here was wrong and is retracted.** Fifteen self-contained
+probes covering every construct touched this week: **14 of 15 identical**, and the fifteenth was
+a real defect present in BOTH. The evidence for "they differ" came from a kernel jar built two
+days earlier from an older `v2/src`; rebuilt from current sources it disappears. An instrument
+built from sources has a VERSION, and `install.sh` guards against exactly this while a hand-built
+jar in `/tmp` does not. `tests/BUGS.md`
+`shipped-F-and-F-bootstrapped-from-source-disagree` is retracted there.
+The defect the alarm led to is real and fixed: an escaped Char literal with no named branch
+emitted the character rather than its code point — `'\\'` and `'\''`, silently 0 through
+`bin/ssc`. One of the five conformance divergences is closed;
+gate `tests/e2e/f-char-escape-gate.sh`.
 
 **It is a GATE now, not a thing I ran by hand** — `tests/e2e/f-output-agreement-gate.sh`, wired into
 `ci.yml` along with the four F gates, which until 2026-08-09 were invoked by no workflow and no
