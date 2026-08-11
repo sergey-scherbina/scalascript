@@ -46,27 +46,37 @@ cases = re.findall(r"^\s*case (\w+)\(([^)]*)\)", seg, re.M)
 # ignore this gate.
 need = [n for n, args in cases if re.search(r"Expr|MatchArm|Stmt|HandleArm", args)]
 
-src = open("v3/src/Lower.scala").read().split("\n")
-walkers = []
-for n, line in enumerate(src):
-    if "// EXPR-WALKER" not in line:
-        continue
-    m = None
-    for j in range(n + 1, min(n + 4, len(src))):
-        m = re.match(r"  (?:private )?def (\w+)", src[j])
-        if m:
-            start = j
-            break
-    if not m:
-        print(f"  FAIL  the // EXPR-WALKER on line {n+1} is not above a def")
-        walkers.append((f"line {n+1}", n, n))
-        continue
-    end = len(src)
-    for j in range(start + 1, len(src)):
-        if re.match(r"  (?:private )?def ", src[j]):
-            end = j
-            break
-    walkers.append((m.group(1), start, end))
+# THE GATE FOLLOWS THE MARKER, NOT THE FILE. It read `Lower.scala` alone until 2026-08-11, when
+# `mapDeep` moved to `Ast.scala` — `Loader.merge` needs the same traversal and the loader must not
+# depend on the lowering. The gate went RED rather than blind, because what stayed behind in
+# `Lower.scala` was a one-line alias still carrying the marker, and a walker that handles no case is
+# exactly what this gate reports. That was luck: had the marker moved with the code in the same
+# commit, `mapDeep` would have left this gate's sight in silence, and the walker whose two missing
+# cases cost 116 corpus cases would be the unchecked one. So the FILE LIST is what to keep honest
+# here — a new home for a walker goes in this list, and the marker above the def is what selects it.
+SOURCES = ["v3/src/Lower.scala", "v3/src/Ast.scala"]
+walkers = []          # (name, file, lines, start, end)
+for path in SOURCES:
+    src = open(path).read().split("\n")
+    for n, line in enumerate(src):
+        if "// EXPR-WALKER" not in line:
+            continue
+        m = None
+        for j in range(n + 1, min(n + 4, len(src))):
+            m = re.match(r"  (?:private )?def (\w+)", src[j])
+            if m:
+                start = j
+                break
+        if not m:
+            print(f"  FAIL  the // EXPR-WALKER on {path}:{n+1} is not above a def")
+            walkers.append((f"{path}:{n+1}", path, src, n, n))
+            continue
+        end = len(src)
+        for j in range(start + 1, len(src)):
+            if re.match(r"  (?:private )?def ", src[j]):
+                end = j
+                break
+        walkers.append((m.group(1), path, src, start, end))
 
 if not walkers:
     print("walker-gate: FAIL — no function is marked // EXPR-WALKER", file=sys.stderr)
@@ -88,7 +98,7 @@ KNOWN = {
 }
 
 fails = 0
-for name, start, end in walkers:
+for name, path, src, start, end in walkers:
     body = "\n".join(src[start:end])
     missing = [c for c in need if f"Expr.{c}(" not in body]
     if selftest:
@@ -115,7 +125,7 @@ if selftest:
     # then fail on.
     ghost = "ThisCaseDoesNotExist"
     bad = 0
-    for name, start, end in walkers:
+    for name, path, src, start, end in walkers:
         body = "\n".join(src[start:end])
         if f"Expr.{ghost}(" in body:
             bad += 1

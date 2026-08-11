@@ -2,10 +2,10 @@ slug: v3-prelude-and-dataset
 branch: feature/ssc3-front-diff-wiring
 agent: claude-code
 started: 2026-08-10T16:10:00Z
-heartbeat: 2026-08-10T16:10:00Z
+heartbeat: 2026-08-11T13:10:00Z
 status: claimed-before-planning
 items: v3-prelude-and-dataset
-paths: file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+paths: file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Ast.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/loader-gate.sh file:v3/walker-gate.sh file:v3/jit-gate.sh file:v3/front-diff.sh file:v3/corpus-report.sh file:v3/PRELUDE-CORRECTNESS.md file:v3/BACKLOG.md
 scope: |
   THE OWNER CHOSE OPTION 3 of the DATASET decision in `v3/BACKLOG.md` (2026-08-10): `Dataset`
   written in ScalaScript as a library over lists, so BOTH v3 lanes get it with no host surface at
@@ -33,4 +33,4 @@ scope: |
   The prize is capped and was counted by whoever filed the decision: N 166 -> 178 in their measure,
   12 conformance files, and only if each also passes the rest of its program. I will report what it
   actually moves, not what it could.
-next: read Loader's merge semantics for duplicate top-level names, then Stage A behind SSC3_PRELUDE
+next: P-5 — measure the prelude's per-invocation parse+lower cost with the real library

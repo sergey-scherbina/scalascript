@@ -69,7 +69,10 @@ agree. `v3/prelude-gate.sh` fails if they diverge, which makes it survivable, no
 
 ## P-4 — a user redefining a prelude name
 
-**Status: FIXED 2026-08-11, on the second attempt, and the first attempt is the more useful record.**
+**Status: FIXED 2026-08-11, on the second attempt, and the first attempt is the more useful record.
+SUPERSEDED the same day by P-6, which turned out to be this rule asked from the other end — the
+filter became a rename and the code now lives in `Loader.disambiguate`. The rule below is unchanged
+and still holds; what changed is that the losing module keeps its own function instead of losing it.**
 
 Measured before deciding, which is why it could not be left to intuition: `def` had it BACKWARDS —
 the prelude's definition won and the user's own function was silently ignored — while `case class`
@@ -99,10 +102,93 @@ On an empty prelude the difference was below this host's resolution. With a libr
 in one corpus sweep. Measure before optimising, and if it costs, cache the LOWERED form rather than
 the text.
 
+**Two inputs this now has that it did not when it was filed, both from P-7's failure:**
+
+- **Not one instruction in the prelude specializes** — 16 `bin ne dyn`, 1 `div`, 3 `eq`, read off the
+  specializer while diagnosing the jit gate. So whatever the prelude costs at run time, it is paid
+  in the dynamic path, and none of it is recovered by the tier the jit gate measures.
+- **The prelude adds 517 registers to a 24-register program** (`long 13 of 24` became
+  `long 13 of 541`). That is the size of the thing being parsed and lowered on every invocation,
+  stated in the unit the executor allocates in, and it is a better number to reason from than a
+  count of files.
+
+**A question to answer before caching anything, and it is not the timing one:** whether the cost is
+per INVOCATION or per program. A cache keyed on the prelude's path would serve a stale lowering the
+moment the prelude is edited, and this repository has been burned by a digest-keyed cache of a
+directory before. Measure first; if it costs, the key has to be the prelude's CONTENT.
+
+
+## P-7 — a measurement that was about ONE program is now about the program AND the prelude
+
+**Status: FIXED for the case that broke 2026-08-11; the general form is a standing hazard.**
+
+`v3/jit-gate.sh` went RED on all five specializer fixtures, and it was the prelude, not the
+specializer. Two families of check, and the numbers say plainly that nothing regressed:
+
+```text
+kinds   4a5,24         twenty lines APPENDED; the fixture's own four unchanged
+banks   long 13 of 24  ->  long 13 of 541      the NUMERATOR never moved on any of the five
+```
+
+The `.kinds` goldens record the kind the specializer assigns each arithmetic instruction in ONE
+named program. A prelude is loaded before every program, so its arithmetic joined the list. Fixed by
+pinning `SSC3_PRELUDE=` on the two `SpecializeMain` invocations rather than regenerating the
+goldens: regenerating would make five expectations a function of the standard library's contents, so
+adding one method would rewrite them and the diff would look exactly like a specializer regression.
+
+**THE GENERAL FORM, which is why this is an entry and not a one-line fix.** Anything that measured a
+program now measures the program plus the prelude — every golden, every count, every benchmark. The
+question to ask of each is whether the prelude is part of its subject. For the specializer it is not:
+the fixture IS the program. For the corpus report it is: a case's answer must be right with the
+standard library present. P-5's timing measurement has not been asked yet.
+
+**A fact worth keeping from the failure:** those twenty appended lines were `bin ne dyn` sixteen
+times, one `div`, three `eq`. **Not one instruction in the prelude specializes.** That is a fact
+about the standard library's shape and it belongs to P-5.
 
 ## P-6 — a call binds to another MODULE's function of the same name
 
-**Status: open. Reported 2026-08-11, and it is the same defect as P-1, P-2 and P-4.**
+**Status: FIXED 2026-08-11, and it SUBSUMED P-4 rather than sitting beside it.**
+
+`Loader.disambiguate` runs before the merge: a name declared by more than one unit is a collision,
+the OWNER keeps it — the root if the root declares it, otherwise the first declaring unit, because
+that is who wins today via `fns.indexOf` — and every other declaring unit's copy is renamed and its
+own references rewritten. On a program with no collision the set is empty and nothing runs, which is
+the property that keeps N from moving by accident.
+
+**P-4 turned out to be the same rule written as a FILTER.** It dropped the module's copy; dropping
+and renaming are identical for everyone calling from outside — the root's def is what they reach
+either way — and dropping is a WRONG answer for the module itself, whose own calls then went to the
+root's function. The gate probe that found it is three modules and a root, all legal ScalaScript,
+refused with `call to 'shared' passes 2 argument(s), it takes 1`. So there is now one pass, not two:
+the owner keeps the name, everyone else is renamed, **nobody is dropped**.
+
+**MEASURED, and this is the part P-4's first attempt is a warning about.** Two full corpus runs, the
+three touched sources reverted to `HEAD` for the baseline and restored by checksum afterwards:
+`v3/corpus-report.sh --names` is **byte-identical** — same N = 204, same DIFF 3, same CRASH 4, same
+blocked-message histogram, same identifier histogram. A per-case classification of both fronts over
+all 398 conformance files (`both` / `differ` / `v3-only` / `uniml-only` / `neither`) is identical row
+for row. Counts alone would not have shown a compensating pair; the row-level diff does.
+
+**It fires on the one real collision in the tree, and that collision was LATENT** — say so rather
+than claim a corpus win. `std/scljet/sql.ssc`'s `filterRows` is now `filterRows__2` in the merged
+program, confirmed by reading the printed AST. But `sql.ssc` never calls it: the two calls are in
+`mutate.ssc`, which is loaded FIRST because `sql.ssc` imports it, so `mutate` was already the owner
+and was already right. The reported direction cannot occur through this import edge. A census of the
+whole `std` tree finds five names declared in more than one file, two at differing arities
+(`filterRows`, `contentRows`) and three at the SAME arity (`link`, `text`, `textOf`) — and the
+same-arity three are the dangerous ones, since an arity collision refuses and says so while a
+same-arity one runs the wrong function and prints a plausible answer. None of those pairs co-occurs
+in one program today. **The defect is real, reproducible and now fixed; its corpus instances are
+loaded but not yet fired.**
+
+Guarded in `v3/loader-gate.sh` — a second section, four checks over a four-module probe, plus two
+new planted defects in the self-test (the rename disabled; the owner chosen as the LAST declarer
+rather than the first, which every "does my own module win" check still passes).
+
+---
+
+**The report, and the reproduction, kept below as written.**
 
 Two `std` modules declare one name with different arities. They never appeared in a single program
 before, so nothing forced the question; with a prelude in every program they do, and a call inside

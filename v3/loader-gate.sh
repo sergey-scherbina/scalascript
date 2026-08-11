@@ -43,20 +43,20 @@ fail=0
 # would have let the second through.
 if [ "${1:-}" = "--self-test" ]; then
   LOADER="v3/src/Loader.scala"
-  GOOD='List(stdRoot + target, target, dir + "/" + target, target.substring("std/".length))'
-  grep -qF "$GOOD" "$LOADER" || { echo "self-test: the candidate line is not where it was — refusing to patch blind"; exit 2; }
   cp "$LOADER" "$LOADER.selftest-bak"
   restore() { mv -f "$LOADER.selftest-bak" "$LOADER"; }
   trap restore EXIT INT TERM
   st_fail=0
+  # `good` is checked for EXACTLY ONE occurrence before anything is written. A self-test that
+  # patches blind reports on a file it did not change.
   plant() {
-    local name="$1" bad="$2"
+    local name="$1" good="$2" bad="$3"
     cp "$LOADER.selftest-bak" "$LOADER"
-    python3 - "$LOADER" "$GOOD" "$bad" <<'PY'
+    python3 - "$LOADER" "$good" "$bad" <<'PY' || { printf '  %-6s could not plant: %s\n' "FAIL" "$1"; exit 2; }
 import sys
 p, good, bad = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(p).read()
-assert s.count(good) == 1, "expected exactly one candidate line, found %d" % s.count(good)
+assert s.count(good) == 1, "expected exactly one occurrence of the anchor, found %d" % s.count(good)
 open(p, "w").write(s.replace(good, bad))
 PY
     if "$0" >/dev/null 2>&1; then
@@ -66,14 +66,23 @@ PY
     fi
   }
   echo "── v3 loader gate self-test ───────────────────────────────────────────────"
-  plant "the strip candidate removed (the pre-migration resolver)" \
+  CAND='List(stdRoot + target, target, dir + "/" + target, target.substring("std/".length))'
+  plant "the strip candidate removed (the pre-migration resolver)" "$CAND" \
         'List(stdRoot + target, target, dir + "/" + target)'
-  plant "the strip candidate tried FIRST (shadows every real std/ module)" \
+  plant "the strip candidate tried FIRST (shadows every real std/ module)" "$CAND" \
         'List(target.substring("std/".length), stdRoot + target, target, dir + "/" + target)'
+  # The rename switched off entirely — the state the tree was in before P-6 was fixed.
+  plant "the collision rename disabled (a unit calls another module's function)" \
+        'if targets.isEmpty then units' 'if true then units'
+  # THE MORE INTERESTING FAILURE, and the reason section 2's third check exists: the rename working
+  # while the OWNER is chosen wrongly. Every "does my own module win" check still passes; what
+  # changes is the answer a unit gets when it declares the name NOWHERE and simply calls it.
+  plant "the owner chosen as the LAST declarer instead of the first" \
+        'else declarers(n).head' 'else declarers(n).last'
   restore; trap - EXIT INT TERM
   "$0" >/dev/null 2>&1 || { printf '  %-6s the gate does not pass on the restored tree\n' "FAIL"; st_fail=1; }
   echo
-  [ "$st_fail" = 0 ] && echo "== v3 loader gate self-test: GREEN (2/2 caught) ==" || echo "== v3 loader gate self-test: RED =="
+  [ "$st_fail" = 0 ] && echo "== v3 loader gate self-test: GREEN (4/4 caught) ==" || echo "== v3 loader gate self-test: RED =="
   exit "$st_fail"
 fi
 
@@ -146,6 +155,126 @@ if [ -f "$canon" ]; then
 else
   say note "$canon is absent, so the corpus spelling was not checked"
 fi
+
+echo
+echo "── v3 module graph: WHICH declaration a call means ───────────────────────"
+#
+# THE LOADER'S SECOND JOB. Resolution above answers "which FILE"; this answers "which DECLARATION",
+# and until 2026-08-11 nothing asked. `Loader.merge` concatenates every unit's `def`s into one flat
+# table and `Lower` resolves a call with `fns.indexOf` — the FIRST match — so two modules declaring
+# one name meant the loser's own calls went to the winner's function. Real in this tree:
+# `std/scljet/mutate.ssc` declares `filterRows(rows, drop)`, `std/scljet/sql.ssc` declares
+# `filterRows(rows, where, colNames)`, and `sql.ssc` imports `mutate.ssc`.
+#
+# THE PROBE TREE IS A CHAIN, m1 <- m2 <- m3 <- main, because the three interesting positions are
+# different: m1 and m2 each declare `shared` at a different arity and each call their own; m3
+# declares it NOWHERE and calls it, which is the case the rename must NOT move; and the root sits
+# above all of them.
+#
+# `tag` is the same shape at the SAME ARITY and it is the more serious half. An arity collision
+# refuses and says so; a same-arity one runs the wrong function and prints a plausible answer, which
+# is a DIFF rather than an UNSUPPORTED, and no arity check anywhere can see it.
+M="$(mktemp -d)"
+trap 'rm -rf "$T" "$M"' EXIT
+
+# `rec` is the colliding name called RECURSIVELY: a declaration is renamed and its own recursive
+# call is a reference like any other, so it must move with it. `Holder`/`NS` put the call inside a
+# class method and an object member, which are separate rewrite sites from a plain `def` body — and
+# a class method is the one that must NOT be rewritten by name, since `Lower.selfCalls` reads an
+# unqualified call to a SIBLING method as `this.m(…)`. `m2Local` takes a PARAMETER named `shared`:
+# renaming that would redirect a call to a local, which is P-1's defect wearing a different hat.
+cat > "$M/m1.ssc" <<'EOF'
+def shared(a: Int): Int = a * 100
+def tag(x: Int): String = "m1"
+def rec(n: Int): Int = if n <= 0 then 0 else rec(n - 1) + 1
+
+def m1Uses(): Int = shared(2)
+def m1Tag(): String = tag(0)
+def m1Rec(): Int = rec(3)
+EOF
+
+cat > "$M/m2.ssc" <<'EOF'
+[m1](./m1.ssc)
+
+def shared(a: Int, b: Int): Int = a + b
+def tag(x: Int): String = "m2"
+def rec(n: Int, acc: Int): Int = if n <= 0 then acc else rec(n - 1, acc + 10)
+
+def m2Uses(): Int = shared(3, 4)
+def m2Tag(): String = tag(0)
+def m2Rec(): Int = rec(3, 0)
+
+def m2Local(shared: Int): Int = shared + 1
+
+case class Holder(v: Int):
+  def viaMethod(): Int = shared(3, 4)
+
+object NS:
+  def viaObject(): Int = shared(5, 6)
+EOF
+
+cat > "$M/m3.ssc" <<'EOF'
+[m2](./m2.ssc)
+
+def m3Uses(): Int = shared(5)
+EOF
+
+cat > "$M/main.ssc" <<'EOF'
+[m3](./m3.ssc)
+
+def main(): Unit =
+  println(m1Uses())
+  println(m2Uses())
+  println(m3Uses())
+  println(m1Tag())
+  println(m2Tag())
+  println(m2Local(9))
+  println(m1Rec())
+  println(m2Rec())
+  println(Holder(0).viaMethod())
+  println(NS.viaObject())
+EOF
+
+want="200
+7
+500
+m1
+m2
+10
+3
+30
+7
+11"
+got="$(SSC3_PRELUDE= "$SSC3" exec "$M/main.ssc" 2>&1 | tail -10)"
+if [ "$got" = "$want" ]; then
+  say ok "each module calls its own declaration; a module that declares none keeps the first"
+else
+  say FAIL "collision rename: expected [$(echo "$want" | tr '\n' ' ')], got [$(echo "$got" | tr '\n' ' ')]"
+  fail=1
+fi
+
+# BOTH LANES, because a rename that happens in the loader must be invisible to the choice of lane —
+# invariant I-3, and the merge is upstream of both.
+gotb="$(SSC3_PRELUDE= "$SSC3" run --bridge "$M/main.ssc" 2>&1 | tail -10)"
+if [ "$gotb" = "$want" ]; then
+  say ok "the bridge lane agrees — the rename is upstream of the lane split"
+else
+  say FAIL "bridge lane disagrees: [$(echo "$gotb" | tr '\n' ' ')]"
+  fail=1
+fi
+
+# P-4, WHICH THIS MUST NOT UNDO. A name the ROOT declares still displaces every module's, and the
+# root's own call still reaches the root's own function. The two rules are asked in order and the
+# second must not reopen the first.
+cat > "$M/rootwins.ssc" <<'EOF'
+[m3](./m3.ssc)
+
+def shared(a: Int): Int = 42
+
+def main(): Unit = println(shared(1))
+EOF
+rw="$(SSC3_PRELUDE= "$SSC3" exec "$M/rootwins.ssc" 2>&1 | tail -1)"
+check "the root's own def still wins over every module's (P-4)" "42" "$rw"
 
 echo
 [ "$fail" = 0 ] && echo "== v3 loader gate: GREEN ==" || echo "== v3 loader gate: RED =="

@@ -312,13 +312,165 @@ object Loader:
       prelude.foreach(visit)
       out ++ rootUnits
 
+  /** ONE NAME DECLARED BY TWO MODULES — P-4 and P-6 of `v3/PRELUDE-CORRECTNESS.md`, which turned
+    * out to be one question asked from two ends, answered here by one rule.
+    *
+    * P-6 — A UNIT CALLS ITS OWN. Two modules declaring one name at two arities, and a call written
+    * inside one of them binding to the other's.
+    *
+    * REPRODUCED, not reported: `std/scljet/mutate.ssc` declares `filterRows(rows, drop)` and
+    * `std/scljet/sql.ssc` declares `filterRows(rows, where, colNames)`; `sql.ssc` imports
+    * `mutate.ssc` and `mutate.ssc` has never heard of `sql.ssc`. `merge` concatenates both into one
+    * flat table, `Lower` resolves a call with `fns.indexOf` — the FIRST match — and the module that
+    * lost the race calls a function it does not know exists. They never appeared in one program
+    * before; with a prelude in every program they do.
+    *
+    * THE RULE THE DEPENDENCY DIRECTION GIVES, which is narrower than "prefer your own module": a
+    * module sees its OWN declarations and those of what it IMPORTS, never those of a module that
+    * imports IT. Direction is what makes this decidable without heuristics.
+    *
+    * REJECTED: resolving names against a per-call-site visibility set. That is the general answer
+    * and it touches every resolution in the lowering, so every program pays for a defect a handful
+    * have. The blast radius is the whole compiler; the bug is six modules wide.
+    *
+    * CHOSEN: rename only what actually collides. On a program where no name is declared by two
+    * units — which is nearly all of them — `targets` is empty and NOTHING below runs, so the corpus
+    * cannot move by accident. That property is the reason for this shape rather than a nicer one.
+    *
+    * WHICH COPY KEEPS THE NAME is not a free choice: it must be the one that wins TODAY, or a third
+    * unit that calls the name without declaring it would silently change target. Today's winner is
+    * the ROOT if the root declares it, and otherwise the FIRST declaring unit in closure order,
+    * because `fns.indexOf` takes the first. So the owner keeps the name and every other declaring
+    * unit is renamed.
+    *
+    * AND THAT SUBSUMES P-4, which is why there is one pass here and not two. P-4 said a name the
+    * ROOT declares displaces every module's `def` of that name — measured, because `def` had it
+    * BACKWARDS and a user's own function was silently ignored in favour of an imported one, while
+    * `case class` was already right, so the two kinds disagreed about one question. It was written
+    * as a FILTER: the module's copy was dropped. Dropping is the same rule as renaming for everyone
+    * who calls the name from outside — the root's def is what they reach either way — and it is a
+    * WRONG answer for the module itself, whose own calls then went to the root's function. The
+    * `v3/loader-gate.sh` probe that found it is three modules and a root, all of it legal
+    * ScalaScript, refused with `call to 'shared' passes 2 argument(s), it takes 1`.
+    *
+    * So: the owner keeps the name, everyone else is renamed, nobody is dropped. The root is simply
+    * the owner of everything it declares. P-4's rule survives exactly — what changes is that a
+    * module keeps its own function instead of losing it.
+    *
+    * THE NARROWNESS OF P-4 ALSO SURVIVES, and it is the part that cost most to learn. My first
+    * attempt at that rule kept the LAST declaration of every name, which reads identically in
+    * English and is not: several `def`s of one name inside ONE unit are a working mechanism of this
+    * compiler, not a collision, and dropping them took the corpus from 204 to 132. Hence `.distinct`
+    * per unit below — a unit's own duplicates are that unit's business and are renamed together.
+    *
+    * WHAT THIS DELIBERATELY DOES NOT DECIDE: a unit that CALLS a name without declaring it, where
+    * two imported modules both provide one. Answering that needs the import EDGES rather than the
+    * unit list, and it is a separate change with a separate measurement. The behaviour there is
+    * unchanged and it is ambiguous; saying so is better than pretending the rename closed it. */
+  private def disambiguate(units: List[Unit3]): List[Unit3] =
+    // A name is only a candidate if it is declared by more than one unit AS A `def`. Counted per
+    // unit — `.distinct` — because several `def`s of one name inside ONE unit are that unit's own
+    // business and renaming them all together is exactly right.
+    val declarers: Map[String, List[String]] =
+      units.flatMap(u => u.program.defs.map(_.name).distinct.map(n => (n, u.path)))
+        .groupBy((n, _) => n).map((n, ps) => (n, ps.map((_, p) => p)))
+    // EVERY OTHER KIND OF DECLARATION IS AN EXCLUSION, because those names resolve through tables
+    // this rewrite does not reach: a class is looked up by name in `classes`, a top-level `val` is
+    // a module GLOBAL, an object is a namespace. Renaming a `def` that shares a name with one of
+    // them would move half of a name and leave the other half behind.
+    val otherKinds: Set[String] =
+      units.flatMap(u =>
+        u.program.classes.map(_.name) ++ u.program.objects.map(_.name) ++
+        u.program.traits.map(_.name) ++ u.program.effects.map(_.name) ++
+        u.program.topLevel.collect { case Stmt.Val(n, _, _, _) => n }).toSet
+    val targets: Set[String] =
+      declarers.filter((n, ps) => ps.length > 1 && !otherKinds.contains(n)).keySet
+    if targets.isEmpty then units
+    else
+      val root = units.last
+      val rootDeclares = root.program.defs.map(_.name).toSet
+      def owner(n: String): String =
+        if rootDeclares.contains(n) then root.path else declarers(n).head
+
+      // The new name is checked against every name in the program rather than assumed unique. A
+      // user CAN write `filterRows__2`; the check costs three lines and removes the assumption.
+      var taken: Set[String] = units.flatMap(u => u.program.defs.map(_.name)).toSet ++ otherKinds
+      def fresh(n: String): String =
+        var i = 2
+        while taken.contains(n + "__" + i.toString) do i = i + 1
+        val c = n + "__" + i.toString
+        taken = taken + c
+        c
+
+      /** A reference is rewritten only if the name is not BOUND inside the expression.
+        *
+        * `Expr.boundNames` is collected over the whole expression rather than per scope, so a
+        * parameter or local of the same name anywhere inside leaves every reference in that body
+        * alone. That is the conservative direction here: an un-renamed call keeps today's
+        * behaviour, while a wrongly renamed one would redirect a call to a LOCAL — which is P-1's
+        * defect wearing a different hat. */
+      def rw(e: Expr, extra: Set[String], ren: Map[String, String]): Expr =
+        val bound = extra ++ Expr.boundNames(e)
+        val live = ren.filter((n, _) => !bound.contains(n))
+        if live.isEmpty then e
+        else Expr.mapDeep(e, x => x match
+          case Expr.Call(fn, as, p) if live.contains(fn) => Expr.Call(live(fn), as, p)
+          // A BARE NAME CAN BE A CALL: `def empty: List[A] = Nil` is referenced as `empty`, and
+          // `Lower` turns a name that is a zero-arity def into a call. Leaving this case out would
+          // rename the declaration and not its parenless uses.
+          case Expr.Name(n, p) if live.contains(n) => Expr.Name(live(n), p)
+          case other => other)
+
+      def rwDef(d: Def, ren: Map[String, String], extra: Set[String]): Def =
+        val inner = extra ++ (d.params ++ d.givenParams).map(_.name).toSet
+        def rwParam(pm: Param): Param = pm.copy(default = pm.default.map(x => rw(x, inner, ren)))
+        d.copy(params = d.params.map(rwParam), givenParams = d.givenParams.map(rwParam),
+               body = rw(d.body, inner, ren))
+
+      units.map { u =>
+        val mine = u.program.defs.map(_.name).distinct
+          .filter(n => targets.contains(n) && owner(n) != u.path)
+        if mine.isEmpty then u
+        else
+          val ren = mine.map(n => (n, fresh(n))).toMap
+          val p = u.program
+          Unit3(u.path, p.copy(
+            // The DECLARATION is renamed and so is every reference to it inside this unit, its own
+            // recursive calls included — they are references like any other.
+            defs = p.defs.map(d => rwDef(d.copy(name = ren.getOrElse(d.name, d.name)), ren, Set.empty)),
+            // A METHOD's name is not a module-level name and is never renamed; only its body is
+            // rewritten. Its OWN class's members go into the bound set, because `Lower.selfCalls`
+            // reads an unqualified call to a sibling method as `this.m(…)` — renaming that would
+            // redirect a method call to a top-level function.
+            classes = p.classes.map { c =>
+              val own = (c.methods.map(_.name) ++ c.fields.map(_.name)).toSet
+              c.copy(methods = c.methods.map(m => rwDef(m, ren, own)),
+                     fields = c.fields.map(f => f.copy(default = f.default.map(x => rw(x, own, ren)))))
+            },
+            objects = p.objects.map { o =>
+              val own = (o.defs.map(_.name) ++ o.vals.map(_.name)).toSet
+              o.copy(defs = o.defs.map(m => rwDef(m, ren, own)),
+                     vals = o.vals.map(v => v.copy(value = rw(v.value, own, ren))))
+            },
+            traits = p.traits.map(t =>
+              t.copy(methods = t.methods.map(m => rwDef(m, ren, t.methods.map(_.name).toSet)))),
+            topLevel = p.topLevel.map { s => s match
+              case Stmt.Val(n, v, mu, q) => Stmt.Val(n, rw(v, Set.empty, ren), mu, q)
+              case Stmt.Exp(x)           => Stmt.Exp(rw(x, Set.empty, ren))
+              case Stmt.LocalDef(d)      => Stmt.LocalDef(rwDef(d, ren, Set.empty))
+            }))
+      }
+
   /** One program from the closure: every unit's declarations, but only the ROOT's statements.
     *
     * An imported unit's `val`/`var` survive as declarations — they are what its `def`s read — while
     * its bare expressions are dropped. Keeping them would mean importing a module printed its
     * examples, which is the behaviour that makes people stop factoring code into modules. */
-  def merge(units: List[Unit3]): Program =
-    if units.isEmpty then throw LoadError("no units to merge")
+  def merge(units0: List[Unit3]): Program =
+    if units0.isEmpty then throw LoadError("no units to merge")
+    // ONE NAME, TWO MODULES — see `disambiguate`. Nothing is dropped: the owner keeps the name and
+    // every other declaring unit gets its own copy back under a fresh one.
+    val units = disambiguate(units0)
     val root = units.last
     var defs: List[Def] = Nil
     var classes: List[ClassDef] = Nil
@@ -327,23 +479,13 @@ object Loader:
     var effects: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
     var origin: Map[String, String] = Map.empty
-    // ONLY A NAME THE ROOT ITSELF DECLARES displaces one from another module, and the narrowness is
-    // the whole correction. My first attempt at this rule kept the LAST declaration of every name,
-    // which reads the same in English and is not: several `def`s sharing a name inside ONE unit are
-    // a working mechanism of this compiler, not a collision, and dropping them took the corpus from
-    // 204 to 132. Provenance is the thing that distinguishes the two cases — the same lesson as
-    // P-1 and P-2 — so the filter asks WHICH UNIT a declaration came from and nothing else.
-    val rootDefNames = root.program.defs.map(_.name).toSet
     units.foreach { u =>
       // Only for units that are NOT the root: a declaration in the file the user named needs no
       // redirection, and recording it would make every ordinary diagnostic print a path twice.
+      // Read AFTER the two passes above, so a renamed def maps its NEW name to its own file and a
+      // diagnostic about it still names the module it was written in (P-2).
       if u.path != root.path then u.program.defs.foreach(d => origin = origin.updated(d.name, u.path))
-      // A user's own `def` shadows one of the same name from the prelude or any import, silently,
-      // as in every language with a prelude. Measured before it was decided: `def` had this
-      // BACKWARDS — the other module won and the user's function was ignored with no diagnostic —
-      // while `case class` was already right, so the two disagreed about one question.
-      defs = defs ++ (if u.path == root.path then u.program.defs
-                      else u.program.defs.filterNot(d => rootDefNames.contains(d.name)))
+      defs = defs ++ u.program.defs
       classes = classes ++ u.program.classes
       objects = objects ++ u.program.objects
       traits = traits ++ u.program.traits

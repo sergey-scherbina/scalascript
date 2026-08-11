@@ -1517,49 +1517,12 @@ object Lower:
             case other                                 => other))
       defs.map(forceUses).map(d => d.copy(body = thunkArgs(d.body)))
 
-  // EXPR-WALKER
-  private def mapDeep(e: Expr, f: Expr => Expr): Expr =
-    def go(x: Expr): Expr = mapDeep(x, f)
-    val rebuilt = e match
-      case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
-      case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
-      // The RECEIVER is traversed. Without this line `summon[Monoid[A]].combine` kept its
-      // `__summon__` unresolved — the selection was rebuilt as itself and nothing looked inside —
-      // and the failure surfaced two passes later as `call to unknown function '__summon__'`.
-      case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
-      // A NAMED ARGUMENT'S VALUE, and this line is a fix for a hole that predates the node above.
-      // `mapDeep` had no case for `NamedArg`, so it fell to the identity arm and nothing inside
-      // `f(x = expr)` was ever rewritten — meaning `rewriteByName` and `resolveSummons` have both
-      // been silently skipping named arguments. It surfaced because a `MethodRef` left unresolved
-      // is REFUSED rather than merely unrewritten: 116 corpus cases stopped at
-      // `std/scljet/btree.ssc:178`, whose `cursor.copy(stack = ReadonlyCursorFrame(read.page, 0))`
-      // hides a selection two levels inside a named argument.
-      case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
-      case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
-      case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
-      case Expr.Not(x, p)               => Expr.Not(go(x), p)
-      case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
-      case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
-      case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
-      case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
-      case Expr.Apply(f, as, p)         => Expr.Apply(go(f), as.map(go), p)
-      case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
-      case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
-      case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
-      case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)
-      case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
-      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
-      case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
-      case Expr.Match(sc, arms, p) =>
-        Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
-      case Expr.Block(sts, res, p) =>
-        Expr.Block(sts.map { st => st match
-          case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
-          case Stmt.Exp(x)           => Stmt.Exp(go(x))
-          case Stmt.LocalDef(d)      => Stmt.LocalDef(d.copy(body = go(d.body)))
-        }, res.map(go), p)
-      case other => other
-    f(rebuilt)
+  // Deliberately carries no walker marker: this is an alias, not a walk. The traversal is
+  // `Expr.mapDeep`, on the AST, since `Loader` needs the same one and must not depend on this file,
+  // and `v3/walker-gate.sh` reads it THERE — the marker went with the code. This alias exists only
+  // so the twenty-odd call sites below stay unchanged. (Marking it here would register a walker
+  // that handles nothing, which is what the gate reported the moment the code moved.)
+  private def mapDeep(e: Expr, f: Expr => Expr): Expr = Expr.mapDeep(e, f)
 
   /** Substitute DEFAULT arguments at the call site. Scala's semantics: the default is an
     * expression evaluated where the call is, not a value computed once at the declaration — which
@@ -1810,19 +1773,9 @@ object Lower:
     * Emitting a call the verifier will reject is a defect in this file whatever the cause: the
     * lowering knows both numbers AND the source position, and the verifier knows neither. Runs
     * after `fillDefaults`, since that is what makes a short argument list legitimate. */
-  private def boundNames(e: Expr): Set[String] =
-    var out = Set.empty[String]
-    mapDeep(e, x => { x match
-      case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
-      case Expr.Try(_, n, _, _)  => out = out + n
-      case Expr.Block(sts, _, _) => sts.foreach {
-        case Stmt.Val(n, _, _, _) => out = out + n
-        case Stmt.LocalDef(d)     => out = out + d.name ++ d.params.map(_.name)
-        case _                    => ()
-      }
-      case _ => ()
-    ; x })
-    out
+  // Shared with `Loader.merge`, which asks the same question for the same reason — see
+  // `Expr.boundNames`, where the direction both readers need is written out.
+  private def boundNames(e: Expr): Set[String] = Expr.boundNames(e)
 
   /** THE NAMES BOUND INSIDE THIS DEF ARE NOT GLOBAL FUNCTIONS, and forgetting that REFUSED CORRECT
     * PROGRAMS. `sigs` is the whole program's table, so a call to a name that is really a PARAMETER
@@ -2165,15 +2118,7 @@ object Lower:
     case Expr.Name("__abstract__", _) => true
     case _                            => false
 
-  private def patNames(p: Pat): List[String] = p match
-    case Pat.PBind(n, _)       => List(n)
-    case Pat.PCtor(_, args, _) => args.flatMap(a => patNames(a))
-    // `case s: String =>` binds `s`. Missing this arm would have left the binder out of the arm's
-    // scope while the LOWERING bound it anyway — the name would resolve to whatever else was in
-    // scope, or to nothing, which is a wrong answer rather than a compile error.
-    case Pat.PType(_, inner, _) => patNames(inner)
-    // An alternative binds nothing by construction — see `Pat.PAlt`.
-    case _                     => Nil
+  private def patNames(p: Pat): List[String] = Pat.names(p)
 
   /** Arms, in source order, as nested `If`s. Built back to front so each arm's `else` is the rest
     * of the chain — which is what makes source order the matching order, exactly as written. */

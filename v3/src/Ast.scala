@@ -130,6 +130,18 @@ object Pat:
     case PCtor(_, _, x) => x
     case PAlt(_, x)     => x
 
+  /** The names a pattern BINDS. `Lower.patNames` is a one-line alias; it is here because
+    * `Expr.boundNames` needs it and `Expr` cannot reach into the lowering. */
+  def names(p: Pat): List[String] = p match
+    case PBind(n, _)       => List(n)
+    case PCtor(_, args, _) => args.flatMap(a => names(a))
+    // `case s: String =>` binds `s`. Missing this arm would have left the binder out of the arm's
+    // scope while the LOWERING bound it anyway — the name would resolve to whatever else was in
+    // scope, or to nothing, which is a wrong answer rather than a compile error.
+    case PType(_, inner, _) => names(inner)
+    // An alternative binds nothing by construction — see `Pat.PAlt`.
+    case _                 => Nil
+
 /** `guard` is the optional `if cond` between the pattern and the `=>`. It is part of the ARM, not
   * of the pattern, because it is an ordinary expression evaluated with the pattern's bindings in
   * scope — putting it in `Pat` would have made every pattern position able to carry code. */
@@ -279,3 +291,89 @@ object Expr:
     case Match(_, _, p)   => p
     case Lambda(_, _, p)  => p
     case Try(_, _, _, p)  => p
+
+  /** THE DEEP EXPRESSION WALKER — children rebuilt first, then `f` applied to the result.
+    *
+    * IT LIVES HERE, ON THE AST, AND NOT IN THE LOWERING, and that placement was decided rather
+    * than inherited. It was `Lower.mapDeep`, private, until `Loader.merge` needed to rewrite calls
+    * inside a unit (P-6 of `v3/PRELUDE-CORRECTNESS.md`). The obvious move was to copy the traversal
+    * into `Loader`, because the loader must NOT depend on the lowering — a module graph that knows
+    * how programs are compiled is backwards. But look at what the two comments below record: both
+    * `MethodRef` and `NamedArg` are cases this walker was MISSING, each for long enough to produce
+    * a defect two passes away from the omission, and one of them cost 116 corpus cases. A copy
+    * inherits today's cases and none of tomorrow's. A traversal over the AST is a property of the
+    * AST; putting it here gives Loader the walker without giving it the lowering.
+    *
+    * `Lower` still calls it through a private one-line alias, so its twenty-odd call sites are
+    * unchanged and there is exactly one traversal in the tree. */
+  // EXPR-WALKER
+  def mapDeep(e: Expr, f: Expr => Expr): Expr =
+    def go(x: Expr): Expr = mapDeep(x, f)
+    val rebuilt = e match
+      case Expr.Call(fn, as, p)         => Expr.Call(fn, as.map(go), p)
+      case Expr.MethodCall(r, n, as, p) => Expr.MethodCall(go(r), n, as.map(go), p)
+      // The RECEIVER is traversed. Without this line `summon[Monoid[A]].combine` kept its
+      // `__summon__` unresolved — the selection was rebuilt as itself and nothing looked inside —
+      // and the failure surfaced two passes later as `call to unknown function '__summon__'`.
+      case Expr.MethodRef(r, n, p)      => Expr.MethodRef(go(r), n, p)
+      // A NAMED ARGUMENT'S VALUE, and this line is a fix for a hole that predates the node above.
+      // `mapDeep` had no case for `NamedArg`, so it fell to the identity arm and nothing inside
+      // `f(x = expr)` was ever rewritten — meaning `rewriteByName` and `resolveSummons` have both
+      // been silently skipping named arguments. It surfaced because a `MethodRef` left unresolved
+      // is REFUSED rather than merely unrewritten: 116 corpus cases stopped at
+      // `std/scljet/btree.ssc:178`, whose `cursor.copy(stack = ReadonlyCursorFrame(read.page, 0))`
+      // hides a selection two levels inside a named argument.
+      case Expr.NamedArg(n, v, p)       => Expr.NamedArg(n, go(v), p)
+      case Expr.Bin(o, l, r, p)         => Expr.Bin(o, go(l), go(r), p)
+      case Expr.Neg(x, p)               => Expr.Neg(go(x), p)
+      case Expr.Not(x, p)               => Expr.Not(go(x), p)
+      case Expr.If(c, t, el, p)         => Expr.If(go(c), go(t), el.map(go), p)
+      case Expr.While(c, b, p)          => Expr.While(go(c), go(b), p)
+      case Expr.Assign(n, v, p)         => Expr.Assign(n, go(v), p)
+      case Expr.Update(a, i, v, p)      => Expr.Update(go(a), go(i), go(v), p)
+      case Expr.Apply(f2, as, p)        => Expr.Apply(go(f2), as.map(go), p)
+      case Expr.Prim(n, as, p)          => Expr.Prim(n, as.map(go), p)
+      case Expr.Perform(o, as, p)       => Expr.Perform(o, as.map(go), p)
+      case Expr.Handle(b, arms, p)      => Expr.Handle(go(b), arms.map(a => a.copy(body = go(a.body))), p)
+      case Expr.Resume(k, v, p)         => Expr.Resume(k, go(v), p)
+      case Expr.Lambda(ps, b, p)        => Expr.Lambda(ps, go(b), p)
+      case Expr.Try(b, x, h, p)         => Expr.Try(go(b), x, go(h), p)
+      case Expr.Interp(parts, xs, p)    => Expr.Interp(parts, xs.map(go), p)
+      case Expr.Match(sc, arms, p) =>
+        Expr.Match(go(sc), arms.map(a => MatchArm(a.pat, a.guard.map(go), go(a.body))), p)
+      case Expr.Block(sts, res, p) =>
+        Expr.Block(sts.map { st => st match
+          case Stmt.Val(n, v, mu, q) => Stmt.Val(n, go(v), mu, q)
+          case Stmt.Exp(x)           => Stmt.Exp(go(x))
+          case Stmt.LocalDef(d)      => Stmt.LocalDef(d.copy(body = go(d.body)))
+        }, res.map(go), p)
+      case other => other
+    f(rebuilt)
+
+  /** Every name BOUND somewhere inside this expression — lambda parameters, a `try`'s exception
+    * binder, local `val`s, local `def`s and their parameters, and pattern binders.
+    *
+    * COLLECTED OVER THE WHOLE EXPRESSION, not per scope, and that is deliberate in both of its
+    * readers. `Lower.checkArity` uses it to decide a name is NOT a global function, so an
+    * over-large set makes it skip a check it could have made and can never make it invent an error
+    * — which is the defect it was written for (P-1). `Loader.merge` uses it to decide a call is NOT
+    * to a module-level `def`, so an over-large set leaves a call un-renamed, which is today's
+    * behaviour and never a wrong redirection. Both want the same direction of error, which is why
+    * one set serves both. */
+  def boundNames(e: Expr): Set[String] =
+    var out = Set.empty[String]
+    mapDeep(e, x => { x match
+      case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
+      case Expr.Try(_, n, _, _)  => out = out + n
+      // PATTERN BINDERS, which this set did not carry when it served `checkArity` alone. `case
+      // rows => …` binds `rows`, and a module-level `def rows` of the same name is a different
+      // thing; leaving them out let both readers mistake the binder for the global.
+      case Expr.Match(_, arms, _) => arms.foreach(a => out = out ++ Pat.names(a.pat))
+      case Expr.Block(sts, _, _) => sts.foreach {
+        case Stmt.Val(n, _, _, _) => out = out + n
+        case Stmt.LocalDef(d)     => out = out + d.name ++ d.params.map(_.name)
+        case _                    => ()
+      }
+      case _ => ()
+    ; x })
+    out
