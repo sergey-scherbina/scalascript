@@ -6,7 +6,7 @@ std/bench.ssc	COMPILES
 std/bifunctor.ssc	REFUSED	[error] Generic(
 std/cluster/coord-consul.ssc	COMPILES	
 std/cluster/coord-etcd.ssc	COMPILES	
-std/cluster/index.ssc	BADRUST	error[E0562]
+std/cluster/index.ssc	COMPILES	
 std/cluster/membership.ssc	BADRUST	error[E0425]
 std/cluster/shard.ssc	COMPILES	
 std/cluster/singleton.ssc	COMPILES	
@@ -92,9 +92,9 @@ std/scljet/readonly.ssc	REFUSED	[error] Generic(
 std/scljet/record.ssc	REFUSED	[error] Generic(
 std/scljet/schema.ssc	REFUSED	[error] Generic(
 std/scljet/sql.ssc	REFUSED	[error] Generic(
-std/scljet/text.ssc	BADRUST	error[E0277]
+std/scljet/text.ssc	BADRUST	error[E0609]
 std/scljet/typedsql.ssc	REFUSED	[error] Generic(
-std/scljet/values.ssc	BADRUST	error[E0277]
+std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
 std/scljet/wal.ssc	REFUSED	[error] Generic(
 std/scljet/write.ssc	REFUSED	[error] Generic(
@@ -106,25 +106,25 @@ std/streams-bridge.ssc	COMPILES
 std/streams.ssc	REFUSED	[error] Generic(
 std/tcp.ssc	COMPILES	
 std/ui/component.ssc	BADRUST	error[E0382]
-std/ui/containers.ssc	BADRUST	error[E0562]
+std/ui/containers.ssc	COMPILES	
 std/ui/content.ssc	REFUSED	[error] Generic(
 std/ui/data.ssc	REFUSED	[error] Generic(
-std/ui/display.ssc	BADRUST	error[E0562]
+std/ui/display.ssc	COMPILES	
 std/ui/fetch-json.ssc	REFUSED	[error] Generic(
-std/ui/form.ssc	BADRUST	error[E0562]
+std/ui/form.ssc	BADRUST	error[E0277]
 std/ui/i18n.ssc	REFUSED	[error] Generic(
-std/ui/input.ssc	BADRUST	error[E0562]
-std/ui/layout.ssc	BADRUST	error[E0562]
+std/ui/input.ssc	COMPILES	
+std/ui/layout.ssc	COMPILES	
 std/ui/lower.ssc	REFUSED	[error] Generic(
-std/ui/nodes.ssc	BADRUST	error[E0562]
+std/ui/nodes.ssc	COMPILES	
 std/ui/offline.ssc	COMPILES	
 std/ui/patterns.ssc	REFUSED	[error] Generic(
 std/ui/primitives.ssc	COMPILES	
 std/ui/reactive.ssc	REFUSED	[error] Generic(
 std/ui/routing.ssc	REFUSED	[error] Generic(
-std/ui/state.ssc	BADRUST	error[E0562]
+std/ui/state.ssc	BADRUST	error[E0618]
 std/ui/theme.ssc	BADRUST	
-std/ui/typography.ssc	BADRUST	error[E0562]
+std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	
 std/uuid.ssc	BADRUST	error[E0425]
 std/yaml-core.ssc	REFUSED	[error] Generic(

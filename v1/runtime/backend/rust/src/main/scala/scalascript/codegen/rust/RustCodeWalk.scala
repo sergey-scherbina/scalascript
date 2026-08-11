@@ -655,7 +655,7 @@ object RustCodeWalk:
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"struct $name", typeNames).map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"struct $name", typeNames, inField = true).map(r => (p.name.value, r))
         case None    => Left(List(unsupported(
           s"struct `$name` field `${p.name.value}` has no type annotation"
         )))
@@ -665,7 +665,7 @@ object RustCodeWalk:
     else
       val fields = ok.map((n, t) => s"    pub $n: $t").mkString(",\n")
       val allCopy = ok.forall((_, t) => Set("i64", "f64", "bool").contains(t))
-      val derives = if allCopy then "Debug, Clone, Copy" else "Debug, Clone"
+      val derives0 = if allCopy then "Debug, Clone, Copy" else "Debug, Clone"
       // `case class Foo()` — no fields. The braced form emitted a body of just `,`, which is not
       // Rust at all; a UNIT struct is both valid and the shape the rest of the walker already
       // assumes, since it renders the value as the bare name `Foo` (E0423 otherwise) and the
@@ -680,20 +680,105 @@ object RustCodeWalk:
       // fields)`, positionally. Generating `From` rather than emitting the conversion at each site
       // is what lets the walker write `Value::from(expr)` everywhere without knowing what `expr` is:
       // std's reflexive `impl<T> From<T> for T` covers the case where it is ALREADY a Value.
+      // A struct can hold a closure too (`case class Menu(start: () => Any)` in std/cluster), and it
+      // meets the same two walls an enum does: `Rc<dyn Fn>` has neither `Debug` nor a `Value`
+      // representation. Same answers, for the same reasons — see `enumDebugImpl` and `enumLift`.
+      val structHasClosure = ok.exists((_, t) => t.startsWith("std::rc::Rc<dyn Fn"))
+      val structDebug =
+        if !structHasClosure then ""
+        else s"""impl std::fmt::Debug for $name {
+                |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                |        f.write_str("$name")
+                |    }
+                |}
+                |""".stripMargin
       val lift =
-        val fieldLifts = ok.map((n, _) => s"crate::value::Value::from(x.$n)").mkString(", ")
+        val fieldLifts = ok.map { (n, t) =>
+          if t.startsWith("std::rc::Rc<dyn Fn") then "crate::value::Value::Unit"
+          else s"crate::value::Value::from(x.$n)"
+        }.mkString(", ")
         s"""impl From<$name> for crate::value::Value {
            |    fn from(x: $name) -> crate::value::Value {
            |        crate::value::Value::Obj("$name", vec![$fieldLifts])
            |    }
            |}
            |""".stripMargin
+      val derives = if structHasClosure then "Clone" else derives0
       val render =
         s"""#[allow(dead_code)]
            |#[derive($derives)]
            |pub struct $name$body
-           |$lift""".stripMargin
+           |$structDebug$lift""".stripMargin
       Right(GeneratedStruct(render, name, ok.map(_._1), ok.map(_._2)))
+
+  /** A minimal `Debug` for an enum that cannot derive one.
+   *
+   *  `Rc<dyn Fn…>` implements no `Debug`, so a closure-bearing enum drops the derive — and dropping
+   *  it CASCADES: `case class RouteEntry(body: List[TkNode])` derives `Debug` too, and rustc then
+   *  says `TkNode doesn't implement Debug` at a type that has no closure in it at all. Every holder
+   *  would have to drop the derive, and every holder of those. One impl at the source ends it.
+   *
+   *  It prints the constructor name and nothing else. That is honest — the fields it would print
+   *  are partly closures — and it is what `Debug` is for here: no generated code formats a user
+   *  type with `{:?}`; the derive exists so that CONTAINING types can derive theirs.
+   */
+  private def enumDebugImpl(enumName: String, ctors: List[(String, EnumCtor)]): String =
+    val arms = ctors.map { (ctor, ec) =>
+      val pat = if ec.fieldNames.isEmpty then s"$enumName::$ctor" else s"$enumName::$ctor { .. }"
+      s"""            $pat => "$ctor","""
+    }.mkString("\n")
+    s"""impl std::fmt::Debug for $enumName {
+       |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+       |        f.write_str(match self {
+       |$arms
+       |        })
+       |    }
+       |}
+       |""".stripMargin
+
+  /** Lift an ENUM into an `Any`, exactly as a case-class struct is already lifted.
+   *
+   *  A struct has had `impl From<Name> for Value` since `Any` first mapped to `Value` — see the
+   *  `lift` in `renderClass` — and an enum never did. So a struct field holding one (`case class
+   *  RouteEntry(path: String, body: List[TkNode])`) emitted `Value::from(x.body)` and rustc
+   *  answered `the trait bound Value: From<TkNode> is not satisfied`. That one missing impl is the
+   *  E0277 in EIGHT of the nine `std/ui` modules the corpus survey found emitting bad Rust, and it
+   *  is why fixing the `impl Trait` shape beside it unlocks only one of them.
+   *  (rust-std-corpus-badrust-column, reported by rozum.)
+   *
+   *  Same convention as the struct: `Value::Obj(ctorName, fields in DECLARATION order)`. The
+   *  CONSTRUCTOR name, not the enum name, because that is what the value IS — `Obj`'s first field
+   *  is what a match on the reconstructed value keys on.
+   *
+   *  A directly-recursive field is `Box<EnumName>` (`EnumCtor.boxedFields`), and `Box<T>` has no
+   *  `Into<Value>`, so it is deref'd — moving out of the box, which is allowed because `from` owns
+   *  its argument.
+   */
+  private def enumLift(enumName: String, ctors: List[(String, EnumCtor)]): String =
+    val arms = ctors.map { (ctor, ec) =>
+      val path = s"$enumName::$ctor"
+      if ec.fieldNames.isEmpty then
+        s"            $path => crate::value::Value::Obj(\"$ctor\", vec![]),"
+      else
+        val binds = ec.fieldNames.mkString(", ")
+        val lifts = ec.fieldNames.zipWithIndex.map { (n, i) =>
+          // A closure has no data representation, so it lifts to Unit rather than blocking the whole
+          // impl. The alternative — refusing to generate `From` for any enum with a closure field —
+          // would take `Any` away from the eight std/ui modules for a field nobody reads back.
+          if ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn Fn")) then "crate::value::Value::Unit"
+          else if ec.boxedFields.contains(n) then s"crate::value::Value::from(*$n)"
+          else                                    s"crate::value::Value::from($n)"
+        }.mkString(", ")
+        s"            $path { $binds } => crate::value::Value::Obj(\"$ctor\", vec![$lifts]),"
+    }.mkString("\n")
+    s"""impl From<$enumName> for crate::value::Value {
+       |    fn from(x: $enumName) -> crate::value::Value {
+       |        match x {
+       |$arms
+       |        }
+       |    }
+       |}
+       |""".stripMargin
 
   /** Collect each `sealed trait` and all `case class` extending it in source order. */
   private def collectSealedTraitEnums(module: ast.Module): List[SealedTraitEnum] =
@@ -774,14 +859,20 @@ object RustCodeWalk:
       if errs.nonEmpty then Left(errs.flatten)
       else
         val variantText = ok.map(_._1).mkString(",\n")
+        val ctors = ok.map(_._2)
+        // `Rc<dyn Fn>` implements Clone and NOT Debug, so a closure-bearing type derives only what
+        // it can. Dropping Debug rather than hand-writing one on purpose: an invented Debug that
+        // prints `<closure>` would be worse than rustc naming the type the day something needs it.
+        val hasClosure = ctors.exists(_._2.fieldTypes.exists(_.startsWith("std::rc::Rc<dyn Fn")))
+        val enumDerives = if hasClosure then "Clone" else "Debug, Clone"
+        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors) else ""
         val src =
           s"""#[allow(dead_code)]
-             |#[derive(Debug, Clone)]
+             |#[derive($enumDerives)]
              |pub enum $enumName {
              |${indent(variantText)},
              |}
-             |""".stripMargin
-        val ctors = ok.map(_._2)
+             |$debugImpl${enumLift(enumName, ctors)}""".stripMargin
         Right(GeneratedEnum(render = src, ctors = ctors))
 
   /** Lower a `sealed trait` + case-class ADT shape to the same Rust enum
@@ -818,14 +909,20 @@ object RustCodeWalk:
         Left(List(unsupported(s"sealed trait `$enumName` has no `case class` extensions")))
       else
         val variantText = ok.map(_._1).mkString(",\n")
+        val ctors = ok.map(_._2)
+        // `Rc<dyn Fn>` implements Clone and NOT Debug, so a closure-bearing type derives only what
+        // it can. Dropping Debug rather than hand-writing one on purpose: an invented Debug that
+        // prints `<closure>` would be worse than rustc naming the type the day something needs it.
+        val hasClosure = ctors.exists(_._2.fieldTypes.exists(_.startsWith("std::rc::Rc<dyn Fn")))
+        val enumDerives = if hasClosure then "Clone" else "Debug, Clone"
+        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors) else ""
         val src =
           s"""#[allow(dead_code)]
-             |#[derive(Debug, Clone)]
+             |#[derive($enumDerives)]
              |pub enum $enumName {
              |${indent(variantText)},
              |}
-             |""".stripMargin
-        val ctors = ok.map(_._2)
+             |$debugImpl${enumLift(enumName, ctors)}""".stripMargin
         Right(GeneratedEnum(render = src, ctors = ctors))
 
   /** Fallback `Either` algebraic data type used for `Either[L, R]` lowering.
@@ -855,7 +952,7 @@ object RustCodeWalk:
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"enum $enumName.$ctor", typeNames).map { r =>
+        case Some(t) => mapType(t, s"enum $enumName.$ctor", typeNames, inField = true).map { r =>
           // A field whose type IS the enum itself is direct recursion → `Box` it so
           // the enum has a finite size (Vec<T>/Option<T> already go through the heap).
           if r == enumName then (p.name.value, s"Box<$r>", true)
@@ -873,7 +970,7 @@ object RustCodeWalk:
         else " { " + ok.map((n, t, _) => s"$n: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
       val boxed   = ok.collect { case (n, _, true) => n }.toSet
-      Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed))))
+      Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed, fieldTypes = ok.map(_._2)))))
 
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
@@ -884,7 +981,7 @@ object RustCodeWalk:
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"enum $enumName.$ctor").map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"enum $enumName.$ctor", inField = true).map(r => (p.name.value, r))
         case None    => Left(List(unsupported(
           s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
         )))
@@ -897,7 +994,9 @@ object RustCodeWalk:
         if fields.isEmpty then ""
         else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
-      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1)))))
+      // fieldTypes travels so the construction site and `enumLift` can see which fields are
+      // closures — both have to treat them specially and neither can re-derive it from the AST.
+      Right((variant, (ctor, EnumCtor(enumName, fields.map(_._1), fieldTypes = fields.map(_._2)))))
 
   // ── Per-def rendering ────────────────────────────────────────────────
 
@@ -1561,8 +1660,12 @@ object RustCodeWalk:
   /** Map a Scala type name to its Rust equivalent.  R.2 supports
    *  primitive types and (when `enumNames` is non-empty) any
    *  user-defined enum name passed through verbatim. */
+  /** `inField` = this type is being rendered for a STRUCT OR ENUM FIELD, not a parameter.
+   *  It changes exactly one case — a function type — because Rust allows `impl Trait` only in
+   *  argument and return position (E0562). It is threaded through the container cases so a
+   *  function nested in a `List[…]` or a tuple boxes too. */
   private def mapType(
-      t: m.Type, defName: String, enumNames: Set[String] = Set.empty
+      t: m.Type, defName: String, enumNames: Set[String] = Set.empty, inField: Boolean = false
   ): Either[List[Diagnostic], String] = t match
     case m.Type.Name("Unit")    => Right("")          // empty → no `-> T` clause
     case m.Type.Name("Boolean") => Right("bool")
@@ -1628,7 +1731,7 @@ object RustCodeWalk:
             s"def `$defName` has `Map` with ${argClause.values.size} type args; expected two"
           )))
     case m.Type.Tuple(elems) =>
-      val rendered = elems.toList.map(mapType(_, defName, enumNames))
+      val rendered = elems.toList.map(mapType(_, defName, enumNames, inField))
       val (errs, ok) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else Right(renderTuple(ok))
@@ -1641,13 +1744,23 @@ object RustCodeWalk:
         pRs <- traverseTypes(params, defName, enumNames)
         rRs <- mapType(ft.res, defName, enumNames)
       yield
-        if rRs.isEmpty then s"impl Fn(${pRs.mkString(", ")})"
-        else                s"impl Fn(${pRs.mkString(", ")}) -> $rRs"
+        val sig = if rRs.isEmpty then s"Fn(${pRs.mkString(", ")})"
+                  else                s"Fn(${pRs.mkString(", ")}) -> $rRs"
+        // A FIELD cannot hold `impl Trait` — E0562, and it was nine of the twenty-five std modules
+        // emitting Rust rustc rejects. `Rc`, not `Box`: the type derives `Clone`, and `Box<dyn Fn>`
+        // is not `Clone` while `Rc<dyn Fn>` is. Neither is `Debug`, which is why a closure-bearing
+        // type drops that derive (see `closureDerives`). This is the slice the comment below the
+        // parameter case has been promising. (rust-std-corpus-badrust-column.)
+        // `+ 'static` on the PARAMETER too: a callback that is only passed through needs no bound,
+        // but one that is STORED in a field does — `Rc::new(key)` on a bare `impl Fn` is E0310,
+        // "may not live long enough". The closures this lane emits are `move |…|` over owned
+        // captures, so the bound costs nothing and states what was already true.
+        if inField then s"std::rc::Rc<dyn $sig>" else s"impl $sig + 'static"
     // R.2.5 — `List[T]` / `Vec[T]` / `Vector[T]` / `Seq[T]` / `IndexedSeq[T]` / `Iterable[T]`
     // all lower to `Vec<T>` (eager immutable sequences; identical in Rust's Vec-backed model).
     case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable"), argClause) =>
       argClause.values.toList match
-        case List(elem) => mapType(elem, defName, enumNames).map(r => s"Vec<$r>")
+        case List(elem) => mapType(elem, defName, enumNames, inField).map(r => s"Vec<$r>")
         case other      => Left(List(unsupported(
           s"def `$defName` has `List`/`Vec` with ${other.size} type args; expected exactly one"
         )))
@@ -3476,7 +3589,13 @@ object RustCodeWalk:
                       if ec.fieldTypes.lift(i).contains("crate::value::Value")
                       then s"crate::value::Value::from($a)" else a
                     // Box-wrap a recursive field's argument at construction.
-                    val av = if ec.boxedFields.contains(fn) then s"Box::new($lifted)" else lifted
+                    val boxed = if ec.boxedFields.contains(fn) then s"Box::new($lifted)" else lifted
+                    // A closure FIELD is `Rc<dyn Fn…>` (E0562: a field cannot hold `impl Trait`),
+                    // so the closure literal handed to it is wrapped here — the same shape as the
+                    // Box above, and the same reason: the declared type says what the field holds.
+                    val av =
+                      if ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn Fn"))
+                      then s"std::rc::Rc::new($boxed)" else boxed
                     s"$fn: $av"
                   }.mkString(", ") + " }"
                 // Struct: enumName == n (standalone case class) → `StructName { fields }`

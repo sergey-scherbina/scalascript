@@ -257,6 +257,25 @@
       |    fn from(xs: Vec<T>) -> Value { Value::List(xs.into_iter().map(|x| x.into()).collect()) }
       |}
       |
+      |// A TUPLE lifts into `Value::Tuple`, which existed with nothing able to produce it from a
+      |// Rust tuple. Found the moment enums started lifting into `Any` (rust-std-corpus-badrust-column):
+      |// `case SelectNode(options: List[(String, String)], …)` produced `Value::from(options)`, which
+      |// needs `(String, String): Into<Value>` through the `Vec<T>` impl above, and rustc answered
+      |// `Value: From<(String, String)> is not satisfied`.
+      |//
+      |// Arities 2-4 by hand rather than a macro: those are what `renderTuple` emits, a macro here
+      |// would be the only one in this file, and an arity nobody produces is a trait impl nobody
+      |// calls. If a 5-tuple ever lowers, the failure is this exact error naming the arity.
+      |impl<A: Into<Value>, B: Into<Value>> From<(A, B)> for Value {
+      |    fn from(t: (A, B)) -> Value { Value::Tuple(vec![t.0.into(), t.1.into()]) }
+      |}
+      |impl<A: Into<Value>, B: Into<Value>, C: Into<Value>> From<(A, B, C)> for Value {
+      |    fn from(t: (A, B, C)) -> Value { Value::Tuple(vec![t.0.into(), t.1.into(), t.2.into()]) }
+      |}
+      |impl<A: Into<Value>, B: Into<Value>, C: Into<Value>, D: Into<Value>> From<(A, B, C, D)> for Value {
+      |    fn from(t: (A, B, C, D)) -> Value { Value::Tuple(vec![t.0.into(), t.1.into(), t.2.into(), t.3.into()]) }
+      |}
+      |
       |#[allow(dead_code)]
       |fn ssc_wrong(want: &str, got: &Value) -> ! {
       |    panic!("expected {} but found {} ({})", want, match got {

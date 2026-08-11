@@ -29,7 +29,12 @@ class RustGenR24Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("pub fn apply(f: impl Fn(i64) -> i64, x: i64) -> i64 {"),
+    // `+ 'static` since 2026-08-11: a callback that is only passed through needs no bound, but one
+    // STORED in a struct or enum field does -- Rc::new(f) on a bare `impl Fn` is E0310, "may not
+    // live long enough", which is what std/ui/input.ssc hit. The closures this lane emits are
+    // `move |...|` over owned captures, so the bound states what was already true.
+    // (rust-std-corpus-badrust-column.)
+    assert(g.contains("pub fn apply(f: impl Fn(i64) -> i64 + 'static, x: i64) -> i64 {"),
       s"function-type-emit not found in:\n$g")
     assert(g.contains("f(x)"),
       s"closure-param call not found in:\n$g")
@@ -41,7 +46,7 @@ class RustGenR24Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("pub fn run(f: impl Fn(i64), x: i64) {"),
+    assert(g.contains("pub fn run(f: impl Fn(i64) + 'static, x: i64) {"),
       s"Unit-returning Fn not emitted as `impl Fn(i64)`:\n$g")
 
   test("(params) => body lowers to a Rust `move |params| { body }` closure"):
