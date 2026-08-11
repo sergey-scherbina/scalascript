@@ -342,6 +342,14 @@ jobs:
       - name: Gates without a home — a parameterless def on the legacy front
         run: tests/e2e/legacy-front-parameterless-gate.sh
 
+      # MOVED OFF THE PUSH PATH, 2026-08-11, with sbt-plugin-scripted above: 62.3 s and 48.0 s of a
+      # 732 s smoke suite that was hitting its own 20-minute job timeout and reporting `cancelled`.
+      - name: build-rust refuses loudly
+        run: tests/e2e/build-rust-refuses-loudly.sh
+
+      - name: Launcher input digest
+        run: tests/e2e/launcher-digest-gate.sh
+
   conformance:
     name: Conformance shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
@@ -883,6 +891,12 @@ jobs:
 
       - name: ScalaScript 2.1 direct-ASM local recursion gate
         run: tests/e2e/v21-direct-asm-recursion-smoke.sh
+
+      # MOVED OFF THE PUSH PATH, 2026-08-11. At 121.5 s it was 16 % of the smoke suite, and smoke was
+      # timing out: every cancelled run on main lived exactly 20 minutes against timeout-minutes: 20.
+      # It belongs in this job rather than `validate` because it is the one check that needs sbt.
+      - name: sbt plugin scripted tests
+        run: tests/e2e/sbt-plugin-scripted.sh
 
       # The full `sbt test` genuinely needs > 90 min: it is dominated by the
       # cross-backend differential suites that compile+run generated programs

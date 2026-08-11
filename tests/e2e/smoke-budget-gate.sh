@@ -37,14 +37,23 @@ REAL="tests/smoke-baseline.tsv"
 # every row doubled: registering cost must raise the budget by that cost
 awk -F'\t' 'BEGIN{OFS="\t"} /^#/{print; next} NF>=3{print $1, $2*2, $3}' "$REAL" > "$tmp/doubled.tsv"
 # the most expensive row removed: rows must be matched BY NAME
-grep -vE "^sbt-plugin-scripted	" "$REAL" > "$tmp/dropped.tsv"
+# The row is CHOSEN, not named. It used to be a literal `sbt-plugin-scripted`, and when that check
+# moved to the full suite on 2026-08-11 its row left the table — so this fixture dropped a row that
+# was not there, the sum did not move, and the check failed reporting "rows are not matched by
+# name". The failure was real but it was about the FIXTURE, not the budget. Picking the largest
+# baseline column instead says what the comment above always claimed, and survives the next move.
+expensive_row="$(awk -F'\t' '!/^#/ && NF > 1 { if ($2 + 0 > max) { max = $2 + 0; name = $1 } } END { print name }' "$REAL")"
+[ -n "$expensive_row" ] || fail dropped-row "the baseline table has no parseable row to drop"
+grep -vE "^${expensive_row}	" "$REAL" > "$tmp/dropped.tsv"
 # nothing parseable: the dangerous failure is a SILENT one that yields a tiny budget
 printf 'nonsense without tabs\nanother line\n' > "$tmp/garbage.tsv"
 # A TRUNCATED ROW FOR A REAL CHECK, which is the fixture the garbage one cannot replace and I only
 # found by running the control: lines with no tabs match no check NAME, so dropping the column-count
 # filter changed nothing and the case passed on a deliberately broken reader. A row whose name DOES
 # match but whose columns are missing is the one that reaches `row(1)` on a one-element list.
-{ grep -vE "^sbt-plugin-scripted	" "$REAL"; printf 'sbt-plugin-scripted\n'; } > "$tmp/truncated.tsv"
+# Same reason as the fixture above: the name is CHOSEN. Truncating a row that is not in the table
+# leaves the sum unchanged and the assertion measures nothing.
+{ grep -vE "^${expensive_row}	" "$REAL"; printf '%s\n' "$expensive_row"; } > "$tmp/truncated.tsv"
 
 # ONE invocation for all five. Booting this toolchain costs ~10 s and the arithmetic costs
 # microseconds; five invocations made this a 50 s check on the push path the suite exists to keep

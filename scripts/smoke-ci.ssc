@@ -206,6 +206,19 @@ val corpusBreadth =
 // caught by the per-module rollup showing v2 fall 4 -> 3, which is exactly the job that rollup has.
 val corpusJvm = "effects,js-int-division-by-zero,try-catch-exception-delivery,int-width"
 
+// ── THREE CHECKS MOVED TO THE FULL SUITE, 2026-08-11 ─────────────────────────────────────────────
+// `sbt-plugin-scripted` (121.5 s, 16 % of the run), `build-rust-refuses-loudly` (62.3 s) and
+// `launcher-input-digest` (48.0 s) run in `ci.yml` now. Together they were 232 s of a 732 s suite.
+//
+// WHY, and it is NOT the budget. Smoke's runs on `main` were coming back `cancelled` -- eleven of
+// the last twenty -- which reads as evicted-by-a-newer-push. It is not: the concurrency group was
+// dropped eleven days ago, and every cancelled run lived EXACTLY 20 minutes against
+// `timeout-minutes: 20`, while successful ones took 14 to 20. A job timeout surfaces as `cancelled`,
+// not `failure` (BUGS `corpus-contract-gate`), so the suite had grown into its own wall while the
+// symptom pointed at concurrency.
+//
+// Moving these three is the alternative this file recorded on 2026-08-08 as "offered and not taken"
+// when the budget was raised to 750 s instead. The owner took it on 2026-08-11.
 val suite = List(
   // ── `.` — cross-module: the freezes and process rules every other gate leans on.
   Check(".", "freeze-consistency", "tests/e2e/freeze-consistency-gate.sh", List(), 120000),
@@ -371,7 +384,6 @@ val suite = List(
   // caught the contract mismatch where `jsonParse` returned a String on this lane and a value on
   // every other. Sharing one CARGO_TARGET_DIR would cut ~15 s and breaks the CLI's binary lookup;
   // the gate says so at the top.
-  Check("tests", "build-rust-refuses-loudly", "tests/e2e/build-rust-refuses-loudly.sh", List(), 180000),
   // Sibling of the check above, and it exists because that one taught the lesson: a gate that
   // asserts on message TEXT has to run BOTH launchers, since only `bin/ssc` wraps errors with
   // `ssc: ` while `bin/ssc-tools` used to hand the user the JVM's own report. Four `run`s, still
@@ -387,7 +399,6 @@ val suite = List(
   // red and `identity` GREEN while it observed generation being skipped rather than emitting
   // nothing. Minutes here, against a suite that was decorative.
   // 600000: ten scenarios, each booting its own sbt and resolving Scala 2.12 for the plugin.
-  Check("tests", "sbt-plugin-scripted", "tests/e2e/sbt-plugin-scripted.sh", List(), 600000),
   // `ssc new` must produce a project that LOADS. It did not: five of six templates scaffold an
   // addSbtPlugin line for an artifact nobody published, so every generated project died on its
   // first sbt command with "Not found". Nothing had ever scaffolded a project and then tried to
@@ -437,7 +448,6 @@ val suite = List(
   //
   // Left as a cap rather than removed. It is still the second most expensive check here and the
   // point of the number is to notice when it grows for a reason that is NOT contention.
-  Check("tests", "launcher-input-digest", "tests/e2e/launcher-digest-gate.sh", List(), 300000),
 
   // ── scripts — the coordination tooling parallel agents depend on being correct, plus the host
   //    RAM guards that stand between parallel agents and another OOM event.

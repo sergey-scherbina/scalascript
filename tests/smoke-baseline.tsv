@@ -17,7 +17,6 @@ bugs-status-drift	2	3
 build-ram-guard	27	36
 build-ram-guards-guard	148	200
 build-render-agree	41	55
-build-rust-refuses-loudly	617	836
 bundle-roundtrip	83	112
 cds-archive-per-build	0	0
 ci-status-guard	31	42
@@ -41,7 +40,6 @@ js-self-tco	49	66
 js-selfcall	51	69
 js-shaker-effectful-binding	10	14
 json-number-policy-js	0	0
-launcher-input-digest	474	642
 launcher-set-complete	0	0
 launchers-not-dead	24	33
 list-concat-chain	166	224
@@ -60,7 +58,6 @@ request-validation-family	90	122
 response-transforms	56	76
 route-handler-shapes	67	91
 run-lane-flags-are-flags	475	644
-sbt-plugin-scripted	1290	1746
 sbt-test-shard-partition	3	4
 scaffold-loads-its-build	75	101
 scljet-capability-manifest	0	0
