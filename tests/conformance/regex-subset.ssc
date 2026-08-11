@@ -1,0 +1,164 @@
+---
+name: conformance-regex-subset
+version: 1.0.0
+description: conformance — std/parsing/regex.ssc against java.util.regex, the implementation it replaces
+backends: [int, js, jvm, v2]
+---
+
+# `std/parsing/regex` against the reference it replaces — conformance test
+
+`PRegex` used to be answered by the **host**: `java.util.regex` reached through a native string
+method, so each lane got its own engine's dialect. `std/parsing/regex.ssc` answers it in
+ScalaScript instead, and the reason this case declares four backends is the whole argument for
+that change — the same program, the same answers, everywhere.
+
+Every expectation below was **produced by** `java.util.regex.Pattern.lookingAt()` rather than
+written by hand, so a disagreement here is a real behaviour change and not a taste dispute.
+
+Three blocks, and the third exists because a negative control demanded it. Patching the matcher to
+take the longest greedy run and never hand characters back left blocks 1 and 2 **fully green** —
+the module's hardest path was untested until these ten cases were added. Two other controls are on
+record: defining `$` as plain `pos == length` reddens 2 cases, and dropping the zero-width guard
+sends the matcher into unbounded recursion.
+
+## Imports
+
+[regexMatchPrefix](std/parsing/regex.ssc)
+
+## The harness
+
+```scalascript
+// Render a matched string so a newline or tab is visible in a failure line.
+def rxEsc(s: String): String =
+  var out = ""
+  var i = 0
+  while i < s.length do
+    val c = s.charAt(i).toInt
+    if c == 10 then out = out + "\\n"
+    else if c == 9 then out = out + "\\t"
+    else if c == 13 then out = out + "\\r"
+    else out = out + s.drop(i).take(1)
+    i = i + 1
+  out
+
+// `Option[String]`, not `Any`. With an `Any` parameter `case Some(m)` binds m as Any, and the
+// JVM lane — which compiles this file as real Scala — rejects `rxEsc(m)` on the spot.
+def rxShow(r: Option[String]): String =
+  r match
+    case Some(m) => "Some(" + rxEsc(m) + ")"
+    case other => "None"
+
+def chk(pat: String, in: String, want: String): Int =
+  val got = rxShow(regexMatchPrefix(in, pat))
+  if got == want then 0
+  else
+    println("FAIL /" + pat + "/ @ " + rxEsc(in) + " -> " + got + " want " + want)
+    1
+
+var bad = 0
+bad = bad + chk("$", "", "Some()")
+bad = bad + chk("$", "abc", "None")
+bad = bad + chk("$", "\n", "Some()")
+bad = bad + chk("$", "abc\n", "None")
+bad = bad + chk("$", "abc\\r\n", "None")
+bad = bad + chk("$", "\n\n", "None")
+bad = bad + chk("([ \\t]*\\n)*", "", "Some()")
+bad = bad + chk("([ \\t]*\\n)*", "\n", "Some(\\n)")
+bad = bad + chk("([ \\t]*\\n)*", "  \n\t\nx", "Some(  \\n\\t\\n)")
+bad = bad + chk("([ \\t]*\\n)*", "   x", "Some()")
+bad = bad + chk("([ \\t]*\\n)*", "\n\n\n", "Some(\\n\\n\\n)")
+bad = bad + chk("-?[0-9]+", "42", "Some(42)")
+bad = bad + chk("-?[0-9]+", "-42abc", "Some(-42)")
+bad = bad + chk("-?[0-9]+", "-abc", "None")
+bad = bad + chk("-?[0-9]+", "", "None")
+bad = bad + chk("-?[0-9]+", "007", "Some(007)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "3.14", "Some(3.14)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "-2.5e-3rest", "Some(-2.5e-3)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "7", "Some(7)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "7.", "Some(7)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "1E+9", "Some(1E+9)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", "1e", "Some(1)")
+bad = bad + chk("-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?", ".5", "None")
+bad = bad + chk("[ \\t]*", "   x", "Some(   )")
+bad = bad + chk("[ \\t]*", "x", "Some()")
+bad = bad + chk("[ \\t]*", "", "Some()")
+bad = bad + chk("[ \\t]*", "\t\t \t", "Some(\\t\\t \\t)")
+bad = bad + chk("[ \\t]*\\n", "   \nrest", "Some(   \\n)")
+bad = bad + chk("[ \\t]*\\n", "\n", "Some(\\n)")
+bad = bad + chk("[ \\t]*\\n", "   x", "None")
+bad = bad + chk("[ \\t]*\\n", "", "None")
+bad = bad + chk("[0-9]+", "123abc", "Some(123)")
+bad = bad + chk("[0-9]+", "abc", "None")
+bad = bad + chk("[^']*", "abc'def", "Some(abc)")
+bad = bad + chk("[^']*", "'abc", "Some()")
+bad = bad + chk("[^']*", "", "Some()")
+bad = bad + chk("[^\"]*", "abc\"def", "Some(abc)")
+bad = bad + chk("[^\"]*", "\"", "Some()")
+bad = bad + chk("[^\\n:]+", "key: value", "Some(key)")
+bad = bad + chk("[^\\n:]+", ":x", "None")
+bad = bad + chk("[^\\n:]+", "line\nnext", "Some(line)")
+bad = bad + chk("[^\\n]+", "line\nnext", "Some(line)")
+bad = bad + chk("[^\\n]+", "\nx", "None")
+bad = bad + chk("[^\\n]+", "", "None")
+bad = bad + chk("[a-zA-Z_][a-zA-Z0-9_]*", "_foo9 bar", "Some(_foo9)")
+bad = bad + chk("[a-zA-Z_][a-zA-Z0-9_]*", "9foo", "None")
+bad = bad + chk("[a-zA-Z_][a-zA-Z0-9_]*", "Z", "Some(Z)")
+bad = bad + chk("[a-z]+", "abcDEF", "Some(abc)")
+bad = bad + chk("[a-z]+", "DEF", "None")
+bad = bad + chk("\\s*", " \t\n x", "Some( \\t\\n )")
+bad = bad + chk("\\s*", "x", "Some()")
+bad = bad + chk("\\s+", " \t\n x", "Some( \\t\\n )")
+bad = bad + chk("\\s+", "x", "None")
+bad = bad + chk("rx", "rx1", "Some(rx)")
+bad = bad + chk("rx", "r", "None")
+bad = bad + chk(".", "a", "Some(a)")
+bad = bad + chk(".", "\n", "None")
+bad = bad + chk(".", "", "None")
+bad = bad + chk(".*", "ab\ncd", "Some(ab)")
+bad = bad + chk("a?", "b", "Some()")
+bad = bad + chk("a?", "ab", "Some(a)")
+bad = bad + chk("(ab)+", "ababc", "Some(abab)")
+bad = bad + chk("(ab)+", "aba", "Some(ab)")
+bad = bad + chk("(ab)+", "b", "None")
+bad = bad + chk("(ab)*", "c", "Some()")
+bad = bad + chk("[a-]", "-", "Some(-)")
+bad = bad + chk("[a-]", "a", "Some(a)")
+bad = bad + chk("[-a]", "-", "Some(-)")
+bad = bad + chk("[a-c-]", "-", "Some(-)")
+bad = bad + chk("\\w+", "foo_9-", "Some(foo_9)")
+bad = bad + chk("\\d+", "42x", "Some(42)")
+bad = bad + chk("\\S+", "ab cd", "Some(ab)")
+bad = bad + chk("\\D+", "ab1", "Some(ab)")
+bad = bad + chk("\\W+", "!? a", "Some(!? )")
+bad = bad + chk("(a*)+", "b", "Some()")
+bad = bad + chk("(a*)+", "", "Some()")
+bad = bad + chk("(a*)*b", "aaab", "Some(aaab)")
+bad = bad + chk("a*$", "aaa", "Some(aaa)")
+bad = bad + chk("a*$", "aaab", "None")
+bad = bad + chk("a*$", "aaa\n", "Some(aaa)")
+bad = bad + chk("[^a-c]+", "xyzabc", "Some(xyz)")
+bad = bad + chk("x*y", "xxxy", "Some(xxxy)")
+bad = bad + chk("x*y", "xxx", "None")
+bad = bad + chk("(x)?y", "y", "Some(y)")
+bad = bad + chk("(x)?y", "xy", "Some(xy)")
+bad = bad + chk("[\\t ]+", "\t x", "Some(\\t )")
+bad = bad + chk("[0-9]*[a-z]", "123a", "Some(123a)")
+bad = bad + chk("[0-9]*[a-z]", "a", "Some(a)")
+bad = bad + chk("[0-9]*3", "123", "Some(123)")
+bad = bad + chk("[0-9]+9", "199", "Some(199)")
+bad = bad + chk(".*b", "aabab", "Some(aabab)")
+bad = bad + chk("[a-z]*a", "xyza", "Some(xyza)")
+bad = bad + chk("a?a", "a", "Some(a)")
+bad = bad + chk("x*xy", "xxxy", "Some(xxxy)")
+bad = bad + chk("(ab)*ab", "ababab", "Some(ababab)")
+bad = bad + chk("(ab)+ab", "abab", "Some(abab)")
+bad = bad + chk("\\s*\\t", " \t\t", "Some( \\t\\t)")
+bad = bad + chk("[^x]*yx", "aayxbyx", "Some(aayx)")
+println("regex-subset: " + (98 - bad) + "/98 agree with the reference")
+```
+
+## Expected output
+
+```
+regex-subset: 98/98 agree with the reference
+```

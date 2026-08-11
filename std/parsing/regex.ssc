@@ -1,0 +1,426 @@
+---
+name: std-parsing-regex
+version: 1.0.0
+description: std/parsing — the prefix matcher behind PRegex, written in ScalaScript so every lane runs the same code
+package: std.parsing
+exports:
+  # Everything top-level is exported, including the internals. That is deliberate: JsGen hoists a
+  # body to top level while leaving its free names unqualified, and only EXPORTED names get a
+  # top-level `const` — an unexported node class referenced from `regexMatchPrefix` would die with
+  # `ReferenceError` on the js lane. Same trap as `PWithIndent` in layout.ssc.
+  - RxNode
+  - RxChar
+  - RxClass
+  - RxAnyChar
+  - RxAtEnd
+  - RxGroup
+  - RxRep
+  - RxNotAt
+  - RxSeqRes
+  - RxItemRes
+  - RxClsRes
+  - rxEscChar
+  - rxEscRanges
+  - rxEscNeg
+  - rxIsLineTerm
+  - rxAtEndAt
+  - rxClassHas
+  - rxIsSimple
+  - rxSimpleAt
+  - rxMatch
+  - rxMatchRep
+  - rxParseClass
+  - rxParseItem
+  - rxParseSeq
+  - rxParse
+  - regexMatchPrefix
+  - matchPrefix
+---
+
+# `std/parsing/regex` — the prefix matcher behind `PRegex`
+
+`std/parsing/combinators.ssc` runs a `PRegex(pat)` node by asking for the longest prefix of the
+input that `pat` matches. That question used to be answered by the **host**: `java.util.regex`,
+reached through a string method the interpreter implemented natively. This module answers it in
+ScalaScript instead.
+
+**Why it is not a host primitive.** A host implementation has to be written once per lane —
+executor, bridge, self-hosted, and each backend — and the four have to agree byte for byte, which
+is what invariant I-3 requires. Regex dialects are exactly where that agreement is expensive:
+Java, JavaScript and Rust disagree about what `$` means, about what `.` excludes, and about
+character-class corners. A `.ssc` module is a *program*, so every lane that can run programs runs
+this one, and they agree by construction rather than by testing. It is also the only form that
+exists on the self-hosted lane at all, where the "host" is ScalaScript itself.
+
+The trade is speed: this is interpreted, per character. The pattern is re-parsed on every call —
+so was `Pattern.compile`'s in the implementation this replaces, so that is not a regression, but
+it is the first thing to cache if a profile ever points here.
+
+## The supported subset, and why it is closed
+
+`v3/regex-subset-gate.sh` enumerates every pattern literal reaching `Parser.regex` in the tree and
+refuses one this module cannot parse. So the subset is not a hope — it is checked at commit time,
+and anything outside it fails **loudly** here rather than quietly matching the wrong text.
+
+| supported | meaning |
+|---|---|
+| `a`, `\.`, `\n`, `\t`, `\r`, `\f` | a literal character |
+| `[a-z]`, `[^\n:]`, `[ \t]` | a character class: ranges, negation, escaped members |
+| `\s \S \d \D \w \W` | the shorthand classes, inside a class or out |
+| `.` | any character that is not a line terminator |
+| `*`, `+`, `?` | greedy repetition of the preceding item |
+| `(…)` | a group, quantifiable as a unit |
+| `$` | the end of the input, **or just before a line terminator that ends it** |
+
+Refused, by name, with the pattern in the message: alternation `|`, counted repetition `{n,m}`,
+the lazy and possessive quantifiers, `(?…)` in all its forms, the `^` anchor, backreferences, and
+any unknown letter escape — `\b` read as the letter `b` would be a wrong answer where an error is
+the honest outcome.
+
+Matching is the ordinary backtracking algorithm, anchored at offset 0, greedy: the same thing
+`lookingAt()` does.
+
+## Pattern nodes
+
+```scalascript
+sealed trait RxNode
+
+// One literal character, by code.
+case class RxChar(code: Int) extends RxNode
+
+// A character class. `ranges` is a FLAT list of inclusive [lo, hi] pairs — a
+// single character is a pair with lo == hi — and `neg` inverts the whole test.
+// Flat rather than a list of pair objects because the test runs per input
+// character and this is the hot loop.
+case class RxClass(neg: Boolean, ranges: List[Int]) extends RxNode
+
+// `.` — any character that is not a line terminator.
+case object RxAnyChar extends RxNode
+
+// `$` — succeeds, consuming nothing, at the end of the input OR just before a
+// line terminator that ends it. See `rxAtEndAt` for why the second half is here.
+case object RxAtEnd extends RxNode
+
+// `(...)` — a parenthesised sequence, so a quantifier can apply to all of it.
+case class RxGroup(nodes: List[Any]) extends RxNode
+
+// A quantified item. `max` is -1 for unbounded.
+case class RxRep(item: Any, min: Int, max: Int) extends RxNode
+
+// Internal, never produced by the parser: fails when the current position is
+// still `at`. The matcher inserts one after an OPTIONAL iteration so that a
+// zero-width body cannot repeat forever.
+case class RxNotAt(at: Int) extends RxNode
+```
+
+## Parser results
+
+Explicit records rather than tuples: a returned `(node, next)` reads the same in both, and a named
+field survives a refactor of the other.
+
+```scalascript
+case class RxSeqRes(nodes: List[Any], next: Int)
+case class RxItemRes(node: Any, next: Int)
+case class RxClsRes(neg: Boolean, ranges: List[Int], next: Int)
+```
+
+## Escapes
+
+```scalascript
+// The escapes that stand for a single character, as a code, or -1 for "not one
+// of these". A LETTER or DIGIT that is not in the table is refused by the
+// caller rather than read as itself: `\b` is a word boundary in every dialect
+// this module replaces and `\1` is a backreference, so reading either as the
+// bare character would be a wrong answer where an error is correct.
+def rxEscChar(c: Int): Int =
+  if c == 110 then 10
+  else if c == 116 then 9
+  else if c == 114 then 13
+  else if c == 102 then 12
+  else if c >= 97 && c <= 122 then -1
+  else if c >= 65 && c <= 90 then -1
+  else if c >= 48 && c <= 57 then -1
+  else c
+
+// The shorthand classes as a flat range list, or an empty list when `c` is not
+// one of them. `\s` is Java's set: space, tab, newline, vertical tab, form
+// feed, carriage return — codes 9..13 and 32.
+def rxEscRanges(c: Int): List[Int] =
+  if c == 115 || c == 83 then List(9, 13, 32, 32)
+  else if c == 100 || c == 68 then List(48, 57)
+  else if c == 119 || c == 87 then List(48, 57, 65, 90, 95, 95, 97, 122)
+  else List()
+
+// True for the negated spellings `\S \D \W`.
+def rxEscNeg(c: Int): Boolean = c == 83 || c == 68 || c == 87
+
+// The line terminators `.` excludes and `$` is allowed to sit in front of:
+// newline, carriage return, next-line, line separator, paragraph separator.
+def rxIsLineTerm(c: Int): Boolean =
+  c == 10 || c == 13 || c == 133 || c == 8232 || c == 8233
+
+// `$` is NOT simply "pos == length", and the difference is load-bearing: against
+// an input ending in a newline, `$` matched BEFORE that newline in the
+// implementation this module replaces, so defining it the obvious way would
+// silently change what existing parsers accept. The rule is transcribed here on
+// purpose — the point of moving the matcher into ScalaScript is that a corner
+// like this is written down in ONE readable place instead of being three host
+// engines' defaults, each subtly different.
+def rxAtEndAt(s: String, pos: Int): Boolean =
+  val n = s.length
+  if pos == n then true
+  else if pos == n - 1 then rxIsLineTerm(s.charAt(pos).toInt)
+  else if pos == n - 2 then s.charAt(pos).toInt == 13 && s.charAt(pos + 1).toInt == 10
+  else false
+```
+
+## Matching
+
+```scalascript
+// Is `c` inside the flat [lo, hi] pair list?
+def rxClassHas(ranges: List[Int], c: Int): Boolean =
+  var rs = ranges
+  var found = false
+  while !found && !rs.isEmpty do
+    val lo = rs.head
+    val hi = rs.tail.head
+    if c >= lo && c <= hi then found = true
+    rs = rs.tail.tail
+  found
+
+// The nodes that consume EXACTLY one character and can match in only one way.
+// Repetition of one of these needs no backtracking search, only a scan and a
+// give-back, which is the fast path in `rxMatchRep`.
+def rxIsSimple(n: Any): Boolean =
+  n match
+    case RxChar(code) => true
+    case RxAnyChar => true
+    case RxClass(neg, ranges) => true
+    case other => false
+
+// Does the width-1 node `n` match the character at `p`?
+def rxSimpleAt(n: Any, s: String, p: Int): Boolean =
+  if p >= s.length then false
+  else
+    val c = s.charAt(p).toInt
+    n match
+      case RxChar(code) => c == code
+      case RxAnyChar => !rxIsLineTerm(c)
+      case RxClass(neg, ranges) => rxClassHas(ranges, c) != neg
+      case other => false
+
+// Match `ns` against `s` starting at `pos`. Returns the end offset, or -1.
+// The node list IS the continuation: a group splices its body in front of the
+// rest, and a repetition rewrites itself into one iteration followed by a
+// smaller repetition.
+def rxMatch(ns: List[Any], s: String, pos: Int): Int =
+  if ns.isEmpty then pos
+  else
+    val n = ns.head
+    val rest = ns.tail
+    n match
+      case RxAtEnd => if rxAtEndAt(s, pos) then rxMatch(rest, s, pos) else -1
+      case RxNotAt(at) => if pos == at then -1 else rxMatch(rest, s, pos)
+      case RxGroup(inner) => rxMatch(inner ++ rest, s, pos)
+      case RxRep(item, min, max) => rxMatchRep(item, min, max, rest, s, pos)
+      case other => if rxSimpleAt(n, s, pos) then rxMatch(rest, s, pos + 1) else -1
+
+// Greedy repetition with backtracking.
+def rxMatchRep(item: Any, min: Int, max: Int, rest: List[Any], s: String, pos: Int): Int =
+  if rxIsSimple(item) then
+    // Width-1 and deterministic: take as much as the bound allows, then hand
+    // characters back one at a time until the rest of the pattern fits. Every
+    // pattern in the tree except the two with a quantified GROUP lands here.
+    var p = pos
+    var n = 0
+    while (max < 0 || n < max) && rxSimpleAt(item, s, p) do
+      p = p + 1
+      n = n + 1
+    if n < min then -1
+    else
+      var q = p
+      var res = -1
+      while res < 0 && q >= pos + min do
+        res = rxMatch(rest, s, q)
+        if res < 0 then q = q - 1
+      res
+  else
+    // General case: try one more iteration, then settle for none. The `RxNotAt`
+    // guard stops a zero-width body from repeating forever, and it is inserted
+    // ONLY once the minimum is met, because a MANDATORY iteration is allowed to
+    // be zero-width — `(a*)+` against "" matches, and must keep matching here.
+    var greedy = -1
+    if max != 0 then
+      val nextMax = if max < 0 then -1 else max - 1
+      val nextMin = if min > 0 then min - 1 else 0
+      val tail1 = List(RxRep(item, nextMin, nextMax)) ++ rest
+      val body = if min > 0 then List(item) ++ tail1 else List(item) ++ List(RxNotAt(pos)) ++ tail1
+      greedy = rxMatch(body, s, pos)
+    if greedy >= 0 then greedy
+    else if min == 0 then rxMatch(rest, s, pos)
+    else -1
+```
+
+## Parsing a pattern
+
+```scalascript
+// Parse the body of `[...]`, starting just after the `[`.
+def rxParseClass(pat: String, start: Int): RxClsRes =
+  var i = start
+  var neg = false
+  if i < pat.length && pat.charAt(i).toInt == 94 then
+    neg = true
+    i = i + 1
+  // Annotated rather than inferred from a seed element. `var rs = List(0); rs = rs.tail` reads as
+  // an empty list on the interpreter and types as `List[Int]` on the JVM lane, which compiles this
+  // file as real Scala — that lane is what caught the same shape in `rxParseSeq`, where the list
+  // holds nodes and `List[Int]` is simply wrong.
+  var ranges: List[Int] = List()
+  var closed = false
+  while !closed do
+    if i >= pat.length then
+      throw RuntimeException("std.parsing.regex: unterminated character class in /" + pat + "/")
+    val c = pat.charAt(i).toInt
+    if c == 93 then
+      closed = true
+      i = i + 1
+    else
+      var lo = c
+      i = i + 1
+      if lo == 92 then
+        if i >= pat.length then
+          throw RuntimeException("std.parsing.regex: trailing backslash in /" + pat + "/")
+        val e = pat.charAt(i).toInt
+        i = i + 1
+        val sub = rxEscRanges(e)
+        if !sub.isEmpty then
+          if rxEscNeg(e) then
+            throw RuntimeException("std.parsing.regex: a negated shorthand inside a character class is outside the supported subset, in /" + pat + "/")
+          ranges = ranges ++ sub
+          // Consumed as a whole sub-class, so it is not a range endpoint.
+          lo = -1
+        else
+          lo = rxEscChar(e)
+          if lo < 0 then
+            throw RuntimeException("std.parsing.regex: unsupported escape at offset " + (i - 1) + " in /" + pat + "/")
+      if lo >= 0 then
+        var hi = lo
+        // `a-z`. A `-` immediately before the `]` is a literal dash, not a range.
+        if i + 1 < pat.length && pat.charAt(i).toInt == 45 && pat.charAt(i + 1).toInt != 93 then
+          i = i + 1
+          var h = pat.charAt(i).toInt
+          i = i + 1
+          if h == 92 then
+            if i >= pat.length then
+              throw RuntimeException("std.parsing.regex: trailing backslash in /" + pat + "/")
+            val e2 = pat.charAt(i).toInt
+            i = i + 1
+            h = rxEscChar(e2)
+            if h < 0 then
+              throw RuntimeException("std.parsing.regex: unsupported escape at offset " + (i - 1) + " in /" + pat + "/")
+          hi = h
+        ranges = ranges ++ List(lo, hi)
+  RxClsRes(neg, ranges, i)
+
+// Parse one atom and any postfix quantifier.
+def rxParseItem(pat: String, start: Int): RxItemRes =
+  var i = start
+  val c = pat.charAt(i).toInt
+  // Overwritten by every branch below; the initial value is never observed.
+  var node: Any = RxAtEnd
+  if c == 40 then
+    i = i + 1
+    if i < pat.length && pat.charAt(i).toInt == 63 then
+      throw RuntimeException("std.parsing.regex: a (?...) group is outside the supported subset, in /" + pat + "/")
+    val inner = rxParseSeq(pat, i)
+    i = inner.next
+    if i >= pat.length then
+      throw RuntimeException("std.parsing.regex: unclosed group in /" + pat + "/")
+    i = i + 1
+    node = RxGroup(inner.nodes)
+  else if c == 91 then
+    val cls = rxParseClass(pat, i + 1)
+    i = cls.next
+    node = RxClass(cls.neg, cls.ranges)
+  else if c == 92 then
+    i = i + 1
+    if i >= pat.length then
+      throw RuntimeException("std.parsing.regex: trailing backslash in /" + pat + "/")
+    val e = pat.charAt(i).toInt
+    i = i + 1
+    val sub = rxEscRanges(e)
+    if !sub.isEmpty then node = RxClass(rxEscNeg(e), sub)
+    else
+      val lit = rxEscChar(e)
+      if lit < 0 then
+        throw RuntimeException("std.parsing.regex: unsupported escape at offset " + (i - 1) + " in /" + pat + "/")
+      node = RxChar(lit)
+  else if c == 46 then
+    i = i + 1
+    node = RxAnyChar
+  else if c == 36 then
+    i = i + 1
+    node = RxAtEnd
+  else if c == 94 then
+    throw RuntimeException("std.parsing.regex: the ^ anchor is outside the supported subset (matching is already anchored at offset 0), in /" + pat + "/")
+  else if c == 124 then
+    throw RuntimeException("std.parsing.regex: alternation | is outside the supported subset, in /" + pat + "/")
+  else if c == 123 then
+    throw RuntimeException("std.parsing.regex: counted repetition {n,m} is outside the supported subset, in /" + pat + "/")
+  else if c == 42 || c == 43 || c == 63 then
+    throw RuntimeException("std.parsing.regex: a quantifier at offset " + i + " has nothing to repeat, in /" + pat + "/")
+  else
+    i = i + 1
+    node = RxChar(c)
+  if i < pat.length then
+    val q = pat.charAt(i).toInt
+    if q == 42 || q == 43 || q == 63 then
+      i = i + 1
+      if i < pat.length then
+        val q2 = pat.charAt(i).toInt
+        if q2 == 63 || q2 == 43 then
+          throw RuntimeException("std.parsing.regex: a lazy or possessive quantifier at offset " + i + " is outside the supported subset, in /" + pat + "/")
+      if q == 42 then node = RxRep(node, 0, -1)
+      else if q == 43 then node = RxRep(node, 1, -1)
+      else node = RxRep(node, 0, 1)
+  RxItemRes(node, i)
+
+// Parse items until `)` or the end of the pattern. The caller consumes the `)`.
+def rxParseSeq(pat: String, start: Int): RxSeqRes =
+  var i = start
+  var acc: List[Any] = List()
+  var done = false
+  while !done do
+    if i >= pat.length then done = true
+    else if pat.charAt(i).toInt == 41 then done = true
+    else
+      val it = rxParseItem(pat, i)
+      acc = acc ++ List(it.node)
+      i = it.next
+  RxSeqRes(acc, i)
+
+// Parse a whole pattern.
+def rxParse(pat: String): List[Any] =
+  val r = rxParseSeq(pat, 0)
+  if r.next != pat.length then
+    throw RuntimeException("std.parsing.regex: unbalanced ) at offset " + r.next + " in /" + pat + "/")
+  r.nodes
+```
+
+## The entry point
+
+```scalascript
+// The longest prefix of `s` that `pat` matches, or None. Anchored at offset 0
+// and greedy — the contract `PRegex` was written against.
+def regexMatchPrefix(s: String, pat: String): Option[String] =
+  val end = rxMatch(rxParse(pat), s, 0)
+  if end < 0 then None else Some(s.take(end))
+
+extension (s: String)
+  // The idiomatic spelling. `combinators.ssc` deliberately calls
+  // `regexMatchPrefix` directly instead: a `.matchPrefix` METHOD call can be
+  // answered by a host string method on a lane whose front does not rewrite
+  // extension calls, and it would be answered SILENTLY, with a different
+  // implementation of the same name. A plain call cannot be resolved that way.
+  def matchPrefix(pat: String): Option[String] = regexMatchPrefix(s, pat)
+```

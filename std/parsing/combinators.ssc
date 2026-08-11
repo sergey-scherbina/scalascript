@@ -26,6 +26,8 @@ The runner now carries a `ParserContext` through evaluation.  The default is
 
 [Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail, ParserContext, NoContext, PWithLocalContext, PReadContext](core.ssc)
 
+[regexMatchPrefix](regex.ssc)
+
 ## Combinator ADT nodes
 
 ```scalascript
@@ -90,7 +92,12 @@ def runParser(p: Any, input: String, pos: Position, ctx: Any): Any =
       else
         ParseErr(ParseError("expected \"" + s + "\"", pos))
     case PRegex(pat) =>
-      input.matchPrefix(pat) match
+      // `regexMatchPrefix(input, pat)`, not `input.matchPrefix(pat)`. The method spelling can be
+      // answered by a HOST string method on any lane whose front does not rewrite extension calls,
+      // and it would be answered silently — two lanes running different implementations of the same
+      // name is exactly what invariant I-3 forbids. A plain call has no such fallback: if the import
+      // does not resolve, it fails loudly. (std/parsing/regex.ssc.)
+      regexMatchPrefix(input, pat) match
         case Some(m) => ParseOk(m, input.drop(m.length), Position(pos.offset + m.length))
         case None    => ParseErr(ParseError("expected /" + pat + "/", pos))
     case PSatisfy(pred) =>
