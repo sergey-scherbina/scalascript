@@ -1,3 +1,4 @@
-# generation: 1642
+# generation: 1643
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+rust-duplicate-and-missing-names	claude-code	2026-08-11T09:43:33Z	rust-std-e0428-duplicate-definition rust-std-e0425-name-not-found	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:tests/e2e/build-rust-refuses-loudly.sh
