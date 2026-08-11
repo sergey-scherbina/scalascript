@@ -1,0 +1,11 @@
+slug: conformance-agreement-sweep
+branch: feature/conformance-agreement-sweep
+agent: claude-code
+started: 2026-08-11T07:36:53Z
+heartbeat: 2026-08-11T07:36:53Z
+status: claimed-before-planning
+items: conformance-agreement-sweep
+paths: file:tests/e2e/f-output-agreement-gate.sh file:tests/BUGS.md file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
