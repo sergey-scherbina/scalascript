@@ -183,7 +183,22 @@ def lexHex(s, i, n) = Cons((0, scanHexV(s, i + 2, n, 0)), lex(s, longEnd(s, scan
 // char literal `'x'` / `'\n'` / `'\uXXXX'` -> int token (its code); the VM treats chars as codes
 // (ssc1-front :361-374). Plain: skip `'x'` (3 chars). Escape `\X`: \n->10 \t->9 \r->13 \0->0 else X (4).
 // `\uXXXX` -> 4-hex code point (8 chars). F's own source has no char literals (all `'` are in comments).
-def escCharCode(e) = if e == 110 then 10 else (if e == 116 then 9 else (if e == 114 then 13 else (if e == 48 then 0 else e)))
+// THE FALL-THROUGH RETURNS A CODE POINT, not the character. `e` comes from `charAt`, so it is a
+// Char; the four named branches return Ints, and the default returned `e` unconverted. The two
+// escapes with no named branch — `'\\'` and `'\''` — therefore reached emitInt as a CHARACTER, and
+// the emitted literal was `(lit (int '\'))`, which is not an integer at all:
+//
+//   '\\'.toInt          F  0         reference  92
+//   "a\\b".indexOf('\\') F  -1        reference  1
+//
+// Run through F0 the malformed IR is loud — `int literal: not a canonical INT (0|-?[1-9][0-9]*)` —
+// and through bin/ssc it is silent, answering 0. `'\n'`, `'\t'`, `'\r'` and `'\0'` were always right
+// because their branches return an Int literal, which is why this survived: every escape anyone
+// tested had a branch. The non-escape path one line above already writes `.toInt` explicitly.
+//
+// Found by sweeping tests/conformance with the output-agreement comparison, which the gate excludes
+// for runtime — char-literal-escapes.ssc is one of five files it turned up.
+def escCharCode(e) = if e == 110 then 10 else (if e == 116 then 9 else (if e == 114 then 13 else (if e == 48 then 0 else e.toInt)))
 def hex4F(s, i) = ((hexDig(s.charAt(i)) * 16 + hexDig(s.charAt(i + 1))) * 16 + hexDig(s.charAt(i + 2))) * 16 + hexDig(s.charAt(i + 3))
 // Char literals are kind 12, NOT kind 0. Emitting the NUMBER kind is exactly what made
 // `'x'` indistinguishable from `120` from the lexer onward, so it rendered as its code
