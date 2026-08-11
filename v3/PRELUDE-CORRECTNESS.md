@@ -65,14 +65,29 @@ and for nothing else: not classes, not objects, not traits, and not positions.
 `Lower.scala:2227` refuses an empty program with another. Two predicates in two files that must
 agree. `v3/prelude-gate.sh` fails if they diverge, which makes it survivable, not correct.
 
-## P-4 — what happens when the user redefines a prelude name is undecided
+## P-4 — a user redefining a prelude name
 
-**Status: open, needs a decision written down before the prelude grows.**
+**Status: FIXED 2026-08-11, on the second attempt, and the first attempt is the more useful record.**
 
-If the prelude defines `Dataset` and the user's program does too, nothing today says which wins.
-Every language with a prelude answers this the same way — the user's definition shadows it,
-silently — and that is what I intend to implement, but it must be a rule with a test, not an
-accident of concatenation order.
+Measured before deciding, which is why it could not be left to intuition: `def` had it BACKWARDS —
+the prelude's definition won and the user's own function was silently ignored — while `case class`
+was already correct, so the two kinds disagreed about one question. A silent override of code
+someone wrote themselves is worse than any collision error.
+
+**The first fix was wrong and reached `main`.** I kept the LAST declaration of every name, which
+reads identically in English and is not the same rule: several `def`s sharing a name inside ONE unit
+are a working mechanism of this compiler, not a collision. The corpus went **204 -> 132** and I
+found out AFTER pushing, because I ran the gates before landing and the corpus in the same command
+as the commit. Reverted; N back to 204.
+
+**The rule that holds:** only a name the ROOT ITSELF declares displaces one from another module.
+Provenance decides, not list position — the same lesson as P-1 and P-2, which is the pattern this
+whole file keeps finding. Applies to imports too: a module you imported can no longer override a
+function you wrote. Checked in `prelude-gate.sh`; N unchanged at 204 BEFORE pushing this time.
+
+**The process lesson, which cost more than the defect:** v3's gates do not cover the corpus. Gate
+green is not evidence for a change that touches `merge`, `Lower` or the loader — N is, and it has to
+be measured before the push, not beside it.
 
 ## P-5 — the prelude is parsed and lowered on EVERY invocation
 

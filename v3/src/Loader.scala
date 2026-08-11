@@ -329,11 +329,23 @@ object Loader:
     var effects: List[TraitDef] = Nil
     var top: List[Stmt] = Nil
     var origin: Map[String, String] = Map.empty
+    // ONLY A NAME THE ROOT ITSELF DECLARES displaces one from another module, and the narrowness is
+    // the whole correction. My first attempt at this rule kept the LAST declaration of every name,
+    // which reads the same in English and is not: several `def`s sharing a name inside ONE unit are
+    // a working mechanism of this compiler, not a collision, and dropping them took the corpus from
+    // 204 to 132. Provenance is the thing that distinguishes the two cases — the same lesson as
+    // P-1 and P-2 — so the filter asks WHICH UNIT a declaration came from and nothing else.
+    val rootDefNames = root.program.defs.map(_.name).toSet
     units.foreach { u =>
       // Only for units that are NOT the root: a declaration in the file the user named needs no
       // redirection, and recording it would make every ordinary diagnostic print a path twice.
       if u.path != root.path then u.program.defs.foreach(d => origin = origin.updated(d.name, u.path))
-      defs = defs ++ u.program.defs
+      // A user's own `def` shadows one of the same name from the prelude or any import, silently,
+      // as in every language with a prelude. Measured before it was decided: `def` had this
+      // BACKWARDS — the other module won and the user's function was ignored with no diagnostic —
+      // while `case class` was already right, so the two disagreed about one question.
+      defs = defs ++ (if u.path == root.path then u.program.defs
+                      else u.program.defs.filterNot(d => rootDefNames.contains(d.name)))
       classes = classes ++ u.program.classes
       objects = objects ++ u.program.objects
       traits = traits ++ u.program.traits
