@@ -1,0 +1,11 @@
+slug: rust-no-paren-select
+branch: feature/rust-no-paren-select
+agent: claude-code
+started: 2026-08-11T06:07:29Z
+heartbeat: 2026-08-11T06:07:29Z
+status: claimed-before-planning
+items: no-paren-list-method-becomes-a-field option-val-not-tracked-chain-lowers-as-list
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/BUGS.md file:INBOX.md file:.githooks/pre-push file:tests/e2e/build-rust-refuses-loudly.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
