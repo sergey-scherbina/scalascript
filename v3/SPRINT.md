@@ -2789,7 +2789,14 @@ repository has paid for that confusion more than once.
       library function and a `Stream`, not a compiler change, and a blank cell should say which.
       *Done when:* the number is derived by the harness or dated in the text, so it cannot rot the
       same way twice.
-- [ ] **B3 — a regression in `bench/corpus` is invisible to every gate.** `typeclass-fold` computed
+- [x] **B3 — a regression in `bench/corpus` is invisible to every gate.** DONE 2026-08-11 as
+      `v3/bench-corpus-gate.sh`, wired into the workflow with a self-test first. It asks only
+      whether each row produces a `BENCH_SINK` — never how fast, because timing on a contended host
+      is noise, and never the value, because that is `exec-gate.sh`'s job. Declares the two rows
+      that do not compute (`effect-pure`, `effect-stream`, both wanting a library rather than a
+      compiler change) and goes red in BOTH directions: a row that stops computing, and a declared
+      blank that starts. Proven by planting each.
+      **Superseded description:** `typeclass-fold` computed
       16500, stopped computing when stage 2b landed, and `N` never moved — because
       `corpus-report.sh` reads `tests/conformance` and the bench corpus is a SEPARATE set. Caught
       by hand on 2026-08-11, three days after it could have been.

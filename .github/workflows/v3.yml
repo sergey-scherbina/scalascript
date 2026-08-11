@@ -160,6 +160,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: v3/walker-gate.sh
 
+      # THE BENCH CORPUS IS A SEPARATE SET, and every other gate here reads tests/conformance. A
+      # change can stop a bench row computing and nothing says a word — `typeclass-fold` did
+      # exactly that for three days while `N` stayed at 191. This asks only whether each row still
+      # produces a number, never how fast: timing on a shared runner is noise, and the value oracle
+      # is exec-gate's job.
+      - name: bench corpus — self-test
+        if: ${{ !cancelled() }}
+        run: v3/bench-corpus-gate.sh --self-test
+      - name: bench corpus
+        if: ${{ !cancelled() }}
+        run: v3/bench-corpus-gate.sh
+
       # THE ONE GATE HERE THAT IS NOT A DIFFERENTIAL, and that is why it exists. Every check above
       # compares two things that should agree — two fronts, two lanes. The import resolver has no
       # second opinion to compare against: both fronts share it, so a file NEITHER front can load
