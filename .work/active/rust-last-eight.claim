@@ -5,7 +5,7 @@ started: 2026-08-11T15:29:33Z
 heartbeat: 2026-08-11T15:29:33Z
 status: claimed-before-planning
 items: rust-generic-enum-drops-its-parameters rust-std-corpus-badrust-column
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
