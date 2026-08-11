@@ -1910,12 +1910,41 @@ object Lower:
         val exact = r match
           case Expr.Name(obj, _) => sigs.find((n, _) => n == obj + "." + nm)
           case _                 => None
-        exact.orElse(sigs.find((n, _) => n.endsWith("." + nm))) match
-          case Some((_, ps0)) =>
-            // A method's first parameter is the receiver, added when it was flattened.
-            val ps = if ps0.nonEmpty && ps0.head.name == "this" then ps0.tail else ps0
-            Expr.MethodCall(r, nm, resolveArgs(as, ps, nm, p), p)
-          case None => x
+        // A method's first parameter is the receiver, added when it was flattened.
+        def own(ps0: List[Param]): List[Param] =
+          if ps0.nonEmpty && ps0.head.name == "this" then ps0.tail else ps0
+        // WHEN NO NAME IS AVAILABLE, PICK BY WHAT THE CALL CAN ACTUALLY FILL.
+        //
+        // The receiver is an expression, so the method belongs to a class chosen by the tag at run
+        // time and there is no name to look up. Taking the FIRST `.nm` in the program is what the
+        // object case above was refused for, one level down: a second class with a same-named
+        // method at a different arity supplies its defaults to this call, and `resolveArgs` can
+        // even THROW `'nm' has no parameter named 'x'` about a parameter list that was never the
+        // target's.
+        //
+        // So candidates are filtered by whether this call could be completed against them at all,
+        // and the result is used ONLY when that leaves one answer. Ambiguity leaves the call
+        // untouched — which is exactly what `resolveArgs` already does when it cannot fill, so an
+        // unfilled call stays an honest arity error instead of a confident wrong one.
+        def fits(ps: List[Param]): Boolean =
+          val positional = as.takeWhile(a => !a.isInstanceOf[Expr.NamedArg])
+          val named = as.drop(positional.length).collect { case Expr.NamedArg(n, _, _) => n }
+          positional.length <= ps.length &&
+          named.forall(n => ps.exists(q => q.name == n)) &&
+          ps.drop(positional.length).forall(q => q.default.isDefined || named.contains(q.name))
+        val chosen = exact.map((_, ps0) => own(ps0)).orElse {
+          val cands = sigs.filter((n, _) => n.endsWith("." + nm)).map((_, ps0) => own(ps0))
+          val fitting = cands.filter(fits)
+          if fitting.length == 1 then Some(fitting.head)
+          // Several fit and they agree on ARITY: whatever is filled is filled to the same length by
+          // any of them, so the choice cannot change the shape of the call. Different lengths mean
+          // the answer depends on which class, and this pass does not know — leave it alone.
+          else if fitting.length > 1 && fitting.map(_.length).distinct.length == 1 then Some(fitting.head)
+          else None
+        }
+        chosen match
+          case Some(ps) => Expr.MethodCall(r, nm, resolveArgs(as, ps, nm, p), p)
+          case None     => x
       case other => other)
 
   /** Positional arguments, then NAMED ones placed by their parameter's name, then DEFAULTS for
