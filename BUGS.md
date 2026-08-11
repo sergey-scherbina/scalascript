@@ -202,13 +202,32 @@ This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-
 the end.
 
 ## rust-no-paren-member-becomes-a-field-silently — an unlowered no-paren member on a List/String is emitted as a Rust FIELD access, so the by-name refusal never sees it
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      reported-by: rozum / claude-opus-5
      reported-at: 2026-08-10
-     gate: none -->
+     fixed-in: 17a140d8e
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-11 in `17a140d8e` by asking about the NAME instead of the receiver.** The first
+refusal, added when this entry was filed, was scoped to receivers this lane can type — so a lambda
+parameter slipped straight past it and `revParts.reverse` in `std/fs.ssc` still reached rustc as
+`attempted to take value of method reverse`. No case class has a field called `reverse` or
+`nonEmpty`, so the member NAME is enough to know it is not a field, whatever the receiver is.
+
+The reporter said this half was the load-bearing one and they were right: giving `headOption` a
+lowering fixes one name, and the corpus had four more behind it. Several now LOWER rather than
+refuse — `nonEmpty`, `head`, `tail`, `reverse`, `sorted`, `distinct`, `isEmpty`, `size`, `length` —
+because refusing what a `while xs.nonEmpty do` loop is written with would be honest and useless.
+
+**THE HEADER SAT AT `open` FOR A DAY AFTER THE FIX LANDED, and the way it happened is worth the
+line.** The closing edit was made, then discarded by a `git checkout HEAD -- BUGS.md` I ran to
+escape the shared-board guard, and then "re-applied" from a copy of the file taken BEFORE that edit.
+The re-apply asserted the old header was present, found it, and replaced it with itself — a no-op
+that passed its own check. An assertion that the SOURCE state exists proves nothing about the
+TARGET state; assert the result instead.
 
 **The half of `no-paren-list-method-becomes-a-field` that giving `headOption` a lowering does not
 close.** `rust-list-methods` makes an unlowered method on a known List/String receiver refuse BY
