@@ -63,6 +63,19 @@ worse than the reference on 1 of the 53 files it claims**, down from 3. The rema
 `smoke-test.ssc`, held by the three std/ui gaps in
 `f-std-ui-gaps-behind-the-curried-def-fix` — none of them F's lowering.
 
+**The gate's subject set was hiding four fifths of the problem.** It covers 240 files from
+`examples/` and deliberately excludes `tests/conformance/` for runtime. Swept the excluded 398
+on 2026-08-11: **F is worse than the reference on 5 of them**, against 1 in the covered set —
+and three of the five are silent wrong answers, the class every worthwhile F fix this week came
+from. `tests/BUGS.md` `f-worse-than-the-reference-on-five-conformance-files`.
+The gate is NOT widened yet: 73 of 398 timed out at `-P 4` on a contended host, so folding them
+in would add a load-dependent bucket to frozen thresholds. Answer the timeout question first.
+
+**And the two Fs are not the same program.** `'\\'.toInt` lowers to 92 under F bootstrapped from
+`specs/v2.2-p6.5-fsub.ssc` and answers 0 under the F inside `bin/ssc` — same binary, same
+runtime, only the front differs. Every F investigation this week used one or the other as its
+oracle. `shipped-F-and-F-bootstrapped-from-source-disagree`.
+
 **It is a GATE now, not a thing I ran by hand** — `tests/e2e/f-output-agreement-gate.sh`, wired into
 `ci.yml` along with the four F gates, which until 2026-08-09 were invoked by no workflow and no
 suite. They are in the full suite rather than smoke because they cost ~414 s against smoke's ~233 s

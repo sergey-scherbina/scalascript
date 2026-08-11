@@ -1,3 +1,75 @@
+## shipped-F-and-F-bootstrapped-from-source-disagree
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-11
+     confirmed: yes
+     gate: none -->
+
+**The F inside `bin/ssc` is not the F you get by compiling `specs/v2.2-p6.5-fsub.ssc`.** Measured on
+one two-line program:
+
+```
+def main(): Unit = println('\\'.toInt)
+
+F0, bootstrapped from specs/v2.2-p6.5-fsub.ssc:
+  (def main (lam 0 (app (global println) (prim __method__ "toInt" (prim char (lit (int 92)))))))   correct
+
+bin/ssc, SSC_FRONT_STRICT=1:   0
+bin/ssc, SSC_FRONT=legacy:    92
+```
+
+F0 lowers the backslash char literal to code point 92, which is right. The shipped F answers 0. Same
+binary, same runtime — only the front differs, so this is not a runtime gap.
+
+**Why it matters beyond one literal:** every F investigation this week used one of these two Fs as
+its oracle, and they are not the same program. The IR-dump instrument
+(`v2/SPRINT.md`, "the instrument") bootstraps F0; the gates and the corpus census run `bin/ssc`. A
+defect present in one and not the other is invisible to whichever tool you happen to pick.
+
+Not chased further here — that is a build-pipeline question (what compiles the staged F, and with
+what), not a lowering one, and it deserves its own claim rather than the tail of a sweep.
+
+## f-worse-than-the-reference-on-five-conformance-files
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-11
+     confirmed: yes
+     gate: none -->
+
+`tests/e2e/f-output-agreement-gate.sh` deliberately excludes `tests/conformance/` — 398 files —
+for runtime. This is the check on that decision, and it says the exclusion was hiding things: the
+gate's 240-file `examples/` set shows F worse than the reference on **1** file; the excluded set
+shows **5**.
+
+```
+398 files: AGREE 213 · DECLINED 97 · TIMEOUT 73 (load, not judged) · BOTHFAIL 8 · WORSE 5 · DISAGREE 2
+
+  char-literal-escapes.ssc          '\\'.toInt is 0 under F and 92 under the reference, so
+                                    "a\\b".indexOf('\\') is -1 instead of 1. '\n' and '\t' are fine.
+                                    See shipped-F-and-F-bootstrapped-from-source-disagree above:
+                                    F0 lowers this CORRECTLY, so the two Fs differ here.
+  extension-call-in-a-def-body.ssc  F: `arity: 1 expected, 0 given`; the reference runs.
+  multiblock-auto-output.ssc        F prints two EXTRA lines (`2`, `20`) the reference does not —
+                                    an auto-output decision, both fronts running.
+  set-ops-infix.ssc                 not yet examined
+  tkv2-hstack-wrap.ssc              not yet examined
+```
+
+Three of the five are silent wrong answers rather than declines: the program runs and the answer
+differs. That is the class every worthwhile F fix this week came from.
+
+**The gate is NOT widened here.** 73 of 398 timed out at `-P 4` on a contended host, so folding
+conformance in at the current cap would triple the runtime and add a load-dependent bucket to a gate
+whose thresholds are frozen. Widening it needs the timeout question answered first — a higher cap,
+more parallelism, or a curated subset — and that is a separate decision from recording what the
+sweep found.
+
 ## a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration
 
 <!-- status: open
