@@ -1,3 +1,4 @@
-# generation: 1645
+# generation: 1646
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
+rust-unresolved-names	claude-code	2026-08-11T10:46:47Z	rust-std-e0425-name-not-found rust-emits-a-reference-with-no-rust-side	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:tests/e2e/rust-std-survey-gate.sh
