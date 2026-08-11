@@ -284,7 +284,7 @@ object Cli:
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
             try
-              val m = Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              val m = Driver.moduleOf(path, src)
               Verify.module(m) match
                 case Some(e) =>
                   // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
@@ -298,7 +298,7 @@ object Cli:
               case e: LoadError    => Console.err.println("ssc3: " + e.message); 1
               case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail    => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail    => Console.err.println(Driver.render(e, path)); 1
               case e: BridgeV2.Unsupported =>
                 Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
           // The IR the front produced, in canonical form — for reading and for diffing.
@@ -306,13 +306,13 @@ object Cli:
             val path = args(1)
             val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
             try
-              print(Text.write(Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))))
+              print(Text.write(Driver.moduleOf(path, src)))
               0
             catch
               case e: LoadError => Console.err.println("ssc3: " + e.message); 1
               case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println(Driver.render(e, path)); 1
           // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
           // tail call and a frame is data.
           case "exec" if args.length >= 2 =>
@@ -326,7 +326,7 @@ object Cli:
             try
               val m = prepared(
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src)),
+                else Driver.moduleOf(path, src),
                 args)
               Exec.run(m)
               0
@@ -334,7 +334,7 @@ object Cli:
               case e: LoadError => Console.err.println("ssc3: " + e.message); 1
               case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println(Driver.render(e, path)); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // Times `workload()` so v3 can appear in bench/run.sc beside v1 and v2.
@@ -374,7 +374,7 @@ object Cli:
               // comparison of compilers rather than of executors.
               val m = prepared(
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src)),
+                else Driver.moduleOf(path, src),
                 args)
               // ZERO OR ONE PARAMETER. 17 of the 36 corpus files declare `def workload(seed: Long)`
               // (one takes an `Int`): the seed is opaque varying input, there so a pure zero-input
@@ -430,7 +430,7 @@ object Cli:
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println(Driver.render(e, path)); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
               case e: ExecError  => Console.err.println("ssc3: " + Diag.at(path, e.getMessage)); 1
           // WHICH FRONT ANSWERED. Not decoration: the swap makes the front depend on the working
@@ -450,14 +450,14 @@ object Cli:
             try
               val m0 =
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+                else Driver.moduleOf(path, src)
               print(Text.write(Cps(m0)))
               0
             catch
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println(Driver.render(e, path)); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "performs" if args.length >= 2 =>
             val path = args(1)
@@ -465,7 +465,7 @@ object Cli:
             try
               val m =
                 if path.endsWith(".ssir") then Text.read(src)
-                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+                else Driver.moduleOf(path, src)
               val ps = Perform.performing(m)
               // Printed in MODULE order, not set order: a set's iteration order is not stable across
               // runs and a gate that diffs this output would flap for no reason.
@@ -475,7 +475,7 @@ object Cli:
               case e: LoadError  => Console.err.println("ssc3: " + e.message); 1
               case e: LexError   => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
               case e: ParseFail  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-              case e: LowerFail  => Console.err.println("ssc3: " + e.origin.getOrElse(path) + ":" + e.getMessage); 1
+              case e: LowerFail  => Console.err.println(Driver.render(e, path)); 1
               case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
           case "front" =>
             println("front: " + Front.default)

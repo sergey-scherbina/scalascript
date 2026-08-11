@@ -619,7 +619,7 @@ object SpecializeMain:
     val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
     val m0 =
       if path.endsWith(".ssir") then Text.read(src)
-      else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+      else Driver.moduleOf(path, src)
     // Invariant I-4 applies to this pass too: it does not get to run on IR nobody checked, and the
     // output is verified as well — a rewrite that broke a validation rule would otherwise only
     // surface as a wrong answer much later.

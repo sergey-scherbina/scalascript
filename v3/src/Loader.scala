@@ -240,6 +240,23 @@ object Loader:
   def closure(rootPath: String): List[Unit3] =
     closureWith(rootPath, t => Front.parse(t, Front.default), preludeRoot)
 
+  /** The same closure with NO prelude — the first attempt `Driver.moduleOf` makes.
+    *
+    * A separate name rather than a `Boolean` on `closure`, because `closure(path, front)` already
+    * exists and a second two-argument overload taking a flag is the shape where a caller passes the
+    * wrong one and nothing complains. */
+  def closureBare(rootPath: String): List[Unit3] =
+    closureWith(rootPath, t => Front.parse(t, Front.default), None)
+
+  /** Is this the prelude the current invocation would load? Asked by `Driver.render` so a
+    * diagnostic can SAY it is the standard prelude rather than print a path the reader never wrote.
+    *
+    * It compares against `preludeRoot`, not against a hard-coded `v3/prelude/index.ssc`: the path is
+    * overridable (`SSC3_PRELUDE`), the gates rely on that, and a check that knew only the default
+    * would fall silent for exactly the trees that moved it. */
+  def isPrelude(path: String): Boolean =
+    preludeRoot.contains(normalise(path))
+
   def closure(rootPath: String, front: String): List[Unit3] =
     closureWith(rootPath, t => Front.parse(t, front), None)
 
