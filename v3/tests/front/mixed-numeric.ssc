@@ -1,0 +1,32 @@
+// Mixed Int/Double arithmetic widens the Int — on the executor and on the bridge alike.
+//
+// This fixture exists because the two lanes DISAGREED. Until 2026-08-11 the executor refused
+// every line below (`Mul on Int 1 and Double 2`) while the bridge computed all of them, so the
+// same program printed numbers on one lane and died on the other — invariant I-3. A fixture in
+// this directory is the right guard precisely because `exec-gate.sh` runs it BOTH ways and
+// compares, so a future one-lane fix cannot pass here.
+//
+// Both operand orders for all four operators: the executor's arms are homogeneous, so `Int op
+// Double` and `Double op Int` miss them independently and one can be fixed without the other.
+println(1 + 2.0)
+println(2.0 + 1)
+println(3 - 0.5)
+println(0.5 - 3)
+println(1 * 2.0)
+println(2.0 * 1)
+println(7 / 2.0)
+println(2.0 / 8)
+
+// The shape the shared bench wrapper's last line has on every column — an Int REP COUNTER times
+// a Double. It is here as a fixture and not only as a bench detail because this is the form that
+// found the gap: `_ssc_reps * 1000000.0` is what stopped the wrapper from running on v3 at all.
+var reps = 4
+println(reps * 1000000.0)
+val ns = 250000000
+println(ns / 1000000.0)
+
+// `%` is NOT here on purpose. Every lane refuses a Double remainder — native `TYPEERR: % requires
+// Int left operand`, interp `No method '%' on Double`, v3 `Rem on Double` — so widening it would
+// claim support no lane has. Mixed COMPARISON is absent for the opposite reason: there the lanes
+// disagree with each other (interp says `1 < 2.0` is true, native and v2 refuse it at type-check
+// time), and a fixture may not quietly pick a side of a divergence.

@@ -2786,6 +2786,18 @@ repository has paid for that confusion more than once.
       **Scoped by measurement 2026-08-11 — three steps, two of them one-liners.** Everything else
       the wrapper needs already runs on v3 (underscore literals, nested `while`, a `def` with a
       parameter, `Long`/`Double` vars, string concat — all probed, not assumed):
+      - **B1z — mixed Int/Double arithmetic. DONE 2026-08-11**, and it was a fourth gap the first
+        scoping missed: the wrapper's last line is `_ssc_reps * 1000000.0` with an Int counter, and
+        v3's `binOp` had only homogeneous arms, so it died with `Mul on Int 32768 and Double
+        1000000` — after clearing everything else. It was also a two-lane divergence: the bridge
+        computed those lines while the executor refused them. See `v3/BUGS.md`
+        `v3-mixed-int-double-arith`. With it in, a faithful hand-built wrapper runs end to end on
+        v3 and prints `BENCH_MS:`/`BENCH_SINK:`, so B1a is now the ONLY v3-side gap left.
+        *Follow-up it surfaced, NOT v3's and so not filed here:* on mixed numeric COMPARISON v1 and
+        v2 disagree with each other — interp evaluates `1 < 2.0` to `true`, native and v2 refuse it
+        at type-check time with `cannot unify Int vs Float`. That is a cross-module entry for the
+        root `BUGS.md`; it needs a claim on that file, which this slice did not hold. v3 refuses,
+        matching the majority, and deliberately was not changed.
       - **B1a — the wrapper keeps `System.nanoTime()`, so v3 must resolve it.** One entry in the
         `builtins` table of `v3/src/Lower.scala`: `"System.nanoTime" -> "io.nanoTime"`. It cannot be
         solved from the wrapper side instead: the js backend maps ONLY that spelling

@@ -1544,6 +1544,30 @@ object Exec:
     // `'a' == 'a'` true without a second set of comparison arms.
     case (o, Value.VChar(c), b)                     => binOp(m, o, Value.VInt(c.toLong), b)
     case (o, a, Value.VChar(c))                     => binOp(m, o, a, Value.VInt(c.toLong))
+    // MIXED Int/Double arithmetic widens the Int, exactly as the char arms above widen a char, and
+    // for the same reason: every arm below is HOMOGENEOUS, so `1 * 2.0` reached none of them and
+    // fell through to the failure case as `Mul on Int 1 and Double 2` — which reads as "v3 cannot
+    // multiply" rather than "v3 has no widening".
+    //
+    // The direction was measured on the other lanes before it was chosen (2026-08-11), because the
+    // other reading — that v3 is deliberately strict — would have made this a REGRESSION: interp,
+    // native and the v2 bridge all widen, `7 / 2.0` is 3.5 on all three, and `r * 1000000.0` with
+    // an Int `r` is what the shared bench wrapper's last line does on every column. So this deletes
+    // a v3-only refusal instead of inventing a fourth behaviour (invariant I-3).
+    //
+    // FOUR OPERATORS, not five, and the omission is the measurement's: `%` on a Double is refused
+    // by every lane (native `TYPEERR: % requires Int left operand`, interp `No method '%' on
+    // Double`, v3 `Rem on Double`), so widening it would only swap one refusal's message for
+    // another and would claim support that no lane has.
+    //
+    // ARITHMETIC ONLY. On mixed COMPARISON the lanes disagree with each OTHER — interp says
+    // `1 < 2.0` is true, native and v2 refuse it at type-check time with "cannot unify Int vs
+    // Float" — so widening comparisons here would pick a side in a divergence that is not this
+    // entry's to settle, and would do it silently at run time on the one lane that has no checker.
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VInt(x), Value.VFloat(_)) =>
+      binOp(m, op, Value.VFloat(x.toDouble), b)
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VFloat(_), Value.VInt(y)) =>
+      binOp(m, op, a, Value.VFloat(y.toDouble))
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
     case (BinOp.Mul, Value.VInt(x), Value.VInt(y))   => Value.VInt(x * y)
