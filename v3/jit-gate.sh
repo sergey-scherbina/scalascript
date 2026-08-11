@@ -193,7 +193,23 @@ check_specialize() {
     # Captured, then compared. Piping javap-style output into `grep -q` is how this repo has twice
     # inverted a check: `grep` exits on the first match, the writer dies with EPIPE, and pipefail
     # takes the pipeline non-zero exactly when the thing being looked for HAPPENED.
-    got="$(java -cp "$dir:$tc" ssc3.SpecializeMain "$f" 2>&1 | grep -oE '\((bin|un) [a-z]+ [a-z0-9]+' | sed 's/^(//')"
+    # `SSC3_PRELUDE=` — THE FIXTURE IS THE PROGRAM, and nothing ambient may join it.
+    #
+    # These goldens record the kind the specializer gives each arithmetic instruction in ONE named
+    # program. The prelude (2026-08-11) is a module loaded before every program, so its own
+    # arithmetic started arriving in this list: all five fixtures failed with `4a5,24` — twenty
+    # lines APPENDED, the fixture's own four unchanged. The specializer had not moved at all; the
+    # measurement had grown a second subject.
+    #
+    # Pinned rather than regenerated, and the difference matters. Regenerating would make every
+    # `.kinds` golden a function of the prelude's contents, so adding one method to the standard
+    # library would rewrite five expectations that have nothing to do with it — and the diff would
+    # look exactly like a specializer regression.
+    #
+    # WHAT THE FAILURE WAS WORTH SAYING OUT LOUD: those twenty lines were `bin ne dyn` sixteen
+    # times, one `div`, three `eq` — NOT ONE instruction in the prelude specializes. That is a fact
+    # about the standard library's shape, and it belongs in P-5's measurement, not in this gate.
+    got="$(SSC3_PRELUDE= java -cp "$dir:$tc" ssc3.SpecializeMain "$f" 2>&1 | grep -oE '\((bin|un) [a-z]+ [a-z0-9]+' | sed 's/^(//')"
     if [ "$got" = "$(cat "$want")" ]; then
       [ -n "$quiet" ] || echo "  ok   $name — $(printf '%s' "$got" | tr '\n' ' ')"
     else
@@ -235,7 +251,12 @@ check_banks() {
     want="${f%.ssc}.banks"
     [ -f "$want" ] || continue     # a fixture may assert kinds without asserting banks
     ran=$((ran + 1))
-    got="$(java -cp "$dir:$tc" ssc3.SpecializeMain --census "$f" 2>&1 | sed -n 's/^banks:  //p')"
+    # `SSC3_PRELUDE=` for the same reason as the kinds check above, and here the arithmetic says it
+    # plainly: with the prelude loaded these read `long 13 of 541` where the golden says
+    # `long 13 of 24`. The NUMERATOR never moved on any of the five — the analysis was right
+    # throughout — while the denominator grew by the whole standard library. The prose in each
+    # fixture hand-checks its own register count, which is only checkable about one program.
+    got="$(SSC3_PRELUDE= java -cp "$dir:$tc" ssc3.SpecializeMain --census "$f" 2>&1 | sed -n 's/^banks:  //p')"
     if [ "$got" = "$(cat "$want")" ]; then
       [ -n "$quiet" ] || echo "  ok   $name — $got"
     else
