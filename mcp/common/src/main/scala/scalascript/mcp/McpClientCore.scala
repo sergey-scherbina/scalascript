@@ -46,6 +46,47 @@ class McpClientCore(write: String => Unit):
   def setRequestHandler(h: ((String, ujson.Value) => ujson.Value) | Null): Unit =
     requestHandler = h
 
+  // MCP 2026-07-28 — which era this server speaks. Probed once by `connect()`
+  // and cached: the spec says the era is a property of the SERVER, not of a
+  // request, and tells clients to cache it for the lifetime of the process.
+  @volatile private var era: McpProtocol.Era = McpProtocol.Era.Unknown
+
+  /** The era this client settled on, or `Unknown` before `connect()`. */
+  def currentEra: McpProtocol.Era = era
+
+  /** Establish which era the server speaks, and complete the handshake if it
+   *  turns out to be a legacy one.
+   *
+   *  The probe is `server/discover`, which the revision requires every modern
+   *  server to implement — and a legacy server does not, so its refusal is the
+   *  signal. Crucially, a modern server REFUSING the probe (unsupported
+   *  version, missing capability) still identifies itself as modern; that
+   *  reading lives in `McpProtocol.eraFromProbe` and is why this is not simply
+   *  "did it error".
+   *
+   *  Returns the era. Safe to call twice: a settled era is returned as is,
+   *  because re-probing would send a second `initialize` to a legacy server. */
+  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L): McpProtocol.Era =
+    if era != McpProtocol.Era.Unknown then era
+    else
+      val meta  = McpProtocol.clientMeta(clientName, clientVersion)
+      val probe = request(McpProtocol.Method.ServerDiscover,
+                          McpProtocol.withClientMeta(ujson.Obj(), meta), timeoutMs)
+      val decided = McpProtocol.eraFromProbe(probe)
+      if decided == McpProtocol.Era.Legacy then
+        // Only now, and only here: `initialize` does not exist in the modern
+        // revision, so sending it before knowing the era is what breaks a
+        // client against a modern-only server.
+        request(McpProtocol.Method.Initialize, ujson.Obj(
+          "protocolVersion" -> McpProtocol.ProtocolVersion,
+          "capabilities"    -> ujson.Obj(),
+          "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
+          timeoutMs) match
+          case Right(_) => notify(McpProtocol.Method.Initialized, ujson.Obj())
+          case Left(_)  => ()          // the caller sees the era; the error is its to report
+      era = decided
+      decided
+
   /** Send a request and block until the matching response arrives or
    *  the timeout fires.  Returns `Right(result)` on success, `Left(error)`
    *  on protocol error / timeout / handler-side McpError. */

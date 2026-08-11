@@ -1082,3 +1082,110 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       withClue(s"[$junk]: ") { McpProtocol.eraFromHttp(400, junk) shouldBe McpProtocol.Era.Legacy }
     McpProtocol.eraFromHttp(404, modern400) shouldBe McpProtocol.Era.Modern
     McpProtocol.eraFromHttp(405, "") shouldBe McpProtocol.Era.Legacy
+
+  // ── P2d-3: connect() probes once and settles the era ────────────────
+
+  /** A client wired to a peer that answers synchronously on the calling
+   *  thread: `write` computes the reply and feeds it straight back, so the
+   *  response is in the queue before `request` polls. No threads, no sleeps,
+   *  no timing — the two cases that went green by accident yesterday were both
+   *  timing, and this shape cannot have that fault. */
+  private def sentMethods(sent: scala.collection.mutable.ListBuffer[String]) =
+    sent.toList.flatMap(f => JsonRpc.parse(f).toOption).collect {
+      case JsonRpc.Message.Request(m, _, _)      => m
+      case JsonRpc.Message.Notification(m, _)    => m
+    }
+
+  test("connect against a MODERN server settles on Modern and sends no initialize"):
+    val server = twoToolServer()
+    val sent = scala.collection.mutable.ListBuffer.empty[String]
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      sent += frame
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(m, p, id)) =>
+          client.dispatchResponse(McpServerCore.dispatch(server, m, p, id, "srv", "9.9.9"))
+        case _ => ()
+    }
+    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    client.currentEra shouldBe McpProtocol.Era.Modern
+    val methods = sentMethods(sent)
+    methods should contain (McpProtocol.Method.ServerDiscover)
+    // The whole point: `initialize` does not exist in the modern revision.
+    methods should not contain McpProtocol.Method.Initialize
+
+  test("connect against a LEGACY-ONLY server falls back and completes the handshake"):
+    // A real legacy peer: it does not implement server/discover and says so.
+    val sent = scala.collection.mutable.ListBuffer.empty[String]
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      sent += frame
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(m, _, id)) =>
+          if m == McpProtocol.Method.ServerDiscover then
+            client.dispatchResponse(JsonRpc.encodeError(id,
+              JsonRpc.ErrorCode.MethodNotFound, s"method not found: $m"))
+          else
+            client.dispatchResponse(JsonRpc.encodeResult(id,
+              ujson.Obj("protocolVersion" -> McpProtocol.ProtocolVersion)))
+        case _ => ()
+    }
+    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Legacy
+    val methods = sentMethods(sent)
+    methods shouldBe List(McpProtocol.Method.ServerDiscover,
+                          McpProtocol.Method.Initialize,
+                          McpProtocol.Method.Initialized)
+
+  test("a modern server REFUSING the probe is still modern, and gets no initialize"):
+    // The case that separates "refused me" from "does not speak this". A client
+    // that read this as legacy would send `initialize` to a server without one.
+    val sent = scala.collection.mutable.ListBuffer.empty[String]
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      sent += frame
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(_, _, id)) =>
+          client.dispatchResponse(JsonRpc.encodeError(id,
+            McpProtocol.ErrorCode.UnsupportedProtocolVersion, "Unsupported protocol version",
+            Some(McpProtocol.unsupportedVersionData("2026-07-28"))))
+        case _ => ()
+    }
+    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    sentMethods(sent) shouldBe List(McpProtocol.Method.ServerDiscover)
+
+  test("connect is idempotent — a second call does not re-handshake"):
+    // Re-probing a legacy server would send it a SECOND initialize, which the
+    // lifecycle it negotiated does not allow.
+    val sent = scala.collection.mutable.ListBuffer.empty[String]
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      sent += frame
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(m, _, id)) =>
+          if m == McpProtocol.Method.ServerDiscover then
+            client.dispatchResponse(JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, "no"))
+          else client.dispatchResponse(JsonRpc.encodeResult(id, ujson.Obj()))
+        case _ => ()
+    }
+    client.connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    val afterFirst = sent.size
+    client.connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    sent.size shouldBe afterFirst
+
+  test("the probe carries the required client _meta, so a strict server accepts it"):
+    // Checked against our own server's validation rather than by inspection.
+    val server = new McpServerBuilder
+    var seen: ujson.Value = ujson.Null
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(m, p, id)) =>
+          seen = p
+          client.dispatchResponse(McpServerCore.dispatch(server, m, p, id, "srv", "9.9.9"))
+        case _ => ()
+    }
+    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    val ctx = McpProtocol.parseRequestMeta(seen)
+    ctx.isModern shouldBe true
+    ctx.clientCapabilities.isDefined shouldBe true        // required by the spec
+    ctx.clientInfo.isDefined shouldBe true
