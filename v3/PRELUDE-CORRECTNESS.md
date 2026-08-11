@@ -67,7 +67,13 @@ agree. `v3/prelude-gate.sh` fails if they diverge, which makes it survivable, no
 
 ## P-4 — what happens when the user redefines a prelude name is undecided
 
-**Status: open, needs a decision written down before the prelude grows.**
+**Status: FIXED 2026-08-11, and the measurement is why it could not be left to intuition.** `def`
+had it BACKWARDS — the prelude's definition won and the user's own function was silently ignored —
+while `case class` already behaved correctly, so the two kinds of declaration disagreed about the
+same question. A silent override of the user's own code is worse than any collision error.
+
+`Loader.merge` now keeps the LAST declaration of a name, and `units` is ordered with the root last,
+so your file wins over the prelude and over anything it imports. Checked in `prelude-gate.sh`.
 
 If the prelude defines `Dataset` and the user's program does too, nothing today says which wins.
 Every language with a prelude answers this the same way — the user's definition shadows it,
