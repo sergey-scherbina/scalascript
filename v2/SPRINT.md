@@ -63,13 +63,17 @@ worse than the reference on 1 of the 53 files it claims**, down from 3. The rema
 `smoke-test.ssc`, held by the three std/ui gaps in
 `f-std-ui-gaps-behind-the-curried-def-fix` — none of them F's lowering.
 
-**The gate's subject set was hiding four fifths of the problem.** It covers 240 files from
-`examples/` and deliberately excludes `tests/conformance/` for runtime. Swept the excluded 398
-on 2026-08-11: **F is worse than the reference on 5 of them**, against 1 in the covered set —
-and three of the five are silent wrong answers, the class every worthwhile F fix this week came
-from. `tests/BUGS.md` `f-worse-than-the-reference-on-five-conformance-files`.
-The gate is NOT widened yet: 73 of 398 timed out at `-P 4` on a contended host, so folding them
-in would add a load-dependent bucket to frozen thresholds. Answer the timeout question first.
+**The gate's subject set was hiding real divergences — but its ORACLE is wrong, and that matters
+more.** Sweeping the excluded `tests/conformance/` turned up 5 files where F differs from the
+reference. Triaged against the v1 interpreter as an independent third lane: **one** was an F
+defect (the char-escape bug, fixed), **three are REFERENCE-front defects with F in the right**,
+and one is wrong on both fronts and already a known-red. So the gate's headline number, "F WORSE
+than the reference", actually means "F DIFFERS from the reference" — and four of five
+divergences pointed the wrong way. `tests/BUGS.md`
+`the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one`.
+Cheap half of the fix is honest labelling; the expensive half is running the interpreter as a
+tie-breaker on divergent rows only, which is cheap in practice because divergences are the small
+bucket. Not done here: the thresholds are frozen against the current meaning.
 
 **The two Fs AGREE — my earlier claim here was wrong and is retracted.** Fifteen self-contained
 probes covering every construct touched this week: **14 of 15 identical**, and the fifteenth was

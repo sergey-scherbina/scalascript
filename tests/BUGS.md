@@ -1,3 +1,74 @@
+## the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-11
+     confirmed: yes
+     gate: tests/e2e/f-output-agreement-gate.sh -->
+
+**`tests/e2e/f-output-agreement-gate.sh` reports a number called "F WORSE than the reference". It
+measures "F DIFFERS from the reference", and those are not the same claim** — because the reference
+front is not always the correct one.
+
+Measured on the four conformance divergences the sweep turned up, with the **v1 interpreter** as an
+independent third lane:
+
+```
+                              F              reference        interpreter
+set-ops-infix                 Set(1, 3)  ✓   Set(1, 2, 3) ✗   Set(1, 3)  ✓
+tkv2-hstack-wrap              8:2:false  ✓   8:1:false    ✗   8:2:false  ✓
+multiblock-auto-output        2|20|expl  ✓   explicit     ✗   2|20|expl  ✓
+extension-call-in-a-def-body  arity err  ✗   (empty)      ✗   body-a     ✓
+```
+
+**Three of the four are REFERENCE-front defects with F in the right.** The gate counted all four
+against F. `set-ops-infix` even documents its own expected values in a table — `int`/`jvm` give
+`Set(1, 3)` and the reference's answer is named there as the *before* state of a fixed bug.
+
+**What to do about it is a design decision, not an oversight to patch quietly.** A third lane per
+file doubles the gate's runtime, which is already the reason conformance is excluded. The cheap
+half is honest labelling: the number is a DIVERGENCE count, and a divergence needs a third opinion
+before anyone calls it F's fault. The expensive half is running the interpreter as tie-breaker on
+divergent rows only — which is cheap in practice, since divergences are the small bucket.
+
+Filed rather than fixed here because the gate's thresholds are frozen against the current meaning,
+and changing what the number means changes what the freeze is worth.
+
+## reference-front-answers-three-conformance-files-differently-from-both-other-lanes
+
+<!-- status: open
+     lane: v2-jvm
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-11
+     confirmed: yes
+     gate: none -->
+
+Three files where **F and the v1 interpreter agree and the reference front does not**. Found while
+triaging the conformance sweep; none was the F defect it was first recorded as.
+
+```
+tests/conformance/set-ops-infix.ssc        Set(1,2,3) -- Set(2)
+    F / interpreter   Set(1, 3)        reference   Set(1, 2, 3)
+```
+
+The file's own table names `Set(1, 2, 3)` as the *before* state of a fixed bug, and
+`v2/BUGS.md` `v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op` says `--` was
+repaired to raise on a non-Set "matching the interpreter". The reference front still answers the old
+way, so either that fix never reached this lane or it regressed — I did not determine which, and the
+difference matters for whoever picks it up.
+
+```
+tests/conformance/tkv2-hstack-wrap.ssc     F / interpreter  8:2:false    reference  8:1:false
+tests/conformance/multiblock-auto-output.ssc
+    F / interpreter   2 | 20 | explicit          reference   explicit
+```
+
+The last one is the loudest: the reference front emits **no output at all** for two blocks the other
+two lanes evaluate and print.
+
 ## shipped-F-and-F-bootstrapped-from-source-disagree — RETRACTED, it was my stale kernel
 
 <!-- status: wontfix
@@ -101,6 +172,21 @@ whose thresholds are frozen. Widening it needs the timeout question answered fir
 more parallelism, or a curated subset — and that is a separate decision from recording what the
 sweep found.
 
+
+### 2026-08-11 — TRIAGED, and the headline was wrong
+
+Of the five, exactly **one** was an F defect: the char-escape bug, fixed in `7dd1c17a7`.
+**Three are REFERENCE-front defects with F in the right** — checked against the v1 interpreter as an
+independent third lane, which agrees with F on all three:
+`reference-front-answers-three-conformance-files-differently-from-both-other-lanes`.
+The fifth, `extension-call-in-a-def-body`, is wrong on BOTH fronts and already carries a
+`known-red:` marker with ten probes behind it — the interpreter is the only lane that answers.
+
+The count in this entry's title came from a comparison that treats the reference front as the
+oracle. It is not one; see
+`the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one`. The sweep was still
+worth running — it found a real, silent F bug that nothing else had — but four of its five rows
+pointed the wrong way.
 ## a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration
 
 <!-- status: open
