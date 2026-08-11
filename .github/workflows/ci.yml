@@ -482,6 +482,18 @@ jobs:
         if: matrix.shard == 1
         run: sbt -batch backendRust/test
 
+      # The std corpus through build-rust: 131 modules, ~5 minutes, so it belongs here rather than
+      # on the push path. It asserts ONE thing — that no module moves from REFUSED to BADRUST, i.e.
+      # that a lowering never starts emitting Rust rustc rejects where it used to say plainly that
+      # it could not lower. 57% of std is honestly refused and that is a roadmap, not a failure.
+      #
+      # The corpus is the standard library, so this needs no fixtures and cannot go stale against
+      # the language. It came from rozum's survey — the first time anyone had put std through this
+      # lane at all, which is also how five of their six defect reports were found.
+      - name: Run the std/rust survey (BADRUST must not grow)
+        if: matrix.shard == 1
+        run: tests/e2e/rust-std-survey-gate.sh
+
       - name: Run conformance tests (shard ${{ matrix.shard }}/4)
         # Warm JVM lane (specs/conformance-perf.md F3): reuse one Bloop build
         # server across cases instead of a cold scalac start per case. The

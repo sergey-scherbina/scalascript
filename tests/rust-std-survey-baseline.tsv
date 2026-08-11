@@ -1,0 +1,131 @@
+std/actors.ssc	REFUSED	[error] Generic(
+std/agent-mcp.ssc	REFUSED	[error] Unsupported(
+std/agent.ssc	REFUSED	[error] Generic(
+std/auth.ssc	BADRUST	error[E0432]
+std/bench.ssc	COMPILES	
+std/bifunctor.ssc	REFUSED	[error] Generic(
+std/cluster/coord-consul.ssc	COMPILES	
+std/cluster/coord-etcd.ssc	COMPILES	
+std/cluster/index.ssc	BADRUST	error[E0562]
+std/cluster/membership.ssc	BADRUST	error[E0425]
+std/cluster/shard.ssc	COMPILES	
+std/cluster/singleton.ssc	COMPILES	
+std/cluster/types.ssc	REFUSED	[error] Generic(
+std/collection-extras.ssc	BADRUST	error[E0425]
+std/content-bind-core.ssc	COMPILES	
+std/content-core.ssc	REFUSED	[error] Generic(
+std/content.ssc	REFUSED	[error] Generic(
+std/coroutine.ssc	COMPILES	
+std/credential.ssc	COMPILES	
+std/crypto.ssc	COMPILES	
+std/dep-cps-ping.ssc	REFUSED	[error] Generic(
+std/dsl/ast.ssc	COMPILES	
+std/dsl/builders.ssc	REFUSED	[error] Generic(
+std/dsl/passes.ssc	REFUSED	[error] Generic(
+std/dsl/pretty.ssc	BADRUST	
+std/dsl/walker.ssc	REFUSED	[error] Generic(
+std/dstreams.ssc	COMPILES	
+std/either.ssc	BADRUST	error[E0428]
+std/eq.ssc	REFUSED	[error] Generic(
+std/error-handling.ssc	REFUSED	[error] Generic(
+std/foldable-traversable.ssc	REFUSED	[error] Generic(
+std/free.ssc	REFUSED	[error] Generic(
+std/fs.ssc	REFUSED	[error] Generic(
+std/functor-applicative-monad.ssc	REFUSED	[error] Generic(
+std/generators.ssc	COMPILES	
+std/geo.ssc	COMPILES	
+std/graphql.ssc	COMPILES	
+std/hash.ssc	REFUSED	[error] Generic(
+std/http.ssc	REFUSED	[error] Generic(
+std/i18n.ssc	REFUSED	[error] Generic(
+std/index.ssc	BADRUST	error[E0428]
+std/json-core.ssc	REFUSED	[error] Generic(
+std/json.ssc	REFUSED	[error] Generic(
+std/litdoc.ssc	REFUSED	[error] Generic(
+std/mapreduce/cluster.ssc	REFUSED	[error] Generic(
+std/mapreduce/dataset.ssc	COMPILES	
+std/mapreduce/distributed.ssc	REFUSED	[error] Generic(
+std/mapreduce/failure.ssc	REFUSED	[error] Generic(
+std/mapreduce/handlers.ssc	REFUSED	[error] Generic(
+std/mapreduce/index.ssc	REFUSED	[error] Generic(
+std/mapreduce/shuffle.ssc	REFUSED	[error] Generic(
+std/mapreduce/typed.ssc	REFUSED	[error] Generic(
+std/markdown-core.ssc	REFUSED	[error] Generic(
+std/markdown-html.ssc	REFUSED	[error] Generic(
+std/mcp/client.ssc	REFUSED	[error] Unsupported(
+std/mcp/index.ssc	REFUSED	[error] Unsupported(
+std/mcp/server.ssc	COMPILES	
+std/mcp/types.ssc	BADRUST	error[E0428]
+std/middleware.ssc	BADRUST	error[E0666]
+std/mime.ssc	COMPILES	
+std/monad-control.ssc	REFUSED	[error] Generic(
+std/monaderror.ssc	BADRUST	error[E0428]
+std/money.ssc	BADRUST	error[E0425]
+std/nfc.ssc	REFUSED	[error] Unsupported(
+std/nodes.ssc	COMPILES	
+std/openapi.ssc	COMPILES	
+std/order.ssc	REFUSED	[error] Generic(
+std/os.ssc	COMPILES	
+std/parsing/combinators.ssc	REFUSED	[error] Generic(
+std/parsing/core.ssc	REFUSED	[error] Generic(
+std/parsing/helpers.ssc	REFUSED	[error] Generic(
+std/parsing/layout.ssc	REFUSED	[error] Generic(
+std/parsing/recovery.ssc	REFUSED	[error] Generic(
+std/pdf-gen.ssc	COMPILES	
+std/process.ssc	COMPILES	
+std/pwa.ssc	COMPILES	
+std/remote.ssc	REFUSED	[error] Generic(
+std/scljet/address.ssc	REFUSED	[error] Generic(
+std/scljet/btree.ssc	REFUSED	[error] Generic(
+std/scljet/bytes.ssc	REFUSED	[error] Generic(
+std/scljet/freelist.ssc	REFUSED	[error] Generic(
+std/scljet/header.ssc	REFUSED	[error] Generic(
+std/scljet/index.ssc	BADRUST	error[E0277]
+std/scljet/jdbc.ssc	REFUSED	[error] Generic(
+std/scljet/journal.ssc	REFUSED	[error] Generic(
+std/scljet/jvm-vfs.ssc	REFUSED	[error] Generic(
+std/scljet/memory-vfs.ssc	REFUSED	[error] Generic(
+std/scljet/mutate.ssc	REFUSED	[error] Generic(
+std/scljet/page.ssc	REFUSED	[error] Generic(
+std/scljet/pager.ssc	REFUSED	[error] Generic(
+std/scljet/readonly.ssc	REFUSED	[error] Generic(
+std/scljet/record.ssc	REFUSED	[error] Generic(
+std/scljet/schema.ssc	REFUSED	[error] Generic(
+std/scljet/sql.ssc	REFUSED	[error] Generic(
+std/scljet/text.ssc	BADRUST	error[E0277]
+std/scljet/typedsql.ssc	REFUSED	[error] Generic(
+std/scljet/values.ssc	BADRUST	error[E0277]
+std/scljet/vfs.ssc	COMPILES	
+std/scljet/wal.ssc	REFUSED	[error] Generic(
+std/scljet/write.ssc	REFUSED	[error] Generic(
+std/selective.ssc	REFUSED	[error] Generic(
+std/semigroup-monoid.ssc	REFUSED	[error] Generic(
+std/show.ssc	REFUSED	[error] Generic(
+std/smtp.ssc	COMPILES	
+std/streams-bridge.ssc	COMPILES	
+std/streams.ssc	REFUSED	[error] Generic(
+std/tcp.ssc	COMPILES	
+std/ui/component.ssc	BADRUST	error[E0382]
+std/ui/containers.ssc	BADRUST	error[E0562]
+std/ui/content.ssc	REFUSED	[error] Generic(
+std/ui/data.ssc	REFUSED	[error] Generic(
+std/ui/display.ssc	BADRUST	error[E0562]
+std/ui/fetch-json.ssc	REFUSED	[error] Generic(
+std/ui/form.ssc	BADRUST	error[E0562]
+std/ui/i18n.ssc	REFUSED	[error] Generic(
+std/ui/input.ssc	BADRUST	error[E0562]
+std/ui/layout.ssc	BADRUST	error[E0562]
+std/ui/lower.ssc	REFUSED	[error] Generic(
+std/ui/nodes.ssc	BADRUST	error[E0562]
+std/ui/offline.ssc	COMPILES	
+std/ui/patterns.ssc	REFUSED	[error] Generic(
+std/ui/primitives.ssc	COMPILES	
+std/ui/reactive.ssc	REFUSED	[error] Generic(
+std/ui/routing.ssc	REFUSED	[error] Generic(
+std/ui/state.ssc	BADRUST	error[E0562]
+std/ui/theme.ssc	BADRUST	
+std/ui/typography.ssc	BADRUST	error[E0562]
+std/ui/webauthn.ssc	COMPILES	
+std/uuid.ssc	BADRUST	error[E0425]
+std/yaml-core.ssc	REFUSED	[error] Generic(
+std/yaml.ssc	COMPILES	
