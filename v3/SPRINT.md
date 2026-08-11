@@ -2805,17 +2805,39 @@ repository has paid for that confusion more than once.
         undefined JS function, so switching the wrapper to v3's spelling breaks the js column.
         ⚠ BLOCKED while `Lower.scala` is held by claim `v3-prelude-and-dataset` — one line, but in
         someone else's file. Do not edit it under a different claim.
+        **And do not release that claim as stale on the strength of its `heartbeat`.** Checked
+        2026-08-11: the field read 5h19m old, which the protocol calls abandoned, while the claim's
+        worktree went from CLEAN to two modified files within the same hour — the agent is working,
+        the field is lying. The liveness evidence that counts is the worktree and the branch (it
+        also holds a commit that is not on main), not the timestamp the holder last remembered to
+        write. This is now the second time that field has been wrong in both directions in one day.
       - **B1b — the wrapper's fallback sink must stop using `null`.** `var _ssc_sink: Any = null`
         in `generateWrapper` (`v1/tools/cli/.../cli/Main.scala:7912`) is the branch for workloads
         returning anything other than Int/Long/Double/Boolean. v3 has no `null` and should not get
         one — a null-free language is a feature — so this is the WRAPPER's fix: `= 0` serves every
-        lane. Needs a tools rebuild.
+        lane. Needs a tools rebuild. **DONE 2026-08-11.** `= 0` measured on native, interp, v2 and
+        v3 (all print `List(1, 2)` then `x` for an `Any` var reassigned to each) and on js the two
+        spellings are indistinguishable; `bench --machine` then runs the Any-sink path end to end
+        on ssc, v2 and js. The initial value is never read — the first warmup call overwrites it.
       - **B1c — one generator, two runners.** The generator lives inside the tools binary and the
         text is never written out (`os.temp`, deleted after use), so v3 cannot be handed the same
         bytes today. Add `--emit-wrapper` to the tools `bench` command (print and exit 0), then
         `runV3Bench` asks tools for the wrapper and runs it with `ssc3 run`. Do NOT reimplement
         `generateWrapper` inside v3: that is a second decision site for the measurement apparatus,
         and the first divergence between the two copies would be invisible in every number.
+        **HALF DONE 2026-08-11: the flag is in, the switch is NOT, and that is deliberate.**
+        `--emit-wrapper` prints the wrapper and runs nothing, and what it prints is proven shared:
+        for `arith-loop` the emission is BYTE-IDENTICAL across `ssc`, `v2` and `js`. Two columns
+        legitimately differ and neither weakens the claim — `jvm` gets the documented AtomicLong
+        anti-fold, and `rust` is not in `validBackends` at all (it has its own `runRustBench`, as
+        v3 does today). Run through `ssc-tools run --v1` the emitted text yields `BENCH_MS:` and
+        `BENCH_SINK:`, so it is a runnable program and not just plausible text.
+        *The remaining change is ONE line in `runV3Bench`, and it must wait for B1a.* Landing it
+        now would BLANK the whole v3 column rather than improve it: the emitted wrapper on v3 dies
+        with `unknown name 'System'` at 47:17 — measured on the real emitted bytes, not on a
+        hand-built copy. A blank column is worse than a column with a disclosed asymmetry, and a
+        fallback that quietly reverts to `ssc3 bench` would make each cell's measurement method
+        unknowable, which is the same disease in a new place.
       *Gate:* the emitted text must be byte-identical for v3 and for the lane it is compared
       against — otherwise the columns are again measuring two different programs.
       *Expect the v3 column to get SLOWER when this lands, and say so when publishing:* today v3

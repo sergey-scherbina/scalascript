@@ -7636,6 +7636,13 @@ final class BenchCmd extends CliCommand:
     // Default: 2 s time-based warmup. --warmup N clears this (count-based).
     var warmupTimeMs: Option[Long] = Some(2000L)
     var fileArg: Option[String] = None
+    // `--emit-wrapper` prints the generated wrapper and runs nothing. It exists so that a lane
+    // this CLI cannot drive — v3 is a separate product with its own driver, not a `--backend` of
+    // this one — is measured by the SAME text as every column here, rather than by a second copy
+    // of `generateWrapper` living in v3. A second copy would be a second decision site for the
+    // measurement apparatus, and the first divergence between the two would be invisible in every
+    // number either of them produced.
+    var emitWrapper = false
 
     def parseTarget(raw: String): Long = raw.toLongOption.getOrElse {
       System.err.println(s"bench: invalid --target-ms value: $raw")
@@ -7658,6 +7665,7 @@ final class BenchCmd extends CliCommand:
         case "--baseline"       => writeBase = true; i += 1
         case "--require-target" => requireTarget = true; i += 1
         case "--machine"        => machine = true; i += 1
+        case "--emit-wrapper"   => emitWrapper = true; i += 1
         case "--warmup" if i+1 < arr.length => warmup = arr(i+1).toIntOption.getOrElse(5); warmupExplicit = true; warmupTimeMs = None; i += 2
         case "--warmup-time" if i+1 < arr.length =>
           warmupTimeMs = arr(i+1).toLongOption.filter(_ > 0).orElse {
@@ -7918,7 +7926,14 @@ final class BenchCmd extends CliCommand:
             // float workloads. The wrapper must not use anything a measured lane cannot parse.
             case "Double"  => (seedDecl + "var _ssc_sink: Double = 0.0", upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
             case "Boolean" => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + (if $wc then 1L else 0L)"), "_ssc_sink")
-            case _         => (seedDecl + "var _ssc_sink: Any = null",  upd(s"_ssc_sink = $wc"),                     "_ssc_sink")
+            // `= 0`, never `= null`, for the same reason the Double arm says `0.0` and not `0d`:
+            // the wrapper must not use anything a measured lane cannot parse. v3 has no `null` at
+            // all and should not get one — a null-free language is a feature, not a gap — and `0`
+            // is accepted by every lane (measured 2026-08-11 on native, interp, v2 and v3: all
+            // print `List(1, 2)` then `x` for a `var s: Any = 0` reassigned to each; on js the two
+            // spellings are indistinguishable). The initial value is never read: the sink is
+            // overwritten by the first workload call, warmup included.
+            case _         => (seedDecl + "var _ssc_sink: Any = 0",     upd(s"_ssc_sink = $wc"),                     "_ssc_sink")
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns       = ms * 1000000L
@@ -8014,6 +8029,14 @@ final class BenchCmd extends CliCommand:
       case "v2-jvm" | "v2-rust" => "v2"
       case other    => other
     val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, wrapperTargetBackend)
+
+    // Printed BEFORE anything is compiled or timed, and nothing else may reach stdout on this
+    // path: the caller writes what it receives straight to a file and runs it, so a stray line
+    // here becomes a syntax error in the measured program rather than a message anyone reads.
+    if emitWrapper then
+      print(wrapper)
+      System.out.flush()
+      return
 
     // Native ssc1 front for the v2 bench lanes (the retired FrontendBridge tier's
     // replacement): write the wrapper to a temp .ssc beside the source so its
