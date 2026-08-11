@@ -96,7 +96,76 @@ be measured before the push, not beside it.
 
 ## P-5 — the prelude is parsed and lowered on EVERY invocation
 
-**Status: open, unmeasured with a real library.**
+**Status: MEASURED 2026-08-11. It costs 22–26% of an invocation, and 93% of 398 corpus cases pay it
+for a library they never mention. The fix is not a cache. What to do instead is a decision for the
+owner and is stated at the bottom.**
+
+**The apparatus first, because this host cannot be trusted with a single A/B.** Load averaged 7.4
+with three other agents' JVMs resident, and identical code has been measured 2.5× apart here at load
+5.5. So every run carries a FLOOR arm: the same configuration against itself, interleaved with the
+others. Whatever spread the floor shows is what this host cannot resolve.
+
+```text
+  prelude OFF (arm A)   n=12  min=295  median=322  max=465
+  prelude OFF (arm B)   n=12  min=298  median=328  max=506
+  prelude ON            n=12  min=365  median=438  max=591
+
+  FLOOR   |medianA - medianB| =   6 ms      the same configuration against itself
+  SIGNAL   medianON - medianOFF = 113 ms    18.8x the floor
+```
+
+**Then the cost was split against a ONE-LINE prelude, which pays the whole mechanism — resolve,
+read, parse, merge, and every downstream pass seeing one extra declaration — and none of the
+library's size:**
+
+```text
+  OFF    median=288      TINY  median=294   mechanism = +6 ms   <- at the floor. Free.
+                         REAL  median=369   contents  = +75 ms  <- 93% of the cost
+```
+
+**So the mechanism is free and the LIBRARY is the cost.** 109 lines, ~25 methods, 75–113 ms
+depending on load — and the prelude adds 517 registers to a 24-register program, which is the size
+of what is parsed and lowered every time.
+
+**WHO PAYS, and this is the number that decides everything:** of 398 conformance cases, **28 mention
+a name the prelude declares** (`Dataset`, `DsAbsent`, `RuntimeException`) and **370 mention none**.
+Ninety-three percent of invocations parse and lower a standard library they cannot reach.
+
+**WHAT WAS NOT RESOLVED, said plainly rather than reported as a number.** I tried to split the cost
+into parse and lower by comparing `ssc3 ast` (parses, does not lower) against `ssc3 build` (parses
+and lowers). Both use `Front.default`, so the front is not the confound — but `ast` also RENDERS the
+tree to canonical text, and with the prelude imported it renders the prelude's tree too. That
+rendering lands on the "parse" side of the subtraction and inflates it. All the run supports is a
+BOUND: lowering is at least 27% of the prelude's cost, parse-plus-render is the rest. Splitting it
+properly needs an in-JVM harness, and it is **not decision-relevant** — see below — so it was not
+built.
+
+### What to do — the options, and why the obvious one is wrong
+
+**A cache is the wrong instinct and the measurement says so.** Every invocation is a fresh JVM, so a
+cache would have to be on disk; and this repository has been burned twice by digest-keyed caches
+serving the wrong state. It would also be keyed on the prelude's CONTENT, never its path, or editing
+the prelude serves a stale lowering. Most of all it would optimise work that 93% of programs should
+not be doing at all.
+
+**LAZY, NOT CACHED — lower the user's program first, and load the prelude only if it needs one.** For
+370 of 398 cases the cost goes to zero with no cache, no key and nothing to invalidate. The natural
+trigger is the refusal itself: if the program lowers, it never needed the prelude; if it fails on an
+unknown name, retry with the prelude in scope. Note this does NOT require knowing the prelude's
+names in advance, which is what makes it cheap — asking "does this program mention `Dataset`" would
+mean parsing the prelude to find out, which is the cost being avoided.
+
+**Two things it would change, and neither should be decided quietly:**
+
+1. **A module that declares a name the prelude also declares.** Today the prelude is loaded first and
+   therefore OWNS the name (P-6's rule), so the module's copy is renamed. Loading lazily, a program
+   that lowers cleanly without the prelude would use the MODULE's. That is arguably the better
+   answer — a module you imported is nearer than an ambient library — but it is a semantic change
+   and it belongs to whoever owns the language, not to a performance fix.
+2. **Which diagnostic a broken program reports.** A failure unrelated to the prelude would be lowered
+   twice and the second message is the one the user sees. Fixable — keep the first refusal and
+   report it if the retry also fails — but it has to be built deliberately, and `prelude-gate.sh`
+   check 8 (an error in the prelude names the prelude) is what would catch getting it wrong.
 
 On an empty prelude the difference was below this host's resolution. With a library it is 736 parses
 in one corpus sweep. Measure before optimising, and if it costs, cache the LOWERED form rather than
