@@ -25,11 +25,12 @@ Newest first.
 
 ## an-objects-defaults-are-taken-from-another-objects-member-of-the-same-name — `B.of(5)` is filled from `A.of`
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
      kind: bug
-     gate: none -->
+     gate: v3/tests/front/object-defaults-by-receiver.ssc
+     fixed-in: e51b86956 -->
 
 **Reproduced 2026-08-11, and declaration ORDER decides the answer**, which is what makes it
 certain rather than suspected:
@@ -65,8 +66,7 @@ objects.
 P-6 are all one name resolved without regard to WHOSE it is. Here the owner is written right there
 in the receiver and is discarded.
 
-**Fix landing in the same push; the status flips in a follow-up commit that can name its sha.** The
-receiver is consulted first when it is a NAME: `obj + "." + nm` is then an exact
+**FIXED in e51b86956: the receiver is consulted first when it is a NAME.** `obj + "." + nm` is then an exact
 lookup — the one `checkArity` already did — and the suffix search is the fallback. Both orders now
 answer 50, and the fixture `v3/tests/front/object-defaults-by-receiver.ssc` carries a CONTROL as
 well as the regression: `A.of(1)` must still fill to `A.of(1, 2, 3)` and print 6, because a "fix"
