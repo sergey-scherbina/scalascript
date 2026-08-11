@@ -127,6 +127,72 @@ in that file next has the line number and the shape.
 Filed separately from the report it came in with because one half is fixed (`f8e7f6ba8`) and one is
 not, and a single entry cannot carry both statuses honestly.
 
+## rust-std-corpus-badrust-column — 25 of 131 std modules emit Rust that rustc rejects; two shapes account for most of it
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: feature
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-11
+     ssc-version: 1334bea8f
+     repro: repro/std-rust-survey.tsv
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**A measurement nobody here had taken, and it reproduces.** rozum put all 131 `std/**/*.ssc` through
+`build-rust`. Re-run independently with this gate's own classifier, the totals match their prose
+exactly:
+
+| | | |
+|---|---|---|
+| REFUSED | 75 (57%) | the backend says it cannot lower this — CORRECT, a coverage gap |
+| COMPILES | 31 (24%) | lowers and rustc accepts it |
+| BADRUST | 25 (19%) | emits Rust rustc REJECTS — the only column that is a defect by itself |
+
+**Read the first two before the third.** 57% refused is the lane telling the truth about what it has
+not implemented: `extracts X with 1 args` (11), `unsupported infix operator` (9), `Array[Byte]` (3),
+`Parser[T]` (3). That is a roadmap.
+
+**ONE CORRECTION TO THE REPORT, measured rather than argued.** It says the nine `E0562` modules are
+"one fix, eight modules". The fix removes one SHAPE from eight modules; it unlocks **one**. Built
+each of the nine and read the error classes:
+
+| module | error classes |
+|---|---|
+| `std/cluster/index.ssc` | `E0562` only ← the one a fix unlocks |
+| `std/ui/containers, display, input, layout, nodes` | `E0562` + `E0277` |
+| `std/ui/state` | `E0562` + `E0277` + `E0618` |
+| `std/ui/typography` | `E0562` + `E0277` |
+| `std/ui/form` | `E0562` + `E0277` + `E0308` + `E0599` + `E0600` + `E0609` + `E0618` |
+
+So there are **two** concentrated shapes, not one, and the second is the wider:
+
+* **`E0562` — `impl Trait` in a field type.** `case KeyedForNode(key: Int => String, …)` emits
+  `key: impl Fn(i64) -> String` in an enum variant, which Rust allows only in argument and return
+  position. `mapType` says so itself: *"R.2.4 only renders function types at parameter positions;
+  stored closure values (`Box<dyn Fn>` boxing) land in a later slice."* The later slice is this.
+  Not a one-line swap: `#[derive(Debug, Clone)]` on the enum rejects both `Box<dyn Fn>` (neither)
+  and `Rc<dyn Fn>` (no `Debug`), and the construction and call sites need the boxing too.
+* **`E0277` — `Value: From<UserType>` is not satisfied.** `Value::from(x.body)` where `body` is a
+  user enum. Present in all eight `std/ui` modules and absent from `std/cluster/index.ssc`, which is
+  exactly why fixing `E0562` alone unlocks one module.
+
+**The pattern the reporter drew is the most useful thing here.** Inside `std/ui`, three modules
+compile — `primitives`, `offline`, `webauthn` — and nine do not. `primitives` is the one their real
+program imports, and it builds a 1.7 MB binary that serves. **Coverage has been following use, one
+program at a time**, which is why an outsider with one real program found five defects in two days.
+
+**Gated as they suggested**, and the assertion is theirs: not "everything compiles" but "the BADRUST
+column does not grow". A module moving REFUSED → BADRUST is a regression — a clear message replaced
+by a rustc error in code the user did not write; BADRUST → REFUSED is progress and the gate asks you
+to record it. Runs on the four-hourly job, not the push path: 131 modules is ~5 minutes against a
+943 s whole-suite budget.
+
+**The reporter's own correction is worth keeping**, because it is the shape of half the false
+verdicts in this repo: their first pass reported 131/131 failing, an artefact of counting the EXIT
+CODE — a library module has no `main`, so `build-rust` exits non-zero with "expected binary not
+found" AFTER compiling it cleanly. They caught it themselves on the grounds that a 100% result is
+likelier to mean a broken measurement than a broken world.
+
 ## no-paren-list-method-becomes-a-field — headOption on a list is emitted as a Rust field access, so it lands as 'no field headOption on Vec'
 <!-- status: fixed
      lane: v2-rust
