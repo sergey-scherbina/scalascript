@@ -117,7 +117,29 @@ caller's own module. That is the fourth place the same missing thing shows up:
 - P-4 the merge forgot which unit a declaration came from
 - P-6 a call forgets which module it was written in
 
+**Reproduced and measured 2026-08-11**, so the next person starts from a fact rather than a report:
+
+```text
+std/scljet/mutate.ssc   def filterRows(rows, drop)                 2 parameters
+std/scljet/sql.ssc      def filterRows(rows, where, colNames)      3 parameters
+sql.ssc IMPORTS mutate.ssc;  mutate.ssc does not know sql.ssc exists
+```
+
+Loading `sql.ssc` pulls `mutate.ssc` in, both `filterRows` land in one flat table, and a call
+written inside `mutate.ssc` can bind to the three-parameter one it has never heard of.
+
+**That gives the rule exactly, and it is narrower than "prefer your own module":** a module sees its
+OWN declarations and those of what it IMPORTS — never those of a module that imports IT. `mutate.ssc`
+must not see `sql.ssc`'s `filterRows` under any circumstances, because the dependency runs the other
+way. Direction is what makes this decidable without heuristics.
+
 **The shape of the fix follows the other three: provenance.** Resolution inside unit U must prefer
 U's own declarations, then what U imported, and only then the rest. That is more than a filter in
 `merge` — it needs the call site to know its unit, which is the piece none of the earlier fixes
 needed. Measure the corpus BEFORE landing anything here (P-4's first attempt cost 72 cases).
+
+**A NOTE ON THE TREE, found while reproducing this:** `scljet/` is back under `std/` — it was at the
+repo root this morning, which is what the loader's stripped-prefix candidate was added for. That
+candidate is tried LAST and costs nothing while the directory sits under `std/`, so it is harmless
+either way, but the layout has now moved twice in a day and anything keyed on it should be read
+rather than remembered.
