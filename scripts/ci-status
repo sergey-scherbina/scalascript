@@ -28,6 +28,8 @@ LATEST=0
 ALL_WORKFLOWS=0
 EXACT_ONLY=0
 COVERED_BY=""
+RED_NOTE=""
+RED_SEEN=""
 
 usage() {
   cat <<'EOF'
@@ -226,7 +228,7 @@ fi
 # part of a later tip" is genuinely weaker than "tested alone" and must never read as the latter.
 # `--exact-only` restores the strict answer.
 find_covering_descendant() { # -> sets run_payload/COVERED_BY, or returns 1
-  local candidates head
+  local candidates head red_line=""
   set +e
   candidates="$(cd "$ROOT" && "$GH_BIN" "${list_args_nocommit[@]}" --limit 40 \
     --json databaseId,headSha,status,conclusion,url,event \
@@ -242,9 +244,33 @@ find_covering_descendant() { # -> sets run_payload/COVERED_BY, or returns 1
     git -C "$ROOT" cat-file -e "${head}^{commit}" 2>/dev/null || continue
     git -C "$ROOT" merge-base --is-ancestor "$SHA" "$head" 2>/dev/null || continue
     [[ "$head" == "$SHA" ]] && continue
-    best_line="$line"
+    # A descendant is evidence if it reached a VERDICT — success or failure, both informative, and
+    # a failed descendant must keep answering RED because that is the conservative direction.
+    # Skipped: cancelled, timed_out, startup_failure and anything still running, which say only that
+    # nobody judged it. My first version filtered on `success` alone and turned a red descendant into
+    # UNKNOWN; `tests/e2e/ci-status-guard.sh[desc-red]` failed on exactly that, which is what a gate
+    # observed failing is worth.
+    case "$line" in
+      *"|success|"*) best_line="$line" ;;
+      *"|failure|"*) [[ -n "$best_line" ]] || red_line="$line"; RED_SEEN="$line" ;;
+      *) continue ;;
+    esac
   done <<<"$candidates"
-  [[ -n "$best_line" ]] || return 1
+  # The window is the last 40 runs, which the guard's fake `gh` also encodes — raising it to 120 made
+  # `ci-status-guard` fail, so the NOTE below is best-effort: a failing descendant older than 40 runs
+  # is not seen. The VERDICT is unaffected, since a green descendant inside the window is what
+  # decides it.
+  #
+  # NEAREST vs LATEST disagree in practice and picking one silently lies in one direction. Observed
+  # 2026-08-11: a run containing 8c39d9df1 FAILED at 08:48 while four later runs containing the same
+  # commit were green. The green ones answer the question a release asks — "does main work with my
+  # change in it" — so they decide the verdict, and any failing descendant is NAMED rather than
+  # dropped, because "there was a red run containing your commit" is something the reader must see.
+  if [[ -z "$best_line" ]]; then
+    [[ -n "$red_line" ]] && best_line="$red_line" || return 1
+  elif [[ -n "$RED_SEEN" ]]; then
+    RED_NOTE="${RED_SEEN%%|*}"
+  fi
   IFS='|' read -r d_sha d_id d_status d_concl d_url d_event <<<"$best_line"
   COVERED_BY="$d_sha"
   run_payload="RUN_ID=$d_id
@@ -256,8 +282,26 @@ RUN_EVENT=$d_event"
   return 0
 }
 
-if [[ -z "$run_payload" && "$EXACT_ONLY" -eq 0 && "$LATEST" -eq 0 ]]; then
+# A CANCELLED RUN FOR THE EXACT SHA USED TO PREEMPT THIS, and that is precisely the case the
+# fallback exists for. Measured 2026-08-11 over the last 60 smoke runs: 44 cancelled, 9 success, 7
+# failure — 73 % of pushes get NO VERDICT, because a newer push supersedes the run. The fallback was
+# gated on "no run at all for this SHA", so in that 73 % it never ran and the answer was RED, even
+# for five commits that four separate green runs demonstrably contained.
+#
+# `failure` is NOT included: that is a real verdict about this commit, and a later green must not be
+# allowed to paper over it. Only the outcomes that mean "nobody judged this" fall through —
+# cancelled, timed_out, startup_failure, and an empty conclusion on a completed run.
+_needs_fallback=0
+[[ -z "$run_payload" ]] && _needs_fallback=1
+case "$run_payload" in
+  *"RUN_CONCLUSION=cancelled"*|*"RUN_CONCLUSION=timed_out"*|*"RUN_CONCLUSION=startup_failure"*) _needs_fallback=1 ;;
+esac
+if [[ "$_needs_fallback" -eq 1 && "$EXACT_ONLY" -eq 0 && "$LATEST" -eq 0 ]]; then
+  _saved_payload="$run_payload"
+  run_payload=""
   find_covering_descendant || true
+  # No covering green? Keep the original no-verdict answer rather than inventing silence.
+  [[ -z "$run_payload" ]] && { run_payload="$_saved_payload"; COVERED_BY=""; }
 fi
 
 if [[ -z "$run_payload" ]]; then
@@ -325,11 +369,13 @@ if [[ -z "${jobs_payload//[[:space:]]/}" ]]; then
   if [[ "$run_status" != "completed" ]]; then
     printf 'CI PENDING%s %s %s\n' "$headline_suffix" "$SHA" "$run_url"
     [[ -n "$COVERED_BY" ]] && printf '  covered by: %s\n' "$COVERED_BY"
+  [[ -n "$RED_NOTE" ]] && printf '  NOTE: a nearer run containing this commit FAILED: %s — this verdict comes from a later green one\n' "$RED_NOTE"
     printf '  run has not started any job yet (%s)\n' "$detail"
     exit 2
   fi
   printf 'CI RED%s %s %s\n' "$headline_suffix" "$SHA" "$run_url"
   [[ -n "$COVERED_BY" ]] && printf '  covered by: %s\n' "$COVERED_BY"
+  [[ -n "$RED_NOTE" ]] && printf '  NOTE: a nearer run containing this commit FAILED: %s — this verdict comes from a later green one\n' "$RED_NOTE"
   printf '  run completed/%s with ZERO jobs — it never started one, so it is evidence of nothing.\n' "$detail"
   printf '  A cancelled run is RED, not neutral (MILESTONES.md). See BUGS ci-runs-cancelled-under-churn.\n'
   exit 1
