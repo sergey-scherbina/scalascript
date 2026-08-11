@@ -1,7 +1,7 @@
 std/actors.ssc	REFUSED	[error] Generic(
 std/agent-mcp.ssc	REFUSED	[error] Unsupported(
 std/agent.ssc	REFUSED	[error] Generic(
-std/auth.ssc	BADRUST	error[E0432]
+std/auth.ssc	COMPILES	
 std/bench.ssc	COMPILES	
 std/bifunctor.ssc	REFUSED	[error] Generic(
 std/cluster/coord-consul.ssc	COMPILES	
@@ -71,6 +71,7 @@ std/parsing/core.ssc	REFUSED	[error] Generic(
 std/parsing/helpers.ssc	REFUSED	[error] Generic(
 std/parsing/layout.ssc	REFUSED	[error] Generic(
 std/parsing/recovery.ssc	REFUSED	[error] Generic(
+std/parsing/regex.ssc	REFUSED	[error] Generic(
 std/pdf-gen.ssc	COMPILES	
 std/process.ssc	COMPILES	
 std/pwa.ssc	COMPILES	
@@ -80,8 +81,8 @@ std/scljet/btree.ssc	REFUSED	[error] Generic(
 std/scljet/bytes.ssc	REFUSED	[error] Generic(
 std/scljet/freelist.ssc	REFUSED	[error] Generic(
 std/scljet/header.ssc	REFUSED	[error] Generic(
-std/scljet/index.ssc	BADRUST	error[E0277]
-std/scljet/jdbc.ssc	REFUSED	[error] Generic(
+std/scljet/index.ssc	COMPILES	
+std/scljet/jdbc.ssc	OTHER	[error] Generic(def `close` emits 2 time
 std/scljet/journal.ssc	REFUSED	[error] Generic(
 std/scljet/jvm-vfs.ssc	REFUSED	[error] Generic(
 std/scljet/memory-vfs.ssc	REFUSED	[error] Generic(
@@ -91,9 +92,9 @@ std/scljet/pager.ssc	REFUSED	[error] Generic(
 std/scljet/readonly.ssc	REFUSED	[error] Generic(
 std/scljet/record.ssc	REFUSED	[error] Generic(
 std/scljet/schema.ssc	REFUSED	[error] Generic(
-std/scljet/sql.ssc	REFUSED	[error] Generic(
-std/scljet/text.ssc	BADRUST	error[E0609]
-std/scljet/typedsql.ssc	REFUSED	[error] Generic(
+std/scljet/sql.ssc	OTHER	[error] Generic(def `close` emits 2 time
+std/scljet/text.ssc	BADRUST	error[E0308]
+std/scljet/typedsql.ssc	OTHER	[error] Generic(def `close` emits 2 time
 std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
 std/scljet/wal.ssc	REFUSED	[error] Generic(
@@ -123,7 +124,7 @@ std/ui/primitives.ssc	COMPILES
 std/ui/reactive.ssc	REFUSED	[error] Generic(
 std/ui/routing.ssc	REFUSED	[error] Generic(
 std/ui/state.ssc	BADRUST	error[E0618]
-std/ui/theme.ssc	BADRUST	
+std/ui/theme.ssc	COMPILES	
 std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	
 std/uuid.ssc	REFUSED	[error] Generic(

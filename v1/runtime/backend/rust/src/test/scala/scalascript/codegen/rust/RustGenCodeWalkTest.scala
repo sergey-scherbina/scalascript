@@ -191,7 +191,13 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       |```
       |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("""format!("{}{}","""), s"getOrElse operand left the concat path in:\n$g")
+    // Asserts the concat PATH, not the placeholder count: since 2026-08-11 a chain of `+` flattens
+    // into ONE `format!` with N placeholders instead of nesting one per operand (std/ui/theme.ssc
+    // builds ~50 and rustc answered "recursion limit reached while expanding format!"). A
+    // three-operand concat is `format!("{}{}{}", …)` now, and pinning `{}{}` here would be pinning
+    // the nesting the flattening removed.
+    assert(g.contains("""format!("""") && g.contains("stamp"),
+      s"getOrElse operand left the concat path in:\n$g")
     assert(!g.contains(") + stamp"), s"emitted a raw Rust `+` on two Strings in:\n$g")
 
   // The same fact from the other direction: the return type is DECLARED, so reading it is not a
@@ -206,4 +212,5 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       |```
       |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
-    assert(g.contains("""format!("{}{}","""), s"declared-String return left the concat path in:\n$g")
+    assert(g.contains("""format!("""") && !g.contains(" + "),
+      s"declared-String return left the concat path in:\n$g")

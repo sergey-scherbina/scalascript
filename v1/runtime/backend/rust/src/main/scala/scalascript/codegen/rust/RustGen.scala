@@ -416,7 +416,12 @@ object RustGen:
       depLines += "bytes = \"1\""
     // R.6 — auth deps, only when at least one auth intrinsic is reached.
     if authUsage.nonEmpty then
-      depLines += "argon2 = \"0.5\""
+      // `password_hash::rand_core::OsRng` — which AuthRs imports to generate a salt — is re-exported
+      // only with the `rand` feature. Without it the emitted crate does not build at all:
+      // `error[E0432]: unresolved import argon2::password_hash::rand_core::OsRng, no OsRng in the
+      // root`, in std/auth.ssc. `std` comes with it in argon2 0.5 but is named for the same reason
+      // the others are: a default that changes is a build that breaks with no local cause.
+      depLines += "argon2 = { version = \"0.5\", features = [\"std\", \"password-hash\", \"rand\"] }"
       depLines += "jsonwebtoken = \"9\""
       depLines += "serde = { version = \"1\", features = [\"derive\"] }"
     // R.6 — WebSocket deps (tokio-tungstenite + futures-util). Also added for

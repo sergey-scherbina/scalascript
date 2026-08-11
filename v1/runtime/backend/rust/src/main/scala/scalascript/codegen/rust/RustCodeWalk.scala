@@ -1023,6 +1023,18 @@ object RustCodeWalk:
           |    Left(L),
           |    Right(R),
           |}
+          |// The same lift every user enum gets (`enumLift`), which this one was missing: a struct
+          |// field holding an Either emitted `Value::from(x.result)` and rustc answered
+          |// `Value: From<Either<VfsError, i64>> is not satisfied` (std/scljet/index.ssc). Generic
+          |// because this enum is, and positional-with-ctor-name like every other Obj.
+          |impl<L: Into<crate::value::Value>, R: Into<crate::value::Value>> From<Either<L, R>> for crate::value::Value {
+          |    fn from(x: Either<L, R>) -> crate::value::Value {
+          |        match x {
+          |            Either::Left(v)  => crate::value::Value::Obj("Left",  vec![v.into()]),
+          |            Either::Right(v) => crate::value::Value::Obj("Right", vec![v.into()]),
+          |        }
+          |    }
+          |}
           |""".stripMargin,
       ctors = List(
         ("Left", EnumCtor("Either", Nil)),
@@ -1240,8 +1252,8 @@ object RustCodeWalk:
         case None =>
           Right(GeneratedDef(name = name, render = "", isMain = false))
     else
-      val (lseqs, larrays) = collectLocalSeqs(d.body)
       val paramSeqs = collectSeqParams(d)
+      val (lseqs, larrays) = collectLocalSeqs(d.body, paramSeqs)
       // Params DECLARED `String` are strings too — the declaration says so. Without this a
       // `def path(seg: String)` fell out of the concat path at `… + seg` even though its own
       // signature named the type (found by the test below, not by reading).
@@ -1313,7 +1325,13 @@ object RustCodeWalk:
   /** collection-rust-array: scan a def body for local `val/var x = Array(...)/Vector(...)/List(...)`
    *  bindings. Returns (allIndexableSeqLocals, mutableArrayLocals). A local seq lowers `x(i)` to
    *  `x[(i) as usize]`; a mutable array additionally needs a `let mut` binding so `x(i)=v` stores. */
-  private def collectLocalSeqs(body: m.Term): (Set[String], Set[String]) =
+  /** `seed` = names already known to be seqs from the SIGNATURE (`collectSeqParams`). Without it
+   *  a chain rooted in a parameter is invisible: `var uRemaining = units` in std/scljet/text.ssc
+   *  bound a `List[Int]` param to a local, the local was not recorded, and `uRemaining.nonEmpty`
+   *  reached rustc as `no field nonEmpty on type Vec<i64>` — the pre-pass computed the two sets
+   *  separately and unioned them afterwards, so neither could see the other.
+   *  (rust-no-paren-member-becomes-a-field-silently.) */
+  private def collectLocalSeqs(body: m.Term, seed: Set[String]): (Set[String], Set[String]) =
     val seqs   = scala.collection.mutable.Set.empty[String]
     val arrays = scala.collection.mutable.Set.empty[String]
     // Methods that yield an indexable (immutable) seq, so `val xs = e.split(",")` / `.toList`
@@ -1359,6 +1377,9 @@ object RustCodeWalk:
                             "sortBy", "sortWith", "tail", "init")
     def rootedInSeq(t: m.Term): Boolean = t match
       case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
+      // A bare NAME already known to be a seq — a seq PARAM, or a local recorded earlier in this
+      // same walk (`val a = xs.drop(1); val b = a.filter(p)`).
+      case m.Term.Name(n) => seqs.contains(n) || seed.contains(n)
       case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(n)), _)
         if SeqPreserving.contains(n) || SeqMethods.contains(n) => rootedInSeq(q)
       case m.Term.Select(q, m.Term.Name(n)) if SeqPreserving.contains(n) => rootedInSeq(q)
@@ -1437,7 +1458,12 @@ object RustCodeWalk:
   private def collectCopyNames(d: m.Defn.Def): Set[String] =
     val out = scala.collection.mutable.Set.empty[String]
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
-      if p.decltpe.exists(isCopyType) then out += p.name.value
+      // A FUNCTION-typed param is `impl Fn(…)`, which has no `clone`: `no method named clone found
+      // for type parameter impl Fn(String) -> bool` (std/litdoc.ssc). It is treated as clone-free
+      // for the same reason a Copy value is — the multiUse pass must not insert a call that does
+      // not exist. Not the same fact, the same CONCLUSION, so it lives in the same set.
+      val isFnParam = p.decltpe.exists { case _: m.Type.Function => true; case _ => false }
+      if p.decltpe.exists(isCopyType) || isFnParam then out += p.name.value
     }
     def walk(t: m.Tree): Unit =
       t match
@@ -2294,6 +2320,41 @@ object RustCodeWalk:
     //
     // Scoped to receivers whose type is KNOWN, for the same reason that one is: a field access on
     // anything else must keep passing through.
+    // `n.toChar` on a number, written without parentheses. A code point is a `char` here, and the
+    // fallback emitted it as a FIELD: `i64 is a primitive type and therefore doesn't have fields`.
+    // `from_u32` returns an Option because not every u32 is a scalar value; a lossy default is
+    // wrong for text, so an invalid code point becomes U+FFFD, which is what every decoder does.
+    case m.Term.Select(qual, m.Term.Name("toChar")) =>
+      renderTerm(qual, ctx).map(q => s"char::from_u32(($q) as u32).unwrap_or('\\u{FFFD}')")
+
+    // The no-paren members that DO have an obvious lowering, taken before the refusal below. They
+    // are the ones a loop is written with -- `while xs.nonEmpty do { … xs.head … xs.tail }` is
+    // std/scljet/text.ssc, three of them on one line -- so refusing them would be honest and
+    // useless. Everything else still refuses, by name.
+    // (rust-no-paren-member-becomes-a-field-silently.)
+    case m.Term.Select(qual, m.Term.Name(meth))
+        if isKnownVecReceiver(qual, ctx) && !isStringExpr(qual) &&
+           Set("nonEmpty", "isEmpty", "head", "last", "tail", "size", "length",
+               "reverse", "sorted", "distinct").contains(meth) =>
+      renderTerm(qual, ctx).map { q =>
+        meth match
+          case "nonEmpty" => s"!$q.is_empty()"
+          case "isEmpty"  => s"$q.is_empty()"
+          case "head"     => s"$q[0].clone()"
+          case "last"     => s"$q[$q.len() - 1].clone()"
+          case "tail"     => s"$q[1..].to_vec()"
+          // `reverse`/`sorted`/`distinct` are seq-returning and are written without parens as often
+          // as with them — `let parts = revParts.reverse` in std/fs.ssc took the field path and
+          // rustc said `attempted to take value of method reverse`.
+          case "reverse"  => s"{ let mut __v = $q.clone(); __v.reverse(); __v }"
+          case "sorted"   => s"{ let mut __v = $q.clone(); __v.sort(); __v }"
+          case "distinct" => s"{ let mut __v = $q.clone(); __v.dedup(); __v }"
+          case _          => s"($q.len() as i64)"   // size / length
+      }
+    case m.Term.Select(qual, m.Term.Name(meth))
+        if isStringExpr(qual) && Set("nonEmpty", "isEmpty").contains(meth) =>
+      renderTerm(qual, ctx).map(q => if meth == "isEmpty" then s"$q.is_empty()" else s"!$q.is_empty()")
+
     case m.Term.Select(qual, m.Term.Name(meth))
         if (isKnownVecReceiver(qual, ctx) || isStringExpr(qual)) && !isTupleAccessor(meth) =>
       val what = if isStringExpr(qual) then "String" else "List"
@@ -2301,6 +2362,22 @@ object RustCodeWalk:
         s"def `${ctx.defName}` reads `$meth` on a $what and the rust backend has no lowering " +
         s"for it — written without parentheses, the name would be emitted as a Rust FIELD, " +
         s"and no Vec or String has one"
+      )))
+
+    // THE RECEIVER IS NOT ALWAYS KNOWN, and this is the half the report called load-bearing. A
+    // lambda parameter has no declared type here, so `revParts.reverse` in std/fs.ssc reached the
+    // field path and rustc said `attempted to take value of method reverse`. The refusal above
+    // could not help: it asks about the RECEIVER.
+    //
+    // Asking about the NAME settles it instead. No case class has a field called `reverse` or
+    // `nonEmpty` — these are collection members, and a `.field` access that happens to share one of
+    // these names is a program that would not compile on any lane. So an unlowered one refuses
+    // wherever it appears, and every other field access keeps passing through untouched.
+    // (rust-no-paren-member-becomes-a-field-silently.)
+    case m.Term.Select(_, m.Term.Name(meth)) if CollectionOnlyMembers.contains(meth) =>
+      Left(List(unsupported(
+        s"def `${ctx.defName}` reads `$meth` without parentheses on a value this lane cannot type; " +
+        s"it is a collection member, not a field, and would be emitted as a Rust FIELD access"
       )))
 
     case m.Term.Select(qual, m.Term.Name(field)) =>
@@ -3113,10 +3190,29 @@ object RustCodeWalk:
       // Both operands go through the same Option rendering as an interpolation does: `"x = " +
       // xs.find(p)` is the shape a user actually wrote, and `Option` has no `Display`, so without
       // this it is E0277 rather than `Some(b)`.
-      for
-        l <- renderInterpArg(lhs, ctx)
-        r <- renderInterpArg(args.values.head, ctx)
-      yield s"format!(\"{}{}\", $l, $r)"
+      // FLATTEN the chain. `+` is left-associative, so `a + b + c` nested one `format!` per
+      // operand: std/ui/theme.ssc builds a stylesheet from ~50 concatenations and rustc answered
+      // `error: recursion limit reached while expanding format!`. One call with N placeholders is
+      // the same string, one macro expansion deep, and markedly more readable output.
+      //
+      // The walk descends only while the INNER node is itself a string concat, so `1 + 2 + "x"`
+      // keeps `(1 + 2)` as a single numeric operand rather than splitting an addition.
+      def isConcat(t: m.Term): Boolean = t match
+        case m.Term.ApplyInfix.After_4_6_0(l2, m.Term.Name("+"), _, a2) if a2.values.size == 1 =>
+          def strOp(x: m.Term) = isStringExpr(x) || (x match
+            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case _              => false)
+          strOp(l2) || strOp(a2.values.head.asInstanceOf[m.Term])
+        case _ => false
+      def flatten(t: m.Term): List[m.Term] = t match
+        case m.Term.ApplyInfix.After_4_6_0(l2, m.Term.Name("+"), _, a2) if isConcat(t) =>
+          flatten(l2) ++ List(a2.values.head.asInstanceOf[m.Term])
+        case _ => List(t)
+      val parts = flatten(lhs) ++ List(args.values.head.asInstanceOf[m.Term])
+      val rendered = parts.map(renderInterpArg(_, ctx))
+      val (perrs, pok) = rendered.partitionMap(identity)
+      if perrs.nonEmpty then Left(perrs.flatten)
+      else Right(s"format!(\"${"{}" * pok.size}\", ${pok.mkString(", ")})")
 
     // `a -> b` (Scala's tuple-arrow) → Rust tuple `(a, b)`.  `Map(k -> v, …)`
     // literals already lower to `vec![ <pairs> ]`, so with this each pair
@@ -3430,6 +3526,15 @@ object RustCodeWalk:
   /** A receiver the walker KNOWS is a Rust `Vec`: a local bound to a seq constructor, or a list
    *  literal written in place. Deliberately narrow — it decides whether an unlowered method is a
    *  refusal or a pass-through, and a wrong `true` refuses working code. */
+  /** Member names that belong to a collection and to nothing else — no case class has a field of
+   *  these names, so seeing one without parentheses is enough to know it is not a field, whatever
+   *  the receiver turns out to be. Kept deliberately small: every name here costs a refusal if a
+   *  user ever does name a field this way, and the ones listed are the ones that reached users.
+   *  (rust-no-paren-member-becomes-a-field-silently.) */
+  private val CollectionOnlyMembers: Set[String] =
+    Set("nonEmpty", "isEmpty", "headOption", "lastOption", "reverse", "distinct", "sorted",
+        "toList", "toVector", "toSeq", "flatten", "mkString")
+
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
