@@ -1,0 +1,71 @@
+# The prelude as a correctness test for the compiler
+
+**This file is a working list, owned by `v3-prelude-and-dataset`.** It is separate so that adding to
+it never conflicts with anyone else's board edit.
+
+The prelude did not create these defects. It is the first code in v3 that **lives beside an
+arbitrary user program and is reused by every one of them**, so it exercises properties nothing else
+did: that a declaration remembers which module it came from, that a position belongs to its own
+file, that a parameter shadows a name from elsewhere. Each entry below is a place where the
+compiler forgets one of those.
+
+The frame that generates most of them, stated once: `Loader.merge` concatenates every unit's
+declarations into ONE `Program` and the unit boundary is lost. A prelude is a MODULE, not text
+appended to the user's file — and every defect here is the compiler treating it as the latter.
+
+---
+
+## P-1 — a parameter does not shadow a top-level function in the arity check
+
+**Status: open. Filed as `v3-a-parameter-does-not-shadow-a-top-level-function-in-the-arity-check`.**
+
+```text
+prelude   def map(f: Any => Any): Dataset = Dataset(items.map(x => f(x)))
+user      def f(a: Int, b: Int): Int = a + b
+result    call to 'f' passes 1 argument(s), it takes 2
+```
+
+The arity check resolves the name against the global function table instead of the enclosing
+parameter. Three front fixtures went red at once, and the corpus report shows **3 conformance cases**
+blocked on the same message independently of the prelude — so this is not a prelude problem wearing
+a disguise, it is a defect the prelude found.
+
+Worked around in `v3/prelude/index.ssc` by renaming parameters to `__fn`, `__pred`, `__x`. THE
+WORKAROUND MUST COME OUT when this is fixed, and its removal is how the fix gets verified.
+
+## P-2 — a position from one unit is reported against another file
+
+**Status: open.**
+
+A three-line fixture reported `bitwise.ssc:38:60`. Line 38 is in the PRELUDE. Line numbers must be
+counted inside their own file and carry that file's name.
+
+`Loader` already fixes exactly this for IMPORTS — "a parse failure inside an IMPORTED unit must name
+THAT unit" — but the repair is in the loader's parse step, and a position that survives into
+LOWERING carries no unit at all. `merge` keeps an `origin: Map[String, String]` for non-root `defs`
+and for nothing else: not classes, not objects, not traits, and not positions.
+
+## P-3 — the emptiness rule is written twice
+
+**Status: open, and it is mine.**
+
+`Loader` decides whether to load the prelude with its own "no defs and no statements" test;
+`Lower.scala:2227` refuses an empty program with another. Two predicates in two files that must
+agree. `v3/prelude-gate.sh` fails if they diverge, which makes it survivable, not correct.
+
+## P-4 — what happens when the user redefines a prelude name is undecided
+
+**Status: open, needs a decision written down before the prelude grows.**
+
+If the prelude defines `Dataset` and the user's program does too, nothing today says which wins.
+Every language with a prelude answers this the same way — the user's definition shadows it,
+silently — and that is what I intend to implement, but it must be a rule with a test, not an
+accident of concatenation order.
+
+## P-5 — the prelude is parsed and lowered on EVERY invocation
+
+**Status: open, unmeasured with a real library.**
+
+On an empty prelude the difference was below this host's resolution. With a library it is 736 parses
+in one corpus sweep. Measure before optimising, and if it costs, cache the LOWERED form rather than
+the text.
