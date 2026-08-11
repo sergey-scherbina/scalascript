@@ -1,0 +1,32 @@
+# A top-level `val` is a receiver the resolution env must know
+
+Stage 2b made a context bound into a parameter; a call whose argument is a TOP-LEVEL value could
+then not be solved, because by the time resolution runs that value is a GLOBAL and its initialiser
+arrives as an assignment in the entry function rather than as a `val` statement. Matching only the
+`val` shape left the environment empty and the call unspecialised, and the arity check refused it.
+
+`bench/corpus/typeclass-fold.ssc` computed 16500 before that stage and stopped after — and
+`corpus-report.sh` could not see it, because that report reads `tests/conformance` and the bench
+corpus is a separate set. This fixture puts the shape where the front gate runs it.
+
+The numbers are readable: 1+2+3 is **6**, and `total` doubles it to **12**.
+
+```scalascript
+trait Monoid[A]:
+  def empty: A
+  def combine(a: A, b: A): A
+
+given intSum: Monoid[Int] with
+  def empty: Int = 0
+  def combine(a: Int, b: Int): Int = a + b
+
+def sumAll[A: Monoid](xs: List[A]): A =
+  var acc = summon[Monoid[A]].empty
+  for x <- xs do acc = summon[Monoid[A]].combine(acc, x)
+  acc
+
+val nums: List[Int] = List(1, 2, 3)
+
+println(sumAll(nums))
+println(sumAll(nums) + sumAll(nums))
+```

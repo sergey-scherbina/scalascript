@@ -1312,7 +1312,30 @@ object Lower:
               Expr.Call(nm, as, p)
           case _ => x
       case other => other)
-    val fixed = defs.map(d => d.copy(body = fix(flattenAll(d.body), Map.empty)))
+    // TOP-LEVEL VALUES SEED THE ENVIRONMENT, and leaving them out was a regression.
+    //
+    // Stage 2b turned a context bound into a parameter, and a call whose argument is a top-level
+    // `val` could no longer be solved: `val xs: List[Int] = List(1, …, 10)` then
+    // `combineAll(xs)` inside `workload()` saw an EMPTY env, inferred nothing, left the call
+    // unspecialised, and the arity check refused it. `bench/corpus/typeclass-fold.ssc` computed
+    // VInt(16500) before that stage and stopped after it.
+    //
+    // It was invisible to `corpus-report.sh`, which reads `tests/conformance` — the bench corpus
+    // is a SEPARATE set, and this row lives only there. The type comes from the initialiser
+    // rather than the annotation because `Stmt.Val` does not carry one.
+    val topEnv: Map[String, String] =
+      defs.filter(_.name == entryName).flatMap(_.body match
+        // A top-level `val` is a GLOBAL by the time this runs, and its initialiser arrives as an
+        // ASSIGNMENT in the entry function — not as a `Stmt.Val`, which is what the first version
+        // matched and why the environment came out empty. Both shapes are read, since a `val`
+        // inside the entry's own block is still a `Stmt.Val`.
+        case Expr.Block(sts, _, _) => sts.collect {
+          case Stmt.Val(n, v, _, _)             => argType(v, Map.empty).map(t => (n, t))
+          case Stmt.Exp(Expr.Assign(n, v, _))   => argType(v, Map.empty).map(t => (n, t))
+        }.flatten
+        case _ => Nil).toMap
+
+    val fixed = defs.map(d => d.copy(body = fix(flattenAll(d.body), topEnv)))
     // THE GENERIC DEFINITION IS A TEMPLATE, and it is dropped once nothing calls it.
     //
     // Monomorphisation leaves the original behind: `combineAll[A: Monoid](xs: List[A])` still has
