@@ -69,10 +69,34 @@ jobs:
     # FAILS when it overruns — which it has done twice, both times with every check green: 378.5 s
     # against a 300 s guess, then 338.6 s against a 330 s cap fitted to one observation. See the
     # table in scripts/smoke-ci.ssc; the short version is that the corpus slice varies ±25 % between
-    # runs on a shared runner, so a cap has to sit above the spread or it flaps. This cap is only the outer guard around the whole job. If it starts
-    # being approached, read the per-check timings the runner prints — do not raise it. Raising a cap
-    # instead of reading the growth is exactly how `corpus-contract.yml` went 13 runs with zero green.
-    timeout-minutes: 20
+    # runs on a shared runner, so a cap has to sit above the spread or it flaps. This cap is only the outer guard around the whole job.
+    #
+    # RAISED 20 -> 30 ON 2026-08-11, ARGUING WITH THE SENTENCE THAT USED TO STAND HERE: "If it starts
+    # being approached, read the per-check timings the runner prints — do not raise it." That was
+    # right when written and is the correct instinct in general. What changed is that the suite now
+    # HAS a measured inner guard: since 2026-08-10 its budget is derived from per-check baselines
+    # (tests/smoke-baseline.tsv), scales with what the suite contains, and FAILS the run on CI when
+    # exceeded. Reading the growth is what that budget does, automatically.
+    #
+    # And this outer cap had become TIGHTER than that inner one, which makes the measured guard dead
+    # code — the crude cap always fires first:
+    #
+    #     suite's own derived budget on CI     719 – 875 s   (12.0 – 14.6 min)
+    #     + launcher build                     3.3 min       (measured on run 31516813517)
+    #     + checkout / setup                   ~1 min
+    #     = worst case                         ~19 min       against a 20 min cap
+    #
+    # Measured over the last 38 completed runs: 28 cancelled, EVERY ONE of them lasting 20.1–20.6
+    # min — i.e. not a race with a newer push, not a hang, just this cap. 7 succeeded, median 16.8
+    # min, max 20.0. Three quarters of pushes therefore reached no verdict at all, and `cancelled` is
+    # RED by POLICY P-6.7, so evidence level 1 was effectively unobtainable.
+    #
+    # 30 min leaves ~11 min over the worst observed case. The rule this cap should obey from now on:
+    # it must stay STRICTLY LOOSER than the suite's own budget plus build time, or the guard with the
+    # measurement behind it cannot speak. If the suite genuinely grows, the inner budget is what says
+    # so — and that one still must not be raised without measuring, which is what
+    # tests/BUGS.md smoke-suite-over-its-own-budget is about.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
