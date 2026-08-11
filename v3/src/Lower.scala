@@ -1839,7 +1839,36 @@ object Lower:
           case Some((_, ps)) => Expr.Call(fn, resolveArgs(as, ps, fn, p), p)
           case _             => x
       case Expr.MethodCall(r, nm, as, p) =>
-        sigs.find((n, _) => n.endsWith("." + nm)) match
+        // THE RECEIVER IS CONSULTED FIRST, and not consulting it was a defect that declaration
+        // ORDER decided:
+        //
+        //     object A: def of(a: Int, b: Int = 2, c: Int = 3) = …
+        //     object B: def of(x: Int) = x * 10
+        //     B.of(5)   ->   A first: "call to 'B.of' passes 3 argument(s), it takes 1"
+        //                    B first: 50
+        //
+        // The suffix match below takes the FIRST signature in the whole program ending in `.of`, so
+        // `A`'s two defaults were pasted into a call to `B` — and `checkArity`, which resolves the
+        // receiver correctly by exact `obj + "." + nm`, then refused the call this pass handed it.
+        // Two passes over one name, one of them ignoring the owner written right there.
+        //
+        // FOUND THROUGH THE PRELUDE and not caused by it: `object Dataset: def of(…)` carries
+        // SIXTEEN defaulted parameters and the prelude is first in `sigs`, so it captured every
+        // `.of` in every program — `companion-case-class-order` was refused with `passes 16
+        // argument(s)`. That case passes today only because the prelude loads lazily now; the
+        // defect was untouched and fires for any two objects. (`BUGS.md
+        // an-objects-defaults-are-taken-from-another-objects-member-of-the-same-name`)
+        //
+        // NARROW ON PURPOSE. An exact `obj + "." + nm` is only available when the receiver is a
+        // NAME — an object, a namespace. When it is an expression the method belongs to a class
+        // chosen by the receiver's tag at run time, no name is available here, and the suffix match
+        // is what there is; two classes with a same-named method at different arities are the same
+        // defect one level down and need more than a lookup. Left as it was, and recorded, rather
+        // than guessed at in the same change.
+        val exact = r match
+          case Expr.Name(obj, _) => sigs.find((n, _) => n == obj + "." + nm)
+          case _                 => None
+        exact.orElse(sigs.find((n, _) => n.endsWith("." + nm))) match
           case Some((_, ps0)) =>
             // A method's first parameter is the receiver, added when it was flattened.
             val ps = if ps0.nonEmpty && ps0.head.name == "this" then ps0.tail else ps0

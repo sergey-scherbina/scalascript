@@ -23,6 +23,61 @@ Newest first.
 
 
 
+## an-objects-defaults-are-taken-from-another-objects-member-of-the-same-name — `B.of(5)` is filled from `A.of`
+
+<!-- status: open
+     lane: v3
+     area: front
+     kind: bug
+     gate: none -->
+
+**Reproduced 2026-08-11, and declaration ORDER decides the answer**, which is what makes it
+certain rather than suspected:
+
+```scalascript
+object A:
+  def of(a: Int, b: Int = 2, c: Int = 3): Int = a + b + c
+object B:
+  def of(x: Int): Int = x * 10
+def main(): Unit = println(B.of(5))
+```
+
+```text
+A declared first -> ssc3: 7:28: call to 'B.of' passes 3 argument(s), it takes 1
+B declared first -> 50
+```
+
+`Lower.fillDefaults` resolves an object member with `sigs.find((n, _) => n.endsWith("." + nm))`
+(`v3/src/Lower.scala:1842`) — the FIRST signature in the whole program whose name ends in `.of`,
+with the receiver `r` not consulted at all. So `A`'s two defaulted parameters are pasted into a
+call to `B`, and `checkArity` — which resolves the receiver correctly, by exact `obj + "." + nm` —
+then refuses the call it was handed.
+
+**Found through the prelude, and it is not a prelude bug.** The prelude is loaded before every
+program, so its `object Dataset: def of(…)` with SIXTEEN `DsAbsent()`-defaulted parameters was
+first in `sigs` and captured every `.of` in every program:
+`tests/conformance/companion-case-class-order` was refused with `call to 'B.of' passes 16
+argument(s), it takes 1`. That case passes today only because the prelude now loads LAZILY
+(`11ac84c43`) and that program never asks for it — the defect is untouched and fires for any two
+objects.
+
+**It is the family this compiler keeps producing** — `v3/PRELUDE-CORRECTNESS.md` P-1, P-2, P-4 and
+P-6 are all one name resolved without regard to WHOSE it is. Here the owner is written right there
+in the receiver and is discarded.
+
+**Fix landing in the same push; the status flips in a follow-up commit that can name its sha.** The
+receiver is consulted first when it is a NAME: `obj + "." + nm` is then an exact
+lookup — the one `checkArity` already did — and the suffix search is the fallback. Both orders now
+answer 50, and the fixture `v3/tests/front/object-defaults-by-receiver.ssc` carries a CONTROL as
+well as the regression: `A.of(1)` must still fill to `A.of(1, 2, 3)` and print 6, because a "fix"
+that simply stopped filling defaults would pass a check that only looked at `B.of(5)`. Both lanes
+agree; N unchanged at 206/369 with byte-identical histograms.
+
+**Deliberately NOT fixed, and it is the same defect one level down:** two CLASSES with a same-named
+method at different arities. There the receiver is an expression, the method is chosen by the tag at
+run time, no name is available at this point, and the suffix search is all there is. It needs more
+than a lookup and is not guessed at here.
+
 ## multi-effect-marker-is-lost-in-a-bare-ssc — the same program is multi-shot fenced and one-shot bare
 
 <!-- status: open

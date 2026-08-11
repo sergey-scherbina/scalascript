@@ -1,0 +1,9 @@
+object A:
+  def of(a: Int, b: Int = 2, c: Int = 3): Int = a + b + c
+
+object B:
+  def of(x: Int): Int = x * 10
+
+def main(): Unit =
+  println(B.of(5))
+  println(A.of(1))
