@@ -14,7 +14,7 @@ Newest first.
      area: other
      kind: bug
      gate: tests/coord/claim-scope-hierarchy.sh
-     fixed-in: PENDING -->
+     fixed-in: ae64f4aad -->
 
 A `file:` scope was an EXCLUSIVE lock: two claims naming the same path refused each other. Since
 2026-08-11, on the project owner's decision, it is a **co-tenancy** — the push is admitted and the
