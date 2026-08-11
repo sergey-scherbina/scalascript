@@ -1,6 +1,6 @@
-# generation: 1637
+# generation: 1638
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/corpus-report.sh file:v3/BACKLOG.md
-rust-value-from-usertype	claude-code	2026-08-11T08:40:19Z	rust-std-corpus-badrust-column	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustRuntimeResource.scala file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:tests/e2e/build-rust-refuses-loudly.sh
+rust-value-from-usertype	claude-code	2026-08-11T08:40:19Z	rust-std-corpus-badrust-column	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustRuntimeResource.scala file:BUGS.md file:tests/rust-std-survey-baseline.tsv file:tests/e2e/build-rust-refuses-loudly.sh file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR24Test.scala
 two-fs-divergence	claude-code	2026-08-11T08:43:24Z	shipped-F-and-F-bootstrapped-from-source-disagree	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-char-escape-gate.sh file:tests/BUGS.md file:v2/SPRINT.md
 stale-refusal-hides-the-cache	claude-code	2026-08-11T08:59:07Z	stale-build-refusal-reads-as-a-ten-minute-rebuild	file:build.sbt file:scripts/BUGS.md
