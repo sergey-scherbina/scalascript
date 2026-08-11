@@ -371,6 +371,41 @@ Doing that measurement first is what SSC3-6 did for the chain, and it is why the
 were repeatedly not the ones anyone predicted — link 6 being the standing example, where 116 of 126
 cases in one symptom bucket were a construct nobody guessed from the message.
 
+## The prefix matcher re-parses its pattern on every call — measured 2026-08-11, NOT urgent
+
+`std/parsing/regex.ssc` calls `rxParse(pat)` inside `regexMatchPrefix`, so a parser that matches
+the same `PRegex` a thousand times parses that pattern a thousand times. The obvious fix is to
+parse once — either a cache keyed on the pattern string, or parsing at `PRegex` construction and
+carrying nodes in the node rather than a string.
+
+**It is filed here rather than done because the measurement says it is not the bottleneck**, and
+the reason is worth keeping: the implementation this module replaced had the SAME defect. v2's
+native `matchPrefix` called `java.util.regex.Pattern.compile(pat)` per call. So the comparison was
+never "interpreted matcher against a compiled automaton" — it was against `compile` plus a match,
+every time.
+
+Measured in ONE binary, on the v2 native lane, with both implementations reachable side by side
+(`s.matchPrefix(pat)` is still in v2's runtime), order ALTERNATED between pairs:
+
+| workload | host `java.util.regex` | this module |
+|---|---|---|
+| 6 std patterns × 300 reps | 29–76 ms | 28–80 ms |
+| `[^\n]+` over 4096 chars × 40 reps | 72–86 ms | 68–84 ms |
+
+Within noise on both, and the JIT warm-up drift across a single run (80 ms → 28 ms, 2.7×) is
+larger than any difference between the two sides. A first attempt with a FIXED order inside each
+pair reported the ScalaScript side uniformly faster; alternating the order removed that, which is
+the whole reason the alternating protocol exists.
+
+**So the honest statement is "no slowdown measurable at these scales", not "it is faster".** The
+caveats are real: only the v2 native lane was measured, only up to 4096 characters, and a pattern
+with heavy backtracking was not tried at size.
+
+When this is picked up, cache the PARSED FORM, not the matched result — and note that the same
+change helps whatever implementation sits underneath, so it is not an argument for moving back to
+a host regex. Moving back would reintroduce the reason the module exists: a host implementation
+must be written once per lane and the dialects disagree (`v3-extension-unblocks-two-files-into-a-lane-DIFF`).
+
 ## Parked design alternatives
 
 - **Flat basic blocks + SSA instead of structured regions.** Rejected for
