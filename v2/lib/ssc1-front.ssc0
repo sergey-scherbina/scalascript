@@ -472,6 +472,14 @@ def lexFrom = (s, i) =>
     else if #i.eq(c, 45) then
       if #i.eq(n, 62) then Cons(mkTok("->", ""), lexFrom(s, #i.add(i2, 2)))     -- ->
       else if #i.eq(n, 61) then Cons(mkTok("op", "-="), lexFrom(s, #i.add(i2, 2))) -- -=
+      -- `--` set/seq difference, the mirror of `++` two branches below. Without it `xs -- ys`
+      -- lexed as `-` then a UNARY minus and evaluated to `xs - (-ys)`, which returns the receiver
+      -- unchanged: `Set(1,2,3) -- Set(2)` answered `Set(1,2,3)` and `List(1,2,3) -- List(2)`
+      -- answered the list, both at exit 0. A whole operator was a silent no-op on every receiver.
+      -- Fixed for the v2 native lane and the interpreter in the entry
+      -- `v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op`; the repair never
+      -- reached THIS front, and nothing measured the two against each other until 2026-08-11.
+      else if #i.eq(n, 45) then Cons(mkTok("op", "--"), lexFrom(s, #i.add(i2, 2)))
       else Cons(mkTok("op", "-"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 60) then
       if #i.eq(n, 126) then Cons(mkTok("op", "<~"), lexFrom(s, #i.add(i2, 2)))
@@ -1672,7 +1680,7 @@ def opPrec = (op) =>
   if #seq(op, "~") then 9 else if #seq(op, "~>") then 9
   else if #seq(op, "*") then 8 else if #seq(op, "/") then 8 else if #seq(op, "%") then 8
   else if #seq(op, "+") then 7 else if #seq(op, "-") then 7
-  else if #seq(op, "++") then 6 else if #seq(op, ":+") then 6
+  else if #seq(op, "++") then 6 else if #seq(op, ":+") then 6 else if #seq(op, "--") then 6
   else if #seq(op, "==") then 5 else if #seq(op, "!=") then 5
   else if #seq(op, "<")  then 5 else if #seq(op, "<~") then 5 else if #seq(op, ">")  then 5
   else if #seq(op, "<=") then 5 else if #seq(op, ">=") then 5

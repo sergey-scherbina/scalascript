@@ -2851,6 +2851,15 @@ def lowerE = (scope, rawExpr) =>
                   else IrPrim("__arith__", Cons(IrLit(IrStr("++")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ":+") then
                   IrPrim("__arith__", Cons(IrLit(IrStr(":+")), Cons(lv, Cons(rv, Nil))))
+                -- `--`, the mirror of `++` above. The token was added to this front's lexer on
+                -- 2026-08-12; without a lowering it reaches the runtime as `unbound global: --`,
+                -- which is WORSE than the silent no-op it replaces, so the two land together.
+                -- Deliberately NOT given the __arithExt__ / isExtensionMethod treatment `++` has:
+                -- no corpus file defines `--` as an extension, and the runtime's own dispatch is
+                -- what makes it a set difference on a Set and a raise on a List -- the behaviour
+                -- the v1 interpreter and front F already had and this front did not.
+                else if #seq(op, "--") then
+                  IrPrim("__arith__", Cons(IrLit(IrStr("--")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "->")  then IrCtor("Pair", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "!")   then
