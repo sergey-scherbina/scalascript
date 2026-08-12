@@ -1,6 +1,5 @@
-# generation: 1709
+# generation: 1710
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Ast.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/loader-gate.sh file:v3/walker-gate.sh file:v3/jit-gate.sh file:v3/front-diff.sh file:v3/corpus-report.sh file:v3/PRELUDE-CORRECTNESS.md file:v3/BACKLOG.md
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 flatmap-nonlist-census	claude-code	2026-08-11T23:49:50Z	v3-handle-has-no-return-clause	file:v3/src/Exec.scala file:BUGS.md
-char-render-gate-row	claude-code	2026-08-12T00:15:44Z	v2-native-charAt-toString-yields-code	file:tests/e2e/char-type-test.sh file:v1/runtime/backend/interpreter/BUGS.md
