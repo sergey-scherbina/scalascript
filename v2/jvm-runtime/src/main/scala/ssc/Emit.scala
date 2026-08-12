@@ -50,15 +50,55 @@ object Emit:
     (o: String) => new Slot(Prims.resolve2(o).orNull, Prims.resolve(o))
   private val mkSlot3: java.util.function.Function[String, Slot[Prims.Fn3]] =
     (o: String) => new Slot(Prims.resolve3(o).orNull, Prims.resolve(o))
+  // ── SSC_PRIM_CENSUS — how many times each prim actually RUNS ────────────────────────────────
+  //
+  // Static prim counts in the IR are equal between the two fronts (9 656 each, measured
+  // 2026-08-12), and F emits FEWER dynamic dispatches than legacy — yet F's bytecode takes >180x
+  // longer on `scljet-hello`. Equal static counts with unequal time means the difference is in how
+  // OFTEN each prim runs, and nothing in the IR text can answer that. This counts executions.
+  //
+  // Off by default and read once. `java.util.HashMap` under a plain `synchronized` rather than a
+  // concurrent map: the census is a debugging path and must not change the contention profile of
+  // the thing it measures.
+  private val primCensus: Boolean =
+    sys.env.get("SSC_PRIM_CENSUS").exists(v => v != "" && v != "0" && v != "off")
+  private val censusCounts = new java.util.HashMap[String, Long]()
+  // Printed from a shutdown hook so the report survives the cap that kills the slow side — the run
+  // being measured is one that does NOT finish, so an at-exit print in the runner would never fire.
+  if primCensus then
+    java.lang.Runtime.getRuntime.nn.addShutdownHook(new Thread(() => {
+      val r = censusReport()
+      if r.nonEmpty then System.err.println(r)
+      val e = extendReport()
+      if e.nonEmpty then System.err.println(e)
+    }))
+  private def note(op: String): Unit =
+    if primCensus then censusCounts.synchronized { censusCounts.merge(op, 1L, (a, b) => a + b) }
+  /** Printed by the runner at exit; empty and silent unless the census is on. */
+  def censusReport(): String =
+    if !primCensus then ""
+    else censusCounts.synchronized {
+      import scala.jdk.CollectionConverters.*
+      censusCounts.asScala.toSeq.sortBy(-_._2).take(20)
+        .map((op, n) => f"[prim-census] $n%12d  $op").mkString("\n")
+    }
+
   private def s1(op: String): Slot[Prims.Fn1] =
-    slot1.computeIfAbsent(op, mkSlot1)
+    note(op); slot1.computeIfAbsent(op, mkSlot1)
   private def s2(op: String): Slot[Prims.Fn2] =
-    slot2.computeIfAbsent(op, mkSlot2)
+    note(op); slot2.computeIfAbsent(op, mkSlot2)
   private def s3(op: String): Slot[Prims.Fn3] =
-    slot3.computeIfAbsent(op, mkSlot3)
+    note(op); slot3.computeIfAbsent(op, mkSlot3)
 
   /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
-  def arith(op: String, a: Value, b: Value): Value = Prims.arithFast(op, a, b)
+  //
+  // COUNTED SEPARATELY, and the first version of the census missed it: `arith` bypasses the slot
+  // machinery entirely, so a census wired only into `s1/s2/s3` reports nothing for arithmetic and
+  // reads as "arithmetic is not hot". That produced a wrong reading once already — the fast and the
+  // slow variant showed the SAME 161 M `__eq__`, which only proved the counted paths were not the
+  // difference.
+  def arith(op: String, a: Value, b: Value): Value =
+    note(s"arith:$op"); Prims.arithFast(op, a, b)
 
   // Fused accumulator: `cell = cell <op> r` for a Long cell, unboxed on the cell side.
   // Emitted for the hot foreach/loop accumulator pattern `lcell.set(c, arith(op,
@@ -225,7 +265,20 @@ object Emit:
   /** Let-binding effect threading (VM letThreadOp mirror): an Op in a Let rhs
    *  re-emerges with a continuation that BINDS the resumed value and runs the
    *  rest of the let-chain. restFn receives env :+ boundValue. */
+  // Census of the COPY, not of the call: `extend1` allocates and copies the whole environment per
+  // binding, so its cost is the total ELEMENTS moved, not the number of calls. Counting calls alone
+  // would have shown the fast and the slow variant as equal, which is exactly how the prim census
+  // missed this path.
+  private var extendCalls = 0L
+  private var extendElems = 0L
+  private var extendMax   = 0
+  def extendReport(): String =
+    if !primCensus then ""
+    else f"[extend1] calls=$extendCalls%d  elementsCopied=$extendElems%d  maxEnv=$extendMax%d"
   def extend1(env: Array[Value], v: Value): Array[Value] =
+    if primCensus then
+      extendCalls += 1; extendElems += env.length
+      if env.length > extendMax then extendMax = env.length
     val n = new Array[Value](env.length + 1)
     System.arraycopy(env, 0, n, 0, env.length)
     n(env.length) = v
