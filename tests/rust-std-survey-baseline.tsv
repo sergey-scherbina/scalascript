@@ -38,7 +38,7 @@ std/graphql.ssc	COMPILES
 std/hash.ssc	REFUSED	[error] Generic(
 std/http.ssc	REFUSED	[error] Generic(
 std/i18n.ssc	REFUSED	[error] Generic(
-std/index.ssc	BADRUST	
+std/index.ssc	COMPILES	
 std/json-core.ssc	REFUSED	[error] Generic(
 std/json.ssc	REFUSED	[error] Generic(
 std/litdoc.ssc	REFUSED	[error] Generic(
@@ -93,7 +93,7 @@ std/scljet/readonly.ssc	REFUSED	[error] Generic(
 std/scljet/record.ssc	REFUSED	[error] Generic(
 std/scljet/schema.ssc	REFUSED	[error] Generic(
 std/scljet/sql.ssc	OTHER	[error] Generic(def `close` emits 2 time
-std/scljet/text.ssc	BADRUST	error[E0308]
+std/scljet/text.ssc	COMPILES	
 std/scljet/typedsql.ssc	OTHER	[error] Generic(def `close` emits 2 time
 std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
@@ -106,7 +106,7 @@ std/smtp.ssc	COMPILES
 std/streams-bridge.ssc	COMPILES	
 std/streams.ssc	REFUSED	[error] Generic(
 std/tcp.ssc	COMPILES	
-std/ui/component.ssc	BADRUST	error[E0382]
+std/ui/component.ssc	COMPILES	
 std/ui/containers.ssc	COMPILES	
 std/ui/content.ssc	REFUSED	[error] Generic(
 std/ui/data.ssc	REFUSED	[error] Generic(
@@ -123,7 +123,7 @@ std/ui/patterns.ssc	REFUSED	[error] Generic(
 std/ui/primitives.ssc	COMPILES	
 std/ui/reactive.ssc	REFUSED	[error] Generic(
 std/ui/routing.ssc	REFUSED	[error] Generic(
-std/ui/state.ssc	BADRUST	error[E0618]
+std/ui/state.ssc	COMPILES	
 std/ui/theme.ssc	COMPILES	
 std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	

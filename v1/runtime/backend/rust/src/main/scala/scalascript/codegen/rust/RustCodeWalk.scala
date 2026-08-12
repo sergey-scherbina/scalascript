@@ -125,6 +125,10 @@ object RustCodeWalk:
         p.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
     }.toMap
+    // Populated BEFORE `_returnTypes`, because a return type may name a variant.
+    _variantOwner = ctorMap.collect {
+      case (ctor, ec) if !ec.isStruct && ec.enumName != ctor => ctor -> ec.enumName
+    }.toMap
     _returnTypes = defs.map { d =>
       d.name.value -> d.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
     }.toMap
@@ -380,7 +384,7 @@ object RustCodeWalk:
       val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       val pList   = params.map { p =>
         val tRs = p.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
-        s"${p.name.value}: $tRs"
+        s"${p.name.value}: ${paramType(tRs)}"
       }.mkString(", ")
       val retTRs  = d.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
       // A `given` method's params carry declared types and the body context did not read them, so
@@ -608,6 +612,15 @@ object RustCodeWalk:
 
   private var _paramTypes: Map[String, List[String]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
+  /** Constructor name → the ENUM that owns it, for a variant used as a TYPE.
+   *
+   *  Scala lets a case class extending a sealed trait stand as its own type, so
+   *  `def decodedTextToSqlText(t: DecodedText): SqlText` names a VARIANT of `SqliteValue` in return
+   *  position. `enumNames` holds enum names, not variant names, so `SqlText` fell to the `i64`
+   *  default while the body correctly built `SqliteValue::SqlText { … }` — `E0308: expected i64`,
+   *  in std/scljet/text.ssc. The information was already in `ctorMap`; nothing had asked it this
+   *  question. (rust-last-eight-individual-badrust.) */
+  private var _variantOwner: Map[String, String] = Map.empty
 
   /** User-declared effects: effect name → its ops, each `(opName, rustParamTypes, rustRetType)`.
    *  Drives the trait emission, `Eff.op` dispatch, and the `handle` handler-struct impl. (R.4.2) */
@@ -1192,6 +1205,12 @@ object RustCodeWalk:
       // `ssc_is`/`ssc_field` chain instead. This is the ONLY type knowledge the boundary needs, and
       // it comes from declarations, never from inference.
       anyNames: Set[String] = Set.empty,
+      // Locals bound to a field DECLARED `Any`, which on this lane is a `Value`. Recorded because
+      // a 0-arg apply on one is a SIGNAL READ, not a call: `val loading = state.loading` then
+      // `if loading() then …` in std/ui/state.ssc emitted `if loading()` and rustc answered
+      // `error[E0618]: expected function, found Value`. The Signal is stored IN the `Any` field, so
+      // the local carries no Signal type of its own and `localSignals` cannot see it.
+      valueLocals: Set[String] = Set.empty,
       // Names DECLARED numeric in this def (parameters). Used only to keep `.toInt` on a known
       // numeric receiver as a direct cast; everything not in here takes the total helper, which is
       // correct either way — so a missing name costs readability, never a compile error.
@@ -1305,6 +1324,7 @@ object RustCodeWalk:
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
                         localSignals = collectLocalSignals(d.body),
                         anyNames = anyParams,
+                        valueLocals = collectValueLocals(d, ctorMap),
                         numericNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
                           .collect { case p if p.decltpe.exists {
                               case m.Type.Name("Int" | "Long" | "Short" | "Byte" | "Double" | "Float") => true
@@ -1474,12 +1494,32 @@ object RustCodeWalk:
   private val ArithOps = Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||")
   /** A best-effort "this rhs is a Copy (numeric/bool) value" test: numeric/bool/char
    *  literals and arithmetic/comparison/logical infix expressions. */
-  private def isCopyRhs(t: m.Term): Boolean = t match
-    case _: m.Lit.String                  => false
-    case m.Lit.Null()                     => false
-    case _: m.Lit                         => true
-    case m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name(op), _, _) if ArithOps.contains(op) => true
-    case _                                => false
+  /** `strs` = names known to hold a String in this def. `+` is in `ArithOps` and is ALSO string
+   *  concatenation, so an infix `+` was read as arithmetic whatever its operands were: in
+   *  std/ui/component.ssc `val scopeId = ctxClean(kind) + "__" + ctxClean(key)` was judged Copy,
+   *  excluded from `multiUse`, never cloned — and `error[E0382]: use of moved value: scopeId`,
+   *  because a String is not Copy.
+   *
+   *  Narrow on purpose: only a `+` with a STRING-ish operand stops being Copy. `n + 1` on an Int
+   *  stays Copy, so no golden that asserts a bare numeric name moves. */
+  private def isCopyRhs(t: m.Term, strs: Set[String]): Boolean =
+    def stringish(x: m.Term): Boolean = x match
+      case _: m.Lit.String                            => true
+      case _: m.Term.Interpolate                      => true
+      case m.Term.Name(n)                             => strs.contains(n)
+      case m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("toString" | "trim" | "mkString")), _) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) => _returnTypes.get(n).contains("String")
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name("+"), _, a) =>
+        stringish(l) || a.values.headOption.exists(v => stringish(v.asInstanceOf[m.Term]))
+      case _                                          => false
+    t match
+      case _: m.Lit.String                  => false
+      case m.Lit.Null()                     => false
+      case _: m.Lit                         => true
+      case m.Term.ApplyInfix.After_4_6_0(l, m.Term.Name(op), _, a) if ArithOps.contains(op) =>
+        !stringish(l) && !a.values.headOption.exists(v => stringish(v.asInstanceOf[m.Term]))
+      case _                                => false
 
   /** Names bound to a Copy-typed value (def params + locals).  Excluded from `multiUse`
    *  cloning: a Copy value never moves, so cloning it is needless noise — and would break
@@ -1487,6 +1527,11 @@ object RustCodeWalk:
    *  Copy *declared* type or an obviously-numeric rhs; match binds / untyped stay eligible. */
   private def collectCopyNames(d: m.Defn.Def): Set[String] =
     val out = scala.collection.mutable.Set.empty[String]
+    // The same String set the concat path uses, so both answer "is this a String" the same way.
+    val strs = collectLocalStrings(d.body) ++
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+        .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+        .toSet
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { p =>
       // A FUNCTION-typed param is `impl Fn(…)`, which has no `clone`: `no method named clone found
       // for type parameter impl Fn(String) -> bool` (std/litdoc.ssc). It is treated as clone-free
@@ -1499,11 +1544,11 @@ object RustCodeWalk:
       t match
         case v: m.Defn.Val => v.pats match
           case List(m.Pat.Var(m.Term.Name(n)))
-              if v.decltpe.exists(isCopyType) || isCopyRhs(v.rhs) => out += n
+              if v.decltpe.exists(isCopyType) || isCopyRhs(v.rhs, strs) => out += n
           case _ => ()
         case v: m.Defn.Var => v.pats match
           case List(m.Pat.Var(m.Term.Name(n)))
-              if v.decltpe.exists(isCopyType) || isCopyRhs(v.body) => out += n
+              if v.decltpe.exists(isCopyType) || isCopyRhs(v.body, strs) => out += n
           case _ => ()
         case _ => ()
       t.children.foreach(walk)
@@ -1622,6 +1667,36 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(body)
     opts.toSet
+
+  /** Locals bound to a field whose DECLARED type is `Any` — a `Value` on this lane.
+   *
+   *  Resolved from the signature, not guessed: a param's declared type names a struct in `ctorMap`,
+   *  and that struct's `fieldTypes` say which fields are `Value`. `val loading = state.loading`
+   *  with `case class LoadState(loading: Any, …)` is the shape, and it is how a Signal reaches a
+   *  local without a Signal type of its own. (rust-last-eight-individual-badrust.) */
+  private def collectValueLocals(d: m.Defn.Def, ctorMap: Map[String, EnumCtor]): Set[String] =
+    val paramType: Map[String, String] =
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+        p.decltpe.collect { case m.Type.Name(t) => p.name.value -> t }
+      }.toMap
+    def fieldIsValue(recv: String, field: String): Boolean =
+      paramType.get(recv).flatMap(ctorMap.get).exists { ec =>
+        ec.fieldNames.indexOf(field) match
+          case -1 => false
+          case i  => ec.fieldTypes.lift(i).contains("crate::value::Value")
+      }
+    val out = scala.collection.mutable.Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => v.rhs match
+            case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if fieldIsValue(r, f) => out += n
+            case _ => ()
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(d.body)
+    out.toSet
 
   /** Local val/var names bound to a `Signal`, mapped to their **element type**
    *  ("String" / "Int" / "Double" / "Boolean", default "String") — by a `Signal[T]`
@@ -1936,6 +2011,9 @@ object RustCodeWalk:
     // Fall back to `i64` (the most common ScalaScript numeric type) so generic functions
     // can be emitted. rustc will reject mis-typed code; the diagnostic is better than
     // a codegen error.
+    // A VARIANT used as a type is the enum it belongs to. Before the i64 default, because that
+    // default is what silently produced the mismatch.
+    case m.Type.Name(n) if _variantOwner.contains(n) => Right(_variantOwner(n))
     case m.Type.Name(_) => Right("i64")
     case other =>
       Left(List(unsupported(
@@ -1950,6 +2028,17 @@ object RustCodeWalk:
     val (errs, ok) = rendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten) else Right(ok)
 
+  /** `mapType` renders `Unit` as the EMPTY string, which is right in return position — it is how
+   *  "no `-> T` clause" is expressed — and wrong everywhere else. A `Unit` PARAMETER emitted
+   *  `pub fn ignore(u: ) -> i64`, which does not parse: `error: expected type, found )`. Two lines
+   *  reproduce it, and it reached the corpus through std/monaderror.ssc's `def raise[A](e: Unit)`.
+   *
+   *  Rust's unit type is `()`, so that is what a parameter gets. Applied at BOTH parameter
+   *  renderers — the ordinary def and the `given` method — because they are separate code paths and
+   *  fixing one would leave the other emitting the same unparseable text.
+   *  (rust-given-method-type-params-render-empty.) */
+  private def paramType(rendered: String): String = if rendered.isEmpty then "()" else rendered
+
   private def renderParams(
       d: m.Defn.Def, ctx: Ctx, effName: Option[String]
   ): Either[List[Diagnostic], String] =
@@ -1959,7 +2048,7 @@ object RustCodeWalk:
     val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
     val rendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: $r")
+        case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
         )))
@@ -1995,8 +2084,14 @@ object RustCodeWalk:
    * where a branch already produced one. */
   private def renderValueTail(t: m.Term, ctx: Ctx): Either[List[Diagnostic], String] = t match
     case m.Term.If.After_4_4_0(cond, thenp, elsep, _) =>
+      // A condition that reads a Value-typed signal is a `Value`, and Rust's `if` wants a bool.
+      // `coerceFromValue` is total — `ssc_bool` is implemented for `bool` too — but it is applied
+      // only to this shape so every other emitted `if` keeps its exact text and its goldens.
+      def condCoerce(rendered: String): String =
+        if isValueRead(cond, ctx) then coerceFromValue(rendered, "bool") else rendered
       for
-        c <- renderTerm(cond, ctx)
+        c0 <- renderTerm(cond, ctx)
+        c   = condCoerce(c0)
         a <- renderValueTail(thenp, ctx)
         b <- renderValueTail(elsep, ctx)
       yield s"if $c { $a } else { $b }"
@@ -2090,8 +2185,13 @@ object RustCodeWalk:
 
     // `if (cond) thenp else elsep` — Rust if expression.
     case ifExpr: m.Term.If =>
+      // The SECOND if-renderer. The first (above, `If.After_4_4_0`) coerces a Value-typed signal
+      // read to bool; this one is what actually rendered `if loading()` inside a closure, so the
+      // coercion had to be here as well. Two arms for one construct is why the first fix looked
+      // like it had not applied at all.
       for
-        c <- renderTerm(ifExpr.cond, ctx)
+        c0 <- renderTerm(ifExpr.cond, ctx)
+        c   = if isValueRead(ifExpr.cond, ctx) then coerceFromValue(c0, "bool") else c0
         t1 <- renderTerm(ifExpr.thenp, ctx)
         e1 <- renderTerm(ifExpr.elsep, ctx)
       yield
@@ -2448,6 +2548,16 @@ object RustCodeWalk:
       val msCases = handleCasesOf(caseArgs.values.head)
       multiShotHandle(bodyArgs.values.head, msCases, ctx)
         .getOrElse(renderHandle(bodyArgs.values.head, msCases, ctx))
+    // A 0-arg apply on a local holding a `Value` is a SIGNAL READ, and it has to be decided HERE:
+    // put later, among the call arms, an earlier one claims `loading()` first and emits a call —
+    // `error[E0618]: expected function, found Value`. The Signal lives IN an `Any` field, so the
+    // local carries no Signal type and `localSignals` cannot see it; `signal_value()` is defined on
+    // the Value and answers the same question. It yields a Value, and the use sites coerce.
+    // (rust-last-eight-individual-badrust.)
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), argClause)
+        if argClause.values.isEmpty && ctx.valueLocals.contains(n) =>
+      Right(s"${rustIdent(n)}.signal_value()")
+
     // Either constructors and combinators.
     //
     // These emit the BUILT-IN Either's shape, whose variants are tuples: `Either::Left(v)`. A
@@ -3400,7 +3510,19 @@ object RustCodeWalk:
             Right(s"{ let mut __cons = vec![$l]; __cons.extend((${rs.head}).iter().cloned()); __cons }")
           else
           mapInfixOp(op, ctx.defName) match
-            case Right(rustOp) if rs.size == 1 => Right(s"($l $rustOp ${rs.head})")
+            case Right(rustOp) if rs.size == 1 =>
+              // A signal read yields a `Value`, and comparing one with a String does not typecheck.
+              // Coerce the Value SIDE to match the other, which `coerceFromValue` makes total.
+              // `error() != ""` in std/ui/state.ssc is the shape.
+              val otherIsString = isStringExpr(rhsTerms.head.asInstanceOf[m.Term]) || (rhsTerms.head.asInstanceOf[m.Term] match
+                case m.Term.Name(n) => ctx.localStrings.contains(n)
+                case _              => false)
+              val lhsIsString = isStringExpr(lhs) || (lhs match
+                case m.Term.Name(n) => ctx.localStrings.contains(n)
+                case _              => false)
+              val lc = if isValueRead(lhs, ctx) && otherIsString then coerceFromValue(l, "String") else l
+              val rc = if isValueRead(rhsTerms.head.asInstanceOf[m.Term], ctx) && lhsIsString then coerceFromValue(rs.head, "String") else rs.head
+              Right(s"($lc $rustOp $rc)")
             case Right(_)                      => Left(List(unsupported(
               s"def `${ctx.defName}`: infix `$op` with ${rs.size} rhs args"
             )))
@@ -3580,6 +3702,12 @@ object RustCodeWalk:
   private val CollectionOnlyMembers: Set[String] =
     Set("nonEmpty", "isEmpty", "headOption", "lastOption", "reverse", "distinct", "sorted",
         "toList", "toVector", "toSeq", "flatten", "mkString")
+
+  /** Is this term a 0-arg apply on a local holding a `Value` — i.e. a signal read that yields a
+   *  `Value` rather than a concrete type? The use sites coerce on this answer. */
+  private def isValueRead(t: m.Term, ctx: Ctx): Boolean = t match
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) => args.values.isEmpty && ctx.valueLocals.contains(n)
+    case _ => false
 
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
     case m.Term.Name(n) => ctx.localSeqs.contains(n)
@@ -3870,6 +3998,10 @@ object RustCodeWalk:
                 // A 0-arg apply on a Signal-typed local (`loc()`) is a signal READ —
                 // `Value` is not callable. The store is String-valued, so read it and coerce
                 // by the signal's element type: `.show()` for String, parse for Int/Double.
+                // Same read for a Signal held in an `Any` FIELD: the local has no Signal type of
+                // its own, so `localSignals` cannot see it, but `signal_value()` is defined on the
+                // `Value` and answers the same question. It returns a Value; the use sites below
+                // coerce it, which is what keeps this free of type inference.
                 plainName.filter(n => joined.isEmpty && ctx.localSignals.contains(n)) match
                   case Some(n) =>
                     val sv = s"${rustIdent(n)}.signal_value().show()"

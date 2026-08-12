@@ -301,7 +301,21 @@
       |impl SscInt for i64   { fn ssc_int(self) -> i64 { self } }
       |impl SscF64 for Value { fn ssc_f64(self) -> f64 { match self { Value::Double(f) => f, Value::Int(n) => n as f64, other => ssc_wrong("Double", &other) } } }
       |impl SscF64 for f64   { fn ssc_f64(self) -> f64 { self } }
-      |impl SscBool for Value { fn ssc_bool(self) -> bool { match self { Value::Bool(b) => b, other => ssc_wrong("Boolean", &other) } } }
+      |// A SIGNAL's store is String-valued (it is the `data-ssc-text` wiring), so a boolean signal
+      |// read back is `Value::Str("true")`, not `Value::Bool`. Rejecting it would make every
+      |// `if someBoolSignal()` panic at runtime — std/ui/state.ssc is written that way. Only the two
+      |// exact spellings are accepted; anything else still reports its real type rather than
+      |// guessing, so a genuine wrong-type error stays loud.
+      |impl SscBool for Value {
+      |    fn ssc_bool(self) -> bool {
+      |        match self {
+      |            Value::Bool(b) => b,
+      |            Value::Str(ref s) if s == "true"  => true,
+      |            Value::Str(ref s) if s == "false" => false,
+      |            other => ssc_wrong("Boolean", &other),
+      |        }
+      |    }
+      |}
       |impl SscBool for bool  { fn ssc_bool(self) -> bool { self } }
       |impl SscStr for Value  { fn ssc_str(self) -> String { match self { Value::Str(s) => s, other => ssc_wrong("String", &other) } } }
       |impl SscStr for String { fn ssc_str(self) -> String { self } }
