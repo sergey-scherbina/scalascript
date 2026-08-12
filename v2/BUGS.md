@@ -1897,6 +1897,72 @@ surface syntax.
      fixed-in: -
      gate: - -->
 
+**DIAGNOSED 2026-08-12 — root cause found, one-line fix identified, and DELIBERATELY NOT LANDED.
+Read the last section before applying it.**
+
+**First: this entry's own claim was stale, in the way it predicted.** `loop` is fixed; all ten files
+now decline on **`Parser`**. The entry warns that "anyone re-running the census will find the count
+UNCHANGED at 10 and could reasonably conclude the fix did not work — the cause moved". It moved
+again, and I nearly started fixing a name that no longer fails.
+
+**Second: the ten files are not at fault.** `std/parsing/core.ssc` — the module that DEFINES
+`Parser` — does not lower under F. The importers declined for their dependency.
+
+**Root cause, isolated to a twelve-line repro after five refuted hypotheses** (nested recursion,
+object-as-qualifier, trait+object companion pair, the `exports:` header, two objects in one file —
+all lower fine):
+
+```scalascript
+object NoCtx extends Ctx                    → F lowers it
+object NoCtx extends Ctx + object Helper:   → GAP: unbound global: (global Helper)
+```
+
+`objBodyToks` scans forward for the block-open token that starts an object's body. **An object with
+no body has none**, so the scan runs past the declaration and finds the block-open of the NEXT
+object — which becomes the bodyless object's body, leaving the real owner with no item at all.
+`case object` has had its own branch (`caseObjectItem`, which consumes `extends` and body on
+purpose) since the `os.ssc`/`Platform` fix; a plain `object X extends T` never got one. That is why
+the two nearly identical forms behaved differently for months. `core.ssc` has exactly this shape:
+`case object NoContext extends ParserContext` followed by `object Parser:`.
+
+The fix is one line — stop the scan at a statement separator:
+
+```
+def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then ts
+  else (if isTok(hd(ts), 2, 52) then ts else objBodyToks(tl(ts))))
+```
+
+**Measured with it applied:** `std/parsing/{core,combinators,helpers,layout}.ssc` all lower, and
+**6 of the 10** corpus files go GAP → F. The self-compile fixpoint holds, build clean. The remaining
+four decline on a different name again — `unbound global: (global _)`, the underscore — which is a
+separate gap deserving its own entry.
+
+**WHY IT IS NOT LANDED. It turns two green conformance cases RED.** `indent-block-statements` and
+`indent-config-format` are two of the six the fix newly lowers, and F's lowering of them is WRONG:
+
+```
+ssc: expected Int, got PReadContext(<closure>)
+```
+
+Today F declines those files, they compile on the default front, and they print the right answer. The
+fix replaces "declines gracefully" with "lowers incorrectly", and a front that refuses is better than
+one that quietly miscompiles. Landing it would need either the `PReadContext` lowering fixed too, or
+those two cases declared `known-red: v2` with this as the named cause — a real cost, and a decision
+rather than a side effect.
+
+**One more thing I could not explain, recorded rather than waved away:** the same run shows
+`default-params` FAIL on the **JVM** lane, `expected=5000050000 got=705082704` — an exact 32-bit
+truncation. It PASSED in two earlier `--no-memo` runs on this machine, and this change is F-only, so
+by construction it should not touch the JVM lane. Either the attribution is wrong or something
+couples them; unexplained, and part of why this is not being landed.
+
+**A process note worth more than the fix.** Verify a front change with `--front-report`, not with
+conformance output: when F declines, the file silently compiles on the default front and prints the
+correct answer, so a plain output comparison passes either way. And do not mutate the staged front
+(`bin/lib/*/native-front/tower/bin/fsub.ssc`) for a quick A/B while a long run is measuring against
+it — one 40-minute conformance run had to be thrown away for exactly that.
+
+
 **Found 2026-07-31** by `f-tilde-infix`, as the deliberate residue of its own fix rather than left
 for someone to rediscover.
 
