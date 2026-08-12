@@ -1052,14 +1052,15 @@ version, and the second such copy is what produced [[jsgen-char-literal-escape]]
 `private[codegen]` so the pattern path shares it rather than becoming a fourth.
 
 ## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 9369f1016
      lane: int
      area: codegen
      gate: tests/e2e/v1-jit-size.sh
      kind: perf -->
 
-**Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
-splits are the remaining work).
+**SUPERSEDED — closed at the end of this entry. Was:** OPEN (found 2026-07-29 by censusing v1 for
+the first time; gate landed alongside, the splits are the remaining work).
 
 **`-XX:+DontCompileHugeMethods` is on by default and a method over `-XX:HugeMethodLimit` (8000
 bytecodes) is NEVER JIT-compiled** — not C1, not C2. It runs in the bytecode interpreter for the
@@ -1335,6 +1336,36 @@ is four independent floor measurements in one session, on a host that had quiete
 establish a floor; it establishes that one pair was lucky. That is why no number is quoted here for
 a win that the same harness could not have distinguished from its own noise — and it is the reason
 to take these measurements on a quiet machine with more rounds before quoting any.
+
+
+### CLOSED 2026-08-12 — the INT lane has no method over the limit, and the gate that says so runs
+
+The three splits are done and the frozen list went **8 -> 5**. Every remaining entry belongs to
+another subsystem and none of them is the interpreter's dispatch:
+
+| still over the limit | owner |
+|---|---|
+| `ActorScheduler::handleActorOp` 28036 | actors plugin |
+| `JsGen::genExpr` 25328 | JS codegen — filed as `jsgen-genexpr-is-three-times-the-jit-limit` |
+| `RustCodeWalk$::renderTerm` 19630 | Rust codegen — filed as `renderTerm-is-two-and-a-half-times-the-jit-limit` |
+| `StaticJsEmitter$Ctx::compile` 11387, `SolidEmitter$Ctx::compile` 10670 | frontend emitters |
+
+This entry's title is "the INT lane's core dispatch is over HotSpot's limit". That is no longer
+true, so it closes rather than being kept open as a container for other people's debt.
+
+**What actually made it closable was repairing the measuring instrument first.** `v1-jit-size.sh`
+had never run once: unwired, silently aborting on an empty census under `set -euo pipefail`, and
+scanning a directory that does not exist after the build its own header prescribed. Four frozen
+methods had grown unnoticed, two new offenders had appeared, and the largest method in the tree had
+never been censused because plugin bytecode ships nested inside a `.sscpkg`. It now runs on every
+push and the list can only shrink.
+
+**Method:** at every step the prize was sized BEFORE the work with `-XX:-DontCompileHugeMethods` —
+same artifact in both arms, no rebuild — and each split was accepted on a DETERMINISTIC criterion
+(the method appears in `-XX:+PrintCompilation` with the default limit in force) rather than on a
+timing. That mattered: the host ran between load 17 and 109 all session, and four A/A control pairs
+on the final quiet run put the harness's own floor at **±26%**, larger than most of the effects
+being chased. No wall-clock number is claimed for any of the three splits.
 
 
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`

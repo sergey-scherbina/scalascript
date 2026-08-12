@@ -7,6 +7,47 @@ grepping for status.
 
 Newest first.
 
+## jsgen-genexpr-is-three-times-the-jit-limit — 25328 bytecodes, refusal demonstrated, hot cost NOT established
+
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: perf
+     reported-by: claude-code
+     reported-at: 2026-08-12
+     confirmed: yes
+     gate: tests/e2e/v1-jit-size.sh -->
+
+`scalascript.codegen.JsGen::genExpr` is **25328 bytecodes — 3.17× the 8000-byte HotSpot
+`HugeMethodLimit`**, past which a method is never JIT-compiled by C1 or C2. It is the largest
+offender in the tree after `handleActorOp`, and it is on the path of every JS emission.
+
+**The refusal is REAL and was demonstrated**, on the same artifact that was censused, with
+`-XX:+PrintCompilation` and `-XX:-DontCompileHugeMethods` as the control (same artifact both arms):
+
+| workload | limit ON | limit OFF |
+|---|---|---|
+| one small program, single `emit-js` | 0 | 0 — never warm enough to be considered |
+| a generated 400-def, 800-line program | **0** | **1** (tier 3) |
+
+**AND THE HOT COST IS NOT ESTABLISHED — read that before spending a day on this.** One tier-3
+submission on an 800-line program is barely warm. Compare the interpreter methods this technique
+was just applied to (`v1-interpreter-hot-path-never-jits`): `dispatchList` and `evalCore` were
+submitted 3-4 times INCLUDING tier 4 on modest workloads, which is what made splitting them worth
+doing. `genExpr` is a compile-TIME method invoked once per emission, and a one-shot `emit-js` exits
+long before C2 would look at it.
+
+**Where it would actually cost, and what to measure first:** a long-lived process performing many
+emissions — a watch/server mode, or a corpus build sharing one JVM. Measure THAT before splitting:
+run the emission repeatedly in one process and check whether `genExpr` reaches tier 4 with the limit
+off. If it does not, the 25328 is a hazard on the census and nothing more, and the honest outcome is
+to record that rather than to split.
+
+**Why it is filed rather than fixed:** the size is a fact and the gate now holds it frozen, so it
+cannot grow unnoticed the way it did while `v1-jit-size.sh` was wired to nothing (24984 → 25100 →
+25328). Splitting is the same shape as the interpreter work — sequential decomposition along the
+term cases — and is cheap to do once a measurement says it pays.
+
 ## js-char-is-a-plain-string — a char literal never widened, so `'x' == 120` was false and `'a' + 1` was `"a1"`
 <!-- status: fixed
      lane: js
