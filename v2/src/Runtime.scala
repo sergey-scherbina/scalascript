@@ -2461,7 +2461,7 @@ object Prims:
         case (ls, "count", List(fn: Value.ClosV)) if isList(ls) =>
           IntV(unlist(ls).count(x => callClos(fn, Array(x)) == Value.BoolV(true)).toLong)
         case (ls, "sortBy", List(fn: Value.ClosV)) if isList(ls) =>
-          listOf(unlist(ls).sortBy(x => callClos(fn, Array(x)))(valueOrdering))
+          listOf(unlist(ls).sortBy(x => callClos(fn, Array(x)))(using valueOrdering))
         case (ls, "sortWith", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).sortWith((a, b) => callClos(fn, Array(a, b)) == Value.BoolV(true)))
         case (ls, "groupBy", List(fn: Value.ClosV)) if isList(ls) =>
