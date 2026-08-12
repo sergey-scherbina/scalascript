@@ -1,0 +1,11 @@
+slug: mcp-p3c-park
+branch: feature/mcp-p3c-park
+agent: claude-code
+started: 2026-08-12T17:13:51Z
+heartbeat: 2026-08-12T17:13:51Z
+status: claimed-before-planning
+items: mcp-p3c-park
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
