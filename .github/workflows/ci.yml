@@ -860,6 +860,25 @@ jobs:
       - name: v2 runtime stays under HotSpot's HugeMethodLimit
         run: tests/e2e/v2-jit-size.sh --self-test
 
+      # The v1 twin, and it had NEVER RUN — not here, not in smoke, not anywhere. Three defects, any
+      # one of them fatal: nothing invoked it; its census pipeline ended in a `grep` that exits 1 on
+      # zero matches, so under `set -euo pipefail` it aborted with rc=1 and EMPTY stderr; and it
+      # scanned `v1/**/target/*/classes`, which do not exist after the `install.sh --dev` its own
+      # header prescribed, because that build restores bin/lib from the toolchain cache.
+      #
+      # Pointed at the SHIPPED artifacts it immediately found what the silence had cost: four frozen
+      # methods grown (renderTerm +3204 bytecodes), two new offenders, and the largest method in the
+      # tree — ActorScheduler::handleActorOp at 28036 — never censused at all, because plugin
+      # bytecode ships in a jar NESTED inside a .sscpkg.
+      #
+      # Placed HERE because it needs exactly what the step above produces: installBin stages
+      # bin/lib/jars and bin/lib/compiler/plugins. Verified green against that staging path
+      # specifically (`sbt installBin` alone: 56 jars + 27 nested plugin jars), not merely against a
+      # local install.sh tree. ~85 s. --self-test falls through to the census, so this one
+      # invocation does both. (v1-interpreter-hot-path-never-jits.)
+      - name: v1 tree stays under HotSpot's HugeMethodLimit
+        run: tests/e2e/v1-jit-size.sh --self-test
+
       - name: ScalaScript 2.1 compiler-free ASM artifact release gate
         run: tests/e2e/v21-build-jvm-release-gate.sh --report target/v21-build-jvm-release.tsv
 

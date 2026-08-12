@@ -1055,7 +1055,7 @@ version, and the second such copy is what produced [[jsgen-char-literal-escape]]
 <!-- status: open
      lane: int
      area: codegen
-     gate: tests/e2e/v2-jit-size.sh
+     gate: tests/e2e/v1-jit-size.sh
      kind: perf -->
 
 **Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
@@ -1114,6 +1114,77 @@ since they are the ones every INT case pays.
 **Note on the file-size intuition:** `Main.scala` is the largest file in the repository (8467 lines)
 and has **no** over-limit method. Size of file is not the signal; size of method is. An earlier plan
 to split `Main.scala` first would have spent a day on the wrong target.
+
+---
+
+### 2026-08-12 — THE GATE COULD NOT HAVE CAUGHT ANYTHING, and the prize is now MEASURED
+
+Two findings, and the first one had to come first: the splits could not be verified because the
+apparatus that measures them was broken in three independent ways.
+
+**1. The gate had never run.** Not in CI, not in smoke, not anywhere — the only things naming
+`tests/e2e/v1-jit-size.sh` were this entry, a source comment and the orphan probe. Beyond being
+unwired it also *could not work*: its census pipeline ended in `grep -E '^[0-9]+ '`, grep exits 1 on
+zero matches, and under `set -euo pipefail` that produced **rc=1 with empty stderr** — a failure
+with no message. And it scanned `v1/**/target/scala-*/classes`, which **do not exist** after the
+`install.sh --dev` its own header prescribes, because that build restores `bin/lib` from the
+toolchain cache and never invokes sbt.
+
+Fixed to scan the SHIPPED artifacts, wired into `ci.yml` beside its v2 twin, and verified green
+against the exact staging path CI uses. What the silence had cost, visible immediately:
+
+| method | frozen | now | |
+|---|---:|---:|---|
+| `RustCodeWalk$::renderTerm` | 16346 | 19550 | **+3204** |
+| `JsGen::genExpr` | 25100 | 25328 | +228 |
+| `EvalRuntime$::evalCore` | 15330 | 15428 | +98 |
+| `DispatchRuntime$::dispatchString` | 9839 | 10013 | +174 |
+| `StaticJsEmitter$Ctx::compile` | — | 11387 | **NEW** |
+| `SolidEmitter$Ctx::compile` | — | 10670 | **NEW** |
+
+**Plugin bytecode ships NESTED and no census had ever opened it.** All 27 v1 plugins ship as a
+`.sscpkg` zip whose payload is `intrinsics/<name>.jar` — a jar inside a zip. `handleActorOp`, at
+28036 bytecodes the largest offender in the tree, lives there. The first version of the fix reported
+it as *"no longer over the limit — DELETE it from FROZEN"*, which is false: it is alive and
+unchanged. Obeying that would have dropped the biggest offender from the census forever, green.
+
+**2. THE PRIZE IS ~40% ON LIST- AND STRING-HEAVY INTERPRETER WORKLOADS — measured, not inferred.**
+
+The control needs no code change and no rebuild: `-XX:-DontCompileHugeMethods` removes the limit
+entirely, so both arms are the SAME artifact and the difference is exactly what any split could
+recover. `-XX:HugeMethodLimit` is develop-only and unavailable in a product JVM; this flag is not.
+
+*Mechanism, from `-XX:+PrintCompilation`, deterministic:*
+
+    limit ON   dispatchList (14697 bytes)   never submitted — refused, silently
+               dispatchList1 (5301 bytes)   tier 3 and tier 4   <- an EARLIER split, JITs fine
+    limit OFF  dispatchList (14697 bytes)   tier 4, C2 compiles it
+               evalCore     (15429 bytes)   tier 4, C2 compiles it
+
+So these methods ARE hot enough that HotSpot wants them, and the limit is what refuses. `evalCore`
+is *not* reached on an arithmetic loop — the interpreter's own bytecode JIT takes that, which is why
+the `infix2` split measured neutral — but list and string operations do reach it.
+
+*Cost, alternating A/B, five rounds, ABBA order, medians. The host was at load 58→79, so the
+RESOLUTION FLOOR was measured first with an A-vs-A pair through the same harness:*
+
+| workload | A/A noise floor | real A/B (limit ON → OFF) |
+|---|---|---|
+| `lists-big` | +16.4% (min +21.5%) | **−49.4%** (min −36.6%) |
+| `strings-big` | −8.2% (min −11.6%) | **−44.8%** (min −40.9%) |
+
+The effect is 2–4× the noise floor and in the same direction on both workloads, which the A/A
+control is not. A number taken at load 79 is not a number to quote precisely — but "≈40%, well
+outside a measured floor, with the mechanism confirmed deterministically" is a costed task, which
+this entry did not have before.
+
+**This corrects this entry's own correction, in the useful direction.** "Every INT case pays" is
+still false. But the 2026-07-30 note concluded the census "flags a hazard; it does not by itself
+establish a hot cost", and for `dispatchList`/`dispatchString`/`evalCore` a hot cost is now
+established. **Suggested order is therefore `dispatchList` first** — it is the one with both the
+largest bytecode and a demonstrated ~40% — not `evalCore`, and `infix2`'s neutral result should be
+read as "arithmetic is taken by the bytecode JIT", not as "splitting does not pay".
+
 
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
 <!-- status: fixed
