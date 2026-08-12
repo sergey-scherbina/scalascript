@@ -5,7 +5,7 @@ started: 2026-08-12T15:45:38Z
 heartbeat: 2026-08-12T15:45:38Z
 status: in-progress
 items: derived-budget-underpredicts-ci-and-reds-main
-paths: file:tests/smoke-baseline.tsv file:tests/smoke-baseline-harvest.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+paths: file:tests/smoke-baseline.tsv file:tests/smoke-baseline-harvest.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/e2e/smoke-budget-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
