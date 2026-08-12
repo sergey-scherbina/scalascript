@@ -514,7 +514,7 @@ Same shape as Phase 4 but for the Java SDK.
 | **Custom transports** (Unix socket, named pipe) | Stick to stdio / HTTP+SSE / WS — those cover the realistic deployment landscape; bespoke transports are an SDK-extension concern |
 | **Schema validation in the std layer** | The MCP SDK handles JSON-Schema validation; user-facing args arrive validated.  Std doesn't re-validate |
 | **MCP-versioned namespaces** in v1.17 (`std/mcp/v1` vs `std/mcp/v2`) | Single `std/mcp/*` for now; introduce versioned namespaces when MCP protocol versions diverge |
-| **Bidirectional sampling** (server → client → LLM → server) | MCP supports it as an advanced feature; defer to v1.17.x once a real consumer needs it |
+| **Bidirectional sampling** (server → client → LLM → server) | **DEPRECATED by MCP 2026-07-28 (SEP-2577) — do not add.** Was deferred until a real consumer needed it; that consumer should now integrate with its model provider directly. We implement the bidirectional request MECHANISM, which MRTR replaces; we never implemented Sampling itself |
 
 ## 11. Open questions
 
@@ -600,6 +600,11 @@ trusted).  Open:
 
 ### 11.8 Logging / observability
 
+**DEPRECATED by MCP 2026-07-28 (SEP-2577).** Logging survives the deprecation window and the
+legacy era still serves `logging/setLevel`, but the modern era removed that method — the level
+rides per-request in `_meta` as `io.modelcontextprotocol/logLevel`. New work should log to stderr
+on stdio, or emit OpenTelemetry. The decision below stands for the legacy era we keep serving.
+
 Decided: MCP request / response logging hooks into existing
 `std/middleware.ssc` via a `withMcpLog` middleware analogue.
 Open:
@@ -636,7 +641,7 @@ emerge:
 - **Type-class layer** (`given McpTool[A, R]`, `derives
   McpSchema`) — depends on v1.14
 - **Streaming resources** — depends on v1.10 Generators
-- **Bidirectional sampling** — MCP advanced feature
+- ~~**Bidirectional sampling** — MCP advanced feature~~ — **struck: deprecated by MCP 2026-07-28**, not a roadmap item
 - **`using mcpConnect(...) { client => … }` RAII** — needs
   a `using`-resource language feature
 - **MCP protocol version negotiation** when v2 emerges
