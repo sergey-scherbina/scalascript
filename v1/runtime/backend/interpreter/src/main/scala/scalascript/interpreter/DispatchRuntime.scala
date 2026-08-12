@@ -1102,6 +1102,24 @@ private[interpreter] object DispatchRuntime:
 
   // ── String ──────────────────────────────────────────────────────────────────
 
+  // ── dispatchString is split in two, and the reason is a hard JVM limit ───────────────────────────
+  //
+  // Over `-XX:HugeMethodLimit` (8000) a method is NEVER JIT-compiled, by C1 or C2, and runs
+  // interpreted for the life of the process. `dispatchString` was 10013 bytecodes — the LAST
+  // over-limit method left in the interpreter after `dispatchList` and `evalCore` were split.
+  //
+  // MEASURED, and on a workload chosen because it reaches this method: it is NOT hot on a
+  // list-heavy program (0 compilations either way there), so a measurement taken on the wrong
+  // workload would have said nothing at all. On a string-heavy one, `-XX:+PrintCompilation`:
+  //
+  //   limit ON (default)   dispatchString (10013 bytes)   5 events
+  //   limit OFF            dispatchString                 8 events
+  //
+  // That asymmetry IS the refusal, and losing it is this split's acceptance test.
+  //
+  // PURE SEQUENTIAL DECOMPOSITION: part A tries its cases in the ORIGINAL order and its `case _`
+  // falls through to part B, which keeps the original fallback. First match wins, unchanged.
+  // (v1-interpreter-hot-path-never-jits.)
   private def dispatchString(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
       // `"a" ++ "b"` is CONCATENATION — String is a Seq[Char] in Scala. Without this case the call
@@ -1259,6 +1277,12 @@ private[interpreter] object DispatchRuntime:
                 })
           Pure(recv)
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchStringB(recv, s, name, args, env, interp)
+
+  /** Part 2 of 2 — see the note on `dispatchString`. Cases in original order; holds the
+   *  ORIGINAL final fallback. */
+  private def dispatchStringB(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    name match
       case "dropWhile"   => args match
         case List(f) =>
           var i = 0

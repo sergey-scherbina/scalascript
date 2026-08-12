@@ -79,6 +79,17 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 #   StaticJsEmitter$Ctx::compile  11387   NEW
 #   SolidEmitter$Ctx::compile     10670   NEW
 #
+# dispatchString DELETED 2026-08-12: split into dispatchString/B at 5781/3437.
+#
+# WITH THIS THE V1 INTERPRETER HAS NO METHOD OVER THE LIMIT AT ALL. The five that remain below are
+# other subsystems — the actors plugin, the JS and Rust code generators, and two frontend emitters —
+# each its own debt with its own owner, not the interpreter's hot path.
+#
+# Acceptance was a NAMED asymmetry, not a timing: on a string-heavy workload dispatchString was
+# compiled 5 times with the limit on and 8 with it off. It is now 8/8, and at 5782 bytes it reaches
+# tier 2 and tier 4 with the default limit in force. Measured on a STRING-heavy workload on purpose:
+# it is not hot on a list-heavy one (0 either way), where the measurement would have said nothing.
+#
 # evalCore DELETED 2026-08-12: split into evalCore/B/C at 4455/5120/3616. Checked the source first,
 # as the disappeared-check instructs — alive, simply no longer over the limit. PrintCompilation on
 # the shipped build: `evalCore (4456 bytes)` reaches tier 3 AND tier 4 with the default limit in
@@ -108,7 +119,6 @@ read -r -d '' FROZEN <<'EOF' || true
 19630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
-10013 scalascript.interpreter.DispatchRuntime$::dispatchString
 EOF
 
 # ── self-test: a detector only ever observed staying quiet is not a detector ─────────────────

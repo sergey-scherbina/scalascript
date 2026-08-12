@@ -1272,6 +1272,71 @@ flag pair on `strings-big` must lose the 5/8 asymmetry above. Note it was NOT ho
 whoever takes it should keep a string-heavy workload in the loop or the measurement will say nothing.
 
 
+### 2026-08-12 — `dispatchString` SPLIT: the v1 interpreter now has NO method over the limit
+
+`dispatchString` 10013 -> **5781 / 3437**. Frozen list 6 -> 5, and **every remaining entry belongs to
+another subsystem** — the actors plugin, the JS and Rust code generators, two frontend emitters.
+The interpreter's hot path is done.
+
+**Acceptance was a named asymmetry, not a timing**, and it was written down before the split:
+on a string-heavy workload `dispatchString` was compiled **5 times with the limit on and 8 with it
+off**. After:
+
+| workload | `dispatchString` | `evalCore` | `dispatchList` |
+|---|---|---|---|
+| `strings-big` | **8 / 8** — asymmetry gone | 4 / 4 | 3 / 3 |
+| `lists-big` | 0 / 0 (not hot here) | 4 / 4 | 3 / 3 |
+
+At 5782 bytes it reaches tier 2 and tier 4 with the default limit in force. **No method on either
+workload is affected by `-XX:-DontCompileHugeMethods` any more** — which is what "the JIT refusal is
+gone from this path" means, stated as something that can be checked rather than felt.
+
+**Measured on a STRING-heavy workload deliberately.** This method is not hot on a list-heavy one —
+0 compilations either way — so the obvious reuse of the previous split's workload would have
+produced a confident-looking null result. The entry's own note from the `evalCore` step said so in
+advance, which is why it did not happen.
+
+`backendInterpreter/testFast` **1609/0**.
+
+### The programme, end to end
+
+| method | before | after | frozen list |
+|---|---:|---|---|
+| `dispatchList` | 14696 | 4123 / 6043 / 2999 | 8 -> 7 |
+| `evalCore` | 15428 | 4455 / 5120 / 3616 | 7 -> 6 |
+| `dispatchString` | 10013 | 5781 / 3437 | 6 -> 5 |
+
+**What made this tractable was fixing the measuring instrument first.** `tests/e2e/v1-jit-size.sh`
+had never run — unwired, silently aborting on an empty census, and scanning a directory that does
+not exist after the build its own header prescribed. Until that was repaired there was no way to
+know a split had worked, and no way to stop the debt growing: four frozen methods had grown and two
+new offenders had appeared unnoticed, and the largest method in the tree had never been censused at
+all because plugin bytecode ships nested inside a `.sscpkg`.
+
+**And the honest remainder: no wall-clock number is claimed for any of the three splits.** What IS
+established is the mechanism, deterministically, at every step: these methods were never submitted
+to the JIT, and now they are compiled at tier 2/3/4 in the default configuration.
+
+**THE FLAG IS NOW MECHANICALLY INERT, AND THAT TURNED THE FINAL A/B INTO A NOISE MEASUREMENT.** With
+every over-limit method gone, `-XX:-DontCompileHugeMethods` can change nothing — verified rather
+than assumed: diffing the compiled-method SETS between the two arms leaves 99 differing methods and
+**the largest is 188 bytes**, so the 8000-byte limit cannot have refused any of them. They are just
+the ordinary run-to-run variation in what a JVM's compiler queue gets to.
+
+So both `FLAG` pairs in the final run are A/A pairs in disguise, and with the two declared ones that
+is four independent floor measurements in one session, on a host that had quietened to load 17:
+
+    -4.5%   lists-big   (declared A/A)
+   -26.5%   lists-big   (FLAG — inert, therefore A/A)
+   +24.7%   strings-big (declared A/A)
+    -3.2%   strings-big (FLAG — inert, therefore A/A)
+
+**The floor is ±26%, not the -4.5% the first pair showed.** One A/A pair reading tight does not
+establish a floor; it establishes that one pair was lucky. That is why no number is quoted here for
+a win that the same harness could not have distinguished from its own noise — and it is the reason
+to take these measurements on a quiet machine with more rounds before quoting any.
+
+
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
 <!-- status: fixed
      lane: int
