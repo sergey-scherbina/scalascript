@@ -1,55 +1,96 @@
 ## ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named
 
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-12
+     confirmed: yes
+     fixed-in: 85d305116
+     gate: tests/e2e/ref-front-three-defects-gate.sh -->
+
+In the reference front, a call passing an argument **by name** to a def with a **trailing vararg**
+kept only the FIRST vararg argument and silently dropped the rest.
+`tests/conformance/tkv2-hstack-wrap.ssc` is the real instance — a row of widgets built with one
+child instead of two:
+
+```
+def hstack(gap: Int = 0, wrap: Boolean = false)(children: TkNode*)
+hstack(gap = 8)(a, b)     эталон 8:1:false → 8:2:false     F и интерпретатор 8:2:false
+```
+
+**Mechanism, from IR dumps rather than inference.** The front flattens the call's clauses AND
+pre-fills the first clause's unnamed params with their defaults as positionals, so
+`expandNamedDefaultCall` sees roughly `[narg(gap,8), false, a, b]`. `nargBindings` walks params and
+positionals one-for-one: `gap` takes the named 8, `wrap` takes the positional `false` (correct),
+`children` takes `a` — and the recursion ends. `b` is dropped before anything downstream can see
+it. No diagnostic; the program just gets a shorter collection.
+
+```
+до:    (app (global hstack) (local 2) (local 1) (ctor Cons (local 0) (ctor Nil)))
+после: (app (global hstack) (local 1) (local 0) (ctor Cons a (ctor Cons b (ctor Nil))))
+```
+
+**The fix** leaves packing where it belongs. `packVarargsArgs` folds everything past `arity-1` into
+a Cons-list, so the expansion hands it MORE args than there are params: the lead bindings plus every
+unconsumed positional, SPREAD. `nargPosUsed` counts what the lead walk consumed, mirroring
+`nargBindings`' per-param choice so the two cannot disagree about where the leading params stop.
+It fires only when the callee has a trailing vararg, the call carries a named argument, and the
+vararg slot is not itself named.
+
+**Two dead repairs, both measured:**
+1. *Build the list inside `nargBindings`.* Double-packs — `packVarargsArgs` folds it a second time
+   and the length is 1 again for a different reason. The comment above that call already recorded
+   this failure ("packing there compounded into a nested list"): a paid-for experiment, ignored.
+2. *Split the positionals at the first named argument* (Scala requires positionals to precede named
+   ones, so the boundary looks exact). Wrong here because the front has ALREADY inserted clause-1
+   defaults as positionals — the split hands `wrap`'s own `false` to the children, giving three.
+
+**What made this expensive was the probe, not the defect.** I reduced to a synthetic
+`def h(gap: Int = 0, wrap: Boolean = false, kids: Int*)` — a SINGLE clause — and called it
+`h(gap = 8)(1, 2)`. That is not valid Scala and does not have the real shape, and it disagreed with
+the real one at every step: repair 2 looked correct on it and produced three children on `hstack`,
+and the repair that actually works looked like a no-op on it. The real callee is CURRIED, and
+currying is the whole reason the defaults arrive as positionals. Reduce toward the smallest program
+that still has the SHAPE, and check the reduction against the real input before trusting it.
+
+An unrelated pre-existing failure was found while verifying this and is filed separately —
+[[f-miscompiles-scljet-record-fields-to-the-fallback-arm]].
+
+## f-miscompiles-scljet-record-fields-to-the-fallback-arm
+
 <!-- status: open
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-12
      confirmed: yes
-     gate: none — see "Why no gate" -->
+     gate: tests/e2e/f-output-agreement-gate.sh -->
 
-In the reference front, a call that passes an argument **by name** to a def with a **trailing
-vararg** silently keeps only the FIRST vararg argument and discards the rest. The other two lanes
-keep all of them.
-
-```
-def h(gap: Int = 0, wrap: Boolean = false, kids: Int*) = kids.length
-println(h(gap = 8)(1, 2))     эталон 1     F 2     интерпретатор 2
-println(h(8)(1, 2))           эталон 2     F 2     интерпретатор 2
-```
-
-The positional form is correct. Only the named form loses arguments, and it loses them without a
-diagnostic — the call returns a smaller collection, and whatever the program does next does it to
-the wrong data. This is what `tkv2`'s `h(gap = 8)(...)` hstack renders from, which is where it was
-found: a row of widgets came out with one child.
-
-**Mechanism, from the IR.** `expandNamedDefaultCall` rewrites the named call into a positional one
-by pairing each parameter with a binding. `nargBindings` walks params and positionals in lockstep,
-one positional per parameter — correct for fixed arity, wrong for the vararg slot, which must
-absorb ALL remaining positionals. The trailing param takes the first and the recursion ends, so the
-rest are dropped before anything downstream can see them:
+**`f-output-agreement-gate` is RED on origin/main.** On `examples/scljet-readonly.ssc`, F is
+contradicted by BOTH other lanes — the bucket whose ceiling is 0, and which the gate itself
+describes as "a REGRESSION, not a coverage gap":
 
 ```
-(app (global h) (local 2) (local 1) (ctor Cons (local 0) (ctor Nil)))
-                                    ^ one child, second gone
+F:              List(other, other, other)
+эталон:         List(integer:-2, text:List(72, 105), blob:2)
+интерпретатор:  List(integer:-2, text:List(72, 105), blob:2)
 ```
 
-**The obvious fix is wrong, and the file says so.** Making `nargBindings` bind the vararg param to
-a built list produces a list nested inside a list — `packVarargsArgs` at ssc1-lower.ssc0:2983 then
-folds it a second time, and the length is 1 again for a different reason. The comment directly
-above that line already records this exact failure ("packing there compounded into a nested list")
-from a previous encounter. I made the edit anyway, measured it, saw the length stay at 1, dumped
-the IR, and found the double wrap. Reverted.
+The example matches decoded record fields against constructor patterns
+(`case RecordField(_, _, Some(SqlInteger(value)), _) => "integer:" + …`, and the same shape for
+`SqlBlob` and the text case, at `examples/scljet-readonly.ssc:85-88`). Under F every one of them
+falls through to `case _ => "other"`, so the failing construct is a nested constructor pattern with
+a `Some(...)` inside it, on a case class of four fields — not the decoding itself, since the other
+four printed lines are identical on all three lanes.
 
-**The shape the real fix must take:** packing belongs to `packVarargsArgs` and must stay there, so
-the expansion has to hand it MORE arguments than there are parameters — the leading fixed args plus
-every unconsumed positional, spread, not collected. That means `nargBindings` must report which
-positionals it did not consume, which is a change to its return shape rather than to a branch
-inside it. Not attempted here.
+**Not caused by the vararg fix filed above.** Established rather than assumed: reverting that
+change and rebuilding leaves the divergence exactly as it was, and it reproduces on a clean checkout
+of current origin/main with nothing applied. I hit it while verifying that fix, initially read it
+as my own regression, and nearly discarded a correct change over it — the revert-and-rebuild
+control is what separated the two.
 
-**Why no gate.** A gate asserting the correct answer would be red on a known-open defect. The
-three-lane operator gate landed alongside this entry covers the sibling class (operator absent from
-one front) and would extend naturally to this one the day it is fixed.
+Not narrowed further: no reduced reproducer yet, and no attribution to a commit.
 
 ## renderTerm-is-two-and-a-half-times-the-jit-limit
 
