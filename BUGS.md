@@ -115,11 +115,12 @@ than a lookup and is not guessed at here.
 
 ## multi-effect-marker-is-lost-in-a-bare-ssc — the same program is multi-shot fenced and one-shot bare
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: c926bb3e8
      lane: int
      area: front
      kind: bug
-     gate: none -->
+     gate: sbt backendInterpreter/testOnly *MultiEffectBareFileTest* -->
 
 **Measured 2026-08-11 on a freshly built toolchain**, one program, two files that differ only in
 whether the code sits inside a ```` ```scalascript ```` fence:
@@ -156,13 +157,34 @@ misbehave quietly — it throws where a correct program should run, and the mess
 several gate fixtures in this repository use, and it is the second defect of this shape found in two
 days — the other was a keyword-import scanner that only looked inside fences.
 
+**FIXED 2026-08-12 in `c926bb3e8` — AT THE SOURCE.** A bare file is wrapped in a synthetic fence and
+that fence said ```` ```scala ````. Measured on the same source: `List(scalascript)` fenced,
+`List(scala)` bare. So every consumer asking `Lang.isScalaScript` answered NO for a whole file, and
+this entry's one-shot violation was one symptom of that.
+
+**My first fix was in the CONSUMER and Sergiy corrected it.** I had widened `collectScalaTrees` to
+`isParseable`. It works, and it is wrong: EVERY filter on `isScalaScript` is wrong for a bare file,
+so patching them one at a time is how this shape came back twice in three days — the other was an
+import scanner that only looked inside fences. A bare `.ssc` IS ScalaScript; one line at the wrap
+fixes all of them, and the consumer-side change was reverted.
+
+**Blast radius measured**, because `Lang.isStandardScala` is a real distinction (`JsGen`,
+`ScalaJsBackend`, `WasmGen`) and a bare file stops matching it: core 1162/0, testFast 1609/0,
+testSlowJs 154/0, testSlowJvm 55/1 — the same single pre-existing failure, checked against the run
+recorded while timing the lanes.
+
+The test asserts both spellings give the SAME answer, not that the bare one gives a particular one:
+testing bare alone would pass if the effect machinery broke in a way that made both wrong.
+
+
 ## multi-effect-in-braces-does-not-parse — `multi effect E { … }` is `Undefined: multi`
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 74c2983f6
      lane: int
      area: front
      kind: bug
-     gate: none -->
+     gate: sbt core/testOnly *EffectBracesTest* -->
 
 **Measured 2026-08-11.** `Parser.preprocessEffects` matches
 
@@ -179,6 +201,21 @@ reader coming from `object E { … }` writes first. It is a one-line regex chang
 scan the indented branch already does by indentation, but it is NOT free: the rewriter consumes the
 declaration's body by INDENT, so a braced body needs a different terminator. Recorded rather than
 guessed at.
+
+**FIXED 2026-08-12 in `74c2983f6`.** `preprocessEffectBraces` normalises the braced form into the
+colon form at priority 49, just before `effects` at 50 — ONE rewriter for both spellings rather than
+a second to keep in step. This entry's own caution was the reason: the existing pass consumes a body
+by INDENT and appends its own closing brace, so teaching it braces would have meant two body scanners
+that must agree forever.
+
+**Narrow on purpose, and asserted:** the `{` must end the declaration line and its matching `}` must
+be alone at the declaration's indent. A one-line `effect E { def op(): Int }` and an unclosed brace
+come out BYTE-IDENTICAL, so nothing that works today can start failing and the uncovered shapes fail
+exactly as they already did.
+
+End to end: `multi effect NonDet { … }` answers `List(11, 12)` — the same as the colon form and as
+v3. core 1168/0.
+
 
 ## option-bound-to-a-val-is-not-tracked — an Option lowers correctly inline but not through a val, so getOrElse lands as unwrap_or on a Vec
 <!-- status: fixed
