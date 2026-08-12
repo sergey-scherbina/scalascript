@@ -1985,8 +1985,20 @@ object Prims:
         case FloatV(d) => op match { case "-" => FloatV(-d); case _ => sys.error(s"__unary__: $op on Float") }
         case BoolV(b)  => op match { case "!" => BoolV(!b); case _ => sys.error(s"__unary__: $op on Bool") }
         case v => sys.error(s"__unary__: $op on ${Show.show(v)}")
-    // __eq__(a, b): structural equality (works on all Value types including ADTs)
-    case "__eq__" => a => liftArith("==", a, BoolV(a(0) == a(1)))
+    // __eq__(a, b): structural equality (works on all Value types including ADTs), EXCEPT that a
+    // mixed Int/Float pair widens first — `1 == 1.0` is `true` in Scala and was `false` here.
+    //
+    // The pair never reached `arithOp`, which has carried the correct `(IntV, FloatV)` arm all
+    // along: `==` lowers to this prim and not to `__arith__` (ssc1-lower :2832, deliberately — the
+    // VM's `i.eq` is Int-only and `"a" == "a"` crashed on it). So the structural default decided
+    // it, and `IntV(1) == FloatV(1.0)` is false. `!=` lowers to `if __eq__ then false else true`
+    // (:2873), so it is the same defect and the same fix.
+    //
+    // THIS ALSO REACHES LITERAL PATTERNS — `case 1 =>` compiles to `__eq__(scrutinee, 1)`
+    // (:3427, :3472, :3523). That is correct and was measured, not assumed: on the jvm lane, which
+    // compiles to real Scala, `(1.0: Any) match { case 1 => "one" }` answers `one`, and js agrees.
+    // (lanes-disagree-on-mixed-numeric-comparison.)
+    case "__eq__" => a => liftArith("==", a, BoolV(eqWidening(a(0), a(1))))
     // __method__(name, receiver, args...): method dispatch on receiver type
     // An APPLIED zero-arg method call `recv.name()`. Identical to __method__ except
     // that it NEVER eta-expands: the user wrote an argument list, so the call must
@@ -3331,6 +3343,17 @@ object Prims:
         // statement (e.g. `effect Logger:` compiles to
         // __arith__("Logger", effectClosure, ()) in v2).
         UnitV
+
+  /** Structural equality, widening a mixed Int/Float pair the way Scala's boxed `==` does.
+   *
+   *  Int/Float ONLY. `BigV` is absent because it is a SEPARATE, still-open divergence, not because
+   *  it is correct: measured against the jvm lane, `BigInt(1) == 1.0` is `true` in Scala and
+   *  `false` here. Every other pair keeps the structural answer it had, which is what makes this
+   *  safe for the literal-pattern callers — they can only gain a match real Scala also makes. */
+  private def eqWidening(l: Value, r: Value): Boolean = (l, r) match
+    case (IntV(a), FloatV(b)) => a.toDouble == b
+    case (FloatV(a), IntV(b)) => a == b.toDouble
+    case _                    => l == r
 
   private def bigArith(op: String, left: BigInt, right: BigInt): Value = op match
     case "+" => BigV(left + right)

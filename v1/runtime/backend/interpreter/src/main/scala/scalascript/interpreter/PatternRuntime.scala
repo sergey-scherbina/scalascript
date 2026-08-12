@@ -365,6 +365,29 @@ private[interpreter] object PatternRuntime:
     case Lit.Null()     => Value.NullV
     case _              => Value.NullV
 
+  /** Does `scrutinee` match a compiled literal pattern?
+   *
+   *  A literal pattern in Scala tests with `==`, which on boxed numbers WIDENS: `(1.0: Any) match
+   *  { case 1 => }` matches. Measured on the jvm lane, which compiles to real Scala, and on js —
+   *  both answer the literal's branch. Structural `scrutinee == litV` says no, because `IntV(1)`
+   *  and `DoubleV(1.0)` are different objects.
+   *
+   *  ONE helper for all six comparison sites, and that is the point rather than a tidiness
+   *  preference. This file's own history says why twice: `compileLit` had an inline second copy in
+   *  the nested-pattern arm, so a `Lit.Char` fix reached the bare path and not the nested one, and
+   *  a Char-dispatching parser silently took its fallback on every operator. Six copies of
+   *  `scrutV == litV` is the same trap with a bigger blast radius.
+   *
+   *  Int/Double only — `BigInt`/`BigDecimal` against a Double are ALSO wrong here (measured: the
+   *  oracle says `BigInt(1) == 1.0` is true, this lane says false) but that is a different pair set
+   *  and a different entry; widening it blind is how a fix stops being reviewable.
+   *  (lanes-disagree-on-mixed-numeric-comparison.)
+   */
+  private[interpreter] def litMatches(scrutinee: Value, litV: Value): Boolean = (scrutinee, litV) match
+    case (Value.IntV(a),    Value.DoubleV(b)) => a.toDouble == b
+    case (Value.DoubleV(a), Value.IntV(b))    => a == b.toDouble
+    case _                                    => scrutinee == litV
+
   /** A compiled pure expression: maps an env to a Value, or null when the
    *  expression cannot be evaluated on the fast path at runtime (e.g. an
    *  undefined name or a non-numeric operand) — the caller then falls back
@@ -884,10 +907,10 @@ private[interpreter] object PatternRuntime:
         val litV = compileLit(lit)
         if c.cond.isEmpty then
           (scrutV, env) =>
-            if scrutV == litV then runBody(env) else null
+            if litMatches(scrutV, litV) then runBody(env) else null
         else
           (scrutV, env) =>
-            if scrutV == litV && evalGuard(c.cond, env, interp) then runBody(env)
+            if litMatches(scrutV, litV) && evalGuard(c.cond, env, interp) then runBody(env)
             else null
 
       case Pat.Extract.After_4_6_0(fn, argClause) =>
@@ -994,19 +1017,19 @@ private[interpreter] object PatternRuntime:
         else
           val fn: (Value, Env) => AnyRef | Null =
             (scrutV, env) =>
-              if scrutV == litV then
+              if litMatches(scrutV, litV) then
                 val v = body(null, null, env); if v != null then v else NeedMonadic
               else null
           val dbody = compileSlotDoubleBody(c.body, null, null, interp)
           val dfn: ((Value, Env) => Double) | Null =
             if dbody == null then null
             else (scrutV, env) =>
-              if scrutV == litV then dbody(null, null, env) else NaNMiss
+              if litMatches(scrutV, litV) then dbody(null, null, env) else NaNMiss
           val lbody = compileSlotLongBody(c.body, null, null, interp)
           val lfn: ((Value, Env) => Long) | Null =
             if lbody == null then null
             else (scrutV, env) =>
-              if scrutV == litV then lbody(null, null, env) else LongMiss
+              if litMatches(scrutV, litV) then lbody(null, null, env) else LongMiss
           new VHandler(fn, dfn, lfn, true, slotFreeNames(c.body, null, null))
 
       case Pat.Extract.After_4_6_0(fn0, argClause) =>
@@ -1257,7 +1280,7 @@ private[interpreter] object PatternRuntime:
       // so every operator was dropped and the whole expression fell through to "cannot parse atom".
       // (int-char-literal-pattern-never-matches.)
       val litV: Value = compileLit(lit)
-      if litV == scrutinee then env else null
+      if litMatches(scrutinee, litV) then env else null
     case Pat.Tuple(pats) =>
       scrutinee match
         case Value.TupleV(elems) if elems.length == pats.length =>

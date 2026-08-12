@@ -3911,9 +3911,29 @@ private[interpreter] object DispatchRuntime:
       case "==" | "!=" => infix2Eq(lhs, op, rhs, env, interp)
       case _           => infix2Ord(lhs, op, rhs, env, interp)
 
+  // ── Mixed Int/Double equality ────────────────────────────────────────────────────────────────
+  //
+  // `1 == 1.0` is `true` in Scala — boxed numeric equality widens, and `BoxesRunTime.equals` is
+  // what a literal pattern uses too, so `(1.0: Any) match { case 1 => }` also matches. Measured on
+  // the jvm lane (which compiles to real Scala) and on js: both answer `true` / `one`.
+  //
+  // WITHOUT these arms the pair fell to the structural default at the bottom of this match, where
+  // `IntV(1) == DoubleV(1.0)` is `false` — a WRONG ANSWER, not a refusal, so the program silently
+  // took the other branch. The twin below (`infix2Ord`) has widened Int/Double since it was
+  // written, which is why `1 < 2.0` was right and `1 == 1.0` was wrong on the same line.
+  //
+  // Int/Double ONLY, and not because the other pairs are right. `BigInt(1) == 1.0` and
+  // `BigDecimal(1) == 1.0` are ALSO `true` in Scala and ALSO `false` here — I predicted the
+  // opposite from memory and the gate's oracle refused to judge rather than accept the freeze,
+  // which is the whole reason it compares against a lane that runs real Scala. They are a
+  // different pair set, they need arms in more than one place, and native does not even bind
+  // `BigDecimal`; filed separately rather than widened blind on the way past.
+  // (lanes-disagree-on-mixed-numeric-comparison.)
   private def infix2Eq(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
     op match
       case "==" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.DoubleV(b))  => Computation.pureBool(a.toDouble == b)
+        case (Value.DoubleV(a), Value.IntV(b))     => Computation.pureBool(a == b.toDouble)
         case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a == BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b))  => Computation.pureBool(BigInt(a) == b)
         case (Value.DecimalV(a), Value.IntV(b))    => Computation.pureBool(a == BigDecimal(b))
@@ -3927,6 +3947,8 @@ private[interpreter] object DispatchRuntime:
         case (v: Value.VectorV, l: Value.ListV) => Computation.pureBool(v.items == l.items)
         case _                                     => Computation.pureBool(lhs == rhs)
       case "!=" => (lhs, rhs) match
+        case (Value.IntV(a),    Value.DoubleV(b))  => Computation.pureBool(a.toDouble != b)
+        case (Value.DoubleV(a), Value.IntV(b))     => Computation.pureBool(a != b.toDouble)
         case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a != BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b))  => Computation.pureBool(BigInt(a) != b)
         case (Value.DecimalV(a), Value.IntV(b))    => Computation.pureBool(a != BigDecimal(b))
