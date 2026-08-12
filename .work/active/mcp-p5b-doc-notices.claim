@@ -1,0 +1,11 @@
+slug: mcp-p5b-doc-notices
+branch: feature/mcp-p5b-doc-notices
+agent: claude-code
+started: 2026-08-12T16:31:39Z
+heartbeat: 2026-08-12T16:31:39Z
+status: claimed-before-planning
+items: mcp-p5b-doc-notices
+paths: file:specs/mcp.md file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
