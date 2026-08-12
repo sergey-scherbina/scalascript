@@ -202,8 +202,9 @@ class McpHttpClient(url: String, timeoutMs: Long):
    *  Reading the collapsed error would classify every modern refusal as legacy.
    *  So this sends its own request and hands the raw status and body to
    *  `eraFromHttp`. */
-  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L): McpProtocol.Era =
-    if era != McpProtocol.Era.Unknown then era
+  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L)
+      : Either[JsonRpc.Error, McpProtocol.Era] =
+    if era != McpProtocol.Era.Unknown then Right(era)
     else
       val meta   = McpProtocol.clientMeta(clientName, clientVersion)
       val params = McpProtocol.withClientMeta(ujson.Obj(), meta)
@@ -220,10 +221,18 @@ class McpHttpClient(url: String, timeoutMs: Long):
           "capabilities"    -> ujson.Obj(),
           "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
           timeoutMs) match
-          case Right(_) => notify(McpProtocol.Method.Initialized, ujson.Obj())
-          case Left(_)  => ()
-      era = decided
-      decided
+          case Right(_) =>
+            notify(McpProtocol.Method.Initialized, ujson.Obj())
+            era = decided
+            Right(decided)
+          // A failed handshake is REPORTED, not swallowed. Every caller today
+          // raises on it, and returning only an Era would have deleted that
+          // diagnostic silently — a server whose initialize fails would look
+          // connected. Visible from the consumers, not from this function.
+          case Left(e) => Left(e)
+      else
+        era = decided
+        Right(decided)
 
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
     if closed then return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "client closed"))

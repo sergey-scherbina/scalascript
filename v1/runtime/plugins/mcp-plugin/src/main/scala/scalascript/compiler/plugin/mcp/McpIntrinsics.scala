@@ -411,14 +411,13 @@ private[mcp] object Mcp:
     val client = new McpHttpClient(url, timeoutMs)
     bearerToken.foreach(t => client.setBearerToken(Some(t)))
     // Spec-mandated initialize handshake — same shape as the Spawn path.
-    val initParams = ujson.Obj(
-      "protocolVersion" -> McpProtocol.ProtocolVersion,
-      "capabilities"    -> ujson.Obj(),
-      "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
-    )
-    client.request(McpProtocol.Method.Initialize, initParams) match
-      case Left(e)  => PluginError.raise(s"mcpConnect(Http): initialize failed: ${e.message}")
-      case Right(_) => client.notify("notifications/initialized", ujson.Obj())
+    // MCP 2026-07-28 — PROBE FIRST. `initialize` does not exist in the modern
+    // revision, so sending it unconditionally is what made this client fail
+    // against a modern-only server. `connect` sends it only when the probe says
+    // the peer is legacy, and reports a failed handshake as before.
+    client.connect("ssc-mcp-int", "1.0.0") match
+      case Left(e)  => PluginError.raise(s"mcpConnect(Http): connect failed: ${e.message}")
+      case Right(_) => ()
     makeHttpClientInstance(client, timeoutMs, ctx)
 
   /** Transport.Ws(port, path) → `ws://localhost:port/path`.  Same `path`
@@ -480,16 +479,11 @@ private[mcp] object Mcp:
   def makeWsClient(url: String, timeoutMs: Long, ctx: PluginContext,
                    bearerToken: Option[String] = None): PluginValue =
     val client = new McpWsClient(url, timeoutMs, bearerToken)
-    val initParams = ujson.Obj(
-      "protocolVersion" -> McpProtocol.ProtocolVersion,
-      "capabilities"    -> ujson.Obj(),
-      "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
-    )
-    client.request(McpProtocol.Method.Initialize, initParams) match
+    client.connect("ssc-mcp-int", "1.0.0") match
       case Left(e)  =>
         client.close()
-        PluginError.raise(s"mcpConnect(Ws): initialize failed: ${e.message}")
-      case Right(_) => client.notify("notifications/initialized", ujson.Obj())
+        PluginError.raise(s"mcpConnect(Ws): connect failed: ${e.message}")
+      case Right(_) => ()   // connect() already sent `initialized` if the peer is legacy
     makeWsClientInstance(client, timeoutMs, ctx)
 
   /** Build the `srv` instance the user-side `mcpServer { srv => ... }`
@@ -1098,18 +1092,12 @@ private[mcp] object Mcp:
 
     // Handshake — send `initialize` and wait for the server's reply.  We
     // don't fail on its content; just record we tried.
-    val initParams = ujson.Obj(
-      "protocolVersion" -> McpProtocol.ProtocolVersion,
-      "capabilities"    -> ujson.Obj(),
-      "clientInfo"      -> ujson.Obj("name" -> "ssc-mcp-int", "version" -> "1.0.0")
-    )
-    val initResult = client.request(McpProtocol.Method.Initialize, initParams, timeoutMs)
+    val initResult = client.connect("ssc-mcp-int", "1.0.0", timeoutMs)
     initResult match
       case Left(e) =>
         proc.destroy()
-        PluginError.raise(s"mcpConnect: initialize failed: ${e.message}")
-      case Right(_) =>
-        client.notify("notifications/initialized", ujson.Obj())
+        PluginError.raise(s"mcpConnect: connect failed: ${e.message}")
+      case Right(_) => ()   // connect() already sent `initialized` if the peer is legacy
 
     makeClientInstance(client, proc, timeoutMs, ctx)
 

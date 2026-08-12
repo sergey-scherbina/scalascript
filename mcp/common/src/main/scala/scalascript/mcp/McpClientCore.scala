@@ -66,8 +66,9 @@ class McpClientCore(write: String => Unit):
    *
    *  Returns the era. Safe to call twice: a settled era is returned as is,
    *  because re-probing would send a second `initialize` to a legacy server. */
-  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L): McpProtocol.Era =
-    if era != McpProtocol.Era.Unknown then era
+  def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L)
+      : Either[JsonRpc.Error, McpProtocol.Era] =
+    if era != McpProtocol.Era.Unknown then Right(era)
     else
       val meta  = McpProtocol.clientMeta(clientName, clientVersion)
       val probe = request(McpProtocol.Method.ServerDiscover,
@@ -82,10 +83,18 @@ class McpClientCore(write: String => Unit):
           "capabilities"    -> ujson.Obj(),
           "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
           timeoutMs) match
-          case Right(_) => notify(McpProtocol.Method.Initialized, ujson.Obj())
-          case Left(_)  => ()          // the caller sees the era; the error is its to report
-      era = decided
-      decided
+          case Right(_) =>
+            notify(McpProtocol.Method.Initialized, ujson.Obj())
+            era = decided
+            Right(decided)
+          // A failed handshake is REPORTED, not swallowed. Every caller today
+          // raises on it, so returning only an Era would have deleted that
+          // diagnostic silently — a server whose initialize fails would look
+          // connected. Visible from the CONSUMERS, not from this function.
+          case Left(e) => Left(e)
+      else
+        era = decided
+        Right(decided)
 
   /** Send a request and block until the matching response arrives or
    *  the timeout fires.  Returns `Right(result)` on success, `Left(error)`

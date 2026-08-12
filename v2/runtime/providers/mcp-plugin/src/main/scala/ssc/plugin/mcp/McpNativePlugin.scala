@@ -176,12 +176,12 @@ final class McpNativePlugin extends NativePlugin:
         catch case _: Throwable => ()
         finally client.close()
       }
-      val init = ujson.Obj(
-        "protocolVersion" -> McpProtocol.ProtocolVersion,
-        "capabilities" -> ujson.Obj(),
-        "clientInfo" -> ujson.Obj("name" -> "ssc-native", "version" -> "2.1"))
-      requireResult(client, McpProtocol.Method.Initialize, init, timeoutMs)
-      client.notify(McpProtocol.Method.Initialized, ujson.Obj())
+      // MCP 2026-07-28 — probe the era before handshaking. `initialize` does not
+      // exist in the modern revision, so sending it unconditionally is what made
+      // this client fail against a modern-only server.
+      client.connect("ssc-native", "2.1", timeoutMs) match
+        case Left(e)  => throw new IllegalStateException(s"mcpConnect: connect failed: ${e.message}")
+        case Right(_) => ()
       Value.ForeignV(ClientValue(client, process, timeoutMs))
     case _ => throw new IllegalArgumentException(
       "mcpConnect: explicit native provider supports Transport.Spawn")

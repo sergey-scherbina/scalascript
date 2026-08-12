@@ -1107,7 +1107,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
           client.dispatchResponse(McpServerCore.dispatch(server, m, p, id, "srv", "9.9.9"))
         case _ => ()
     }
-    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    client.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Modern)
     client.currentEra shouldBe McpProtocol.Era.Modern
     val methods = sentMethods(sent)
     methods should contain (McpProtocol.Method.ServerDiscover)
@@ -1130,7 +1130,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
               ujson.Obj("protocolVersion" -> McpProtocol.ProtocolVersion)))
         case _ => ()
     }
-    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Legacy
+    client.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Legacy)
     val methods = sentMethods(sent)
     methods shouldBe List(McpProtocol.Method.ServerDiscover,
                           McpProtocol.Method.Initialize,
@@ -1150,7 +1150,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
             Some(McpProtocol.unsupportedVersionData("2026-07-28"))))
         case _ => ()
     }
-    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    client.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Modern)
     sentMethods(sent) shouldBe List(McpProtocol.Method.ServerDiscover)
 
   test("connect is idempotent — a second call does not re-handshake"):
@@ -1167,9 +1167,9 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
           else client.dispatchResponse(JsonRpc.encodeResult(id, ujson.Obj()))
         case _ => ()
     }
-    client.connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    client.connect("c", "1.0") shouldBe Right(McpProtocol.Era.Legacy)
     val afterFirst = sent.size
-    client.connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    client.connect("c", "1.0") shouldBe Right(McpProtocol.Era.Legacy)
     sent.size shouldBe afterFirst
 
   test("the probe carries the required client _meta, so a strict server accepts it"):
@@ -1184,7 +1184,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
           client.dispatchResponse(McpServerCore.dispatch(server, m, p, id, "srv", "9.9.9"))
         case _ => ()
     }
-    client.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+    client.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Modern)
     val ctx = McpProtocol.parseRequestMeta(seen)
     ctx.isModern shouldBe true
     ctx.clientCapabilities.isDefined shouldBe true        // required by the spec
@@ -1222,7 +1222,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     val (url, seen, stop) = httpEndpoint(_ => (200, discover))
     try
       val c = new McpHttpClient(url, 5000L)
-      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+      c.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Modern)
       seen.toList shouldBe List(McpProtocol.Method.ServerDiscover)
     finally stop()
 
@@ -1238,7 +1238,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     val (url, seen, stop) = httpEndpoint(_ => (400, refusal))
     try
       val c = new McpHttpClient(url, 5000L)
-      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Modern
+      c.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Modern)
       seen.toList should not contain McpProtocol.Method.Initialize
     finally stop()
 
@@ -1251,17 +1251,24 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     }
     try
       val c = new McpHttpClient(url, 5000L)
-      c.connect("test-client", "0.1.0") shouldBe McpProtocol.Era.Legacy
+      c.connect("test-client", "0.1.0") shouldBe Right(McpProtocol.Era.Legacy)
       seen.toList shouldBe List(McpProtocol.Method.ServerDiscover,
                                 McpProtocol.Method.Initialize,
                                 McpProtocol.Method.Initialized)
     finally stop()
 
-  test("HTTP: an endpoint that is not MCP at all reads as legacy, not as modern"):
-    // A 404 with an HTML body is the deprecated-transport / wrong-URL case; the
-    // spec has the client fall back rather than assume.
+  test("HTTP: an endpoint that is not MCP at all falls back and then REPORTS the failure"):
+    // A 404 with an HTML body is the wrong-URL / deprecated-transport case. The
+    // era DECISION is legacy — the spec has the client fall back rather than
+    // assume — but the fallback handshake then fails too, and connect says so.
+    // Before connect returned an Either that failure was swallowed and this
+    // endpoint looked connected.
+    McpProtocol.eraFromHttp(404, "<html>Not Found</html>") shouldBe McpProtocol.Era.Legacy
     val (url, _, stop) = httpEndpoint(_ => (404, "<html>Not Found</html>"))
-    try new McpHttpClient(url, 5000L).connect("c", "1.0") shouldBe McpProtocol.Era.Legacy
+    try
+      val c = new McpHttpClient(url, 5000L)
+      c.connect("c", "1.0").isLeft shouldBe true
+      c.currentEra shouldBe McpProtocol.Era.Unknown   // nothing was reached, so nothing is cached
     finally stop()
 
   test("HTTP: connect is idempotent — the endpoint is probed once"):
@@ -1272,3 +1279,26 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       c.connect("c", "1.0"); c.connect("c", "1.0"); c.connect("c", "1.0")
       seen.size shouldBe 1
     finally stop()
+
+  test("connect REPORTS a failed legacy handshake instead of swallowing it"):
+    // The defect this slice fixes, and it was visible only from the CONSUMERS:
+    // every call site raises on a failed handshake, so a connect() returning
+    // just an Era would have deleted that diagnostic — a server whose
+    // initialize fails would have looked connected.
+    var client: McpClientCore = null
+    client = McpClientCore { frame =>
+      JsonRpc.parse(frame) match
+        case Right(JsonRpc.Message.Request(m, _, id)) =>
+          if m == McpProtocol.Method.ServerDiscover then
+            client.dispatchResponse(JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound, "no"))
+          else
+            client.dispatchResponse(JsonRpc.encodeError(id,
+              JsonRpc.ErrorCode.InvalidRequest, "initialize refused"))
+        case _ => ()
+    }
+    client.connect("c", "1.0") match
+      case Left(e)  => e.message should include ("initialize refused")
+      case Right(r) => fail(s"a failed handshake must be reported, got Right($r)")
+    // And the era stays Unknown, so a later connect can try again rather than
+    // caching a state that was never reached.
+    client.currentEra shouldBe McpProtocol.Era.Unknown
