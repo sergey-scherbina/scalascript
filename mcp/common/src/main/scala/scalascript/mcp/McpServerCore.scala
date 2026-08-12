@@ -346,6 +346,11 @@ class McpServerBuilder:
             s.write(tagged.render() + "\n")
     }
 
+  // DEPRECATED SHAPE (MCP 2026-07-28). Server-initiated requests are replaced
+  // wholesale by MRTR; this path serves legacy peers. Note we implement the
+  // MECHANISM, not Sampling itself — Sampling is the client's to perform, and
+  // `sampling/createMessage` appears here only as its best-known example.
+  //
   // v1.17.x — bidirectional sampling.  Server can issue a JSON-RPC
   // Request to a client (e.g. `sampling/createMessage`); the
   // client's onRequest handler computes a result and ships it back
