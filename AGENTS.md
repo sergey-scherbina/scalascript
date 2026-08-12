@@ -484,6 +484,44 @@ three independent lanes in one day (2026-07-16):
 4. **Suspect the apparatus when a result looks impossible** ("this program can't have a hole") — and
    when adding a new phase/lane, **build its gate before its feature**.
 
+## MANDATORY: understand it before you fix it, then finish it
+
+**Can you actually fix the thing you are working on? Do you understand the problem yet?** Answer
+those two questions honestly *before* writing code. The first plausible cause is very often a
+symptom, and a fix aimed at a symptom lands, goes green, and leaves the defect in place under a
+new name.
+
+**Diagnose first. The obvious fix is frequently the wrong one.** Measured 2026-08-12: a client
+method had shipped with a written-down gap — no test could reach it, because the JDK provides a
+WebSocket client and no server. The obvious fix was to hand-roll RFC 6455 in a test. Looking
+first showed the method was one of THREE copies of the same rule, two of them identical apart
+from whitespace, and the unreachable copy was the one containing nothing of its own. The correct
+fix was to delete the duplication, after which there was no unreachable code left to test. The
+same day, twice, a blocker was described wrongly in a spec — the missing test double existed
+already, and the real obstacle was file-private visibility. **If you are about to build
+scaffolding to reach some code, first ask whether that code should exist.**
+
+**The rules, and they are not negotiable:**
+
+1. **Investigate with read-only tools and NO claim.** A claim reserves paths against other
+   agents; reading, grepping and reasoning reserve nothing. Claim at the moment you are about to
+   change a file, not when you start thinking about it. An early claim blocks a sibling for no
+   benefit and makes your scope look wider than your work.
+2. **Claim NARROWLY.** The files you will actually edit. Widening later is normal and cheap
+   (§"Claim scope and LIFETIME"); starting wide is neither.
+3. **Do not get in other agents' way.** Their red is theirs; their in-flight files are theirs.
+   Report what you find, and fix your own. Guessing a value into somebody else's durable record —
+   a `fixed-in` sha, a `lane:` — writes a plausible lie that outlives the guess.
+4. **Work in a worktree, on a branch.** Never in the shared `main` checkout (§"MANDATORY: first
+   action in every session"). This is enforced by a hook, and the hook is right.
+5. **Carry it to a finished result.** Landed on `origin/main`, gates named and green, claim
+   released, worktree removed. Work that stops at "it compiles" is not done, and neither is work
+   whose verification you intended to run later.
+
+**And say which it was.** If you fixed the symptom because the real fix is out of scope, write
+that down as a symptom fix with the real cause named — a repair recorded as complete when it is
+partial is worse than an open bug, because the next reader stops looking.
+
 ## MANDATORY: persist everything needed to continue from a fresh context
 
 The session that records is not the session that resumes. A parallel
