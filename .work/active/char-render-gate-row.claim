@@ -1,0 +1,11 @@
+slug: char-render-gate-row
+branch: feature/char-render-gate-row
+agent: claude-code
+started: 2026-08-12T00:15:44Z
+heartbeat: 2026-08-12T00:15:44Z
+status: claimed-before-planning
+items: v2-native-charAt-toString-yields-code
+paths: file:tests/e2e/char-type-test.sh file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

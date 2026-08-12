@@ -1,4 +1,4 @@
-# generation: 1703
+# generation: 1704
 #slug	agent	started	items	paths
 v3-prelude-and-dataset	claude-code	2026-08-10T16:10:00Z	v3-prelude-and-dataset	file:v3/src/Loader.scala file:v3/src/Lower.scala file:v3/src/Ast.scala mod:v3/prelude file:v3/prelude-gate.sh file:v3/loader-gate.sh file:v3/walker-gate.sh file:v3/jit-gate.sh file:v3/front-diff.sh file:v3/corpus-report.sh file:v3/PRELUDE-CORRECTNESS.md file:v3/BACKLOG.md
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
@@ -8,3 +8,4 @@ rust-generic-enums	claude-code	2026-08-11T23:10:43Z	rust-generic-enum-drops-its-
 multi-effect-bare-and-braced	claude-code	2026-08-11T23:12:54Z	multi-effect-marker-is-lost-in-a-bare-ssc multi-effect-in-braces-does-not-parse	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:v1/lang/core/src/main/scala/scalascript/parser/PreprocessorRegistry.scala file:v1/lang/core/src/test/scala/scalascript/parser file:v1/runtime/backend/interpreter/src/test/scala/scalascript/MultiEffectBareFileTest.scala BUGS.md
 flatmap-nonlist-census	claude-code	2026-08-11T23:49:50Z	v3-handle-has-no-return-clause	file:v3/src/Exec.scala file:BUGS.md
 mcp-p2d4b-call-sites	claude-code	2026-08-11T23:50:45Z	mcp-2026-07-28 P2d-4b	file:mcp/common/src/main/scala/scalascript/mcp/McpClientCore.scala file:mcp/common/src/main/scala/scalascript/mcp/McpHttpClient.scala file:mcp/common/src/main/scala/scalascript/mcp/McpWsClient.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:specs/mcp-2026-07-28.md
+char-render-gate-row	claude-code	2026-08-12T00:15:44Z	v2-native-charAt-toString-yields-code	file:tests/e2e/char-type-test.sh file:v1/runtime/backend/interpreter/BUGS.md
