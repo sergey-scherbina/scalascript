@@ -100,21 +100,27 @@ classify() { # classify <file> → "<class>\t<detail>"
   set +e
   out=$(cd "$tmp" && "$TOOLS" build-rust "$ROOT/$f" 2>&1); rc=$?
   set -e
-  if   printf '%s' "$out" | grep -qE '^error\[E[0-9]+\]|^error: expected|^error: could not compile'; then
-    printf 'BADRUST\t%s' "$(printf '%s' "$out" | grep -oE '^error\[E[0-9]+\]' | head -1)"
-  elif printf '%s' "$out" | grep -qE '\[error\] (Generic|Unsupported)\('; then
+  # HERE-STRINGS, not `printf … | grep`. Under `set -o pipefail` a pipeline reports the LAST
+  # non-zero status, and `grep -q` exits the moment it matches — which kills `printf` with SIGPIPE
+  # (141). The pipeline then reads as FAILURE even though the pattern MATCHED, so a module was
+  # classified by a branch that had already said yes. Reproduced deliberately: an early match in a
+  # 400 KB output reads as "no match", and the same test with a here-string matches. It is why three
+  # modules sat in `OTHER` that classify `REFUSED` when measured one at a time, and why CI logged
+  # `printf: write error: Broken pipe` from a step that reported success.
+  if   grep -qE '^error\[E[0-9]+\]|^error: expected|^error: could not compile' <<< "$out"; then
+    printf 'BADRUST\t%s' "$(grep -oE '^error\[E[0-9]+\]' <<< "$out" | head -1)"
+  elif grep -qE '\[error\] (Generic|Unsupported)\(' <<< "$out"; then
     # The REASON, normalised, not just the class. Recording `[error] Generic(` made the REFUSED
     # column a number and nothing else: 82 modules the backend cannot lower, with no way to ask WHAT
     # they need, so the roadmap it was supposed to be could not be read off it. Identifiers between
     # backticks are replaced with `_` so the same gap in twenty modules groups as one line.
-    printf 'REFUSED\t%s' "$(printf '%s' "$out" \
-      | grep -oE '\[error\] (Generic|Unsupported)\(.*' | head -1 \
+    printf 'REFUSED\t%s' "$(grep -oE '\[error\] (Generic|Unsupported)\(.*' <<< "$out" | head -1 \
       | sed -e 's/^\[error\] //' -e 's/`[^`]*`/`_`/g' -e 's/,Some(rust)).*$//' \
       | cut -c1-110)"
   elif [[ $rc -eq 0 ]] || printf '%s' "$out" | grep -q 'expected binary not found'; then
     printf 'COMPILES\t'
   else
-    printf 'OTHER\t%s' "$(printf '%s' "$out" | head -1 | cut -c1-40)"
+    printf 'OTHER\t%s' "$(head -1 <<< "$out" | cut -c1-40)"
   fi
 }
 

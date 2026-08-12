@@ -82,7 +82,7 @@ std/scljet/bytes.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a 
 std/scljet/freelist.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/scljet/header.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/scljet/index.ssc	COMPILES	
-std/scljet/jdbc.ssc	OTHER	[error] Generic(def `close` emits 2 time
+std/scljet/jdbc.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
 std/scljet/journal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/scljet/jvm-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/scljet/memory-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
@@ -92,9 +92,9 @@ std/scljet/pager.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/scljet/readonly.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/scljet/record.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/scljet/schema.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/sql.ssc	OTHER	[error] Generic(def `close` emits 2 time
+std/scljet/sql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
 std/scljet/text.ssc	COMPILES	
-std/scljet/typedsql.ssc	OTHER	[error] Generic(def `close` emits 2 time
+std/scljet/typedsql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
 std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
 std/scljet/wal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
