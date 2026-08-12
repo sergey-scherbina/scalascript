@@ -2,10 +2,10 @@ slug: mixed-numeric-comparison
 branch: feature/mixed-numeric-comparison
 agent: claude-code
 started: 2026-08-12T01:12:15Z
-heartbeat: 2026-08-12T01:15:18Z
+heartbeat: 2026-08-12T01:20:24Z
 status: in-progress
 items: lanes-disagree-on-mixed-numeric-comparison
-paths: file:BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh file:v2/src/Runtime.scala
+paths: file:BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: widen equality in BOTH kernels, then gate against the jvm oracle
+next: interp has SIX literal-compare sites, all structural — one shared helper
