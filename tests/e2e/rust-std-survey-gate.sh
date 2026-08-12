@@ -50,6 +50,16 @@ BASE="$ROOT/tests/rust-std-survey-baseline.tsv"
 # the mode is known: demanding it unconditionally made the first baseline impossible to produce.
 [[ -r $BASE || "${1:-}" == "--update" ]] || {
   echo "rust-std-survey: no baseline at $BASE — create it with: $0 --update" >&2; exit 2; }
+if [[ "${1:-}" == "--reasons" ]]; then
+  [[ -r $BASE ]] || { echo "rust-std-survey: no baseline at $BASE" >&2; exit 2; }
+  echo "refusal reasons, most common first (from $BASE):"
+  awk -F'\t' '$2 == "REFUSED" { print $3 }' "$BASE" | sort | uniq -c | sort -rn |
+    awk '{ n = $1; $1 = ""; printf "%4d  %s\n", n, substr($0, 2) }'
+  echo ""
+  awk -F'\t' '{ c[$2]++ } END { for (k in c) printf "  %-9s %d\n", k, c[k] }' "$BASE"
+  exit 0
+fi
+
 # A VERDICT FROM A STALE TOOLCHAIN IS A VERDICT ABOUT THE WRONG CODE, and this gate learned it the
 # expensive way: three modules were recorded `OTHER` in the baseline and classify `REFUSED` on a
 # rebuilt launcher. The baseline is the thing everything else is compared against, so a wrong row in
@@ -78,15 +88,6 @@ update=0
 # `--reasons` reads the BASELINE and prints what the refusals actually say, most common first. No
 # build, no cargo, seconds — the point is that the question "what should we implement next" is now
 # answerable from a file instead of from a five-minute run.
-if [[ "${1:-}" == "--reasons" ]]; then
-  [[ -r $BASE ]] || { echo "rust-std-survey: no baseline at $BASE" >&2; exit 2; }
-  echo "refusal reasons, most common first (from $BASE):"
-  awk -F'\t' '$2 == "REFUSED" { print $3 }' "$BASE" | sort | uniq -c | sort -rn |
-    awk '{ n = $1; $1 = ""; printf "%4d  %s\n", n, substr($0, 2) }'
-  echo ""
-  awk -F'\t' '{ c[$2]++ } END { for (k in c) printf "  %-9s %d\n", k, c[k] }' "$BASE"
-  exit 0
-fi
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rust-survey.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
