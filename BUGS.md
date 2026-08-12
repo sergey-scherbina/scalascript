@@ -902,6 +902,34 @@ and the second job green as before. The previous 48 runs had none of that.
      kind: gap
      gate: none -->
 
+**THE CENSUS IS DONE, 2026-08-12, and it licenses the refusal.** `listOut` was instrumented to
+REPORT rather than refuse and the whole corpus was run:
+
+| | |
+|---|---|
+| swallows across 369 programs | **12** |
+| at `flatMap` | 12 — `zip`, `++` and rendering: **zero** |
+| distinct programs | **one** |
+| other `flatMap` users | 9, none affected |
+
+The one program is `tests/conformance/js-effect-multishot-long-fold.ssc`, and it **answers 0 where
+its checked-in expectation is 204** — so the only thing the swallow supports today is a wrong
+answer, and this is the SECOND program of that shape besides `effect-multishot`. It declares
+`backends: [int, js]`, so v3 is not among its lanes and the corpus verdict never looked: the
+divergence was invisible by construction rather than by accident.
+
+**So nothing working relies on the swallow.** Tightening changes no correct program and turns one
+silent wrong answer into a loud one.
+
+**THE MEASUREMENT NEARLY REPORTED A MEANINGLESS ZERO, which is worth more than the number.** The
+census first wrote to stderr — and `v3/corpus-report.sh` runs each case as
+`java … run-ir "$irf" 2>/dev/null`, discarding child stderr. It would have reported 0 occurrences
+across the corpus, and a 0 there reads exactly like "nothing relies on it", i.e. like permission to
+tighten. A count that cannot distinguish "never happens" from "never observed" is not evidence. It
+writes to a file now, and the path was proven in both directions BEFORE the corpus run: a one-line
+program whose `f` returns an Int produces three rows, and `List(1,2,3).flatMap(x => x * 2)`
+silently returns an EMPTY list of length 0 with the census off.
+
 **CORRECTION 2026-08-11 — v3 ALREADY ACCEPTS A RETURN CLAUSE, and the diagnosis below is stale on
 that point.** Run on a rebuilt v3, both fronts:
 

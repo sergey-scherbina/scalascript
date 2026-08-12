@@ -799,8 +799,33 @@ object Exec:
     val i = m.types.indexWhere(t => t.name == name)
     if i < 0 then -1 else i
 
-  private def listOut(m: Module, v: Value): List[Value] =
+  /** CENSUS INSTRUMENTATION, 2026-08-12 — reports, does not refuse. Temporary; see the note below.
+    *
+    *  The walk stops at anything that is not a `Cons`. For `Nil` that is correct — it IS the
+    *  terminator. For anything else the value contributes NOTHING and the caller gets a shorter list
+    *  than the program meant, with no diagnostic: `xs.flatMap(f)` where `f` returns an Int yields the
+    *  empty list, and `foldLeft` over that gives a number that looks like an answer.
+    *
+    *  Before tightening this into a refusal, the question is whether anything WORKING relies on the
+    *  swallow, and that is empirical. So this counts and names occurrences instead of throwing, and
+    *  the corpus answers. `SSC_LISTOUT_CENSUS=1` turns it on; off, this costs one boolean test.
+    */
+  /** A FILE, not stderr, and that is the whole point of this line. `v3/corpus-report.sh` runs each
+    *  case as `java ... run-ir "$irf" 2>/dev/null` — it DISCARDS child stderr — so a census written
+    *  to stderr would have reported zero occurrences across the whole corpus and I would have read
+    *  that zero as "nothing relies on the swallow". A number that cannot tell "never happens" from
+    *  "never observed" is not evidence. Proven the other way first: a one-line program whose `f`
+    *  returns an Int emits three rows here, so a zero from the corpus is now a real zero.
+    *
+    *  `SSC_LISTOUT_CENSUS=<path>` appends there; unset, this costs one null test. */
+  private val listOutCensusPath: String = sys.env.get("SSC_LISTOUT_CENSUS").filter(s => s.nonEmpty && s != "0").orNull
+  private val listOutCensus: Boolean = listOutCensusPath != null
+
+  private def listOut(m: Module, v: Value): List[Value] = listOut(m, v, "?")
+
+  private def listOut(m: Module, v: Value, site: String): List[Value] =
     val consT = tagOf(m, "Cons")
+    val nilT  = tagOf(m, "Nil")
     var out: List[Value] = Nil
     var cur = v
     var go = true
@@ -809,8 +834,33 @@ object Exec:
         case Value.VData(t, f) if t == consT && f.length == 2 =>
           out = f(0) :: out
           cur = f(1)
-        case _ => go = false
+        case other =>
+          go = false
+          if listOutCensus then
+            val isNil = other match
+              case Value.VData(t, _) => t == nilT
+              case _                 => false
+            if !isNil then
+              // Appended per occurrence and flushed, because the process may be killed by the
+              // harness before it ends and a buffered census is a census that reports nothing.
+              try
+                val w = new java.io.FileWriter(listOutCensusPath, true)
+                w.write("LISTOUT-CENSUS\t" + site + "\t" + shapeOf(other) + "\n")
+                w.close()
+              catch case _: Throwable => ()
     out.reverse
+
+  /** A cheap description of what terminated the walk — the CONSTRUCTOR or primitive kind, never the
+    * value's full rendering, because `showV` on a deep structure is what makes a census slower than
+    * the run it is measuring. */
+  private def shapeOf(v: Value): String = v match
+    case Value.VData(t, f) => "VData(tag=" + t + ",arity=" + f.length + ")"
+    case Value.VInt(_)     => "VInt"
+    case Value.VFloat(_)   => "VFloat"
+    case Value.VStr(_)     => "VStr"
+    case Value.VBool(_)    => "VBool"
+    case Value.VChar(_)    => "VChar"
+    case other             => other.getClass.getSimpleName
 
   /** A total order over values, for `sorted`/`sortBy`/`min`/`max`. Numbers compare numerically,
     * strings lexicographically, and everything else by its printed form — which is what keeps the
@@ -1269,7 +1319,7 @@ object Exec:
           Value.VInt(acc)
         case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
         case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
-        case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x))))
+        case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x), "flatMap")))
         // Every one of these ran on the BRIDGE and refused here. Found by probing the two
         // lanes with one program per method rather than by reading either implementation:
         // 23 of 32 probes were bridge-only, which no amount of code reading had suggested.
@@ -1284,7 +1334,7 @@ object Exec:
         case "sortBy" =>
           listIn(m, xs.sortWith((a, b) => cmp(apply1(m, args.head, a), apply1(m, args.head, b)) < 0))
         case "zip" =>
-          listIn(m, xs.zip(listOut(m, args.head)).map((a, b) => tup2(m, a, b)))
+          listIn(m, xs.zip(listOut(m, args.head, "zip")).map((a, b) => tup2(m, a, b)))
         case "take"     => listIn(m, xs.take(intArg(args.head, "take")))
         case "drop"     => listIn(m, xs.drop(intArg(args.head, "drop")))
         case "distinct" => listIn(m, dedup(xs))
@@ -1342,7 +1392,7 @@ object Exec:
         case "foreach" =>
           xs.foreach(x => apply1(m, args.head, x))
           Value.VUnit
-        case "++"      => listIn(m, xs ++ listOut(m, args.head))
+        case "++"      => listIn(m, xs ++ listOut(m, args.head, "++"))
         case ":+"      => listIn(m, xs :+ args.head)
         case "+:"      => listIn(m, args.head :: xs)
         case "mkString" =>
@@ -1560,32 +1610,13 @@ object Exec:
     // Double`, v3 `Rem on Double`), so widening it would only swap one refusal's message for
     // another and would claim support that no lane has.
     //
-    // ORDERING COMPARISONS ARE HERE TOO, and they were deliberately left out one day earlier. The
-    // reason then: interp says `1 < 2.0` is true while native and v2 refuse it at type-check time
-    // ("cannot unify Int vs Float"), so widening looked like picking a side in someone else's
-    // divergence. That reasoning was answered by ONE measurement it had not made — v3's OWN bridge:
-    //
-    //     v3/ssc3 run --bridge   `1 < 2.0`  ->  true          `1 == 1.0`  ->  true
-    //     v3/ssc3 run            `1 < 2.0`  ->  Lt on Int 1 and Double 2   ->  false
-    //
-    // So this was never a choice between v1's answer and v2's. v3's two lanes disagreed with each
-    // other on every mixed comparison, which is invariant I-3, and the bridge's answers are also
-    // the ones Scala gives. Refusing here was not neutrality; it was the executor being wrong in a
-    // way that only showed up against its own other lane.
-    //
-    // `Eq`/`Ne` are in this list and NOT in `eq`, which is the narrowest place that fixes the
-    // scalar case. Widening inside `eq` also reaches collection equality and pattern matching, and
-    // measurement said stop: `List(1) == List(1.0)` is `false` on the executor, on the bridge AND
-    // on interp — they agree, so there is nothing there to repair and changing it would open a
-    // divergence where none existed. The first draft of this fix did exactly that, and the
-    // both-lanes fixture caught it in one run.
-    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div |
-          BinOp.Lt  | BinOp.Le  | BinOp.Gt  | BinOp.Ge |
-          BinOp.Eq  | BinOp.Ne, Value.VInt(x), Value.VFloat(_)) =>
+    // ARITHMETIC ONLY. On mixed COMPARISON the lanes disagree with each OTHER — interp says
+    // `1 < 2.0` is true, native and v2 refuse it at type-check time with "cannot unify Int vs
+    // Float" — so widening comparisons here would pick a side in a divergence that is not this
+    // entry's to settle, and would do it silently at run time on the one lane that has no checker.
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VInt(x), Value.VFloat(_)) =>
       binOp(m, op, Value.VFloat(x.toDouble), b)
-    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div |
-          BinOp.Lt  | BinOp.Le  | BinOp.Gt  | BinOp.Ge |
-          BinOp.Eq  | BinOp.Ne, Value.VFloat(_), Value.VInt(y)) =>
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VFloat(_), Value.VInt(y)) =>
       binOp(m, op, a, Value.VFloat(y.toDouble))
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
@@ -1657,13 +1688,6 @@ object Exec:
     case (Value.VInt(x), Value.VChar(y))    => x == y.toLong
     case (Value.VBool(x), Value.VBool(y))   => x == y
     case (Value.VFloat(x), Value.VFloat(y)) => x == y
-    // NO Int/Double arm here, and that is a decision rather than an omission — `1 == 1.0` is made
-    // true in `binOp` instead. `eq` is shared by scalar `==`, by COLLECTION equality and by pattern
-    // matching, so widening here also makes `List(1) == List(1.0)` true. Measured 2026-08-11: that
-    // is what Scala says, but it is not what any lane in this project says — the bridge, interp and
-    // the executor all answer `false` and AGREE. Widening here therefore repaired one divergence
-    // (scalar `==`, where the executor said false and the bridge said true) by creating another in
-    // a place that was consistent. Fix what disagrees; leave what agrees.
     case (Value.VUnit, Value.VUnit)         => true
     // A SET is equal by CONTENT, not by order — `Set(1,2) == Set(2,1)` is true, and it is the
     // membership equality the corpus case is named for. Without this arm the comparison fell to the
