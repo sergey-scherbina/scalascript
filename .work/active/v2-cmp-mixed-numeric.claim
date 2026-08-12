@@ -1,0 +1,11 @@
+slug: v2-cmp-mixed-numeric
+branch: feature/v2-cmp-mixed-numeric
+agent: claude-code
+started: 2026-08-12T07:14:48Z
+heartbeat: 2026-08-12T07:14:48Z
+status: claimed-before-planning
+items: v2-front-refuses-mixed-numeric-comparison
+paths: file:v2/lib/ssc1-check.ssc0 file:v2/BUGS.md file:tests/e2e/mixed-numeric-comparison-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
