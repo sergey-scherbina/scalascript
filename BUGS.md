@@ -602,11 +602,31 @@ nobody. Measured before choosing — exactly one COMPILES module declares an ext
 `std/cluster/membership.ssc` (`joinCluster` called but never emitted).
 
 ## rust-given-method-type-params-render-empty — a `given` method typed by a trait type parameter emits `e: ` and does not parse
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
+     fixed-in: 189b8b111
      gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-12, and the cause was NOT what this entry guessed.** The parameter is not typed by a
+trait type parameter at all — `std/monaderror.ssc` declares `def raise[A](e: Unit): Option[A]`, and
+**`mapType` renders `Unit` as the EMPTY string**, which is right in return position (it is how "no
+`-> T` clause" is expressed) and wrong everywhere else.
+
+Two lines reproduce it with no typeclass in sight:
+
+```scala
+def ignore(u: Unit): Int = 1        // pub fn ignore(u: ) -> i64 {  ← does not parse
+```
+
+Rust's unit type is `()`, so that is what a parameter gets, at BOTH parameter renderers — the
+ordinary def and the `given` method are separate code paths and fixing one would have left the
+other emitting the same unparseable text.
+
+**The guess in the original entry cost nothing only because I re-derived it from a probe** instead
+of trusting it: `E` was a plausible reading of `def raise[A](e: E)` two declarations above the one
+that actually reaches the corpus.
 
 `std/index.ssc` emits `pub fn raise(&self, e: ) -> Option<i64> { None }` — `error: expected type,
 found )`. The parameter is typed by a type parameter of the enclosing trait, `mapType` has no case
