@@ -771,22 +771,37 @@ private[mcp] object Mcp:
     //   - Cancel          → user dismissed the dialog
     // Treat the latter two as the safe "user didn't agree" branch.
     //
-    // ── MCP 2026-07-28: A PRECONDITION ON YOUR HANDLER ──────────────────
-    // Against a MODERN client this call no longer blocks. The server is
-    // stateless, so instead of waiting it ABANDONS your handler, asks the
-    // client, and RE-RUNS YOUR HANDLER FROM THE TOP when the answer arrives.
+    // ── MCP 2026-07-28: what this does now, and when it costs you ───────
+    // Against a MODERN client this stops being a blocking round trip. What
+    // replaces it depends on `srv.setMrtrMode(...)`, and the DEFAULT asks
+    // nothing of you:
     //
-    // So: THE CODE BEFORE AN `elicit` RUNS AGAIN, ONCE PER QUESTION. Write a
-    // row, ask for confirmation, and you have written two rows. That failure is
-    // silent — no error, no exception, just a duplicated effect noticed later
-    // and somewhere else. Make everything before an `elicit` idempotent, or do
-    // it after the last one.
+    //   "park" (DEFAULT) — your handler runs ONCE. It stops here, on a virtual
+    //     thread, and continues from this line when the answer arrives. Nothing
+    //     above runs twice, so nothing is required of your code. The cost is
+    //     that the answer must reach THIS process: if it lands on another
+    //     instance, or after a restart or a five-minute timeout, the client is
+    //     told so plainly and your handler is dropped.
     //
-    // Questions are matched to answers BY ORDER of execution, so a handler must
-    // also reach the same sequence of `elicit` calls on every pass.
+    //   "replay" — nothing is held between requests, so any instance can serve
+    //     any answer. Your handler is RE-RUN FROM THE TOP once per question.
+    //     THE CODE BEFORE AN `elicit` RUNS AGAIN: write a row, ask for
+    //     confirmation, and you have written two rows. That failure is silent —
+    //     no error, no exception, just a duplicated effect noticed later and
+    //     somewhere else. Use `srv.requestState()` to tell the passes apart,
+    //     make the prefix idempotent, or do the work after the last question.
+    //
+    //   "parkThenReplay" — parks, and re-runs when the park is gone. It carries
+    //     "replay"'s precondition and breaks it RARELY, which is the worst way
+    //     for a duplicated effect to arrive. Pick it only for a handler you
+    //     would have been willing to run in "replay".
+    //
+    // Questions are matched to answers BY ORDER of execution, so under the two
+    // replaying modes a handler must reach the same sequence of `elicit` calls
+    // on every pass.
     //
     // Against a LEGACY client nothing changes: the call blocks and the handler
-    // runs once. specs/mcp-2026-07-28.md 8.5b.
+    // runs once. specs/mcp-2026-07-28.md 8.5b and 8.9.
     def elicitFn = PluginValue.nativeFn("McpServer.elicit", {
       case List(Str(message), schemaV, Num(timeoutMs)) =>
         builder.elicit(message, Mcp.valueToJson(schemaV), timeoutMs) match
@@ -812,6 +827,22 @@ private[mcp] object Mcp:
         { _ => builder.requestState match
             case Some(s) => PluginValue.string(s)
             case None    => PluginValue.unit })
+    // MCP 2026-07-28 — `srv.setMrtrMode("park" | "replay" | "parkThenReplay")`.
+    // See the elicit comment above for what each one costs. Unknown names are
+    // refused rather than silently defaulted: a typo that quietly selected a
+    // mode with a precondition would be the worst possible failure here.
+    def setMrtrModeFn =
+      PluginValue.nativeFn("McpServer.setMrtrMode", {
+        case List(Str(m)) =>
+          m match
+            case "park"           => builder.setMrtrMode(MrtrMode.Park)
+            case "replay"         => builder.setMrtrMode(MrtrMode.Replay)
+            case "parkThenReplay" => builder.setMrtrMode(MrtrMode.ParkThenReplay)
+            case other            => PluginError.raise(
+              s"srv.setMrtrMode: unknown mode '$other' (park | replay | parkThenReplay)")
+          PluginValue.unit
+        case _ => PluginError.raise("srv.setMrtrMode(mode: String)")
+      })
     def setRequestStateFn =
       PluginValue.nativeFn("McpServer.setRequestState", {
         case List(Str(s)) => builder.setRequestState(s); PluginValue.unit
@@ -951,6 +982,7 @@ private[mcp] object Mcp:
       "clientSupportsElicitation"  -> clientSupportsElicitationFn,
       "requestState"               -> requestStateFn,
       "setRequestState"            -> setRequestStateFn,
+      "setMrtrMode"                -> setMrtrModeFn,
       "completionForPrompt"        -> completionForPromptFn,
       "completionForResource"      -> completionForResourceFn,
       "setPageSize"                -> setPageSizeFn,

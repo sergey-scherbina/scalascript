@@ -1412,6 +1412,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
   /** A tool that asks one question, counting how many times it is entered. */
   private def askingServer(questions: Int = 1): McpServerBuilder =
     val b = new McpServerBuilder
+    b.setMrtrMode(MrtrMode.Replay)     // these cases are ABOUT replay; ask for it
     b.tool("ask", None, ujson.Obj(), _ =>
       runs.incrementAndGet()
       val answers = (1 to questions).map(i =>
@@ -1475,6 +1476,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
 
   test("an explicit key is used instead of the positional one"):
     val b = new McpServerBuilder
+    b.setMrtrMode(MrtrMode.Replay)
     b.tool("ask", None, ujson.Obj(), _ =>
       b.elicit("q", ujson.Obj(), key = Some("confirm-delete"))
       ToolHandlerResult(Nil, isError = false))
@@ -1482,7 +1484,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
 
   test("requestState is echoed back so a handler can record its own progress"):
     val js = callAsk(askingServer(), askParams("requestState" -> ujson.Str("step-2")))
-    js("result")("requestState").str shouldBe "step-2"
+    McpProtocol.authorState(Some(js("result")("requestState").str)) shouldBe Some("step-2")
 
   test("LEGACY is untouched: elicit still blocks on a server-initiated request"):
     // No _meta.protocolVersion. elicit must take the old path -- which, with no
@@ -1532,6 +1534,7 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     // handler even when they want to, because they cannot tell the passes apart.
     val seen = java.util.concurrent.atomic.AtomicReference[Option[String]](None)
     val b = new McpServerBuilder
+    b.setMrtrMode(MrtrMode.Replay)
     b.tool("ask", None, ujson.Obj(), _ =>
       seen.set(b.requestState)
       b.setRequestState("row-written")
@@ -1539,17 +1542,19 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       ToolHandlerResult(Nil, isError = false))
     val first = callAsk(b, askParams())
     seen.get shouldBe None                                  // first pass: nothing done yet
-    first("result")("requestState").str shouldBe "row-written"
+    McpProtocol.authorState(Some(first("result")("requestState").str)) shouldBe Some("row-written")
     callAsk(b, askParams("requestState" -> ujson.Str("row-written")))
     seen.get shouldBe Some("row-written")                   // second pass: it knows
 
   test("a handler that keeps no state still round-trips the client's"):
-    callAsk(askingServer(), askParams("requestState" -> ujson.Str("opaque")))(
-      "result")("requestState").str shouldBe "opaque"
+    val out = callAsk(askingServer(), askParams("requestState" -> ujson.Str("opaque")))(
+      "result")("requestState").str
+    McpProtocol.authorState(Some(out)) shouldBe Some("opaque")
 
   test("requestState is None on the legacy path, where nothing is ever re-run"):
     val got = java.util.concurrent.atomic.AtomicReference[Option[String]](Some("x"))
     val b = new McpServerBuilder
+    b.setMrtrMode(MrtrMode.Replay)
     b.tool("ask", None, ujson.Obj(), _ =>
       got.set(b.requestState)
       b.setRequestState("ignored")                          // a no-op here
@@ -1560,4 +1565,117 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
                              "requestState" -> ujson.Str("from-client"))).render(),
       "srv", "9.9.9").trim)
     got.get shouldBe None
+
+  // ── P3c — parked virtual thread, the DEFAULT ───────────────────────────
+  //
+  // The mirror of the replay block above. There the load-bearing assertion is
+  // that the handler runs TWICE; here it is that it runs ONCE. Everything else
+  // about the two modes is the same, and that one number is the difference.
+
+  private val parkRuns = java.util.concurrent.atomic.AtomicInteger(0)
+
+  /** Counts entries, and counts how many times the code BEFORE the question
+   *  ran — which is the effect an author would have duplicated. */
+  private def parkingServer(questions: Int = 1): McpServerBuilder =
+    val b = new McpServerBuilder                        // no setMrtrMode: Park is the default
+    b.tool("ask", None, ujson.Obj(), _ =>
+      parkRuns.incrementAndGet()
+      val answers = (1 to questions).map(i =>
+        b.elicit(s"question $i", ujson.Obj()) match
+          case Right(McpProtocol.ElicitationResult.Accept(c)) => c.render()
+          case Right(other)                                   => other.toString
+          case Left(e)                                        => s"error:${e.message}")
+      ToolHandlerResult(List(McpProtocol.textContent(answers.mkString(","))), isError = false))
+    b
+
+  /** Answer the question a previous pass asked, echoing its requestState back
+   *  the way a conforming client would. */
+  private def answerWith(js: ujson.Value, answers: (String, ujson.Value)*): ujson.Obj =
+    askParams(
+      "inputResponses" -> ujson.Obj.from(answers),
+      "requestState"   -> ujson.Str(js("result")("requestState").str))
+
+  test("Park is the default — a fresh builder parks rather than replays"):
+    (new McpServerBuilder).mrtrMode shouldBe MrtrMode.Park
+
+  test("PARK: the handler runs ONCE and continues where it stood"):
+    // The whole decision, in one number. Under replay this reads 2.
+    parkRuns.set(0)
+    val b = parkingServer()
+    val asked = callAsk(b, askParams())
+    asked("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    parkRuns.get shouldBe 1
+    val done = callAsk(b, answerWith(asked, "elicit-1" -> answer("yes")))
+    done("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    done("result")("content")(0)("text").str should include ("yes")
+    parkRuns.get shouldBe 1                       // NOT re-entered
+
+  test("PARK: two questions, still one entry"):
+    parkRuns.set(0)
+    val b = parkingServer(questions = 2)
+    val first  = callAsk(b, askParams())
+    first("result")("inputRequests").obj.keySet shouldBe Set("elicit-1")
+    val second = callAsk(b, answerWith(first, "elicit-1" -> answer("a")))
+    second("result")("inputRequests").obj.keySet shouldBe Set("elicit-2")
+    val third  = callAsk(b, answerWith(second, "elicit-1" -> answer("a"), "elicit-2" -> answer("b")))
+    third("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    parkRuns.get shouldBe 1
+
+  test("PARK: a token this process does not hold fails LOUDLY"):
+    // This error is why Park can be the default. Silently re-running here would
+    // repeat whatever the first pass did before it asked.
+    val js = callAsk(parkingServer(), askParams(
+      "requestState" -> ujson.Str(ujson.write(ujson.Obj("park" -> "no-such-token")))))
+    js("error")("code").num.toInt shouldBe McpProtocol.ErrorCode.InputSessionNotFound
+    js("error")("message").str should include ("Start the operation again")
+
+  test("ParkThenReplay: the same lost token re-runs instead, which is why it is opt-in"):
+    parkRuns.set(0)
+    val b = parkingServer()
+    b.setMrtrMode(MrtrMode.ParkThenReplay)
+    val js = callAsk(b, askParams(
+      "inputResponses" -> ujson.Obj("elicit-1" -> answer("yes")),
+      "requestState"   -> ujson.Str(ujson.write(ujson.Obj("park" -> "no-such-token")))))
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    parkRuns.get shouldBe 1                       // it RAN, from the top — a replay
+
+  test("PARK: the author's own state survives the envelope the token rides in"):
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      b.setRequestState("row-written")
+      b.elicit("q", ujson.Obj())
+      ToolHandlerResult(Nil, isError = false))
+    val rs = callAsk(b, askParams())("result")("requestState").str
+    McpProtocol.parkToken(Some(rs))   should not be empty     // the server's slice
+    McpProtocol.authorState(Some(rs)) shouldBe Some("row-written")   // and the author's
+
+  test("PARK: an expired park is evicted, and the client is told so"):
+    val b = parkingServer()
+    b.setParkTtlMs(0L)                            // expire the moment it is created
+    val asked = callAsk(b, askParams())
+    asked("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    Thread.sleep(5)
+    callAsk(b, askParams())                       // any new call sweeps the expired ones
+    val js = callAsk(b, answerWith(asked, "elicit-1" -> answer("yes")))
+    js("error")("code").num.toInt shouldBe McpProtocol.ErrorCode.InputSessionNotFound
+
+  test("PARK: the ceiling refuses a NEW call rather than dropping a half-done one"):
+    val b = parkingServer()
+    b.setMaxParks(1)
+    callAsk(b, askParams())("result")("resultType").str shouldBe
+      McpProtocol.ResultTypeInputRequired
+    val js = callAsk(b, askParams())
+    js("error")("message").str should include ("too many parked handlers")
+
+  test("PARK: cancelling the request drops the park instead of waiting out its TTL"):
+    val b = parkingServer()
+    val asked = callAsk(b, askParams())
+    asked("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    b.parks.size shouldBe 1
+    McpServerCore.handleHttpRequest(b, JsonRpc.encodeNotification(
+      McpProtocol.Method.Cancelled, ujson.Obj("requestId" -> 77)), "srv", "9.9.9")
+    b.parks.size shouldBe 0
+    // and the client is then told plainly, rather than hanging
+    callAsk(b, answerWith(asked, "elicit-1" -> answer("yes")))("error")("code").num.toInt shouldBe
+      McpProtocol.ErrorCode.InputSessionNotFound
 

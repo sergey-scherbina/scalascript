@@ -70,6 +70,26 @@ class McpServerBuilder:
    *  handler runs on the thread that dispatched its request. */
   private[mcp] val mrtrTL: ThreadLocal[MrtrScope | Null] = new ThreadLocal[MrtrScope | Null]()
 
+  /** Handlers that stopped mid-flight, by park token. Virtual threads, so the
+   *  cost of holding one is heap, not a platform thread. */
+  private[mcp] val parks = java.util.concurrent.ConcurrentHashMap[String, Park]()
+
+  private[mcp] var mrtrMode: MrtrMode = MrtrMode.Park
+  /** See `MrtrMode`. The default asks nothing of the handler's author; the
+   *  other two require an idempotent prefix before every `elicit`. */
+  def setMrtrMode(m: MrtrMode): Unit = mrtrMode = m
+
+  private[mcp] var parkTtlMs: Long = 300_000L
+  /** How long a parked handler waits for the client before it is interrupted
+   *  and dropped. Bounds a client that asks a question and never answers. */
+  def setParkTtlMs(ms: Long): Unit = parkTtlMs = ms
+
+  private[mcp] var maxParks: Int = 256
+  /** Ceiling on simultaneously parked handlers. Reached, a NEW call is refused
+   *  loudly rather than an existing park being silently dropped — the caller
+   *  whose work is already half-done is the worse one to lose. */
+  def setMaxParks(n: Int): Unit = maxParks = n
+
   // v1.17.x — logging.  Client sets the floor via `logging/setLevel`;
   // server emits `notifications/message` for log lines at or above that
   // level (syslog ranking).  Default "info" — `debug` is silenced until
@@ -267,13 +287,38 @@ class McpServerBuilder:
           case Right(js) => Right(McpProtocol.parseElicitationResult(js))
       case scope =>
         // MODERN: MRTR. Either the client already answered this question on a
-        // previous pass, or we abandon the handler and ask.
+        // previous pass, or we have to ask — and HOW we ask is the mode.
         val k = key.getOrElse(scope.nextKey())
         scope.responses.get(k) match
           case Some(answer) => Right(McpProtocol.parseElicitationResult(answer))
-          case None => throw InputRequiredSignal(k, McpProtocol.InputRequest(
-            McpProtocol.Method.ElicitationCreate,
-            McpProtocol.elicitationCreateParams(message, requestedSchema)))
+          case None =>
+            val req = McpProtocol.InputRequest(
+              McpProtocol.Method.ElicitationCreate,
+              McpProtocol.elicitationCreateParams(message, requestedSchema))
+            scope.park match
+              // REPLAY: abandon the handler. It will be run again from the top.
+              case null => throw InputRequiredSignal(k, req)
+              // PARK: stop HERE. This is a virtual thread, so waiting costs
+              // heap and nothing else, and the code above this line will not
+              // run a second time — which is the whole point of the mode.
+              case park =>
+                var answer: Option[ujson.Value] = None
+                while answer.isEmpty do
+                  park.out.put(ParkOutcome.NeedsInput(k, req, scope.outgoingState))
+                  val r = park.resume.take()      // parks the virtual thread
+                  // A resumed handler serves a DIFFERENT request than the one it
+                  // started on, so cancellation and progress must follow the new
+                  // one. These are this thread's locals; only this thread can
+                  // move them, which is why it happens here and not in the
+                  // dispatcher that woke us.
+                  r.requestId.foreach(n =>
+                    currentReqIdTL.set(java.lang.Long.valueOf(n)))
+                  r.progressToken.foreach(pt => currentProgressTokenTL.set(pt))
+                  scope.responses = r.responses
+                  answer = r.responses.get(k)
+                  // The client came back without answering THIS question. Ask
+                  // again rather than treat silence as a decline.
+                Right(McpProtocol.parseElicitationResult(answer.get))
 
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
@@ -565,11 +610,65 @@ private[mcp] final class InputRequiredSignal(
  *  be idempotent AND must reach the same elicit sequence, or answers land on
  *  the wrong questions. An author who cannot promise that passes an explicit
  *  `key` instead, which survives reordering. */
+/** How a server answers a question it needs the client to answer.
+ *
+ *  `Park` is the DEFAULT and asks nothing of the handler's author: the handler
+ *  runs ONCE, on a virtual thread, and simply waits where it stands. If the
+ *  retry cannot find that thread — another instance, a restart, an expired
+ *  park — the client is told so, loudly.
+ *
+ *  `Replay` never parks. The handler is re-run from the top on every pass, so
+ *  the server holds nothing between requests and any instance can serve any
+ *  retry. The price is a PRECONDITION ON THE AUTHOR: everything before an
+ *  `elicit` happens once per question, so it must be idempotent.
+ *
+ *  `ParkThenReplay` parks, and re-runs when the park is missing. It reads like
+ *  the best of both and is NOT the default, because the fallback IS a replay:
+ *  it carries `Replay`'s precondition, and it breaks it rarely and
+ *  unpredictably — the worst way for a duplicated effect to arrive. Choose it
+ *  only for a handler you would have been willing to run in `Replay`. */
+enum MrtrMode:
+  case Park, Replay, ParkThenReplay
+
+/** What a parked handler tells the dispatcher when it stops. */
+private[mcp] enum ParkOutcome:
+  case Done(frame: String)
+  case NeedsInput(key: String, request: McpProtocol.InputRequest, authorState: Option[String])
+  case Failed(error: Throwable)
+
+/** What the dispatcher hands back to a parked handler to wake it.
+ *
+ *  It carries the NEW request's identity as well as the answers: a resumed
+ *  handler is serving a different request than the one it started on, and
+ *  `isCancelled` and progress notifications must follow the live one. */
+private[mcp] final case class Resume(
+  responses:     Map[String, ujson.Value],
+  requestId:     Option[Long],
+  progressToken: Option[ujson.Value]
+)
+
+/** A handler that stopped mid-flight and is waiting to be told the answer.
+ *
+ *  The thread is virtual, so the cost of one is a few kilobytes of heap rather
+ *  than a platform thread — which is the whole reason parking can be a default
+ *  at all. `deadlineMs` bounds a client that never comes back. */
+private[mcp] final class Park(
+  val token:  String,
+  val resume: java.util.concurrent.ArrayBlockingQueue[Resume],
+  val out:    java.util.concurrent.ArrayBlockingQueue[ParkOutcome]
+):
+  @volatile var thread: Thread | Null = null
+  @volatile var deadlineMs: Long      = 0L
+  /** The id of the request this park most recently answered, so a
+   *  `notifications/cancelled` naming that id can find it. */
+  @volatile var lastRequestId: Option[Long] = None
+
 private[mcp] final class MrtrScope(
-  val responses: Map[String, ujson.Value],
+  @volatile var responses: Map[String, ujson.Value],
   /** What the client echoed back from the previous pass — the handler's own
-   *  note to itself about what it had already done. */
-  val incomingState: Option[String]
+   *  note to itself about what it had already done. Reassigned on each resume,
+   *  because a parked handler outlives the request that started it. */
+  @volatile var incomingState: Option[String]
 ):
   private var n = 0
   def nextKey(): String = { n += 1; s"elicit-$n" }
@@ -577,6 +676,10 @@ private[mcp] final class MrtrScope(
   /** What this pass wants carried to the next one. Unset means "resend what
    *  arrived", so a handler that never writes state still round-trips it. */
   @volatile var outgoingState: Option[String] = None
+
+  /** The park this handler is running inside, or `null` when replaying. This
+   *  is what `elicit` branches on: publish-and-wait, or throw-and-be-re-run. */
+  @volatile var park: Park | Null = null
 
 case class ToolHandlerResult(
   content:           List[ujson.Value],
@@ -1159,6 +1262,16 @@ object McpServerCore:
         // neither does this: both lookups run, and at most one will match.
         val sub = builder.liveSubscriptions.get(id)
         if sub != null then sub.close()
+        // MRTR (P3c): a cancelled id may also be the last one a PARKED handler
+        // answered. Without this the thread waits out its whole TTL for an
+        // answer the client has already said it will not send.
+        builder.parks.values().removeIf { p =>
+          val mine = p.lastRequestId.contains(id)
+          if mine then
+            val th = p.thread
+            if th != null then th.interrupt()
+          mine
+        }
       case None => ()
 
   /** Run a tool/resource/prompt handler with cancellation + progress
@@ -1169,7 +1282,13 @@ object McpServerCore:
    *     `currentProgressTokenTL` (so `srv.notifyProgress` reaches the
    *     matching client request).
    *  Tears all thread-locals down regardless of handler outcome. */
-  private inline def withRequestTracking(
+  /** Request-scoped bookkeeping, and the fork between the three MRTR modes.
+   *
+   *  Legacy and `Replay` run the handler HERE, on the thread that read the
+   *  request, exactly as every version before this one did. `Park` runs it on
+   *  a virtual thread and waits for one of two things: the handler finished,
+   *  or the handler needs an answer. Only the second leaves anything behind. */
+  private def withRequestTracking(
     builder: McpServerBuilder,
     id:      ujson.Value,
     params:  ujson.Value
@@ -1179,33 +1298,155 @@ object McpServerCore:
       .flatMap(_.get("_meta"))
       .flatMap(_.objOpt)
       .flatMap(_.get("progressToken"))
-    numId.foreach { n =>
-      builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
-      builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
-    }
-    progressToken.foreach(t => builder.currentProgressTokenTL.set(t))
-    // MRTR (P3b) — modern only. A legacy client keeps the blocking `elicit`
-    // and no re-run, so existing servers do not change behaviour.
-    val ctx = McpProtocol.parseRequestMeta(params)
-    if ctx.isModern then
-      builder.mrtrTL.set(MrtrScope(McpProtocol.parseInputResponses(params),
-                                   McpProtocol.parseRequestState(params)))
-    try body
-    catch
-      // THE one place that turns the signal into a frame. The three handler
-      // bodies only decline to swallow it; none of them decides what it means.
-      case s: InputRequiredSignal =>
-        JsonRpc.encodeResult(id, McpProtocol.inputRequiredResult(
-          inputRequests = Map(s.key -> s.request),
-          // What the handler recorded wins; absent that, echo what arrived, so
-          // a handler that keeps no state of its own still round-trips it.
-          requestState  = Option(builder.mrtrTL.get()).flatMap(_.outgoingState)
-                            .orElse(McpProtocol.parseRequestState(params))))
-    finally
+    val ctx       = McpProtocol.parseRequestMeta(params)
+    val incoming  = McpProtocol.parseRequestState(params)
+    val token     = McpProtocol.parkToken(incoming)
+    val author    = McpProtocol.authorState(incoming)
+    val responses = McpProtocol.parseInputResponses(params)
+
+    def install(): Unit =
+      numId.foreach { n =>
+        builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
+        builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
+      }
+      progressToken.foreach(t => builder.currentProgressTokenTL.set(t))
+
+    def clear(): Unit =
       builder.mrtrTL.remove()
       numId.foreach { n => builder.inflightCancel.remove(n) }
       builder.currentReqIdTL.remove()
       builder.currentProgressTokenTL.remove()
+
+    /** The handler on THIS thread — legacy, and `Replay`. */
+    def onThisThread(scope: MrtrScope | Null): String =
+      install()
+      if scope != null then builder.mrtrTL.set(scope)
+      try body
+      catch
+        // THE one place that turns the signal into a frame. The three handler
+        // bodies only decline to swallow it; none of them decides what it means.
+        case s: InputRequiredSignal =>
+          JsonRpc.encodeResult(id, McpProtocol.inputRequiredResult(
+            inputRequests = Map(s.key -> s.request),
+            // What the handler recorded wins; absent that, echo what arrived, so
+            // a handler that keeps no state of its own still round-trips it.
+            requestState  = McpProtocol.parkEnvelope(None,
+              Option(builder.mrtrTL.get()).flatMap(_.outgoingState).orElse(author))))
+      finally clear()
+
+    if !ctx.isModern then onThisThread(null)
+    else builder.mrtrMode match
+      case MrtrMode.Replay => onThisThread(MrtrScope(responses, author))
+      case _ =>
+        token.map(tk => (tk, builder.parks.get(tk))) match
+          case Some((_, park)) if park != null =>
+            resumePark(builder, park, Resume(responses, numId, progressToken),
+                       id, numId, author)
+          case Some((_, _)) =>
+            // A token we do not hold. THE loud failure that lets `Park` be the
+            // default: the alternative is to re-run a handler whose earlier
+            // effects already happened somewhere else, silently.
+            if builder.mrtrMode == MrtrMode.ParkThenReplay then
+              onThisThread(MrtrScope(responses, author))
+            else
+              JsonRpc.encodeError(id, McpProtocol.ErrorCode.InputSessionNotFound,
+                "no parked handler for this requestState — a different server " +
+                "instance, a restart, or an expired park. Start the operation again.")
+          case None => startPark(builder, id, numId, progressToken, responses, author, () => body)
+
+  /** Start the handler on a virtual thread and wait for its first stop. */
+  private def startPark(
+    builder:       McpServerBuilder,
+    id:            ujson.Value,
+    numId:         Option[Long],
+    progressToken: Option[ujson.Value],
+    responses:     Map[String, ujson.Value],
+    author:        Option[String],
+    body:          () => String
+  ): String =
+    evictExpiredParks(builder)
+    if builder.parks.size >= builder.maxParks then
+      JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+        s"too many parked handlers (${builder.maxParks}); refusing to start another")
+    else
+      val park = Park(java.util.UUID.randomUUID().toString,
+                      java.util.concurrent.ArrayBlockingQueue[Resume](1),
+                      java.util.concurrent.ArrayBlockingQueue[ParkOutcome](1))
+      val scope = MrtrScope(responses, author)
+      scope.park = park
+      val thread = Thread.ofVirtual().unstarted(() =>
+        numId.foreach { n =>
+          builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
+          builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
+        }
+        progressToken.foreach(pt => builder.currentProgressTokenTL.set(pt))
+        builder.mrtrTL.set(scope)
+        val outcome =
+          try ParkOutcome.Done(body())
+          catch case e: Throwable => ParkOutcome.Failed(e)
+        builder.mrtrTL.remove()
+        builder.currentReqIdTL.remove()
+        builder.currentProgressTokenTL.remove()
+        park.out.put(outcome))
+      park.thread = thread
+      builder.parks.put(park.token, park)
+      thread.start()
+      awaitPark(builder, park, id, numId, author)
+
+  /** Hand a parked handler its answer and wait for its next stop. */
+  private def resumePark(
+    builder:       McpServerBuilder,
+    park:   Park,
+    resume: Resume,
+    id:     ujson.Value,
+    numId:  Option[Long],
+    author: Option[String]
+  ): String =
+    numId.foreach { n =>
+      builder.inflightCancel.put(n, new java.util.concurrent.atomic.AtomicBoolean(false))
+    }
+    park.resume.put(resume)
+    awaitPark(builder, park, id, numId, author)
+
+  /** Wait for the parked handler to finish or to ask. Never throws: the
+   *  handler's own try/catch lives INSIDE `body`, so an exception escaping to
+   *  here is ours, not the author's, and must not be reported as theirs. */
+  private def awaitPark(
+    builder: McpServerBuilder,
+    park:    Park,
+    id:      ujson.Value,
+    numId:   Option[Long],
+    author:  Option[String]
+  ): String =
+    val outcome = park.out.take()
+    numId.foreach { n => builder.inflightCancel.remove(n) }
+    outcome match
+      case ParkOutcome.Done(frame) =>
+        builder.parks.remove(park.token)
+        frame
+      case ParkOutcome.Failed(e) =>
+        builder.parks.remove(park.token)
+        JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
+          Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+      case ParkOutcome.NeedsInput(key, req, authorState) =>
+        park.deadlineMs    = System.currentTimeMillis() + builder.parkTtlMs
+        park.lastRequestId = numId
+        JsonRpc.encodeResult(id, McpProtocol.inputRequiredResult(
+          inputRequests = Map(key -> req),
+          requestState  = McpProtocol.parkEnvelope(Some(park.token),
+                            authorState.orElse(author))))
+
+  /** Drop parks whose client never came back. Lazy rather than scheduled: a
+   *  reaper thread would outlive every server that never parks at all. */
+  private def evictExpiredParks(builder: McpServerBuilder): Unit =
+    val now = System.currentTimeMillis()
+    builder.parks.values().removeIf { p =>
+      val dead = p.deadlineMs > 0L && p.deadlineMs < now
+      if dead then
+        val th = p.thread
+        if th != null then th.interrupt()
+      dead
+    }
 
   private def subscribeResource(builder: McpServerBuilder, params: ujson.Value, id: ujson.Value): String =
     params.objOpt.flatMap(_.get("uri").flatMap(_.strOpt)) match

@@ -102,6 +102,17 @@ object McpProtocol:
     val MissingRequiredClientCapability = -32021
     val UnsupportedProtocolVersion      = -32022
 
+    /** MRTR: the client came back with a `requestState` naming a parked handler
+     *  this process does not have — a different instance, a restart, or an
+     *  expired park.
+     *
+     *  This error is the WHOLE reason a parked thread can be the default. The
+     *  alternative to answering it is to silently re-run the handler, which
+     *  duplicates every effect it had already performed before asking; that is
+     *  a real mode (`ParkThenReplay`) and it is opt-in precisely because it
+     *  trades this loud failure for a quiet one. */
+    val InputSessionNotFound = -32023
+
   /** Syslog levels per MCP spec, ordered by severity (low to high).
    *
    *  DEPRECATED FEATURE (MCP 2026-07-28, SEP-2577). Logging survives the
@@ -789,6 +800,41 @@ object McpProtocol:
    *  Load-bearing for caching: the spec says a result produced from a request
    *  carrying `inputResponses` or `requestState` MUST NOT be cached, because it
    *  depends on inputs that are not part of the cache key. */
+  /** `requestState` carries TWO things and belongs to neither alone: the
+   *  server's park token and whatever the handler recorded for itself. The
+   *  spec makes this the only field a client must echo back, so both ride in
+   *  it, and the author sees only their own slice.
+   *
+   *  A value that does not parse as this envelope is treated as author state
+   *  with no token — which is what a `Replay`-mode server produced before
+   *  parking existed, and what a hand-written client will send. */
+  def parkEnvelope(token: Option[String], authorState: Option[String]): Option[String] =
+    if token.isEmpty && authorState.isEmpty then None
+    else
+      val o = ujson.Obj()
+      token.foreach(t => o("park") = t)
+      authorState.foreach(s => o("app") = s)
+      Some(ujson.write(o))
+
+  /** The park token, if this `requestState` is one of ours and carries one. */
+  def parkToken(requestState: Option[String]): Option[String] =
+    requestState.flatMap { s =>
+      try ujson.read(s).objOpt.flatMap(_.get("park")).flatMap(_.strOpt)
+      catch case _: Throwable => None
+    }
+
+  /** The author's own slice. An unparseable or token-less value is returned
+   *  whole, so state written by a server that never parked still round-trips. */
+  def authorState(requestState: Option[String]): Option[String] =
+    requestState.flatMap { s =>
+      try
+        ujson.read(s).objOpt match
+          case Some(o) if o.contains("park") || o.contains("app") =>
+            o.get("app").flatMap(_.strOpt)
+          case _ => Some(s)
+      catch case _: Throwable => Some(s)
+    }
+
   def isMrtrRetry(params: ujson.Value): Boolean =
     parseInputResponses(params).nonEmpty || parseRequestState(params).isDefined
 
