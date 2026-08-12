@@ -3084,7 +3084,30 @@ a loop in ScalaScript over an opaque handle (which needs `Bytes` to be a value t
 hold) versus a pair of prims on both lanes. **Not decided here** — B's `Value.VBytes` is what makes
 either possible, and the choice should be made with B landed.
 
-### D — what is still out of reach, and who owns it
+### D — CLOSED BY MEASUREMENT 2026-08-12: the intersection is exhausted
+
+Not a task after all, and the census is the deliverable. Every conformance case was built and its
+host-function refusal recorded — the 27 that remain are blocked on:
+
+```text
+  6 element        4 signal / eqSignal / computedSignal      5 content{Document,Data,Block,ModuleMetadata}
+  2 mkdirs         2 actorGroupTell      sha256  readLine  exec  localStorageGet  webauthnChallenge
+```
+
+**Not one of them exists as a v2 prim.** Checked name by name against `v2/src/Runtime.scala`, which
+implements ten `io.*` prims and nothing else that answers to these. So `hostPrims` cannot grow
+further without a change to v2 — a different subsystem with a different owner — and any v3-only
+addition would break I-3 exactly as the table exists to prevent.
+
+That also prices slice C honestly: **the byte API buys zero corpus cases**, because none of the 27
+is a byte one and `std-fs-failure-raises` is the only case in the tree that names `readBytes` at
+all. It was built for API completeness on the owner's instruction, not for N, and the plan should
+not have implied otherwise.
+
+`deleteFile` — needed by `dataset-shape` — is in the same position: no v2 prim, so it stays an
+honest refusal. `fromGenerator` and `runParallel` need laziness and parallelism, not IO.
+
+### D (as originally written) — what is still out of reach, and who owns it
 
 `deleteFile` — needed by `tests/conformance/dataset-shape` — has **no v2 prim at all**. A v3-only
 `io.deleteFile` would break I-3 exactly as the table exists to prevent, so this one is a v2 change

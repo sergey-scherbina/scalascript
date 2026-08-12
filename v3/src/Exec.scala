@@ -1813,6 +1813,46 @@ object Exec:
         // diverge on a program that round-trips text through the conversion twice.
         case Value.VStr(s)   => Value.VStr(s)
         case v               => throw ExecError("utf8->str takes bytes: " + show(v))
+    // `blen`/`bget`/`hex->bytes` — v2's spellings again, because `Lower.bytesToList` and
+    // `listToBytes` synthesise a loop over them and that loop runs on BOTH lanes.
+    case "blen" =>
+      args.head match
+        case Value.VBytes(b) => Value.VInt(b.length.toLong)
+        case v               => throw ExecError("blen takes bytes: " + show(v))
+    case "bget" =>
+      (args.head, args.tail.head) match
+        // `& 0xff` — a JVM byte is SIGNED and the language's is not. Without it a byte above 127
+        // arrives as a negative Int, which is why the round-trip fixture uses 200: every ASCII
+        // probe passes with or without this mask. v2 masks identically (`Runtime.scala:1551`).
+        case (Value.VBytes(b), Value.VInt(i)) => Value.VInt((b(i.toInt) & 0xff).toLong)
+        case (x, y) => throw ExecError("bget takes bytes and an index: " + show(x) + ", " + show(y))
+    // AN OPTION, because v2 returns one (`Runtime.scala:1487`): bad hex is `none` there, so a bare
+    // `Bytes` here would be the two lanes disagreeing about the SHAPE of a result — the same
+    // mistake as mapping `readFile` by name, caught the same way, by the bridge refusing with
+    // `expected Bytes, got Some(#00417fc8ff)`. The hex string this is called with is built digit by
+    // digit and cannot be malformed; matching v2 anyway is what keeps the rule "shape, not name".
+    case "hex->bytes" =>
+      args.head match
+        case Value.VStr(h) =>
+          val ok = h.length % 2 == 0 &&
+                   h.forall(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+          if !ok then noneOf(m)
+          else
+            val out = new Array[Byte](h.length / 2)
+            var k = 0
+            while k < out.length do
+              out(k) = Integer.parseInt(h.substring(k * 2, k * 2 + 2), 16).toByte
+              k = k + 1
+            someOf(m, Value.VBytes(out))
+        case v => throw ExecError("hex->bytes takes a hex string: " + show(v))
+    case "bytes->hex" =>
+      args.head match
+        case Value.VBytes(b) =>
+          val sb = new StringBuilder
+          b.foreach(x => sb.append("0123456789abcdef".charAt((x & 0xff) >> 4))
+                           .append("0123456789abcdef".charAt(x & 0x0f)))
+          Value.VStr(sb.toString)
+        case v => throw ExecError("bytes->hex takes bytes: " + show(v))
     case "str->utf8" =>
       args.head match
         case Value.VStr(s)   => Value.VBytes(s.getBytes("UTF-8"))

@@ -1483,7 +1483,12 @@ object Lower:
     "RuntimeException", "Seq", "Throwable", "Tuple", "__arith__", "__autoOutput__", "__isTag__",
     "__lazyFrom__", "__throw__", "ab", "alice", "any", "carol", "cd", "char", "diff", "intersect",
     "isLeft", "matches", "scanLeft", "subsetOf", "substring", "throw", "to", "toOption", "union",
-    "until", "x")
+    "until", "x",
+    // `blen`/`bget` are PRIMS rather than methods — the byte loop `Lower.bytesToList` synthesises
+    // calls them — but the gate derives this list from every name `Exec` answers to, and it is
+    // right not to split hairs: the list must be a SUPERSET, and an extension named `bget` shadowing
+    // a name the runtime knows would be a wrong answer either way.
+    "bget", "blen")
   // BUILTIN-VOCABULARY-END
 
   private def rewriteExtensionCalls(defs: List[Def], classes: List[ClassDef]): List[Def] =
@@ -2304,7 +2309,62 @@ object Lower:
     // the decoding is v2's UTF-8 on both lanes rather than a choice made twice.
     "readFile"  -> (as => p => Expr.Prim("utf8->str", List(Expr.Prim("io.readFile", as, p)), p)),
     "writeFile" -> (as => p => Expr.Prim("io.writeFile",
-                                         List(as.head, Expr.Prim("str->utf8", as.tail, p)), p)))
+                                         List(as.head, Expr.Prim("str->utf8", as.tail, p)), p)),
+    "readBytes"  -> (as => p => bytesToList(Expr.Prim("io.readFile", as, p), p)),
+    "writeBytes" -> (as => p => Expr.Prim("io.writeFile",
+                                          List(as.head, listToBytes(as.tail.head, p)), p)))
+
+  /** `Bytes -> List[Int]`, SYNTHESISED AS A LOOP rather than asked of a prim.
+    *
+    * v2 has no bytes-to-list prim, and adding one is a change to another subsystem. What it does
+    * have is `blen` and `bget` — so the conversion is expressible in the IR both lanes already run,
+    * and building it here costs no v2 change and no user-visible type. The `Bytes` value never
+    * escapes: it is bound to a synthesised local, indexed, and dropped.
+    *
+    * Built BACKWARDS, from the last index down, so each step is a `::` onto the front and the
+    * result comes out in order without a reverse. */
+  private def bytesToList(bytes: Expr, p: Pos): Expr =
+    val b = Expr.Name("__bytes", p)
+    val i = Expr.Name("__i", p)
+    val acc = Expr.Name("__acc", p)
+    Expr.Block(List(
+      Stmt.Val("__bytes", bytes, false, p),
+      Stmt.Val("__i", Expr.Bin("-", Expr.Prim("blen", List(b), p), Expr.IntLit(1, p), p), true, p),
+      Stmt.Val("__acc", Expr.Name("Nil", p), true, p),
+      Stmt.Exp(Expr.While(Expr.Bin(">=", i, Expr.IntLit(0, p), p),
+        Expr.Block(List(
+          Stmt.Exp(Expr.Assign("__acc", Expr.Bin("::", Expr.Prim("bget", List(b, i), p), acc, p), p)),
+          Stmt.Exp(Expr.Assign("__i", Expr.Bin("-", i, Expr.IntLit(1, p), p), p))), None, p), p))),
+      Some(acc), p)
+
+  /** `List[Int] -> Bytes`, THROUGH HEX, because that is the only constructor both lanes share.
+    *
+    * v2 builds bytes from a string (`str->utf8`), from hex (`hex->bytes`), from a file, or from
+    * other bytes (`bslice`/`bconcat`) — and nothing else. `str->utf8` is not a route: it encodes,
+    * so any value above 127 would come out as TWO bytes. Hex is exact for every byte, which is why
+    * the round-trip fixture uses 200 — a UTF-8 shortcut passes on ASCII and fails there.
+    *
+    * The two digits are `/ 16` and `% 16` rather than shifts and masks, so this needs no bitwise
+    * prim and reads the same on every lane. */
+  private def listToBytes(list: Expr, p: Pos): Expr =
+    val xs = Expr.Name("__xs", p)
+    val hx = Expr.Name("__hex", p)
+    val s = Expr.Name("__s", p)
+    val head = Expr.MethodCall(xs, "head", Nil, p)
+    def digit(e: Expr): Expr = Expr.MethodCall(hx, "charAt", List(e), p)
+    Expr.Block(List(
+      Stmt.Val("__hex", Expr.StrLit("0123456789abcdef", p), false, p),
+      Stmt.Val("__xs", list, true, p),
+      Stmt.Val("__s", Expr.StrLit("", p), true, p),
+      Stmt.Exp(Expr.While(Expr.MethodCall(xs, "nonEmpty", Nil, p),
+        Expr.Block(List(
+          Stmt.Exp(Expr.Assign("__s", Expr.Bin("+", Expr.Bin("+", s,
+            digit(Expr.Bin("%", Expr.Bin("/", head, Expr.IntLit(16, p), p), Expr.IntLit(16, p), p)), p),
+            digit(Expr.Bin("%", head, Expr.IntLit(16, p), p)), p), p)),
+          Stmt.Exp(Expr.Assign("__xs", Expr.MethodCall(xs, "tail", Nil, p), p))), None, p), p))),
+      // `.get` — `hex->bytes` answers an OPTION on both lanes. Safe by construction here: every
+      // digit is taken from a 16-character table, so the string is always well-formed hex.
+      Some(Expr.MethodCall(Expr.Prim("hex->bytes", List(s), p), "get", Nil, p)), p)
 
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true

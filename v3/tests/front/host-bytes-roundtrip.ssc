@@ -1,0 +1,11 @@
+// 200 and 255 are the point. Every byte below 128 survives a UTF-8 shortcut and an unmasked
+// signed JVM byte alike, so an ASCII-only probe would pass on an implementation that is wrong
+// for half the range — which is exactly what `bget`'s `& 0xff` and the hex route are here for.
+extern def writeBytes(path: String, bytes: List[Int]): Unit
+extern def readBytes(path: String): List[Int]
+
+def main(): Unit =
+  val p = "/tmp/ssc3-bytes-fixture.tmp"
+  writeBytes(p, List(0, 65, 127, 200, 255))
+  println(readBytes(p).mkString(","))
+  println(readBytes(p).length)
