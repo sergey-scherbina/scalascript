@@ -1,0 +1,11 @@
+slug: mixed-numeric-comparison
+branch: feature/mixed-numeric-comparison
+agent: claude-code
+started: 2026-08-12T01:12:15Z
+heartbeat: 2026-08-12T01:12:15Z
+status: claimed-before-planning
+items: lanes-disagree-on-mixed-numeric-comparison
+paths: file:BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
