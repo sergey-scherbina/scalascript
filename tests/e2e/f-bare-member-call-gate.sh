@@ -295,6 +295,44 @@ def main() = println(Lit("x") | Lit("y"))'
 # would pass the case above and break arithmetic silently.
 lowered_and_correct integer-or-still-primitive 7 'def main() = println(6 | 3)'
 
+# A PARENTHESISED ALTERNATIVE PATTERN, `case A(_) | B(_)`. F handled only BARE-TAG alternatives; one
+# carrying `(` fell to the single-tag path, so the body was parsed starting at `| B(_) => …` and only
+# the first alternative ever became an arm. v2/BUGS.md
+# f-parenthesised-alternative-pattern-drops-all-but-the-first.
+#
+# Three assertions, because two earlier versions of the fix passed one and broke another: the arms
+# must MATCH (arity carried per alternative — emitting `(arm A 0 …)` for `A(_)` matches nothing), and
+# the body must be compiled in the env its arity implies (pushing no binders while emitting arity 1
+# shifts every outer variable by a slot, which surfaced as `__arith__: unknown op * for String`).
+lowered_and_correct paren-alternative-first 'nested' 'case class YMap(p: Any)
+case class YSeq(i: Any)
+case class YStr(s: String)
+def kind(v: Any): String =
+  v match
+    case YMap(_) | YSeq(_) => "nested"
+    case _                 => "scalar"
+def main() = println(kind(YMap(1)))'
+
+lowered_and_correct paren-alternative-second 'nested' 'case class YMap(p: Any)
+case class YSeq(i: Any)
+case class YStr(s: String)
+def kind(v: Any): String =
+  v match
+    case YMap(_) | YSeq(_) => "nested"
+    case _                 => "scalar"
+def main() = println(kind(YSeq(1)))'
+
+# The body must see the OUTER environment unshifted — this is the `pad`/`indentLevel` swap.
+lowered_and_correct paren-alternative-env 'xx2' 'case class A(v: Any)
+case class B(v: Any)
+def f(x: Any, n: Int): String =
+  val pad = "x" * n
+  x match
+    case A(_) | B(_) => pad + n.toString
+    case _           => "other"
+def main() = println(f(A(1), 2))'
+
+
 
 echo
 if [[ $fails -eq 0 ]]; then

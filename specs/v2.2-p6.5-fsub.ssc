@@ -1823,7 +1823,28 @@ def parseAltGiveUp(tags, ts, menv, cx) = parseCtorArm2(hd(tags), tl(ts), menv, c
 def parseAltBody(tags, ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (body, r) => parseArmsMore(altArms(tags, erase(body, cx)), r, menv, cx) }
 // `tags` is accumulated head-first, so recursing tail-first restores source order.
 def altArms(tags, b) = tags match { case Nil => "" case h :: t => join2(altArms(t, b), "(arm " ++ h ++ " 0 " ++ b ++ ")") }
-def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
+// parsePatVars does not special-case `_`: it records it BY NAME, so `(_)` yields ["_"] rather than
+// an empty list. The alternative test below therefore asks "are all the binders wildcards", not "are
+// there none" — which is the same question Scala answers when it allows `A(_) | B(_)` and forbids
+// `A(x) | B(y)`.
+def allWildVars(vs) = vs match { case Nil => true case h :: t => if h == "_" then allWildVars(t) else false }
+def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => if isAltPipe(r) then (if allWildVars(vs) then parseParenAlt(nm, vs, Cons(nm ++ " " ++ dlen(vs), Nil), tl(r), menv, cx) else parseArmBody(nm, dlen(vs), vs, r, menv, cx)) else parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
+// Each entry carries its OWN arity — `"YMap 1"` — because `parseAltBody`/`altArms` emit `(arm T 0 b)`,
+// which is right for the bare-tag alternatives they were written for (0-ary case objects) and wrong
+// here: `(arm YMap 0 …)` does not match a YMap carrying a field, so the first version of this fix
+// made k2 answer `scalar scalar scalar` — every arm dead — where the bug had answered
+// `nested scalar scalar`. The bare-tag path keeps altArms untouched.
+// THE ARITY IS CARRIED AND MUST AGREE, and the body is compiled in the env that arity implies.
+// The first version pushed NO binders while emitting `(arm YMap 1 …)`: the runtime binds one value,
+// the body was compiled as if it bound none, and every outer variable shifted by one slot — which
+// surfaced as `__arith__: unknown op * for String`, `pad` and `indentLevel` having swapped places.
+// So `vs` goes into the env exactly as the old single-tag path does, and alternatives whose arities
+// DIFFER fall back to the old path: one shared body cannot be correct in two different envs, which
+// is the same reason Scala forbids binders across alternatives.
+def parseParenAlt(nm0, vs0, es, ts, menv, cx) = ctorTag(ts) match { case (nm2, r) => if isTok(hd(r), 2, 21) then parsePatVars(tl(r), Nil) match { case (vs2, r2) => if allWildVars(vs2) && dlen(vs2) == dlen(vs0) then parseParenAlt1(nm0, vs0, Cons(nm2 ++ " " ++ dlen(vs2), es), r2, menv, cx) else parseAltGiveUp(Cons(nm2, es), r2, menv, cx) } else parseAltGiveUp(Cons(nm2, es), r, menv, cx) }
+def parseParenAlt1(nm0, vs0, es, ts, menv, cx) = if isAltPipe(ts) then parseParenAlt(nm0, vs0, es, tl(ts), menv, cx) else parseAltBodyA(vs0, es, ts, menv, cx)
+def altArmsA(es, b) = es match { case Nil => "" case h :: t => join2(altArmsA(t, b), "(arm " ++ h ++ " " ++ b ++ ")") }
+def parseAltBodyA(vs0, es, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs0, menv), cx) match { case (body, r) => parseArmsMore(altArmsA(es, erase(body, cx)), r, menv, cx) }
 def parseArmBody(nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ erase(body, cx) ++ ")", r, menv, cx) }
 def parseArmsMore(a, ts, menv, cx) = parseArms(ts, menv, cx) match { case (more, r) => ((joinArm(a, fst(more)), snd(more)), r) }
 // `case h :: t =>` is the same (arm Cons 2 ..) as `case Cons(h, t) =>`.
