@@ -1,0 +1,11 @@
+slug: mcp-p5-rfc9207-iss
+branch: feature/mcp-p5-rfc9207-iss
+agent: claude-code
+started: 2026-08-12T07:46:58Z
+heartbeat: 2026-08-12T07:46:58Z
+status: claimed-before-planning
+items: mcp-p5-rfc9207-iss
+paths: file:mcp/common/src/main/scala/scalascript/oauth/OAuthClient.scala file:mcp/common/src/test/scala/scalascript/OAuthClientValidationTest.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
