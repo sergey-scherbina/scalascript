@@ -1037,7 +1037,15 @@ so — it now compares two fronts and reports what differs, which is what it was
 - [x] **15a — a negated literal is a literal.** v3's lexer folds the sign in; UniML keeps the written
       `Prefix("-", IntLit(1))`, which is right for a CST-faithful tree and wrong for this one. Three
       fixtures.
-- [ ] **15b — `trait` VANISHES on the UniML side, and none of UniML's own gates can see it.**
+- [x] **15b — `trait` VANISHES on the UniML side, and none of UniML's own gates can see it.**
+      **DONE — verified 2026-08-12 by running it, not by reading the code.** `U.TraitDecl` projects
+      to `TraitDef` with its methods; an abstract signature (`NotImplemented`) becomes
+      `__abstract__` so `Lower` dispatches to the subclass instead of returning unit; and a
+      trait member that is not a `def` is REFUSED BY NAME rather than dropped. Measured on both
+      fronts: `trait Shape` with two abstract defs and a `case class` override prints `9` / `sq`
+      through v3's own front AND through the UniML projection, and `trait Named` with a `val id`
+      is refused by both. The item was stale — the work had landed with nothing marking it here,
+      which is the same shape as the two BUGS entries found already-fixed this morning.
       Measured: the CST for `trait Shape:` is `spike.sealed` — the kind the dialect also gives
       imports and anonymous `given`s — and the projection maps it to `NoOpDecl`, "parsed, and
       genuinely carrying nothing". The trait's METHODS never reach the CST.
