@@ -47,6 +47,12 @@ object McpProtocol:
     val LoggingSetLevel       = "logging/setLevel"
     val LogMessage            = "notifications/message"
     val ResourcesTemplatesList = "resources/templates/list"
+    // DEPRECATED by MCP 2026-07-28 (SEP-2577). Still fully functional for the
+    // 12-month window and still served, but NEW code should not reach for it:
+    // pass directories or files as tool parameters, resource URIs, or server
+    // configuration instead. `notifications/roots/list_changed` is REMOVED in
+    // the modern era outright, not merely deprecated.
+    //
     // v1.17.x — roots (client → server workspace info).  `roots/list` is
     // a server-initiated request; the client replies with a list of
     // workspace roots.  `notifications/roots/list_changed` is a
@@ -96,13 +102,27 @@ object McpProtocol:
     val MissingRequiredClientCapability = -32021
     val UnsupportedProtocolVersion      = -32022
 
-  /** Syslog levels per MCP spec, ordered by severity (low to high). */
+  /** Syslog levels per MCP spec, ordered by severity (low to high).
+   *
+   *  DEPRECATED FEATURE (MCP 2026-07-28, SEP-2577). Logging survives the
+   *  deprecation window and the legacy path still serves `logging/setLevel`,
+   *  but the modern era removed that method — the level rides per-request in
+   *  `_meta` as `io.modelcontextprotocol/logLevel`. New code should log to
+   *  stderr on stdio, or use OpenTelemetry. */
   val LogLevels: List[String] = List(
     "debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"
   )
 
   /** Numeric rank of a log level (-1 if unknown).  Levels >= rank pass
    *  through `notifyMessage`; lower ranks are filtered. */
+  /** NOTIFICATIONS the modern era deleted (MCP 2026-07-28).
+   *
+   *  Kept apart from `RemovedInModern` because the two are enforced in
+   *  different places by necessity: a removed request is answered with
+   *  `MethodNotFound`, while a removed notification has no response at all —
+   *  the only refusal available is to not act on it. */
+  val RemovedNotificationsInModern: Set[String] = Set(Method.RootsListChanged)
+
   def logLevelRank(level: String): Int = LogLevels.indexOf(level)
 
   /** The best LEGACY revision we actually implement — what an `initialize`
@@ -755,6 +775,10 @@ object McpProtocol:
    *
    *  A modern client calling one gets `MethodNotFound`, which is the honest
    *  answer: in the revision it asked for, the method does not exist. */
+  /** REQUESTS the modern era deleted. Requests only — a notification has no
+   *  response, so it cannot be refused with an error frame and is handled at
+   *  the delivery site instead. See `RemovedNotificationsInModern`; the two
+   *  sets together are the removal list, and neither is it alone. */
   val RemovedInModern: Set[String] = Set(
     Method.Ping, Method.LoggingSetLevel,
     // Replaced by `subscriptions/listen`, whose filter carries the resource URIs.

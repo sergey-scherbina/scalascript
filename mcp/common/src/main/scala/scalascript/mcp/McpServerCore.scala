@@ -200,6 +200,10 @@ class McpServerBuilder:
    *  client error; `Right(roots)` on success.  Convenience over the
    *  generic `request(...)` mechanism so user scripts don't have to
    *  hand-parse the response shape. */
+  /** DEPRECATED by MCP 2026-07-28 (SEP-2577), and doubly so: Roots is a
+   *  deprecated FEATURE, and this is a server-initiated REQUEST, which the
+   *  revision replaces wholesale with MRTR. It keeps working for legacy peers.
+   *  New code should take directories as tool parameters or resource URIs. */
   def listRoots(timeoutMs: Long = 5000L): Either[JsonRpc.Error, List[McpProtocol.Root]] =
     request(McpProtocol.Method.RootsList, ujson.Obj(), timeoutMs) match
       case Left(e)   => Left(e)
@@ -218,6 +222,9 @@ class McpServerBuilder:
    *  protocol error; `Right(result)` on a well-formed reply (including
    *  `decline` / `cancel` — those are NOT errors, they are valid user
    *  outcomes). */
+  /** Elicitation is NOT deprecated — but this shape of it is. A
+   *  server-initiated request is replaced by MRTR in the modern era
+   *  (specs/mcp-2026-07-28.md 8), so this path serves legacy peers only. */
   def elicit(
     message:         String,
     requestedSchema: ujson.Value,
@@ -628,7 +635,7 @@ object McpServerCore:
                 else if m == McpProtocol.Method.Cancelled then
                   routeCancelled(builder, p)
                 else if m == McpProtocol.Method.RootsListChanged then
-                  try builder.onRootsListChanged() catch case _: Throwable => ()
+                  deliverRootsListChanged(builder, p)
               case Right(JsonRpc.Message.Request(method, params, id)) =>
                 if method == McpProtocol.Method.SubscriptionsListen
                    && McpProtocol.parseRequestMeta(params).isModern then
@@ -743,7 +750,7 @@ object McpServerCore:
         else if method == McpProtocol.Method.Cancelled then
           routeCancelled(builder, params)
         else if method == McpProtocol.Method.RootsListChanged then
-          try builder.onRootsListChanged() catch case _: Throwable => ()
+          deliverRootsListChanged(builder, params)
         ""
       case Right(resp: JsonRpc.Message.Response) =>
         // v1.17.x bidirectional sampling over HTTP: a client may POST a
@@ -806,6 +813,18 @@ object McpServerCore:
       case None =>
         val frame = dispatchCore(builder, method, params, id, serverName, serverVersion)
         if ctx.isModern then stampFrame(builder, method, params, frame, serverName, serverVersion) else frame
+
+  /** Deliver `notifications/roots/list_changed` to the hook — unless the
+   *  sender is speaking the modern revision, which deleted it.
+   *
+   *  One decision in one place, because there are two notification paths
+   *  (stdio and HTTP) and a rule enforced in only one of them is not enforced.
+   *  A notification carrying no `_meta.protocolVersion` is LEGACY and is
+   *  delivered as it always was; that is also the safe way to be wrong, since
+   *  the alternative would silently drop a legacy client's notification. */
+  private def deliverRootsListChanged(builder: McpServerBuilder, params: ujson.Value): Unit =
+    if McpProtocol.parseRequestMeta(params).isModern then ()
+    else try builder.onRootsListChanged() catch case _: Throwable => ()
 
   /** Validate the modern per-request metadata, returning the error frame to
    *  send instead of dispatching — or `None` to proceed.

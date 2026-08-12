@@ -1368,3 +1368,34 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
         // no local branching on the era, and no hand-rolled handshake ordering
         src(f) should not include "if decided == McpProtocol.Era.Legacy"
       }
+
+  // ── removed NOTIFICATION: roots/list_changed ────────────────────────────
+  //
+  // Found by checking a comment against the code. `RemovedInModern` is read
+  // only by the request path, so putting a notification in it would have been
+  // a no-op that reads like a fix. These four cases pin both halves.
+
+  private def rootsChangedBody(params: ujson.Value): String =
+    ujson.write(ujson.Obj(
+      "jsonrpc" -> "2.0",
+      "method"  -> McpProtocol.Method.RootsListChanged,
+      "params"  -> params))
+
+  private def firesHook(params: ujson.Value): Boolean =
+    val fired = java.util.concurrent.atomic.AtomicBoolean(false)
+    val b = echoServer()
+    b.setOnRootsListChanged(() => fired.set(true))
+    McpServerCore.handleHttpRequest(b, rootsChangedBody(params), "srv", "9.9.9")
+    fired.get
+
+  test("legacy roots/list_changed still fires the hook"):
+    firesHook(ujson.Obj()) shouldBe true
+
+  test("modern roots/list_changed does NOT fire the hook — removed in 2026-07-28"):
+    firesHook(modernParams()) shouldBe false
+
+  test("the removed notification is NOT in RemovedInModern, which cannot enforce it"):
+    McpProtocol.RemovedInModern should not contain McpProtocol.Method.RootsListChanged
+
+  test("RemovedNotificationsInModern is frozen"):
+    McpProtocol.RemovedNotificationsInModern shouldBe Set(McpProtocol.Method.RootsListChanged)
