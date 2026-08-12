@@ -153,3 +153,52 @@ class OAuthClientValidationTest extends AnyFunSuite with Matchers:
     val ts = classOf[OAuthClient.JwksCache].getDeclaredField("fetchedAt")
     ts.setAccessible(true)
     ts.set(cache, java.lang.Long.valueOf(java.time.Instant.now.getEpochSecond))
+
+  // ── RFC 9207: the issuer on the AUTHORIZATION RESPONSE ──────────────
+  //
+  // A DIFFERENT `iss` from the one this file already checks inside an id_token.
+  // That one defeats id_token substitution; this one defeats authorization-
+  // response mix-up, and it has to run BEFORE the code is redeemed, because a
+  // code sent to the wrong token endpoint is already spent.
+
+  test("RFC 9207: a matching issuer verifies and may redeem"):
+    val r = OAuthClient.verifyAuthorizationIssuer("https://auth.example", Some("https://auth.example"))
+    r shouldBe OAuthClient.AuthorizationIssuer.Ok
+    r.isVerified shouldBe true
+    r.mayRedeem shouldBe true
+
+  test("RFC 9207: a MISMATCH must never redeem — that is the attack"):
+    val r = OAuthClient.verifyAuthorizationIssuer("https://auth.example", Some("https://evil.example"))
+    r shouldBe OAuthClient.AuthorizationIssuer.Mismatch("https://auth.example", "https://evil.example")
+    r.isVerified shouldBe false
+    r.mayRedeem shouldBe false
+
+  test("RFC 9207: an ABSENT issuer is not verified, but does not block redemption"):
+    // Three states rather than two, deliberately. The spec makes the AS SHOULD
+    // send it and the client MUST validate a PRESENT one, so absence is not a
+    // client failure — but it is not a verified issuer either, and collapsing it
+    // into Ok would hide a silent downgrade of this very defence.
+    for absent <- List(None, Some(""), Some("   ")) do
+      withClue(s"$absent: ") {
+        val r = OAuthClient.verifyAuthorizationIssuer("https://auth.example", absent)
+        r shouldBe OAuthClient.AuthorizationIssuer.Absent
+        r.isVerified shouldBe false      // a caller that requires proof can refuse
+        r.mayRedeem shouldBe true        // but the spec does not make it an error
+      }
+
+  test("RFC 9207: comparison is exact — no normalisation of the issuer URL"):
+    // RFC 9207 compares issuer identifiers as-is. Trailing slashes, case and
+    // default ports are all DIFFERENT issuers, and quietly normalising them
+    // would accept an issuer the client never recorded.
+    val expected = "https://auth.example"
+    for other <- List("https://auth.example/", "https://AUTH.example",
+                      "https://auth.example:443", "http://auth.example") do
+      withClue(s"$other: ") {
+        OAuthClient.verifyAuthorizationIssuer(expected, Some(other)).mayRedeem shouldBe false
+      }
+
+  test("RFC 9207: the surrounding value is trimmed before the emptiness test only"):
+    // Whitespace padding means absent, not a mismatch against a padded value —
+    // but a padded REAL issuer must not silently pass either.
+    OAuthClient.verifyAuthorizationIssuer("https://auth.example",
+      Some(" https://auth.example ")).mayRedeem shouldBe false

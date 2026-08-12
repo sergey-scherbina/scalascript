@@ -70,6 +70,61 @@ object OAuthClient:
         i += 1
       diff == 0
 
+  // ─── Authorization-response issuer (RFC 9207) ──────────────────────
+
+  /** Outcome of the RFC 9207 check on the authorization response.
+   *
+   *  Three states, not two, and the third is the point. The spec makes the
+   *  authorization server SHOULD send `iss` and the client MUST validate a
+   *  PRESENT one before redeeming the code. So an absent `iss` is not a client
+   *  failure — plenty of deployed servers do not send it yet — but it is also
+   *  not the same as a verified one, and collapsing it into `Ok` would hide a
+   *  silent downgrade of exactly the defence this adds. The caller decides
+   *  whether its deployment may accept `Absent`. */
+  enum AuthorizationIssuer:
+    case Ok
+    case Absent
+    case Mismatch(expected: String, presented: String)
+
+    /** True only when the issuer was present AND matched. `Absent` is
+     *  deliberately not verified — see the note above. */
+    def isVerified: Boolean = this == AuthorizationIssuer.Ok
+
+    /** Safe to redeem the code? `Absent` passes because the spec conditions the
+     *  MUST on the parameter being present; a MISMATCH never passes, because
+     *  that is the mix-up attack this parameter exists to stop. */
+    def mayRedeem: Boolean = this match
+      case AuthorizationIssuer.Mismatch(_, _) => false
+      case _                                  => true
+
+  /** RFC 9207 — check the `iss` returned on the authorization response against
+   *  the issuer the client recorded when it started the flow.
+   *
+   *  **This runs BEFORE the code is redeemed**, which is the whole point: a
+   *  mixed-up authorization response sends the code to the wrong token
+   *  endpoint, and once redeemed the damage is done. Same shape as
+   *  `verifyState` above — the caller stashes the expected issuer alongside the
+   *  state and the PKCE verifier, and checks all three when the redirect
+   *  arrives.
+   *
+   *  Distinct from the `iss` inside an id_token, which this file already
+   *  validates elsewhere: that one defeats id_token substitution, this one
+   *  defeats authorization-response mix-up. Different parameter, different
+   *  attack, different moment. */
+  def verifyAuthorizationIssuer(expected: String, presented: Option[String]): AuthorizationIssuer =
+    // Trim ONLY to decide presence — compare the value AS RECEIVED. Trimming
+    // before the comparison too would make " https://auth.example " match, which
+    // is exactly the normalisation RFC 9207 forbids; a test caught that
+    // contradiction between this comment and an earlier version of the code.
+    presented.filter(_.trim.nonEmpty) match
+      case None => AuthorizationIssuer.Absent
+      case Some(got) =>
+        // Exact string comparison per RFC 9207: the issuer identifier is a URL
+        // compared as-is. Not constant-time, unlike `verifyState`, because this
+        // is a public value rather than a secret.
+        if got == expected then AuthorizationIssuer.Ok
+        else AuthorizationIssuer.Mismatch(expected, got)
+
   // ─── JWKS-backed external JWT validation ───────────────────────────
 
   /** v1.17.x — bounded JWKS cache.  Fetches `<jwks_uri>` and refreshes
