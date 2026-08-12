@@ -1,4 +1,4 @@
-# generation: 1741
+# generation: 1742
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-host-io-bytes	claude-code	2026-08-12T10:05:00Z	v3-host-io-bytes	file:v3/src/Exec.scala file:v3/src/Lower.scala
@@ -6,3 +6,4 @@ split-dispatchlist	claude-code	2026-08-12T15:15:36Z	v1-interpreter-hot-path-neve
 mcp-p5b-deprecations	claude-code	2026-08-12T15:16:12Z	mcp-p5b-deprecations	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala
 rust-survey-reasons	claude-code	2026-08-12T15:23:32Z	rust-survey-records-class-not-reason	file:tests/e2e/rust-std-survey-gate.sh file:tests/rust-std-survey-baseline.tsv
 v2-bignum-widen	claude-code	2026-08-12T15:28:44Z	bigint-and-bigdecimal-do-not-widen-against-a-double	file:v2/src/Runtime.scala file:v2/src/PortableDecimal.scala file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/mixed-numeric-comparison-gate.sh file:BUGS.md
+prim-slot-per-site	claude-code	2026-08-12T15:41:10Z	f-front-compile-cost-7x-on-scljet	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v2/jvm-runtime/src/main/scala/ssc/Emit.scala
