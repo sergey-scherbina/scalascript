@@ -387,3 +387,61 @@ invisible to it. That row compares bytecode against interpretation, not front ag
 **So the next instrument must be in `Prims`/`Runtime`, not in `Emit`.** Everything measured so far
 lives in the bytecode shim and is therefore blind to exactly the half where the difference appears.
 That is the single concrete next step, and it is a different file and a different claim.
+
+
+## Result 5 (2026-08-12) — the INSERT is not the cost, and the timings behind Result 3b are NOT reproducible
+
+### Bisecting inside the slow call: the INSERT takes ~1 second
+
+`scljet/sql.ssc` instrumented with ordered markers on a scratch copy, run under F:
+
+```text
+ 90s  MARK 0 built                     <- buildTableDatabase returns
+ 90s  MARK 2 parsed / 2C tableContext / 2C3 colNames / 2e rowids assigned
+ 91s  MARK 3 executed
+ 91s  MARK 4 done
+```
+
+**Everything from entering `jdbcExecuteUpdate` to finishing it spans one second.** The 90 s is
+`buildTableDatabase` plus the front. So `jdbcExecuteUpdate` — the one line that separates the fast
+variant from the slow one in Result 3b — is not where the time goes.
+
+### Two ways this bisect misled me, both worth recording
+
+**A missing marker was read as "it stalls here".** Twice the next marker simply had not been
+REACHED before the cap: `MARK 2a` looked like a stall inside `tableContext`, and `MARK 2C3` looked
+like a stall inside `codePointsToString`. Adding one more probe made both appear. A marker that does
+not print means "not yet", not "stuck here", and the difference needs a longer cap, not a
+conclusion.
+
+**A promising cause survived two probes and was still wrong.** `codePointsToString` accumulates a
+String in a loop over code points, which is the classic quadratic shape — and both fronts see the
+same 68-element list, and a standalone probe of that exact loop shape answers identically on both.
+
+### And the number the whole thread rests on does not reproduce
+
+| | measured earlier | re-measured today |
+|---|---|---|
+| `B` under F | 21 s | 129 s |
+| `B` under legacy | 25 s | **206 s** |
+
+Same build, same file. The host is at **load average 64 with 26 JVMs** from other agents, and
+`legacy` — which none of this work touches — moved by 8×. `contended-host-needs-alternating-ab`
+records identical code spreading 2.5× at load 5.5; this is an order of magnitude past that.
+
+**So every WALL-CLOCK claim in Result 3b and Result 4 is suspended**, including the 20× pair and the
+"F's front is faster, 35 s against 43 s" split. They were taken across hours on a machine whose load
+was not controlled, and they must be re-taken alternating on a quiet host before anything is built
+on them.
+
+**What survives, because it is load-INDEPENDENT and was measured in single runs:**
+
+- prim execution counts — `B` and `B5` identical (161.2 M / 161.0 M `__eq__`, `arith:+` 3.09 M /
+  3.10 M, `extend1` 7.60 M / 7.72 M calls, `maxEnv` 19–23);
+- IR composition — 9 656 prims on both fronts, F with fewer `__arith__`/`__eq__` and more `i.*`;
+- emitted method counts — 3 968 for F0 and ~29 400 for the user program, on both fronts;
+- the marker ORDER above: the INSERT is one step, not the bulk.
+
+**The next measurement is a scheduling problem, not a technical one.** Take the pair alternating,
+several rounds, on a host with no sibling builds running, and only then decide whether there is a
+gap to explain at all.
