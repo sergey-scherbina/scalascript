@@ -68,6 +68,7 @@ stopped the wrapper from running on v3 at all.
 ## v3-mixed-int-double-compare — `1 == 1.0` was `false` on the executor and `true` on the bridge
 
 <!-- status: fixed
+     fixed-in: d1648e07a
      lane: v3
      area: runtime
      kind: bug
