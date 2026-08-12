@@ -489,12 +489,58 @@ nobody. Measured before choosing — exactly one COMPILES module declares an ext
 (`RoundingMode.HALF_UP`, an unknown external constant emitted rather than refused) and
 `std/cluster/membership.ssc` (`joinCluster` called but never emitted).
 
-## rust-generic-enum-drops-its-parameters — `enum Either[L, R]` emits `pub enum Either`, and call sites still say `Either<i64, i64>`
+## rust-given-method-type-params-render-empty — a `given` method typed by a trait type parameter emits `e: ` and does not parse
 <!-- status: open
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`std/index.ssc` emits `pub fn raise(&self, e: ) -> Option<i64> { None }` — `error: expected type,
+found )`. The parameter is typed by a type parameter of the enclosing trait, `mapType` has no case
+for it, and the given renderer emits the empty result bare instead of refusing.
+
+Found under `rust-generic-enum-drops-its-parameters` once the enum half stopped masking it. Two
+things are wrong and only one is the feature: the missing case is the feature, and emitting an EMPTY
+type is the defect — a type that could not be mapped must refuse, the way every other unmappable
+thing in this backend does, rather than producing Rust that does not parse.
+
+## rust-generic-enum-drops-its-parameters — `enum Either[L, R]` emits `pub enum Either`, and call sites still say `Either<i64, i64>`
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 11fa2d923
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**FIXED 2026-08-12. `std/either.ssc` compiles.** The declaration carries its parameters now, and
+five separate things had to agree before that meant anything:
+
+1. **Both enum surfaces.** `enum Either[L, R]` and `sealed trait Either[A, B]` + case classes are
+   two renderers, and `std/either.ssc` uses the second. Fixing only the first left it emitting a
+   parameterless declaration against parameterised uses — the identical bug, one renderer over.
+2. **The variant field types need the parameter names in scope**, or a field typed `L` falls to the
+   `i64` default. They go through `enumNames`, which maps a type name to itself.
+3. **An applied user type** — `Either[String, Int]` — is a `Type.Apply` and had no case at all, so
+   the USE fell to the default while the declaration was now generic: the same mismatch, inverted.
+4. **`Into::into`, not `Value::from`, in the lift.** The bound an impl can state is
+   `L: Into<Value>`; `Value::from(l)` asks for `Value: From<L>`, the other direction, which std's
+   blanket impl does not give. `std/coroutine.ssc` said so as `the trait bound Value: From<Y> is not
+   satisfied` — and it had been COMPILING before this work, so that was a regression I introduced
+   and the survey caught.
+5. **The hardcoded `Left`/`Right` arms** emit the built-in Either's TUPLE variants. A source that
+   defines its own gets STRUCT variants, and `Either::Right(f(b))` was then `expected value, found
+   struct variant`. They yield to a real definition now.
+
+**STILL OPEN, one layer down, and filed as `rust-given-method-type-params-render-empty`:**
+`std/index.ssc` emits `pub fn raise(&self, e: ) -> Option<i64>` — a `given` method whose parameter is
+typed by a TYPE PARAMETER of the trait, which maps to the empty string. Same family, different
+renderer.
+
+**A measurement note worth keeping:** that module classifies differently depending on the working
+directory the build runs from — COMPILES from the repo root, this error from a temp dir, because
+relative imports resolve to a different module set. The survey runs from a temp dir, which is the
+number that counts, and it is the one recorded.
 
 A type-parameterised enum renders with its parameters silently DROPPED, so the declaration and its
 use sites disagree: `error[E0107]: enum takes 0 generic arguments but 2 generic arguments were
