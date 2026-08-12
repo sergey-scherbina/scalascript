@@ -1,0 +1,11 @@
+slug: ref-front-vararg-named-call
+branch: feature/ref-front-vararg-named-call
+agent: claude-code
+started: 2026-08-12T17:38:39Z
+heartbeat: 2026-08-12T17:38:39Z
+status: claimed-before-planning
+items: ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named
+paths: file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/ref-front-three-defects-gate.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
