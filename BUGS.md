@@ -1817,6 +1817,40 @@ Closing it is a change to a DIFFERENT artifact — `uniml/scala/.../SpikeAst.sca
      kind: bug
      gate: none -->
 
+**⚠ THE PREMISE DOES NOT REPRODUCE, 2026-08-12, on a freshly built v1 — and the real defect is the
+other way round.** Measured on one tree, both toolchains built from it:
+
+| spelling | v1 | v3 |
+|---|---|---|
+| `case Return(x)` | `List(11, 12)` ✓ | **REFUSED** — `'Return' is not a declared effect operation` |
+| `case x` (the fixture above) | `List(11, 12)` ✓ | `List(11, 12)` ✓ |
+| `examples/algebraic-effects.ssc` | `List(1, 2)` ✓ | **REFUSED** |
+
+v1 answers correctly on BOTH spellings here; no `Return(11)` wrapper reaches the binder. Whatever
+produced `List(Return(11), Return(12))` above is not reproducible from this tree — a stale toolchain
+is the likeliest explanation, and `bin/ssc-tools` in the shared checkout was indeed stale when I
+started.
+
+**`case Return(x)` IS the language's return clause, not a leaked implementation detail.** It has
+**15 programs** behind it and its own named interop probe
+(`tests/interop-conformance/probes/08-return-clause-transform.ssc`), and
+`examples/algebraic-effects.ssc` documents it in prose: *"the `case Return(_) => List()` RETURN
+CLAUSE seeds the base case"*. v1, v2, JsGen and JvmGen all implement it —
+`EffectsRuntime.scala:156`, `PortableEffects.scala:189`.
+
+**So the gap is v3's, and it is measured: v3 refuses 14 programs over this** — the whole
+interop-conformance effect probe suite (9), three conformance libraries, a v21-native fixture, and
+the documented example. v3 accepts only the bare `case x`, which no established program writes.
+
+**This inverts what to do.** "Fix v1 so the clause binds the value" would break 15 working programs
+and the probe that exists to pin this behaviour. The work is the opposite: **teach v3 the `Return`
+clause**, at the front check that currently rejects the name as an undeclared operation.
+
+**Not a contradiction of Sergiy's design decision** (explicit return clause, not an implicit lift) —
+it CONFIRMS it. The language already has the explicit clause; v3 is the lane missing it. What was
+recorded under `v3-handle-has-no-return-clause` as "v3 already accepts a return clause" is true only
+of the bare-binder spelling, which is not the one the corpus uses.
+
 **Measured 2026-08-11 on one file, both toolchains rebuilt first.**
 
     multi effect NonDet:  def choose(options: List[Int]): Int
