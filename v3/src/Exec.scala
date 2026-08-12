@@ -24,6 +24,22 @@ enum Value:
   /** A char is an INTEGER that prints as a character — v2's model (`CharV extends IntV`), kept so
     * the two lanes agree on `'x' + 1` (121) as well as on `println('x')` (x). */
   case VChar(c: Char)
+  /** A BYTE STRING — v2's `BytesV`, and it exists so the two lanes can share one IR.
+    *
+    * `std/fs.ssc` declares `readFile(path): String`; v2's `io.readFile` answers with bytes. The
+    * extern's body is an expression, so `Lower.hostPrims` composes the two — `utf8->str(io.readFile
+    * p)` — and the IR is SHARED, which means `Exec` has to hold what `io.readFile` returns even
+    * though no ScalaScript program can name the type.
+    *
+    * NOT USER-VISIBLE, deliberately. There is no literal, no method and no `typeName` a program can
+    * observe beyond a diagnostic: bytes reach the language only through prims that consume them in
+    * the same expression that produced them. That is what keeps this from being a Tier 0 type
+    * addition (invariant I-2) — it is a value the RUNTIME needs, not one the language gained.
+    *
+    * `Array[Byte]` rather than a `List[Int]`: it is what both `java.nio.file.Files` hands over and
+    * what `getBytes` produces, so neither direction copies, and nothing compares two of them —
+    * reference equality would be wrong and structural equality is never asked for. */
+  case VBytes(b: Array[Byte])
   case VData(tag: Int, fields: Array[Value])
   case VClos(f: Int, captured: List[Value])
   case VArr(items: Array[Value])
@@ -261,6 +277,11 @@ object Exec:
     case Value.VClos(f, _) => "<closure " + f + ">"
     case Value.VPartial(_, nm, _) => "<partial " + nm + ">"
     case Value.VArr(xs)    => "Array(" + xs.toList.map(show).mkString(", ") + ")"
+    // A COUNT, not the bytes. This value is never user-visible — no program can name it — so the
+    // only way here is a diagnostic, and a diagnostic that dumps a file's contents is worse than
+    // one that says how much of it there was. `show` is the ONE match in this file with no
+    // catch-all, which is why the compiler named it and the other eight stayed silent.
+    case Value.VBytes(b)   => "<" + b.length.toString + " bytes>"
 
   /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
     * `.ssir` form. Sharing one helper between an IR serialisation and a program's output is the
@@ -1755,6 +1776,48 @@ object Exec:
       args.head match
         case Value.VStr(path) => Value.VBool(new java.io.File(path).exists)
         case v                => throw ExecError("exists takes a path: " + show(v))
+    // BYTES IN AND OUT, matching v2's shapes exactly — `Runtime.scala:1943` reads a file to
+    // `BytesV` and `io.writeFile` takes bytes at argument 1. Getting this wrong once already cost a
+    // lane divergence (`expected Bytes, got "hello from ScalaScript"`), which is why the table in
+    // `Lower.hostPrims` composes rather than renames.
+    case "io.readFile" =>
+      args.head match
+        case Value.VStr(path) =>
+          try Value.VBytes(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)))
+          // THE LANGUAGE'S OWN THROW, catchable by a ScalaScript `try/catch`. An escaping
+          // `NoSuchFileException` would kill the interpreter with a host stack trace, which the
+          // corpus report classifies as CRASH — worse than a wrong answer.
+          catch case e: java.io.IOException =>
+            val msg = "readFile: " + path + ": " + e.getClass.getSimpleName
+            throw ExecThrow(Value.VStr(msg), msg)
+        case v => throw ExecError("readFile takes a path: " + show(v))
+    case "io.writeFile" =>
+      (args.head, args.tail.head) match
+        case (Value.VStr(path), Value.VBytes(b)) =>
+          try
+            val f = new java.io.File(path)
+            if f.getParentFile != null then f.getParentFile.mkdirs()
+            java.nio.file.Files.write(java.nio.file.Paths.get(path), b)
+            Value.VUnit
+          catch case e: java.io.IOException =>
+            val msg = "writeFile: " + path + ": " + e.getClass.getSimpleName
+            throw ExecThrow(Value.VStr(msg), msg)
+        case (p, v) => throw ExecError("writeFile takes a path and bytes: " + show(p) + ", " + show(v))
+    // THE TWO HALVES OF THE COMPOSITION, and v2 spells them exactly this way
+    // (`Runtime.scala:1554`, `:3464`). UTF-8 is not a choice made here — it is v2's, and the two
+    // lanes must decode a file identically or the same program prints differently.
+    case "utf8->str" =>
+      args.head match
+        case Value.VBytes(b) => Value.VStr(new String(b, "UTF-8"))
+        // Already a string: v2's own `utf8->str` accepts one, and a lane that refused it would
+        // diverge on a program that round-trips text through the conversion twice.
+        case Value.VStr(s)   => Value.VStr(s)
+        case v               => throw ExecError("utf8->str takes bytes: " + show(v))
+    case "str->utf8" =>
+      args.head match
+        case Value.VStr(s)   => Value.VBytes(s.getBytes("UTF-8"))
+        case Value.VBytes(b) => Value.VBytes(b)
+        case v               => throw ExecError("str->utf8 takes a string: " + show(v))
     case "__autoOutput__" =>
       // Prints only a non-Unit value, exactly as v2 does — the rule the front relies on so that a
       // `println(…)` tail does not print twice.

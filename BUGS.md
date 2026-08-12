@@ -225,6 +225,55 @@ method at different arities. There the receiver is an expression, the method is 
 run time, no name is available at this point, and the suffix search is all there is. It needs more
 than a lookup and is not guessed at here.
 
+## statements-after-a-try-catch-run-before-it — `A; try…catch; C; D` prints `C D A B`
+
+<!-- status: open
+     lane: v3
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Reproduced 2026-08-12 on both v3 lanes, identically**, which is why nothing in the tree can see
+it: the executor and the bridge share the lowering, so no differential compares the two answers and
+the front differential compares trees rather than output.
+
+```scalascript
+def main(): Unit =
+  println("A")
+  try
+    println(1 / 0)
+  catch
+    case e => println("B-handler")
+  println("C")
+  println("D")
+```
+
+```text
+want   A  B-handler  C  D
+got    C  D  A  B-handler          (ssc3 exec AND ssc3 run --bridge)
+```
+
+Everything AFTER the `try/catch` runs BEFORE everything up to and including it. Not just the
+handler — `println("A")`, which precedes the `try` entirely, prints third.
+
+**No IO is involved.** It was found while probing whether a failed `readFile` is catchable (it is,
+on both lanes) and the ordering was wrong in the answer; `1 / 0` reproduces it with nothing but
+arithmetic, so it is not the host boundary and not `ExecThrow`.
+
+**Why the suite is blind to it.** `v3/tests/front/try-catch` passes — its `try/catch` is the last
+thing its function does, so a reordering that moves the following statements has nothing to move.
+The shape that breaks needs statements AFTER the `try/catch` in the same block. That is the fixture
+this entry needs, and it is not written here because the fix should choose it.
+
+**Where to look first:** `Cps.split` ends a performing function at the instruction that needs a
+continuation, and a `try` is one of them (`v3/src/Exec.scala:756` narrows the caught type and says
+that narrowing was tried and reverted). A block split into "before" and "after" halves that are then
+run in the wrong order matches the symptom exactly, and would explain why the two lanes agree: both
+execute the same mis-ordered IR.
+
+**Not fixed here.** Found under `v3-host-io-bytes`, whose claim is two files and does not include
+the CPS transform; filing it is the honest move and taking it would be claim creep.
+
 ## multi-effect-marker-is-lost-in-a-bare-ssc — the same program is multi-shot fenced and one-shot bare
 
 <!-- status: fixed

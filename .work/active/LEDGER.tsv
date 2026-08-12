@@ -3,6 +3,5 @@
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 f-parsing-stack-never-lowered	claude-code	2026-08-12T07:27:34Z	f-lowering-of-std-parsing-was-never-exercised	file:v2/BUGS.md
 f-user-defined-pipe-operator	claude-code	2026-08-12T07:32:15Z	f-lowers-user-defined-pipe-as-integer-or	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:tests/e2e/f-bare-member-call-gate.sh
-
 emit-prim-census	claude-code	2026-08-12T08:00:40Z	f-front-compile-cost-7x-on-scljet	file:v2/jvm-runtime/src/main/scala/ssc/Emit.scala
 v3-host-io-bytes	claude-code	2026-08-12T10:05:00Z	v3-host-io-bytes	file:v3/src/Exec.scala file:v3/src/Lower.scala

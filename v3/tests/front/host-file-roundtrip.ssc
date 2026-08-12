@@ -1,0 +1,12 @@
+// /tmp, NOT a relative path: exec-gate runs from the repo root, so `./x.tmp` drops a
+// file beside the sources — it showed up as untracked litter one command before it
+// would have been swept into a commit.
+extern def writeFile(path: String, contents: String): Unit
+extern def readFile(path: String): String
+extern def exists(path: String): Boolean
+
+def main(): Unit =
+  val p = "/tmp/ssc3-roundtrip-fixture.tmp"
+  writeFile(p, "привет, ScalaScript")
+  println(exists(p))
+  println(readFile(p))

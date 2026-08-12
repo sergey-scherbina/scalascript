@@ -2296,8 +2296,15 @@ object Lower:
     *
     * The extern's own PARAMETERS become the prim's arguments, in order, so the signature the user
     * wrote is what is passed — no separate argument list to drift out of step with the declaration. */
-  private val hostPrims: Map[String, String] = Map(
-    "exists" -> "io.exists")
+  private val hostPrims: Map[String, List[Expr] => Pos => Expr] = Map(
+    "exists"    -> (as => p => Expr.Prim("io.exists", as, p)),
+    // NOT a rename: v2 reads a file to BYTES and `std/fs.ssc` declares a String, so the body is a
+    // COMPOSITION. The extern's body is an expression, which is what makes this possible without
+    // either lane growing a special case — and `utf8->str`/`str->utf8` are v2's own spellings, so
+    // the decoding is v2's UTF-8 on both lanes rather than a choice made twice.
+    "readFile"  -> (as => p => Expr.Prim("utf8->str", List(Expr.Prim("io.readFile", as, p)), p)),
+    "writeFile" -> (as => p => Expr.Prim("io.writeFile",
+                                         List(as.head, Expr.Prim("str->utf8", as.tail, p)), p)))
 
   private def isAbstract(d: Def): Boolean = d.body match
     case Expr.Name("__abstract__", _) => true
@@ -2580,8 +2587,8 @@ object Lower:
     // classified CRASH, and rightly.
     val externDefs = p.defs.filter(isAbstract).map { d =>
       hostPrims.get(d.name) match
-        case Some(prim) =>
-          Def(d.name, d.params, Expr.Prim(prim, d.params.map(q => Expr.Name(q.name, d.pos)), d.pos),
+        case Some(build) =>
+          Def(d.name, d.params, build(d.params.map(q => Expr.Name(q.name, d.pos)))(d.pos),
               d.pos, d.tparams, d.givenParams)
         case None =>
           val at = d.pos.line.toString + ":" + d.pos.col.toString
