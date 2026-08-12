@@ -1,5 +1,4 @@
-# generation: 1734
+# generation: 1735
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-host-io-bytes	claude-code	2026-08-12T10:05:00Z	v3-host-io-bytes	file:v3/src/Exec.scala file:v3/src/Lower.scala
-policy-gate-coverage-rule	claude-code	2026-08-12T15:13:53Z	a-gate-that-cannot-fail-for-its-defect-reads-as-evidence	file:POLICY.md
