@@ -1208,6 +1208,15 @@ jobs:
       - name: A plain string literal ends at its closing quote
         run: tests/e2e/ref-front-string-literal-gate.sh
 
+      # Also the reference front, and the same shape as the line above: an operator the OTHER two
+      # lanes implement and this one silently did not. `--` had no token here at all, so the two
+      # minus signs lexed as unary minus twice and `Set(1,2,3) -- Set(2)` quietly answered wrong.
+      # Nothing was red, because nothing ran one source on all three lanes and compared. This does.
+      # Deliberately NOT in the smoke suite: 4 probes × 3 lanes is 12 compiles, and smoke was cut
+      # back to its budget the same day this landed. It belongs where runtime is not the constraint.
+      - name: Three lanes agree on an operator
+        run: tests/e2e/ref-front-three-defects-gate.sh
+
       # THE CORRECTNESS COUNTERPART TO THE COVERAGE CENSUS, and the reason it is worth its runtime:
       # every silent divergence found in front F this week — an arm body returning its first
       # statement, a curried extern losing its block, an extern vararg gaining a list it should not
