@@ -1,7 +1,6 @@
-# generation: 1758
+# generation: 1759
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-host-io-bytes	claude-code	2026-08-12T10:05:00Z	v3-host-io-bytes	file:v3/src/Exec.scala file:v3/src/Lower.scala
 ref-front-three-defects	claude-code	2026-08-12T16:17:11Z	reference-front-answers-three-conformance-files-differently-from-both-other-lanes	file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:tests/e2e/ref-front-three-defects-gate.sh file:tests/BUGS.md
-trait-extension-member	claude-code	2026-08-12T16:18:42Z	v3-trait-extension-member-refused	file:v3/uniml/UniFront.scala file:v3/src/Parser.scala file:BUGS.md
 mcp-p3b-replay	claude-code	2026-08-12T16:44:56Z	mcp-p3b-replay	file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/McpHttpRouteTest.scala
