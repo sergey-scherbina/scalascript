@@ -2123,6 +2123,36 @@ and `tagless-multi-file` advances past this blocker to a genuinely different one
 (`std/functor-applicative-monad.ssc:56:11: expected a name`). The corpus was not usable as evidence
 in that state because the gates were red.
 
+**THE ORACLE WAS ASKED 2026-08-12, AND IT CHANGES WHERE THIS BELONGS.** One program, three lanes:
+
+    trait Doubler[A]:
+      extension (x: A) def dbl(): A
+    given Doubler[N] with
+      extension (x: N) def dbl(): N = N(x.v * 2)
+    println(N(21).dbl().v)
+
+    v1            42          correct
+    v2 / front F  (nothing)   SILENT — no output, no diagnostic
+    v3            refused
+
+**v1's answer says what the construct MEANS, and it is not a plain trait method.** `dbl` is declared
+on `A`, called on a VALUE (`N(21)`), and its implementation comes from a `given` instance. That is
+typeclass dispatch — resolving which instance a call needs — which is exactly what G2 is for.
+
+**So accepting the syntax alone is not a fix, it is the trade this session spent the day refusing.**
+A program that parses and then cannot dispatch is worse than one refused by name, and the red gates
+from the earlier attempt are that outcome measured. My projection lifted the receiver into the first
+parameter — right for a TOP-LEVEL extension, wrong here, because the receiver is the value and the
+implementation is selected by type.
+
+**This item therefore moves under G2 stage 2 rather than standing before it.** Of v3's three
+behaviours the refusal is the least bad; it should stay until instance resolution can back it.
+
+**AND FRONT F HAS ITS OWN DEFECT HERE, filed by this measurement:** it prints NOTHING and exits 0 on
+a program v1 answers `42` — no diagnostic, no partial output. Same shape as
+`selfhost-front-while-with-an-assignment-body-runs-nothing`, fixed on that front this morning, and
+it is not covered by the gate added with it.
+
 **A note for whoever takes G2 next:** its stages are written against a state that has moved. Three
 of the five acceptance rows already run today (`tagless-context-bounds` prints `haha`,
 `tagless-program` prints `Some(done:Dave)`, `tagless-resolution` prints `99`), `v3-method-as-a-value`
