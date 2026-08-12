@@ -1,0 +1,11 @@
+slug: smoke-baseline-refresh
+branch: feature/smoke-baseline-refresh
+agent: claude-code
+started: 2026-08-12T15:45:38Z
+heartbeat: 2026-08-12T15:45:38Z
+status: claimed-before-planning
+items: derived-budget-underpredicts-ci-and-reds-main
+paths: file:tests/smoke-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
