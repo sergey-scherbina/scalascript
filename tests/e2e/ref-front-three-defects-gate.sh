@@ -61,14 +61,52 @@ probe() {
   fi
 }
 
+# A whole program rather than one expression: the vararg defect needs a CURRIED callee with
+# defaults, and currying is the whole reason it exists -- the front pre-fills the first clause's
+# defaults as positionals, and the trailing vararg then received one of them instead of absorbing
+# the real arguments. A single-clause reduction does NOT reproduce it and actively misleads.
+prog() {
+  local name=$1 body=$2
+  printf '%s\n' "$body" > "$work/$name.ssc"
+  local ref f interp
+  ref=$(SSC_FRONT=legacy    timeout 90 ./bin/ssc run "$work/$name.ssc" 2>&1 | head -1)
+  f=$(SSC_FRONT_STRICT=1    timeout 90 ./bin/ssc run "$work/$name.ssc" 2>&1 | head -1)
+  interp=$(timeout 90 ./bin/ssc-tools run --v1 "$work/$name.ssc" 2>&1 | head -1)
+  # Planted separately from the operator probes' plant: a self-test that only ever trips the OLD
+  # rows would say nothing about whether these new ones can fail at all.
+  [ $SELFTEST -eq 1 ] && [ "$name" = "vararg-named" ] && ref="1"
+  if [ "$ref" = "$f" ] && [ "$f" = "$interp" ]; then
+    printf '  %-14s %s\n' "$name" "$ref"
+  else
+    printf '  %-14s РАСХОЖДЕНИЕ\n    эталон:       %s\n    F:            %s\n    интерпретатор:%s\n' \
+      "$name" "$ref" "$f" "$interp"
+    fail=$((fail+1))
+  fi
+}
+
 echo "── три полосы на одном исходнике:"
+prog vararg-named 'def hstack(gap: Int = 0, wrap: Boolean = false)(children: Int*): Int = children.length
+def main() =
+  println(hstack(gap = 8)(1, 2))'
+prog vararg-both 'def hstack(gap: Int = 0, wrap: Boolean = false)(children: Int*): Int = children.length
+def main() =
+  println(hstack(gap = 8, wrap = true)(1, 2, 3))'
+# The case the comment above expandNamedDefaultCall documents: named arg, defaults, NO vararg.
+# Carried here so a future change to the vararg branch cannot quietly take this path with it.
+prog named-no-vararg 'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0") = a + b + c + d
+def main() =
+  println(f("x", c = "C1"))'
 probe set-diff   'Set(1, 2, 3) -- Set(2)'
 probe list-diff  'List(1, 2, 3) -- List(2)'
 probe set-union  'Set(1, 2) ++ Set(3)'
 probe list-cat   'List(1, 2) ++ List(3)'
 
 if [ $SELFTEST -eq 1 ]; then
-  if [ $fail -gt 0 ]; then echo "✓ self-test: гейт краснеет на подложенном расхождении"; exit 0
+  # BOTH plants must fire -- one in the operator rows, one in the vararg rows. `-gt 0` would be
+  # satisfied by the operator plant alone and would say nothing about whether the vararg probes can
+  # fail at all, which is the whole question a self-test exists to answer.
+  if [ $fail -ge 2 ]; then echo "✓ self-test: обе подложки сработали ($fail строк), гейт краснеет"; exit 0
+  elif [ $fail -gt 0 ]; then echo "✗ self-test: сработала только 1 подложка из 2 — часть проб ничего не проверяет"; exit 1
   else echo "✗ self-test: подложил расхождение, гейт остался зелёным — он ничего не проверяет"; exit 1; fi
 fi
 if [ $fail -gt 0 ]; then echo "✗ ref-front-three-defects-gate: расхождений — $fail"; exit 1; fi

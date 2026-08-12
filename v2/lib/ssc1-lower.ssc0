@@ -1999,6 +1999,11 @@ def nargPositionals = (args) =>
     case Cons(h, t) =>
       if #seq(nargLabelOf(h), "") then Cons(h, nargPositionals(t)) else nargPositionals(t)
   }
+def hasAnyNarg = (args) =>
+  match args {
+    case Nil => false
+    case Cons(h, t) => if #seq(nargLabelOf(h), "") then hasAnyNarg(t) else true
+  }
 def nargFor = (label, args) =>
   match args {
     case Nil => Pair("__none__", Nil)
@@ -2044,12 +2049,75 @@ def nargBindings = (params, dflts, pos, args) =>
           }
       }
   }
+-- How many POSITIONALS a walk over `params` consumes. Mirrors nargBindings' choice per param --
+-- a named arg wins, else the next unconsumed positional, else the default -- but counts instead
+-- of binding, so the two cannot disagree about where the leading params stop.
+def nargPosUsed = (params, args, pos) =>
+  match params {
+    case Nil => 0
+    case Cons(p, prest) =>
+      match nargFor(p, args) {
+        case Pair(found, v) =>
+          if #seq(found, "__some__") then nargPosUsed(prest, args, pos)
+          else match pos {
+            case Cons(a, posRest) => #i.add(1, nargPosUsed(prest, args, posRest))
+            case Nil => 0
+          }
+      }
+  }
+-- TRAILING VARARG + a named argument. `nargBindings` pairs one positional with one param, which
+-- is right for fixed arity and wrong for the vararg slot: it must absorb ALL the remaining
+-- positionals. `h(gap = 8)(1, 2)` on `def h(gap: Int = 0, wrap: Boolean = false, kids: Int*)`
+-- bound kids to 1, the recursion ended, and the 2 was dropped before anything downstream could
+-- see it -- silently, a shorter collection and no diagnostic. (The positional form was correct;
+-- only the named form lost arguments.)
+--
+-- The fix hands the packer MORE args than there are params -- the lead bindings plus every
+-- unconsumed positional, SPREAD -- and lets packVarargsArgs fold them, because packing anywhere
+-- else compounds: binding the vararg param to an already-built list makes packVarargsArgs fold
+-- it a SECOND time, and the length is 1 again for a different reason. That is the failure the
+-- comment above packVarargsArgs already records, and it is why this is a change to what the
+-- expansion EMITS rather than a change inside nargBindings.
+--
+-- An empty spread needs no special case: the call then carries exactly `lead` args, and
+-- packVarargsArgs appends buildListExpr(Nil) -- the empty vararg, which is correct.
+--
+-- Object methods are NOT covered. `isVarargDef` is keyed by the bare method name while `nm` here
+-- is already mangled to `O_m` for the sel path, so this branch does not fire for them; they keep
+-- the previous behaviour rather than getting a half-tested new one.
 def expandNamedDefaultCall = (fn, nm, args) =>
   match dfltRegLookup(nm, #cell.get(funcDefaultsCell)) {
     case Pair(found, entry) =>
       if #seq(found, "__none__") then Pair("__none__", Nil)
       else match entry { case Pair(params, dflts) =>
         if nargLabelsDeclared(args, params) then
+          let nlead = #i.sub(lenL(params), 1) in
+          let vaParam = (match dropL(nlead, params) { case Nil => "" case Cons(x, y) => x }) in
+          let vaIsNamed = (match nargFor(vaParam, args) { case Pair(vf, vv) => #seq(vf, "__some__") }) in
+          -- Spread the trailing positionals into the vararg slot ONLY when all three hold:
+          --   * the callee has a trailing vararg;
+          --   * the call actually carries a named argument. A fully positional call already
+          --     reaches packVarargsArgs by another route and gets it right -- routing it through
+          --     here instead turned `h(8)(1, 2)` from 2 into 1 AND broke F, whose own front is
+          --     compiled through this tower. The defect is specific to the named form;
+          --   * the vararg slot is not itself named. `kids = xs` passes one value, not a spread,
+          --     and the ordinary walk already handles it.
+          let useSpread =
+            (if isVarargDef(nm) then
+               (if hasAnyNarg(args) then (if vaIsNamed then false else true) else false)
+             else false) in
+          if useSpread then
+            let pos = nargPositionals(args) in
+            let lead = takeL(nlead, params) in
+            match nargBindings(lead, takeL(nlead, dflts), pos, args) {
+              case Pair(status, bindings) =>
+                if #seq(status, "__ok__") then
+                  let spread = dropL(nargPosUsed(lead, args, pos), pos) in
+                  let fullCall = Pair("app", Pair(fn, append(dfltBindingVars(bindings), spread))) in
+                  Pair("__some__", wrapDfltBindings(bindings, fullCall))
+                else Pair("__none__", Nil)
+            }
+          else
           match nargBindings(params, dflts, nargPositionals(args), args) {
             case Pair(status, bindings) =>
               if #seq(status, "__ok__") then
