@@ -98,7 +98,12 @@ object Emit:
   // slow variant showed the SAME 161 M `__eq__`, which only proved the counted paths were not the
   // difference.
   def arith(op: String, a: Value, b: Value): Value =
-    note(s"arith:$op"); Prims.arithFast(op, a, b)
+    // The guard is at the CALL SITE, not inside `note`. `note(s"arith:$op")` evaluates the
+    // interpolation BEFORE the call, so the census-off path allocated a String on every arithmetic
+    // operation in every program — a slowdown shipped by the instrument meant to find one. Caught
+    // before it left the worktree; the same trap applies to any `note(...)` added later.
+    if primCensus then note("arith:" + op)
+    Prims.arithFast(op, a, b)
 
   // Fused accumulator: `cell = cell <op> r` for a Long cell, unboxed on the cell side.
   // Emitted for the hot foreach/loop accumulator pattern `lcell.set(c, arith(op,
