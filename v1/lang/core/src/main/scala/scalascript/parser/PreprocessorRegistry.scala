@@ -106,6 +106,13 @@ object PreprocessorRegistry:
       override val priority = 45
       override def apply(s: String) = Parser.preprocessOpenApiAnnotations(s)
     })
+    // BEFORE `effects` (priority 50): it normalises `effect E { … }` into the `effect E:` shape
+    // that one knows, so the two spellings converge on ONE rewriter instead of growing a second.
+    register(new Preprocessor {
+      override val name     = "effect-braces"
+      override val priority = 49
+      override def apply(s: String) = Parser.preprocessEffectBraces(s)
+    })
     register(new Preprocessor {
       override val name     = "effects"
       override val priority = 50

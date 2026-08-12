@@ -1929,6 +1929,58 @@ object Parser:
 
   private val effectLinePat =
     """^(\s*)(multi\s+)?effect\s+(\w+)(\[[^\]]*\])?(\s+extends\s+[^:]+)?\s*:""".r
+
+  /** `multi effect E { … }` → `multi effect E:` + an indented body, so the rewriter below — which
+    * consumes a declaration's body BY INDENT and appends its own closing brace — sees the only shape
+    * it knows.
+    *
+    * WITHOUT THIS, THE BRACED FORM DID NOT PARSE AT ALL. `effectLinePat` requires a trailing `:`, so
+    * a braced declaration was left untouched and `multi` survived as a bare identifier:
+    * `[ERROR] Undefined: multi` — a message about the wrong word entirely. Both spellings are
+    * ordinary Scala 3 here, and the braced one is what a reader coming from `object E { … }` writes.
+    *
+    * DELIBERATELY NARROW: the `{` must END the declaration line and its matching `}` must be alone on
+    * a line at the declaration's own indent. Anything else — a one-line `{ … }`, a nested brace in a
+    * parameter default — is left EXACTLY as it is today, still unparsed. That keeps this a strict
+    * addition: no shape that works now can start failing, and the shapes it does not cover fail the
+    * way they already did rather than in some new way. */
+  private val effectBracePat =
+    """^(\s*)((?:multi\s+)?effect\s+\w+(?:\[[^\]]*\])?(?:\s+extends\s+[^{]+)?)\s*\{\s*$""".r
+
+  private[parser] def preprocessEffectBraces(code: String): String =
+    if !code.contains("effect") || !code.contains("{") then return code
+    val lines = code.linesIterator.toArray
+    if !lines.exists(l => effectBracePat.findFirstIn(l).isDefined) then return code
+    val out = new StringBuilder()
+    var i = 0
+    while i < lines.length do
+      effectBracePat.findFirstMatchIn(lines(i)) match
+        case Some(m) =>
+          val indent = m.group(1)
+          // Find the closing `}` alone on a line at the SAME indent. If there is none, this is a
+          // shape the narrow rule does not cover: emit the original line and move on, leaving the
+          // declaration exactly as it is today.
+          var j = i + 1
+          var close = -1
+          while j < lines.length && close < 0 do
+            if lines(j) == indent + "}" || lines(j).trim == "}" && lines(j).indexWhere(_ != ' ') == indent.length
+            then close = j
+            j += 1
+          if close < 0 then
+            out.append(lines(i)).append("\n"); i += 1
+          else
+            out.append(indent).append(m.group(2).stripTrailing).append(":\n")
+            var k = i + 1
+            while k < close do
+              // Already indented deeper than the declaration inside braces; keep it as written, and
+              // give a blank line no indent so the body scan below still ends where it should.
+              val l = lines(k)
+              out.append(if l.isBlank then "" else if l.indexWhere(_ != ' ') > indent.length then l else indent + "  " + l.trim).append("\n")
+              k += 1
+            i = close + 1
+        case None =>
+          out.append(lines(i)).append("\n"); i += 1
+    out.toString
   private[parser] def preprocessEffects(code: String): String =
     if !code.contains("effect") then return code
     val effectLine = effectLinePat
