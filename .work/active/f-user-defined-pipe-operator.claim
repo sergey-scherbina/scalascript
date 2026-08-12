@@ -3,8 +3,8 @@ branch: feature/f-user-defined-pipe-operator
 agent: claude-code
 started: 2026-08-12T07:32:15Z
 heartbeat: 2026-08-12T07:32:15Z
-status: claimed-before-planning
-items: f-lowers-user-defined-pipe-as-integer-or
+status: in-progress
+items: f-lowers-user-defined-pipe-as-integer-or f-unbound-loop-is-the-new-top-gap
 paths: file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md file:tests/e2e/f-bare-member-call-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
