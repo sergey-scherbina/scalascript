@@ -29,6 +29,50 @@ did anything wrong; the gate simply did not exist yet in any sense that could ha
 until each piece is under 8000. The Rust backend's whole codegen goes through it, so this is not a
 micro-optimisation — it is the difference between interpreted and compiled for every emit.
 
+## derived-budget-underpredicts-ci-and-reds-main — a harvester that filtered out its own evidence
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: tests/e2e/smoke-budget-gate.sh
+     fixed-in: 78710cf86 -->
+
+Raising the job cap (`job-timeout-fires-before-the-suite-budget-can`) made every push reach a verdict
+for the first time — and the verdict was that **72 % of them FAILED**, where before they were
+`cancelled` and counted as nothing. One of the two causes was mine: `OVER BUDGET — 916.6 s of 613 s`.
+
+**Cause 1: the harvester took only `success` runs, which is a self-reinforcing selection bias.** What
+most often makes a smoke run unsuccessful is exceeding the budget derived from this very table. So
+the slow runs — precisely the ones a budget must cover — were filtered out of their own evidence:
+low budget → slow runs fail → only fast runs are harvested → the budget stays low. Refreshing the
+table under the old filter made it *worse*, 738.5 s → 636.7 s, while CI was taking 916.6 s. `failure`
+runs are now included; their per-check timings are real measurements. `cancelled` and `timed_out`
+stay out — those reached no verdict and may be truncated.
+
+**Cause 2: the 123 s margin was fitted on that biased sample.** Unbiased over 16 runs the model
+predicts the TYPICAL run almost exactly — median residual **−0.8 s** — and misses a tail of three
+runs at +220 to +231 s.
+
+**The tail was diagnosed rather than absorbed.** Those runs are slow UNIFORMLY: median per-check
+ratio **1.72 across 59 checks** against the fastest run, and the three biggest individual blow-ups
+account for 23 s of a 400 s difference. Host contention, not a grown check — and the probe cannot see
+it, reporting 222–234 ms, its normal range. That is exactly what a margin is for. 250 s gives **0 of
+16** runs red, against 3 of 16 at both 123 and 200.
+
+A budget that reds three runs in sixteen on host noise is worse than no budget, because it teaches
+everyone to ignore it. The guard against a GROWN CHECK is not this number — it is the per-check
+share report, which is scale-free and unaffected by a uniformly slow host.
+
+**The gate no longer pins the margin, it READS it.** `smoke-budget-gate` failed the moment 123 moved,
+correctly — it is an arithmetic check — and the tempting repair is to type the new number in, which
+after two rounds leaves a gate asserting whatever the code does. It now greps the margin out of
+`scripts/smoke-ci.ssc` and dies loudly if that shape moved. A/B'd both ways: moving the margin
+250 → 300 leaves it PASSING (it follows), while breaking `den` fails it with
+`derived budget is not the documented arithmetic`.
+
+**If the probe is ever taught to see a 1.7x uniform slowdown, this margin should come back down.**
+
 ## the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one
 
 <!-- status: open
