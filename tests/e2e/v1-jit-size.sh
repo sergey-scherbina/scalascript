@@ -70,13 +70,19 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 #   StaticJsEmitter$Ctx::compile  11387   NEW
 #   SolidEmitter$Ctx::compile     10670   NEW
 #
+# renderTerm 19550 -> 19630 SAME DAY, and the miss is instructive: `189b8b111` (the Rust BADRUST
+# work) had already landed when I re-baselined, but I measured against a toolchain built BEFORE the
+# rebase that brought it in. The gate ran green on stale bytecode and the number went out 80 short —
+# which turned main red the moment the gate reached the push path. Rebuild AFTER the rebase, not
+# before; the repo has that lesson written down and it still cost a red.
+#
 # The two NEW entries are frontend emitters, not the INT hot path; they are frozen with that as the
 # measured reason rather than fixed here. `handleActorOp` is UNCHANGED at 28036 — see the nested-jar
 # note below for why it briefly looked as though it had gone away.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-19550 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+19630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 15428 scalascript.interpreter.EvalRuntime$::evalCore
 14696 scalascript.interpreter.DispatchRuntime$::dispatchList
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
