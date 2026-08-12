@@ -799,29 +799,31 @@ object Exec:
     val i = m.types.indexWhere(t => t.name == name)
     if i < 0 then -1 else i
 
-  /** CENSUS INSTRUMENTATION, 2026-08-12 — reports, does not refuse. Temporary; see the note below.
+  /** Walks a `Cons` chain into a Scala list, and REFUSES anything that is neither `Cons` nor `Nil`.
     *
-    *  The walk stops at anything that is not a `Cons`. For `Nil` that is correct — it IS the
-    *  terminator. For anything else the value contributes NOTHING and the caller gets a shorter list
-    *  than the program meant, with no diagnostic: `xs.flatMap(f)` where `f` returns an Int yields the
-    *  empty list, and `foldLeft` over that gives a number that looks like an answer.
+    *  It used to stop silently. `Nil` ends the walk correctly — it IS the terminator — but so did an
+    *  Int, and then the element contributed NOTHING: `xs.flatMap(f)` where `f` returns a number gave
+    *  the EMPTY list, and a `foldLeft` over that produced a number that looked like an answer.
     *
-    *  Before tightening this into a refusal, the question is whether anything WORKING relies on the
-    *  swallow, and that is empirical. So this counts and names occurrences instead of throwing, and
-    *  the corpus answers. `SSC_LISTOUT_CENSUS=1` turns it on; off, this costs one boolean test.
+    *  MEASURED BEFORE TIGHTENING, over both corpora, because a refusal is only safe if nothing
+    *  working depends on the swallow: 12 occurrences across `tests/conformance` (369 programs) and
+    *  600 across `bench/corpus` — all at `flatMap`, none at `zip`, `++` or rendering, and between
+    *  them exactly TWO programs. Both are already wrong:
+    *  `js-effect-multishot-long-fold` answers 0 against a checked-in 204, and `effect-multishot`
+    *  answers 0. Nine other `flatMap` users in conformance and 33 other bench programs never reach
+    *  here. So this changes no correct program; it turns one silent wrong answer into a loud one.
+    *
+    *  NO NEW LANE DIVERGENCE, and that was checked rather than assumed: I-3 is about a program that
+    *  agrees across lanes starting to disagree. The only two programs affected already disagree —
+    *  v3 says 0 where the other lanes say 204 — so refusing changes the SHAPE of an existing
+    *  divergence, from silent to diagnosable, and creates none. v2's runtime still swallows; that is
+    *  filed with this measurement behind it rather than guessed at.
+    *
+    *  The message names the SITE because the same walk serves `flatMap`, `zip` and `++`, and the
+    *  three have different fixes: for `flatMap` it is almost always a handler whose return clause is
+    *  missing, so `resume` hands back the computation's raw value instead of the handled type.
     */
-  /** A FILE, not stderr, and that is the whole point of this line. `v3/corpus-report.sh` runs each
-    *  case as `java ... run-ir "$irf" 2>/dev/null` — it DISCARDS child stderr — so a census written
-    *  to stderr would have reported zero occurrences across the whole corpus and I would have read
-    *  that zero as "nothing relies on the swallow". A number that cannot tell "never happens" from
-    *  "never observed" is not evidence. Proven the other way first: a one-line program whose `f`
-    *  returns an Int emits three rows here, so a zero from the corpus is now a real zero.
-    *
-    *  `SSC_LISTOUT_CENSUS=<path>` appends there; unset, this costs one null test. */
-  private val listOutCensusPath: String = sys.env.get("SSC_LISTOUT_CENSUS").filter(s => s.nonEmpty && s != "0").orNull
-  private val listOutCensus: Boolean = listOutCensusPath != null
-
-  private def listOut(m: Module, v: Value): List[Value] = listOut(m, v, "?")
+  private def listOut(m: Module, v: Value): List[Value] = listOut(m, v, "a list operation")
 
   private def listOut(m: Module, v: Value, site: String): List[Value] =
     val consT = tagOf(m, "Cons")
@@ -834,32 +836,26 @@ object Exec:
         case Value.VData(t, f) if t == consT && f.length == 2 =>
           out = f(0) :: out
           cur = f(1)
+        case Value.VData(t, _) if t == nilT => go = false
         case other =>
-          go = false
-          if listOutCensus then
-            val isNil = other match
-              case Value.VData(t, _) => t == nilT
-              case _                 => false
-            if !isNil then
-              // Appended per occurrence and flushed, because the process may be killed by the
-              // harness before it ends and a buffered census is a census that reports nothing.
-              try
-                val w = new java.io.FileWriter(listOutCensusPath, true)
-                w.write("LISTOUT-CENSUS\t" + site + "\t" + shapeOf(other) + "\n")
-                w.close()
-              catch case _: Throwable => ()
+          throw ExecError(site + " needs a List and got " + shapeOf(other) +
+            " — it contributes no elements, so the result would be silently short." +
+            (if site == "flatMap" then
+               " If this is a handler, its return clause is what lifts the final value into the" +
+               " handled type; without one `resume` hands back the computation's own value."
+             else ""))
     out.reverse
 
   /** A cheap description of what terminated the walk — the CONSTRUCTOR or primitive kind, never the
-    * value's full rendering, because `showV` on a deep structure is what makes a census slower than
-    * the run it is measuring. */
+    * value's full rendering, because `showV` on a deep structure would make the error message cost
+    * more than the operation that failed. */
   private def shapeOf(v: Value): String = v match
-    case Value.VData(t, f) => "VData(tag=" + t + ",arity=" + f.length + ")"
-    case Value.VInt(_)     => "VInt"
-    case Value.VFloat(_)   => "VFloat"
-    case Value.VStr(_)     => "VStr"
-    case Value.VBool(_)    => "VBool"
-    case Value.VChar(_)    => "VChar"
+    case Value.VData(t, f) => "a value of constructor #" + t + " with " + f.length + " field(s)"
+    case Value.VInt(n)     => "the Int " + n
+    case Value.VFloat(d)   => "the Double " + d
+    case Value.VStr(s)     => "a String"
+    case Value.VBool(b)    => "the Boolean " + b
+    case Value.VChar(c)    => "a Char"
     case other             => other.getClass.getSimpleName
 
   /** A total order over values, for `sorted`/`sortBy`/`min`/`max`. Numbers compare numerically,

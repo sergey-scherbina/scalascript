@@ -1076,8 +1076,30 @@ answer, and this is the SECOND program of that shape besides `effect-multishot`.
 `backends: [int, js]`, so v3 is not among its lanes and the corpus verdict never looked: the
 divergence was invisible by construction rather than by accident.
 
-**So nothing working relies on the swallow.** Tightening changes no correct program and turns one
-silent wrong answer into a loud one.
+**THE CONFORMANCE NUMBER WAS HALF THE ANSWER.** `bench/corpus` is a SEPARATE set that
+`corpus-report.sh` does not read, and a first pass over it reported zero for the wrong reason: bench
+files keep their work in a `def` the harness calls, so running one directly parses it and never
+executes the body. With a driver that actually calls `workload`, `effect-multishot` shows **600**
+swallows and answers `0`; `effect-oneshot` shows none and answers 881 correctly. So the full census
+is 12 + 600 occurrences over **two** programs, and both were already wrong.
+
+**So nothing working relies on the swallow.** Nine other `flatMap` users in conformance and 33 other
+bench programs never reach it. Tightening changes no correct program and turns two silent wrong
+answers into loud ones.
+
+**LANDED as a refusal in `listOut`, and the price is stated.** A/B on one tree:
+`PASS 206 → 206`, `DIFF 4 → 4`, `UNSUPPORTED 154 → 154`, **`CRASH 3 → 4`**, `LANE-EXCL 2 → 1`. One
+case moved from LANE-EXCLUDED to CRASH — `js-effect-multishot-long-fold`, which declares
+`backends: [int, js]` so v3 was never asked about it, and which was quietly answering 0. By the
+report's ordering CRASH is worse than DIFF, so the scoreboard reads one worse; what actually changed
+is that an unattributed silent wrong answer became an attributed diagnosable one. It cannot be
+bucketed UNSUPPORTED instead: the condition is a run-time one, unknowable at compile time — which is
+precisely why the checker does not subsume the refusal.
+
+**NO NEW LANE DIVERGENCE, checked rather than assumed.** I-3 is about a program that agrees across
+lanes beginning to disagree. Both affected programs already disagree — v3 says 0 where the others
+say 204 — so this changes the shape of an existing divergence and creates none. v2's runtime still
+swallows; that is filed with these numbers behind it rather than guessed at.
 
 **THE MEASUREMENT NEARLY REPORTED A MEANINGLESS ZERO, which is worth more than the number.** The
 census first wrote to stderr — and `v3/corpus-report.sh` runs each case as
