@@ -54,47 +54,25 @@ class McpClientCore(write: String => Unit):
   /** The era this client settled on, or `Unknown` before `connect()`. */
   def currentEra: McpProtocol.Era = era
 
-  /** Establish which era the server speaks, and complete the handshake if it
-   *  turns out to be a legacy one.
+  /** Probe the era once, then handshake only if the peer is legacy.
    *
-   *  The probe is `server/discover`, which the revision requires every modern
-   *  server to implement — and a legacy server does not, so its refusal is the
-   *  signal. Crucially, a modern server REFUSING the probe (unsupported
-   *  version, missing capability) still identifies itself as modern; that
-   *  reading lives in `McpProtocol.eraFromProbe` and is why this is not simply
-   *  "did it error".
-   *
-   *  Returns the era. Safe to call twice: a settled era is returned as is,
-   *  because re-probing would send a second `initialize` to a legacy server. */
+   *  The negotiation itself lives in `McpProtocol.negotiateEra` — one rule in
+   *  one place. All this supplies is how the era is DECIDED on this transport. */
   def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L)
       : Either[JsonRpc.Error, McpProtocol.Era] =
     if era != McpProtocol.Era.Unknown then Right(era)
     else
-      val meta  = McpProtocol.clientMeta(clientName, clientVersion)
-      val probe = request(McpProtocol.Method.ServerDiscover,
-                          McpProtocol.withClientMeta(ujson.Obj(), meta), timeoutMs)
-      val decided = McpProtocol.eraFromProbe(probe)
-      if decided == McpProtocol.Era.Legacy then
-        // Only now, and only here: `initialize` does not exist in the modern
-        // revision, so sending it before knowing the era is what breaks a
-        // client against a modern-only server.
-        request(McpProtocol.Method.Initialize, ujson.Obj(
-          "protocolVersion" -> McpProtocol.ProtocolVersion,
-          "capabilities"    -> ujson.Obj(),
-          "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
-          timeoutMs) match
-          case Right(_) =>
-            notify(McpProtocol.Method.Initialized, ujson.Obj())
-            era = decided
-            Right(decided)
-          // A failed handshake is REPORTED, not swallowed. Every caller today
-          // raises on it, so returning only an Era would have deleted that
-          // diagnostic silently — a server whose initialize fails would look
-          // connected. Visible from the CONSUMERS, not from this function.
-          case Left(e) => Left(e)
-      else
-        era = decided
-        Right(decided)
+      McpProtocol.negotiateEra(clientName, clientVersion,
+        decideEra = () => McpProtocol.eraFromProbe(request(
+          McpProtocol.Method.ServerDiscover,
+          McpProtocol.withClientMeta(ujson.Obj(), McpProtocol.clientMeta(clientName, clientVersion)),
+          timeoutMs)),
+        sendInitialize  = p => request(McpProtocol.Method.Initialize, p, timeoutMs),
+        sendInitialized = () => notify(McpProtocol.Method.Initialized, ujson.Obj())
+      ) match
+        case Right(e) => era = e; Right(e)
+        case Left(e)  => Left(e)      // era stays Unknown: nothing was reached
+
 
   /** Send a request and block until the matching response arrives or
    *  the timeout fires.  Returns `Right(result)` on success, `Left(error)`

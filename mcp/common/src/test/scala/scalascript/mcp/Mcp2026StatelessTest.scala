@@ -1302,3 +1302,69 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     // And the era stays Unknown, so a later connect can try again rather than
     // caching a state that was never reached.
     client.currentEra shouldBe McpProtocol.Era.Unknown
+
+  // ── the negotiation rule itself, tested once and without a socket ───
+
+  /** Records what the negotiation asked the transport to do. */
+  private class Calls:
+    val log = scala.collection.mutable.ListBuffer.empty[String]
+    var initParams: ujson.Value = ujson.Null
+
+  private def negotiate(era: McpProtocol.Era,
+                        initFails: Boolean = false): (Either[JsonRpc.Error, McpProtocol.Era], Calls) =
+    val c = new Calls
+    val r = McpProtocol.negotiateEra("c", "1.0",
+      decideEra = () => { c.log += "decide"; era },
+      sendInitialize = p =>
+        c.log += "initialize"; c.initParams = p
+        if initFails then Left(JsonRpc.Error(JsonRpc.ErrorCode.InvalidRequest, "refused"))
+        else Right(ujson.Obj()),
+      sendInitialized = () => { c.log += "initialized"; () })
+    (r, c)
+
+  test("negotiation: a MODERN peer is never sent an initialize"):
+    // The rule the whole migration turns on. This is now asserted in ONE place
+    // instead of three, and it holds for stdio, WS and HTTP by construction
+    // because all three call this function.
+    val (r, c) = negotiate(McpProtocol.Era.Modern)
+    r shouldBe Right(McpProtocol.Era.Modern)
+    c.log.toList shouldBe List("decide")
+
+  test("negotiation: a LEGACY peer gets initialize THEN initialized, in that order"):
+    val (r, c) = negotiate(McpProtocol.Era.Legacy)
+    r shouldBe Right(McpProtocol.Era.Legacy)
+    c.log.toList shouldBe List("decide", "initialize", "initialized")
+    c.initParams("protocolVersion").str shouldBe McpProtocol.ProtocolVersion
+    c.initParams("clientInfo")("name").str shouldBe "c"
+
+  test("negotiation: a failed handshake is reported and `initialized` is NOT sent"):
+    // Sending `initialized` after a refused `initialize` would tell the peer the
+    // lifecycle completed when it did not.
+    val (r, c) = negotiate(McpProtocol.Era.Legacy, initFails = true)
+    r.isLeft shouldBe true
+    r.swap.toOption.get.message should include ("refused")
+    c.log.toList shouldBe List("decide", "initialize")
+
+  test("negotiation: the transport is asked to decide exactly once"):
+    val (_, c) = negotiate(McpProtocol.Era.Modern)
+    c.log.count(_ == "decide") shouldBe 1
+
+  test("all three clients share this rule — none carries its own copy"):
+    // The reason this function exists. Two of the three copies were identical
+    // apart from whitespace, and the WS one could not be reached by any test at
+    // all: the JDK ships a WebSocket client and no server. Deduplicating removed
+    // the unreachable logic rather than building a socket to reach it.
+    // Walk up to the directory holding build.sbt rather than trusting the
+    // forked JVM's working directory, which is not ours to assume.
+    var root = java.nio.file.Paths.get(System.getProperty("user.dir")).toAbsolutePath
+    while root != null && !java.nio.file.Files.exists(root.resolve("build.sbt")) do
+      root = root.getParent
+    assert(root != null, "could not locate the repository root from user.dir")
+    val src = (f: String) => new String(java.nio.file.Files.readAllBytes(
+      root.resolve(s"mcp/common/src/main/scala/scalascript/mcp/$f.scala")), "UTF-8")
+    for f <- List("McpClientCore", "McpWsClient", "McpHttpClient") do
+      withClue(s"$f: ") {
+        src(f) should include ("McpProtocol.negotiateEra")
+        // no local branching on the era, and no hand-rolled handshake ordering
+        src(f) should not include "if decided == McpProtocol.Era.Legacy"
+      }

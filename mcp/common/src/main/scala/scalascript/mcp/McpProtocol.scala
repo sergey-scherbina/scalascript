@@ -292,6 +292,46 @@ object McpProtocol:
         case Some(c) if ModernErrorCodes.contains(c) => Era.Modern
         case _                                       => Era.Legacy
 
+  /** The client-side negotiation, in ONE place.
+   *
+   *  This existed three times — `McpClientCore`, `McpWsClient`, `McpHttpClient` —
+   *  and the three bodies differed only in how the era is DECIDED. Two of them
+   *  were byte-identical apart from whitespace. That is the shape that produced
+   *  the P1b trap: one rule with several decision sites, where a spec change has
+   *  to be applied N times and the copy nobody can execute is the one that rots.
+   *  The WS copy was exactly that — unreachable from any test, because the JDK
+   *  ships a WebSocket client and no server.
+   *
+   *  Parameterising the decision leaves each client with a one-line supplier and
+   *  no branching of its own, so this function is where the behaviour lives and
+   *  where it is tested.
+   *
+   *  `decideEra` is the only transport-specific part: stdio and WS issue
+   *  `server/discover` and read the JSON-RPC answer, while HTTP must look at the
+   *  raw status and body (its `request` collapses both into one opaque error).
+   *
+   *  A failed legacy handshake is REPORTED and leaves the era unsettled, so a
+   *  later attempt retries rather than caching a state that was never reached. */
+  def negotiateEra(
+    clientName:      String,
+    clientVersion:   String,
+    decideEra:       () => Era,
+    sendInitialize:  ujson.Value => Either[JsonRpc.Error, ujson.Value],
+    sendInitialized: () => Unit
+  ): Either[JsonRpc.Error, Era] =
+    val decided = decideEra()
+    if decided != Era.Legacy then Right(decided)
+    else
+      // Only here, and only now: `initialize` does not exist in the modern
+      // revision, so sending it before the era is known is what breaks a client
+      // against a modern-only server.
+      sendInitialize(ujson.Obj(
+        "protocolVersion" -> ProtocolVersion,
+        "capabilities"    -> ujson.Obj(),
+        "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion))) match
+        case Right(_) => sendInitialized(); Right(decided)
+        case Left(e)  => Left(e)
+
   // ─── MCP 2026-07-28 — the CLIENT side of the envelope ──────────────
 
   /** The `_meta` a modern request must carry.

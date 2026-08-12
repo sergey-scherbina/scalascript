@@ -146,33 +146,33 @@ class McpWsClient(
   /** The era this client settled on, or `Unknown` before `connect()`. */
   def currentEra: McpProtocol.Era = era
 
-  /** Probe the era once and complete the legacy handshake only if needed. */
+  /** Probe the era once, then handshake only if the peer is legacy.
+   *
+   *  WS takes the STDIO rule rather than the HTTP one: a persistent
+   *  bidirectional channel has no status code to inspect, and a server error
+   *  keeps its JSON-RPC code all the way back — which is what `eraFromProbe`
+   *  needs to tell a modern refusal from a legacy peer.
+   *
+   *  The negotiation itself lives in `McpProtocol.negotiateEra` — one rule in
+   *  one place. All this supplies is how the era is DECIDED on this transport,
+   *  which matters here more than anywhere: the JDK ships a WebSocket client
+   *  and no server, so a body of logic living in this class could not be run
+   *  by any test. Now there is none. */
   def connect(clientName: String, clientVersion: String, timeoutMs: Long = 10_000L)
       : Either[JsonRpc.Error, McpProtocol.Era] =
     if era != McpProtocol.Era.Unknown then Right(era)
     else
-      val meta    = McpProtocol.clientMeta(clientName, clientVersion)
-      val probe   = request(McpProtocol.Method.ServerDiscover,
-                            McpProtocol.withClientMeta(ujson.Obj(), meta), timeoutMs)
-      val decided = McpProtocol.eraFromProbe(probe)
-      if decided == McpProtocol.Era.Legacy then
-        request(McpProtocol.Method.Initialize, ujson.Obj(
-          "protocolVersion" -> McpProtocol.ProtocolVersion,
-          "capabilities"    -> ujson.Obj(),
-          "clientInfo"      -> ujson.Obj("name" -> clientName, "version" -> clientVersion)),
-          timeoutMs) match
-          case Right(_) =>
-            notify(McpProtocol.Method.Initialized, ujson.Obj())
-            era = decided
-            Right(decided)
-          // A failed handshake is REPORTED, not swallowed. Every caller today
-          // raises on it, and returning only an Era would have deleted that
-          // diagnostic silently — a server whose initialize fails would look
-          // connected. Visible from the consumers, not from this function.
-          case Left(e) => Left(e)
-      else
-        era = decided
-        Right(decided)
+      McpProtocol.negotiateEra(clientName, clientVersion,
+        decideEra = () => McpProtocol.eraFromProbe(request(
+          McpProtocol.Method.ServerDiscover,
+          McpProtocol.withClientMeta(ujson.Obj(), McpProtocol.clientMeta(clientName, clientVersion)),
+          timeoutMs)),
+        sendInitialize  = p => request(McpProtocol.Method.Initialize, p, timeoutMs),
+        sendInitialized = () => notify(McpProtocol.Method.Initialized, ujson.Obj())
+      ) match
+        case Right(e) => era = e; Right(e)
+        case Left(e)  => Left(e)      // era stays Unknown: nothing was reached
+
 
   def request(method: String, params: ujson.Value, customTimeoutMs: Long = 0L): Either[JsonRpc.Error, ujson.Value] =
     if closed then return Left(JsonRpc.Error(JsonRpc.ErrorCode.InternalError, "client closed"))
