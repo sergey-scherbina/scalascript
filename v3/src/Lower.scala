@@ -2656,9 +2656,50 @@ object Lower:
     def resolveHandles(d: Def): Def =
       if effectOps.isEmpty then d
       else d.copy(body = mapDeep(d.body, x => x match
-        case Expr.Apply(Expr.Call("handle", List(hb), _), List(Expr.Lambda(_, Expr.Match(_, arms, _), _)), hp) =>
+        case Expr.Apply(Expr.Call("handle", List(hb0), _), List(Expr.Lambda(_, Expr.Match(_, arms, _), _)), hp) =>
+          // `handle { body } { case … }` — the FIRST brace group is parsed as a lambda too, exactly
+          // as the second one is, so `hb0` arrives as an unapplied `Lambda` and using it as the
+          // handled body handed the closure straight back: `handle { prog() } { case ask(k) => k(5) }`
+          // printed `<closure 2>` where v1 prints `6`. Not a refusal — a wrong answer at exit 0.
+          //
+          // The paren form `handle(expr) { … }` was never affected, which is why this survived: the
+          // corpus writes both and only one of them was tested.
+          // (BUGS `v3-handle-block-body-returns-the-closure`.)
+          val hb = hb0 match
+            case Expr.Lambda(ps, lb, _) if ps.isEmpty => lb
+            case other                                => other
           val hs = arms.map { arm =>
             arm.pat match
+              // `case Return(x) => …` / `case Return(_) => …` — THE RETURN CLAUSE AS THE CORPUS
+              // WRITES IT, and it must be tested before the operation branch below or `Return`
+              // resolves as an undeclared operation and the program is refused.
+              //
+              // This spelling is the language's, not a leaked runtime marker: fifteen programs use
+              // it, `tests/interop-conformance/probes/08-return-clause-transform.ssc` exists to pin
+              // it, and `examples/algebraic-effects.ssc` documents it in prose — "the
+              // `case Return(_) => List()` RETURN CLAUSE seeds the base case". v1, v2, JsGen and
+              // JvmGen all implement it (`EffectsRuntime.scala:156`, `PortableEffects.scala:189`).
+              // v3 accepted only the bare `case x =>` below, and refused FOURTEEN programs over the
+              // difference: the whole interop-conformance effect probe suite, three conformance
+              // libraries, a v21-native fixture and the documented example.
+              // (BUGS `v1-handle-return-clause-binds-the-Return-wrapper`.)
+              //
+              // Lowered to exactly what the bare binder lowers to — `op = -1`, the marker no
+              // operation index can take — so the two spellings are ONE arm downstream and the
+              // executor needs no second notion of a return clause.
+              case Pat.PCtor("Return", List(Pat.PBind(bn, _)), pp) =>
+                HandleArm(-1, List(bn), "__return__", arm.body, pp)
+              // `case Return(_)` binds nothing; the arm still needs a name for the value it is
+              // handed, so one is invented. `__` cannot collide with a user binder — the lexer does
+              // not produce it as an identifier.
+              case Pat.PCtor("Return", List(Pat.PWild(_)), pp) =>
+                HandleArm(-1, List("__ret_unused"), "__return__", arm.body, pp)
+              // Any other shape of `Return` is refused BY NAME rather than falling through to the
+              // operation branch, where the message would say `Return` is not a declared operation
+              // and send the author looking for a missing `effect` declaration.
+              case Pat.PCtor("Return", other, pp) =>
+                throw LowerFail(pp, "a `Return` clause takes exactly one binder — `case Return(x)` " +
+                                    "or `case Return(_)` — and this one has " + other.length)
               case Pat.PCtor(nm, binders, pp) =>
                 opsByPlainName.get(nm) match
                   case None => throw LowerFail(pp, "'" + nm + "' is not a declared effect operation")
