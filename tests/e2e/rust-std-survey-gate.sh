@@ -26,6 +26,10 @@
 # is doing more work than it used to. It belongs beside `backendRust/test` on the periodic job. Run it by hand after
 # touching the Rust backend; `--update` rewrites the baseline once you have read the diff.
 #
+# `--reasons` prints what the refusals SAY, grouped, straight from the baseline — no build. That is
+# the roadmap the REFUSED column is supposed to be, and it was unreadable while only the class was
+# recorded.
+#
 # THE BASELINE IS NOT A GOLDEN OF ERROR TEXT. rustc messages change with the compiler; only the
 # CLASSIFICATION is frozen, plus the first error code, which is what tells one shape from another.
 #
@@ -71,6 +75,19 @@ command -v cargo >/dev/null 2>&1 || {
 update=0
 [[ "${1:-}" == "--update" ]] && update=1
 
+# `--reasons` reads the BASELINE and prints what the refusals actually say, most common first. No
+# build, no cargo, seconds — the point is that the question "what should we implement next" is now
+# answerable from a file instead of from a five-minute run.
+if [[ "${1:-}" == "--reasons" ]]; then
+  [[ -r $BASE ]] || { echo "rust-std-survey: no baseline at $BASE" >&2; exit 2; }
+  echo "refusal reasons, most common first (from $BASE):"
+  awk -F'\t' '$2 == "REFUSED" { print $3 }' "$BASE" | sort | uniq -c | sort -rn |
+    awk '{ n = $1; $1 = ""; printf "%4d  %s\n", n, substr($0, 2) }'
+  echo ""
+  awk -F'\t' '{ c[$2]++ } END { for (k in c) printf "  %-9s %d\n", k, c[k] }' "$BASE"
+  exit 0
+fi
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rust-survey.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
@@ -86,7 +103,14 @@ classify() { # classify <file> → "<class>\t<detail>"
   if   printf '%s' "$out" | grep -qE '^error\[E[0-9]+\]|^error: expected|^error: could not compile'; then
     printf 'BADRUST\t%s' "$(printf '%s' "$out" | grep -oE '^error\[E[0-9]+\]' | head -1)"
   elif printf '%s' "$out" | grep -qE '\[error\] (Generic|Unsupported)\('; then
-    printf 'REFUSED\t%s' "$(printf '%s' "$out" | grep -oE '\[error\] [A-Za-z]+\(' | head -1)"
+    # The REASON, normalised, not just the class. Recording `[error] Generic(` made the REFUSED
+    # column a number and nothing else: 82 modules the backend cannot lower, with no way to ask WHAT
+    # they need, so the roadmap it was supposed to be could not be read off it. Identifiers between
+    # backticks are replaced with `_` so the same gap in twenty modules groups as one line.
+    printf 'REFUSED\t%s' "$(printf '%s' "$out" \
+      | grep -oE '\[error\] (Generic|Unsupported)\(.*' | head -1 \
+      | sed -e 's/^\[error\] //' -e 's/`[^`]*`/`_`/g' -e 's/,Some(rust)).*$//' \
+      | cut -c1-110)"
   elif [[ $rc -eq 0 ]] || printf '%s' "$out" | grep -q 'expected binary not found'; then
     printf 'COMPILES\t'
   else
