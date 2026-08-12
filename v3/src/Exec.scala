@@ -1610,13 +1610,32 @@ object Exec:
     // Double`, v3 `Rem on Double`), so widening it would only swap one refusal's message for
     // another and would claim support that no lane has.
     //
-    // ARITHMETIC ONLY. On mixed COMPARISON the lanes disagree with each OTHER — interp says
-    // `1 < 2.0` is true, native and v2 refuse it at type-check time with "cannot unify Int vs
-    // Float" — so widening comparisons here would pick a side in a divergence that is not this
-    // entry's to settle, and would do it silently at run time on the one lane that has no checker.
-    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VInt(x), Value.VFloat(_)) =>
+    // ORDERING COMPARISONS ARE HERE TOO, and they were deliberately left out one day earlier. The
+    // reason then: interp says `1 < 2.0` is true while native and v2 refuse it at type-check time
+    // ("cannot unify Int vs Float"), so widening looked like picking a side in someone else's
+    // divergence. That reasoning was answered by ONE measurement it had not made — v3's OWN bridge:
+    //
+    //     v3/ssc3 run --bridge   `1 < 2.0`  ->  true          `1 == 1.0`  ->  true
+    //     v3/ssc3 run            `1 < 2.0`  ->  Lt on Int 1 and Double 2   ->  false
+    //
+    // So this was never a choice between v1's answer and v2's. v3's two lanes disagreed with each
+    // other on every mixed comparison, which is invariant I-3, and the bridge's answers are also
+    // the ones Scala gives. Refusing here was not neutrality; it was the executor being wrong in a
+    // way that only showed up against its own other lane.
+    //
+    // `Eq`/`Ne` are in this list and NOT in `eq`, which is the narrowest place that fixes the
+    // scalar case. Widening inside `eq` also reaches collection equality and pattern matching, and
+    // measurement said stop: `List(1) == List(1.0)` is `false` on the executor, on the bridge AND
+    // on interp — they agree, so there is nothing there to repair and changing it would open a
+    // divergence where none existed. The first draft of this fix did exactly that, and the
+    // both-lanes fixture caught it in one run.
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div |
+          BinOp.Lt  | BinOp.Le  | BinOp.Gt  | BinOp.Ge |
+          BinOp.Eq  | BinOp.Ne, Value.VInt(x), Value.VFloat(_)) =>
       binOp(m, op, Value.VFloat(x.toDouble), b)
-    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div, Value.VFloat(_), Value.VInt(y)) =>
+    case (BinOp.Add | BinOp.Sub | BinOp.Mul | BinOp.Div |
+          BinOp.Lt  | BinOp.Le  | BinOp.Gt  | BinOp.Ge |
+          BinOp.Eq  | BinOp.Ne, Value.VFloat(_), Value.VInt(y)) =>
       binOp(m, op, a, Value.VFloat(y.toDouble))
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
@@ -1688,6 +1707,13 @@ object Exec:
     case (Value.VInt(x), Value.VChar(y))    => x == y.toLong
     case (Value.VBool(x), Value.VBool(y))   => x == y
     case (Value.VFloat(x), Value.VFloat(y)) => x == y
+    // NO Int/Double arm here, and that is a decision rather than an omission — `1 == 1.0` is made
+    // true in `binOp` instead. `eq` is shared by scalar `==`, by COLLECTION equality and by pattern
+    // matching, so widening here also makes `List(1) == List(1.0)` true. Measured 2026-08-11: that
+    // is what Scala says, but it is not what any lane in this project says — the bridge, interp and
+    // the executor all answer `false` and AGREE. Widening here therefore repaired one divergence
+    // (scalar `==`, where the executor said false and the bridge said true) by creating another in
+    // a place that was consistent. Fix what disagrees; leave what agrees.
     case (Value.VUnit, Value.VUnit)         => true
     // A SET is equal by CONTENT, not by order — `Set(1,2) == Set(2,1)` is true, and it is the
     // membership equality the corpus case is named for. Without this arm the comparison fell to the
