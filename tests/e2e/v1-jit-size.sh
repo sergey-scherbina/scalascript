@@ -79,6 +79,13 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 #   StaticJsEmitter$Ctx::compile  11387   NEW
 #   SolidEmitter$Ctx::compile     10670   NEW
 #
+# evalCore DELETED 2026-08-12: split into evalCore/B/C at 4455/5120/3616. Checked the source first,
+# as the disappeared-check instructs — alive, simply no longer over the limit. PrintCompilation on
+# the shipped build: `evalCore (4456 bytes)` reaches tier 3 AND tier 4 with the default limit in
+# force, where at 15429 bytes it was never submitted at all.
+#
+# The interpreter now has exactly ONE method left over the limit: dispatchString, 10013.
+#
 # dispatchList DELETED 2026-08-12: split into dispatchList/B/C at 4123/6043/2999, all under the
 # limit, so the exemption expired and the list SHRANK — which is the whole point of freezing it.
 # Checked the source before deleting, as the disappeared-check now tells you to: the method is
@@ -99,7 +106,6 @@ read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
 19630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
-15428 scalascript.interpreter.EvalRuntime$::evalCore
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 10013 scalascript.interpreter.DispatchRuntime$::dispatchString

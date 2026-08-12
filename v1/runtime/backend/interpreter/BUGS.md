@@ -1227,6 +1227,51 @@ harness measured a noise floor between −4.8% and +65% depending on the workloa
 above is the evidence; a number taken today would not be one.
 
 
+### 2026-08-12 — `evalCore` SPLIT: the list path is now fully JIT-able, and `dispatchString` is all that is left
+
+`evalCore` 15428 -> **4455 / 5120 / 3616**. Frozen list 7 -> 6. The interpreter now has exactly ONE
+method over the limit: `dispatchString`, 10013.
+
+Harder than `dispatchList` in two ways, both handled. Its 61 arms match on term TYPE WITH GUARDS —
+several `Term.Apply` differing only by their `if` — so first-match-wins is load-bearing and the
+sequential decomposition preserves it by construction. And its PRELUDE has side effects:
+`interp.trackPos(term)` and the DAP `onStep` hook must fire ONCE per term, so the prelude stays in
+`evalCore` alone and the parts are `term match` and nothing else.
+
+**A PREDICTION WRITTEN DOWN BEFORE MEASURING, and it is a PAIR so it can fail in either direction:**
+
+> `lists-big` — the flag effect should collapse to ~0 (`dispatchList` and `evalCore` both split,
+> `dispatchString` not hot there). `strings-big` — it should REMAIN, because `dispatchString` is
+> still 10013 and IS hot there.
+
+**Confirmed deterministically, both sides**, `-XX:+PrintCompilation`, compilations with the limit ON
+vs OFF:
+
+| | `evalCore` | `dispatchList` | `dispatchString` |
+|---|---|---|---|
+| `lists-big` | 4 / 4 | 3 / 3 | 0 / 0 — **the flag changes nothing** |
+| `strings-big` | 4 / 4 | 3 / 3 | **5 / 8** — the one still refused |
+
+`evalCore (4456 bytes)` reaches tier 3 and tier 4 with the default limit in force, where at 15429 it
+was never submitted.
+
+**THE WALL CLOCK RESOLVED NOTHING TODAY, and that is reported rather than dressed up.** At host load
+~60 the A/A control through the same harness measured a noise floor of −23.5% on `lists-big`, which
+is LARGER than the −13.9% the flag pair showed; `strings-big` was −1.3% against a floor of
++7.6%/−25.0%. So the timings neither confirm nor refute, in either direction — including my own
+prediction that `strings-big` would keep an effect. The only thing worth noting is directional and
+is not evidence: `lists-big`'s flag effect moved from −43.1% (against a 16.4% floor, before this
+split) to −13.9% (inside a 23.5% floor, after it).
+
+`backendInterpreter/testFast` **1609/0** — including `ThreeWayMutualTcoTest`, which failed during
+the `dispatchList` work at load ~60 and passes here. That is the second, independent confirmation
+that its failure was the host and not a split.
+
+**Remaining:** `dispatchString` (10013), and the acceptance test for it is already written — the
+flag pair on `strings-big` must lose the 5/8 asymmetry above. Note it was NOT hot on `lists-big`, so
+whoever takes it should keep a string-heavy workload in the loop or the measurement will say nothing.
+
+
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
 <!-- status: fixed
      lane: int

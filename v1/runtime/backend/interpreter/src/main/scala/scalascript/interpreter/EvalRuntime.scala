@@ -3369,6 +3369,35 @@ private[interpreter] object EvalRuntime:
         ok
     case _ => false
 
+  // ── evalCore is split into three parts, and the reason is a hard JVM limit ───────────────────────
+  //
+  // `-XX:+DontCompileHugeMethods` is ON by default and a method over `-XX:HugeMethodLimit` (8000)
+  // is NEVER JIT-compiled — not C1, not C2. `evalCore` was 15428 bytecodes.
+  //
+  // MEASURED BEFORE IT WAS WRITTEN, on the shipped build with `-XX:+PrintCompilation`, and this is
+  // the reason the entry's earlier "the census flags a hazard, it does not establish a hot cost"
+  // no longer holds here:
+  //
+  //   limit ON (default)   evalCore (15429 bytes)   0 compilations — never even submitted
+  //   limit OFF            evalCore                 tier 4, C2 takes it
+  //
+  // It is NOT reached by an arithmetic loop — the interpreter's own bytecode JIT takes those, which
+  // is why the `infix2` split measured neutral — but list- and string-heavy programs reach it, and
+  // with `dispatchList` already split it is the remaining refusal on that path.
+  //
+  // PURE SEQUENTIAL DECOMPOSITION, and here it is load-bearing rather than tidy: unlike
+  // `dispatchList`, whose cases are distinct string literals, these match on term TYPE WITH GUARDS
+  // — several `Term.Apply` arms differing only by their `if`. First match wins, so each part tries
+  // its cases IN THE ORIGINAL ORDER and its `case _` forwards to the next; a `Term.Apply` that
+  // fails part A's guards reaches part B's arms exactly as it reached them in the single match.
+  //
+  // THE PRELUDE STAYS HERE AND ONLY HERE. `interp.trackPos(term)` and the DAP `onStep` hook are
+  // SIDE EFFECTS that must fire once per term; re-running them in each part would step the debugger
+  // up to three times for one evaluation. The parts are `term match` and nothing else, and they
+  // take no locals from the prelude because it defines none outside its own `case Some(hooks)`.
+  //
+  // Sizes are held by `tests/e2e/v1-jit-size.sh`, on the push path since 2026-08-12.
+  // (v1-interpreter-hot-path-never-jits.)
   private def evalCore(term: Term, env: Env, interp: Interpreter): Computation =
     interp.trackPos(term)
     // DAP step/breakpoint hook: called for every term so DebugHooks can decide
@@ -3806,6 +3835,12 @@ private[interpreter] object EvalRuntime:
     // Double-apply special form: evaluate body directly (not as a thunk) so
     // any statements inside the block run with feature-local HTTP state set,
     // then restore.
+    case _ => evalCoreB(term, env, interp)
+
+  /** Part 2 of 3 — see the note on `evalCore`. Cases in original order; falls through.
+   *  No prelude: `trackPos` and the debug hook fire once, in `evalCore`. */
+  private def evalCoreB(term: Term, env: Env, interp: Interpreter): Computation =
+    term match
     case Term.Apply.After_4_6_0(
         Term.Apply.After_4_6_0(Term.Name("httpClient"), baseClause),
         bodyClause)
@@ -4223,6 +4258,11 @@ private[interpreter] object EvalRuntime:
           c2 match
             case Pure(v2) => FlatMap(c1, v1 => Pure(Value.TupleV(v1 :: v2 :: Nil)))
             case _        => FlatMap(c1, v1 => FlatMap(c2, v2 => Pure(Value.TupleV(v1 :: v2 :: Nil))))
+    case _ => evalCoreC(term, env, interp)
+
+  /** Part 3 of 3 — see the note on `evalCore`. Holds the ORIGINAL final `case other`. */
+  private def evalCoreC(term: Term, env: Env, interp: Interpreter): Computation =
+    term match
     case Term.Tuple(List(e1: Term, e2: Term, e3: Term)) =>
       val c1 = eval(e1, env, interp); val c2 = eval(e2, env, interp); val c3 = eval(e3, env, interp)
       c1 match
