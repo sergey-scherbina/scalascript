@@ -77,19 +77,59 @@ EOF
 
 ROWS=11
 
-run() { # run <label> <cmd...>
-  local label=$1; shift
-  if ! "$@" "$tmp/cmp.ssc" > "$tmp/$label.raw" 2>"$tmp/$label.err"; then
+# A SECOND source, and every difference from the first one is load-bearing. On 2026-08-12 the
+# native front's checker refused
+#
+#     println(1 < 2.0)        TYPEERR: type mismatch in comparison: cannot unify Int: Int vs Float
+#
+# while ACCEPTING all three of these, measured on one binary:
+#
+#     println((1 < 2.0).toString)      -> true    a method call on the result
+#     def main(): Unit =                          the same expression inside a def
+#       println(1 < 2.0)               -> true
+#     var a = 1; var b = 1.0; a < b    -> true    operands carrying type variables
+#
+# So the shape that fails is the comparison used DIRECTLY — printed, or bound to a top-level `val`
+# — with both operands at CONCRETE numeric types. The eleven rows above miss it on two counts at
+# once: they live in `def main` AND they wrap every expression in `.toString`. This gate was green
+# on a front that refused the plainest thing a script can write.
+#
+# Both misses were found the same way: the first version of this block used `.toString` at top
+# level, and the without-the-fix control passed. A gate that cannot reach the failing shape does
+# not guard it, and the control is what says whether it reaches it.
+cat > "$tmp/top.ssc" <<'EOF'
+println(1 < 2.0)
+println(1 <= 1.0)
+println(2.0 > 1)
+println(1 == 1.0)
+println(1 != 1.0)
+println(1.0 == 1)
+println(2 == 2.5)
+val guard = 1 < 2.0
+println(guard)
+println(1 == 1)
+EOF
+TOP_ROWS=9
+
+run() { # run <label> <src> <rows> <cmd...>
+  local label=$1 src=$2 rows=$3; shift 3
+  if ! "$@" "$tmp/$src" > "$tmp/$label.raw" 2>"$tmp/$label.err"; then
     echo "mixed-numeric-comparison: lane $label failed to run" >&2; cat "$tmp/$label.err" >&2; exit 1
   fi
-  tail -"$ROWS" "$tmp/$label.raw" > "$tmp/$label.txt"
+  tail -"$rows" "$tmp/$label.raw" > "$tmp/$label.txt"
 }
 
-run jvm      "$TOOLS" run-jvm
-run int      "$TOOLS" run --v1
-run native   "$SSC"   run
-run bytecode "$TOOLS" run --bytecode
-run js       "$TOOLS" run-js
+run jvm      cmp.ssc "$ROWS" "$TOOLS" run-jvm
+run int      cmp.ssc "$ROWS" "$TOOLS" run --v1
+run native   cmp.ssc "$ROWS" "$SSC"   run
+run bytecode cmp.ssc "$ROWS" "$TOOLS" run --bytecode
+run js       cmp.ssc "$ROWS" "$TOOLS" run-js
+
+run jvm-top      top.ssc "$TOP_ROWS" "$TOOLS" run-jvm
+run int-top      top.ssc "$TOP_ROWS" "$TOOLS" run --v1
+run native-top   top.ssc "$TOP_ROWS" "$SSC"   run
+run bytecode-top top.ssc "$TOP_ROWS" "$TOOLS" run --bytecode
+run js-top       top.ssc "$TOP_ROWS" "$TOOLS" run-js
 
 # The oracle must say what this gate was written against. If real Scala ever disagrees with the
 # frozen row, the gate refuses to judge rather than charging the difference to the other lanes.
@@ -103,7 +143,29 @@ if [[ "$(cat "$tmp/jvm.txt")" != "$expected_jvm" ]]; then
   exit 2
 fi
 
+# Same discipline for the top-level source: freeze what real Scala answers, and refuse to judge if
+# the oracle itself moves.
+expected_top=$'true\ntrue\ntrue\ntrue\nfalse\ntrue\nfalse\ntrue\ntrue'
+if [[ "$(cat "$tmp/jvm-top.txt")" != "$expected_top" ]]; then
+  echo "mixed-numeric-comparison: the ORACLE lane (run-jvm) does not match the frozen TOP-LEVEL row." >&2
+  echo "  expected: $(echo "$expected_top" | tr '\n' '/')" >&2
+  echo "  got:      $(tr '\n' '/' < "$tmp/jvm-top.txt")" >&2
+  exit 2
+fi
+
 fail=0
+for lane in int-top native-top bytecode-top js-top; do
+  if ! diff -u "$tmp/jvm-top.txt" "$tmp/$lane.txt" > "$tmp/$lane.diff"; then
+    echo "mixed-numeric-comparison: $lane disagrees with run-jvm (real Scala) at TOP LEVEL" >&2
+    echo "  (-) jvm   (+) $lane" >&2
+    cat "$tmp/$lane.diff" >&2
+    echo "  These are the same expressions as the eleven rows above, moved out of \`def main\`." >&2
+    echo "  If this block fails while the block below passes, the defect is in a FRONT that types" >&2
+    echo "  top-level statements differently from def bodies — not in either runtime. That is" >&2
+    echo "  exactly how the native checker refused \`1 < 2.0\` while this gate was green." >&2
+    fail=1
+  fi
+done
 for lane in int native bytecode js; do
   if ! diff -u "$tmp/jvm.txt" "$tmp/$lane.txt" > "$tmp/$lane.diff"; then
     echo "mixed-numeric-comparison: $lane disagrees with run-jvm (real Scala)" >&2
@@ -121,4 +183,4 @@ for lane in int native bytecode js; do
 done
 
 [[ $fail -eq 0 ]] || exit 1
-echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on eleven rows"
+echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on eleven rows in a def and eight at top level"

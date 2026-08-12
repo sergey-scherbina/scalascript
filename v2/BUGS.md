@@ -10,6 +10,51 @@ Newest first.
 
 
 
+## v2-front-refuses-mixed-numeric-comparison — `println(1 < 2.0)` is a TYPEERR while `1 * 2.0` is `2`
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh (the TOP-LEVEL block) -->
+
+**Measured 2026-08-12.** `ssc1inferCmp` in `v2/lib/ssc1-check.ssc0` required the two operands to
+UNIFY, so a concrete `Int` against a concrete `Float` was rejected:
+
+    println(1 < 2.0)   ->  ssc: TYPEERR: type mismatch in comparison: cannot unify Int: Int vs Float
+    println(1 == 1.0)  ->  same
+
+The runtime behind this front computes both, every other lane answers them, and the arithmetic rule
+in the same file — `ssc1inferNumeric` — has accepted the identical pair all along (`1 * 2.0` is `2`
+through this very front). The front was disagreeing with itself.
+
+**Why it survived a five-lane equality sweep the day before.** The shape matters, and three of the
+four ways to write it are accepted. Measured on one binary:
+
+| written as | before the fix |
+|---|---|
+| `println(1 < 2.0)` | **TYPEERR** |
+| `val b = 1 < 2.0` | **TYPEERR** |
+| `println((1 < 2.0).toString)` | `true` |
+| the same expression inside `def main` | `true` |
+| `var a = 1; var b = 1.0; a < b` | `true` |
+
+Only the comparison used DIRECTLY, with both operands at concrete numeric types, reaches the
+refusal — a method call on the result or a surrounding `def` hides it, and operands that carry type
+variables unify happily. `tests/e2e/mixed-numeric-comparison-gate.sh` wrapped all eleven of its rows
+in `def main` AND in `.toString`, so it was green against a front that refused the plainest form.
+
+**Fixed** by accepting the mixed numeric pair before unification, mirroring `ssc1inferNumeric`:
+`ssc1chkMixedNum` answers true only for Int-against-Float in either order, and everything else takes
+the unchanged unify path. Controls held: `1 == "x"`, `"a" < 1` and `true == 1` are still refused,
+and `1 < 2`, `1.0 < 2.0`, `"a" < "b"`, `'a' < 'b'` still pass.
+
+**Guard, and it was WRONG on the first attempt.** The gate gained a top-level block, and the
+without-the-fix control passed — because I had written the new rows with `.toString` too. It was
+rebuilt without the fix a second time to confirm the corrected block goes red (`lane native-top
+failed to run` plus the TYPEERR) and green with it. Both the native and bytecode lanes fail there:
+they share this front.
+
 ## build-rust-default-params-not-applied — ProcessOptions(None, Map(), None) emits a Rust struct literal missing the defaulted inheritEnv field — E0063; passing all four args works
 
 <!-- status: fixed
