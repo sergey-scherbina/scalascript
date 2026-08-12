@@ -5,7 +5,7 @@ started: 2026-08-12T15:16:12Z
 heartbeat: 2026-08-12T15:16:12Z
 status: claimed-before-planning
 items: mcp-p5b-deprecations
-paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
