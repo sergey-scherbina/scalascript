@@ -1,7 +1,8 @@
-# generation: 1717
+# generation: 1718
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 scaffold-follows-scripted	claude-code	2026-08-12T07:05:31Z	scaffold-follows-scripted	file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:tests/BUGS.md
 rust-final-four	claude-code	2026-08-12T07:05:38Z	rust-given-method-type-params-render-empty rust-last-eight-individual-badrust	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:BUGS.md file:tests/rust-std-survey-baseline.tsv
 v1-jit-size-gate-blind	claude-code	2026-08-12T07:14:18Z	v1-interpreter-hot-path-never-jits	file:tests/e2e/v1-jit-size.sh file:v1/runtime/backend/interpreter/BUGS.md
 v2-cmp-mixed-numeric	claude-code	2026-08-12T07:14:48Z	v2-front-refuses-mixed-numeric-comparison	file:v2/lib/ssc1-check.ssc0 file:v2/BUGS.md file:tests/e2e/mixed-numeric-comparison-gate.sh
+agents-md-diagnose-before-fixing	claude-code	2026-08-12T07:26:11Z	agents-md-diagnose-before-fixing	file:AGENTS.md

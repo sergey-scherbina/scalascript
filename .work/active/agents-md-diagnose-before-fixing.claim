@@ -1,0 +1,11 @@
+slug: agents-md-diagnose-before-fixing
+branch: feature/agents-md-diagnose-before-fixing
+agent: claude-code
+started: 2026-08-12T07:26:11Z
+heartbeat: 2026-08-12T07:26:11Z
+status: claimed-before-planning
+items: agents-md-diagnose-before-fixing
+paths: file:AGENTS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
