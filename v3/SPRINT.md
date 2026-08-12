@@ -3013,3 +3013,75 @@ its own bug and fixed it.** The spike was faithful to a version that no longer e
 is mine — `effects`, `effects-handler`, `head-field-effect-shadow`, `parameterless-def-local`
 contain no annotation at all (`^@` count zero), so a change that only touches annotation handling
 cannot reach them. Attribution by construction rather than by re-running.
+
+## SSC3-12 — host IO, bytes, strings, and the last receiver-blind resolution
+
+Four slices, written down before any of them is coded. They are ordered so each one is landable
+alone and none is blocked on a decision the next one makes.
+
+**THE MEASUREMENT THAT DECIDES ALL OF IT, taken 2026-08-12 before the plan was written:** the v2 VM
+— the one `ssc3 run --bridge` executes on — already implements everything needed, so **not one v2
+change is required**:
+
+```text
+  io.readFile  -> BytesV      io.writeFile <- bytes      io.exists
+  str->utf8    utf8->str      blen   bget   bslice   bconcat      bytes->hex   hex->bytes
+```
+
+That is why `readFile` is reachable at all. `Lower.hostPrims` maps an extern to the prim that
+performs it, and its table is the INTERSECTION of what BOTH lanes do — invariant I-3 made
+structural rather than tested. Today it has one entry, `exists`, because the first draft mapped
+`readFile`/`writeFile` on the strength of the NAMES matching and the bridge died with
+`expected Bytes, got "hello from ScalaScript"`: v2 reads a file to bytes, `std/fs.ssc` declares
+`readFile(path): String`. **Every slice below adds to that table only after checking the SHAPE.**
+
+### A — a curried call is flattened by another class's method
+
+`Lower.scala:1804`, the last receiver-blind resolution left in the file:
+`sigs.exists((n, ps) => n.endsWith("." + nm) && ps.length == 1 + as1.length + as2.length)`. It is
+milder than the two already fixed because it checks arity, and it is the same defect: the receiver
+is not consulted, so a same-named method on ANY class can decide that `f(a)(b)` is one call rather
+than two. Same shape as the fix in `fillDefaults`: exact `obj + "." + nm` when the receiver is a
+NAME, and when it is an expression, use the suffix search only when it leaves ONE answer.
+
+**Done when:** a probe with two classes whose same-named methods differ in shape flattens correctly
+in both declaration orders; N does not fall.
+
+### B — `readFile` / `writeFile`, as a COMPOSITION of prims
+
+The extern's body is an expression, so it does not have to be a single prim:
+
+```text
+  readFile(p)      ->  utf8->str(io.readFile(p))
+  writeFile(p, s)  ->  io.writeFile(p, str->utf8(s))
+```
+
+The IR is SHARED, so `Exec` must implement all four. That needs v3 to hold a byte string, which it
+has no value for — `Value` is Unit/Bool/Int/Float/Str/Char/Data/Clos/Arr/Partial/Map. So this slice
+adds one: `Value.VBytes`. **The hazard is named in advance:** a new `Value` case does not fail to
+compile at the matches that need it, because most end in a catch-all — the same shape
+`walker-gate.sh` exists for. So the slice includes an audit of every `Value` match that must learn
+it (`showV`, `eq`, `binOp`, the bridge's literal writer) rather than trusting the compiler.
+
+**Done when:** a program writes a file and reads it back with the SAME output on both lanes; a
+read of a missing path is catchable by a ScalaScript `try/catch` rather than killing the
+interpreter; N does not fall.
+
+### C — the byte API, so `readBytes`/`writeBytes` can exist
+
+`std/fs.ssc` declares `readBytes(path): List[Int]`, and v2's `io.readFile` gives `BytesV`, not a
+cons list — the same name/shape trap as B. v2 exposes `blen`/`bget`/`bslice`/`bconcat`, so the
+conversion is expressible; the open question this slice answers by measuring is WHERE it belongs:
+a loop in ScalaScript over an opaque handle (which needs `Bytes` to be a value the language can
+hold) versus a pair of prims on both lanes. **Not decided here** — B's `Value.VBytes` is what makes
+either possible, and the choice should be made with B landed.
+
+### D — what is still out of reach, and who owns it
+
+`deleteFile` — needed by `tests/conformance/dataset-shape` — has **no v2 prim at all**. A v3-only
+`io.deleteFile` would break I-3 exactly as the table exists to prevent, so this one is a v2 change
+with a different owner and is NOT in this sprint. `fromGenerator` and `runParallel` need laziness
+and parallelism, not IO. Slice D is the honest accounting: re-measure the six blocked `dataset-*`
+cases after B, say which moved, and file the rest by what they actually need.
+
+**Claims are taken per slice, on the files that slice edits, and only when it starts editing.**
