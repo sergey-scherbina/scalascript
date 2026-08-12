@@ -1,0 +1,20 @@
+#!/usr/bin/env ssc
+---
+name: param-read-twice
+version: 0.1.0
+description: A String param read twice, where one read is toInt.
+---
+```scalascript
+def viaLocals(s: String): Boolean =
+  val a = s
+  val b = s
+  a.toInt.toString == b
+
+def direct(s: String): Boolean =
+  s.toInt.toString == s
+
+def main(): Unit =
+  println("locals = " + viaLocals("42"))
+  println("direct = " + direct("42"))
+main()
+```

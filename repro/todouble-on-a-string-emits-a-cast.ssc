@@ -1,0 +1,12 @@
+#!/usr/bin/env ssc
+---
+name: toint-vs-todouble
+version: 0.1.0
+description: toInt on a String lowers; toDouble emits a cast Rust has no such thing for.
+---
+```scalascript
+def main(): Unit =
+  println("toInt    = " + ("120".toInt + 1))
+  println("toDouble = " + ("1.5".toDouble + 1.0))
+main()
+```
