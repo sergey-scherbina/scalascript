@@ -3353,6 +3353,34 @@ object Prims:
   private def eqWidening(l: Value, r: Value): Boolean = (l, r) match
     case (IntV(a), FloatV(b)) => a.toDouble == b
     case (FloatV(a), IntV(b)) => a == b.toDouble
+    // The WIDE numeric types need the same treatment, and one of them is not even a widening:
+    // `BigInt(1) == 1` was FALSE here while interp answered it correctly, because `BigV(1)` and
+    // `IntV(1)` are different objects and the structural default decided it (measured 2026-08-12).
+    //
+    // `a == b` is delegated to Scala's own `BigInt.equals`/`BigDecimal.equals` rather than
+    // reimplemented, and that is the point: those methods ARE the oracle this gate compares
+    // against, so `BigInt(1) == 1.0` is true, `BigInt(2) == 1.0` is false and a value too large to
+    // be a Double stays false without this file having to know the rule. Writing the comparison by
+    // hand — say `a.toDouble == b` — would answer differently for large values and for anything
+    // that is not exactly representable.
+    case (BigV(a), IntV(b))   => a == BigInt(b)
+    case (IntV(a), BigV(b))   => BigInt(a) == b
+    case (BigV(a), FloatV(b)) => a.equals(b)
+    case (FloatV(a), BigV(b)) => b.equals(a)
+    // Decimal against an EXACT integer only, and through this module's own conversion. A Decimal
+    // here is portable canonical TEXT, not a host BigDecimal, which is the whole point of
+    // `PortableDecimal` — so the comparison goes through `toJava`, which accepts `IntV` and `BigV`
+    // and is the same path `dec.*` arithmetic uses.
+    case (DecimalV(_), IntV(_)) | (IntV(_), DecimalV(_)) |
+         (DecimalV(_), BigV(_)) | (BigV(_), DecimalV(_)) =>
+      PortableDecimal.toJava(l).compareTo(PortableDecimal.toJava(r)) == 0
+    // NO Decimal-against-Float arm, and this is a refusal to overrule a design decision rather
+    // than an oversight. `PortableDecimal.toJava` rejects `FloatV` outright — "binary
+    // floating-point input is inexact" — and `construct` refuses to build a Decimal from a Double
+    // for the same reason. Real Scala answers `BigDecimal(1) == 1.0` with `true`, so this pair
+    // stays a KNOWN divergence, documented in the entry, rather than something widened here on the
+    // way past: making it true means deciding that a binary float may be read as a decimal, which
+    // is precisely what that module declines to do.
     case _                    => l == r
 
   private def bigArith(op: String, left: BigInt, right: BigInt): Value = op match

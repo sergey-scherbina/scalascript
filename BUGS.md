@@ -29,7 +29,34 @@ Newest first.
      lane: multi
      area: runtime
      kind: bug
-     gate: none -->
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh (big-agree.ssc + the frozen big-gap.ssc) -->
+
+**PARTLY FIXED 2026-08-12 — two of the three defects are closed, and the entry stays OPEN for the
+third.** What landed, all on the v2 side (`v2-bignum-widen`):
+
+- **`eqWidening` in `v2/src/Runtime.scala` gained the wide-type arms.** `BigInt(1) == 1` was FALSE
+  where interp got it right, and `BigInt(1) == 1.0` was false on both. The comparison is delegated
+  to Scala's own `BigInt.equals` rather than reimplemented, because that method IS the oracle this
+  gate compares against — so a value too large to be a Double stays false without this file
+  knowing the rule.
+- **`Decimal(1)` crashed on native** with `dec.parse expects String, got 1` while interp answered
+  `1`. Found while fixing the above; `dec.parse` now delegates to `construct`, which already
+  accepted String/Int/BigInt/Decimal and refuses a binary float with the reason.
+- **`BigDecimal` is now bound on the native front** (`ssc1-lower.ssc0`), an alias of `Decimal` —
+  interp bound both spellings, this front only the second, so `BigDecimal(1)` was `unbound global`.
+
+**Still open, and each for a different reason:**
+
+- **interp `BigInt(1) == 1.0` / `1.0 == BigInt(1)` are still `false`.** The fix is the same shape as
+  the Int/Double arms already in `infix2Eq` — but `DispatchRuntime.scala` is held by claim
+  `split-dispatchlist`, and a one-line edit in a file someone else is working in is not worth the
+  collision. Frozen in the gate's `big-gap.ssc` block so it fails the day it is fixed.
+- **`BigDecimal(1) == 1.0` stays `false` on native/bytecode, and that is a DESIGN position, not an
+  omission.** `PortableDecimal` refuses binary floating-point input in three separate places —
+  `toJava` ("binary floating-point input is inexact"), `construct`, and `arith` ("Decimal and Double
+  cannot be mixed"). Real Scala answers `true`. Making the lanes agree here means deciding that a
+  binary float may be read as a decimal, which is exactly what that module declines to do; it is a
+  decision for whoever owns that contract, not something to widen while passing through.
 
 **Measured 2026-08-12** while fixing `lanes-disagree-on-mixed-numeric-comparison`, and found by that
 fix's own gate refusing to judge: I froze `BigInt(1) == 1.0` as `false` from memory, the `run-jvm`

@@ -102,9 +102,13 @@ object PortableDecimal:
       case _ => fail(s"$op expects 2 arguments, got ${args.length}")
 
     op match
+      // `Decimal(x)` lowers here for ANY single argument, so accepting only a String made
+      // `Decimal(1)` die with "dec.parse expects String, got 1" on this lane while interp answered
+      // `1` — measured 2026-08-12. `construct` below already takes exactly the right input set
+      // (String, Int, BigInt, Decimal) and refuses a binary float with the reason, so this
+      // delegates rather than growing a second, slightly different list of accepted types.
       case "dec.parse" => args match
-        case List(StrV(text)) => DecimalV(text)
-        case List(other) => fail(s"dec.parse expects String, got ${Show.show(other)}")
+        case List(_) => construct(args)
         case _ => fail(s"dec.parse expects 1 argument, got ${args.length}")
       case "dec.from-unscaled" => args match
         case List(unscaled, scale) => construct(List(unscaled, scale))

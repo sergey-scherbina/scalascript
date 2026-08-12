@@ -2327,7 +2327,11 @@ def resolveE = (expr) =>
                           case _ => Pair("app", Pair(fn, rargs))
                         }
                     }
-                  else if #seq(fdata, "Decimal") then
+                  -- `BigDecimal` is Scala's spelling and `Decimal` is this language's; interp binds
+                  -- both, this front bound only the second, so `BigDecimal(1)` was `unbound global:
+                  -- BigDecimal` here and a value on the other lane (measured 2026-08-12). One name,
+                  -- one lowering — an alias, not a second construction path.
+                  else if (if #seq(fdata, "Decimal") then true else #seq(fdata, "BigDecimal")) then
                     match rargs {
                       case Cons(value, rest) =>
                         match rest {
