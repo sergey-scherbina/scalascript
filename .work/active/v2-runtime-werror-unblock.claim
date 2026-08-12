@@ -1,0 +1,11 @@
+slug: v2-runtime-werror-unblock
+branch: feature/v2-runtime-werror-unblock
+agent: claude-code
+started: 2026-08-12T17:22:56Z
+heartbeat: 2026-08-12T17:22:56Z
+status: claimed-before-planning
+items: v2-runtime-implicit-warning-breaks-the-build
+paths: file:v2/src/Runtime.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
