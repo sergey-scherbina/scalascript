@@ -13,6 +13,7 @@ Newest first.
 ## v2-front-refuses-mixed-numeric-comparison — `println(1 < 2.0)` is a TYPEERR while `1 * 2.0` is `2`
 
 <!-- status: fixed
+     fixed-in: f2c93cca2
      lane: native
      area: front
      kind: bug
