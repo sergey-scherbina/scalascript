@@ -194,6 +194,22 @@ This project's most expensive recurring defect is not broken code — it is **a 
 because it cannot see**. These rules are the accumulated answer.
 Detail: [`AGENTS.md`](AGENTS.md) §"measurement apparatus must COMPARE, never PRE-JUDGE".
 
+- **P-6.1b · Before reading a gate's COLOUR, check it can fail for the defect.** A `gate:` field
+  routinely names a NEIGHBOURING case rather than a covering one, and a green neighbour is not
+  evidence. Measured 2026-08-12: `v2-front-for-comprehension-guard-line` named
+  `tests/conformance/for-yield-layout.ssc`, which was green on all four lanes while the defect was
+  live — because that case said, in its own prose, that the shape in question was *"deliberately
+  absent … including it would make this gate red for a reason it does not test"*. True when written;
+  the entry pointed at it anyway, and triage by colour would have closed a live compiler bug on
+  evidence structurally incapable of contradicting it.
+  So: open the gate's source, confirm it contains the defect's SHAPE and the right lane, and only
+  then look at the result. A gate that cannot fail for its defect is worse than `gate: none`, because
+  `none` makes you reproduce and green invites closure.
+  **Not enforced by a lint, deliberately** — two were measured and both refuted. "The gate file must
+  name the entry slug" fires on 120 of 156 entries, because broad survey gates legitimately cover
+  many; "the gate file disclaims coverage in prose" has zero instances once the one that prompted
+  this was fixed. The rule is worth stating and not worth automating.
+
 - **P-6.1 · A gate must be observed FAILING before it is trusted.** Revert the fix, run the gate, and
   put the red count in the commit ("2 of 6 FAIL unfixed"). A gate nobody has seen fail is a
   hypothesis.
