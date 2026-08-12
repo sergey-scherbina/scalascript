@@ -1,3 +1,56 @@
+## ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-12
+     confirmed: yes
+     gate: none — see "Why no gate" -->
+
+In the reference front, a call that passes an argument **by name** to a def with a **trailing
+vararg** silently keeps only the FIRST vararg argument and discards the rest. The other two lanes
+keep all of them.
+
+```
+def h(gap: Int = 0, wrap: Boolean = false, kids: Int*) = kids.length
+println(h(gap = 8)(1, 2))     эталон 1     F 2     интерпретатор 2
+println(h(8)(1, 2))           эталон 2     F 2     интерпретатор 2
+```
+
+The positional form is correct. Only the named form loses arguments, and it loses them without a
+diagnostic — the call returns a smaller collection, and whatever the program does next does it to
+the wrong data. This is what `tkv2`'s `h(gap = 8)(...)` hstack renders from, which is where it was
+found: a row of widgets came out with one child.
+
+**Mechanism, from the IR.** `expandNamedDefaultCall` rewrites the named call into a positional one
+by pairing each parameter with a binding. `nargBindings` walks params and positionals in lockstep,
+one positional per parameter — correct for fixed arity, wrong for the vararg slot, which must
+absorb ALL remaining positionals. The trailing param takes the first and the recursion ends, so the
+rest are dropped before anything downstream can see them:
+
+```
+(app (global h) (local 2) (local 1) (ctor Cons (local 0) (ctor Nil)))
+                                    ^ one child, second gone
+```
+
+**The obvious fix is wrong, and the file says so.** Making `nargBindings` bind the vararg param to
+a built list produces a list nested inside a list — `packVarargsArgs` at ssc1-lower.ssc0:2983 then
+folds it a second time, and the length is 1 again for a different reason. The comment directly
+above that line already records this exact failure ("packing there compounded into a nested list")
+from a previous encounter. I made the edit anyway, measured it, saw the length stay at 1, dumped
+the IR, and found the double wrap. Reverted.
+
+**The shape the real fix must take:** packing belongs to `packVarargsArgs` and must stay there, so
+the expansion has to hand it MORE arguments than there are parameters — the leading fixed args plus
+every unconsumed positional, spread, not collected. That means `nargBindings` must report which
+positionals it did not consume, which is a change to its return shape rather than to a branch
+inside it. Not attempted here.
+
+**Why no gate.** A gate asserting the correct answer would be red on a known-open defect. The
+three-lane operator gate landed alongside this entry covers the sibling class (operator absent from
+one front) and would extend naturally to this one the day it is fixed.
+
 ## renderTerm-is-two-and-a-half-times-the-jit-limit
 
 <!-- status: open
