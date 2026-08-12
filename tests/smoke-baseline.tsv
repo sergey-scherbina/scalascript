@@ -59,7 +59,6 @@ response-transforms	56	76
 route-handler-shapes	67	91
 run-lane-flags-are-flags	475	644
 sbt-test-shard-partition	3	4
-scaffold-loads-its-build	75	101
 scljet-capability-manifest	0	0
 session-roundtrip	81	109
 sibling-method	48	66

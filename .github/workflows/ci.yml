@@ -898,6 +898,13 @@ jobs:
       - name: sbt plugin scripted tests
         run: tests/e2e/sbt-plugin-scripted.sh
 
+      # MUST follow the step above: it publishes sbt-scalascript-interop to the local ivy repo, and
+      # this one runs `sbt update` on a scaffolded project that resolves exactly that plugin. They
+      # left smoke together for that reason -- splitting them on 2026-08-11 turned main red with
+      # ResolveException / Not found, and nothing in a per-check timing table shows the coupling.
+      - name: Scaffolded template resolves its build
+        run: tests/e2e/scaffold-loads-its-build.sh
+
       # The full `sbt test` genuinely needs > 90 min: it is dominated by the
       # cross-backend differential suites that compile+run generated programs
       # through `scala-cli run --server=false` (cold per-program compile, for

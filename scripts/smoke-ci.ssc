@@ -217,6 +217,13 @@ val corpusJvm = "effects,js-int-division-by-zero,try-catch-exception-delivery,in
 // not `failure` (BUGS `corpus-contract-gate`), so the suite had grown into its own wall while the
 // symptom pointed at concurrency.
 //
+// A FOURTH FOLLOWED, and it followed because I broke it. `scaffold-loads-its-build` runs `sbt update`
+// on a scaffolded project whose plugins.sbt carries `addSbtPlugin(sbt-scalascript-interop)`, and that
+// plugin has to be in the local ivy repo when it runs. Moving `sbt-plugin-scripted` out on 2026-08-11
+// took the publish with it: main went red with `sbt.librarymanagement.ResolveException ... Not found`,
+// six failures in eight runs. The two are ONE unit -- both need sbt and one publishes what the other
+// resolves -- and splitting them is what a per-check timing table cannot show you.
+//
 // Moving these three is the alternative this file recorded on 2026-08-08 as "offered and not taken"
 // when the budget was raised to 750 s instead. The owner took it on 2026-08-11.
 val suite = List(
@@ -405,7 +412,6 @@ val suite = List(
   // build it, and inspecting the template FILES would not have caught it either — the coordinate
   // was well-formed, it just named something that did not exist. This resolves for real.
   // 300000: one `sbt update` in a scratch project, plus sbt's own boot.
-  Check("tests", "scaffold-loads-its-build", "tests/e2e/scaffold-loads-its-build.sh", List(), 300000),
   // Sub-second, and it guards a string that ends up in SOMEBODY ELSE's build file. The coordinate
   // `ssc` emits into a generated project must name a published release; a -SNAPSHOT there resolves
   // nowhere and fails at the user's first compile, in a file we wrote for them. Its only previous
