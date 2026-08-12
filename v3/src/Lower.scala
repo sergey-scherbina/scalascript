@@ -1801,9 +1801,57 @@ object Lower:
       // parameter, so the arity to match is 1 + both argument lists.
       case Expr.Apply(Expr.MethodCall(recv, nm, as1, cp), as2, _)
         if !as1.exists(_.isInstanceOf[Expr.NamedArg]) && !as2.exists(_.isInstanceOf[Expr.NamedArg]) &&
-           sigs.exists((n, ps) => n.endsWith("." + nm) && ps.length == 1 + as1.length + as2.length) =>
+           curriedOwner(recv, nm, sigs, as1.length + as2.length) =>
         Expr.MethodCall(recv, nm, as1 ++ as2, cp)
       case other => other)
+
+  /** Does a method called `nm` ON THIS RECEIVER take exactly `want` parameters?
+    *
+    * THE LAST RECEIVER-BLIND RESOLUTION IN THIS FILE, and the mildest of the three, which is why it
+    * outlived them: it checks the ARITY, so a wrong match needs a same-named method that also
+    * happens to take the right number. The two already fixed — `e51b86956` for an object's members
+    * and `8dda5011c` for a class's — both named this one as the remainder.
+    *
+    * What it decides is whether `f(a)(b)` is ONE call or a call whose RESULT is applied, and
+    * getting that wrong is not a diagnostic: the two lower to different programs. So a same-named
+    * method on a class the receiver has nothing to do with could flatten a genuine
+    * apply-the-result, or leave a genuine curried call unflattened for the verifier to refuse.
+    *
+    * SAME RULE AS `fillDefaults`, deliberately, because it is the same question: when the receiver
+    * is a NAME the answer is an exact `obj + "." + nm`; when it is an expression the method belongs
+    * to a class chosen by the tag at run time, no name exists here, and the suffix search is used
+    * only when it leaves ONE answer. Several candidates of the SAME arity agree about the only
+    * thing this predicate returns, so they are not an ambiguity.
+    *
+    * `want` IS THE COUNT OF ARGUMENTS THE USER WROTE, and that spelling is a bug fix, not a taste.
+    * The two kinds of callable count differently: a class method's flattened signature carries the
+    * RECEIVER as its first parameter and an object's member does not. The first version of this
+    * compared `1 + as1 + as2` against the raw list and broke `NS.at(3)(5)` on an `object NS` —
+    * while the suffix search it replaced had been getting that case RIGHT BY ACCIDENT, matching
+    * `Box.at`'s three parameters (`this`, a, b) for a call to an object that has two. Dropping a
+    * leading `this` before comparing makes both kinds answer the same question. */
+  private def curriedOwner(recv: Expr, nm: String, sigs: List[(String, List[Param])], want: Int): Boolean =
+    def visible(ps: List[Param]): Int =
+      if ps.nonEmpty && ps.head.name == "this" then ps.length - 1 else ps.length
+    // THE ANONYMOUS CASE IS UNDECIDABLE HERE AND IS LEFT AS IT WAS. I first required every
+    // candidate to AGREE on the arity, reasoning that an ambiguous flattening is worse than a
+    // refusal. The probe refuted it immediately: `Box(1).at(2)(3)` on a `def at(a)(b)` stopped
+    // flattening because an unrelated `Other.at(a)` exists, and a legitimate curried call became
+    // `method 'at' on #8(1)' is not implemented`. Where a receiver is an EXPRESSION its class is
+    // chosen by the tag at run time, so there is no information at this point to be strict WITH —
+    // being strict only refuses programs that work. What would decide it is the receiver's type,
+    // and Tier 0 has none (invariant I-2). So: any candidate of the right arity flattens, exactly
+    // as before, and the fix above is confined to the case where a name IS available.
+    def anon: Boolean =
+      sigs.exists((n, ps) => n.endsWith("." + nm) && visible(ps) == want)
+    recv match
+      case Expr.Name(obj, _) =>
+        sigs.find((n, _) => n == obj + "." + nm) match
+          case Some((_, ps)) => visible(ps) == want
+          // Not an object member: `recv` names a local, or a value whose class is chosen at run
+          // time, so fall through to the receiver-less question.
+          case None => anon
+      case _ => anon
 
   /** An arity mismatch, caught HERE with a position rather than by the verifier without one.
     *

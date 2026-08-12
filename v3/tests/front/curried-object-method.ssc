@@ -1,0 +1,13 @@
+object NS:
+  def at(a: Int)(b: Int): Int = a * b * 2
+
+case class Box(n: Int):
+  def at(a: Int)(b: Int): Int = n + a * b
+
+case class Other(n: Int):
+  def at(a: Int): Int = n - a
+
+def main(): Unit =
+  println(NS.at(3)(5))
+  println(Box(1).at(2)(3))
+  println(Other(10).at(4))
