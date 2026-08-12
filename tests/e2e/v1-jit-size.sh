@@ -79,6 +79,13 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 #   StaticJsEmitter$Ctx::compile  11387   NEW
 #   SolidEmitter$Ctx::compile     10670   NEW
 #
+# dispatchList DELETED 2026-08-12: split into dispatchList/B/C at 4123/6043/2999, all under the
+# limit, so the exemption expired and the list SHRANK — which is the whole point of freezing it.
+# Checked the source before deleting, as the disappeared-check now tells you to: the method is
+# alive, it is simply no longer over the limit. Verified by PrintCompilation on the shipped build:
+# `dispatchList (4124 bytes)` reaches tier 3 AND tier 4 with the default limit in force, where at
+# 14697 bytes it was never submitted at all.
+#
 # renderTerm 19550 -> 19630 SAME DAY, and the miss is instructive: `189b8b111` (the Rust BADRUST
 # work) had already landed when I re-baselined, but I measured against a toolchain built BEFORE the
 # rebase that brought it in. The gate ran green on stale bytecode and the number went out 80 short —
@@ -93,7 +100,6 @@ read -r -d '' FROZEN <<'EOF' || true
 25328 scalascript.codegen.JsGen::genExpr
 19630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 15428 scalascript.interpreter.EvalRuntime$::evalCore
-14696 scalascript.interpreter.DispatchRuntime$::dispatchList
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 10013 scalascript.interpreter.DispatchRuntime$::dispatchString

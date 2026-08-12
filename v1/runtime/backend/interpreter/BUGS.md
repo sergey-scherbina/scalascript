@@ -1186,6 +1186,47 @@ largest bytecode and a demonstrated ~40% — not `evalCore`, and `infix2`'s neut
 read as "arithmetic is taken by the bytecode JIT", not as "splitting does not pay".
 
 
+### 2026-08-12 — `dispatchList` SPLIT, and the acceptance test says `evalCore` is next
+
+`dispatchList` 14696 -> **4123 / 6043 / 2999**, three parts, all under the limit. Pure sequential
+decomposition: each part tries its cases in the ORIGINAL order and its `case _` falls through to the
+next, so the first matching case is still the one the single `match` chose. The frozen list in
+`tests/e2e/v1-jit-size.sh` SHRANK from 8 entries to 7.
+
+**Proof it worked is deterministic and does not depend on the host** — `-XX:+PrintCompilation` on
+the shipped build, same workload:
+
+| | limit ON (default) | limit OFF |
+|---|---|---|
+| `dispatchList` **before**, 14697 bytes | never submitted | tier 4 |
+| `dispatchList` **after**, 4124 bytes | **tier 3 AND tier 4** | tier 3 and 4 — the flag changes nothing |
+
+**THE WALL-CLOCK A/B DOES NOT COLLAPSE TO ZERO YET, and that is the useful result.** Re-running the
+flag control on the split build still shows `lists-big` at −43%. That is not the split failing: the
+flag removes the limit for EVERY method, and the same PrintCompilation run says why —
+
+    evalCore (15429 bytes)   limit ON: 0 compilations   limit OFF: tier 4
+    dispatchString           limit ON: 0                limit OFF: 0   (not hot in this workload)
+    dispatchList (4124)      limit ON: tier 3 + 4       limit OFF: same
+
+`evalCore` is on the same path and is still refused. So **the flag A/B is the acceptance test for
+the whole programme, not for one split**: it reaches ~0 only when every over-limit method on the
+path is under the limit. Next target is `evalCore`; `dispatchString` after it, and note it was not
+hot in these two workloads, so it wants a workload that reaches it before it is worth splitting.
+
+**Correctness: `backendInterpreter/testFast` 1608/1609.** The one failure is
+`ThreeWayMutualTcoTest`, and it is NOT this change: it fails identically with the split reverted on
+the same host (8250 / 10106 ms against the split's 9700–10719), its workload is `ping→pong→pang`
+mutual recursion over `Int` with no list operation anywhere, and the assertion that fails is a
+WALL-CLOCK bound (8000 ms) which the file's own comment says exists so a re-introduced blow-up
+"fails loudly instead of hanging the suite". Its output assertion passes. Host load was ~60.
+
+**No wall-clock number is claimed for this split on its own.** Isolating it needs a before/after
+build comparison, and the host ran at load 60–109 all session — an A/A control through the same
+harness measured a noise floor between −4.8% and +65% depending on the workload. The mechanism
+above is the evidence; a number taken today would not be one.
+
+
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
 <!-- status: fixed
      lane: int

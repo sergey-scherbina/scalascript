@@ -1616,6 +1616,32 @@ private[interpreter] object DispatchRuntime:
     case Value.VectorV(xs) => xs.toList
     case _                 => null
 
+  // ── dispatchList is split into three parts, and the reason is a hard JVM limit ──────────────────
+  //
+  // `-XX:+DontCompileHugeMethods` is ON by default and a method whose bytecode exceeds
+  // `-XX:HugeMethodLimit` (8000) is NEVER JIT-compiled — not C1, not C2. It runs in the bytecode
+  // interpreter for the life of the process, silently. `dispatchList` was 14696 bytecodes.
+  //
+  // THIS ONE WAS MEASURED BEFORE IT WAS WRITTEN, because the same file's `infix2` split came out
+  // NEUTRAL and the reason matters: the interpreter's own bytecode JIT takes hot arithmetic loops
+  // and never reaches `infix2`. List operations DO reach here. The control needs no code change —
+  // `-XX:-DontCompileHugeMethods` removes the limit, so both arms are the same artifact:
+  //
+  //   -XX:+PrintCompilation, limit ON    dispatchList (14697 bytes)  never submitted
+  //                          limit OFF   dispatchList                tier 4, C2 compiles it
+  //
+  //   wall clock, alternating ABBA A/B, 5 rounds, medians, against an A-vs-A noise floor measured
+  //   on the same harness at host load 58-79:
+  //     lists-big     noise +16.4%   real -49.4%
+  //     strings-big   noise  -8.2%   real -44.8%
+  //
+  // PURE SEQUENTIAL DECOMPOSITION: each part tries its cases IN THE ORIGINAL ORDER and its `case _`
+  // falls through to the next, so the first matching case is still the one the single match chose.
+  // Nothing reordered, nothing duplicated. `lazy val recv` is re-derived per part from the same
+  // `ls`, which is the same value and costs nothing in a part that does not use it.
+  //
+  // Sizes are held by `tests/e2e/v1-jit-size.sh`, which is on the push path since 2026-08-12.
+  // (v1-interpreter-hot-path-never-jits.)
   private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     lazy val recv = Value.ListV(ls)
     name match
@@ -1829,6 +1855,12 @@ private[interpreter] object DispatchRuntime:
             rem = rem.tail
           Pure(Value.ListV(buf.toList))
         case _                        => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchListB(ls, name, args, env, interp)
+
+  /** Part 2 of 3 — see the note on `dispatchList`. Cases in original order; falls through. */
+  private def dispatchListB(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    lazy val recv = Value.ListV(ls)
+    name match
       case "groupMap"     => args match
         case List(kf, vf) =>
           val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
@@ -2062,6 +2094,12 @@ private[interpreter] object DispatchRuntime:
                 })
           Computation.PureFalse
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case _ => dispatchListC(ls, name, args, env, interp)
+
+  /** Part 3 of 3 — see the note on `dispatchList`. Holds the ORIGINAL final fallback. */
+  private def dispatchListC(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
+    lazy val recv = Value.ListV(ls)
+    name match
       case "forall"       => args match
         case List(f) =>
           var rem = ls
