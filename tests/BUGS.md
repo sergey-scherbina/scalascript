@@ -1,3 +1,34 @@
+## renderTerm-is-two-and-a-half-times-the-jit-limit
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     reported-by: claude-code
+     reported-at: 2026-08-12
+     confirmed: yes
+     gate: tests/e2e/v1-jit-size.sh -->
+
+`scalascript.codegen.rust.RustCodeWalk$::renderTerm` is **19630 bytecodes — 2.45× the 8000-byte
+HotSpot `HugeMethodLimit`**, past which a method is never JIT-compiled at all. It has been over that
+line for a long time and is still growing: 16346 → 19550 over the period `v1-jit-size` was wired to
+nothing, then 19550 → 19630 on 2026-08-12.
+
+**The freeze was raised to 19630 rather than the growth reverted, and this entry exists so that the
+raise is not the end of it.** By the gate's own definition growth is a regression; bumping a constant
+quietly is how a freeze stops meaning anything. What the bump does NOT mean is that anyone got
+slower today — at 2.45× the limit the method was already never JIT-compiled, so +80 is drift, not a
+new hazard. The hazard is the 19630.
+
+**Who grew it and why they could not have known:** `189b8b111`, *fix(rust): the last four, and the
+BADRUST column reaches zero*, at 10:10 — thirty-two minutes after `d7c158fbf` made this gate capable
+of catching anything for the first time. It had been referenced by no workflow and no suite. Nobody
+did anything wrong; the gate simply did not exist yet in any sense that could have warned them.
+
+**What closing this looks like**, and it is the same shape as the interpreter's hot path
+(`v1-interpreter-hot-path-never-jits`, currently claimed): split `renderTerm` along its term cases
+until each piece is under 8000. The Rust backend's whole codegen goes through it, so this is not a
+micro-optimisation — it is the difference between interpreted and compiled for every emit.
+
 ## the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one
 
 <!-- status: open

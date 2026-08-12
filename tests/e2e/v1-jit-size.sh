@@ -64,6 +64,15 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # things naming it were a BUGS entry, a source comment and the orphan probe. In that time:
 #
 #   renderTerm   16346 -> 19550   (+3204)
+#
+# AND 19550 -> 19630 (+80) ON THE SAME DAY, from `fix(rust): the last four, and the BADRUST column
+# reaches zero` (189b8b111, 10:10) -- thirty-two minutes after this gate first became capable of
+# catching anything, and its author had no reason to expect it. The number is raised rather than the
+# work reverted, and raised OUT LOUD: by this gate's own definition growth is a regression, so a
+# silent bump would be accepting one. What the bump does not mean is that the method got worse in
+# any way a user feels -- at 19630 it is 2.45x the 8000-bytecode JIT limit and has not been
+# JIT-compiled for a long time. +80 is DRIFT, and the freeze exists to make drift visible.
+# The debt itself now has a slug: tests/BUGS.md `renderTerm-is-two-and-a-half-times-the-jit-limit`.
 #   genExpr      25100 -> 25328   (+228)
 #   evalCore     15330 -> 15428   (+98)
 #   dispatchString 9839 -> 10013  (+174)
