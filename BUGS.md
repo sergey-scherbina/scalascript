@@ -23,7 +23,7 @@ Newest first.
 
 
 
-## lanes-disagree-on-mixed-numeric-comparison — `1 == 1.0` is `false` on interp, `true` on the v2 runtime, and a TYPEERR through the native front
+## bigint-and-bigdecimal-do-not-widen-against-a-double — `BigInt(1) == 1.0` is `true` in Scala and `false` on interp and native
 
 <!-- status: open
      lane: multi
@@ -31,7 +31,60 @@ Newest first.
      kind: bug
      gate: none -->
 
-**Measured 2026-08-11**, while fixing the same defect in v3 (`v3/BUGS.md`
+**Measured 2026-08-12** while fixing `lanes-disagree-on-mixed-numeric-comparison`, and found by that
+fix's own gate refusing to judge: I froze `BigInt(1) == 1.0` as `false` from memory, the `run-jvm`
+oracle answered `true`, and the gate declined to charge the difference to the other lanes.
+
+Nine rows, `run-jvm` (real Scala) against the two wrong lanes:
+
+| expression | jvm / js | interp | native |
+|---|---|---|---|
+| `BigInt(1) == 1.0` | `true` | **`false`** | **`false`** |
+| `1.0 == BigInt(1)` | `true` | **`false`** | **`false`** |
+| `BigInt(1) == 1` | `true` | `true` | **`false`** |
+| `BigInt(2) == 1.0` | `false` | `false` | `false` |
+| `BigDecimal(1) == 1.0` | `true` | **`false`** | `ssc: unbound global: BigDecimal` |
+| `1.0 == BigDecimal(1)` | `true` | **`false`** | same |
+| `BigDecimal(1) == 1` | `true` | `true` | same |
+| `1 == 1.0` | `true` | `true` | `true` |
+| `1.0 == 1` | `true` | `true` | `true` |
+
+The last two rows are the CONTROL: they are what the sibling entry fixed, and they show the lanes
+are current — this is a different pair set, not the same defect measured again.
+
+**Three distinct defects here, deliberately kept in one entry because one measurement found them
+and splitting would lose that:**
+
+- **interp — `BigInt`/`BigDecimal` against a `Double` fall to structural equality.** `infix2Eq`
+  lists `BigInt×Int`, `Decimal×Int` and `Decimal×BigInt` and no Double pairing, so the same
+  omission that made `Int×Double` wrong is still there for the wide types. One arm each, in the
+  same place the Int/Double arms now sit.
+- **native — `BigInt(1) == 1` is `false`**, which interp gets right. So the v2 kernel's `__eq__`
+  needs a BigV arm against IntV as well as against FloatV; only the Int/Float pair was widened.
+- **native — `BigDecimal` is not bound at all** (`ssc: unbound global: BigDecimal`). That is a
+  missing global rather than a comparison defect, and it is why the native column above has three
+  cells that could not be measured. It has to be fixed FIRST or the other rows cannot be gated on
+  that lane.
+
+**Not fixed with the sibling on purpose.** The Int/Double fix was three sites across two kernels and
+was verified per site; adding a second pair set with a different shape (and a missing global under
+it) to the same change would have made it unreviewable. `tests/e2e/mixed-numeric-comparison-gate.sh`
+says in its own header that these pairs are excluded and why, so the next person does not add them
+to that gate without measuring the oracle first.
+
+**The gate to write** is the same shape as that one — `run-jvm` as the oracle, never `--v1`, because
+on this question the interpreter is again one of the wrong lanes.
+
+## lanes-disagree-on-mixed-numeric-comparison — `1 == 1.0` is `false` on interp, `true` on the v2 runtime, and a TYPEERR through the native front
+
+<!-- status: fixed
+     fixed-in: 5fe14e3e1
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh -->
+
+**SUPERSEDED by the close below — the native front no longer refuses. Measured 2026-08-11**, while fixing the same defect in v3 (`v3/BUGS.md`
 `v3-mixed-int-double-compare`). Three lanes, three different answers, and none of them is Scala's
 on every row:
 
@@ -57,6 +110,65 @@ change, and this entry was opened from a v3 fix whose claim covered neither v1 n
 
 **Arithmetic is NOT affected** — `1 * 2.0`, `7 / 2.0` and the rest widen on interp, native and v2
 alike. This entry is comparison only.
+
+---
+
+### FIXED 2026-08-12 — three sites, and the entry's own table was already out of date
+
+**Re-measured first, on a build made from this tree, and two of the four columns had moved.** The
+native front does NOT refuse any more — it computes, and computes the same wrong answer as interp.
+And js, which the entry never measured, was already correct. So the shape was not "three lanes,
+three answers": it was **ordering right everywhere, equality wrong on exactly the lanes that run the
+two kernels**, with real Scala and js on the other side.
+
+| | jvm (oracle) | js | interp | native | bytecode |
+|---|---|---|---|---|---|
+| `1 < 2.0`, `1 <= 1.0`, `2.0 > 1` | true | true | true | true | true |
+| `1 == 1.0` | **true** | true | **false** | **false** | **false** |
+| `1 != 1.0` | **false** | false | **true** | **true** | **true** |
+| `case 1 =>` matching `1.0` | **one** | one | **other** | **other** | **other** |
+
+**THE ORACLE IS `run-jvm`, NOT `--v1`.** Every other cross-lane gate here compares against the
+interpreter. On this question the interpreter is one of the wrong lanes, so a gate written the usual
+way would have frozen the defect as the reference. `run-jvm` compiles to real Scala and runs it.
+
+**Three sites, and every one of them was the structural `case _ =>` at the bottom of a match:**
+
+1. **interp `infix2Eq`** — listed `BigInt×Int`, `Decimal×Int`, `Decimal×BigInt`, even `List×Vector`,
+   and **not** `Int×Double`. Its twin `infix2Ord` has widened `Int×Double` since it was written,
+   which is why `1 < 2.0` was right and `1 == 1.0` was wrong on the same line.
+2. **interp literal patterns** — `scrutV == litV`, in **six copies** across five fast paths and the
+   general matcher. Fixing (1) alone left `lit(1.0)` answering `other` while every other lane said
+   `one`. Fixed with ONE helper, `litMatches`, called from all six — this file's own comments record
+   the same trap twice already: `compileLit` once had a second inline copy in the nested-pattern
+   arm, so a `Lit.Char` fix reached the bare path and not the nested one.
+3. **v2 `__eq__`** — `BoolV(a(0) == a(1))`. `arithOp` has carried the correct `(IntV, FloatV)` arm
+   all along and was never consulted, because `==` lowers to this prim and not to `__arith__`
+   (`ssc1-lower :2832`, deliberately: the VM's `i.eq` is Int-only and `"a" == "a"` crashed on it).
+   The right code was adjacent and unreachable. On v2 the comparison and the literal pattern are the
+   same prim, so one edit fixed both.
+
+**The literal-pattern behaviour was measured, not assumed.** `(1.0: Any) match { case 1 => "one" }`
+answers `one` in real Scala — boxed `==` widens and a literal pattern tests with `==`. Widening
+therefore makes pattern matching MORE correct, not merely different.
+
+### The control was scoped to one site, because a whole-fix revert would have proved less
+
+Reverting everything makes every row red and shows only that the gate looks at something. Instead
+the **pattern fix alone** was reverted and the toolchain rebuilt with the other two in place. The
+gate went red on `int` ALONE, on row 8 ALONE (`one` → `other`), with rows 4-7 green — which is what
+shows the literal-pattern row is not redundant with the equality rows, and that the failure names
+the right lane. The other two sites have their own before/after from the successive builds.
+
+### What this found and did NOT fix
+
+`BigInt`/`BigDecimal` against a `Double` are wrong the same way, plus `BigInt(1) == 1` on native and
+a missing `BigDecimal` global there. Filed as `bigint-and-bigdecimal-do-not-widen-against-a-double`
+rather than folded in: a second pair set with a different shape, under a missing global, would have
+made this change unreviewable. **That entry exists because the gate refused to judge** — I froze
+`BigInt(1) == 1.0` as `false` from memory, the oracle said `true`, and the refuse-to-judge branch
+declined to charge my mistake to the other lanes instead of quietly failing them.
+
 
 ## an-objects-defaults-are-taken-from-another-objects-member-of-the-same-name — `B.of(5)` is filled from `A.of`
 

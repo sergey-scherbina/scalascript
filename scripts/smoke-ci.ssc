@@ -586,6 +586,14 @@ val suite = List(
   // twice in the kernel's `__isTag__` and once in JsGen's type-test mapping.
   // (js-char-type-test-cannot-tell-Char-from-String.)
   Check(".", "char-type-test", "tests/e2e/char-type-test.sh", List(), 180000),
+  // Mixed Int/Double comparison across FIVE lanes, and the only gate here whose oracle is `run-jvm`
+  // rather than `--v1`: on this question the interpreter was one of the WRONG lanes, so the usual
+  // shape would have frozen the defect as the reference. It refuses to judge when real Scala stops
+  // matching its frozen row — not decoration, it caught a wrong freeze on its first run.
+  // Row 8 is a literal pattern (`case 1 =>` against `1.0`): on interp the comparison and the
+  // pattern have separate code, and fixing only the first looks complete.
+  // (lanes-disagree-on-mixed-numeric-comparison.)
+  Check(".", "mixed-numeric-comparison", "tests/e2e/mixed-numeric-comparison-gate.sh", List(), 180000),
   // Network: one `git fetch --depth 1` per gitlink against the submodule's remote. Generous timeout
   // because a slow or flaky network must read as "this run could not tell", not as a repo defect.
   Check("scripts", "submodule-gitlinks-resolve", "tests/e2e/submodule-gitlink-resolves.sh", List(), 120000),
