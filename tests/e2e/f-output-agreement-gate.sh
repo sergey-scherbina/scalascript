@@ -39,26 +39,25 @@ ssc="${SSC:-$ROOT/bin/ssc}"
 . "$SCRIPT_DIR/lib/ssc-usable.sh"
 
 # ── the frozen expectations ──────────────────────────────────────────────────────────────────────
-# Measured 2026-08-09 over the 240-file subject set below, 788 s at -P 4:
-#   declined 154 · timed out 4 · measured 82 · agree 47 · both fail identically 23 · disagree 11
-#   F WORSE than the reference: 1
+# Measured 2026-08-12 over the 639-file subject set at -P 8:
+#   declined 239 · timed out 133 · measured 267 · agree 222 · both fail identically 32 · disagree 8
+#   arbitrated: F contradicted by both other lanes 0 · reference contradicted 3 · all three differ 2
 #
-# F-WORSE is the number that matters and the only one that should ever move DOWN. The one remaining
-# is examples/frontend/std-ui/smoke-test.ssc, held by three std/ui gaps that are not F's lowering
-# (tests/BUGS.md f-std-ui-gaps-behind-the-curried-def-fix). When that closes, drop this to 0.
+# FWRONG_MAX IS THE NUMBER THAT MATTERS, and it is 0. It used to be called "F worse than the
+# reference" and counted every divergence against F — which was wrong three times out of five,
+# because the reference front is not an oracle. A divergence is now put to the v1 interpreter and
+# charged to whichever front the other two contradict, so this counts files where F is contradicted
+# BY BOTH OTHER LANES. Nothing else belongs in a ceiling.
 #
-# The ceiling is TIGHT at 1 and the two floors are slack, on purpose and not out of caution: under
-# load a subject moves into the TIMEOUT bucket, which can only make `worse` smaller and `agree`
-# smaller. So the number that must not grow is bounded exactly, and the numbers that shrink under
-# contention are given room — otherwise a busy runner turns this gate red for being busy.
-WORSE_MAX=${WORSE_MAX:-1}
-AGREE_MIN=${AGREE_MIN:-38}
-SUBJECT_MIN=${SUBJECT_MIN:-68}
+# The ceiling is TIGHT and the two floors are slack, on purpose. Under load a subject moves into the
+# TIMEOUT bucket, which can only make `agree` and `subjects` smaller and can only REMOVE rows from
+# the ceiling — never add. 133 of 639 timed out on the host this was measured on, so the floors are
+# set well below the measurement rather than just under it: a busy runner must not turn this red for
+# being busy, and a shrinking subject count is reported by SUBJECT_MIN rather than hidden.
+FWRONG_MAX=${FWRONG_MAX:-0}
+AGREE_MIN=${AGREE_MIN:-150}
+SUBJECT_MIN=${SUBJECT_MIN:-180}
 
-# A short cap on purpose: several corpus files are servers that never exit. Under BOTH fronts they
-# hit the cap identically, which is agreement-by-timeout and costs 2×CAP each. 15s is comfortably
-# above the slowest real program measured (13.3 s unloaded, and more than that under -P 4) so that
-# a legitimate slow file is not mistaken for a hang, while a true hang still ends in bounded time.
 CAP=${CAP:-45}
 
 ssc_usable_or_skip f-output-agreement-gate "$ssc"
@@ -67,9 +66,9 @@ ssc_usable_or_skip f-output-agreement-gate "$ssc"
 # on had no reproducible definition, and a threshold frozen against a set nobody can rebuild is not a
 # gate — it is a number. `examples/*.ssc` plus one level of `examples/frontend/` is the same SHAPE
 # that sample had, stated as a glob, so it rebuilds identically on any checkout and grows when the
-# corpus grows. tests/conformance is deliberately out: 398 files whose divergences are already the
-# subject of the conformance suite, and including them would triple the runtime for a second opinion.
-corpus=$(cd "$ROOT" && ls examples/*.ssc examples/frontend/*/*.ssc 2>/dev/null | sort)
+# corpus grows. tests/conformance IS INCLUDED since 2026-08-12: excluding it was measured wrong —
+# a sweep of those 398 files found FIVE divergences against ONE in the examples set.
+corpus=$(cd "$ROOT" && ls examples/*.ssc examples/frontend/*/*.ssc tests/conformance/*.ssc 2>/dev/null | sort)
 total=$(printf '%s\n' "$corpus" | grep -c . || true)
 if [ "${total:-0}" -lt 100 ]; then
   echo "✗ f-output-agreement-gate: found only ${total:-0} corpus files — the subject list is broken,"
@@ -121,26 +120,38 @@ fi
 case "$rout" in
   *"ssc: "*) printf 'DISAGREE\t%s\n' "$f"; exit 0 ;;
 esac
-# The reference produced a clean result and F did not match it — either F errored, or it ran and
-# answered something else. Both mean F cannot be trusted on this file; the reference is the oracle.
-printf 'WORSE\t%s\n' "$f"
+# THE REFERENCE FRONT IS NOT AN ORACLE, and treating it as one is what this gate got wrong until
+# 2026-08-12. Of the five divergences the conformance sweep found, THREE were reference-front
+# defects with F in the right, and the gate counted every one of them against F. So a divergence is
+# put to a THIRD lane, the v1 interpreter, and charged to whichever front the other two contradict.
+# It costs one extra run per DIVERGENT row only, and divergences are the small bucket.
+iout=$(timeout "$CAP" "$SSC_BIN"-tools run --v1 "$f" 2>&1 | head -8)
+if [ "$fout" = "$iout" ]; then printf 'REF-WRONG\t%s\n' "$f"; exit 0; fi
+if [ "$rout" = "$iout" ]; then printf 'F-WRONG\t%s\n' "$f"; exit 0; fi
+printf 'UNRESOLVED\t%s\n' "$f"
 WORKER
 chmod +x "$work/one.sh"
-printf '%s\n' "$corpus" | grep . | xargs -P "${JOBS:-4}" -I{} "$work/one.sh" {} > "$work/rows.txt" 2>/dev/null
+printf '%s\n' "$corpus" | grep . | xargs -P "${JOBS:-8}" -I{} "$work/one.sh" {} > "$work/rows.txt" 2>/dev/null
 
 declined=$(grep -c '^DECLINED' "$work/rows.txt" || true)
 agree=$(grep -c '^AGREE' "$work/rows.txt" || true)
 bothfail=$(grep -c '^BOTHFAIL' "$work/rows.txt" || true)
 timedout=$(grep -c '^TIMEOUT' "$work/rows.txt" || true)
 disagree=$(grep -c '^DISAGREE' "$work/rows.txt" || true)
-worse=$(grep -c '^WORSE' "$work/rows.txt" || true)
-subjects=$((agree + bothfail + disagree + worse))
+fwrong=$(grep -c '^F-WRONG' "$work/rows.txt" || true)
+refwrong=$(grep -c '^REF-WRONG' "$work/rows.txt" || true)
+unresolved=$(grep -c '^UNRESOLVED' "$work/rows.txt" || true)
+worse=$fwrong   # kept for the threshold block below
+subjects=$((agree + bothfail + disagree + fwrong + refwrong + unresolved))
 
 echo "    F declined (coverage, not judged here): $declined   timed out (not judged): $timedout"
 echo "    measured: $subjects   agree: $agree   both fail identically: $bothfail   disagree: $disagree"
-echo "    F WORSE than the reference: $worse"
+echo "    divergences arbitrated by the v1 interpreter:"
+echo "      F contradicted by BOTH other lanes: $fwrong   reference contradicted: $refwrong   all three differ: $unresolved"
 if [ "$disagree" -gt 0 ]; then echo "── disagreements (both fail, different message):"; awk -F'\t' '$1=="DISAGREE"{print "  " $2}' "$work/rows.txt"; fi
-if [ "$worse" -gt 0 ]; then echo "── where F is WORSE (reference runs, F does not):"; awk -F'\t' '$1=="WORSE"{print "  " $2}' "$work/rows.txt"; fi
+if [ "$fwrong" -gt 0 ]; then echo "── where F is WRONG (interpreter agrees with the reference):"; awk -F'\t' '$1=="F-WRONG"{print "  " $2}' "$work/rows.txt"; fi
+if [ "$refwrong" -gt 0 ]; then echo "── where the REFERENCE is wrong (interpreter agrees with F) — not F's work:"; awk -F'\t' '$1=="REF-WRONG"{print "  " $2}' "$work/rows.txt"; fi
+if [ "$unresolved" -gt 0 ]; then echo "── all three lanes differ:"; awk -F'\t' '$1=="UNRESOLVED"{print "  " $2}' "$work/rows.txt"; fi
 
 fails=0
 if [ "$subjects" -lt "$SUBJECT_MIN" ]; then
@@ -148,9 +159,9 @@ if [ "$subjects" -lt "$SUBJECT_MIN" ]; then
   echo "  numbers below are not comparable with the frozen ones and cannot be trusted."
   fails=$((fails + 1))
 fi
-if [ "$worse" -gt "$WORSE_MAX" ]; then
-  echo "✗ F is worse than the reference on $worse files, ceiling is $WORSE_MAX."
-  echo "  A file where the reference front runs and F does not is a REGRESSION, not a coverage gap."
+if [ "$fwrong" -gt "$FWRONG_MAX" ]; then
+  echo "✗ F is contradicted by BOTH other lanes on $fwrong files, ceiling is $FWRONG_MAX."
+  echo "  Two independent lanes agreeing against F is a REGRESSION, not a coverage gap."
   fails=$((fails + 1))
 fi
 if [ "$agree" -lt "$AGREE_MIN" ]; then
@@ -159,7 +170,7 @@ if [ "$agree" -lt "$AGREE_MIN" ]; then
 fi
 
 if [ "$fails" -eq 0 ]; then
-  echo "✓ f-output-agreement-gate PASSED  (worse $worse ≤ $WORSE_MAX, agree $agree ≥ $AGREE_MIN, measured $subjects ≥ $SUBJECT_MIN)"
+  echo "✓ f-output-agreement-gate PASSED  (F-wrong $fwrong ≤ $FWRONG_MAX, agree $agree ≥ $AGREE_MIN, measured $subjects ≥ $SUBJECT_MIN)"
   exit 0
 fi
 echo "✗ f-output-agreement-gate: $fails threshold(s) breached"
