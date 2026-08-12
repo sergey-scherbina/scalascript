@@ -10,6 +10,85 @@ Newest first.
 
 
 
+## f-parenthesised-alternative-pattern-drops-all-but-the-first — only the first arm was ever built
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/f-bare-member-call-gate.sh
+     fixed-in: b442abe5e -->
+
+F handled BARE-TAG alternatives (`case A | B`) and left a parenthesised one to the single-tag path,
+with the note *"would need the binders to agree across alternatives — Scala forbids binders there for
+that reason — so an alternative carrying `(` is left to the old path rather than guessed at"*. The
+consequence was not neutral: the first alternative carries `(`, so `parseCtorArm1` takes its ctor
+branch and never reaches the `|` check, and the arm body is parsed starting at `| B(_) => …`.
+
+**It is not a guess when every alternative BINDS NOTHING.** Scala forbids binders across alternatives
+precisely so the arms agree, and `case A(_) | B(_)` is legal and common. That case is now handled;
+anything that binds falls through to the old path unchanged.
+
+Both symptoms the front's own note records were real and are fixed:
+
+```
+case A(_) | B(_) => "x"        A answers, B falls through to the default
+case A(_) | B(_) =>\n <block>  even A dies: app: not a function: 0 … <closure/0>
+```
+
+The second is exactly what `examples/dsl-yaml-like.ssc` hit — the single file the agreement census
+named as *"F is WRONG"*. It now lowers under F and answers correctly.
+
+**Three mistakes on the way, each caught by measurement, and two of them are why the gate has three
+cases rather than one.**
+
+| wrong turn | what it produced |
+| --- | --- |
+| tested "binds nothing" | `parsePatVars` records `_` BY NAME, so `(_)` yields `["_"]`; the guard never fired. Now: "all binders are wildcards" — the same question Scala answers. |
+| emitted `(arm TAG 0 …)` for every alternative | right for bare 0-ary tags, wrong here: `(arm YMap 0 …)` matches nothing, so every arm died and the result was WORSE than the bug. Each alternative now carries its own arity. |
+| compiled the body with no binders while emitting arity 1 | the runtime binds one value, so every outer variable shifted a slot — surfacing as `__arith__: unknown op * for String`, `pad` and `indentLevel` having swapped places. The body is compiled in the env its arity implies, and alternatives whose arities DIFFER fall back to the old path: one shared body cannot be correct in two envs. |
+
+So of the three gate cases, only `paren-alternative-second` reds on the original defect; the other two
+guard the two wrong turns above, which passed the first case while breaking everything else.
+
+Evidence: full conformance with the memo disabled 367 passed / 0 failed. Smoke 80/82 with both
+failures pre-existing on a clean `origin/main` (`v1-jit-size`, a frozen Rust codegen method; and
+`task-views`, a stale generated board region — both verified there).
+
+## f-nested-constructor-pattern-falls-through-to-the-default — `Some(SqlInteger(v))` matches nothing
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: examples/scljet-readonly.ssc -->
+
+**Found 2026-08-12 by the agreement census**, as the single remaining file where F is contradicted by
+BOTH other lanes once the object-scan, `|` and parenthesised-alternative fixes are applied.
+
+```scalascript
+case RecordField(_, _, Some(SqlInteger(value)), _) => "integer:" + value.toString
+case RecordField(_, _, Some(SqlBlob(value)), _)    => "blob:"    + value.length.toString
+case RecordField(_, _, None, Some(text))           => "text:"    + text.codePoints.toString
+case _                                             => "other"
+```
+
+F answers `List(other, other, other)` where the reference front and the v1 interpreter both answer
+`List(integer:-2, text:List(72, 105), blob:2)` — every arm falls through to the default.
+
+**Cause, from reading the front:** `parsePatVars` scans a pattern FLAT, collecting binder names until
+the closing paren. A NESTED constructor pattern is not decomposed — `Some`, `SqlInteger` and `value`
+are all read as binders — so the arm's tag and arity are both wrong and it can never match.
+
+**This is a different size of job from the three fixed today.** Those were a mis-scan, a missing
+dispatch and a missing alternative branch — each a few lines. Nested patterns need the pattern to be
+COMPILED (a tree walk emitting a nested test), not scanned, which is a structural change to
+`parseCtorArm2`/`parsePatVars`. Filed rather than attempted at the end of a long session.
+
+**It is the last named blocker for `f-unbound-loop-is-the-new-top-gap`.** With the object-scan fix
+applied the census measures 301 files, 255 agree, and this is the only one where F is wrong. That
+entry's fix stays held until this is done or those files are declared.
+
 ## f-lowers-user-defined-pipe-as-integer-or — every parser built with a choice was a bitwise or
 
 <!-- status: fixed
