@@ -2062,6 +2062,73 @@ everything else; the line comes out when either shape lands.
 written and the entry did not exist. A dangling reference in a gate reads as "someone looked at
 this" when nobody had.
 
+## v3-trait-extension-member-refused — an `extension` inside a trait is called "not a `def`", and seven std modules stop
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     gate: v3/front-gate.sh
+     fixed-in: - -->
+
+**Measured 2026-08-12.** `std/functor-applicative-monad.ssc:38` is refused on both fronts with
+`a 'trait' member that is not a 'def'`. The member is
+
+    trait Functor[F[_]]:
+      extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+
+which is a `def` — wrapped in an `extension`, the ordinary way a typeclass gives its operations a
+receiver.
+
+**Seven standard-library modules are blocked**, measured by running each: `bifunctor`,
+`foldable-traversable`, `functor-applicative-monad`, `index`, `monaderror`, `selective`,
+`streams-bridge`. Downstream, `tagless-multi-file` — one of G2's five acceptance rows — cannot run
+for this reason and this reason only.
+
+**The refusal is right about the thing it was written for and wrong about this one.** It was added
+so a trait carrying ABSTRACT STATE (`val id: String`) is refused by name instead of silently
+dropped, which follows `20-core-language.md`: v3's traits carry methods, not state. An `extension`
+member carries methods too. The predicate tests the WRAPPER and concludes about the content.
+
+**Two sites, both fronts** — `v3/uniml/UniFront.scala:237` and `v3/src/Parser.scala:1539`. Fixing
+one would make the default lane accept what the other refuses, which is the failure the 15b work
+itself called out when it added them.
+
+**The shape of the fix already exists in the same file.** `U.Extension(recv, ds, s)` at
+`UniFront.scala:326` lifts a top-level extension into ordinary `Def`s with the receiver prepended as
+the first parameter; a trait member wants the same projection.
+
+**ATTEMPTED 2026-08-12 AND NOT LANDED — three things measured, all of them useful.**
+
+**THERE IS A THIRD SITE.** `v3/src/Parser.scala:1520`, inside `parseMembers`, with its own wording:
+`only \`def\` members are supported in a … at Tier 0, found extension` — a refusal arguing with
+itself, since an extension IS defs. It had been visible all day as nine rows in the corpus
+histogram and read as "the front cannot do extensions" rather than "the front refuses what it can
+do". So the count is three, not the two named above.
+
+**THE FIX MUST NOT GO IN `parseMembers`.** That helper serves a trait, an object and other carriers
+and knows which only as a string in its error message, so teaching it `extension` changes behaviour
+for callers this entry never measured. It belongs in `parseTrait`, where the carrier is known. This
+is the opposite of the rule that applied to `isAssignHead` earlier the same day — there, every one
+of seven call sites asked the SAME question and the shared point was right; here they ask different
+ones. The two cases look identical and are not.
+
+**BOTH FRONTS MUST LAND TOGETHER, proven rather than assumed.** With the UniFront projection alone
+and v3's own parser still refusing, `front-gate` and `exec-gate` both go RED — the two fronts
+disagree about the same program, which is what that gate exists to catch. Baseline on the same tree
+with neither edit: both gates GREEN. So a partial fix is worse than none.
+
+**What the attempt did establish:** with both edits in place all SEVEN std modules stop refusing,
+and `tagless-multi-file` advances past this blocker to a genuinely different one
+(`std/functor-applicative-monad.ssc:56:11: expected a name`). The corpus was not usable as evidence
+in that state because the gates were red.
+
+**A note for whoever takes G2 next:** its stages are written against a state that has moved. Three
+of the five acceptance rows already run today (`tagless-context-bounds` prints `haha`,
+`tagless-program` prints `Some(done:Dave)`, `tagless-resolution` prints `99`), `v3-method-as-a-value`
+is fixed, and the fourth row was blocked by THIS refusal rather than by anything about typing.
+Re-measure the acceptance set before writing stage 2b.
+
 ## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
 
 <!-- status: fixed
