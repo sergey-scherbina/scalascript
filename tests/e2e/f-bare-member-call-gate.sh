@@ -275,6 +275,27 @@ lowered_and_correct nested-call-untouched 15 'def f(a: Int): Int = a + 1
 def g(a: Int): Int = a * 2
 def main() = println(List(1,2,3).map(x => f(g(x))).sum)'
 
+# A USER-DEFINED `|`. Kind 63 went straight to `(prim i.or)`, so an `extension def |` was never
+# dispatched and the integer primitive got the operands — `expected Int, got Lit("x")`. `~`, `~>`
+# and `<~` have had the isExtMethod check since they were added; `|` never did, and `opNameK` did
+# not even know the name, so `def |` was not collected as a member.
+#
+# This is what miscompiled the whole std/parsing stack: `a | b` is the alternation combinator there,
+# so every parser built with a choice became a bitwise or. It stayed invisible because F declined
+# those modules for the UNRELATED reason above and they ran on the reference front.
+lowered_and_correct user-defined-pipe 'Alt(Lit(x), Lit(y))' 'case class Alt(l: Any, r: Any)
+case class Lit(s: String)
+
+extension (a: Lit)
+  def |(b: Lit): Alt = Alt(a, b)
+
+def main() = println(Lit("x") | Lit("y"))'
+
+# …and the integer `|` must still be the primitive. A fix that routed every `|` to an extension
+# would pass the case above and break arithmetic silently.
+lowered_and_correct integer-or-still-primitive 7 'def main() = println(6 | 3)'
+
+
 echo
 if [[ $fails -eq 0 ]]; then
   echo "✓ f-bare-member-call-gate PASSED"
