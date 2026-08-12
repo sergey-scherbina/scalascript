@@ -17,8 +17,13 @@
 # not write. Movement the other way — BADRUST to REFUSED, or either to COMPILES — is progress, and
 # this gate asks you to record it rather than blocking it.
 #
-# NOT ON THE PUSH PATH, deliberately: ~2.5 s per module × 131 is 5-6 minutes, against a whole-suite
-# budget of 943 s. It belongs beside `backendRust/test` on the periodic job. Run it by hand after
+# NOT ON THE PUSH PATH, deliberately: 131 modules is minutes, against a whole-suite budget of 943 s.
+#
+# AND THE COST GROWS WITH SUCCESS, which is worth stating because it surprised me: a REFUSED module
+# costs a parse, a COMPILES module costs a full cargo build. Every module moved out of BADRUST makes
+# this gate slower, so a `timeout` sized against an early run will start killing it — mine did, at
+# 900 s, once the compiling set reached 44. Size the CI step generously; the suite is not flaky, it
+# is doing more work than it used to. It belongs beside `backendRust/test` on the periodic job. Run it by hand after
 # touching the Rust backend; `--update` rewrites the baseline once you have read the diff.
 #
 # THE BASELINE IS NOT A GOLDEN OF ERROR TEXT. rustc messages change with the compiler; only the
@@ -41,6 +46,23 @@ BASE="$ROOT/tests/rust-std-survey-baseline.tsv"
 # the mode is known: demanding it unconditionally made the first baseline impossible to produce.
 [[ -r $BASE || "${1:-}" == "--update" ]] || {
   echo "rust-std-survey: no baseline at $BASE — create it with: $0 --update" >&2; exit 2; }
+# A VERDICT FROM A STALE TOOLCHAIN IS A VERDICT ABOUT THE WRONG CODE, and this gate learned it the
+# expensive way: three modules were recorded `OTHER` in the baseline and classify `REFUSED` on a
+# rebuilt launcher. The baseline is the thing everything else is compared against, so a wrong row in
+# it is worse than a wrong run. `scripts/smoke-ci` has guarded this since 2026-08-04; the survey,
+# which takes six minutes and writes a file, did not.
+if [[ "${SSC_SURVEY_ALLOW_STALE:-}" != "1" && -r "$ROOT/bin/lib/.build-digest" ]]; then
+  built="$(<"$ROOT/bin/lib/.build-digest")"
+  want="$("$ROOT/scripts/launcher-input-digest" 2>/dev/null || true)"
+  if [[ -n "$built" && -n "$want" && "$built" != "$want" ]]; then
+    echo "rust-std-survey: the launcher was built from different sources than this tree." >&2
+    echo "  staged inputs: ${built:0:12}" >&2
+    echo "  this tree:     ${want:0:12}" >&2
+    echo "Rebuild before measuring: ./install.sh --dev   (override: SSC_SURVEY_ALLOW_STALE=1)" >&2
+    exit 2
+  fi
+fi
+
 command -v cargo >/dev/null 2>&1 || {
   echo "rust-std-survey: no cargo — this gate cannot tell BADRUST from COMPILES here, and says so" >&2
   echo "rather than passing quietly. Install cargo or run it where one exists." >&2

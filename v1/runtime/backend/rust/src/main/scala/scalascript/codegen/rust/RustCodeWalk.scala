@@ -383,7 +383,15 @@ object RustCodeWalk:
         s"${p.name.value}: $tRs"
       }.mkString(", ")
       val retTRs  = d.decltpe.flatMap(t => mapType(t, mName, ctx.enumNames).toOption).getOrElse("i64")
-      val bodyCtx = bodyCtx0.copy(defName = mName)
+      // A `given` method's params carry declared types and the body context did not read them, so
+      // `def combine(a: String, b: String) = a + b` took the numeric `+` and rustc said
+      // `expected &str, found String` (std/index.ssc). The def path has done this since the concat
+      // work; the given path is the same fact, one renderer over.
+      val bodyCtx = bodyCtx0.copy(
+        defName = mName,
+        localStrings = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+          .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
+          .toSet)
       val bodyRs  = renderTerm(d.body, bodyCtx).getOrElse("unimplemented!()")
       s"    #[allow(dead_code)]\n    pub fn $mName(&self, $pList) -> $retTRs { $bodyRs }"
     }.mkString("\n")
@@ -803,12 +811,14 @@ object RustCodeWalk:
    *  are partly closures — and it is what `Debug` is for here: no generated code formats a user
    *  type with `{:?}`; the derive exists so that CONTAINING types can derive theirs.
    */
-  private def enumDebugImpl(enumName: String, ctors: List[(String, EnumCtor)]): String =
+  private def enumDebugImpl(enumName: String, ctors: List[(String, EnumCtor)], tparams: List[String]): String =
+    val dargs = if tparams.isEmpty then "" else tparams.mkString("<", ", ", ">")
+    val dgen  = if tparams.isEmpty then "" else tparams.map(t => s"$t: std::fmt::Debug").mkString("<", ", ", ">")
     val arms = ctors.map { (ctor, ec) =>
       val pat = if ec.fieldNames.isEmpty then s"$enumName::$ctor" else s"$enumName::$ctor { .. }"
       s"""            $pat => "$ctor","""
     }.mkString("\n")
-    s"""impl std::fmt::Debug for $enumName {
+    s"""impl$dgen std::fmt::Debug for $enumName$dargs {
        |    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
        |        f.write_str(match self {
        |$arms
@@ -835,7 +845,11 @@ object RustCodeWalk:
    *  `Into<Value>`, so it is deref'd — moving out of the box, which is allowed because `from` owns
    *  its argument.
    */
-  private def enumLift(enumName: String, ctors: List[(String, EnumCtor)]): String =
+  private def enumLift(enumName: String, ctors: List[(String, EnumCtor)], tparams: List[String]): String =
+    // A generic enum needs its parameters on BOTH sides of the impl, each bounded by `Into<Value>`
+    // so the fields can lift: `impl<L: Into<Value>, R: Into<Value>> From<Either<L, R>> for Value`.
+    val gen  = if tparams.isEmpty then "" else tparams.map(t => s"$t: Into<crate::value::Value>").mkString("<", ", ", ">")
+    val args = if tparams.isEmpty then "" else tparams.mkString("<", ", ", ">")
     val arms = ctors.map { (ctor, ec) =>
       val path = s"$enumName::$ctor"
       if ec.fieldNames.isEmpty then
@@ -847,13 +861,17 @@ object RustCodeWalk:
           // impl. The alternative — refusing to generate `From` for any enum with a closure field —
           // would take `Any` away from the eight std/ui modules for a field nobody reads back.
           if ec.fieldTypes.lift(i).exists(_.startsWith("std::rc::Rc<dyn Fn")) then "crate::value::Value::Unit"
-          else if ec.boxedFields.contains(n) then s"crate::value::Value::from(*$n)"
-          else                                    s"crate::value::Value::from($n)"
+          // `Into::into`, not `Value::from`. On a GENERIC enum the bound this impl can state is
+          // `Y: Into<Value>`, and `Value::from(y)` asks for `Value: From<Y>` — the other direction,
+          // which std's blanket impl does not give you. `std/coroutine.ssc` said so as
+          // `the trait bound Value: From<Y> is not satisfied`. Identical for a concrete field.
+          else if ec.boxedFields.contains(n) then s"Into::<crate::value::Value>::into(*$n)"
+          else                                    s"Into::<crate::value::Value>::into($n)"
         }.mkString(", ")
         s"            $path { $binds } => crate::value::Value::Obj(\"$ctor\", vec![$lifts]),"
     }.mkString("\n")
-    s"""impl From<$enumName> for crate::value::Value {
-       |    fn from(x: $enumName) -> crate::value::Value {
+    s"""impl$gen From<$enumName$args> for crate::value::Value {
+       |    fn from(x: $enumName$args) -> crate::value::Value {
        |        match x {
        |$arms
        |        }
@@ -932,6 +950,13 @@ object RustCodeWalk:
   private def renderEnum(e: m.Defn.Enum): Either[List[Diagnostic], GeneratedEnum] =
     val enumName = e.name.value
     val cases    = e.templ.body.stats.collect { case c: m.Defn.EnumCase => c }
+    // TYPE PARAMETERS are emitted, not dropped. `enum Either[L, R]` used to render `pub enum
+    // Either` while its call sites kept saying `Either<i64, i64>` — `E0107: enum takes 0 generic
+    // arguments but 2 were supplied`, in std/either.ssc, the module whose subject IS that type.
+    // The names go through `enumNames`, which maps a type name to itself, so a variant field typed
+    // `L` renders as `L` instead of falling to the i64 default. (rust-generic-enum-drops-its-parameters.)
+    val tparams  = e.tparamClause.values.map(_.name.value).toList
+    val tparamRs = if tparams.isEmpty then "" else tparams.mkString("<", ", ", ">")
     // NOTE, and it is a filed gap rather than a fix: a TYPE-PARAMETERISED enum renders with its
     // parameters silently DROPPED, so `enum Either[L, R]` emits `pub enum Either` while call sites
     // still say `Either<i64, i64>` (E0107). Refusing it was tried and REVERTED: `std/coroutine.ssc`
@@ -941,7 +966,7 @@ object RustCodeWalk:
     if cases.isEmpty then
       Left(List(unsupported(s"enum `$enumName` has no `case` variants")))
     else
-      val rendered = cases.map(c => renderEnumCase(enumName, c))
+      val rendered = cases.map(c => renderEnumCase(enumName, c, tparams.toSet))
       val (errs, ok) = rendered.partitionMap(identity)
       if errs.nonEmpty then Left(errs.flatten)
       else
@@ -952,14 +977,14 @@ object RustCodeWalk:
         // prints `<closure>` would be worse than rustc naming the type the day something needs it.
         val hasClosure = ctors.exists(_._2.fieldTypes.exists(_.startsWith("std::rc::Rc<dyn Fn")))
         val enumDerives = if hasClosure then "Clone" else "Debug, Clone"
-        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors) else ""
+        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors, tparams) else ""
         val src =
           s"""#[allow(dead_code)]
              |#[derive($enumDerives)]
-             |pub enum $enumName {
+             |pub enum $enumName$tparamRs {
              |${indent(variantText)},
              |}
-             |$debugImpl${enumLift(enumName, ctors)}""".stripMargin
+             |$debugImpl${enumLift(enumName, ctors, tparams)}""".stripMargin
         Right(GeneratedEnum(render = src, ctors = ctors))
 
   /** Lower a `sealed trait` + case-class ADT shape to the same Rust enum
@@ -988,7 +1013,12 @@ object RustCodeWalk:
       typeNames: Set[String]
   ): Either[List[Diagnostic], GeneratedEnum] =
     val enumName = t.name.value
-    val rendered = caseClasses.map(c => renderClassCtor(enumName, c, typeNames))
+    // Same as `renderEnum`: a `sealed trait Either[A, B]` + case classes is the OTHER surface for
+    // an enum, and std/either.ssc uses it. Fixing only the `enum` form left this one emitting a
+    // parameterless declaration against parameterised uses.
+    val tparams  = t.tparamClause.values.map(_.name.value).toList
+    val tparamRs = if tparams.isEmpty then "" else tparams.mkString("<", ", ", ">")
+    val rendered = caseClasses.map(c => renderClassCtor(enumName, c, typeNames ++ tparams))
     val (errs, ok) = rendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
@@ -1002,14 +1032,14 @@ object RustCodeWalk:
         // prints `<closure>` would be worse than rustc naming the type the day something needs it.
         val hasClosure = ctors.exists(_._2.fieldTypes.exists(_.startsWith("std::rc::Rc<dyn Fn")))
         val enumDerives = if hasClosure then "Clone" else "Debug, Clone"
-        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors) else ""
+        val debugImpl   = if hasClosure then enumDebugImpl(enumName, ctors, tparams) else ""
         val src =
           s"""#[allow(dead_code)]
              |#[derive($enumDerives)]
-             |pub enum $enumName {
+             |pub enum $enumName$tparamRs {
              |${indent(variantText)},
              |}
-             |$debugImpl${enumLift(enumName, ctors)}""".stripMargin
+             |$debugImpl${enumLift(enumName, ctors, tparams)}""".stripMargin
         Right(GeneratedEnum(render = src, ctors = ctors))
 
   /** Fallback `Either` algebraic data type used for `Either[L, R]` lowering.
@@ -1074,13 +1104,13 @@ object RustCodeWalk:
   /** Render one `case Ctor(field1: T1, …)` into a Rust struct-style
    *  enum variant.  Returns the variant text + the ctor metadata. */
   private def renderEnumCase(
-      enumName: String, c: m.Defn.EnumCase
+      enumName: String, c: m.Defn.EnumCase, tparams: Set[String]
   ): Either[List[Diagnostic], (String, (String, EnumCtor))] =
     val ctor   = c.name.value
     val params = c.ctor.paramClauses.flatMap(_.values).toList
     val fieldRendered = params.map { p =>
       p.decltpe match
-        case Some(t) => mapType(t, s"enum $enumName.$ctor", inField = true).map(r => (p.name.value, r))
+        case Some(t) => mapType(t, s"enum $enumName.$ctor", tparams, inField = true).map(r => (p.name.value, r))
         case None    => Left(List(unsupported(
           s"enum `$enumName.$ctor` parameter `${p.name.value}` has no type annotation"
         )))
@@ -1790,7 +1820,7 @@ object RustCodeWalk:
    *  argument and return position (E0562). It is threaded through the container cases so a
    *  function nested in a `List[…]` or a tuple boxes too. */
   private def mapType(
-      t: m.Type, defName: String, enumNames: Set[String] = Set.empty, inField: Boolean = false
+      t: m.Type, defName: String, enumNames: Set[String], inField: Boolean = false
   ): Either[List[Diagnostic], String] = t match
     case m.Type.Name("Unit")    => Right("")          // empty → no `-> T` clause
     case m.Type.Name("Boolean") => Right("bool")
@@ -1807,6 +1837,15 @@ object RustCodeWalk:
     // `Any` (untyped/erased values) → the boxed `Value`.
     case m.Type.Name("Any")          => Right("crate::value::Value")
     case m.Type.Name(n) if enumNames.contains(n) => Right(n)
+    // A user type USED with arguments: `Either[String, Int]` → `Either<String, i64>`. Without this
+    // the applied form fell through to the numeric default while the DECLARATION now carries its
+    // parameters, and the two disagreed in the opposite direction from before.
+    // (rust-generic-enum-drops-its-parameters.)
+    case m.Type.Apply.After_4_6_0(m.Type.Name(n), argClause) if enumNames.contains(n) =>
+      val rendered = argClause.values.toList.map(mapType(_, defName, enumNames, inField))
+      val (aerrs, aok) = rendered.partitionMap(identity)
+      if aerrs.nonEmpty then Left(aerrs.flatten)
+      else Right(s"$n<${aok.mkString(", ")}>")
     // Repeated parameter `T*` → Rust `Vec<T>` (the call site wraps the trailing
     // varargs into `vec![…]` — see the vararg-aware Apply handling).
     case m.Type.Repeated(tpe) =>
@@ -2410,15 +2449,22 @@ object RustCodeWalk:
       multiShotHandle(bodyArgs.values.head, msCases, ctx)
         .getOrElse(renderHandle(bodyArgs.values.head, msCases, ctx))
     // Either constructors and combinators.
+    //
+    // These emit the BUILT-IN Either's shape, whose variants are tuples: `Either::Left(v)`. A
+    // source that defines its own — `case class Right[A, B](value: B) extends Either[A, B]` in
+    // std/either.ssc — gets STRUCT variants, and the hardcoded form then produced
+    // `expected value, found struct variant Either::Right`. So both arms yield when the ctor map
+    // has a real definition of that name, and the ordinary constructor path takes it.
+    // (rust-generic-enum-drops-its-parameters.)
     case m.Term.Apply.After_4_6_0(m.Term.Name("Left"), args)
-        if args.values.size == 1 =>
+        if args.values.size == 1 && !ctx.ctorMap.get("Left").exists(_.fieldNames.nonEmpty) =>
       args.values.headOption match
         case Some(a) => renderTerm(a, ctx).map(v => s"Either::Left($v)")
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` has invalid `Left` constructor application"
         )))
     case m.Term.Apply.After_4_6_0(m.Term.Name("Right"), args)
-        if args.values.size == 1 =>
+        if args.values.size == 1 && !ctx.ctorMap.get("Right").exists(_.fieldNames.nonEmpty) =>
       args.values.headOption match
         case Some(a) => renderTerm(a, ctx).map(v => s"Either::Right($v)")
         case None    => Left(List(unsupported(
