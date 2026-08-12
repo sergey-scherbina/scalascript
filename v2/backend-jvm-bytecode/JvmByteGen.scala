@@ -124,6 +124,7 @@ object JvmByteGen:
   private val FLOATV = "ssc/Value$FloatV"
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
+  private val SLOT  = "ssc/Emit$Slot"
   private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
   private val STRING_BUILDER = "java/lang/StringBuilder"
 
@@ -202,6 +203,13 @@ object JvmByteGen:
     // Everything else — `main`, `install`, `install$k`, `entry`, the `callees` field — stays in
     // `Entry` by falling through, which is what keeps `runProgram` and the persisted artifact
     // calling the same two names they always have.
+    // One static Slot field per (arity, op). Sites sharing an op share the field — the win is
+    // dropping the hash, and a field per SITE would only add constant-pool entries for nothing.
+    // Fields live in `Entry` so a spilled sibling can `GETSTATIC` them; they are filled lazily by
+    // the emitted code itself, never in `<clinit>` (see Emit.slotOfN for why eager is unsafe).
+    val primSlots = collection.mutable.LinkedHashMap.empty[(Int, String), String]
+    def slotField(arity: Int, op: String): String =
+      primSlots.getOrElseUpdate((arity, op), s"pslot$$${primSlots.size}")
     val auxCws = collection.mutable.LinkedHashMap.empty[String, ClassWriter]
     def ownerFor(m: String): String =
       val base = if m.endsWith("$long") then m.dropRight(5) else m
@@ -467,6 +475,14 @@ object JvmByteGen:
     // `try/finally`, not a line after the return: the ONLY run whose numbers matter is the one that
     // THROWS `ClassTooLargeException`, and `toByteArray` is where ASM discovers the pool is full.
     // Reporting on success alone would print for exactly the programs that do not need sizing.
+    // Slot fields are declared AFTER drainPending for the same reason the siblings are closed there:
+    // a body emitted late can introduce a prim nobody had used yet, and a field referenced by
+    // `GETSTATIC` but never declared is a `NoSuchFieldError` at run time, not a build failure.
+    // They live in `Entry` (public, so a spilled sibling can read and fill them) and start null —
+    // the emitted code fills each on its first execution.
+    g.primSlots.values.foreach(f =>
+      cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, f, s"L$SLOT;", null, null).visitEnd())
+
     // The spilled siblings are closed HERE, after `drainPending` — a body emitted late can create a
     // new bucket, so closing them earlier would truncate the last one.
     g.auxCws.values.foreach(_.visitEnd())
@@ -681,6 +697,26 @@ object JvmByteGen:
       mv.visitMaxs(0, 0)
       mv.visitEnd()
     }
+
+  /** `GETSTATIC field; DUP; IFNONNULL done; POP; LDC op; slotOfN; DUP; PUTSTATIC field; done:`
+    *
+    *  Leaves exactly one Slot on the stack on both paths, which is what lets COMPUTE_FRAMES merge
+    *  them. The null check is the lazy part: resolution happens the first time this site RUNS, not
+    *  when the class initialises, because `Prims.resolve` consults the plugin registry and a prim
+    *  whose plugin registers later would otherwise be bound to a raising stub forever. */
+  private def emitSlotLoad(arity: Int, op: String, ctx: Ctx): Unit =
+    val mv = ctx.mv
+    val field = ctx.g.slotField(arity, op)
+    val done = new Label()
+    mv.visitFieldInsn(Opcodes.GETSTATIC, GEN, field, s"L$SLOT;")
+    mv.visitInsn(Opcodes.DUP)
+    mv.visitJumpInsn(Opcodes.IFNONNULL, done)
+    mv.visitInsn(Opcodes.POP)
+    mv.visitLdcInsn(op)
+    mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, s"slotOf$arity", s"(Ljava/lang/String;)L$SLOT;", false)
+    mv.visitInsn(Opcodes.DUP)
+    mv.visitFieldInsn(Opcodes.PUTSTATIC, GEN, field, s"L$SLOT;")
+    mv.visitLabel(done)
 
   private def emitBody(g: Gen, name: String, body: Term, paramIsEnv: Boolean,
                        selfGlobal: String | Null = null, selfArity: Int = -1,
@@ -1447,9 +1483,14 @@ object JvmByteGen:
       case Term.Prim(op, args) =>
         args.length match
           case 0 => mv.visitLdcInsn(op); callP(mv, "prim0", 0)
-          case 1 => mv.visitLdcInsn(op); gen(args(0), ctx); callP(mv, "prim1", 1)
-          case 2 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); callP(mv, "prim2", 2)
-          case 3 => mv.visitLdcInsn(op); gen(args(0), ctx); gen(args(1), ctx); gen(args(2), ctx); callP(mv, "prim3", 3)
+          case n if n >= 1 && n <= 3 =>
+            // Push the cached Slot, filling it on this site's FIRST execution, then the args, then
+            // one `callSlotN`. Replaces `LDC op` + `primN`, whose first act was a hash lookup keyed
+            // on that very string.
+            emitSlotLoad(n, op, ctx)
+            args.foreach(a => gen(a, ctx))
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, s"callSlot$n",
+              "(L" + SLOT + ";" + ("L" + VAL + ";") * n + ")L" + VAL + ";", false)
           case _ => mv.visitLdcInsn(op); genArray(args, ctx); callArr(mv, "primN")
       // SELF-TAIL: rebind the frame and jump to the method start — constant
       // stack depth for arbitrarily deep tail recursion.
