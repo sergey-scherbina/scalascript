@@ -120,8 +120,20 @@ if [[ "${1:-}" == "--self-test" ]]; then
          echo "  under 'set -euo pipefail' that aborts this gate with NO message at all." >&2
          echo "  The grep needs its '|| true'. (Verified to fail when that is removed.)" >&2; exit 1; }
 
+  # The SIZE PREFILTER must not be able to hide an over-limit method. The property it rests on is
+  # that a method's Code attribute lives inside the class file, so `bytecodes <= file size` — assert
+  # it on the generated over-limit class rather than trusting the reasoning, because the filter is
+  # the one place where making the gate fast could quietly make it blind.
+  huge_class="$(find "$TMP/classes-Huge" -name 'Huge.class' | head -1)"
+  huge_bytes="$(wc -c < "$huge_class" | tr -d ' ')"
+  [[ "$huge_bytes" -ge "$LIMIT" ]] \
+    || { echo "SELF-TEST FAIL: a class holding a >$LIMIT-bytecode method is only $huge_bytes bytes," >&2
+         echo "  so the 'file smaller than the limit cannot hold an over-limit method' prefilter" >&2
+         echo "  would DISCARD it and this gate would go green while blind." >&2; exit 1; }
+
   echo "v1-jit-size self-test: PASS (census detects over-limit, stays quiet under it,"
-  echo "                            and an empty census does not abort the run)"
+  echo "                            an empty census does not abort the run,"
+  echo "                            and a class holding an over-limit method survives the size filter)"
   # FALL THROUGH to the census, matching v2-jit-size.sh, whose usage line says
   # "assert BOTH verdicts, then check the artifacts". One CI invocation must do both: wiring only
   # `--self-test` would run the detector's self-check and never look at the tree — the exact shape
@@ -172,24 +184,48 @@ echo "v1-jit-size: scanning ${#jars[@]} shipped jar(s), limit $LIMIT"
 # A frozen entry that a scan cannot see is indistinguishable from one that was fixed. The
 # disappeared-check is only safe when coverage is complete, so coverage comes first.
 pkgtmp="$(mktemp -d "${TMPDIR:-/tmp}/v1jit-pkg.XXXXXX")"
+classes="$(mktemp -d "${TMPDIR:-/tmp}/v1jit-cls.XXXXXX")"
 observed="$(mktemp)"
 # ${TMP:-} too: --self-test now falls through to here, and a second `trap ... EXIT` REPLACES the
 # first, so the self-test's own scratch dir would leak on every CI run.
-trap 'rm -rf "$pkgtmp" "$observed" ${TMP:+"$TMP"}' EXIT
-nested=()
+trap 'rm -rf "$pkgtmp" "$classes" "$observed" ${TMP:+"$TMP"}' EXIT
+
+# Everything is unpacked into ONE tree and censused ONCE. Per-jar invocation cost 68 s of an 85 s
+# run — 56 unzip+javap pipelines instead of one. Same 8 methods, same sizes, 53 s.
+for j in "${jars[@]}"; do unzip -q -o "$j" '*.class' -d "$classes" 2>/dev/null || true; done
+npkg=0
 while IFS= read -r p; do
   d="$pkgtmp/$(basename "${p%.sscpkg}")"
   unzip -q -o "$p" 'intrinsics/*.jar' -d "$d" 2>/dev/null || continue
-  while IFS= read -r nj; do nested+=("$nj"); done < <(find "$d" -name '*.jar' 2>/dev/null)
+  while IFS= read -r nj; do
+    unzip -q -o "$nj" '*.class' -d "$classes" 2>/dev/null || true
+    npkg=$((npkg + 1))
+  done < <(find "$d" -name '*.jar' 2>/dev/null)
 done < <(find "$ROOT/bin/lib/compiler/plugins" -name '*.sscpkg' 2>/dev/null | sort)
-echo "v1-jit-size: plus ${#nested[@]} nested plugin jar(s) from .sscpkg payloads"
+echo "v1-jit-size: plus $npkg nested plugin jar(s) from .sscpkg payloads"
+
+# ── SIZE PREFILTER, and it is exact rather than a heuristic ──────────────────────────────────────
+#
+# A method's Code attribute is stored INSIDE the class file, so its length can never exceed the
+# file's own size: a `.class` smaller than $LIMIT bytes cannot hold a method of $LIMIT bytecodes.
+# Filtering on that is therefore lossless, not a sampling trade — and it takes the census from 5650
+# class files to 563, and from 50 s to 12 s, with byte-identical output on all 8 known methods.
+#
+# Derived from $LIMIT rather than written as a number, so raising the limit cannot silently make the
+# filter too aggressive. The self-test asserts the property directly on a generated over-limit class.
+big="$(mktemp -d "${TMPDIR:-/tmp}/v1jit-big.XXXXXX")"
+trap 'rm -rf "$pkgtmp" "$classes" "$big" "$observed" ${TMP:+"$TMP"}' EXIT
+while IFS= read -r -d '' f; do
+  rel="${f#$classes/}"; mkdir -p "$big/$(dirname "$rel")"; cp "$f" "$big/$rel"
+done < <(find "$classes" -name '*.class' -size +$((LIMIT - 1))c -print0 2>/dev/null)
+echo "v1-jit-size: $(find "$big" -name '*.class' | wc -l | tr -d ' ') of $(find "$classes" -name '*.class' | wc -l | tr -d ' ') class files are large enough to hold an over-limit method"
 
 # `|| true` on the grep, and it is load-bearing: `grep` exits 1 on ZERO matches, and under
 # `set -euo pipefail` that killed this script with rc=1 and an EMPTY stderr — a silent failure
 # indistinguishable from a real one, and impossible to diagnose. It fired whenever the census came
 # back empty, which is precisely the blind state described above. An empty census must reach the
 # "frozen method disappeared" check below and be reported there, not abort the run.
-for j in "${jars[@]}" ${nested[@]+"${nested[@]}"}; do "$CENSUS" "$j" "$LIMIT" 2>/dev/null || true; done \
+"$CENSUS" "$big" "$LIMIT" 2>/dev/null \
   | sed -E 's/^ *([0-9]+) +([A-Za-z0-9_.$]+) :: .*[ (]([A-Za-z0-9_$]+)\(.*/\1 \2::\3/' \
   | { grep -E '^[0-9]+ ' || true; } | sort -u > "$observed"
 
