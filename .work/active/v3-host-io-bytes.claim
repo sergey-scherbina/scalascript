@@ -1,0 +1,23 @@
+slug: v3-host-io-bytes
+branch: feature/ssc3-host-io-bytes
+agent: claude-code
+started: 2026-08-12T10:05:00Z
+heartbeat: 2026-08-12T10:05:00Z
+status: working
+items: v3-host-io-bytes
+paths: file:v3/src/Exec.scala file:v3/src/Lower.scala
+scope: |
+  SSC3-12 slice B. `readFile`/`writeFile` as a COMPOSITION of prims, because v2's `io.readFile`
+  gives BytesV and `std/fs.ssc` declares a String:
+
+      readFile(p)      ->  utf8->str(io.readFile(p))
+      writeFile(p, s)  ->  io.writeFile(p, str->utf8(s))
+
+  The IR is SHARED, so `Exec` must implement all four, which needs v3 to hold a byte string — it
+  has no value for one. So this adds `Value.VBytes`.
+
+  THE HAZARD IS NAMED BEFORE THE CODE: a new `Value` case does NOT fail to compile at the matches
+  that need it, because most end in a catch-all. The slice includes an audit of every `Value` match
+  rather than trusting the compiler.
+
+  NARROW: two files. No std, no board, no gate script. `v3/tests/front/` gains a fixture, additive.
