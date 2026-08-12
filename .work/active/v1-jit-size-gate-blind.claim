@@ -2,10 +2,10 @@ slug: v1-jit-size-gate-blind
 branch: feature/v1-jit-size-gate-blind
 agent: claude-code
 started: 2026-08-12T07:14:18Z
-heartbeat: 2026-08-12T07:14:18Z
-status: claimed-before-planning
+heartbeat: 2026-08-12T07:38:04Z
+status: in-progress
 items: v1-interpreter-hot-path-never-jits
-paths: file:tests/e2e/v1-jit-size.sh file:v1/runtime/backend/interpreter/BUGS.md
+paths: file:tests/e2e/v1-jit-size.sh file:v1/runtime/backend/interpreter/BUGS.md file:.github/workflows/ci.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: wire the gate into ci.yml beside its twin, verified green on the installBin path
