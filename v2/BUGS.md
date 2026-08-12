@@ -1956,6 +1956,47 @@ truncation. It PASSED in two earlier `--no-memo` runs on this machine, and this 
 by construction it should not touch the JVM lane. Either the attribution is wrong or something
 couples them; unexplained, and part of why this is not being landed.
 
+**THE BLOCKER REFRAMED, 2026-08-12 — and this is the part that matters.** Before this fix, F declined
+**all four** `std/parsing` modules — `core`, `combinators`, `helpers`, `layout` — measured by flipping
+the one-line fix in the staged front and re-running `--front-report` on each. So **F has never
+lowered the parsing stack at all**, and its lowering of that stack has therefore never been
+exercised. The fix does not break those two conformance cases; it is the first thing that ever RAN
+the code path, and the path is wrong.
+
+That changes what "landing this" costs. It is not "a one-line fix plus a small follow-up": it is a
+one-line fix that turns on a whole subsystem F has never compiled correctly, and the follow-up is
+however large that turns out to be.
+
+**Fifteen hypotheses were refuted by measurement while trying to localise it. Recorded so nobody
+repeats them** — every one of these lowers correctly under F today:
+
+| ruled out | probe |
+| --- | --- |
+| nested recursive `def` with params | `loop(n, acc)` inside a `def`, three shapes |
+| an imported `object` as a call qualifier | `Greeter.hi()` across a module boundary |
+| a trait + same-named object companion | with and without an `exports:` header |
+| two objects in one module | both with members |
+| an object that `extends` a trait, alone | lowers fine on its own |
+| `case class X(..) extends T` then `object X:` | the exact `IndentContext` shape |
+| a cross-module ADT `match` | one-field and two-field constructor patterns |
+| field order in a two-field pattern | `Indented(inner, n)` binds correctly |
+| a multi-line block lambda argument | `.map(p => <val; expr>)` |
+| an extension chain, parameterless then arg | `a.doubled.tagged(7)` |
+| the `.block.withIndent(n)` call site | replaced by simpler terms in the real file — still fails |
+| the `ctx match` and the `bodyBlock` argument | both replaced by literals — still fails |
+
+The failure survives every reduction of the TEST file, which is what points at the modules rather
+than the test. The two visible symptoms are `expected Int, got PReadContext(<closure>)` and, on a
+smaller program, `ParseErr(unknown parser node)` — a `runParser` match falling through to `case _`.
+Both are consistent with a node being built or matched wrongly somewhere in the four modules; which
+one, and which construct, is not yet known.
+
+**Next step for whoever takes this:** the method that worked for the object-scan bug was mechanical
+bisection of the FILE, not hypothesis probes. Do that on `std/parsing/layout.ssc` and
+`combinators.ssc` with the one-line fix staged — `bin/lib/*/native-front/tower/bin/fsub.ssc` is
+byte-identical to the source, so each iteration costs seconds rather than a rebuild. A way to dump
+F's lowered IR would collapse this to one reading; none is currently exposed by `ssc`/`ssc-tools`.
+
 **A process note worth more than the fix.** Verify a front change with `--front-report`, not with
 conformance output: when F declines, the file silently compiles on the default front and prints the
 correct answer, so a plain output comparison passes either way. And do not mutate the staged front
