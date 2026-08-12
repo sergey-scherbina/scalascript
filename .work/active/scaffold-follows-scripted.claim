@@ -1,0 +1,11 @@
+slug: scaffold-follows-scripted
+branch: feature/scaffold-follows-scripted
+agent: claude-code
+started: 2026-08-12T07:05:31Z
+heartbeat: 2026-08-12T07:05:31Z
+status: claimed-before-planning
+items: scaffold-follows-scripted
+paths: file:scripts/smoke-ci.ssc file:tests/smoke-baseline.tsv file:.github/workflows/ci.yml file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
