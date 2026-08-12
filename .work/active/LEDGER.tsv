@@ -1,7 +1,8 @@
-# generation: 1738
+# generation: 1739
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-host-io-bytes	claude-code	2026-08-12T10:05:00Z	v3-host-io-bytes	file:v3/src/Exec.scala file:v3/src/Lower.scala
 split-dispatchlist	claude-code	2026-08-12T15:15:36Z	v1-interpreter-hot-path-never-jits	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/v1-jit-size.sh file:v1/runtime/backend/interpreter/BUGS.md
 mcp-p5b-deprecations	claude-code	2026-08-12T15:16:12Z	mcp-p5b-deprecations	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:specs/mcp-2026-07-28.md
 rust-survey-reasons	claude-code	2026-08-12T15:23:32Z	rust-survey-records-class-not-reason	file:tests/e2e/rust-std-survey-gate.sh file:tests/rust-std-survey-baseline.tsv
+jit-freeze-renderterm	claude-code	2026-08-12T15:27:38Z	jit-freeze-renderterm	file:tests/e2e/v1-jit-size.sh file:tests/BUGS.md
