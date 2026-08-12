@@ -65,6 +65,11 @@ class McpServerBuilder:
   // for progress — notifyProgress is a no-op in that case.
   private[mcp] val currentProgressTokenTL: ThreadLocal[ujson.Value] = new ThreadLocal[ujson.Value]()
 
+  /** The in-flight handler's MRTR replay scope, or `null` on the legacy path.
+   *  Set by `withRequestTracking` and read by `elicit`; per-thread because a
+   *  handler runs on the thread that dispatched its request. */
+  private[mcp] val mrtrTL: ThreadLocal[MrtrScope | Null] = new ThreadLocal[MrtrScope | Null]()
+
   // v1.17.x — logging.  Client sets the floor via `logging/setLevel`;
   // server emits `notifications/message` for log lines at or above that
   // level (syslog ranking).  Default "info" — `debug` is silenced until
@@ -225,16 +230,50 @@ class McpServerBuilder:
   /** Elicitation is NOT deprecated — but this shape of it is. A
    *  server-initiated request is replaced by MRTR in the modern era
    *  (specs/mcp-2026-07-28.md 8), so this path serves legacy peers only. */
+  /** MRTR (2026-07-28): what THIS handler recorded on a previous pass, or
+   *  `None` on the first one and always on the legacy path.
+   *
+   *  Under replay the handler re-runs from the top, so this is how it learns
+   *  what it already did. **The value is attacker-controlled**: it travels to
+   *  the client and back untouched. Treat it as untrusted input, and if it ever
+   *  influences authorization or business logic, protect its integrity — sign
+   *  it, bind it to the principal, give it a TTL. */
+  def requestState: Option[String] =
+    mrtrTL.get() match
+      case null  => None
+      case scope => scope.incomingState
+
+  /** Record what has been done, to be read back by the next pass.
+   *
+   *  A no-op on the legacy path, where the handler is never re-run. */
+  def setRequestState(s: String): Unit =
+    mrtrTL.get() match
+      case null  => ()
+      case scope => scope.outgoingState = Some(s)
+
   def elicit(
     message:         String,
     requestedSchema: ujson.Value,
-    timeoutMs:       Long = 60_000L
+    timeoutMs:       Long = 60_000L,
+    key:             Option[String] = None
   ): Either[JsonRpc.Error, McpProtocol.ElicitationResult] =
-    request(McpProtocol.Method.ElicitationCreate,
-            McpProtocol.elicitationCreateParams(message, requestedSchema),
-            timeoutMs) match
-      case Left(e)   => Left(e)
-      case Right(js) => Right(McpProtocol.parseElicitationResult(js))
+    mrtrTL.get() match
+      case null =>
+        // LEGACY: a server-initiated request, blocking, byte for byte as before.
+        request(McpProtocol.Method.ElicitationCreate,
+                McpProtocol.elicitationCreateParams(message, requestedSchema),
+                timeoutMs) match
+          case Left(e)   => Left(e)
+          case Right(js) => Right(McpProtocol.parseElicitationResult(js))
+      case scope =>
+        // MODERN: MRTR. Either the client already answered this question on a
+        // previous pass, or we abandon the handler and ask.
+        val k = key.getOrElse(scope.nextKey())
+        scope.responses.get(k) match
+          case Some(answer) => Right(McpProtocol.parseElicitationResult(answer))
+          case None => throw InputRequiredSignal(k, McpProtocol.InputRequest(
+            McpProtocol.Method.ElicitationCreate,
+            McpProtocol.elicitationCreateParams(message, requestedSchema)))
 
   /** Returns true iff the currently-executing handler's request has been
    *  cancelled via `notifications/cancelled`.  Read this at safe points
@@ -507,6 +546,38 @@ class McpServerBuilder:
 /** Result of a tool handler — list of content items + isError flag.
  *  `Map[String, Any]` flows through user code; we lift to `ujson.Value`
  *  at the boundary so this file stays free of interpreter types. */
+/** Thrown by `elicit` on the MODERN path to abandon the handler so the
+ *  dispatcher can answer `InputRequiredResult`. Control flow, not an error:
+ *  it carries no stack trace and must never be reported as `isError`.
+ *
+ *  P3b (specs/mcp-2026-07-28.md 8.5b) decided REPLAY: the handler is an
+ *  ordinary unsavable closure and is RE-RUN from the top on the retry. */
+private[mcp] final class InputRequiredSignal(
+  val key:     String,
+  val request: McpProtocol.InputRequest
+) extends RuntimeException(s"input required: $key") with scala.util.control.NoStackTrace
+
+/** One handler invocation's replay state.
+ *
+ *  `responses` are the answers the client echoed back; `nextKey()` names each
+ *  `elicit` call site by ORDER of execution. Ordering is what makes replay
+ *  work and is also its whole precondition: the code before an `elicit` must
+ *  be idempotent AND must reach the same elicit sequence, or answers land on
+ *  the wrong questions. An author who cannot promise that passes an explicit
+ *  `key` instead, which survives reordering. */
+private[mcp] final class MrtrScope(
+  val responses: Map[String, ujson.Value],
+  /** What the client echoed back from the previous pass — the handler's own
+   *  note to itself about what it had already done. */
+  val incomingState: Option[String]
+):
+  private var n = 0
+  def nextKey(): String = { n += 1; s"elicit-$n" }
+
+  /** What this pass wants carried to the next one. Unset means "resend what
+   *  arrived", so a handler that never writes state still round-trips it. */
+  @volatile var outgoingState: Option[String] = None
+
 case class ToolHandlerResult(
   content:           List[ujson.Value],
   isError:           Boolean,
@@ -1015,6 +1086,10 @@ object McpServerCore:
                   JsonRpc.encodeResult(id,
                     McpProtocol.toolsCallResult(result.content, result.isError, result.structuredContent))
                 catch case e: Throwable =>
+                  // MRTR is not an error, and the arm below would report it as one.
+                  // withRequestTracking decides what the signal MEANS; this line
+                  // exists only so this handler cannot swallow it first.
+                  if e.isInstanceOf[InputRequiredSignal] then throw e
                   // Handler threw — wrap the message into an isError=true result so
                   // the client surfaces it like the JS/JVM SDKs do.
                   JsonRpc.encodeResult(id, McpProtocol.toolsCallResult(
@@ -1044,6 +1119,10 @@ object McpServerCore:
                   val result = h(uri)
                   JsonRpc.encodeResult(id, McpProtocol.resourcesReadResult(result.contents))
                 catch case e: Throwable =>
+                  // MRTR is not an error, and the arm below would report it as one.
+                  // withRequestTracking decides what the signal MEANS; this line
+                  // exists only so this handler cannot swallow it first.
+                  if e.isInstanceOf[InputRequiredSignal] then throw e
                   JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
                     Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
               }
@@ -1090,11 +1169,11 @@ object McpServerCore:
    *     `currentProgressTokenTL` (so `srv.notifyProgress` reaches the
    *     matching client request).
    *  Tears all thread-locals down regardless of handler outcome. */
-  private inline def withRequestTracking[A](
+  private inline def withRequestTracking(
     builder: McpServerBuilder,
     id:      ujson.Value,
     params:  ujson.Value
-  )(body: => A): A =
+  )(body: => String): String =
     val numId = id.numOpt.map(_.toLong)
     val progressToken = params.objOpt
       .flatMap(_.get("_meta"))
@@ -1105,8 +1184,25 @@ object McpServerCore:
       builder.currentReqIdTL.set(java.lang.Long.valueOf(n))
     }
     progressToken.foreach(t => builder.currentProgressTokenTL.set(t))
+    // MRTR (P3b) — modern only. A legacy client keeps the blocking `elicit`
+    // and no re-run, so existing servers do not change behaviour.
+    val ctx = McpProtocol.parseRequestMeta(params)
+    if ctx.isModern then
+      builder.mrtrTL.set(MrtrScope(McpProtocol.parseInputResponses(params),
+                                   McpProtocol.parseRequestState(params)))
     try body
+    catch
+      // THE one place that turns the signal into a frame. The three handler
+      // bodies only decline to swallow it; none of them decides what it means.
+      case s: InputRequiredSignal =>
+        JsonRpc.encodeResult(id, McpProtocol.inputRequiredResult(
+          inputRequests = Map(s.key -> s.request),
+          // What the handler recorded wins; absent that, echo what arrived, so
+          // a handler that keeps no state of its own still round-trips it.
+          requestState  = Option(builder.mrtrTL.get()).flatMap(_.outgoingState)
+                            .orElse(McpProtocol.parseRequestState(params))))
     finally
+      builder.mrtrTL.remove()
       numId.foreach { n => builder.inflightCancel.remove(n) }
       builder.currentReqIdTL.remove()
       builder.currentProgressTokenTL.remove()
@@ -1144,6 +1240,10 @@ object McpServerCore:
                   val result = reg.handler(args)
                   JsonRpc.encodeResult(id, McpProtocol.promptsGetResult(result.description, result.messages))
                 catch case e: Throwable =>
+                  // MRTR is not an error, and the arm below would report it as one.
+                  // withRequestTracking decides what the signal MEANS; this line
+                  // exists only so this handler cannot swallow it first.
+                  if e.isInstanceOf[InputRequiredSignal] then throw e
                   JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
                     Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
               }

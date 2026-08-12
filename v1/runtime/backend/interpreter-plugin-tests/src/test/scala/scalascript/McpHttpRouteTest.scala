@@ -213,3 +213,45 @@ class McpHttpRouteTest extends AnyFunSuite with Matchers:
       try { check; return } catch case e: Throwable => last = e
       Thread.sleep(20); i += 1
     throw last
+
+  // ── P3b — MRTR through the SHIPPED entry point ─────────────────────────
+  //
+  // mcp/common tests call handleHttpRequest directly. A .ssc server does not:
+  // it reaches it through this route. The layer between them shapes the
+  // Response and forwards the headers, and a signal that survives one does not
+  // automatically survive the other -- that is what this file was created to
+  // catch, and MRTR is a second occasion for it.
+
+  private def askRoute(): CapturingCtx =
+    val ctx = new CapturingCtx
+    val b   = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      b.elicit("confirm?", ujson.Obj("type" -> "object"))
+      ToolHandlerResult(Nil, isError = false))
+    Mcp.installHttpRoute(b, "/mcp", PluginContext.fromNative(ctx))
+    ctx
+
+  private def askBody(extra: (String, ujson.Value)*) = ujson.Obj(
+    "jsonrpc" -> "2.0", "id" -> 9, "method" -> McpProtocol.Method.ToolsCall,
+    "params" -> ujson.Obj.from(Seq[(String, ujson.Value)](
+      "name" -> "ask", "arguments" -> ujson.Obj(),
+      "_meta" -> ujson.Obj(
+        McpProtocol.MetaKey.ProtocolVersion    -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj())) ++ extra)).render()
+
+  private def askHeaders = Map(
+    McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+    McpProtocol.Header.Method          -> McpProtocol.Method.ToolsCall,
+    McpProtocol.Header.Name            -> "ask")
+
+  test("MRTR survives the route: an unanswered elicit comes back as input-required"):
+    val js = post(askRoute(), askBody(), askHeaders)
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    js("result")("inputRequests").obj.keySet shouldBe Set("elicit-1")
+
+  test("MRTR survives the route: the answered retry completes through it"):
+    val js = post(askRoute(), askBody("inputResponses" -> ujson.Obj(
+      "elicit-1" -> ujson.Obj("action" -> "accept", "content" -> ujson.Obj()))), askHeaders)
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    js("result").obj.keySet should not contain "inputRequests"
+

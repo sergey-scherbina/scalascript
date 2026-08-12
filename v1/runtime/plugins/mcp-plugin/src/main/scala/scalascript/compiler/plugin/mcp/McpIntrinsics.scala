@@ -770,6 +770,23 @@ private[mcp] object Mcp:
     //   - Decline         → user clicked No
     //   - Cancel          → user dismissed the dialog
     // Treat the latter two as the safe "user didn't agree" branch.
+    //
+    // ── MCP 2026-07-28: A PRECONDITION ON YOUR HANDLER ──────────────────
+    // Against a MODERN client this call no longer blocks. The server is
+    // stateless, so instead of waiting it ABANDONS your handler, asks the
+    // client, and RE-RUNS YOUR HANDLER FROM THE TOP when the answer arrives.
+    //
+    // So: THE CODE BEFORE AN `elicit` RUNS AGAIN, ONCE PER QUESTION. Write a
+    // row, ask for confirmation, and you have written two rows. That failure is
+    // silent — no error, no exception, just a duplicated effect noticed later
+    // and somewhere else. Make everything before an `elicit` idempotent, or do
+    // it after the last one.
+    //
+    // Questions are matched to answers BY ORDER of execution, so a handler must
+    // also reach the same sequence of `elicit` calls on every pass.
+    //
+    // Against a LEGACY client nothing changes: the call blocks and the handler
+    // runs once. specs/mcp-2026-07-28.md 8.5b.
     def elicitFn = PluginValue.nativeFn("McpServer.elicit", {
       case List(Str(message), schemaV, Num(timeoutMs)) =>
         builder.elicit(message, Mcp.valueToJson(schemaV), timeoutMs) match
@@ -784,6 +801,22 @@ private[mcp] object Mcp:
     def clientSupportsElicitationFn =
       PluginValue.nativeFn("McpServer.clientSupportsElicitation",
         { _ => PluginValue.bool(builder.clientSupportsElicitation) })
+    // MCP 2026-07-28 — the handler's note to itself across a replay.
+    // `srv.requestState()` is what THIS handler recorded on an earlier pass
+    // (None on the first, and always on the legacy path); `srv.setRequestState(s)`
+    // records for the next one. The value travels to the client and back
+    // untouched, so treat what you read as UNTRUSTED: sign it, bind it to the
+    // caller and give it a TTL before letting it decide anything that matters.
+    def requestStateFn =
+      PluginValue.nativeFn("McpServer.requestState",
+        { _ => builder.requestState match
+            case Some(s) => PluginValue.string(s)
+            case None    => PluginValue.unit })
+    def setRequestStateFn =
+      PluginValue.nativeFn("McpServer.setRequestState", {
+        case List(Str(s)) => builder.setRequestState(s); PluginValue.unit
+        case _            => PluginError.raise("srv.setRequestState(state: String)")
+      })
     // v1.17.x — completion handlers.  The handler is a function
     // `String => List[String]` (current partial value → suggestions).
     // Two registration entry points for the two ref shapes the spec
@@ -916,6 +949,8 @@ private[mcp] object Mcp:
       "clientSupportsRoots"        -> clientSupportsRootsFn,
       "elicit"                     -> elicitFn,
       "clientSupportsElicitation"  -> clientSupportsElicitationFn,
+      "requestState"               -> requestStateFn,
+      "setRequestState"            -> setRequestStateFn,
       "completionForPrompt"        -> completionForPromptFn,
       "completionForResource"      -> completionForResourceFn,
       "setPageSize"                -> setPageSizeFn,

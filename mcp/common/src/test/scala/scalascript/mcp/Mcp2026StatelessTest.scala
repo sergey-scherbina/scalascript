@@ -1399,3 +1399,165 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
 
   test("RemovedNotificationsInModern is frozen"):
     McpProtocol.RemovedNotificationsInModern shouldBe Set(McpProtocol.Method.RootsListChanged)
+
+  // ── P3b — MRTR replay (specs/mcp-2026-07-28.md 8.5b) ────────────────────
+  //
+  // The decision was REPLAY: the handler stays an ordinary unsavable closure
+  // and is RE-RUN on the retry. "It works" is not the thing to test — a parked
+  // thread would also work. The thing that distinguishes the two is whether the
+  // handler runs again, so the run counter is the load-bearing assertion.
+
+  private val runs = java.util.concurrent.atomic.AtomicInteger(0)
+
+  /** A tool that asks one question, counting how many times it is entered. */
+  private def askingServer(questions: Int = 1): McpServerBuilder =
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      runs.incrementAndGet()
+      val answers = (1 to questions).map(i =>
+        b.elicit(s"question $i", ujson.Obj("type" -> "object")) match
+          case Right(McpProtocol.ElicitationResult.Accept(c)) => c.render()
+          case Right(other)                                   => other.toString
+          case Left(e)                                        => s"error:${e.message}")
+      ToolHandlerResult(List(McpProtocol.textContent(answers.mkString(","))), isError = false))
+    b
+
+  private def callAsk(b: McpServerBuilder, params: ujson.Obj): ujson.Value =
+    // P2b: a modern request over HTTP must carry headers that agree with the body.
+    ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 77,
+      "method"  -> McpProtocol.Method.ToolsCall,
+      "params"  -> params).render(), "srv", "9.9.9",
+      modernHeaders(McpProtocol.Header.Name -> "ask")).trim)
+
+  private def askParams(fields: (String, ujson.Value)*): ujson.Obj =
+    modernParams((Seq("name" -> (ujson.Str("ask"): ujson.Value),
+                      "arguments" -> (ujson.Obj(): ujson.Value)) ++ fields)*)
+
+  private def answer(text: String): ujson.Value =
+    ujson.Obj("action" -> "accept", "content" -> ujson.Str(text))
+
+  test("modern: an unanswered elicit yields input-required, not an error"):
+    val js = callAsk(askingServer(), askParams())
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+    js("result")("inputRequests").obj.keySet shouldBe Set("elicit-1")
+    js("result")("inputRequests")("elicit-1")("method").str shouldBe
+      McpProtocol.Method.ElicitationCreate
+    // the generic handler-error path must NOT have claimed it
+    js("result").obj.keySet should not contain "isError"
+
+  test("modern: the answered retry completes"):
+    val js = callAsk(askingServer(), askParams(
+      "inputResponses" -> ujson.Obj("elicit-1" -> answer("yes"))))
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    js("result")("content")(0)("text").str should include ("yes")
+
+  test("REPLAY: the handler is re-run, it is not resumed"):
+    // The whole decision in one assertion. Under a parked thread this reads 1.
+    runs.set(0)
+    val b = askingServer()
+    callAsk(b, askParams())                                    // asks
+    runs.get shouldBe 1
+    callAsk(b, askParams("inputResponses" -> ujson.Obj("elicit-1" -> answer("yes"))))
+    runs.get shouldBe 2                                        // ran AGAIN, from the top
+
+  test("two questions are answered one pass at a time, in order"):
+    val b = askingServer(questions = 2)
+    val first = callAsk(b, askParams())
+    first("result")("inputRequests").obj.keySet shouldBe Set("elicit-1")
+    val second = callAsk(b, askParams(
+      "inputResponses" -> ujson.Obj("elicit-1" -> answer("a"))))
+    second("result")("inputRequests").obj.keySet shouldBe Set("elicit-2")
+    val third = callAsk(b, askParams("inputResponses" -> ujson.Obj(
+      "elicit-1" -> answer("a"), "elicit-2" -> answer("b"))))
+    third("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    third("result")("content")(0)("text").str shouldBe "\"a\",\"b\""
+
+  test("an explicit key is used instead of the positional one"):
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      b.elicit("q", ujson.Obj(), key = Some("confirm-delete"))
+      ToolHandlerResult(Nil, isError = false))
+    callAsk(b, askParams())("result")("inputRequests").obj.keySet shouldBe Set("confirm-delete")
+
+  test("requestState is echoed back so a handler can record its own progress"):
+    val js = callAsk(askingServer(), askParams("requestState" -> ujson.Str("step-2")))
+    js("result")("requestState").str shouldBe "step-2"
+
+  test("LEGACY is untouched: elicit still blocks on a server-initiated request"):
+    // No _meta.protocolVersion. elicit must take the old path -- which, with no
+    // client answering, times out and returns Left. What it must NOT do is
+    // return input-required: that would change behaviour for existing servers.
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      val r = b.elicit("q", ujson.Obj(), timeoutMs = 120L)
+      ToolHandlerResult(List(McpProtocol.textContent(
+        if r.isLeft then "blocked-and-timed-out" else "answered")), isError = false))
+    val js = ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 78,
+      "method"  -> McpProtocol.Method.ToolsCall,
+      "params"  -> ujson.Obj("name" -> "ask", "arguments" -> ujson.Obj())).render(),
+      "srv", "9.9.9").trim)
+    js("result")("content")(0)("text").str shouldBe "blocked-and-timed-out"
+    js("result").obj.keySet should not contain "resultType"
+
+  test("resources/read honours the signal too -- three paths, not one"):
+    val b = new McpServerBuilder
+    b.resource("mem://x", None, None, _ =>
+      b.elicit("q", ujson.Obj())
+      ResourceHandlerResult("mem://x", Nil))
+    val js = ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 79,
+      "method"  -> McpProtocol.Method.ResourcesRead,
+      "params"  -> modernParams("uri" -> ujson.Str("mem://x"))).render(), "srv", "9.9.9",
+      modernHeaders(McpProtocol.Header.Method -> McpProtocol.Method.ResourcesRead,
+                    McpProtocol.Header.Name   -> "mem://x")).trim)
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+
+  test("prompts/get honours the signal too"):
+    val b = new McpServerBuilder
+    b.prompt("p", None, Nil, _ =>
+      b.elicit("q", ujson.Obj())
+      PromptHandlerResult(None, Nil))
+    val js = ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 80,
+      "method"  -> McpProtocol.Method.PromptsGet,
+      "params"  -> modernParams("name" -> ujson.Str("p"))).render(), "srv", "9.9.9",
+      modernHeaders(McpProtocol.Header.Method -> McpProtocol.Method.PromptsGet,
+                    McpProtocol.Header.Name   -> "p")).trim)
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeInputRequired
+
+  test("a handler records progress and reads it back on the next pass"):
+    // Obligation 1 of 8.5b: without this an author cannot write an idempotent
+    // handler even when they want to, because they cannot tell the passes apart.
+    val seen = java.util.concurrent.atomic.AtomicReference[Option[String]](None)
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      seen.set(b.requestState)
+      b.setRequestState("row-written")
+      b.elicit("confirm?", ujson.Obj())
+      ToolHandlerResult(Nil, isError = false))
+    val first = callAsk(b, askParams())
+    seen.get shouldBe None                                  // first pass: nothing done yet
+    first("result")("requestState").str shouldBe "row-written"
+    callAsk(b, askParams("requestState" -> ujson.Str("row-written")))
+    seen.get shouldBe Some("row-written")                   // second pass: it knows
+
+  test("a handler that keeps no state still round-trips the client's"):
+    callAsk(askingServer(), askParams("requestState" -> ujson.Str("opaque")))(
+      "result")("requestState").str shouldBe "opaque"
+
+  test("requestState is None on the legacy path, where nothing is ever re-run"):
+    val got = java.util.concurrent.atomic.AtomicReference[Option[String]](Some("x"))
+    val b = new McpServerBuilder
+    b.tool("ask", None, ujson.Obj(), _ =>
+      got.set(b.requestState)
+      b.setRequestState("ignored")                          // a no-op here
+      ToolHandlerResult(Nil, isError = false))
+    ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 81, "method" -> McpProtocol.Method.ToolsCall,
+      "params"  -> ujson.Obj("name" -> "ask", "arguments" -> ujson.Obj(),
+                             "requestState" -> ujson.Str("from-client"))).render(),
+      "srv", "9.9.9").trim)
+    got.get shouldBe None
+
