@@ -1831,11 +1831,36 @@ Closing it is a change to a DIFFERENT artifact — `uniml/scala/.../SpikeAst.sca
 
 ## v1-handle-return-clause-binds-the-Return-wrapper — the same program answers differently on v1 and v3
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
-     gate: none -->
+     gate: v3/effects-gate.sh
+     fixed-in: c87dc95cf -->
+
+**FIXED — in v3, which is where the gap actually was.** Controlled A/B over one tree: **N 206 →
+211**, `PASS +5`, `DIFF 4 → 2`, `UNSUPPORTED 154 → 149`, `CRASH 4 → 6`.
+
+Two defects, and the second was found by pricing the first.
+
+**The `Return` clause.** v3 had the mechanism all along — a handler arm marked `op = -1`, an index no
+operation can take — but not the spelling. `case Return(x)` arrived as a `PCtor`, fell into the
+operation branch and was refused as an undeclared effect operation, a message naming a gap that does
+not exist. It is recognised before that branch now and lowered to the same arm, so both spellings
+are one thing downstream and the executor needs no second notion of a return clause.
+
+**`handle { body }` returned the body UNAPPLIED.** The first brace group parses to a lambda exactly
+as the second does, so `handle { prog() } { case ask(k) => k(5) }` printed `<closure 2>` where v1
+prints `6` — a wrong answer at exit 0. `handle(expr) { … }` was never affected, which is how it
+survived: the corpus writes both forms and only one was exercised.
+
+**FOUND BY PRICING, NOT BY READING.** The `Return` fix alone unblocked 15 programs and I was about to
+land on that number. Checking what those programs then DID showed three of them trading an honest
+refusal for `<closure N>`. Two more were already doing it without the change, which is what
+identified the second defect as pre-existing and orthogonal.
+
+**CRASH +2 is the stated cost:** two programs now fail loudly where they were refused. A named
+runtime failure beats a refusal that names an operation the program never declared.
 
 **⚠ THE PREMISE DOES NOT REPRODUCE, 2026-08-12, on a freshly built v1 — and the real defect is the
 other way round.** Measured on one tree, both toolchains built from it:
