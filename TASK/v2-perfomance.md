@@ -51,7 +51,7 @@ refuted list, the measurement rules — is hand-written and never touched by the
 
 | entry | board | status | gate |
 |---|---|---|---|
-| `v1-interpreter-hot-path-never-jits` | `v1/runtime/backend/interpreter/BUGS.md` | open | `tests/e2e/v2-jit-size.sh` |
+| `v1-interpreter-hot-path-never-jits` | `v1/runtime/backend/interpreter/BUGS.md` | open | `tests/e2e/v1-jit-size.sh` |
 | `f-front-compile-cost-7x-on-scljet` | `v2/BUGS.md` | open | — |
 | `v2-backend-gap-matrix` | `v2/BACKLOG.md` | open | — |
 | `v2-perf-array-update-unanalysed` | `v2/BACKLOG.md` | open | `bench/corpus/array-update.ssc` |

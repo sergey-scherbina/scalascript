@@ -592,6 +592,23 @@ val suite = List(
   // twice in the kernel's `__isTag__` and once in JsGen's type-test mapping.
   // (js-char-type-test-cannot-tell-Char-from-String.)
   Check(".", "char-type-test", "tests/e2e/char-type-test.sh", List(), 180000),
+  // No method in the v1 tree may exceed HotSpot's HugeMethodLimit (8000 bytecodes) without being on
+  // a frozen list — over it, a method is NEVER JIT-compiled, by C1 or C2, and runs interpreted for
+  // the life of the process with no warning and no correctness signal.
+  //
+  // ON THE PUSH PATH, not nightly, and that is the point: this gate existed since 2026-07-30 and had
+  // never run once. It was wired to nothing, its census pipeline aborted silently on an empty
+  // result, and it scanned target/classes which do not exist after the cache-hit install its own
+  // header prescribes. In that silence four frozen methods grew (renderTerm by 3204 bytecodes), two
+  // new offenders appeared, and the largest method in the tree was never censused at all because
+  // plugin bytecode ships inside a jar nested in a .sscpkg.
+  //
+  // Its v2 twin sits in ci.yml's `sbt` job, which is `workflow_dispatch` only — I wired this one
+  // there first and caught it: next to the twin is not the same as somewhere that runs.
+  // ~17s, from 85s: one merged census instead of 56, and an exact class-file size prefilter.
+  // --self-test falls through to the census, so this runs the detector's self-check too.
+  // (v1-interpreter-hot-path-never-jits.)
+  Check(".", "v1-jit-size", "tests/e2e/v1-jit-size.sh", List("--self-test"), 180000),
   // Mixed Int/Double comparison across FIVE lanes, and the only gate here whose oracle is `run-jvm`
   // rather than `--v1`: on this question the interpreter was one of the WRONG lanes, so the usual
   // shape would have frozen the defect as the reference. It refuses to judge when real Scala stops
