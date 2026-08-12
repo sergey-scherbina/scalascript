@@ -2318,13 +2318,14 @@ open after that fixture correction; at least `examples/distributed-dataset-typed
 uses the affected Scala-style import and needs a future real-harness audit.
 
 ## v2-native-charAt-toString-yields-code — `charAt(i).toString` renders the character CODE on v2-native → every uppercase keyword breaks
-<!-- status: open
+<!-- status: fixed
+     fixed-in: f39448c96
      lane: int
      area: front
      kind: bug
-     gate: none -->
+     gate: tests/e2e/char-type-test.sh -->
 
-**STILL REPRODUCES — re-verified 2026-08-02 at `1305736e1`**, byte for byte as reported:
+**SUPERSEDED (see the close at the end) — was: STILL REPRODUCES, re-verified 2026-08-02 at `1305736e1`**, byte for byte as reported:
 
 ```
 bin/ssc-tools run --v1  →  INSERT
@@ -2367,7 +2368,7 @@ cannot both be right, so this needs a language decision, not a patch. `gate: non
 engine-side fix removed the only in-corpus user, which means nothing in the suite would notice a
 regression here.
 
-**Status:** **ENGINE SIDE FIXED (2026-07-17, `46f09ad29`)** — scljet no longer uses the ambiguous
+**SUPERSEDED. Status was:** **ENGINE SIDE FIXED (2026-07-17, `46f09ad29`)** — scljet no longer uses the ambiguous
 idiom, and the SQL engine now runs on the default `bin/ssc run` (23/24 scljet conformance cases,
 was 0). **The LANGUAGE-LEVEL divergence stays OPEN**: any other `.ssc` using `charAt(i).toString`
 is still silently wrong on v2-native. Found 2026-07-17 while asking why the scljet engine cannot
@@ -2422,6 +2423,69 @@ the worst of the four.
 reported a `StackOverflowError` for this same program (an older build), while a freshly
 `installBin`-ed worktree reports the real error. Always rebuild before believing a v2-native
 failure — AGENTS.md's "reproduce in the real harness" applies to the lane's binary too.
+
+---
+
+### CLOSED 2026-08-12 — fixed in `f39448c96` on 2026-08-10, and nothing here could tell
+
+**The entry outlived its defect by two days.** Re-measured on a build made from this tree, the same
+five-row program on five lanes:
+
+| | `charAt(0)` | `.toString` | `.toInt` | `"[" + c + "]"` | the `+=` loop over `"INSERT"` |
+|---|---|---|---|---|---|
+| int | `I` | `I` | `73` | `[I]` | `INSERT` |
+| native | `I` | `I` | `73` | `[I]` | `INSERT` |
+| bytecode | `I` | `I` | `73` | `[I]` | `INSERT` |
+| js | `I` | `I` | `73` | `[I]` | `INSERT` |
+| jvm | `I` | `I` | `73` | `[I]` | `INSERT` |
+
+`f39448c96` took the option this entry lists as (b) and the analysis above calls impossible — and
+the analysis is wrong in an instructive way. It says a Char cannot both render as a character and
+convert as a number "without a Char box", then concludes the two lanes cannot both be right. The fix
+adds the box, but as `CharV extends IntV`: a Char IS its code point at every numeric site and
+carries the character at the few text sites. `charAt` moved onto a SECOND primitive, `scharAt`,
+while `scodeAt` stayed for the compiler's own passes, which build escapes and need the number.
+
+**THE OPEN HALF WAS THE GATE, NOT THE LANGUAGE.** `gate: none` was accurate, and it is why this sat
+here: nothing in the suite could have told anyone the defect was gone, or noticed it coming back.
+`tests/e2e/char-type-test.sh` did exist by then — written for the same fix — but it asked only
+`case _: Char`, the type-ascription half. What a Char PRINTS was ungated, which is precisely the
+half this entry is about.
+
+### The gate now carries both halves, and the second control is the one that matters
+
+Five rendering rows added, and the gate verified against TWO planted defects rather than one:
+
+**Plant 1 — the original cause.** `scharAt` reverted to `scodeAt` in the staged F front
+(`bin/lib/*/native-front/tower/bin/fsub.ssc`, which is read at runtime, so no rebuild). Gate RED,
+reproducing this entry's string exactly: `INSERT` → `737883698284`.
+
+**That plant alone would NOT have justified the new rows** — it also flipped row 4
+(`kind(s.charAt(0))`: `Char` → `Int`), so the OLD five-row gate caught it too. A control that the
+old apparatus also passes is not evidence that the new apparatus adds anything.
+
+**Plant 2 — a regression the old gate is blind to.** Both Char rendering arms in
+`v2/src/Runtime.scala` disabled (`case CharV(c) if false => c.toString`, and the same on the
+`toString` method arm), leaving `__isTag__` untouched. Result:
+
+    rows 1-5   Char String Int Char String     <- IDENTICAL. The old gate reads GREEN.
+    rows 6,7   I  I           ->  73  73
+    row  8     73              ->  73           <- unchanged in BOTH states, deliberately
+    row  9     [I]             ->  [73]
+    row 10     INSERT          ->  737883698284
+
+Row 8 is in the gate as the OPPOSITE guard: `charAt(0).toInt` must stay `73`, so a future "fix" that
+makes a Char stop being a number fails here rather than in a corpus program weeks later. It is the
+one row that must NOT move, and holding it still under both plants is what shows the other four are
+measuring rendering and not the representation as a whole.
+
+Row 10 is the original repro rather than a reduction: an accumulation over an ALREADY-UPPERCASE
+string. The shape is load-bearing — the reported bug was invisible on lowercase input, because that
+branch went through `.toChar.toString` and was correct. A tidier fixture using `"abc"` would have
+passed on the broken toolchain.
+
+**Cost:** none in the suite's shape — the same four lane invocations run the same single program,
+five rows longer. The smoke budget (180 s) is untouched.
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
 <!-- status: fixed
