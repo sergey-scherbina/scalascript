@@ -2,10 +2,10 @@ slug: mixed-numeric-comparison
 branch: feature/mixed-numeric-comparison
 agent: claude-code
 started: 2026-08-12T01:12:15Z
-heartbeat: 2026-08-12T01:20:24Z
+heartbeat: 2026-08-12T01:33:19Z
 status: in-progress
 items: lanes-disagree-on-mixed-numeric-comparison
-paths: file:BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala
+paths: file:BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: interp has SIX literal-compare sites, all structural — one shared helper
+next: wire the gate into smoke, then land
