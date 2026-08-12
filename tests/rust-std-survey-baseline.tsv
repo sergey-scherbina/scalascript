@@ -1,9 +1,9 @@
-std/actors.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/agent-mcp.ssc	REFUSED	Unsupported(McpClient,rust)
 std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/auth.ssc	COMPILES	
 std/bench.ssc	COMPILES	
-std/bifunctor.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/bifunctor.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/cluster/coord-consul.ssc	COMPILES	
 std/cluster/coord-etcd.ssc	COMPILES	
 std/cluster/index.ssc	COMPILES	
@@ -11,7 +11,7 @@ std/cluster/membership.ssc	REFUSED	Generic(def `_` calls `_`, which this crate d
 std/cluster/shard.ssc	COMPILES	
 std/cluster/singleton.ssc	COMPILES	
 std/cluster/types.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
-std/collection-extras.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/collection-extras.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/content-bind-core.ssc	COMPILES	
 std/content-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/content.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (NullV)
@@ -20,18 +20,18 @@ std/credential.ssc	COMPILES
 std/crypto.ssc	COMPILES	
 std/dep-cps-ping.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
 std/dsl/ast.ssc	COMPILES	
-std/dsl/builders.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/dsl/builders.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (a.asInstanceOf[A])
 std/dstreams.ssc	COMPILES	
 std/either.ssc	COMPILES	
 std/eq.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
 std/error-handling.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
 std/fs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
-std/functor-applicative-monad.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/functor-applicative-monad.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/generators.ssc	COMPILES	
 std/geo.ssc	COMPILES	
 std/graphql.ssc	COMPILES	
@@ -59,19 +59,19 @@ std/mcp/types.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has 
 std/middleware.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
 std/mime.ssc	COMPILES	
 std/monad-control.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0
-std/monaderror.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/monaderror.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/money.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
 std/nfc.ssc	REFUSED	Unsupported(NfcNdef,rust)
 std/nodes.ssc	COMPILES	
 std/openapi.ssc	COMPILES	
 std/order.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
 std/os.ssc	COMPILES	
-std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/parsing/core.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/parsing/helpers.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/parsing/layout.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/parsing/recovery.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
-std/parsing/regex.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/parsing/core.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/parsing/helpers.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/parsing/layout.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/parsing/recovery.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/parsing/regex.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (RxAnyChar)
 std/pdf-gen.ssc	COMPILES	
 std/process.ssc	COMPILES	
 std/pwa.ssc	COMPILES	
@@ -99,7 +99,7 @@ std/scljet/values.ssc	COMPILES
 std/scljet/vfs.ssc	COMPILES	
 std/scljet/wal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/scljet/write.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
-std/selective.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/selective.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
 std/semigroup-monoid.ssc	REFUSED	Generic(def `_` emits 3 times (overloading); Rust has no overloading and this lane does not mangle names
 std/show.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
 std/smtp.ssc	COMPILES	
@@ -127,6 +127,6 @@ std/ui/state.ssc	COMPILES
 std/ui/theme.ssc	COMPILES	
 std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	
-std/uuid.ssc	REFUSED	Generic(def `_` is an `_` member reading its receiver `_`; this lane drops the receiver, so the body would ref
+std/uuid.ssc	COMPILES	
 std/yaml-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses on a value this lane cannot type; it is a collection member, not
 std/yaml.ssc	COMPILES	

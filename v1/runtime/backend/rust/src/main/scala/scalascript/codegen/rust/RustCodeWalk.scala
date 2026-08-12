@@ -91,6 +91,12 @@ object RustCodeWalk:
     // name, and the ONE this lane cannot see is a call from another module.
     // (rust-std-e0428-duplicate-definition.)
     val extensionMembers = collectExtensionMembers(module)
+    // A member declared on two different receivers is overloading, which this lane refuses anyway;
+    // keeping the FIRST keeps the map total without inventing a resolution rule.
+    _extensionOf = extensionMembers.reverse.toMap
+    // Members the lowering will NOT take: a generic group, an operator name, an untyped receiver.
+    val unloweredExtensions = collectAllExtensionMembers(module).filterNot((n, _) => _extensionOf.contains(n))
+    _typeAliases = collectPlainTypeAliases(module)
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
     val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
@@ -209,9 +215,12 @@ object RustCodeWalk:
     // COMPILES status on the first attempt — std/cluster/*, std/geo, std/nodes and more, every one
     // of them compiling perfectly well with an unreachable overload in the file. Caught by reading
     // the survey baseline diff, not by the gate, which only asserts that BADRUST does not grow.
-    val renderedNames = defsToRender.map(_.name.value).toSet
-    val extensionErrs = extensionMembers.filter((n, _) => renderedNames.contains(n)).map { (n, recv) =>
-      unsupported(s"def `$n` is an `extension` member reading its receiver `$recv`; this lane drops the receiver, so the body would reference a name that does not exist")
+    // Scoped to what is RENDERED and to members whose body actually READS the receiver: one that
+    // does not compiles perfectly well as a plain function.
+    val renderedByName = defsToRender.map(d => d.name.value -> d).toMap
+    val extensionErrs = unloweredExtensions.collect {
+      case (n, recv) if renderedByName.get(n).exists(d => readsName(d.body, recv)) =>
+        unsupported(s"def `$n` is an `extension` member this lane cannot lower (generic group, operator name, or an untyped receiver) and its body reads the receiver `$recv`")
     }
     val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks))
     val (errors, ok) = results.partitionMap(identity)
@@ -446,14 +455,28 @@ object RustCodeWalk:
    *  hurts nobody. Measured before choosing — exactly one COMPILES module declares an extension.
    *  (rust-std-e0425-name-not-found.)
    */
-  private def collectExtensionMembers(module: ast.Module): List[(String, String)] =
+  /** Extension members: member name -> the RECEIVER it is declared on, as `(name, renderedType)`.
+   *
+   *  `extension (u: Uuid) def asString: String = u` is Scala's way of writing a method on a type
+   *  you do not own, and Rust's is a free function taking that value first. So the member lowers to
+   *  `pub fn asString(u: Uuid) -> String`, and `x.asString` at a call site lowers to
+   *  `asString(x)` — the same program, spelled the way the target spells it.
+   *
+   *  Until now both halves were REFUSED: the member emitted a body reading a receiver that had been
+   *  dropped, and the call could not be routed to it. Seventeen std modules, the largest single
+   *  entry in the refusal histogram. (rust-extension-members-are-refused.) */
+  /** EVERY extension member, as `(memberName, receiverName)` — including the ones the lowering
+   *  cannot take. Those must still REFUSE: dropping the refusal when the lowering landed let
+   *  std/collection-extras.ssc and std/dsl/pretty.ssc emit bodies reading a receiver that was never
+   *  a parameter, which the survey correctly called a regression. Lower what we can, refuse the
+   *  rest, and never simply emit. */
+  private def collectAllExtensionMembers(module: ast.Module): List[(String, String)] =
     def fromSection(s: ast.Section): List[(String, String)] =
       s.content.flatMap {
         case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
           node.tree.collect { case eg: m.Defn.ExtensionGroup =>
-            val recv = eg.paramClauses.flatMap(_.values).headOption.map(_.name.value)
-            recv.toList.flatMap { r =>
-              eg.body.collect { case d: m.Defn.Def if readsName(d.body, r) => (d.name.value, r) }
+            eg.paramClauses.flatMap(_.values).headOption.toList.flatMap { rp =>
+              eg.body.collect { case d: m.Defn.Def => d.name.value -> rp.name.value }
             }
           }.flatten.toList
         case _ => Nil
@@ -465,6 +488,39 @@ object RustCodeWalk:
     t match
       case m.Term.Name(n) if n == name => true
       case _                           => t.children.exists(readsName(_, name))
+
+  private def collectExtensionMembers(module: ast.Module): List[(String, (String, m.Type))] =
+    def fromSection(s: ast.Section): List[(String, (String, m.Type))] =
+      s.content.flatMap {
+        case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+          node.tree.collect { case eg: m.Defn.ExtensionGroup =>
+            // TWO EXCLUSIONS, both measured: each let a module emit that had been refusing, which
+            // the survey calls a regression and is right to.
+            //
+            //  * A TYPE-PARAMETERISED group — `extension [A](xs: List[A])` — has no receiver type
+            //    this lane can write: `A` falls to the i64 default and `xs.join(sep)` became
+            //    `Vec<i64>::join` (std/collection-extras.ssc).
+            //  * A member named with an OPERATOR — `def ++(r: Doc)` — is not a Rust identifier:
+            //    `pub fn ++(l: Doc, …)` does not parse (std/dsl/pretty.ssc).
+            //
+            // Excluded here rather than patched later, so both halves stay consistent: a member the
+            // call site cannot route must not be emitted as a definition either.
+            if eg.paramClauseGroup.exists(_.tparamClause.values.nonEmpty) then Nil
+            else eg.paramClauses.flatMap(_.values).headOption match
+              case Some(rp) => rp.decltpe match
+                // A receiver with no declared type cannot be lowered — there is nothing to write in
+                // the parameter list. Left out of the map, so both halves keep refusing by name.
+                case Some(rt) =>
+                  eg.body.collect {
+                    case d: m.Defn.Def if d.name.value.matches("[A-Za-z_][A-Za-z0-9_]*") =>
+                      d.name.value -> (rp.name.value, rt)
+                  }
+                case None     => Nil
+              case None => Nil
+          }.flatten.toList
+        case _ => Nil
+      } ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection)
 
   private def collectDefs(module: ast.Module): List[m.Defn.Def] =
     module.sections.flatMap(sectionDefs)
@@ -612,6 +668,15 @@ object RustCodeWalk:
 
   private var _paramTypes: Map[String, List[String]] = Map.empty
   private var _returnTypes: Map[String, String] = Map.empty
+  /** Extension member name -> (receiver param name, its declared type). Both halves of the lowering
+   *  read it: the DEFINITION prepends the receiver to its parameter list, and a CALL `x.m(a)`
+   *  becomes `m(x, a)`. (rust-extension-members-are-refused.) */
+  private var _extensionOf: Map[String, (String, m.Type)] = Map.empty
+  /** Plain type aliases: `opaque type Uuid = String` -> the RHS. Only type LAMBDAS were collected,
+   *  so a plain alias fell to the `i64` default and `extension (u: Uuid) def asString: String = u`
+   *  emitted `pub fn asString(u: i64) -> String { u }`. An opaque type is a NAME for a
+   *  representation, and the representation is what this target has. */
+  private var _typeAliases: Map[String, m.Type] = Map.empty
   /** Constructor name → the ENUM that owns it, for a variant used as a TYPE.
    *
    *  Scala lets a case class extending a sealed trait stand as its own type, so
@@ -686,6 +751,19 @@ object RustCodeWalk:
       val r    = if ret.isEmpty then "" else s" -> $ret"
       s"fn $op(&mut self$args)$r"
     }
+
+  /** `type X = T` / `opaque type X = T`, where T is a plain type (not a lambda). */
+  private def collectPlainTypeAliases(module: ast.Module): Map[String, m.Type] =
+    def fromContent(c: ast.Content): List[(String, m.Type)] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect {
+          case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), tparams, rhs, _)
+              if tparams.values.isEmpty && !rhs.isInstanceOf[m.Type.Lambda] => n -> rhs
+        }.toList
+      case _ => Nil
+    def fromSection(s: ast.Section): List[(String, m.Type)] =
+      s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection).toMap
 
   private def collectTypeLambdaAliases(module: ast.Module): Map[String, (List[String], m.Type)] =
     def fromContent(c: ast.Content): List[(String, (List[String], m.Type))] = c match
@@ -2014,6 +2092,13 @@ object RustCodeWalk:
     // A VARIANT used as a type is the enum it belongs to. Before the i64 default, because that
     // default is what silently produced the mismatch.
     case m.Type.Name(n) if _variantOwner.contains(n) => Right(_variantOwner(n))
+    // A plain alias is its RHS. Guarded against `type X = X` by dropping the name from the map for
+    // the recursive call, so a self-referential alias reaches the default instead of looping.
+    case m.Type.Name(n) if _typeAliases.contains(n) =>
+      val rhs = _typeAliases(n)
+      val saved = _typeAliases
+      _typeAliases = _typeAliases - n
+      try mapType(rhs, defName, enumNames, inField) finally _typeAliases = saved
     case m.Type.Name(_) => Right("i64")
     case other =>
       Left(List(unsupported(
@@ -2046,7 +2131,14 @@ object RustCodeWalk:
     // evidence) flatten into a single Rust fn param list; the matching curried
     // CALL is flattened the same way in renderTerm.
     val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-    val rendered = params.map { p =>
+    // An extension member takes its RECEIVER first: `extension (u: Uuid) def asString` becomes
+    // `pub fn asString(u: Uuid, …)`. Rendered here rather than by rewriting the AST, so the body —
+    // which already refers to `u` — needs no rewriting at all.
+    val recvParam: List[Either[List[Diagnostic], String]] =
+      _extensionOf.get(d.name.value).toList.map { (rn, rt) =>
+        mapType(rt, ctx.defName, ctx.enumNames).map(r => s"$rn: ${paramType(r)}")
+      }
+    val rendered = recvParam ++ params.map { p =>
       p.decltpe match
         case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
         case None    => Left(List(unsupported(
@@ -2261,6 +2353,13 @@ object RustCodeWalk:
     // expression (the annotation is for the front-end type-checker, not codegen).
     case asc: m.Term.Ascribe =>
       renderTerm(asc.expr, ctx)
+
+    // A no-paren extension member: `u.asString` -> `asString(u)`. FIRST among the Select arms,
+    // because a member can be named `size` or `toInt` and those arms would take it, and because the
+    // field-access fallback further down is what used to emit `no field asString on type Uuid`.
+    // (rust-extension-members-are-refused.)
+    case m.Term.Select(qual, m.Term.Name(mth)) if _extensionOf.contains(mth) =>
+      renderTerm(qual, ctx).map(q => s"${rustIdent(mth)}($q)")
 
     // `xs.size` / `xs.length` / `xs.len` — every shape reads as
     // `xs.len() as i64` (Vec::len returns `usize`).
@@ -2548,6 +2647,20 @@ object RustCodeWalk:
       val msCases = handleCasesOf(caseArgs.values.head)
       multiShotHandle(bodyArgs.values.head, msCases, ctx)
         .getOrElse(renderHandle(bodyArgs.values.head, msCases, ctx))
+    // CALL SIDE of an extension member: `x.asString` and `x.shift(n)` become `asString(x)` and
+    // `shift(x, n)`. The definition already takes its receiver first (see `renderParams`), so this
+    // is the same program spelled the way Rust spells it.
+    //
+    // BEFORE the no-paren refusal below and before the field-access fallback, because both would
+    // otherwise claim it: a no-paren extension member looks exactly like a field read, which is how
+    // it reached users as `no field asString on type Uuid`.
+    // (rust-extension-members-are-refused.)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name(mth)), argClause)
+        if _extensionOf.contains(mth) =>
+      val rendered = renderTerm(qual, ctx) :: argClause.values.toList.map(a => renderTerm(a.asInstanceOf[m.Term], ctx))
+      val (eerrs, eok) = rendered.partitionMap(identity)
+      if eerrs.nonEmpty then Left(eerrs.flatten)
+      else Right(s"${rustIdent(mth)}(${eok.mkString(", ")})")
     // A 0-arg apply on a local holding a `Value` is a SIGNAL READ, and it has to be decided HERE:
     // put later, among the call arms, an earlier one claims `loading()` first and emits a call —
     // `error[E0618]: expected function, found Value`. The Signal lives IN an `Any` field, so the
