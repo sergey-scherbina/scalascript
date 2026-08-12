@@ -11,27 +11,34 @@
 # split, which is why `tests/e2e/v2-jit-size.sh` exists.
 #
 # That gate scans `v2/{src,backend-jvm-bytecode,jvm-runtime}` ONLY. Nobody ever pointed it at v1 —
-# the tree that is 4.3× larger (302 210 lines vs 70 844). Censused 2026-07-29: SEVEN methods over
-# the limit, four of them the interpreter's core dispatch, which every INT conformance case and
-# every `ssc run` goes through:
+# the tree that is 4.3× larger (302 210 lines vs 70 844). This one does, over the SHIPPED artifacts.
 #
-#   28036  ActorScheduler.handleActorOp
-#   25100  JsGen.genExpr
-#   21114  DispatchRuntime.infix2
-#   16346  RustCodeWalk.renderTerm
-#   15330  EvalRuntime.evalCore
-#   14696  DispatchRuntime.dispatchList
-#    9839  DispatchRuntime.dispatchString
+# WHY A FROZEN DEBT LIST AND NOT A HARD FAIL. Pre-existing offenders cannot be fixed in the commit
+# that adds the gate, and a gate that is red on arrival gets disabled within a day. So the known
+# ones are frozen BY NAME with their measured size; the gate fails on a NEW one, and it also fails
+# when a frozen method GROWS. It is the shape already used by the negtc release gate: freeze the
+# hard invariant, derive the rest.
 #
-# WHY A FROZEN DEBT LIST AND NOT A HARD FAIL. Seven pre-existing offenders cannot be fixed in the
-# commit that adds the gate, and a gate that is red on arrival gets disabled within a day. So the
-# known seven are frozen BY NAME with their measured size; the gate fails on an EIGHTH, and it also
-# fails when a frozen method GROWS. It is the shape already used by the negtc release gate: freeze
-# the hard invariant, derive the rest.
+# It also fails when a frozen method DISAPPEARS from the census — but read that failure carefully,
+# because it has two causes and only one of them means "fixed"; see the note on the check itself.
 #
-# It also fails when a frozen method DISAPPEARS from the census — that means someone fixed it, and
-# the freeze must shrink rather than quietly keep granting an exemption nobody needs. Same
-# self-expiry as a `known-red:` declaration.
+# ── 2026-08-12: THIS GATE HAD NEVER ONCE RUN, AND COULD NOT HAVE ────────────────────────────────
+#
+# Three independent defects, each enough on its own:
+#
+#   1. NOT WIRED. No workflow, no suite, no script invoked it. The only things naming it were a
+#      BUGS entry, a source comment and the orphan probe. Its twin v2-jit-size.sh is in ci.yml.
+#   2. SILENT ABORT. The observed-set pipeline ended in `grep -E '^[0-9]+ '`; grep exits 1 on zero
+#      matches and `set -euo pipefail` turned that into rc=1 with EMPTY stderr. Run it by hand and
+#      you got a failure with no message.
+#   3. BLIND SCOPE. It scanned `v1/**/target/scala-*/classes`, which do not exist after the
+#      `install.sh --dev` its own header tells you to run — that build restores `bin/lib` from the
+#      toolchain cache and never invokes sbt. One unrelated Scala 2.12 directory from the sbt plugin
+#      was enough to slip past the "no classes found" guard and into defect 2.
+#
+# What it cost, visible the moment the scan was pointed at the right artifacts: four frozen methods
+# had grown (renderTerm by 3204 bytecodes), two new offenders had appeared, and the largest method
+# in the tree had never been censused at all because plugin bytecode ships nested inside a .sscpkg.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -52,13 +59,29 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # Sizes below are the 2026-07-30 fresh-build measurement;
 # growth beyond the recorded number is a regression even while the method stays exempt.
 # SHRINKING this list is the goal. Do not add to it without a measured reason in the commit.
+# RE-BASELINED 2026-08-12 from the shipped artifacts of a fresh build, and the deltas are the cost
+# of this gate never having run. It is referenced by no workflow and no suite — until today the only
+# things naming it were a BUGS entry, a source comment and the orphan probe. In that time:
+#
+#   renderTerm   16346 -> 19550   (+3204)
+#   genExpr      25100 -> 25328   (+228)
+#   evalCore     15330 -> 15428   (+98)
+#   dispatchString 9839 -> 10013  (+174)
+#   StaticJsEmitter$Ctx::compile  11387   NEW
+#   SolidEmitter$Ctx::compile     10670   NEW
+#
+# The two NEW entries are frontend emitters, not the INT hot path; they are frozen with that as the
+# measured reason rather than fixed here. `handleActorOp` is UNCHANGED at 28036 — see the nested-jar
+# note below for why it briefly looked as though it had gone away.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
-25100 scalascript.codegen.JsGen::genExpr
-16346 scalascript.codegen.rust.RustCodeWalk$::renderTerm
-15330 scalascript.interpreter.EvalRuntime$::evalCore
+25328 scalascript.codegen.JsGen::genExpr
+19550 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+15428 scalascript.interpreter.EvalRuntime$::evalCore
 14696 scalascript.interpreter.DispatchRuntime$::dispatchList
-9839 scalascript.interpreter.DispatchRuntime$::dispatchString
+11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
+10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
+10013 scalascript.interpreter.DispatchRuntime$::dispatchString
 EOF
 
 # ── self-test: a detector only ever observed staying quiet is not a detector ─────────────────
@@ -76,23 +99,99 @@ if [[ "${1:-}" == "--self-test" ]]; then
     || { echo "SELF-TEST FAIL: census stayed quiet on a method built to exceed $LIMIT" >&2; exit 1; }
   [[ -z "$("$CENSUS" "$TMP/classes-Small" "$LIMIT")" ]] \
     || { echo "SELF-TEST FAIL: census flagged a 10-statement method" >&2; exit 1; }
-  echo "v1-jit-size self-test: PASS (census detects over-limit and stays quiet under it)"
-  exit 0
+
+  # An EMPTY census must flow on to the frozen-list checks, not abort the script.
+  #
+  # This is the defect that made this gate useless: the observed-set pipeline ended in
+  # `grep -E '^[0-9]+ '`, `grep` exits 1 when nothing matches, and `set -euo pipefail` turned that
+  # into rc=1 with EMPTY stderr — a failure with no message, indistinguishable from a real one.
+  # It fired exactly when the census found nothing, which is the state a mis-scoped scan produces.
+  # Asserted on the pipeline's own EXIT STATUS, not by wrapping it in a subshell and hoping `set -e`
+  # fires. It does not: bash suppresses `-e` inside a compound command whose status is tested, so
+  # `( set -e; … ) || fail` passes whatever happens. The first version of this assertion was written
+  # that way, and re-running it against a copy with the `|| true` deliberately REMOVED still
+  # reported PASS — it was a check that could not fail. Take the status directly instead.
+  set +e
+  ( set -o pipefail; printf 'no numbers here\n' | { grep -E '^[0-9]+ ' || true; } | sort -u >/dev/null )
+  empty_rc=$?
+  set -e
+  [[ $empty_rc -eq 0 ]] \
+    || { echo "SELF-TEST FAIL: the empty-census pipeline exits $empty_rc instead of 0 —" >&2
+         echo "  under 'set -euo pipefail' that aborts this gate with NO message at all." >&2
+         echo "  The grep needs its '|| true'. (Verified to fail when that is removed.)" >&2; exit 1; }
+
+  echo "v1-jit-size self-test: PASS (census detects over-limit, stays quiet under it,"
+  echo "                            and an empty census does not abort the run)"
+  # FALL THROUGH to the census, matching v2-jit-size.sh, whose usage line says
+  # "assert BOTH verdicts, then check the artifacts". One CI invocation must do both: wiring only
+  # `--self-test` would run the detector's self-check and never look at the tree — the exact shape
+  # of uselessness this gate was already in.
 fi
 
-dirs=()
-while IFS= read -r d; do dirs+=("$d"); done < <(find "$ROOT/v1" -type d -name classes -path '*target/scala-*' 2>/dev/null | sort)
-if [[ ${#dirs[@]} -eq 0 ]]; then
-  echo "v1-jit-size: no compiled v1 classes found — build first (bash install.sh --dev)" >&2
-  echo "  looked for: v1/**/target/scala-*/classes" >&2
+# ── WHAT IS SCANNED: the SHIPPED JARS, not `v1/**/target/*/classes` ──────────────────────────────
+#
+# This gate scanned `target/*/classes` and, measured 2026-08-12, that made it BLIND in exactly the
+# state its own header tells you to be in. `install.sh --dev` restores `bin/lib` from the toolchain
+# cache when the inputs digest matches, and then sbt never runs — a fresh worktree has NO
+# `v1/**/target/scala-3*/classes` at all. What it does have is one unrelated Scala 2.12 directory
+# from the sbt plugin, which was enough to get past the "no classes found" guard below.
+#
+# The jars are also the RIGHT artifact on the merits: `bin/lib/jars/*.jar` is what `bin/ssc-tools`
+# puts on its classpath, so it is the bytecode that actually runs. `target/classes` is an
+# intermediate that may be stale, absent, or from another build. Verified identical where both
+# exist: EvalRuntime 15428, dispatchList 14696, dispatchString 10013 from the jar and from a fresh
+# `backendInterpreter/compile`.
+#
+# THIRD-PARTY JARS ARE EXCLUDED BY NAME. `bin/lib/jars` also holds scalameta, postgresql, h2 and
+# ujson, each with its own over-limit methods that are none of our business and that we cannot fix.
+# Only `scalascript-*.jar` is ours. The v2 tree has its own gate (v2-jit-size.sh), so `-v2-` jars
+# are left to it rather than double-reported here.
+jars=()
+while IFS= read -r j; do jars+=("$j"); done < <(
+  find "$ROOT/bin/lib/jars" -name 'scalascript-*.jar' 2>/dev/null | grep -v -- '-v2-' | sort)
+if [[ ${#jars[@]} -eq 0 ]]; then
+  echo "v1-jit-size: no shipped scalascript jars found — build first (bash install.sh --dev)" >&2
+  echo "  looked for: bin/lib/jars/scalascript-*.jar" >&2
   exit 2
 fi
-echo "v1-jit-size: scanning ${#dirs[@]} class dir(s), limit $LIMIT"
+echo "v1-jit-size: scanning ${#jars[@]} shipped jar(s), limit $LIMIT"
 
-observed="$(mktemp)"; trap 'rm -f "$observed"' EXIT
-for d in "${dirs[@]}"; do "$CENSUS" "$d" "$LIMIT" 2>/dev/null || true; done \
+# ── PLUGIN BYTECODE SHIPS NESTED, AND NO CENSUS HAD EVER LOOKED AT IT ────────────────────────────
+#
+# A v1 compiler plugin ships as `bin/lib/compiler/plugins/<name>.sscpkg` — a zip whose payload is
+# `intrinsics/<name>.jar`, a jar INSIDE a zip. All 27 plugins are built that way and none of them
+# had ever been censused by anything.
+#
+# This is not a completeness nicety, it is what keeps the disappeared-check honest. `handleActorOp`
+# (28036 bytecodes, the largest offender on the list) lives in `actors-plugin.sscpkg`. Scanning only
+# the flat jars made the gate report it as "no longer over the limit — DELETE it from FROZEN", which
+# is FALSE: the method is alive, unchanged, and still shipping. Following that instruction would
+# have dropped the biggest offender in the tree out of the census permanently, and the gate would
+# have gone green doing it.
+#
+# A frozen entry that a scan cannot see is indistinguishable from one that was fixed. The
+# disappeared-check is only safe when coverage is complete, so coverage comes first.
+pkgtmp="$(mktemp -d "${TMPDIR:-/tmp}/v1jit-pkg.XXXXXX")"
+observed="$(mktemp)"
+# ${TMP:-} too: --self-test now falls through to here, and a second `trap ... EXIT` REPLACES the
+# first, so the self-test's own scratch dir would leak on every CI run.
+trap 'rm -rf "$pkgtmp" "$observed" ${TMP:+"$TMP"}' EXIT
+nested=()
+while IFS= read -r p; do
+  d="$pkgtmp/$(basename "${p%.sscpkg}")"
+  unzip -q -o "$p" 'intrinsics/*.jar' -d "$d" 2>/dev/null || continue
+  while IFS= read -r nj; do nested+=("$nj"); done < <(find "$d" -name '*.jar' 2>/dev/null)
+done < <(find "$ROOT/bin/lib/compiler/plugins" -name '*.sscpkg' 2>/dev/null | sort)
+echo "v1-jit-size: plus ${#nested[@]} nested plugin jar(s) from .sscpkg payloads"
+
+# `|| true` on the grep, and it is load-bearing: `grep` exits 1 on ZERO matches, and under
+# `set -euo pipefail` that killed this script with rc=1 and an EMPTY stderr — a silent failure
+# indistinguishable from a real one, and impossible to diagnose. It fired whenever the census came
+# back empty, which is precisely the blind state described above. An empty census must reach the
+# "frozen method disappeared" check below and be reported there, not abort the run.
+for j in "${jars[@]}" ${nested[@]+"${nested[@]}"}; do "$CENSUS" "$j" "$LIMIT" 2>/dev/null || true; done \
   | sed -E 's/^ *([0-9]+) +([A-Za-z0-9_.$]+) :: .*[ (]([A-Za-z0-9_$]+)\(.*/\1 \2::\3/' \
-  | grep -E '^[0-9]+ ' | sort -u > "$observed"
+  | { grep -E '^[0-9]+ ' || true; } | sort -u > "$observed"
 
 fail=0
 declare -A frozen_size=()
@@ -116,8 +215,14 @@ done < "$observed"
 while read -r size name; do
   [[ -n "${name:-}" ]] || continue
   grep -qE " ${name//$/\\$}$" "$observed" \
-    || { echo "FAIL  frozen method is no longer over the limit — DELETE it from FROZEN: $name" >&2
-         echo "        (an exemption that outlives its need is the same rot as a stale known-red)" >&2
+    || { echo "FAIL  frozen method is not in the census: $name" >&2
+         echo "        Either it was fixed — then DELETE it from FROZEN, an exemption that outlives" >&2
+         echo "        its need is the same rot as a stale known-red — OR THE SCAN NO LONGER REACHES" >&2
+         echo "        IT, in which case deleting it drops a live offender from the census forever." >&2
+         echo "        CHECK THE SOURCE BEFORE DELETING: grep for the method name in v1/." >&2
+         echo "        Measured 2026-08-12: handleActorOp reported exactly this while alive and" >&2
+         echo "        unchanged at 28036 — its class ships in a jar NESTED inside a .sscpkg, which" >&2
+         echo "        the scan did not open. That is a coverage hole, not a fix." >&2
          fail=1; }
 done <<< "$FROZEN"
 
