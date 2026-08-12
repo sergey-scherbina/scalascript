@@ -1,0 +1,11 @@
+slug: policy-gate-coverage-rule
+branch: feature/policy-gate-coverage-rule
+agent: claude-code
+started: 2026-08-12T15:13:53Z
+heartbeat: 2026-08-12T15:13:53Z
+status: claimed-before-planning
+items: a-gate-that-cannot-fail-for-its-defect-reads-as-evidence
+paths: file:POLICY.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
