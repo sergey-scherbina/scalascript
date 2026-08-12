@@ -67,6 +67,16 @@ $(tail -5 "$tmp/err")"
 
 field() { awk -F'\t' -v t="$1" -v k="$2" '$1==t && $2==k {print $3}' "$out"; }
 
+# THE MARGIN IS READ FROM THE SUITE, NOT PINNED HERE. This gate failed the moment the margin moved
+# 123 -> 250 — correctly, it is an arithmetic check — and the tempting repair is to type the new
+# number in. That is the "pinned expectation gets fixed by updating it" trap this file's own header
+# warns about: after two such repairs the gate asserts whatever the code currently does. Read it
+# instead, and die loudly if its shape moved, the way tests/smoke-baseline-harvest.sh reads the fit.
+MARGIN="$(grep -oE '\(baselineSeconds \* num\) / den \+ [0-9]+' scripts/smoke-ci.ssc | grep -oE '[0-9]+$' || true)"
+[[ -n "$MARGIN" ]] || fail margin-unreadable "cannot find the derived-budget margin in scripts/smoke-ci.ssc
+(expected '(baselineSeconds * num) / den + <n>'). Someone reshaped budgetFor; re-read it rather than
+pinning a number here."
+
 # The formulas, in ONE place, taking the probe the run reported.
 expect() { # expect <mode> <probe> <baseline-seconds>
   python3 -c "
@@ -76,7 +86,7 @@ c = max(lo, min(hi, probe))
 if mode == 'fallback':
     print(436 + (1263 * c) // 1000 + 80)
 else:
-    print((base * (436000 + 1263 * c)) // (436000 + 1263 * 224) + 123)
+    print((base * (436000 + 1263 * c)) // (436000 + 1263 * 224) + $MARGIN)
 "
 }
 

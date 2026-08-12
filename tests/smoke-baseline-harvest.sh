@@ -19,6 +19,17 @@
 # instead of copying them: the day someone refits the line, a duplicated copy here would keep
 # normalising by the old one and every baseline would drift with nothing to show for it.
 #
+# SUCCESS-ONLY WAS A SELECTION BIAS, AND A SELF-REINFORCING ONE. Harvesting only `success` runs
+# looks obviously right and is not: the thing that most often makes a smoke run UNSUCCESSFUL is
+# exceeding the budget derived from this very table. So the slow runs — exactly the ones the budget
+# must cover — were filtered out, the baselines stayed low, the budget stayed low, and more runs
+# failed. Measured 2026-08-12: the table refreshed under the old filter summed to 636.7 s while CI
+# was taking 916.6 s, and `main` went red on 72 % of pushes.
+#
+# `failure` runs are included now. Their per-check timings are real measurements — a run that failed
+# because one check broke, or because the total exceeded a cap, still timed every check it ran.
+# `cancelled` and `timed_out` stay excluded: those reached no verdict and may be truncated.
+#
 # READ THE PRINTED PROBE, NEVER INVERT THE BUDGET. The first version recovered the probe
 # arithmetically from the budget the suite prints, since `budget = 436 + 1.263 x probe + 80` is
 # invertible. It is not invertible where it is CLAMPED, and one run in nine was: probe 141 ms, and
@@ -191,7 +202,7 @@ command -v gh >/dev/null 2>&1 || die "gh is not installed; this reads completed 
 
 echo "harvesting up to $RUNS successful smoke runs (fit ${FIT_A} + ${FIT_B}/1000 x probe, reference host ${REF_PROBE}ms)"
 gh run list --workflow smoke.yml --limit "$SEARCH" --json databaseId,conclusion \
-  | python3 -c "import json,sys; [print(r['databaseId']) for r in json.load(sys.stdin) if r['conclusion']=='success']" \
+  | python3 -c "import json,sys; [print(r['databaseId']) for r in json.load(sys.stdin) if r['conclusion'] in ('success','failure')]" \
   > "$work/ids.txt" || die "could not list smoke runs"
 
 n=0

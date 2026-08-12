@@ -853,8 +853,29 @@ def budgetFor(probeMillis: Int, pinned: String, baselineSeconds: Int): Int =
       // registering a check raises the budget by THAT check's cost and nobody has to raise a cap.
       //
       // THE MARGIN IS SIZED BY THE RESIDUALS, which is the only criterion that survives the table
-      // being refreshed. Replayed over nine real CI runs, `actual - sum x factor` runs -33.6 s to
-      // +68.8 s; 123 leaves 54 s over the worst observed, and 0 of the 9 would have gone red.
+      // being refreshed.
+      //
+      // RAISED 123 -> 250 ON 2026-08-12, because 123 was fitted on a BIASED sample and made `main`
+      // red on 72 % of pushes. Two things were wrong and both are measured:
+      //
+      //   * The harvester took only `success` runs. What most often makes a smoke run unsuccessful
+      //     is exceeding the budget derived from this very table, so the slow runs — precisely the
+      //     ones a margin exists to cover — were filtered out. Self-reinforcing: low budget, slow
+      //     runs fail, only fast runs are harvested, budget stays low. Fixed in the harvester.
+      //   * Even unbiased, the model predicts the TYPICAL run almost exactly (median residual
+      //     -0.8 s over 16 runs) and misses a tail: three runs came in +220 to +231 s over. Those
+      //     runs are slow UNIFORMLY — median per-check ratio 1.72 across 59 checks against the
+      //     fastest run, with the three biggest individual blow-ups accounting for 23 s of a 400 s
+      //     difference. Host contention, not a grown check. And the probe cannot see it: 222-234 ms,
+      //     which is its normal range.
+      //
+      // So the tail is exactly what a margin is FOR — what the probe cannot capture — and 250 covers
+      // it: 0 of 16 runs red, against 3 of 16 at both 123 and 200. A budget that reds three runs in
+      // sixteen on host noise is worse than no budget, because it teaches everyone to ignore it.
+      //
+      // The guard against a GROWN CHECK is not this number. It is the per-check share report below,
+      // which is scale-free and unaffected by a uniformly slow host. If the probe is ever taught to
+      // see a 1.7x slowdown, this margin should come back down.
       //
       // An earlier draft justified 123 as "it equals the old rule at the reference host". That was
       // true of the table I calibrated against and FALSE two hours later when the table was
@@ -874,7 +895,7 @@ def budgetFor(probeMillis: Int, pinned: String, baselineSeconds: Int): Int =
       // that grew, which no total-time cap can do.
       val num = 436000 + 1263 * clamped
       val den = 436000 + 1263 * 224                   // the reference host: the clamp's midpoint
-      (baselineSeconds * num) / den + 123
+      (baselineSeconds * num) / den + 250
 
 def runCheck(check: Check): Outcome =
   val startedAt = System.nanoTime()
