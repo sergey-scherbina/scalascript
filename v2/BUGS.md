@@ -10,6 +10,51 @@ Newest first.
 
 
 
+## f-lowers-user-defined-pipe-as-integer-or — every parser built with a choice was a bitwise or
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/f-bare-member-call-gate.sh
+     fixed-in: fa8b56053 -->
+
+`|` is two operators under one token and only one of them was reachable. Token kind 63 went straight
+to `(prim i.or)` in `emitBin`/`emitBinT`, so a user-defined `extension (a: T) def |(b: T)` was never
+dispatched and the INTEGER primitive received the operands. `opNameK` did not know the name either,
+so `def |` was not even collected as an extension member.
+
+`~`, `~>` and `<~` have had exactly the shape this needs — `emitTildeOp`, which asks `isExtMethod`
+first and falls back to the default — since they were added. `|` simply never got it.
+
+```scalascript
+extension (a: Lit)
+  def |(b: Lit): Alt = Alt(a, b)
+
+Lit("x") | Lit("y")     // native: ssc: expected Int, got Lit("x")   interp: Alt(Lit(x), Lit(y))
+```
+
+**Why it mattered far beyond a curiosity.** `a | b` is the alternation combinator in
+`std/parsing/combinators.ssc`, so **every parser built with a choice** was lowered to a bitwise or.
+It stayed invisible because F declined all four `std/parsing` modules for an unrelated reason —
+`f-unbound-loop-is-the-new-top-gap`, the object body scan — and they ran on the reference front. The
+defect was reachable only by fixing that one first, which is how it was found: a three-line program
+on `core`+`combinators` alone, where `Parser.string("ab")` and `~` passed and the `|` line did not.
+
+Fixed with the same shape the tilde operators use — `emitOrOp` asks `isExtMethod("|", cx)` and falls
+back to `(prim i.or)` — plus `opNameK` learning the name so the member is collected.
+
+**Only `|` is changed.** `&`, `^`, `<<`, `>>`, `>>>` (kinds 62, 64–67) have the identical shape and no
+measured user, so they are named here rather than changed on speculation. If one of them is ever
+given an extension, this is the entry that explains the symptom.
+
+Gated by `tests/e2e/f-bare-member-call-gate.sh` with two cases, because a fix that routed EVERY `|` to
+an extension would pass the first and break arithmetic silently: `user-defined-pipe` must lower to
+the extension, `integer-or-still-primitive` must keep `6 | 3` = 7. A/B'd: reverting the fix reds the
+first and leaves the second green.
+
+Evidence: full conformance with the memo disabled 367 passed / 0 failed; smoke 81/81 green.
+
 ## v2-front-refuses-mixed-numeric-comparison — `println(1 < 2.0)` is a TYPEERR while `1 * 2.0` is `2`
 
 <!-- status: fixed
@@ -2036,6 +2081,18 @@ than the test. The two visible symptoms are `expected Int, got PReadContext(<clo
 smaller program, `ParseErr(unknown parser node)` — a `runParser` match falling through to `case _`.
 Both are consistent with a node being built or matched wrongly somewhere in the four modules; which
 one, and which construct, is not yet known.
+
+**SECOND CAUSE FOUND AND LANDED SEPARATELY, 2026-08-12.** Fixing the object scan revealed
+`f-lowers-user-defined-pipe-as-integer-or`: `|` went straight to `(prim i.or)`, so the alternation
+combinator in `std/parsing` was a bitwise or. That one is landed on its own, because it exposes
+nothing — F still declines these modules without the object-scan fix — and with BOTH applied,
+`indent-block-statements` and `indent-config-format` go from red to `PASS [V2]` and full conformance
+is 367/367.
+
+**A THIRD one is still in the queue, which is why this stays held.** With both applied, smoke fails
+`v2-dsl-yaml-like` with `ssc: app: not a function: 0 — applied to 1 argument(s)`. Two reductions were
+tried and refuted (`.flatMap` with a brace lambda; `.flatMap { case … }`). So the pattern holds: every
+module F newly lowers reveals the next defect, because none of this code path has ever run.
 
 **Next step for whoever takes this:** the method that worked for the object-scan bug was mechanical
 bisection of the FILE, not hypothesis probes. Do that on `std/parsing/layout.ssc` and
