@@ -2528,10 +2528,41 @@ Not fixed here: it is front name-resolution work, and this task's scope was the 
 Three of the four cluster externs work; this one row needs this too.
 
 ## f4-classify-compares-40-percent-and-never-names-the-rest
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     gate: .github/workflows/f4-front-swap.yml -->
+     gate: .github/workflows/f4-front-swap.yml
+     fixed-in: d431fef30 -->
+
+### FIXED 2026-08-13 — the excluded programs are named, and their exit codes are bucketed
+
+`specs/v2.2-p6.5-semantic.sh classify` now prints, per exclusion bucket, every program that left the
+compared set before F was ever consulted — `EXCL_ORACLE_ERR`, `_TIMEOUT`, `_NOIR`, `EXCL_NONDET`,
+`EXCL_TOO_LARGE`, `EXCL_LANE_NOT_DECLARED` — and writes the same rows to
+`$WORK/oracle-excluded.txt`, whose path it echoes. The four programs this entry named as invisible
+now appear under whichever bucket dropped them, so "was it fixed, did it regress, or did the gate
+stop looking" is answerable from the log.
+
+**The second half of this entry is answered too, and it is the part worth keeping.** It said 427
+oracle errors is itself a number nobody is looking at — legitimate (argv, a port, a display) or one
+broken oracle invocation swallowing half the corpus, with nothing to tell them apart. A flat list of
+427 names does not separate those either, so the report also buckets `EXCL_ORACLE_ERR` **by exit
+code**: many distinct codes read as real programs failing for their own reasons; one code covering
+nearly all of them reads as apparatus. That is a cheap discriminator over data the run already had.
+
+**What it still cannot say, recorded rather than implied**: `runir.sh` sends stderr to `/dev/null`
+— deliberately, so a diagnostic can never contaminate a golden — so the failure TEXT is gone by
+report time and `rc` is all there is. Keeping the first stderr line per program is the natural next
+step; it needs a full classify run to verify against and is therefore not bundled here.
+
+**Verified without a corpus run, by a self-test on the SHIPPED code.** `bash
+specs/v2.2-p6.5-semantic.sh self-test` feeds a synthetic classification through the same
+`report_excluded` the gate calls and asserts: every excluded program is named; the two exit codes
+are counted separately (`rc=1 : 2`, `rc=70 : 1`); an empty bucket prints no heading; and neither an
+F-side non-match nor a MATCH leaks into the oracle-excluded list. It sits BEFORE the
+`SSC_JAR`/`V2_DIR` requirement on purpose — a self-test that needs a kernel jar is one nobody runs
+— and it is wired into `f4-front-swap.yml` ahead of the classify step. Control: with
+`report_excluded` stubbed to print nothing, the self-test fails on all eight assertions.
 
 **Found 2026-07-31** while trying to verify the four programs in `scripts/BACKLOG.md`
 `f4-lib-variant-disagreements`. The gate's own summary (run 30612605314):
