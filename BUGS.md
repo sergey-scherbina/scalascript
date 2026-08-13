@@ -889,6 +889,46 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-ui-form-six-shapes-behind-one-refusal — SIX gaps closed; the module still refuses, on regex
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`std/ui/form.ssc` sat at `sites = 2` in `--roadmap` and was **nine rustc errors in six shapes** deep
+once its refusal was lifted. Six are now fixed; the module is still REFUSED, and the reason is
+`matches`, which needs a regex engine this crate does not depend on
+([[rust-string-matches-is-not-rust-str-matches]]).
+
+**What was actually wrong, each a gap any module with that shape would hit:**
+
+| | |
+|---|---|
+| `f.drafts(k)` | Scala's Map APPLY on a struct FIELD, emitted verbatim → `no method named drafts` |
+| `drafts(k)` | the same on a LOCAL bound to that field → `expected function, found HashMap` |
+| `f.specs.filter(…).head` | `isKnownVecReceiver` stopped at the first combinator → `no field head on Vec` |
+| `val d = f.drafts(k); d()` | a local bound to a map apply holds a `Value`; **fifth spelling** of the signal-read defect |
+| `vf(sp, d())` | a call through a local alias coerced nothing, because coercion keys off the CALLEE'S NAME |
+| `vf(s, drafts(k))` | a signal read and a map apply are `Value` sources `needsAnyCoercion` could not see |
+
+**The two that are worth remembering.** A call through `val vf = validateField` was made *callable*
+earlier today, and that turned out to be half the job: `_paramTypes` is keyed by name and `vf` has no
+signature, so `Value` arguments went in uncoerced. `localFns` now carries the def each alias NAMES,
+and the coercion path resolves through it. And `needsAnyCoercion` knew only two ways for an argument
+to be a `Value` — an `anyName` or a call to a `Value`-returning def — while a signal read and a map
+apply are two more, neither of them a call to a def.
+
+**What is left, measured on 2026-08-13:** three shapes, all in one def —
+`error[E0600]` on `matches` (regex), `String: Pattern`, and `&String == String` inside a `filter`
+closure. The last two are ordinary borrow/pattern mismatches; the first is a dependency decision,
+because a faithful `String.matches` needs the `regex` crate in every generated Cargo.toml that uses
+it. **That decision is not made here.**
+
+An investigation hatch (`SSC_RUST_ALLOW_MATCHES`) was used to see past the refusal and has been
+REMOVED: shipping an environment variable that disables a guard against silently-wrong output is how
+the guard stops meaning anything.
+
 ## coord-release-note-executes-backticks — FIXED: `--note-file`, because a workaround everyone must know is not a fix
 <!-- status: fixed
      lane: apparatus
