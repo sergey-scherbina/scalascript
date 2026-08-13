@@ -28,7 +28,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: scripts/coord-release <slug> --level <1|2|3> [--note "<what landed>"]
+usage: scripts/coord-release <slug> --level <1|2|3> [--note "<what landed>" | --note-file <path>]
        scripts/coord-release <slug> --level <1|2|3> "<what landed>"
 
   --level  which CI evidence this release actually has (POLICY.md §P-6.7):
@@ -39,7 +39,7 @@ usage: scripts/coord-release <slug> --level <1|2|3> [--note "<what landed>"]
 USAGE
 }
 
-slug=""; extra=""; level=""
+slug=""; extra=""; level=""; note_from_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --level)
@@ -47,7 +47,28 @@ while [ $# -gt 0 ]; do
       level="$2"; shift 2 ;;
     --note)
       [ $# -ge 2 ] || { echo 'coord-release: --note needs a value' >&2; usage; exit 2; }
+      [ -z "$note_from_file" ] || { echo 'coord-release: use --note OR --note-file, not both' >&2; exit 2; }
       extra="$2"; shift 2 ;;
+    # --note-file: the note comes from a FILE, byte for byte.
+    #
+    # WHY IT EXISTS. A release note is the durable record of a piece of work, it is long, and it is
+    # full of `identifiers in backticks` because that is how this repo writes about code. Passed
+    # inline as --note "…`foo`…" the shell runs the backticked text as a COMMAND and substitutes its
+    # output — so the note that lands is missing words, and nobody notices until they read it back.
+    # That has happened FIVE times here, once eating four words out of an already-pushed note that
+    # then had to be amended and force-pushed.
+    #
+    # `--note "$(cat f)"` is safe and was the workaround, but it is a workaround: it requires every
+    # caller to know the trap. A flag that takes a path removes the trap instead of documenting it.
+    --note-file)
+      [ $# -ge 2 ] || { echo 'coord-release: --note-file needs a path' >&2; usage; exit 2; }
+      [ -z "$extra" ] || { echo 'coord-release: use --note OR --note-file, not both' >&2; exit 2; }
+      [ -r "$2" ] || { printf 'coord-release: cannot read note file: %s\n' "$2" >&2; exit 2; }
+      # Read with `cat`, not `$(<f)` plus re-quoting: command substitution strips trailing newlines
+      # but performs NO further expansion on what it read, so the bytes reach `extra` unchanged.
+      extra="$(cat -- "$2")"
+      [ -n "$extra" ] || { printf 'coord-release: note file is empty: %s\n' "$2" >&2; exit 2; }
+      note_from_file=1; shift 2 ;;
     # Fail CLOSED on anything unrecognised. Swallowing an unknown flag into the message is the
     # defect this rewrite exists to remove; a typo'd flag must stop the release, not decorate it.
     --*)

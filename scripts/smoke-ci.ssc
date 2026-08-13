@@ -470,6 +470,7 @@ val suite = List(
   // the LEDGER's paths column, and refused. The two scopes that need the flag were unusable, and
   // the diagnostic showed the reason's words shuffled among the paths. Runs in a throwaway repo.
   Check("scripts", "coord-claim-broad", "tests/coord/coord-claim-broad.sh", List(), 60000),
+  Check("scripts", "coord-release-note-file", "tests/e2e/coord-release-note-file-gate.sh", List(), 60000),
   Check("scripts", "claim-scope-hierarchy", "tests/coord/claim-scope-hierarchy.sh", List(), 180000),
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
