@@ -15,8 +15,8 @@ Newest first.
      kind: perf
      gate: none -->
 
-**Found 2026-08-13**, paid twice in one session. `scripts/launcher-input-digest` includes the whole
-of `scripts/` in the launcher input set — 62 files — and that set includes things the launcher does
+**Found 2026-08-13**, paid twice in one session. `scripts/launcher-input-digest` includes
+`scripts/` in the launcher input set — 62 files — and that set includes things the launcher does
 not contain and never loads:
 
 ```
@@ -34,6 +34,14 @@ agent who pulls pays it again, and it busts the content-addressed toolchain cach
 **The refusal itself is right and must stay** — a verdict from a stale toolchain is a verdict about
 the wrong code, and that guard has caught real staleness in this session alone. The question is only
 which files can make a launcher stale.
+
+**And the exclusions are already finer than the printed summary suggests, which is the first thing
+to measure rather than assume.** The header prints `excluded: … + root *.md`, and I nearly filed
+"editing `scripts/BUGS.md` also forces a rebuild" on the strength of that line. It does not: **0 of
+the 62 `scripts/` inputs are `*.md`**, and all three markdown files there — `BUGS.md`, `SPRINT.md`,
+`BACKLOG.md` — are excluded at depth. Verified by editing `scripts/BUGS.md` and watching
+`smoke-ci --list` stay green (`rc=0`) rather than by reading the summary. So the work below is a
+narrowing of what remains, not a first pass, and the summary line wants correcting too.
 
 **Why this is NOT a two-line exclusion, and why it is filed instead of fixed.** A cache key is the
 most dangerous thing in this repo to narrow casually: BUGS
