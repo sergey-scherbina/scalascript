@@ -8060,11 +8060,12 @@ gate by name. The fallback applies to `Front.default` — which is what `exec` a
 
 ## v3-a-parameter-does-not-shadow-a-top-level-function-in-the-arity-check
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: codegen
      kind: bug
-     gate: v3/front-gate.sh -->
+     gate: v3/front-gate.sh
+     fixed-in: 1334bea8f -->
 
 **A library method whose PARAMETER is named `f` breaks when the user's program also defines a
 top-level `f` of a different arity.** The arity check resolves the name against the global function
@@ -8085,7 +8086,20 @@ day it gained a library — three fixtures (`bitwise`, `enum-qualified`, `operat
 red at once, all of them programs that happen to define `f`. The names at risk are the ordinary
 ones: `f`, `p`, `n`, `k`, `x`.
 
-**Worked around, not fixed, and the distinction matters.** `v3/prelude/index.ssc` renames every
+**FIXED in 1334bea8f 2026-08-11, and the workaround below is GONE — its removal is what makes this
+a fix rather than a claim.** `checkArity` carries the names bound inside the def — parameters,
+lambda parameters, `Try`'s binder, local `val`s and local `def`s — and does not look a bound name up
+in the global table. Conservative by construction: the set is collected over the WHOLE def rather
+than per scope, so it can MISS an error and cannot invent one, and inventing one was the defect.
+Verified today by re-running the entry's own repro: `f(1, 2)` answers 3 and `g(x => x)` answers 1.
+
+The second defect filed with it — the prelude's line 38 reported against a three-line user file —
+is also fixed, by attaching `LowerFail`'s origin in the early passes (`d0b15414a`), and is checked
+by `v3/prelude-gate.sh` with a deliberately broken prelude.
+
+Per-scope tracking remains as a follow-up in `v3/PRELUDE-CORRECTNESS.md` P-1.
+
+**What the workaround WAS, kept because the distinction it draws is the useful part.** `v3/prelude/index.ssc` renames every
 method parameter to `__fn`, `__pred`, `__x` and the like. That protects the library from the defect;
 it does nothing about the defect, and any other module written to live beside user code will hit it
 again. The real fix — a parameter shadows a top-level name in `checkArity` — is in `Lower.scala`,
