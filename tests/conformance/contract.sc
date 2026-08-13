@@ -109,6 +109,19 @@ val canonicalLanes = List("int", "js", "v2")
 val allowedLanes   = Set("int", "js", "jvm", "v2")
 val lanesRequested = cliArgs.contains("--lanes")
 val lanes          = if lanesRequested then commaValues("--lanes") else canonicalLanes
+
+/* A case may DECLARE a target backend (`backend: jvm`) that is not among the lanes this run
+ * measures. `canonicalLanes` is int,js,v2, so `backend: jvm` intersects to `{int}` and the case is
+ * measured on the interpreter ALONE — with no verdict at all on the backend it names, and nothing
+ * said about it. Eight cases sat in exactly that state for weeks (tests/BUGS.md
+ * `backend-jvm-cases-have-no-verdict-on-any-backend-they-name`); they have since moved to
+ * examples/, so the hole currently has no occupant and is therefore completely unexercised —
+ * which is worse, not better: the next author to write `backend: jvm` gets the silence.
+ *
+ * Collected and REPORTED rather than failed. Restricting lanes with `--lanes` is legitimate and
+ * routine, so a hard failure would fire on ordinary use; what must not happen is a declared
+ * coverage claim disappearing without a word. */
+val declaredNotMeasured = scala.collection.mutable.ListBuffer.empty[(String, Set[String])]
 if lanes.isEmpty then cliFail("--lanes requires at least one lane")
 val unknownLanes = lanes.filterNot(allowedLanes)
 if unknownLanes.nonEmpty then cliFail(s"unknown lane(s): ${unknownLanes.distinct.mkString(",")}")
@@ -715,6 +728,10 @@ def processCase(c: Case): (String, Either[String, Map[String, String]]) =
       // target declaration. Both are optional; a case that declares neither runs on every lane, as
       // before.
       val target = parseTargetBackend(src)
+      target.foreach { t =>
+        val missing = t -- lanes.toSet
+        if missing.nonEmpty then declaredNotMeasured += (c.name -> missing)
+      }
       val row =
         for lane <- lanes if gate.forall(_.contains(lane)) && target.forall(_.contains(lane)) yield
           // For an expected-file golden we still diff INT; for a live golden INT == golden.
@@ -819,6 +836,19 @@ println(s"\n$sep")
 println(s"  PASS cells: $passCount/$cellCount   SKIP cases: ${skips.size}   " +
   s"baseline: ${delta.scopedBaseline.size}   roster: ${roster.size}")
 println(sep)
+
+/* Printed on EVERY run, green or red, and before the verdict: a declared backend that no lane
+ * measured is a coverage claim that silently evaporated, and the run it evaporates in is usually a
+ * green one. Reported rather than failed — `--lanes` legitimately narrows a run — but never silent,
+ * which is the whole defect this replaced. */
+if declaredNotMeasured.nonEmpty then
+  println(s"⚠ ${declaredNotMeasured.size} case(s) DECLARE a backend no lane in this run measured:")
+  declaredNotMeasured.toList.distinct.sortBy(_._1).foreach { case (name, missing) =>
+    println(s"    $name  declares ${missing.toList.sorted.mkString(",")}  — measured lanes: ${lanes.mkString(",")}")
+  }
+  println("  → either add the lane (--lanes) or drop the declaration; as it stands the case has no")
+  println("    verdict on the backend it names.")
+  println(sep)
 
 if delta.newCases.isEmpty && delta.regressions.isEmpty && delta.statusChanges.isEmpty &&
     delta.improvements.isEmpty && delta.removedCases.isEmpty then
