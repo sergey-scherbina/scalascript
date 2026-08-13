@@ -1,0 +1,11 @@
+slug: jvm-in-fence-import-verbatim
+branch: feature/jvm-in-fence-import-verbatim
+agent: claude-code
+started: 2026-08-13T18:46:06Z
+heartbeat: 2026-08-13T18:46:06Z
+status: claimed-before-planning
+items: jvm-std-import-inside-a-fence-plus-def-main-emits-broken-scala
+paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/codegen/JvmGenInFenceImportTest.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
