@@ -194,6 +194,36 @@ This project's most expensive recurring defect is not broken code — it is **a 
 because it cannot see**. These rules are the accumulated answer.
 Detail: [`AGENTS.md`](AGENTS.md) §"measurement apparatus must COMPARE, never PRE-JUDGE".
 
+- **P-6.1c · An entry that no longer reproduces is not automatically stale — the INSTANCE may have
+  gone while the MECHANISM stayed.** Twice on 2026-08-13 the occurrence had vanished for reasons
+  unrelated to any fix: eight conformance cases declaring `backend: jvm` had MOVED to `examples/`,
+  and a fixture-slug collision resolved itself when the colliding claim was released. In both, the
+  code that produced the defect was untouched — `parseTargetBackend` still reduces a declared lane
+  to `int` in silence, and `coord-status` still clamped a future timestamp to "0 seconds old". Both
+  were one command from being closed as stale.
+  **An unoccupied trap is more dangerous than an occupied one**, because nothing will surface it
+  again: while the eight cases existed somebody might have noticed; with them gone, the next author
+  to write `backend: jvm` gets the silence alone.
+  **The test that tells the two apart is cheap: manufacture an occupant.** Construct an input that
+  should trigger the described behaviour. If it still does, the entry is not stale — it is
+  unoccupied, which is work, not archive. That is P-6.1 applied to an entry instead of a gate:
+  revert the world to the shape the entry describes and watch. Remove the fixture afterwards; a
+  permanent one that always warns is noise.
+  **Measured before being written down, and the number argues for prevention rather than a sweep:**
+  of 553 closed entries, 15 close on "no longer reproduces"; reading every one of them found **no
+  false closure** — three name code the fix did not touch, and all three were fixed correctly in a
+  different file. So the repository has not made this mistake in its record. The rule exists for the
+  moment of closing, which is where it was nearly made twice in one day.
+
+- **P-6.1d · A path that meets anomalous input must not choose the permissive reading in silence.**
+  Both defects above have one root: a negative age was clamped to `0` — i.e. "just committed", so a
+  claim reads alive forever and is never reaped — and a declared lane that no run measures was
+  narrowed to `int`, so the case passes with no verdict on the backend it names. Neither computed
+  anything wrong. Each quietly chose the reading under which everything looks fine.
+  Choose the conservative reading, or say what you did. Both fixes here took the second option,
+  because the permissive reading is sometimes right — `--lanes` legitimately narrows a run, and
+  seconds of clock skew between machines are ordinary — but its silence never is.
+
 - **P-6.1b · Before reading a gate's COLOUR, check it can fail for the defect.** A `gate:` field
   routinely names a NEIGHBOURING case rather than a covering one, and a green neighbour is not
   evidence. Measured 2026-08-12: `v2-front-for-comprehension-guard-line` named
