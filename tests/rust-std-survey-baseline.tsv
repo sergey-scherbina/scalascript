@@ -37,7 +37,7 @@ std/geo.ssc	COMPILES
 std/graphql.ssc	COMPILES	
 std/hash.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	2	2
 std/http.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
-std/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)	1	1
+std/i18n.ssc	COMPILES	
 std/index.ssc	COMPILES	
 std/json-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	2	1
 std/json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	6	2
@@ -113,7 +113,7 @@ std/ui/data.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no 
 std/ui/display.ssc	COMPILES	
 std/ui/fetch-json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	6	2
 std/ui/form.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	2	1
-std/ui/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)	1	1
+std/ui/i18n.ssc	COMPILES	
 std/ui/input.ssc	COMPILES	
 std/ui/layout.ssc	COMPILES	
 std/ui/lower.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (alreadyLowered.asInstanceOf[View])	4	2

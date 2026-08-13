@@ -97,6 +97,7 @@ object RustCodeWalk:
     // Members the lowering will NOT take: a generic group, an operator name, an untyped receiver.
     val unloweredExtensions = collectAllExtensionMembers(module).filterNot((n, _) => _extensionOf.contains(n))
     _typeAliases = collectPlainTypeAliases(module)
+    _moduleSignals = collectModuleSignals(module)
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
     val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
@@ -676,6 +677,8 @@ object RustCodeWalk:
    *  so a plain alias fell to the `i64` default and `extension (u: Uuid) def asString: String = u`
    *  emitted `pub fn asString(u: i64) -> String { u }`. An opaque type is a NAME for a
    *  representation, and the representation is what this target has. */
+  /** Signals declared beside the defs rather than inside one. See `collectModuleSignals`. */
+  private var _moduleSignals: Map[String, String] = Map.empty
   private var _typeAliases: Map[String, m.Type] = Map.empty
   /** Constructor name → the ENUM that owns it, for a variant used as a TYPE.
    *
@@ -753,6 +756,28 @@ object RustCodeWalk:
     }
 
   /** `type X = T` / `opaque type X = T`, where T is a plain type (not a lambda). */
+  /** Module-level `val s: Signal[T] = signal(…)` — the same thing one scope out.
+   *
+   *  `collectLocalSignals` walks a DEF'S BODY, so it cannot see a signal declared beside the defs
+   *  that read it, and a top-level `val` is exactly how a signal SHARED by several defs has to be
+   *  written. std/ui/i18n.ssc declares `val localeSignal: Signal[String] = signal("locale", "en")`
+   *  and reads it from four defs; each read lowered to a Rust CALL on a `Value` — `error[E0618]:
+   *  expected function, found Value`, which is the same defect as the one fixed for a signal in an
+   *  `Any` field, reached by a different spelling. (rust-module-level-signal-val-reads-as-a-call.)
+   *
+   *  Reuses the local collector on a synthetic block rather than restating the predicates: the two
+   *  must agree about what a signal IS, and the cheapest way to guarantee that is to have one
+   *  definition of it. */
+  private def collectModuleSignals(module: ast.Module): Map[String, String] =
+    def fromContent(c: ast.Content): List[m.Stat] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect { case v: m.Defn.Val => v }.toList
+      case _ => Nil
+    def fromSection(s: ast.Section): List[m.Stat] =
+      s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
+    val vals = module.sections.flatMap(fromSection).toList
+    if vals.isEmpty then Map.empty else collectLocalSignals(m.Term.Block(vals))
+
   private def collectPlainTypeAliases(module: ast.Module): Map[String, m.Type] =
     def fromContent(c: ast.Content): List[(String, m.Type)] = c match
       case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
@@ -1248,6 +1273,8 @@ object RustCodeWalk:
       // lowered as a LIST map, so `getOrElse` became `unwrap_or` on a `Vec<String>`.
       // (option-bound-to-a-val-is-not-tracked, reported by rozum.)
       localOptions: Set[String] = Set.empty,
+      /** Names known to hold a Map — see `collectLocalMaps`. */
+      localMaps: Set[String] = Set.empty,
       // The def's OWN parameter names, and every `fn name` a verbatim `rust` fence block defines.
       // Both are callable and neither is a user def, so a refusal that does not know them refuses
       // correct programs — `def apply(f: Int => Int, x: Int) = f(x)` is four of this backend's own
@@ -1263,6 +1290,10 @@ object RustCodeWalk:
       // first read moves it and the rest fail (E0382).  Single-use names stay clone-free
       // (so simple goldens keep their exact `f(x)` output).  Cloning a Copy value is a
       // harmless no-op, so we don't try to prove non-Copy-ness for match binds/locals.
+      /** Rendering the BODY of a closure — distinct from `closureParams`, which is what the
+       *  closure BINDS. A zero-argument closure binds nothing, so `closureParams.nonEmpty` was
+       *  false inside `() => …` and the clone-at-use rule below never fired there. */
+      inClosure: Boolean = false,
       multiUse: Set[String] = Set.empty,
       // Local val/var names bound to a Signal → element type ("String"/"Int"/"Double"/
       // "Boolean").  A 0-arg apply on one — `x()` — is a signal READ and lowers to a
@@ -1394,13 +1425,22 @@ object RustCodeWalk:
         .collect { case p if p.decltpe.exists { case m.Type.Name("Any") => true; case _ => false } => p.name.value }
         .toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
+                        localMaps = collectLocalMaps(d),
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
                         defParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
                           .map(_.name.value).toSet,
                         rustFnNames = rustFnNames,
                         multiUse = collectMultiUse(d.body) -- collectCopyNames(d),
-                        localSignals = collectLocalSignals(d.body),
+                        // A def's OWN signals win over a module-level one of the same name — that is
+                        // ordinary shadowing, and `++` with the local on the right gives it.
+                        // FOUR SPELLINGS OF ONE THING, and each was found only after the one
+                        // before it was fixed: a local `val s = signal(…)`, a signal in an `Any`
+                        // FIELD, a MODULE-level val, and — here — a PARAMETER declared
+                        // `Signal[T]`. All four reach Rust as a `Value`, and a read `s()` on any
+                        // of them is a signal read, not a call. A param states its type, so this
+                        // reads the declaration rather than inferring anything.
+                        localSignals = _moduleSignals ++ signalParams(d) ++ collectLocalSignals(d.body),
                         anyNames = anyParams,
                         valueLocals = collectValueLocals(d, ctorMap),
                         numericNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -1655,7 +1695,13 @@ object RustCodeWalk:
     def needs(r: String): Boolean =
       !r.matches("__p\\d+") &&
         (topValNames.contains(r) || ctx.multiUse.contains(r)
-          || (ctx.closureParams.nonEmpty && !ctx.closureParams.contains(r)))
+          // INSIDE A CLOSURE, not "the closure has parameters". These are different questions and
+          // the second was standing in for the first: `computedSignal(() => translateIn(catalog,
+          // …))` binds nothing, so this read false and the captured `catalog` was consumed by the
+          // body — `error[E0507]: cannot move out of catalog, a captured variable in an Fn
+          // closure`. An `Fn` closure may run many times, so a captured non-Copy value has to be
+          // cloned AT THE USE, not merely cloned into the closure. (rust-noarg-closure-moves-its-capture.)
+          || (ctx.inClosure && !ctx.closureParams.contains(r)))
     arg match
       case m.Term.Name(n)
           if needs(n) && !rendered.matches(raw"-?\d+i64|-?\d+\.\d+f64|true|false") =>
@@ -1782,6 +1828,16 @@ object RustCodeWalk:
    *  0-arg apply on one (`x()`) is a signal read; the apply lowering reads the (String)
    *  store and coerces by element type (parse for Int/Double, `.show()` for String). */
   private val SignalCtors = Set("signal", "computedSignal", "seedSignal", "hashSignal")
+  /** Parameters declared `Signal[T]` — see the four-spellings note at the call site. */
+  private def signalParams(d: m.Defn.Def): Map[String, String] =
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+      p.decltpe match
+        case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Signal"), ac)) =>
+          Some(p.name.value -> ac.values.headOption.collect { case m.Type.Name(tn) => tn }.getOrElse("String"))
+        case Some(m.Type.Name("Signal")) => Some(p.name.value -> "String")
+        case _                           => None
+    }.toMap
+
   private def collectLocalSignals(body: m.Term): Map[String, String] =
     val sigs = scala.collection.mutable.Map.empty[String, String]
     def isSig(rhs: m.Term): Boolean = rhs match
@@ -2776,7 +2832,7 @@ object RustCodeWalk:
       val arms = pf.cases.map { c =>
         // The arm body runs inside the closure: `__pf` + the pattern binders are
         // closure-locals; everything else it touches is captured.
-        val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ patBoundNames(c.pat) + "__pf")
+        val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ patBoundNames(c.pat) + "__pf", inClosure = true)
         for
           pat   <- renderPattern(c.pat, ctx)
           guard <- c.cond match
@@ -2799,7 +2855,7 @@ object RustCodeWalk:
       // on capture-cloning (a captured non-Copy like `theme` in `lower(_, theme)` is
       // cloned, not moved out of the resulting `FnMut`).  `__pN` names are excluded from
       // cloning in the arg rule (they're the closure's own params).
-      val bodyR = renderTerm(af.body, ctx.copy(closureParams = ctx.closureParams + "__ph"))
+      val bodyR = renderTerm(af.body, ctx.copy(closureParams = ctx.closureParams + "__ph", inClosure = true))
       val count = _phCounters.headOption.getOrElse(0)
       _phCounters = _phCounters.drop(1)
       bodyR.map { b =>
@@ -3137,6 +3193,18 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
+
+    // `(mm: Map[K, V]).contains(k)` — Rust spells this `contains_key`, and a `HashMap` has no
+    // `contains` at all. It MUST sit before the str arm below, which takes `contains` by name and
+    // would otherwise emit `error[E0599]: no method named contains found for struct HashMap`.
+    // The receiver is placed by its DECLARED type (`collectLocalMaps`), never by inference: a
+    // receiver this lane cannot place keeps the str lowering, so nothing that compiles today moves.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual @ m.Term.Name(rn), m.Term.Name("contains")), args)
+        if args.values.size == 1 && ctx.localMaps.contains(rn) =>
+      for
+        q   <- renderTerm(qual, ctx)
+        key <- renderStrPatternArg(args.values.head, ctx)
+      yield s"$q.contains_key($key)"
 
     // `(s: String).contains/startsWith/endsWith(pat)` — str predicates take a
     // Pattern (&str/char), not an owned String. Render the literal/expr bare/borrowed.
@@ -3556,6 +3624,24 @@ object RustCodeWalk:
     // "unsupported expression" alongside the genuinely missing list support.
     case m.Term.ApplyUnary(m.Term.Name("!"), arg) =>
       renderTerm(arg, ctx).map(a => s"!($a)")
+
+    // `-x` — the same arm, one operator later, and it was the SOLE blocker of two modules. Scala 3
+    // parses negation as `Term.ApplyUnary` too, so `val i = if n < 0 then -n else n` reported the
+    // whole def as an unsupported expression.
+    //
+    // NO COERCION, deliberately, and this is the one judgement call here. Everywhere else this
+    // backend coerces because `ssc_int` and friends are total over `Value` AND the concrete type —
+    // but there is no such total spelling for negation: `.ssc_int()` on an `f64` operand would
+    // silently TRUNCATE, turning a lowering gap into a wrong answer, which is the one outcome worse
+    // than refusing. Rust's own `Neg` covers `i64` and `f64` exactly, so `-(x)` is right for both.
+    //
+    // A `Value` operand would need `impl Neg for Value`. NOT ADDED: no site in the corpus has one —
+    // the whole std tree contains a single unary minus, on an `n: Int` parameter — and an impl no
+    // caller reaches is machinery that cannot be shown to work. If one appears, rustc says so at
+    // the call site, which is the survey gate's BADRUST column and not a silent wrong number.
+    // Unary `+` and `~` were looked for in the same pass and do not occur at all.
+    case m.Term.ApplyUnary(m.Term.Name("-"), arg) =>
+      renderTerm(arg, ctx).map(a => s"-($a)")
 
     // `throw e` → a panic carrying the message as a `String` payload.
     //
@@ -4228,7 +4314,7 @@ object RustCodeWalk:
       val p1 = params.lift(1).map(_.name.value).getOrElse("__b")
       // Block bodies (multi-stmt) use renderBody with isUnit=true for foreach/foldLeft.
       val isUnitCtx = method == "foreach"
-      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ Set(p0, p1))
+      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ Set(p0, p1), inClosure = true)
       val bodyResult = fn2.body match
         case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = isUnitCtx)
         case t                 => renderTerm(t, bodyCtx)
@@ -4295,7 +4381,7 @@ object RustCodeWalk:
       case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
         val raw = fn.paramClause.values.head.name.value
         val p   = if raw.isEmpty || raw == "_" then "_" else raw
-        val bodyCtx = ctx.copy(closureParams = ctx.closureParams + p)
+        val bodyCtx = ctx.copy(closureParams = ctx.closureParams + p, inClosure = true)
         renderTerm(fn.body, bodyCtx).map(b => s"{ let $p = $v; $b }")
       case other =>
         renderTerm(other, ctx).map(f => s"($f)($v)")
@@ -4314,12 +4400,18 @@ object RustCodeWalk:
     if errs.nonEmpty then Left(errs.flatten)
     else
       val paramNames = params.map(_.name.value).toSet
-      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ paramNames)
+      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ paramNames, inClosure = true)
       // A `move` closure that reads a signal local (e.g. a `computedSignal(() => loc())`)
       // captures that signal by value — moving it out of the enclosing scope, which breaks
       // any later use of the same signal (`signalText(loc)` after the computed). Capture a
       // clone of each read signal local instead, so the original stays usable. `Value` is
       // cheaply cloneable (Arc-backed signal handle), and an unread clone is a benign warning.
+      // NOT WIDENED TO EVERY CAPTURED PARAMETER, and the corpus is why. Pre-cloning each captured
+      // param looked safe — "every type this backend emits derives Clone" — and it is false for
+      // exactly one: a parameter whose declared type is a FUNCTION renders as `impl Fn(Ctx) -> i64`,
+      // which has no Clone bound, so `let body = body.clone();` stopped std/ui/component.ssc
+      // compiling. It is also unnecessary: an `Fn` closure consuming its capture is fixed at the
+      // USE, by `cloneIfMoved` under `inClosure`, not by cloning into the closure.
       val capturedSignals = body.collect {
         case m.Term.Name(n) if ctx.localSignals.contains(n) && !paramNames.contains(n) => n
       }.distinct
@@ -4686,7 +4778,18 @@ object RustCodeWalk:
     // `expected Value, found Vec<i64>`. `Value::from` is the identity on a Value and a lift on
     // everything else, so widening this costs nothing and closes the case a list, map or scalar
     // literal written straight at an `Any` parameter.
-    if target == "crate::value::Value" then argIsCaseClass || argIsValue || isLiteralish(arg)
+    // A CLOSURE PARAMETER passed at an `Any` parameter is the same boundary again, and it is the
+    // one shape the list above cannot recognise: `locales.map(loc => signalButton(sig, loc, …))`
+    // binds `loc` with no declared type at all, so it is not an `anyName`, not a case class and not
+    // a literal — `expected Value, found String`. It is added by NAME-BINDING rather than by
+    // widening the rule to every argument, which keeps the narrowing this function documents:
+    // `Value::from` is the identity on a `Value` and a lift on everything else, so the coercion is
+    // right whatever the closure actually binds. (rust-closure-param-at-an-any-parameter.)
+    val argIsClosureParam = arg match
+      case m.Term.Name(n) => ctx.closureParams.contains(n)
+      case _              => false
+    if target == "crate::value::Value" then
+      argIsCaseClass || argIsValue || isLiteralish(arg) || argIsClosureParam
     // A CONTAINER of `Any` — `Map[String, Any]`, `List[Any]` — is the same boundary one level down:
     // `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own. The element
     // map below is the identity when the argument already holds `Value`s, so this can fire on any
@@ -4924,6 +5027,49 @@ object RustCodeWalk:
     case m.Pat.Extract.After_4_6_0(_, argClause) => argClause.values.flatMap(patBoundNames).toSet
     case m.Pat.Typed(inner, _)                   => patBoundNames(inner)
     case _                                       => Set.empty
+
+  /** Names known to hold a Map in this def — parameters by their DECLARED type, locals by an RHS
+   *  that can only be a Map.
+   *
+   *  WHY IT IS NEEDED AT ALL: `contains` is lowered by NAME, and the arm assumes a String receiver
+   *  because `str::contains` is what it was written for. A `HashMap` receiver has no `contains` —
+   *  it has `contains_key` — so `if catalog.contains(locale)` emitted code rustc rejects with
+   *  `error[E0599]: no method named contains found for struct HashMap`. Two SOURCE types, one
+   *  member name, and the fix does not belong in the shared arm: it belongs at the point where the
+   *  two can still be told apart. (rust-map-contains-emits-str-contains.)
+   *
+   *  This reads DECLARATIONS, not inference — the same discipline as `localSeqs`, `localStrings`
+   *  and `localOptions`, which it is modelled on. A receiver it cannot place keeps the old String
+   *  lowering, so nothing that compiles today changes. */
+  private def collectLocalMaps(d: m.Defn.Def): Set[String] =
+    val maps = scala.collection.mutable.Set.empty[String]
+    def isMapType(t: Option[m.Type]): Boolean = t match
+      case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Map"), _)) => true
+      case Some(m.Type.Name("Map"))                              => true
+      case _                                                     => false
+    def isMap(rhs: m.Term): Boolean = rhs match
+      case m.Term.Apply.After_4_6_0(fn, _) if isMapCtorFn(fn) => true
+      case m.Term.Name(n)                                     => maps.contains(n)
+      case ifx: m.Term.If                                     => isMap(ifx.thenp) || isMap(ifx.elsep)
+      // `m.getOrElse(key, <map>)` — the DEFAULT is the LAST argument, and in a well-typed program
+      // it agrees with the element type. Reading the FIRST would read the KEY, which is the exact
+      // mistake `collectLocalStrings` records having made.
+      case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("getOrElse")), args) =>
+        args.values.lastOption.exists(isMap)
+      case m.Term.Block(stats) =>
+        stats.lastOption.collect { case t: m.Term => isMap(t) }.getOrElse(false)
+      case _ => false
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      .foreach(p => if isMapType(p.decltpe) then maps += p.name.value)
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) => if isMapType(v.decltpe) || isMap(v.rhs) then maps += n
+          case _                               => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(d.body)
+    maps.toSet
 
   private def isMapCtorFn(fn: m.Term): Boolean = fn match
     case m.Term.Name("Map")                                  => true
