@@ -3392,10 +3392,48 @@ already rolls its own commit back on refusal; `coord-release` and hand-made clai
 all three of today's landmines were of the second kind.
 
 ## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: conformance
-     gate: none -->
+     gate: none
+     fixed-in: 57cd14ce9 -->
+
+**CLOSED 2026-08-13 — and the check that mattered was whether the instance still existed.** All eight
+named cases now live in `examples/` and are not conformance cases at all; **no case anywhere still
+uses the singular `backend:` declaration**. So the concrete hole this entry described has no
+occupant.
+
+**That is not a reason to close it as stale — it makes the mechanism worse.** `canonicalLanes` is
+`int,js,v2`, `parseTargetBackend("jvm")` yields `{int,jvm}`, the intersection is `{int}`. A case
+declaring `backend: jvm` is measured on the interpreter ALONE, with no verdict on the backend it
+names and not one word said about it. With the eight gone, that path is now completely unexercised —
+so the next author to write `backend: jvm` gets the silence with nobody around to notice.
+
+**Fixed by making it visible, not by failing.** Every run — green or red, and BEFORE the verdict —
+now prints the cases whose declared backend no lane measured, what they declared and what was
+actually measured. A hard failure would be wrong: `--lanes` legitimately narrows a run. What must not
+happen is a declared coverage claim evaporating without a line, and it evaporates in a green run.
+
+Proven with a temporary fixture and then cleaned up:
+
+```
+⚠ 1 case(s) DECLARE a backend no lane in this run measured:
+    zz-declared-backend-probe  declares jvm  — measured lanes: int,js,v2
+```
+
+Removing the report block made it silent again; the fixture was deleted, because a permanent case
+that always warns is noise.
+
+**HONEST LIMIT, stated rather than glossed:** with no case declaring a backend today this report has
+**no standing gate**. It is proven by the A/B above and then unexercised until someone writes such a
+declaration — which is exactly the situation it exists for. If a case ever declares one, that case
+becomes the gate. `contract --self-test` PASS (29 checks).
+
+**A method note for the next reader:** the first probe of this measured nothing. I edited
+`contract.sc` and tested with `tests/conformance/run.sh` — two different programs, and
+`parseTargetBackend` lives only in the first. The run was green-ish and told me nothing, which is the
+same shape as every other "probe never reached the subject" in this repository.
+
 
 **Found 2026-07-30** while refreshing the paired freeze, and recorded here because it was previously only in
 a commit message.
