@@ -1,0 +1,11 @@
+slug: declared-backend-not-measured
+branch: feature/declared-backend-not-measured
+agent: claude-code
+started: 2026-08-13T07:58:17Z
+heartbeat: 2026-08-13T07:58:17Z
+status: claimed-before-planning
+items: backend-jvm-cases-have-no-verdict-on-any-backend-they-name
+paths: file:tests/conformance/contract.sc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
