@@ -1,6 +1,7 @@
-# generation: 1792
+# generation: 1793
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 rust-total-seq-members	claude-code	2026-08-13T07:39:40Z	rust-no-paren-member-needs-receiver-type	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:BUGS.md file:tests/rust-std-survey-baseline.tsv
 orphan-gate-ratchet	claude-code	2026-08-13T07:43:04Z	orphaned-e2e-gates-52	file:tests/e2e/no-orphan-gates.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 rust-list-concat-moves-its-operands	claude-code	2026-08-13T08:02:48Z	rust-list-concat-moves-its-operands	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh
+mcp-p5c2-tasks-server	claude-code	2026-08-13T08:12:25Z	mcp-p5c2-tasks-server	file:mcp/common/src/main/scala/scalascript/mcp/McpServerCore.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:v1/runtime/plugins/mcp-plugin/src/main/scala/scalascript/compiler/plugin/mcp/McpIntrinsics.scala file:specs/mcp-2026-07-28.md
