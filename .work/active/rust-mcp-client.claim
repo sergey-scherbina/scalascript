@@ -5,7 +5,7 @@ started: 2026-08-13T18:42:16Z
 heartbeat: 2026-08-13T18:42:16Z
 status: claimed-before-planning
 items: build-rust-mcp-client-unsupported
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCapabilities.scala
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCapabilities.scala file:BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
