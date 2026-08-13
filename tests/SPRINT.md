@@ -70,24 +70,39 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       findings the answer to "who fixes them" is me, in batches; the detectors exist to make the
       work finite and to stop it growing back.
 
-- [~] `ci-status-guard-owns-its-repo` — `tests/e2e/ci-status-guard.sh` builds its claim fixture with
-      `git -C "$ROOT" worktree add`, i.e. it MUTATES the shared main repo from inside the pre-push
-      suite. BUGS entry `ci-status-guard-races-the-shared-repo-index-lock` blames "the shared index
-      lock"; that root cause is **refuted by measurement** — 25 same-basename races, 5 races against
-      a prunable leftover and 6 races against a concurrent `worktree prune` loop all produced zero
-      failures, and `git worktree add` never touches the main index at all.
+- [x] `ci-status-guard-owns-its-repo` — `tests/e2e/ci-status-guard.sh` built its claim fixture with
+      `git -C "$ROOT" worktree add`, i.e. it MUTATED the shared main repo from inside the pre-push
+      suite. BUGS entry `ci-status-guard-races-the-shared-repo-index-lock` blamed "the shared index
+      lock"; that root cause is **refuted by measurement** — 20 same-basename races in an empty repo,
+      5 in a full 7 688-file checkout, 5 against a prunable leftover holding the basename and 6
+      against a 400-iteration `worktree prune` loop, **zero failures across all 36** — and
+      `git worktree add` never touches the main index at all. The 2026-07-31 failure stays
+      unexplained, and the entry says so rather than claiming a fix it cannot demonstrate.
 
-      What IS proven, today, in this repo: **three permanent leftovers** — `.git/worktrees/claim-wt`,
-      `claim-wt1`, `claim-wt2` (dated 09/08, 09/08, 12/08) plus three orphan
-      `feature/ci-red-main-final-fixture-*` branches. `git worktree prune` will NOT collect them:
-      it honours `gc.worktreePruneExpire`, three months by default. Every guard run whose cleanup
-      trap does not complete adds one, forever.
+      What WAS proven: **three permanent leftovers** — `.git/worktrees/claim-wt`, `claim-wt1`,
+      `claim-wt2` (09/08, 09/08, 12/08) plus three orphan `feature/ci-red-main-final-fixture-*`
+      branches. `git worktree prune` will not collect them: it honours `gc.worktreePruneExpire`,
+      three months by default. The success path cleans up correctly; **only interrupted runs leak**,
+      one registration each, forever. And the check's own cost scaled with the litter, because
+      `coord-status` walks `git worktree list` and this file calls it seven times.
 
-      Fix the class rather than the instance: the fixture moves into a **throwaway clone** in
-      `$TMP` (`git clone --local` of the repo, measured 1.5 s), the tree's `scripts/` is copied over
-      the clone's committed copy so the code under test is still the WORKING TREE's and not `HEAD`'s,
-      and the guard asserts that `$ROOT`'s worktree list and branch list are **unchanged across the
-      fixture section**. That assertion fails today — which is the point (P-6.1b).
+      Landed: the fixture builds in a **throwaway clone** (`--local --no-checkout`, 0.066 s — git
+      hardlinks the objects, so it is cheaper than what it replaced), the tree's `scripts/` is copied
+      over the clone's committed copy so the code under test stays the WORKING TREE's and not
+      `HEAD`'s, and the guard asserts at both ends that the shared repo's `claim-wt*` registrations
+      and `feature/ci-red-main-*` branches are unchanged. **67 s -> 33 s**, and 19.8 s inside smoke.
+      Shared repo swept: 110 registrations -> 94, every remaining directory present.
+
+      Two things the work turned up that were not in the plan. **One:** the clone made a latent
+      defect in `scripts/coord-status` block — `claim_activity_epoch` held the only three `git log`
+      calls in that file without `-C "$ROOT"`, so "live by commit activity" resolved against the
+      CALLER'S working directory, silently. Same repo, same instant: 4 claims stale from inside the
+      repo, 5 from `/tmp`, and a stale claim is one the triage table says may be reclaimed. Filed
+      and fixed as `coord-status-activity-lookup-reads-the-callers-cwd` in `scripts/BUGS.md`.
+      **Two:** the new assertion itself read `--git-common-dir`, which answers a RELATIVE `.git` from
+      the main checkout — from any other CWD both sides of the comparison were empty and it passed
+      without looking. `--path-format=absolute`, plus a refusal when the registry is unreadable;
+      re-verified from `/tmp`, where the reverted control now fires and the fixed guard passes.
 
 - [x] `f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip` — `specs/v2.2-p6.5-dualrun.sh`
       runs `SSC_FRONT=F bin/ssc run` against a BARE `bin/ssc run`, but `RunNativeV2.frontIsF` is
