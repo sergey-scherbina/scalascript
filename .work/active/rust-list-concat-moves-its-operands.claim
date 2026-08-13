@@ -2,10 +2,16 @@ slug: rust-list-concat-moves-its-operands
 branch: feature/rust-list-concat-moves-its-operands
 agent: claude-code
 started: 2026-08-13T08:02:48Z
-heartbeat: 2026-08-13T08:02:48Z
-status: claimed-before-planning
+heartbeat: 2026-08-13T08:04:58Z
+status: in-progress
 items: rust-list-concat-moves-its-operands
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  ONE arm of renderTerm in RustCodeWalk: the `++` list/Vec concat emission (~L3499-3508), which
+  builds `[a, b].concat()` and MOVES both operands, so reusing a list after `++` is E0382.
+  Changed to `[&(a)[..], &(b)[..]].concat()`. Not touching member/receiver-type rendering — that
+  is co-tenant `rust-total-seq-members`, announced in the room.
+  Widened to tests/e2e/build-rust-refuses-loudly.sh: it already pays for cargo and already builds
+  a list program against the default lane, so the operand-reuse row belongs there rather than in
+  a new CI step.
+next: verify the rebuilt toolchain emits the borrowed form and the program runs 5/15
