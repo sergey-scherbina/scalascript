@@ -5,7 +5,7 @@ started: 2026-08-13T20:26:29Z
 heartbeat: 2026-08-13T20:26:29Z
 status: claimed-before-planning
 items: bigint-from-a-string-is-unsupported-on-native-and-bytecode
-paths: file:v2/src/Runtime.scala file:v2/backend/jvm/JvmBackend.scala file:v2/conformance/bigint-from-string.coreir
+paths: file:v2/src/Runtime.scala file:v2/backend/jvm/JvmBackend.scala file:v2/conformance/bigint-from-string.coreir file:v2/backend/check.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
