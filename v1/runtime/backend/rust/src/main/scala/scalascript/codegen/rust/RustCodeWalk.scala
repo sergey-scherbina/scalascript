@@ -268,7 +268,44 @@ object RustCodeWalk:
             s"(no `@rust(...)`, no intrinsic); called from ${from.map(f => s"`$f`").mkString(", ")}"
           )
         }
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs
+    // `s.matches(regex)` — a NAME COLLISION WITH OPPOSITE MEANINGS, refused for the whole lane.
+    // Scala's `String.matches` is a full-match REGEX test returning Boolean; Rust's `str::matches`
+    // returns an ITERATOR over occurrences of a literal pattern. With no arm for it, it fell
+    // through the generic member path and emitted the Rust member of the same name.
+    //
+    // CAUGHT BY LUCK, which is the argument for refusing rather than leaving it: the only site in
+    // std negates the result, so rustc said `error[E0600]: cannot apply unary operator ! to
+    // Matches<'_, String>` and the module failed loudly. In any context that consumes an iterator,
+    // or discards the result, the same emission COMPILES and is silently wrong — the outcome this
+    // backend treats as worse than not lowering. A correct lowering needs a regex engine this crate
+    // does not depend on.
+    //
+    // IT LIVES HERE, BESIDE THE OTHER WHOLE-LANE REFUSALS, RATHER THAN AS AN ARM IN `renderTerm`,
+    // and that placement was measured rather than preferred: as an arm it cost +96 bytecodes in a
+    // method frozen at 2.5x the JIT limit whose ratchet has been raised three times in two days.
+    // Sharing an existing arm's dispatch recovered 8, moving the body out recovered 8, both
+    // together 36 — none of it enough. This is also its right home: a member this lane will never
+    // lower is a property of the lane, like an unimplemented extern, not a rendering decision.
+    // (rust-string-matches-is-not-rust-str-matches, tests/e2e/v1-jit-size.sh.)
+    val regexErrs: List[Diagnostic] =
+      val callers = scala.collection.mutable.SortedSet.empty[String]
+      defsToRender.foreach { d =>
+        def walkT(t: m.Tree): Unit =
+          t match
+            case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("matches")), args)
+                if args.values.size == 1 => callers += d.name.value
+            case _ => ()
+          t.children.foreach(walkT)
+        walkT(d.body)
+      }
+      callers.toList.map { from =>
+        unsupported(
+          s"def `$from` calls `matches`, which in Scala is a full-match REGEX test and in Rust is " +
+          s"an iterator over literal occurrences; this lane has no regex engine and will not emit " +
+          s"the Rust member of the same name"
+        )
+      }
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs ++ regexErrs
     if allErrs.nonEmpty then Left(allErrs)
     else
       val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
@@ -3225,28 +3262,6 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
-
-    // `s.matches(regex)` — REFUSED, and this one is not a coverage gap but a NAME COLLISION with
-    // opposite meanings. Scala's `String.matches` is a full-match REGEX test returning Boolean;
-    // Rust's `str::matches` returns an ITERATOR over occurrences of a literal pattern. There was no
-    // arm for it, so it fell through and emitted `value.matches(spec.pattern)` verbatim — the same
-    // call, a different language, a different answer.
-    //
-    // IT WAS CAUGHT BY LUCK, WHICH IS THE ARGUMENT FOR REFUSING IT. The only site in std negates
-    // the result, so rustc said `error[E0600]: cannot apply unary operator ! to Matches<'_, String>`
-    // and the module failed loudly. In any context that consumes an iterator, or discards the
-    // result, the same emission COMPILES and is silently wrong — the failure this backend treats as
-    // worse than not lowering at all.
-    //
-    // A correct lowering needs a regex engine this crate does not depend on. Refuse by NAME, the
-    // same device as CollectionOnlyMembers below. (rust-string-matches-is-not-rust-str-matches.)
-    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("matches")), args)
-        if args.values.size == 1 =>
-      Left(List(unsupported(
-        s"def `${ctx.defName}` calls `matches`, which in Scala is a full-match REGEX test and in " +
-        s"Rust is an iterator over literal occurrences; this lane has no regex engine and will not " +
-        s"emit the Rust member of the same name"
-      )))
 
     // `(mm: Map[K, V]).contains(k)` — Rust spells this `contains_key`, and a `HashMap` has no
     // `contains` at all. It MUST sit before the str arm below, which takes `contains` by name and

@@ -545,6 +545,60 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-string-matches-is-not-rust-str-matches — FIXED by REFUSING: one name, two languages, opposite meanings
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 2d53e00cd
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+Scala's `String.matches(regex)` is a **full-match regex test returning Boolean**. Rust's
+`str::matches(pattern)` returns an **iterator over occurrences of a literal pattern**. There was no
+arm for `matches`, so it fell through the generic member path and emitted
+`value.matches(spec.pattern)` verbatim: the same call, a different language, a different answer.
+
+**It was caught by luck, and that is the argument for refusing it.** The only site in std negates
+the result, so rustc said `error[E0600]: cannot apply unary operator ! to Matches<'_, String>` and
+the module failed loudly. In any context that consumes an iterator — or discards the result — the
+same emission COMPILES and is silently wrong, which this backend treats as worse than not lowering
+at all.
+
+A correct lowering needs a regex engine this crate does not depend on. Refused by NAME, the same
+device as `CollectionOnlyMembers`. One site in std, so the blast radius was checked before the rule
+was written rather than after.
+
+## rust-local-val-bound-to-a-def-is-not-callable — FIXED: the call-site guard had no set that could hold it
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 2d53e00cd
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`val vf = validateField` then `vf(sp, d())` refused with *"calls `vf`, which this crate does not
+define — no def, no intrinsic, no local of that name"*: true of every set the guard knew, and false
+about the program.
+
+**The pattern is deliberate and the source says so.** The comment above it in `std/ui/form.ssc`
+records why: a thunk invoked later from ANOTHER module's context does not resolve this module's
+global names, so the function must be captured as a local first. Every other backend takes it.
+
+**Nothing needed emitting differently.** Rust's `let vf = validateField;` binds the fn ITEM, the
+call is ordinary, and a fn item is `Copy`, so capturing it in a `move` closure is free. The only
+thing missing was permission.
+
+**The module still does not compile, and that is recorded rather than hidden.** Removing this
+refusal revealed **nine rustc errors in six shapes** — `f.drafts(name)` as a Map field then apply,
+`.head` on a `Vec` emitted as a field, a `&String`/`String` comparison, `String: Pattern`, an E0308,
+and the `matches` collision above. `ui/form.ssc` sat at `sites = 2` in `--roadmap`, the strongest
+proximity signal there is, and was six defects deep — **the third time today** that a low site count
+did not mean close ([[rust-survey-first-reason-hides-blocker-depth]] says exactly why: a refusal
+short-circuits the walk).
+
+What lands is the fix plus the `matches` refusal, so the module stays REFUSED on an honest reason
+instead of turning into rustc errors. Depth moved `sites 2 → 1`.
+
 ## rust-parameterised-type-alias-is-not-resolved — FIXED: the binder was on the LEFT and both collectors read only the RHS
 <!-- status: fixed
      lane: v2-rust
