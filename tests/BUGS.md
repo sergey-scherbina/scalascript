@@ -74,6 +74,39 @@ verdict extracted with `cut -f2` comes back EMPTY, which reads as "no verdict" r
 binary". I collected a whole table of empty verdicts before noticing. Build first, and treat an
 empty verdict as a broken run, never as data.
 
+## v2-lane-does-not-serve-the-content-introspection-view — `--v1` answers 200, `--v2` answers nothing
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: tests/e2e/serve-view-frontend-v2-smoke.sh -->
+
+**Measured 2026-08-13**, and it was hidden behind a mechanical defect until today. The gate drives
+`examples/content-introspection.ssc` through both lanes and compares:
+
+    --v1: http=200  frontend=react  swiftui-crash=0
+    --v2: http=000                  swiftui-crash=0
+
+`http=000` is curl's "nothing answered" — the v2 lane never starts listening. The v1 side is
+healthy, so the fixture, the port and the harness are all fine.
+
+**Why nobody saw it.** The gate set `BIN` to the STANDARD `bin/ssc` and passed `--v1`, which that
+tier refuses by design ("`--v1` requires the optional ScalaScript tools/compatibility tier; run
+ssc-tools explicitly"). BOTH lanes therefore came back empty and the gate reported *"--v1 baseline
+broke"* — a false accusation against the v1 lane that masked a real defect in v2. The gate was also
+invoked by nothing, so it had never once been read. Fixing the launcher is what surfaced this.
+
+**Acceptance test:** `tests/e2e/serve-view-frontend-v2-smoke.sh` — it already asserts the comparison
+and is green on the v1 side. It goes green when `--v2` answers 200 with the same `frontend=react`.
+
+**Where to start:** the v2 lane's `serve` path for a view-bearing program. The two sibling gates
+fixed in the same batch (`route-params-v2-smoke`, `req-type-collision-v2-smoke`) DO serve on `--v2`,
+so v2's `serve` works in general — the difference is this fixture's view/frontend content.
+
 ## wired-gates-share-hard-coded-tcp-ports — CAUSE RETRACTED; the measured defect is a LEAKED SERVER — a gate can pass against a NEIGHBOUR's server
 
 <!-- status: open
@@ -3959,6 +3992,45 @@ host without one it would report success having tested nothing. This job guarant
 wired, because a gate red on arrival is how a suite becomes noise. Their diagnosis is the next
 batch, expected to be 3-4 shared causes rather than 16 separate ones: the 2026-08-02 sweep found two
 mechanical causes explaining 22 of 26.
+
+
+### 2026-08-13, batch 3 — the 16 failures diagnosed as a batch; 16 -> 13
+
+**The prefix hypothesis was wrong and is recorded as wrong.** Six of the sixteen are `v21-*` and it
+looked like one era, one cause. Their first divergences are all different — a content-binding
+mismatch, "loaded a forbidden", zero mismatches with rc=2, and one with an EMPTY log. Grouping by
+NAME is not grouping by CAUSE.
+
+**One mechanical cause did explain three, and it is the same family the 2026-08-02 sweep found.**
+`route-params-v2-smoke`, `req-type-collision-v2-smoke` and `serve-view-frontend-v2-smoke` set
+`BIN="$ROOT/../bin/ssc"` — the STANDARD launcher — and drive `--v1`, which that tier refuses by
+design:
+
+    ssc: '--v1' requires the optional ScalaScript tools/compatibility tier; run ssc-tools explicitly
+
+Both lanes therefore returned nothing and each gate reported **"--v1 baseline broke"** — a false
+accusation against the v1 lane. The path was never wrong (`ROOT` is `tests/`, so `$ROOT/../bin` is
+the repo's `bin/`); only the launcher was. One word each.
+
+**Two are green and wired** (33 s, 34 s). **The third exposed a real defect underneath**: with the
+launcher fixed, `serve-view-frontend-v2-smoke` reports `--v1: http=200 frontend=react` and
+`--v2: http=000`. The v2 lane never starts listening. Filed as
+`v2-lane-does-not-serve-the-content-introspection-view` with that gate as its acceptance test. It is
+NOT wired, because it is red — and it was invisible for as long as the mechanical defect made both
+lanes fail together.
+
+**And one gate was never broken at all.** `selfhost-front-gate.sh` takes **289 s**; the census cap
+was 180, so it was recorded as failing when it had simply been cut off. Re-run with room: **17/17**.
+A timeout is not a verdict — the same lesson the `--evidence` audit had to learn about itself the
+same day.
+
+| | |
+|---|---|
+| explained by one mechanical cause | 3 |
+| green and wired after it | 2 |
+| real defect revealed underneath, filed | 1 |
+| never broken, only cut off | 1 |
+| still failing, causes not shared | 13 |
 
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip

@@ -19,7 +19,13 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FIXTURE="$ROOT/e2e/fixtures/route-params-smoke.ssc"
-BIN="$ROOT/../bin/ssc"
+# ssc-TOOLS, not ssc. This gate drives the `--v1` lane, and the STANDARD launcher refuses it by
+# design: "'--v1' requires the optional ScalaScript tools/compatibility tier; run ssc-tools
+# explicitly". The lane log said exactly that on every run — the gate then reported "--v1
+# baseline broke", which reads as a product defect and is not one. The path was never wrong:
+# ROOT is tests/, so $ROOT/../bin is the repo's bin/. Only the launcher was.
+# (orphaned-e2e-gates-52.)
+BIN="$ROOT/../bin/ssc-tools"
 PORT=8797
 
 trap 'lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT

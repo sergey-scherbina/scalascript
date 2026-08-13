@@ -708,6 +708,26 @@ jobs:
       - name: no-paren-sibling (180s, was an orphan)
         run: tests/e2e/no-paren-sibling-gate.sh
 
+      # ── batch 3: three more, and each is here for a measured reason ──────────────────────────────
+      #
+      # ONE MECHANICAL CAUSE explained three of the sixteen that were failing: they set BIN to the
+      # STANDARD bin/ssc and drive `--v1`, which that tier refuses by design ("run ssc-tools
+      # explicitly"). Both lanes then came back empty and the gate reported "--v1 baseline broke" —
+      # a false accusation against v1. One word each; two are green and wired here.
+      # The third, serve-view-frontend-v2-smoke, is NOT wired: the fix revealed a real v2 defect
+      # underneath (--v1 http=200, --v2 http=000), filed as
+      # v2-lane-does-not-serve-the-content-introspection-view.
+      #
+      # selfhost-front-gate was never broken at all. It takes 289 s and the census cap was 180, so it
+      # was recorded as failing when it had simply been cut off. A timeout is not a verdict.
+      # (orphaned-e2e-gates-52.)
+      - name: route-params-v2-smoke (33s, was an orphan reporting a false baseline failure)
+        run: tests/e2e/route-params-v2-smoke.sh
+      - name: req-type-collision-v2-smoke (34s, same cause)
+        run: tests/e2e/req-type-collision-v2-smoke.sh
+      - name: selfhost-front (289s — never broken, only ever cut off at a 180s cap)
+        run: tests/e2e/selfhost-front-gate.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

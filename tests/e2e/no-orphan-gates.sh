@@ -42,9 +42,6 @@ actors-pingpong-smoke.sh
 install-sh-reports-failure-gate.sh
 negtc-shard-gate.sh
 render-smoke.sh
-req-type-collision-v2-smoke.sh
-route-params-v2-smoke.sh
-selfhost-front-gate.sh
 serve-view-frontend-v2-smoke.sh
 typeerr-names-both-types.sh
 v21-build-jvm-smoke.sh
