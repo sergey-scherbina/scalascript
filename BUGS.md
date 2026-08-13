@@ -85,11 +85,21 @@ number", reached for `toDouble`, and had to fall back to splitting on the dot an
 twice. That workaround is in our code with this reason written beside it.
 ## bigint-and-bigdecimal-do-not-widen-against-a-double — `BigInt(1) == 1.0` is `true` in Scala and `false` on interp and native
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
-     gate: tests/e2e/mixed-numeric-comparison-gate.sh (big-agree.ssc + the frozen big-gap.ssc) -->
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh (rows 12-19; row 20 is the frozen gap)
+     fixed-in: deddb5527 -->
+
+**CLOSED 2026-08-13.** All three defects are resolved: two landed on 2026-08-12 (below), the interp
+arms landed today, and the third was never an omission — it is a contract decision, carried into
+`bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken` so that the question
+stays asserted without holding this entry open. Read the closing section at the end.
+
+The `gate:` field named two fixture files that do not exist and never did — the gate has always used
+one shared source and sliced it by row. Corrected above while closing, since a `gate:` naming
+something unfindable is worse than none.
 
 **PARTLY FIXED 2026-08-12 — two of the three defects are closed, and the entry stays OPEN for the
 third.** What landed, all on the v2 side (`v2-bignum-widen`):
