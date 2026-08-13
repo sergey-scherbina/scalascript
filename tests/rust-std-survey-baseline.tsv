@@ -44,12 +44,12 @@ std/json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane
 std/litdoc.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	2	1
 std/mapreduce/cluster.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	5	2
 std/mapreduce/dataset.ssc	COMPILES	
-std/mapreduce/distributed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	26	8
+std/mapreduce/distributed.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	26	8
 std/mapreduce/failure.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	1	1
 std/mapreduce/handlers.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (h.fn(x.asInstanceOf[A]).asInstanceOf[Any])	3	3
-std/mapreduce/index.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	5	1
-std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	30	7
-std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	28	6
+std/mapreduce/index.ssc	COMPILES	
+std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` extracts `_` which is not a known enum constructor	30	7
+std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	23	6
 std/markdown-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	3	1
 std/markdown-html.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	4	1
 std/mcp/client.ssc	REFUSED	Unsupported(McpClient,rust)	1	1

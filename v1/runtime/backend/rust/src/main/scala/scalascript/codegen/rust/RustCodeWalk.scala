@@ -385,7 +385,7 @@ object RustCodeWalk:
       (d.name.value, tRs, init)
     }
     val fieldDecls = if fields.isEmpty then "" else
-      fields.map { case (n, t, _) => s"    pub $n: $t," }.mkString("\n")
+      fields.map { case (n, t, _) => s"    pub ${rustIdent(n)}: $t," }.mkString("\n")
     val structDef =
       if fields.isEmpty then s"pub struct $sName;"
       else s"pub struct $sName {\n$fieldDecls\n}"
@@ -412,7 +412,7 @@ object RustCodeWalk:
     // Build the struct init expression for the topVal injection.
     val structInit =
       if fields.isEmpty then sName
-      else s"$sName { ${fields.map { case (n, _, init) => s"$n: $init" }.mkString(", ")} }"
+      else s"$sName { ${fields.map { case (n, _, init) => s"${rustIdent(n)}: $init" }.mkString(", ")} }"
     // Stash the init string so givenTopVals can use the right expression.
     _givenInits(g.instanceName) = structInit
     val implBlock =
@@ -868,7 +868,7 @@ object RustCodeWalk:
     val (errs, ok) = fieldRendered.partitionMap(identity)
     if errs.nonEmpty then Left(errs.flatten)
     else
-      val fields = ok.map((n, t) => s"    pub $n: $t").mkString(",\n")
+      val fields = ok.map((n, t) => s"    pub ${rustIdent(n)}: $t").mkString(",\n")
       val allCopy = ok.forall((_, t) => Set("i64", "f64", "bool").contains(t))
       val derives0 = if allCopy then "Debug, Clone, Copy" else "Debug, Clone"
       // `case class Foo()` — no fields. The braced form emitted a body of just `,`, which is not
@@ -1212,7 +1212,7 @@ object RustCodeWalk:
     else
       val body   =
         if ok.isEmpty then ""
-        else " { " + ok.map((n, t, _) => s"$n: $t").mkString(", ") + " }"
+        else " { " + ok.map((n, t, _) => s"${rustIdent(n)}: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
       val boxed   = ok.collect { case (n, _, true) => n }.toSet
       Right((variant, (ctor, EnumCtor(enumName, ok.map(_._1), boxed, fieldTypes = ok.map(_._2)))))
@@ -1237,7 +1237,7 @@ object RustCodeWalk:
       val fields = ok
       val body   =
         if fields.isEmpty then ""
-        else " { " + fields.map((n, t) => s"$n: $t").mkString(", ") + " }"
+        else " { " + fields.map((n, t) => s"${rustIdent(n)}: $t").mkString(", ") + " }"
       val variant = s"$ctor$body"
       // fieldTypes travels so the construction site and `enumLift` can see which fields are
       // closures — both have to treat them specially and neither can re-derive it from the AST.
@@ -2129,9 +2129,18 @@ object RustCodeWalk:
         // "may not live long enough". The closures this lane emits are `move |…|` over owned
         // captures, so the bound costs nothing and states what was already true.
         if inField then s"std::rc::Rc<dyn $sig>" else s"impl $sig + 'static"
-    // R.2.5 — `List[T]` / `Vec[T]` / `Vector[T]` / `Seq[T]` / `IndexedSeq[T]` / `Iterable[T]`
-    // all lower to `Vec<T>` (eager immutable sequences; identical in Rust's Vec-backed model).
-    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable"), argClause) =>
+    // R.2.5 — `List[T]` / `Vec[T]` / `Vector[T]` / `Seq[T]` / `IndexedSeq[T]` / `Iterable[T]` /
+    // `Array[T]` all lower to `Vec<T>` (eager immutable sequences; identical in Rust's Vec-backed
+    // model).
+    //
+    // `Array` WAS THE ONE MISSING, and only here: every other decision site in this file already
+    // groups it with the list family — the Copy-type test, two list-constructor tests, and the
+    // `Any`-variant test all name `Array` beside `List` and `Vector`. `mapType` was the odd one
+    // out, so `Array[Byte]` in a struct field refused as "a type outside R.2" while an `Array(…)`
+    // expression three lines away lowered fine. A second decision site disagreeing with the rest of
+    // its own front is the shape this backend keeps producing; the fix is one word, and the reason
+    // it is safe is that the other four sites already made this choice.
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Vec" | "Vector" | "Seq" | "IndexedSeq" | "Iterable" | "Array"), argClause) =>
       argClause.values.toList match
         case List(elem) => mapType(elem, defName, enumNames, inField).map(r => s"Vec<$r>")
         case other      => Left(List(unsupported(
@@ -2688,7 +2697,7 @@ object RustCodeWalk:
       )))
 
     case m.Term.Select(qual, m.Term.Name(field)) =>
-      renderTerm(qual, ctx).map(q => s"$q.$field")
+      renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}")
     // A user effect op call `Eff.op(args)` → `_eff.op(args)` (tagless-final dispatch).
     // The `_eff` handler parameter is threaded into every effectful def. (R.4.2)
     case m.Term.Apply.After_4_6_0(
