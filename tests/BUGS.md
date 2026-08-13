@@ -560,10 +560,22 @@ Four restructurings measured the same day, all of them local, none of them worki
 | both together | 36 of 96 |
 | lift a nine-set guard out of the method | **0** |
 
-So the lever is **fewer fields on `Ctx`, or the five `copy` sites factored into one helper** — and
-splitting the term cases, which is what this entry recommended for two days, would move the arms
-around while every copy site kept paying for the same record. Anyone about to spend a build cycle on
-this should spend it there.
+So the lever was **the five `copy` sites factored into one helper** — not splitting the term cases,
+which is what this entry recommended for two days and which would have moved arms around while every
+copy site kept paying for the same record.
+
+**THE OTHER HALF OF THAT ADVICE — "fewer fields on `Ctx`" — IS NOW WRONG, and was checked before
+being acted on.** With the copies folded, two probe fields added to the 24-field record and measured:
+
+| | |
+|---|---|
+| `renderTerm` | 20085 → 20085 — **zero** |
+| `walk` | 2378 → 2402 — +24, the same 12 per field |
+
+The per-field cost is alive but has RELOCATED to `walk`, where `Ctx` is constructed, and `walk` is
+2.4 KB against an 8000-byte limit. **Narrowing the record would buy nothing where it matters.** The
+work that was worth doing has been done; anyone sent here to remove fields should read this table
+first and spend the cycle elsewhere.
 
 **DONE, AND IT IS THE FIRST TIME THIS NUMBER HAS GONE DOWN: 20345 → 20085.** Five of the six
 `ctx.copy(...)` sites in the method were the SAME SHAPE — bind a closure's parameters, set

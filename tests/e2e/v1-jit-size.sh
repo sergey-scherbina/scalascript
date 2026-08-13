@@ -145,6 +145,12 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # replaced all five: -260 bytecodes, and no behaviour change (backendRust/test 278/278, the std
 # corpus unmoved at REFUSED 81 / COMPILES 51 / BADRUST 0).
 #
+# AND THE FOLLOW-UP QUESTION IS ANSWERED TOO: with the copies folded, does making `Ctx` narrower
+# help? No. Two probe fields on the 24-field record moved `renderTerm` 20085 -> 20085 (zero) while
+# `walk`, where the record is CONSTRUCTED, went 2378 -> 2402 — the same 12 per field, now landing in
+# a 2.4 KB method against an 8000-byte limit. The cost did not go away, it RELOCATED to somewhere it
+# does not matter. Nobody should spend a cycle narrowing this record for size.
+#
 # THE NUMBER IS LOWERED, NOT LEFT AT 20345. A freeze kept above the measurement is free headroom for
 # the next drift, which is the opposite of what a ratchet is for. The marginal cost of a new `Ctx`
 # field also falls with it: one copy site left in the method instead of six.
