@@ -2613,9 +2613,17 @@ object RustCodeWalk:
     // wherever it appears, and every other field access keeps passing through untouched.
     // (rust-no-paren-member-becomes-a-field-silently.)
     case m.Term.Select(_, m.Term.Name(meth)) if CollectionOnlyMembers.contains(meth) =>
+      // The message deliberately does NOT say "cannot type", which is what it used to say and what
+      // sent me looking for an inference pass. Measured 2026-08-13: a TRAIT settles `reverse`,
+      // `isEmpty` and `nonEmpty` without any receiver type, and lowering them is four lines. It
+      // buys NOTHING, which is the part worth recording: of the 16 modules refusing on these three
+      // names, zero reach COMPILES and five turn into rustc errors — 207 of them in
+      // std/content-core.ssc, 98 in yaml-core, 47 in json-core. The refusal is not covering for a
+      // missing inference pass; it is holding back modules with a queue of other blockers.
+      // (rust-no-paren-member-needs-receiver-type.)
       Left(List(unsupported(
-        s"def `${ctx.defName}` reads `$meth` without parentheses on a value this lane cannot type; " +
-        s"it is a collection member, not a field, and would be emitted as a Rust FIELD access"
+        s"def `${ctx.defName}` reads `$meth` without parentheses and this lane does not lower it " +
+        s"here; it is a collection member, not a field, and would be emitted as a Rust FIELD access"
       )))
 
     case m.Term.Select(qual, m.Term.Name(field)) =>

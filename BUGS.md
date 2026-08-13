@@ -485,6 +485,53 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-no-paren-member-needs-receiver-type — MEASURED and deliberately NOT fixed: the lowering is four lines and buys nothing
+<!-- status: wontfix
+     lane: v2-rust
+     area: codegen
+     kind: feature
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+**The second-largest entry in the refusal histogram, investigated 2026-08-13 and left alone. The
+measurement is the deliverable.**
+
+Sixteen modules refuse on `xs.reverse` / `xs.isEmpty` / `xs.nonEmpty` written without parentheses,
+where the walker cannot type the receiver. That is **three member names over 114 sites** — 64
+`reverse`, 30 `isEmpty`, 20 `nonEmpty` — and nothing else.
+
+**The obvious reading was wrong.** It looks like a demand for receiver-type inference. It is not: a
+TRAIT settles it with no type at all, which is the device this backend already uses for `SscInt` and
+friends —
+
+```rust
+pub trait SscReverse { fn ssc_reverse(self) -> Self; }
+impl<T> SscReverse for Vec<T> { fn ssc_reverse(mut self) -> Self { self.reverse(); self } }
+impl SscReverse for String    { fn ssc_reverse(self) -> Self { self.chars().rev().collect() } }
+```
+
+— and `reverse` is the only one of the three whose two implementations differ at all.
+
+**It was implemented, measured, and REVERTED.** Of the sixteen modules:
+
+| | |
+|---|---|
+| reached COMPILES | **0** |
+| turned into rustc errors | **5** — content-core, fs, json-core, litdoc, yaml-core |
+| still refuse, for other reasons | 11 |
+
+And the five are not close: **207 errors in `std/content-core.ssc`**, 98 in `yaml-core`, 47 in
+`json-core`, 24 in `litdoc`. Only `std/fs.ssc` is near, at 2. Landing it would have traded one clear
+message for two hundred rustc errors in code the user never wrote — exactly what the survey gate
+exists to prevent, and it is what said so.
+
+**So this refusal is not covering for a missing feature.** It is holding back modules with a queue
+of blockers behind it, and removing it moves work from a column that reads as "not supported yet"
+into one that reads as "broken". The four lines are recorded above so nobody has to re-derive them
+the day the modules behind them are closer.
+
+**The refusal's message was corrected** — it used to say "on a value this lane cannot type", which
+is what sent me looking for an inference pass in the first place.
+
 ## rust-no-paren-member-becomes-a-field-silently — an unlowered no-paren member on a List/String is emitted as a Rust FIELD access, so the by-name refusal never sees it
 <!-- status: fixed
      lane: v2-rust
