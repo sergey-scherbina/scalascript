@@ -70,6 +70,25 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       findings the answer to "who fixes them" is me, in batches; the detectors exist to make the
       work finite and to stop it growing back.
 
+- [~] `ci-status-guard-owns-its-repo` — `tests/e2e/ci-status-guard.sh` builds its claim fixture with
+      `git -C "$ROOT" worktree add`, i.e. it MUTATES the shared main repo from inside the pre-push
+      suite. BUGS entry `ci-status-guard-races-the-shared-repo-index-lock` blames "the shared index
+      lock"; that root cause is **refuted by measurement** — 25 same-basename races, 5 races against
+      a prunable leftover and 6 races against a concurrent `worktree prune` loop all produced zero
+      failures, and `git worktree add` never touches the main index at all.
+
+      What IS proven, today, in this repo: **three permanent leftovers** — `.git/worktrees/claim-wt`,
+      `claim-wt1`, `claim-wt2` (dated 09/08, 09/08, 12/08) plus three orphan
+      `feature/ci-red-main-final-fixture-*` branches. `git worktree prune` will NOT collect them:
+      it honours `gc.worktreePruneExpire`, three months by default. Every guard run whose cleanup
+      trap does not complete adds one, forever.
+
+      Fix the class rather than the instance: the fixture moves into a **throwaway clone** in
+      `$TMP` (`git clone --local` of the repo, measured 1.5 s), the tree's `scripts/` is copied over
+      the clone's committed copy so the code under test is still the WORKING TREE's and not `HEAD`'s,
+      and the guard asserts that `$ROOT`'s worktree list and branch list are **unchanged across the
+      fixture section**. That assertion fails today — which is the point (P-6.1b).
+
 - [x] `f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip` — `specs/v2.2-p6.5-dualrun.sh`
       runs `SSC_FRONT=F bin/ssc run` against a BARE `bin/ssc run`, but `RunNativeV2.frontIsF` is
       `!SSC_FRONT.equalsIgnoreCase("legacy")` — so both sides are F and the gate whose entire
