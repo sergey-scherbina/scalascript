@@ -1,5 +1,4 @@
-# generation: 1829
+# generation: 1830
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 mcp-legacy-version-2025-06-18	claude-code	2026-08-13T11:05:48Z	mcp-legacy-version-2025-06-18	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
-rust-renderterm-jit-size	claude-code	2026-08-13T11:19:53Z	renderTerm-is-two-and-a-half-times-the-jit-limit	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/v1-jit-size.sh
