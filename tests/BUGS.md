@@ -192,6 +192,42 @@ The failure text prints pids so a human can tell in one look.
 reap and killing by name is how a live sibling's test dies. The remaining work is the Rust lane's
 cleanup path, which must stop its server on every exit, not only the happy one.
 
+### 2026-08-13, later — the two pids are DATED AND PLACED, and they are not ours
+
+The same two processes were still listening, so they were asked where they came from instead of
+being described again:
+
+```text
+pid 44704  ssc_program  *:8497  started Sat Aug  8 19:25  age 5d03h  ppid 1
+           cwd /private/tmp/claude-501/-Users-sergiy-work-my-rozum/…/scratchpad/probe3-rust
+pid 48753  ssc_program  *:8493  started Sat Aug  8 19:32  age 5d03h  ppid 1
+           cwd …/-Users-sergiy-work-my-rozum/…/scratchpad/probe6-rust
+```
+
+**FIVE DAYS old, reparented to init, and started from ANOTHER PROJECT's scratchpad** — ad-hoc
+`probe3-rust` / `probe6-rust` binaries whose launcher was killed. Not this suite's gates, and not
+from this repository at all. The section above says "hours" because nothing had asked for the start
+time; `ps -o lstart,etime` and the process's own `cwd` answered both questions in one call.
+
+**Which retires the stated remaining work, and the reasoning matters more than the verdict.**
+"The Rust lane's cleanup path must stop its server on every exit" was inferred from these two
+processes. `RunRustCmd` already spawns the binary with a shutdown hook that kills the process tree
+and cleans up in its `catch`; what no hook survives is SIGKILL, which is exactly what killing an
+agent's probe does. So these two are evidence about how a probe was killed, not about a missing
+cleanup path — and there is currently NO measured leak attributable to this repository's gates.
+
+**The check now dates and places every hit, and scopes its verdict**: on CI every listening process
+on the runner is that job's, so any hit fails; locally a hit fails only when its `cwd` is inside
+this checkout, and anything else is printed as a NOTE with age and provenance. A check that is
+permanently red because of a five-day-old process in another repository stops being read, and
+"ours by binary" turned out not to mean "ours to fix". Verified in both directions: `CI=true` exits
+1 on those same two, a plain local run exits 0 while naming them, and a server started from inside
+this checkout fails the local run as before.
+
+**What remains is a QUESTION, not a task**, and it is stated so nobody re-derives the same answer:
+does any gate in this suite leak a listener? Nothing measured says yes. The check is wired in CI
+with `if: always()`, so the first real instance will name itself, with its age and its cwd.
+
 
 ## f-parser-gap-needs-the-package-field
 

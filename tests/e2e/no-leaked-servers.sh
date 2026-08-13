@@ -69,26 +69,63 @@ fi
 
 # Anything of OURS still listening. `ssc_program` is the Rust lane's built binary; a JVM carrying
 # `ssc.lib.path` is a gate's server. Both are ours and neither should outlive its test.
+#
+# AND EVERY LEAK IS DATED AND PLACED, because the first two this check caught were neither what nor
+# where the entry assumed. Measured 2026-08-13, the same two pids it had named hours earlier:
+#
+#     pid 44704  ssc_program  *:8497   started Sat Aug 8 19:25  age 5d3h  ppid 1
+#                cwd /private/tmp/claude-501/-Users-sergiy-work-my-rozum/…/scratchpad/probe3-rust
+#     pid 48753  ssc_program  *:8493   started Sat Aug 8 19:32  age 5d3h  ppid 1
+#                cwd …/-Users-sergiy-work-my-rozum/…/scratchpad/probe6-rust
+#
+# FIVE DAYS old, reparented to init, and started from ANOTHER PROJECT's scratchpad — ad-hoc probes
+# whose launcher was killed, not this suite's gates. The entry's remaining work reads "the Rust
+# lane's cleanup path must stop its server on every exit"; `RunRustCmd` already installs a shutdown
+# hook and cleans up in its catch, and no hook survives SIGKILL, which is what killing an agent's
+# probe does. So AGE + CWD are printed for every hit: without them this reads as our gates leaking
+# and sends the next person into `RunRustCmd`.
+#
+# The verdict is scoped rather than softened. On CI every process on the runner is this job's, so
+# any hit fails. Locally a hit is only OURS when its cwd is inside this checkout; anything else is
+# printed as a NOTE with its provenance and does not fail, because a five-day-old process from a
+# different repository is not something a run of this suite can fix — and a check that is
+# permanently red for someone else's mess stops being read at all.
+in_ci="${CI:-}"
 ours="$(lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null \
         | awk 'NR>1{print $2"\t"$1"\t"$9}' | sort -u || true)"
-leaks=""
+leaks=""; foreign=""
 while IFS=$'\t' read -r pid comm addr; do
   [[ -n "${pid:-}" ]] || continue
   cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
   case "$cmd" in
-    *ssc_program*|*ssc.lib.path*) leaks="$leaks$pid\t$comm\t$addr\t$cmd\n" ;;
+    *ssc_program*|*ssc.lib.path*) ;;
+    *) continue ;;
   esac
+  age="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')"
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+  row="$pid\t$comm\t$addr\t${age:-?}\t${cwd:-?}\t$cmd\n"
+  if [[ -n "$in_ci" || "${cwd:-}" == "$ROOT"* ]]; then leaks="$leaks$row"; else foreign="$foreign$row"; fi
 done <<< "$ours"
+
+show_rows() { # $1 = rows, tab-separated
+  printf "$1" | while IFS=$'\t' read -r pid comm addr age cwd cmd; do
+    [[ -n "${pid:-}" ]] || continue
+    printf '        pid %-7s %-12s %-22s age %-12s %s\n' "$pid" "$comm" "$addr" "$age" "$(printf '%s' "$cmd" | cut -c1-52)" >&2
+    printf '            cwd %s\n' "$cwd" >&2
+  done
+}
+
+if [[ -n "$foreign" ]]; then
+  echo "NOTE  listening, ours by binary but NOT from this checkout — not this run's to reap:" >&2
+  show_rows "$foreign"
+fi
 
 if [[ -n "$leaks" ]]; then
   echo "FAIL  a server this project started is still LISTENING with no test running:" >&2
-  printf "$leaks" | while IFS=$'\t' read -r pid comm addr cmd; do
-    [[ -n "${pid:-}" ]] || continue
-    printf '        pid %-7s %-12s %-22s %s\n' "$pid" "$comm" "$addr" "$(printf '%s' "$cmd" | cut -c1-70)" >&2
-  done
+  show_rows "$leaks"
   echo "        A later run can talk to this and pass without starting anything." >&2
   echo "        Whatever started it must stop it on EVERY exit path, not only the happy one." >&2
-  echo "        Locally this can also be a sibling agent's live test — the pids above tell you." >&2
+  echo "        Check the AGE first: seconds means a live sibling test, days means a real orphan." >&2
   exit 1
 fi
-echo "no-leaked-servers: PASS (nothing of ours is listening)"
+echo "no-leaked-servers: PASS (nothing of ours is listening from this checkout)"
