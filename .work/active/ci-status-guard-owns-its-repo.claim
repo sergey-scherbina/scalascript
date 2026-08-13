@@ -2,10 +2,26 @@ slug: ci-status-guard-owns-its-repo
 branch: feature/ci-status-guard-owns-its-repo
 agent: claude-code
 started: 2026-08-13T17:30:00Z
-heartbeat: 2026-08-13T17:30:00Z
-status: claimed-before-planning
-items: ci-status-guard-races-the-shared-repo-index-lock
-paths: file:tests/e2e/ci-status-guard.sh file:tests/BUGS.md file:tests/SPRINT.md
+heartbeat: 2026-08-13T17:47:00Z
+status: working
+items: ci-status-guard-races-the-shared-repo-index-lock coord-status-activity-lookup-reads-the-callers-cwd
+paths: file:tests/e2e/ci-status-guard.sh file:tests/BUGS.md file:tests/SPRINT.md file:scripts/coord-status
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `tests/e2e/ci-status-guard.sh` builds its claim fixture with `git -C "$ROOT" worktree add`, i.e.
+  it mutates the repository every other agent shares, from inside the pre-push suite. Moved into a
+  throwaway `--local --no-checkout` clone (0.066 s), with the tree's `scripts/` copied over the
+  clone's committed copy so the code under test stays the WORKING TREE's, and an assertion at both
+  ends that the shared repo's `claim-wt*` registrations and `feature/ci-red-main-*` branches are
+  unchanged. Measured: 67 s -> 25 s, because `coord-status` walks `git worktree list` and this host
+  carries 110 registrations.
+
+  WIDENED 2026-08-13, before the edit and not after. The clone made a LATENT defect in
+  `scripts/coord-status` block: `claim_activity_epoch` is the one function in that file whose three
+  `git log` calls carry no `-C "$ROOT"`, so the commit-activity rule resolves against the CALLER'S
+  working directory, and its last call hardcodes `origin/main` instead of `$REMOTE_REF`. Measured
+  on the live repo at one instant: 4 claims reported stale from inside the repo, 5 from `/tmp` —
+  the same script, the same claims, a different answer, and a claim reported stale is one the
+  triage table says may be released and reclaimed. Fix is `-C "$ROOT"` on all three plus
+  `$REMOTE_REF`; the guard's commit-activity case is what proves it, since that case now depends on
+  a branch that exists only in the clone.
+next: fix claim_activity_epoch, re-run the guard, then file both BUGS entries
