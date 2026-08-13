@@ -25,7 +25,7 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       except one entry a sibling took within hours *because it carried a measurement and a named
       gate*. So a finding must either block something or arrive claimable; anything else is a note.
 
-      **1. [~] The mechanism — make taking work cheaper than choosing it.**
+      **1. [x] The mechanism — make taking work cheaper than choosing it.**
          - `scripts/next`: one command answering "what should I do", ranked on COMPUTABLE signals
            only (has a named gate → has an acceptance test; `confirmed:`; `kind:`; age), excluding
            what is claimed, printing the ready-to-paste `coord-claim` line. Totals on line one, so
@@ -40,7 +40,7 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
            entry cannot be claimed — there is no way to know when it is done — so it is a note, not
            a task. Ratchet: freeze today's non-conforming, fail on a NEW one.
 
-      **2. [ ] The audit — measure whether a gate can fail at all.**
+      **2. [x] The audit — measure whether a gate can fail at all.**
          Control A, cheap and universal for the 48 wired checks that need a launcher: remove both
          launcher jars, run them, every one must go RED. Validated on 20 gates already — 19 red, and
          the one green was `f-char-escape-gate`, which SKIPS by design, so the control cannot
@@ -52,8 +52,22 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          lists over the same population is a second decision site. One table, two axes. The cell
          that matters most is UNWIRED **and** VACUOUS — that is the only evidence that justifies
          DELETING a gate, which today's subject-liveness triage could not give (0 of 33 dead).
-         Prediction, written before the work: 0-3 genuinely vacuous among the 48. **A zero is a
-         result, not a failure** — it would move all attention to the 30 with no evidence.
+         Prediction, written before the work: 0-3 genuinely vacuous among the 48. **DONE, and the
+         answer is 0** — of 105 wired gates that invoke a launcher, 91 fail when it fails and the
+         other 14 decline by design (12 `ssc_usable_or_skip`, 2 their own check), declared by name
+         with the reason. Nothing swallows a failure.
+         THREE MEASUREMENT DESIGNS WERE BUILT AND THROWN AWAY BY THEIR OWN RESULTS: selecting gates
+         by grepping for a launcher NAME caught 13 that only mention one (the same "a comment is not
+         a caller" error a sibling had fixed hours earlier); dropping the filter put 51 of 151 in a
+         declared list and buried the signal; the third replaces the launcher with a stub that
+         RECORDS its call, so membership is observed instead of guessed.
+         AND IT TOOK TWO MORE FIXES TO REPRODUCE. A timeout was being folded into "red", i.e. into
+         healthy — the audit reporting a verdict it never obtained, which is the exact defect it
+         hunts. And the residual variance was NOT a flaky gate: both suspects failed 5/5 alone with
+         durations steady to the second, and only ever passed inside the sweep, because wired gates
+         share hard-coded ports and answer each other's requests. Filed as
+         `wired-gates-share-hard-coded-tcp-ports`; the audit now re-verifies each blind candidate
+         ALONE, and two consecutive runs give an identical verdict (105 / 14).
 
       **3. [ ] The drain — one general list, worked in batches.**
          Not "file and hope". Batches with a shared root cause where one exists: the 2026-08-02

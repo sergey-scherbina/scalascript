@@ -74,6 +74,55 @@ verdict extracted with `cut -f2` comes back EMPTY, which reads as "no verdict" r
 binary". I collected a whole table of empty verdicts before noticing. Build first, and treat an
 empty verdict as a broken run, never as data.
 
+## wired-gates-share-hard-coded-tcp-ports — a gate can pass against a NEIGHBOUR's server
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: tests/e2e/no-orphan-gates.sh --evidence -->
+
+**Wired gates hard-code TCP ports and several share one.** Counted 2026-08-13 across `tests/e2e`:
+
+| port | wired gates using it |
+|---|---|
+| 8768 | **3** |
+| 8766, 8767, 8769 | 2 each |
+
+**A gate can therefore pass by talking to a server another gate left listening**, and it was found
+that way rather than by reading the code. While making `no-orphan-gates --evidence` reproducible,
+two gates kept moving between verdicts inside the sweep — `response-transforms-gate.sh` and
+`route-handler-shapes-gate.sh` — and the obvious diagnosis, a flaky gate, is WRONG:
+
+    run alone, launcher deliberately broken, 5 rounds each
+      route-handler-shapes-gate.sh   failed 5/5   61s 61s 61s 61s 61s
+      response-transforms-gate.sh    failed 5/5   60s 60s 60s 60s 60s
+
+Steady to the second, and correct every time. They only ever pass INSIDE the sweep — where a
+neighbour's server is still listening on the port they are about to use. So the gate whose own
+launcher could not start anything still gets meaningful HTTP answers back and reports success.
+
+**This is not confined to the audit.** The same collision exists in the ordinary `smoke` run: any
+of these gates can pass against a neighbour's server, and nothing would show it, because everything
+is green. This project already recorded the shape once — *a probe measures the PORT, not the lane* —
+and this is a new instance of it.
+
+**Acceptance test, so this is a task and not a note.** Two parts, and the first is the cheap one:
+
+1. No two wired gates may hard-code the same port. A check over `tests/e2e/*.sh` that collects
+   `PORT=`/`localhost:NNNN` literals and fails on a duplicate — seconds to run, and it is the
+   ratchet that stops the next one being added.
+2. A gate that starts a server must prove the server answering is the one it started (a nonce on a
+   health route, or a port it allocated rather than chose). Per-gate work; start with the ones
+   sharing 8768.
+
+`no-orphan-gates --evidence` works around the symptom by re-verifying every blind candidate ALONE
+before classifying it — which is why its verdict is now reproducible (105 invoked / 14 blind, twice
+consecutively). That workaround is not a fix: it makes the audit honest, not the suite.
+
 ## f-parser-gap-needs-the-package-field
 
 <!-- status: open

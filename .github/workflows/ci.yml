@@ -645,6 +645,21 @@ jobs:
       - name: Scala-fence width parity (W5 guard — scala fence == scalascript fence on every lane)
         run: tests/e2e/scala-fence-width-parity-smoke.sh
 
+      # Can a gate FAIL at all? Replaces the launchers with a stub that records its call and exits
+      # 1, then runs every WIRED gate: one that invokes the stub must go red. Measured 2026-08-13 —
+      # 105 invoke a launcher, 91 fail with it, 14 decline by design and are declared by name.
+      #
+      # HERE and not on the push path: ~20 minutes. This job is tier 2 (no `if:`, and ci.yml runs on
+      # pull_request + the nightly schedule), and it already builds a launcher, which is the one
+      # thing the check needs. Cadence checked rather than assumed — v1-jit-size was once wired into
+      # the `sbt` job, which is workflow_dispatch-only, and ran essentially never.
+      #
+      # Its verdict is reproducible only because a blind candidate is re-verified ALONE before being
+      # classified: inside the sweep, gates that share a hard-coded port answer each other's
+      # requests. See tests/BUGS.md wired-gates-share-hard-coded-tcp-ports.
+      - name: Every wired gate can fail (stub-launcher evidence audit)
+        run: tests/e2e/no-orphan-gates.sh --evidence
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

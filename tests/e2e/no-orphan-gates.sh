@@ -73,6 +73,54 @@ validation-smoke.sh
 wc-card-smoke.sh
 EOF
 
+# ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────
+#
+# An orphan reports green by NOT RUNNING. A vacuous gate reports green by NOT LOOKING. The same
+# defect measured two ways, so they live in ONE file: two frozen lists over one population kept in
+# two places is a second decision site, and this repo has paid for those repeatedly.
+#
+# TWO DEPTHS, ONE TABLE. The wired axis is cheap (~25 s) and runs on every push. The evidence axis
+# (`--evidence`) runs the suite again with the launcher removed, 15-20 minutes, so it belongs in
+# tier 2. Same file, same lists, different depth — not a second gate with its own copy.
+#
+# GREEN_WITHOUT_LAUNCHER — gates that INVOKE a launcher, watch it fail, and pass anyway. Each carries
+# with the reason it is allowed to. Measured 2026-08-13 over 112 wired gates: 90 went RED, and every
+# one of the 22 that did not is explained below. NO GENUINELY VACUOUS GATE WAS FOUND, which is the
+# result — the prediction written before the run was "0-3", and the answer is 0.
+#
+# THE FIRST VERSION OF THIS CHECK GUESSED, and guessed wrong. It selected gates by grepping for
+# `bin/ssc` and friends, i.e. by a MENTION rather than an execution — the same error a sibling had
+# already fixed on the orphan axis that morning ("a COMMENT is not a caller"). It caught 13 gates
+# that never touch a launcher, including `v1-jit-size.sh`, which censuses JARS and needs no
+# launcher at all, and `cds-archive-per-build.sh`, which reads `bin/ssc` AS TEXT.
+#
+# So the static filter is gone. The signal is now DYNAMIC and needs no regex: run every wired gate
+# with the launcher removed, and freeze whatever stays green WITH ITS REASON. A new gate that stays
+# green must be declared here; one that starts going red must be deleted from here.
+#
+#   skip-guarded          `ssc_usable_or_skip` prints SKIP and exits 0. Declining to judge, not
+#                         vacuity — but it reports SUCCESS while testing nothing, so wire it only
+#                         where a launcher is guaranteed.
+#   no-launcher-needed    inspects artifacts (jars, staged files, launcher TEXT) and never runs a
+#                         program. Removing the jars is not a mutation of anything it looks at.
+read -r -d '' GREEN_WITHOUT_LAUNCHER <<'EOF' || true
+f-alternative-pattern-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-bare-member-call-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-curried-def-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-global-v-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-nested-pattern-lambda-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-output-agreement-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-std-ui-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+f-trailing-block-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+launchers-are-not-dead-on-arrival.sh	declines	its own availability check, not ssc_usable_or_skip — read it before trusting
+list-concat-chain-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+negtc-mapreduce-gate.sh	declines	its own availability check, not ssc_usable_or_skip — read it before trusting
+ref-front-multiblock-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+ref-front-string-literal-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+ref-front-three-defects-gate.sh	skip-guarded	ssc_usable_or_skip prints SKIP and exits 0
+EOF
+
+
 # ── one helper, used by BOTH the self-test and the census, so they cannot drift ──────────────────
 #
 # The exit status of `grep` is DELIBERATELY discarded and the OUTPUT is what decides. Two ways it
@@ -166,6 +214,123 @@ if [[ "${1:-}" == "--self-test" ]]; then
   echo "no-orphan-gates self-test: PASS (an executable caller counts — with or without a trailing" \
        "comment; a .md mention and a commented-out one do not)"
   # falls through to the census, like v1-jit-size.sh: one invocation does both
+fi
+
+# ── `--evidence`: a gate that RUNS the toolchain must fail when the toolchain fails ──────────────
+#
+# 15-20 minutes, so this runs in tier 2, not on the push path. The cheap wired axis below runs on
+# every push. Same file, same population, two depths.
+#
+# THE MEMBERSHIP TEST IS THE HARD PART, and two designs were measured and thrown away first:
+#
+#   1. Grep each gate for `bin/ssc` and friends. That selects on a MENTION, not an execution — the
+#      identical error a sibling had fixed on the orphan axis hours earlier ("a COMMENT is not a
+#      caller"). 13 false positives, including `v1-jit-size.sh`, which censuses JARS and never runs
+#      a launcher, and `cds-archive-per-build.sh`, which greps `bin/ssc` AS TEXT.
+#   2. Drop the filter and run everything. Then 51 of 151 wired gates stay green — correctly, since
+#      a board or shell gate does not care whether a launcher exists — and a declared list of 51
+#      buries the handful of cases that mean anything.
+#
+# So the launcher is REPLACED BY A RECORDING STUB rather than removed. A gate that invokes it leaves
+# a line in the log; a gate that does not, does not. Membership stops being a guess and becomes an
+# observation, and the same substitution is the failure injection: the stub exits 1.
+if [[ "${1:-}" == "--evidence" ]]; then
+  elog="$(mktemp)"
+  ECAP="${SSC_EVIDENCE_CAP:-240}"   # per gate; raised from 120 because a cut-off gate yields no verdict
+  elaunchers=()
+  for l in "$ROOT/bin/ssc" "$ROOT/bin/ssc-tools" "$ROOT/bin/ssc-standard"; do
+    [[ -f "$l" ]] && elaunchers+=("$l")
+  done
+  [[ ${#elaunchers[@]} -gt 0 ]] || { echo "no-orphan-gates --evidence: no launchers in bin/ — build first" >&2; exit 2; }
+  # RESTORE IN A TRAP, not at the end. A run interrupted half-way would otherwise leave the tree
+  # with stub launchers, and the next person's failure would look like a product defect.
+  erestore() { for l in ${elaunchers[@]+"${elaunchers[@]}"}; do [[ -f "$l.evidence-bak" ]] && mv -f "$l.evidence-bak" "$l"; done; return 0; }
+  trap erestore EXIT HUP INT TERM
+  for l in "${elaunchers[@]}"; do
+    mv "$l" "$l.evidence-bak"
+    printf '#!/usr/bin/env bash\necho "%s" >> "%s"\necho "stub launcher: deliberately broken for the evidence audit" >&2\nexit 1\n' \
+      "$(basename "$l")" "$elog" > "$l"
+    chmod +x "$l"
+  done
+
+  declared="$(printf '%s\n' "$GREEN_WITHOUT_LAUNCHER" | grep -v '^$' | cut -f1 | sort)"
+  efail=0; invoked=0; blind=(); noverdict=()
+  for g in "$ROOT"/tests/e2e/*.sh; do
+    b="$(basename "$g")"
+    [[ "$b" == "$SELF" ]] && continue
+    [[ -n "$(callers_of "$ROOT" "$b")" ]] || continue    # an orphan's evidence is moot until wired
+    : > "$elog"
+    timeout "$ECAP" "$g" >/dev/null 2>&1 && rc=0 || rc=$?
+    # ── A TIMEOUT IS A THIRD OUTCOME, and folding it into "red" is what made this unreproducible ──
+    #
+    # Measured 2026-08-13: two consecutive runs reported 105 invoked / 14 blind, then 104 / 15. The
+    # cause is that a gate cut off at the cap lands in a DIFFERENT BUCKET depending on whether the
+    # clock beat it to its first launcher call: cut off before, it looks like "never touched one"
+    # and leaves the population; cut off after, it looks like it FAILED and counts as healthy. Both
+    # readings are the apparatus reporting a verdict it did not obtain — the exact shape this whole
+    # audit exists to find, in the audit itself.
+    #
+    # So a timeout now asserts NOTHING. It is named in the output so the run's coverage is visible
+    # rather than assumed, and it never lands in the frozen list in either direction.
+    if [[ $rc -eq 124 ]]; then noverdict+=("$b"); continue; fi
+    [[ -s "$elog" ]] || continue                          # never touched a launcher: wrong mutation
+    invoked=$((invoked + 1))
+    [[ $rc -eq 0 ]] && blind+=("$b")
+  done
+  # ── A BLIND VERDICT FROM THE SWEEP IS NOT TRUSTED UNTIL IT REPRODUCES ALONE ──────────────────
+  #
+  # Measured 2026-08-13: with the timeout hole closed the population went stable at 105, but the
+  # blind count still moved, 15 then 14. The cause is NOT a flaky instrument and NOT a flaky gate —
+  # both suspects failed 5 times out of 5 when run ALONE, with durations steady to the second
+  # (61s, 61s, 61s, 61s, 61s). They only ever pass INSIDE the sweep.
+  #
+  # Because gates hard-code TCP ports and several share one: 8768 is used by three wired gates,
+  # 8766/8767/8769 by two each. A server left listening by a neighbour answers the next gate's
+  # requests, so a gate whose own launcher is broken can still get 200s back and pass. This project
+  # already has that lesson written down as "a probe measures the PORT, not the lane".
+  #
+  # So a sweep verdict of "blind" is a CANDIDATE. Re-run each one alone, and classify only what
+  # reproduces. Costs a handful of runs, not another full pass.
+  if [[ ${#blind[@]} -gt 0 ]]; then
+    confirmed=()
+    for b in "${blind[@]}"; do
+      : > "$elog"
+      if timeout "$ECAP" "$ROOT/tests/e2e/$b" >/dev/null 2>&1 && [[ -s "$elog" ]]; then
+        confirmed+=("$b")
+      else
+        echo "  (sweep said $b was blind; alone it is not — neighbour interference, not a verdict)"
+      fi
+    done
+    blind=(${confirmed[@]+"${confirmed[@]}"})
+  fi
+
+  erestore; trap - EXIT HUP INT TERM; rm -f "$elog"
+
+  echo "no-orphan-gates --evidence: $invoked wired gate(s) INVOKED a launcher; ${#blind[@]} passed anyway"
+  if [[ ${#noverdict[@]} -gt 0 ]]; then
+    echo "  NO VERDICT for ${#noverdict[@]} gate(s) — cut off at ${ECAP}s, so this run learned nothing about them:"
+    for b in "${noverdict[@]}"; do echo "    $b"; done
+    echo "  They are not counted healthy and not counted blind. Raise SSC_EVIDENCE_CAP to cover them."
+  fi
+  for b in ${blind[@]+"${blind[@]}"}; do
+    grep -qxF "$b" <<<"$declared" && continue
+    echo "FAIL  it RAN the launcher, the launcher FAILED, and the gate passed: $b" >&2
+    echo "        Nothing has shown this gate can fail. Either it swallows the failure — fix that —" >&2
+    echo "        or it declines to judge on purpose, in which case declare it in" >&2
+    echo "        GREEN_WITHOUT_LAUNCHER with the REASON, so the next reader can tell the two apart." >&2
+    efail=1
+  done
+  while read -r b; do
+    [[ -n "$b" ]] || continue
+    printf '%s\n' ${blind[@]+"${blind[@]}"} | grep -qxF "$b" || {
+      echo "FAIL  $b now fails when the launcher does — DELETE it from GREEN_WITHOUT_LAUNCHER" >&2
+      echo "        (an exemption that outlives its need is the same rot as a stale known-red)" >&2
+      efail=1; }
+  done <<<"$declared"
+
+  [[ $efail -eq 0 ]] || { echo "" >&2; echo "no-orphan-gates --evidence: FAIL" >&2; exit 1; }
+  echo "no-orphan-gates --evidence: PASS ($((invoked - ${#blind[@]})) proved they can fail, ${#blind[@]} declared, ${#noverdict[@]} no verdict)"
+  exit 0
 fi
 
 observed="$(mktemp)"; trap 'rm -f "$observed"' EXIT
