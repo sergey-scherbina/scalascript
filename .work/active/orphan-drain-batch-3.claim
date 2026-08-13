@@ -1,0 +1,11 @@
+slug: orphan-drain-batch-3
+branch: feature/orphan-drain-batch-3
+agent: claude-code
+started: 2026-08-13T20:56:25Z
+heartbeat: 2026-08-13T20:56:25Z
+status: claimed-before-planning
+items: orphaned-e2e-gates-52
+paths: file:tests/BUGS.md file:tests/e2e/no-orphan-gates.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
