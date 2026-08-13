@@ -1,132 +1,132 @@
-std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/agent-mcp.ssc	REFUSED	Unsupported(McpClient,rust)
-std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
+std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	37	7
+std/agent-mcp.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
+std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	18	6
 std/auth.ssc	COMPILES	
 std/bench.ssc	COMPILES	
-std/bifunctor.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/bifunctor.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	12	2
 std/cluster/coord-consul.ssc	COMPILES	
 std/cluster/coord-etcd.ssc	COMPILES	
 std/cluster/index.ssc	COMPILES	
-std/cluster/membership.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
+std/cluster/membership.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	14	1
 std/cluster/shard.ssc	COMPILES	
 std/cluster/singleton.ssc	COMPILES	
-std/cluster/types.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
-std/collection-extras.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/cluster/types.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
+std/collection-extras.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	1	1
 std/content-bind-core.ssc	COMPILES	
-std/content-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/content.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (NullV)
+std/content-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	6	1
+std/content.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (NullV)	17	11
 std/coroutine.ssc	COMPILES	
 std/credential.ssc	COMPILES	
 std/crypto.ssc	COMPILES	
-std/dep-cps-ping.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
+std/dep-cps-ping.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	2	2
 std/dsl/ast.ssc	COMPILES	
-std/dsl/builders.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (a.asInstanceOf[A])
+std/dsl/builders.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	4	2
+std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	17	3
+std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	2	1
+std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (a.asInstanceOf[A])	2	2
 std/dstreams.ssc	COMPILES	
 std/either.ssc	COMPILES	
-std/eq.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
-std/error-handling.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/fs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/functor-applicative-monad.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
+std/eq.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	3	2
+std/error-handling.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	10	1
+std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	25	4
+std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	8	1
+std/fs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	1	1
+std/functor-applicative-monad.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	12	4
 std/generators.ssc	COMPILES	
 std/geo.ssc	COMPILES	
 std/graphql.ssc	COMPILES	
-std/hash.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
-std/http.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
-std/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)
+std/hash.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	2	2
+std/http.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
+std/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)	1	1
 std/index.ssc	COMPILES	
-std/json-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/litdoc.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/mapreduce/cluster.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
+std/json-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	2	1
+std/json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	6	2
+std/litdoc.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	2	1
+std/mapreduce/cluster.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	5	2
 std/mapreduce/dataset.ssc	COMPILES	
-std/mapreduce/distributed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/mapreduce/failure.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/mapreduce/handlers.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (h.fn(x.asInstanceOf[A]).asInstanceOf[Any])
-std/mapreduce/index.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec
-std/markdown-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/markdown-html.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/mcp/client.ssc	REFUSED	Unsupported(McpClient,rust)
-std/mcp/index.ssc	REFUSED	Unsupported(McpClient,rust)
+std/mapreduce/distributed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	26	8
+std/mapreduce/failure.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	1	1
+std/mapreduce/handlers.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (h.fn(x.asInstanceOf[A]).asInstanceOf[Any])	3	3
+std/mapreduce/index.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	5	1
+std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	30	7
+std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	28	6
+std/markdown-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	3	1
+std/markdown-html.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	4	1
+std/mcp/client.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
+std/mcp/index.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
 std/mcp/server.ssc	COMPILES	
-std/mcp/types.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
-std/middleware.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
+std/mcp/types.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	1	1
+std/middleware.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	3	1
 std/mime.ssc	COMPILES	
-std/monad-control.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0
-std/monaderror.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/money.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
-std/nfc.ssc	REFUSED	Unsupported(NfcNdef,rust)
+std/monad-control.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0	4	1
+std/monaderror.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	3	2
+std/money.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	7	1
+std/nfc.ssc	REFUSED	Unsupported(NfcNdef,rust)	1	1
 std/nodes.ssc	COMPILES	
 std/openapi.ssc	COMPILES	
-std/order.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
+std/order.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	8	2
 std/os.ssc	COMPILES	
-std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/parsing/core.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/parsing/helpers.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/parsing/layout.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/parsing/recovery.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/parsing/regex.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (RxAnyChar)
+std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	20	6
+std/parsing/core.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	1	1
+std/parsing/helpers.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	4	2
+std/parsing/layout.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	27	8
+std/parsing/recovery.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	17	7
+std/parsing/regex.ssc	REFUSED	Generic(def `_` has unsupported pattern: Term.Name (RxAnyChar)	4	3
 std/pdf-gen.ssc	COMPILES	
 std/process.ssc	COMPILES	
 std/pwa.ssc	COMPILES	
-std/remote.ssc	REFUSED	Generic(def `_` calls `_` which has no resolvable name
-std/scljet/address.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
-std/scljet/btree.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/bytes.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/scljet/freelist.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/header.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
+std/remote.ssc	REFUSED	Generic(def `_` calls `_` which has no resolvable name	21	2
+std/scljet/address.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	518	23
+std/scljet/btree.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	113	14
+std/scljet/bytes.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	17	3
+std/scljet/freelist.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	26	3
+std/scljet/header.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	17	2
 std/scljet/index.ssc	COMPILES	
-std/scljet/jdbc.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
-std/scljet/journal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/scljet/jvm-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/scljet/memory-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/scljet/mutate.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
-std/scljet/page.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/pager.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/readonly.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/record.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/schema.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`
-std/scljet/sql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
+std/scljet/jdbc.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	608	23
+std/scljet/journal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	30	3
+std/scljet/jvm-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	34	3
+std/scljet/memory-vfs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	86	10
+std/scljet/mutate.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	308	21
+std/scljet/page.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	53	6
+std/scljet/pager.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	49	3
+std/scljet/readonly.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	173	18
+std/scljet/record.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	26	6
+std/scljet/schema.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	126	18
+std/scljet/sql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	605	23
 std/scljet/text.ssc	COMPILES	
-std/scljet/typedsql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names
+std/scljet/typedsql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	556	23
 std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
-std/scljet/wal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/scljet/write.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/selective.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)
-std/semigroup-monoid.ssc	REFUSED	Generic(def `_` emits 3 times (overloading); Rust has no overloading and this lane does not mangle names
-std/show.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names
+std/scljet/wal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	25	3
+std/scljet/write.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	178	4
+std/selective.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	6	4
+std/semigroup-monoid.ssc	REFUSED	Generic(def `_` emits 3 times (overloading); Rust has no overloading and this lane does not mangle names	3	2
+std/show.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	2	2
 std/smtp.ssc	COMPILES	
 std/streams-bridge.ssc	COMPILES	
-std/streams.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
+std/streams.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
 std/tcp.ssc	COMPILES	
 std/ui/component.ssc	COMPILES	
 std/ui/containers.ssc	COMPILES	
-std/ui/content.ssc	REFUSED	Generic(def `_` has unsupported pattern: Pat.Extract (ContentBlock.Paragraph(inlines, _))
-std/ui/data.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
+std/ui/content.ssc	REFUSED	Generic(def `_` has unsupported pattern: Pat.Extract (ContentBlock.Paragraph(inlines, _))	17	14
+std/ui/data.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	15	1
 std/ui/display.ssc	COMPILES	
-std/ui/fetch-json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
-std/ui/form.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name
-std/ui/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)
+std/ui/fetch-json.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	6	2
+std/ui/form.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	2	1
+std/ui/i18n.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyUnary (-n)	1	1
 std/ui/input.ssc	COMPILES	
 std/ui/layout.ssc	COMPILES	
-std/ui/lower.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (alreadyLowered.asInstanceOf[View])
+std/ui/lower.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (alreadyLowered.asInstanceOf[View])	4	2
 std/ui/nodes.ssc	COMPILES	
 std/ui/offline.ssc	COMPILES	
-std/ui/patterns.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
+std/ui/patterns.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	5	1
 std/ui/primitives.ssc	COMPILES	
-std/ui/reactive.ssc	REFUSED	Generic(def `_` calls `_` which has no resolvable name
-std/ui/routing.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f
+std/ui/reactive.ssc	REFUSED	Generic(def `_` calls `_` which has no resolvable name	1	1
+std/ui/routing.ssc	REFUSED	Generic(`_` is declared `_` and the rust backend has no implementation for it (no `_`, no intrinsic); called f	1	1
 std/ui/state.ssc	COMPILES	
 std/ui/theme.ssc	COMPILES	
 std/ui/typography.ssc	COMPILES	
 std/ui/webauthn.ssc	COMPILES	
 std/uuid.ssc	COMPILES	
-std/yaml-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,
+std/yaml-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	2	1
 std/yaml.ssc	COMPILES	
