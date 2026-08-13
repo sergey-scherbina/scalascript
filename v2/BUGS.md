@@ -80,6 +80,47 @@ F answers `List(other, other, other)` where the reference front and the v1 inter
 the closing paren. A NESTED constructor pattern is not decomposed — `Some`, `SqlInteger` and `value`
 are all read as binders — so the arm's tag and arity are both wrong and it can never match.
 
+**SCOPED 2026-08-13, and it is not one file.** A scan of 910 corpus files for a constructor pattern
+nested inside another finds **32 files**, including the modules that carry the SQLite and content
+stacks:
+
+| file | occurrences |
+| --- | --- |
+| `std/scljet/write.ssc` | 20 |
+| `std/content-core.ssc` | 13 |
+| `std/scljet/sql.ssc` | 11 |
+| `tests/conformance/scljet-freelist-write-corrupt.ssc` | 7 |
+| `std/mapreduce/shuffle.ssc` | 6 |
+| `tests/conformance/scljet-readonly-pager-btree.ssc` | 5 |
+| `tests/conformance/scljet-page-record-codec.ssc` | 5 |
+| `std/scljet/schema.ssc` | 5 |
+| `std/scljet/freelist.ssc` | 5 |
+| `std/selective.ssc` | 4 |
+| `std/scljet/pager.ssc` | 4 |
+| `std/scljet/memory-vfs.ssc` | 4 |
+
+So this is not a curiosity found in one example — it is the shape most of `std/scljet` is written in,
+and F cannot compile any of it correctly today. The value of fixing it is correspondingly high.
+
+**AND THE FIX IS A PORT, NOT A PATCH — measured by reading both fronts.** The reference front parses
+patterns into a TREE: `parsePatAtom` returns `cpat(name, subpatterns)`, `vpat(v)`, `wpat`, `lpat(...)`,
+and `parsePat` composes them (`::` right-associatively, tuples via `goSubPats`). Its lowerer then
+compiles that tree. F has no pattern tree at all: `parsePatVars` walks tokens to the closing paren
+collecting binder NAMES, which is why a nested constructor reads as three binders.
+
+So the work is, in order:
+
+1. give F a pattern tree (`parsePatAtom`/`parsePat` equivalents) — the reference front is the model
+   and its shapes are already proven against this corpus;
+2. compile that tree to nested `IrMatch`/`IrArm`, which the IR already expresses;
+3. get the FALL-THROUGH right, which is the only genuinely hard part: when an inner match fails the
+   arm must fall to the NEXT OUTER arm, not to the outer default. That is pattern-matrix
+   compilation, and it is where a naive nesting silently changes semantics.
+
+Step 3 is the reason this is not a two-hour job and should not be attempted at the tail of a session.
+
+**This is the last named blocker for `f-unbound-loop-is-the-new-top-gap`.**
+
 **This is a different size of job from the three fixed today.** Those were a mis-scan, a missing
 dispatch and a missing alternative branch — each a few lines. Nested patterns need the pattern to be
 COMPILED (a tree walk emitting a nested test), not scanned, which is a structural change to
