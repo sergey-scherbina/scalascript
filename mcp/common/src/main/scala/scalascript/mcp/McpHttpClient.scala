@@ -69,6 +69,18 @@ class McpHttpClient(url: String, timeoutMs: Long):
       .timeout(Duration.ofMillis(rt))
       .header("Content-Type", "application/json")
       .header("Accept", "application/json, text/event-stream")
+      // 2025-06-18 made this MANDATORY on every HTTP request after negotiation,
+      // and 2026-07-28 kept it. We send the era we settled on, which before
+      // `connect()` is the legacy answer — the same value the old client
+      // implied by sending `initialize` and nothing else.
+      .header(McpProtocol.Header.ProtocolVersion,
+              if era == McpProtocol.Era.Modern then McpProtocol.ModernProtocolVersion
+              else McpProtocol.ProtocolVersion)
+      // 2025-06-18 made this MANDATORY on every HTTP request after negotiation,
+      // and 2026-07-28 kept it. We send the era we settled on, which before
+      // `connect()` is the legacy answer — the same value the old client
+      // implied by sending `initialize` and nothing else.
+
       .POST(HttpRequest.BodyPublishers.ofString(body)))
       .build()
     client.send(req, HttpResponse.BodyHandlers.ofInputStream())

@@ -1983,3 +1983,52 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     post(b, McpProtocol.Method.TasksCancel, taskParams("taskId" -> ujson.Str(tid)))
     getTask(b, tid)("result")("status").str shouldBe McpProtocol.TaskCompleted
 
+  // ── 2025-06-18: `context` on completion/complete ───────────────────────
+
+  test("completion context is parsed, and its absence is not an error"):
+    McpProtocol.parseCompletionContext(ujson.Obj("context" ->
+      ujson.Obj("arguments" -> ujson.Obj("owner" -> "acme")))) shouldBe Map("owner" -> "acme")
+    // A 2025-03-26 client never sends it; that is a completion, not a fault.
+    McpProtocol.parseCompletionContext(ujson.Obj())          shouldBe Map.empty
+    McpProtocol.parseCompletionContext(ujson.Str("nonsense")) shouldBe Map.empty
+
+  test("a completion handler can read what the client already resolved"):
+    val b = new McpServerBuilder
+    b.prompt("deploy", None, Nil, _ => PromptHandlerResult(None, Nil))
+    b.completionForPrompt("deploy", "repo", partial =>
+      // The whole point: the answer DEPENDS on the earlier argument.
+      b.completionContext.get("owner") match
+        case Some(o) => List(s"$o/$partial-one", s"$o/$partial-two")
+        case None    => List("no-context"))
+    def complete(ctx: Option[ujson.Value]): List[String] =
+      val params = ujson.Obj(
+        "ref"      -> ujson.Obj("type" -> "ref/prompt", "name" -> "deploy"),
+        "argument" -> ujson.Obj("name" -> "repo", "value" -> "svc"))
+      ctx.foreach(c => params("context") = c)
+      ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+        "jsonrpc" -> "2.0", "id" -> 60,
+        "method"  -> McpProtocol.Method.CompletionComplete,
+        "params"  -> params).render(), "srv", "9.9.9").trim)(
+        "result")("completion")("values").arr.toList.map(_.str)
+
+    complete(Some(ujson.Obj("arguments" -> ujson.Obj("owner" -> "acme")))) shouldBe
+      List("acme/svc-one", "acme/svc-two")
+    // and the same handler, same server, with no context — so the case cannot
+    // pass by always returning the same list.
+    complete(None) shouldBe List("no-context")
+
+  test("the context does not leak past the handler that was given it"):
+    val b = new McpServerBuilder
+    b.completionContext shouldBe Map.empty
+    b.prompt("p", None, Nil, _ => PromptHandlerResult(None, Nil))
+    b.completionForPrompt("p", "a", _ => Nil)
+    McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 61,
+      "method"  -> McpProtocol.Method.CompletionComplete,
+      "params"  -> ujson.Obj(
+        "ref"      -> ujson.Obj("type" -> "ref/prompt", "name" -> "p"),
+        "argument" -> ujson.Obj("name" -> "a", "value" -> ""),
+        "context"  -> ujson.Obj("arguments" -> ujson.Obj("x" -> "y")))).render(),
+      "srv", "9.9.9")
+    b.completionContext shouldBe Map.empty
+

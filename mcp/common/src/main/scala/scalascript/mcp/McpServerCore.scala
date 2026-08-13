@@ -70,6 +70,20 @@ class McpServerBuilder:
    *  handler runs on the thread that dispatched its request. */
   private[mcp] val mrtrTL: ThreadLocal[MrtrScope | Null] = new ThreadLocal[MrtrScope | Null]()
 
+  private[mcp] val completionContextTL: ThreadLocal[Map[String, String]] =
+    new ThreadLocal[Map[String, String]]()
+
+  /** The variables the client already resolved, for the completion running now
+   *  (2025-06-18 `context.arguments`). Empty outside a completion handler, and
+   *  empty for a client old enough not to send it.
+   *
+   *  Given the same way `isCancelled` is rather than as a handler parameter:
+   *  a completion handler is `String => List[String]` in the registration API
+   *  and in the `.ssc` binding, and widening that arity would have rewritten
+   *  every caller to serve the few that want the context. */
+  def completionContext: Map[String, String] =
+    Option(completionContextTL.get()).getOrElse(Map.empty)
+
   /** Handlers that stopped mid-flight, by park token. Virtual threads, so the
    *  cost of holding one is heap, not a platform thread. */
   private[mcp] val parks = java.util.concurrent.ConcurrentHashMap[String, Park]()
@@ -1755,9 +1769,11 @@ object McpServerCore:
             val handler = ref match
               case McpProtocol.CompletionRef.PromptRef(p)   => builder.promptCompletions.get((p,   name))
               case McpProtocol.CompletionRef.ResourceRef(u) => builder.resourceCompletions.get((u, name))
+            builder.completionContextTL.set(McpProtocol.parseCompletionContext(obj))
             val values =
               try handler.map(_(argValue)).getOrElse(Nil)
               catch case _: Throwable => Nil  // handler exceptions → empty completions
+              finally builder.completionContextTL.remove()
             JsonRpc.encodeResult(id, McpProtocol.completionResult(values))
 
   /** A named thing the request asked for does not exist.

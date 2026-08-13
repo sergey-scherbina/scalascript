@@ -1396,6 +1396,20 @@ object McpProtocol:
   /** Defensive parser for the `ref` object — unknown shapes return None
    *  so the server can reply MethodNotFound / InvalidParams instead of
    *  crashing. */
+  /** `context.arguments` off a `completion/complete` request (2025-06-18).
+   *
+   *  The variables the client has ALREADY resolved, so a completion for the
+   *  second argument can depend on the first. Absent or malformed reads as
+   *  empty, because a completion with no context is a completion, not an
+   *  error — the field is additive and a 2025-03-26 client never sends it. */
+  def parseCompletionContext(params: ujson.Value): Map[String, String] =
+    try
+      params.objOpt.flatMap(_.get("context")).flatMap(_.objOpt)
+        .flatMap(_.get("arguments")).flatMap(_.objOpt)
+        .map(_.toMap.flatMap { (k, v) => v.strOpt.map(k -> _) })
+        .getOrElse(Map.empty)
+    catch case _: Throwable => Map.empty
+
   def parseCompletionRef(js: ujson.Value): Option[CompletionRef] =
     try
       js.obj.get("type").flatMap(_.strOpt) match
