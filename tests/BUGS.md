@@ -9974,12 +9974,56 @@ high-priority for v2 parity work.
 
 ## cli-errors-are-messages-guard-is-18-percent-above-its-own-runtime — a 60 s cap on a 49 s check
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: conformance
      kind: apparatus
      gate: scripts/smoke-ci
-     fixed-in: - -->
+     fixed-in: 9ba8cbef8 -->
+
+### CLOSED 2026-08-13 — both halves answered, and the second one is a NO
+
+**The premise is stale.** The cap is no longer 60 s: `9ba8cbef8` set it to 180 000 ms and attached
+the number, which is exactly what this entry demanded — *"a budget moved with a number attached, not
+a guess"*. The comment beside it records 83.6 s standalone, six JVM launches, ~10 s a launch.
+
+Re-measured today, same host, `tests/e2e/cli-errors-are-messages.sh` standalone:
+
+```text
+load 22    30 s    exit 0    against a 180 s cap  ->  6x headroom
+```
+
+The worst figure ever recorded for this check is the 83.6 s in that comment, which still leaves
+better than 2x. The 18 % this entry is named after does not exist any more.
+
+**The harder half, which is why this entry was right not to be closed by raising a number: ARE THE
+SIX SPAWNS NECESSARY? Measured, and the answer is yes.** They are three assertions per launcher:
+
+| spawn | asserts |
+| --- | --- |
+| `run boom.ssc` | a runtime error prints `ssc: <message>`, not a Java stack trace |
+| `SSC_STACKTRACE=1 run boom.ssc` | and the trace is still reachable when asked for |
+| `run ok.ssc` | a program that SUCCEEDS still succeeds — the anti-row, without which a launcher that failed at everything would pass |
+
+times two launchers, `bin/ssc` and `bin/ssc-tools`, which is the whole point: the defect this check
+exists for was present in ONE of them and absent in the other. Drop any spawn and an assertion goes
+with it.
+
+**And the ~50 s is not the check's work — it is launcher start-up, measured rather than assumed.** A
+one-line `println(1)` costs, at load 35:
+
+```text
+bin/ssc         5194 ms / 5484 ms
+bin/ssc-tools   4934 ms / 3492 ms
+```
+
+Six of those is 21-33 s before the check does anything. So this row is start-up-bound, and the only
+way to make it faster is to stop asserting something. The suite already carries the same finding for
+its twelve-spawn sibling — `scripts/smoke-ci.ssc` L345-358, *"the twelve spawns are the assertions"*.
+
+**What this entry is really evidence for, and it outlives the entry:** per-spawn launcher start-up
+is the dominant cost of the e2e suite, not the checks. Anyone hunting suite time should measure
+there, not here.
 
 **Status:** OPEN (measured 2026-08-09, after it was the SINGLE red of two consecutive smoke runs).
 
