@@ -67,30 +67,63 @@ An unrelated pre-existing failure was found while verifying this and is filed se
      confirmed: yes
      gate: tests/e2e/f-output-agreement-gate.sh -->
 
-**`f-output-agreement-gate` is RED on origin/main.** On `examples/scljet-readonly.ssc`, F is
-contradicted by BOTH other lanes — the bucket whose ceiling is 0, and which the gate itself
-describes as "a REGRESSION, not a coverage gap":
+**`f-output-agreement-gate` is RED on origin/main.** F is contradicted by BOTH other lanes on
+`examples/scljet-readonly.ssc` — the bucket whose ceiling is 0 and which the gate itself calls
+"a REGRESSION, not a coverage gap".
 
+**Narrowed to four legal lines.** F answers `-1`; the reference front and the v1 interpreter both
+answer `7`:
+
+```scala
+case class Inner(v: Int)
+def main() =
+  val f = (x: Option[Inner]) => x match { case Some(Inner(v)) => v case _ => -1 }
+  println(f(Some(Inner(7))))
 ```
-F:              List(other, other, other)
-эталон:         List(integer:-2, text:List(72, 105), blob:2)
-интерпретатор:  List(integer:-2, text:List(72, 105), blob:2)
-```
 
-The example matches decoded record fields against constructor patterns
-(`case RecordField(_, _, Some(SqlInteger(value)), _) => "integer:" + …`, and the same shape for
-`SqlBlob` and the text case, at `examples/scljet-readonly.ssc:85-88`). Under F every one of them
-falls through to `case _ => "other"`, so the failing construct is a nested constructor pattern with
-a `Some(...)` inside it, on a case class of four fields — not the decoding itself, since the other
-four printed lines are identical on all three lanes.
+**The law, from a variant sweep.** Two things must hold together; neither alone reproduces.
 
-**Not caused by the vararg fix filed above.** Established rather than assumed: reverting that
-change and rebuilding leaves the divergence exactly as it was, and it reproduces on a clean checkout
-of current origin/main with nothing applied. I hit it while verifying that fix, initially read it
-as my own regression, and nearly discarded a correct change over it — the revert-and-rebuild
-control is what separated the two.
+1. The pattern must be a NESTED constructor pattern. `case Some(v)` is fine, `case Inner(v)` is
+   fine, `case Outer(a, _, _, _)` is fine — `case Some(Inner(v))` is not.
+2. The enclosing scope must have EXACTLY ONE binder, and it must be a lambda:
 
-Not narrowed further: no reduced reproducer yet, and no attribution to a commit.
+| enclosing scope                          | F   |
+|------------------------------------------|-----|
+| lambda, 1 param                          | ✗   |
+| lambda, 2 params                         | ✓   |
+| lambda, 3 params                         | ✓   |
+| lambda, 1 param + any `val` before the match | ✓ |
+| `def`, 1 param                           | ✓   |
+| `def`, 1 param + a `val`                 | ✓   |
+
+Adding ONE binder of any kind fixes it, which makes this an off-by-one: the nested machinery emits
+`(local pos)` as though there were one more enclosing binder than there is. `val s = x; s match …`
+also fixes it, so it is the binder count and not the identity of the scrutinee.
+
+**Two symptoms, same cause.** With the nested field LAST the arm is silently missed and the default
+is taken — a wrong answer at exit 0, which is how it survived to main. With the nested field NOT
+last, F refuses outright: `unbound global: (global q) is neither a top-level def nor an @-cell` for
+the binder that follows the nested one (`case Two(Some(Inner(v)), q)`), so the shift also loses the
+later binders.
+
+**Where it is NOT.** F's discharge chain was compared line by line against the oracle it claims to
+mirror (`dischargeObsOr`, ssc1-lower.ssc0:3487) and matches on every part that feeds the SUCCESS
+path: inner success scope (`revL(fldBinders(subs))`), sub-obligations (`fldRefinedObligations(subs, m)`),
+and the shift of the remaining obligations (`shiftObs(rest, m)`) are all present and identical.
+The one structural difference is that the oracle threads a separate `scrutPos`, advanced by `m` at
+each level, while F's `dischargeF` has no such parameter — but the oracle uses `scrutPos` only for
+the FAILURE path (`lowerOrderedGuardArms`), and this defect takes the success path wrongly. So the
+next place to look is the OUTER arm emission and the scope base a lambda body starts from, not the
+discharge.
+
+**Next step, and why it did not happen here:** dump F's IR for the four-line reproducer via the F0
+bootstrap and read the emitted `(match (local N) …)`. That needs a freshly built kernel
+(`scala-cli --power package v2/src --assembly`) — the cached `/tmp/tfd-kernel.jar` is older than
+`v2/src/*.scala`, and a stale kernel has already produced one false "the two Fs disagree" finding
+in this repo.
+
+**Not caused by the vararg fix landed the same day** — established by revert + rebuild, and it
+reproduces on a clean checkout of origin/main with nothing applied.
 
 ## renderTerm-is-two-and-a-half-times-the-jit-limit
 
