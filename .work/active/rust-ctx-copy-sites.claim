@@ -1,0 +1,11 @@
+slug: rust-ctx-copy-sites
+branch: feature/rust-ctx-copy-sites
+agent: claude-code
+started: 2026-08-13T17:17:44Z
+heartbeat: 2026-08-13T17:17:44Z
+status: claimed-before-planning
+items: renderTerm-is-two-and-a-half-times-the-jit-limit
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/v1-jit-size.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
