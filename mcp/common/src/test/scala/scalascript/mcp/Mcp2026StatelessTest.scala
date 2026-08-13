@@ -1770,3 +1770,149 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     methods should contain ("tasks/get")
     methods.exists(_.endsWith("/list")) shouldBe false
 
+  // ── P5c-2 — Tasks wired to the server ──────────────────────────────────
+
+  /** A client that HAS advertised the extension. Everything about tasks turns
+   *  on this, so it is explicit in every case rather than hidden in a default. */
+  private def taskParams(fields: (String, ujson.Value)*): ujson.Obj =
+    val p = ujson.Obj("_meta" -> ujson.Obj(
+      McpProtocol.MetaKey.ProtocolVersion    -> McpProtocol.ModernProtocolVersion,
+      McpProtocol.MetaKey.ClientCapabilities -> ujson.Obj(
+        "extensions" -> ujson.Obj(McpProtocol.TasksExtension -> ujson.Obj()))))
+    fields.foreach((k, v) => p(k) = v)
+    p
+
+  private def taskHeaders(method: String, name: Option[String]) =
+    Map(McpProtocol.Header.ProtocolVersion -> McpProtocol.ModernProtocolVersion,
+        McpProtocol.Header.Method          -> method) ++
+      name.map(McpProtocol.Header.Name -> _)
+
+  private def post(b: McpServerBuilder, method: String, params: ujson.Obj,
+                   name: Option[String] = None): ujson.Value =
+    ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 90, "method" -> method, "params" -> params).render(),
+      "srv", "9.9.9", taskHeaders(method, name)).trim)
+
+  private def getTask(b: McpServerBuilder, taskId: String): ujson.Value =
+    post(b, McpProtocol.Method.TasksGet, taskParams("taskId" -> ujson.Str(taskId)))
+
+  private val taskRuns = java.util.concurrent.atomic.AtomicInteger(0)
+
+  /** A tool that becomes a task, then finishes when the latch is released. */
+  private def taskServer(gate: java.util.concurrent.CountDownLatch,
+                         asks: Boolean = false): McpServerBuilder =
+    val b = new McpServerBuilder
+    b.tool("slow", None, ujson.Obj(), _ =>
+      taskRuns.incrementAndGet()
+      b.asTask()
+      if asks then b.elicit("approve?", ujson.Obj())
+      gate.await()
+      ToolHandlerResult(List(McpProtocol.textContent("finished")), isError = false))
+    b
+
+  private def callSlow(b: McpServerBuilder): ujson.Value =
+    post(b, McpProtocol.Method.ToolsCall,
+      taskParams("name" -> ujson.Str("slow"), "arguments" -> ujson.Obj()), Some("slow"))
+
+  test("asTask hands back a handle immediately and the call does not block"):
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b = taskServer(gate)
+    val js = callSlow(b)                      // returns while the handler waits on the gate
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeTask
+    js("result")("status").str     shouldBe McpProtocol.TaskWorking
+    js("result")("taskId").str     should not be empty
+    js("result")("pollIntervalMs").num.toLong shouldBe 1000L
+    gate.countDown()
+
+  test("a task is polled to a terminal status, and carries its result there"):
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b = taskServer(gate)
+    val tid = callSlow(b)("result")("taskId").str
+    getTask(b, tid)("result")("status").str shouldBe McpProtocol.TaskWorking
+    gate.countDown()
+    eventuallyCond(getTask(b, tid)("result")("status").str == McpProtocol.TaskCompleted)
+    val done = getTask(b, tid)("result")
+    done("result")("content")(0)("text").str shouldBe "finished"
+    done("createdAt").str     should not be empty
+    done("lastUpdatedAt").str should not be empty
+
+  test("the handler runs ONCE for the whole life of a task"):
+    taskRuns.set(0)
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b = taskServer(gate)
+    val tid = callSlow(b)("result")("taskId").str
+    getTask(b, tid); getTask(b, tid); getTask(b, tid)      // polling is not re-running
+    gate.countDown()
+    eventuallyCond(getTask(b, tid)("result")("status").str == McpProtocol.TaskCompleted)
+    taskRuns.get shouldBe 1
+
+  test("a task that needs input says so, and tasks/update feeds it"):
+    val gate = java.util.concurrent.CountDownLatch(0)   // already open
+    val b = taskServer(gate, asks = true)
+    val tid = callSlow(b)("result")("taskId").str
+    eventuallyCond(getTask(b, tid)("result")("status").str == McpProtocol.TaskInputRequired)
+    getTask(b, tid)("result")("inputRequests")("elicit-1")("method").str shouldBe
+      McpProtocol.Method.ElicitationCreate
+    val ack = post(b, McpProtocol.Method.TasksUpdate, taskParams(
+      "taskId" -> ujson.Str(tid),
+      "inputs" -> ujson.Obj("elicit-1" -> ujson.Obj("value" ->
+        ujson.Obj("action" -> "accept", "content" -> ujson.Str("ok"))))))
+    ack("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    eventuallyCond(getTask(b, tid)("result")("status").str == McpProtocol.TaskCompleted)
+
+  test("answering a task that asked nothing is refused, not queued"):
+    // Queued, it would be consumed by the NEXT question and pair an answer
+    // with the wrong prompt.
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b = taskServer(gate)
+    val tid = callSlow(b)("result")("taskId").str
+    val js = post(b, McpProtocol.Method.TasksUpdate, taskParams(
+      "taskId" -> ujson.Str(tid), "inputs" -> ujson.Obj("elicit-1" -> ujson.Obj())))
+    js("error")("code").num.toInt shouldBe JsonRpc.ErrorCode.InvalidParams
+    js("error")("message").str should include ("not awaiting input")
+    gate.countDown()
+
+  test("cancel marks the task, and a later poll reads 'cancelled' not 'unknown'"):
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b = taskServer(gate)
+    val tid = callSlow(b)("result")("taskId").str
+    post(b, McpProtocol.Method.TasksCancel, taskParams("taskId" -> ujson.Str(tid)))(
+      "result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    getTask(b, tid)("result")("status").str shouldBe McpProtocol.TaskCancelled
+    gate.countDown()
+
+  test("an unknown task id is -32602, the code this revision uses for that"):
+    val js = getTask(new McpServerBuilder, "no-such-task")
+    js("error")("code").num.toInt shouldBe JsonRpc.ErrorCode.InvalidParams
+
+  test("an MRTR park is NOT addressable as a task, and says nothing more"):
+    // Confirming that the token exists would help someone who guessed it.
+    val b = parkingServer()
+    val asked = callAsk(b, askParams())
+    val token = McpProtocol.parkToken(Some(asked("result")("requestState").str)).get
+    val js = getTask(b, token)
+    js("error")("code").num.toInt shouldBe JsonRpc.ErrorCode.InvalidParams
+    js("error")("message").str should include ("unknown or expired task")
+
+  test("tasks are not served on the legacy path — that revision has no such method"):
+    val js = ujson.read(McpServerCore.handleHttpRequest(new McpServerBuilder, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 91, "method" -> McpProtocol.Method.TasksGet,
+      "params"  -> ujson.Obj("taskId" -> "t-1")).render(), "srv", "9.9.9").trim)
+    js("error")("code").num.toInt shouldBe JsonRpc.ErrorCode.MethodNotFound
+
+  test("a client that never advertised the extension gets a BLOCKING call, not a task"):
+    // asTask() degrades rather than erroring: emitting resultType 'task' to a
+    // client that never said it understands one is the protocol error.
+    val gate = java.util.concurrent.CountDownLatch(0)
+    val b = taskServer(gate)
+    val js = callAsk2(b)
+    js("result")("resultType").str shouldBe McpProtocol.ResultTypeComplete
+    js("result")("content")(0)("text").str shouldBe "finished"
+
+  private def callAsk2(b: McpServerBuilder): ujson.Value =
+    ujson.read(McpServerCore.handleHttpRequest(b, ujson.Obj(
+      "jsonrpc" -> "2.0", "id" -> 92, "method" -> McpProtocol.Method.ToolsCall,
+      "params"  -> modernParams("name" -> ujson.Str("slow"), "arguments" -> ujson.Obj())
+      ).render(), "srv", "9.9.9",
+      modernHeaders(McpProtocol.Header.Name -> "slow")).trim)
+

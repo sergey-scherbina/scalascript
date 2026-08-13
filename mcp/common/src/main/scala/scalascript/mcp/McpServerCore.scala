@@ -84,6 +84,11 @@ class McpServerBuilder:
    *  and dropped. Bounds a client that asks a question and never answers. */
   def setParkTtlMs(ms: Long): Unit = parkTtlMs = ms
 
+  private[mcp] var taskPollIntervalMs: Long = 1_000L
+  /** What we suggest a polling client wait between `tasks/get` calls. Advisory
+   *  by spec and allowed to change over a task's life. */
+  def setTaskPollIntervalMs(ms: Long): Unit = taskPollIntervalMs = ms
+
   private[mcp] var maxParks: Int = 256
   /** Ceiling on simultaneously parked handlers. Reached, a NEW call is refused
    *  loudly rather than an existing park being silently dropped — the caller
@@ -250,6 +255,41 @@ class McpServerBuilder:
   /** Elicitation is NOT deprecated — but this shape of it is. A
    *  server-initiated request is replaced by MRTR in the modern era
    *  (specs/mcp-2026-07-28.md 8), so this path serves legacy peers only. */
+  /** Did the client behind THIS request advertise the Tasks extension?
+   *
+   *  Ask before promising a caller anything long-running: a server must not
+   *  emit a `resultType` the client never said it understands. */
+  def clientSupportsTasks: Boolean =
+    mrtrTL.get() match
+      case null  => false
+      case scope => Option(scope.ctx).exists(McpProtocol.clientSupportsTasks)
+
+  /** Turn the call in progress into a TASK, and keep running.
+   *
+   *  The caller gets a handle immediately and polls `tasks/get`; this handler
+   *  continues on its virtual thread from the next line. Returns whether that
+   *  happened, and it is a plain `false` rather than an error in the three
+   *  cases where it cannot: a legacy client, a server in `Replay` mode with no
+   *  park to detach, and a client that never advertised the extension. A
+   *  handler that REQUIRES a task should ask `clientSupportsTasks` and refuse
+   *  on its own terms — silently degrading to a blocking call is the right
+   *  default, but it is not right for everyone. */
+  def asTask(): Boolean =
+    mrtrTL.get() match
+      case null  => false
+      case scope =>
+        scope.park match
+          case null                  => false
+          case park if park.detached => true
+          case park =>
+            if !clientSupportsTasks then false
+            else
+              park.detached  = true
+              park.createdAt = java.time.Instant.now().toString
+              park.publish(McpProtocol.TaskWorking)
+              park.out.put(ParkOutcome.Detached)   // the dispatcher IS waiting
+              true
+
   /** MRTR (2026-07-28): what THIS handler recorded on a previous pass, or
    *  `None` on the first one and always on the legacy path.
    *
@@ -304,8 +344,14 @@ class McpServerBuilder:
               case park =>
                 var answer: Option[ujson.Value] = None
                 while answer.isEmpty do
-                  park.out.put(ParkOutcome.NeedsInput(k, req, scope.outgoingState))
+                  if park.detached then
+                    // A TASK: nobody is waiting on the rendezvous, so the state
+                    // goes where `tasks/get` will read it.
+                    park.publish(McpProtocol.TaskInputRequired, inputs = Map(k -> req))
+                  else
+                    park.out.put(ParkOutcome.NeedsInput(k, req, scope.outgoingState))
                   val r = park.resume.take()      // parks the virtual thread
+                  if park.detached then park.publish(McpProtocol.TaskWorking)
                   // A resumed handler serves a DIFFERENT request than the one it
                   // started on, so cancellation and progress must follow the new
                   // one. These are this thread's locals; only this thread can
@@ -635,6 +681,10 @@ private[mcp] enum ParkOutcome:
   case Done(frame: String)
   case NeedsInput(key: String, request: McpProtocol.InputRequest, authorState: Option[String])
   case Failed(error: Throwable)
+  /** The handler asked to become a TASK (P5c). The dispatcher stops waiting and
+   *  answers with a handle; the handler keeps running on its virtual thread and
+   *  from here on publishes into the park rather than into the rendezvous. */
+  case Detached
 
 /** What the dispatcher hands back to a parked handler to wake it.
  *
@@ -659,6 +709,39 @@ private[mcp] final class Park(
 ):
   @volatile var thread: Thread | Null = null
   @volatile var deadlineMs: Long      = 0L
+
+  // ── Tasks extension (P5c) ───────────────────────────────────────────────
+  // Under MRTR the park's state is delivered through `out` to a waiting
+  // dispatcher. A TASK has no one waiting, and `out` holds one element, so a
+  // detached handler that published twice would block on the second. Detached
+  // handlers therefore write HERE, and `out` stays the MRTR rendezvous alone.
+  @volatile var detached: Boolean                  = false
+  @volatile var ttlMs: Long                        = 0L
+  @volatile var status: String                     = McpProtocol.TaskWorking
+  @volatile var statusMessage: Option[String]      = None
+  @volatile var createdAt: String                  = ""
+  @volatile var lastUpdatedAt: String              = ""
+  @volatile var resultValue: Option[ujson.Value]   = None
+  @volatile var errorValue: Option[JsonRpc.Error]  = None
+  @volatile var pendingInputs: Map[String, McpProtocol.InputRequest] = Map.empty
+
+  /** Every state change stamps the clock, because `lastUpdatedAt` is how a
+   *  polling client tells progress from a stall. */
+  def publish(
+    newStatus: String,
+    inputs:    Map[String, McpProtocol.InputRequest] = Map.empty,
+    result:    Option[ujson.Value]                   = None,
+    error:     Option[JsonRpc.Error]                 = None
+  ): Unit =
+    status        = newStatus
+    pendingInputs = inputs
+    resultValue   = result
+    errorValue    = error
+    lastUpdatedAt = java.time.Instant.now().toString
+    // A task that is still working must not be reaped for being old; the TTL
+    // measures silence, not lifetime. A terminal publish therefore also starts
+    // the clock on how long the answer stays collectable.
+    if ttlMs > 0L then deadlineMs = System.currentTimeMillis() + ttlMs
   /** The id of the request this park most recently answered, so a
    *  `notifications/cancelled` naming that id can find it. */
   @volatile var lastRequestId: Option[Long] = None
@@ -680,6 +763,11 @@ private[mcp] final class MrtrScope(
   /** The park this handler is running inside, or `null` when replaying. This
    *  is what `elicit` branches on: publish-and-wait, or throw-and-be-re-run. */
   @volatile var park: Park | Null = null
+
+  /** THIS request's context. A modern server has no session, so "does the
+   *  client support tasks" is a property of the request in hand, not of the
+   *  connection — and a handler resumed by a later request sees that one. */
+  @volatile var ctx: McpProtocol.RequestContext | Null = null
 
 case class ToolHandlerResult(
   content:           List[ujson.Value],
@@ -1118,6 +1206,47 @@ object McpServerCore:
       case McpProtocol.Method.ToolsCall =>
         callTool(builder, params, id)
 
+      // ── Tasks extension (P5c) ─────────────────────────────────────────
+      case McpProtocol.Method.TasksGet =>
+        withTask(builder, params, id)(park =>
+          JsonRpc.encodeResult(id, McpProtocol.taskResult(
+            taskId         = park.token,
+            status         = park.status,
+            createdAt      = park.createdAt,
+            lastUpdatedAt  = park.lastUpdatedAt,
+            statusMessage  = park.statusMessage,
+            ttlMs          = Some(builder.parkTtlMs),
+            pollIntervalMs = Some(builder.taskPollIntervalMs),
+            result         = park.resultValue,
+            error          = park.errorValue,
+            inputRequests  = park.pendingInputs)))
+
+      case McpProtocol.Method.TasksUpdate =>
+        withTask(builder, params, id) { park =>
+          if park.status != McpProtocol.TaskInputRequired then
+            // Answering a question nobody asked would sit in the resume queue
+            // and be consumed by the NEXT question, pairing an answer with the
+            // wrong prompt. Refuse instead.
+            invalidParams(id, s"task ${park.token} is '${park.status}', not awaiting input")
+          else
+            park.resume.offer(Resume(McpProtocol.parseTaskInputs(params), None, None))
+            JsonRpc.encodeResult(id, ujson.Obj(
+              "resultType" -> McpProtocol.ResultTypeComplete))
+        }
+
+      case McpProtocol.Method.TasksCancel =>
+        withTask(builder, params, id) { park =>
+          // Cooperative by spec. We interrupt and mark it cancelled, and we do
+          // NOT drop the park: a client that polls after cancelling should read
+          // 'cancelled' rather than 'no such task'. The TTL collects it.
+          val th = park.thread
+          if th != null then th.interrupt()
+          if !McpProtocol.isTerminalTaskStatus(park.status) then
+            park.publish(McpProtocol.TaskCancelled)
+          JsonRpc.encodeResult(id, ujson.Obj(
+            "resultType" -> McpProtocol.ResultTypeComplete))
+        }
+
       case McpProtocol.Method.ResourcesList =>
         val all = builder.resources.values.toList.map { r =>
           McpProtocol.ResourceEntry(r.uri, r.name, r.mimeType, r.annotations, r.meta, r.title)
@@ -1336,7 +1465,7 @@ object McpServerCore:
 
     if !ctx.isModern then onThisThread(null)
     else builder.mrtrMode match
-      case MrtrMode.Replay => onThisThread(MrtrScope(responses, author))
+      case MrtrMode.Replay => onThisThread(scopeFor(responses, author, ctx))
       case _ =>
         token.map(tk => (tk, builder.parks.get(tk))) match
           case Some((_, park)) if park != null =>
@@ -1347,12 +1476,52 @@ object McpServerCore:
             // default: the alternative is to re-run a handler whose earlier
             // effects already happened somewhere else, silently.
             if builder.mrtrMode == MrtrMode.ParkThenReplay then
-              onThisThread(MrtrScope(responses, author))
+              onThisThread(scopeFor(responses, author, ctx))
             else
               JsonRpc.encodeError(id, McpProtocol.ErrorCode.InputSessionNotFound,
                 "no parked handler for this requestState — a different server " +
                 "instance, a restart, or an expired park. Start the operation again.")
-          case None => startPark(builder, id, numId, progressToken, responses, author, () => body)
+          case None => startPark(builder, id, numId, progressToken, responses, author, ctx, () => body)
+
+  /** One place that builds a scope, so the request context can never be
+   *  attached at two of three construction sites and forgotten at the third. */
+  private def scopeFor(
+    responses: Map[String, ujson.Value],
+    author:    Option[String],
+    ctx:       McpProtocol.RequestContext
+  ): MrtrScope =
+    val s = MrtrScope(responses, author)
+    s.ctx = ctx
+    s
+
+  /** Resolve a `taskId` to a live park, or answer why not.
+   *
+   *  Extension methods are MODERN-ONLY: a legacy client negotiated a revision
+   *  in which they do not exist, and answering would be inventing a method for
+   *  it. An unknown id gets `-32602` — the same code this revision moved
+   *  resource-not-found to, and for the same reason: the id is a parameter
+   *  that does not resolve, not a missing endpoint. */
+  private def withTask(
+    builder: McpServerBuilder,
+    params:  ujson.Value,
+    id:      ujson.Value
+  )(body: Park => String): String =
+    if !McpProtocol.parseRequestMeta(params).isModern then
+      JsonRpc.encodeError(id, JsonRpc.ErrorCode.MethodNotFound,
+        "tasks are an extension of 2026-07-28 and are not served on the legacy path")
+    else
+      McpProtocol.parseTaskId(params) match
+        case None => invalidParams(id, "missing 'taskId'")
+        case Some(tid) =>
+          evictExpiredParks(builder)
+          builder.parks.get(tid) match
+            case null => invalidParams(id, s"unknown or expired task: $tid")
+            case park if !park.detached =>
+              // A park exists under this token but it is an MRTR continuation,
+              // not a task. Saying so would confirm the token to someone who
+              // guessed it; the answer is the same as for an unknown id.
+              invalidParams(id, s"unknown or expired task: $tid")
+            case park => body(park)
 
   /** Start the handler on a virtual thread and wait for its first stop. */
   private def startPark(
@@ -1362,6 +1531,7 @@ object McpServerCore:
     progressToken: Option[ujson.Value],
     responses:     Map[String, ujson.Value],
     author:        Option[String],
+    ctx:           McpProtocol.RequestContext,
     body:          () => String
   ): String =
     evictExpiredParks(builder)
@@ -1372,7 +1542,7 @@ object McpServerCore:
       val park = Park(java.util.UUID.randomUUID().toString,
                       java.util.concurrent.ArrayBlockingQueue[Resume](1),
                       java.util.concurrent.ArrayBlockingQueue[ParkOutcome](1))
-      val scope = MrtrScope(responses, author)
+      val scope = scopeFor(responses, author, ctx)
       scope.park = park
       val thread = Thread.ofVirtual().unstarted(() =>
         numId.foreach { n =>
@@ -1387,7 +1557,30 @@ object McpServerCore:
         builder.mrtrTL.remove()
         builder.currentReqIdTL.remove()
         builder.currentProgressTokenTL.remove()
-        park.out.put(outcome))
+        // A detached handler has no dispatcher waiting, so its terminal state
+        // goes into the park where `tasks/get` reads it. The park is NOT
+        // removed: a client that polls after the answer arrives should find
+        // the answer, not "no such task". The TTL collects it later.
+        // Not if it is ALREADY terminal. `tasks/cancel` interrupts the thread,
+        // the interrupt surfaces inside the handler as an ordinary exception,
+        // and the handler returns — so without this guard a cancelled task
+        // reports 'completed' and the client is told the work was done. The
+        // race runs both ways, which is why `tasks/cancel` carries the mirror
+        // of this check.
+        if park.detached && !McpProtocol.isTerminalTaskStatus(park.status) then
+          outcome match
+            case ParkOutcome.Done(frame) =>
+              park.publish(McpProtocol.TaskCompleted, result = Some(resultOf(frame)))
+            case ParkOutcome.Failed(e) =>
+              park.publish(McpProtocol.TaskFailed, error = Some(JsonRpc.Error(
+                JsonRpc.ErrorCode.InternalError,
+                Option(e.getMessage).getOrElse(e.getClass.getSimpleName))))
+            case _ => ()
+        // `offer`, not `put`: for a detached park nothing will ever take this,
+        // and blocking a finished handler forever to deliver to no one would
+        // leak the thread. The MRTR path has a waiting consumer and an empty
+        // queue, so its delivery is unaffected.
+        park.out.offer(outcome))
       park.thread = thread
       builder.parks.put(park.token, park)
       thread.start()
@@ -1428,6 +1621,17 @@ object McpServerCore:
         builder.parks.remove(park.token)
         JsonRpc.encodeError(id, JsonRpc.ErrorCode.InternalError,
           Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+      case ParkOutcome.Detached =>
+        // The handler asked to become a task and is still running. Hand back
+        // the handle and leave the park standing; from here the client polls.
+        park.ttlMs         = builder.parkTtlMs
+        park.deadlineMs    = System.currentTimeMillis() + builder.parkTtlMs
+        park.lastRequestId = numId
+        JsonRpc.encodeResult(id, McpProtocol.createTaskResult(
+          taskId         = park.token,
+          status         = McpProtocol.TaskWorking,
+          ttlMs          = Some(builder.parkTtlMs),
+          pollIntervalMs = Some(builder.taskPollIntervalMs)))
       case ParkOutcome.NeedsInput(key, req, authorState) =>
         park.deadlineMs    = System.currentTimeMillis() + builder.parkTtlMs
         park.lastRequestId = numId
@@ -1435,6 +1639,17 @@ object McpServerCore:
           inputRequests = Map(key -> req),
           requestState  = McpProtocol.parkEnvelope(Some(park.token),
                             authorState.orElse(author))))
+
+  /** The `result` out of an encoded JSON-RPC frame.
+   *
+   *  A handler body returns a whole frame, addressed to the request that
+   *  started it. A task is collected by a DIFFERENT request, so the envelope is
+   *  wrong and only the payload transfers. An error frame or an unreadable one
+   *  becomes an empty object rather than throwing: this runs on the handler's
+   *  own thread at the end of its life, where there is no one left to tell. */
+  private def resultOf(frame: String): ujson.Value =
+    try ujson.read(frame.trim).objOpt.flatMap(_.get("result")).getOrElse(ujson.Obj())
+    catch case _: Throwable => ujson.Obj()
 
   /** Drop parks whose client never came back. Lazy rather than scheduled: a
    *  reaper thread would outlive every server that never parks at all. */

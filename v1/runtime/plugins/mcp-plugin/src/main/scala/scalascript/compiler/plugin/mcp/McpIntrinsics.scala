@@ -831,6 +831,29 @@ private[mcp] object Mcp:
     // See the elicit comment above for what each one costs. Unknown names are
     // refused rather than silently defaulted: a typo that quietly selected a
     // mode with a precondition would be the worst possible failure here.
+    // MCP 2026-07-28, Tasks extension.
+    //
+    // `srv.asTask()` turns the call in progress into a TASK: the caller gets a
+    // handle back immediately and polls `tasks/get`, while your handler carries
+    // on from the next line. Use it for work measured in minutes — a build, a
+    // batch, an approval that waits on a person.
+    //
+    // It returns whether that happened, and it answers FALSE rather than
+    // failing in three cases: a legacy client, a server put in "replay" mode,
+    // and a client that never advertised the extension. In all three your
+    // handler simply runs to completion as a normal blocking call, which is the
+    // right default — a server must not hand back a result type the client
+    // never said it understands. If your handler CANNOT sensibly block, ask
+    // `srv.clientSupportsTasks()` first and refuse on your own terms.
+    //
+    // After `asTask()` the usual things still work: `srv.elicit(...)` puts the
+    // task into `input_required` and the client answers through `tasks/update`,
+    // and `tasks/cancel` interrupts you. Your handler still runs exactly once.
+    def asTaskFn =
+      PluginValue.nativeFn("McpServer.asTask", { _ => PluginValue.bool(builder.asTask()) })
+    def clientSupportsTasksFn =
+      PluginValue.nativeFn("McpServer.clientSupportsTasks",
+        { _ => PluginValue.bool(builder.clientSupportsTasks) })
     def setMrtrModeFn =
       PluginValue.nativeFn("McpServer.setMrtrMode", {
         case List(Str(m)) =>
@@ -983,6 +1006,8 @@ private[mcp] object Mcp:
       "requestState"               -> requestStateFn,
       "setRequestState"            -> setRequestStateFn,
       "setMrtrMode"                -> setMrtrModeFn,
+      "asTask"                     -> asTaskFn,
+      "clientSupportsTasks"        -> clientSupportsTasksFn,
       "completionForPrompt"        -> completionForPromptFn,
       "completionForResource"      -> completionForResourceFn,
       "setPageSize"                -> setPageSizeFn,
