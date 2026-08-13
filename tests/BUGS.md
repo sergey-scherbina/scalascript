@@ -129,13 +129,14 @@ declaration that is REFERENCED but never EMITTED.
 
 ## f-leaks-its-own-block-end-sentinel-as-an-unbound-global
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 7055b8168
+     gate: tests/e2e/f-blockend-sentinel-gate.sh -->
 
 On one variant of the `std/parsing/core.ssc` reduction (the code and prose, frontmatter stripped),
 F declines with:
@@ -156,6 +157,30 @@ runner.
 **Not general:** ordinary two-block documents are fine — a `val`+expression block followed by a
 `def` block, a trait block followed by a case-class block, and a `main` block followed by a helper
 block all report F. Narrowing which shape leaves a sentinel unconsumed is not done.
+
+**Fixed in `7055b8168`. The shape is an EMPTY code fence** — five lines reproduce it:
+
+```
+```scalascript
+def main() = println("a")
+```
+
+```scalascript
+```
+```
+
+An empty fence still gets a sentinel appended, and F consumed sentinels only in `walkTopStep2`,
+i.e. AFTER `parseTopItem` had run. With no item in front of it the sentinel was parsed as an
+ordinary expression and reached the program as a value reference. `walkTop0` now skips a leading
+sentinel, mirroring the trailing case; an empty block has no tail to auto-print, so nothing is lost.
+
+Position does not matter — first, last, middle, and two in a row all reproduced, and all are rows in
+the gate. The reference front and the v1 interpreter were never affected: the reference consumes the
+sentinel in `topExprs` by matching the statement wherever it appears.
+
+**Why it hid:** F declining means a silent FALLBACK to the reference front, so the program still ran
+correctly and only F's coverage was lost. An output gate cannot see which front ran, so the gate
+added here asserts the FRONT via `ssc info --front-report`.
 
 ## ref-front-drops-every-block-tail-but-the-last
 
