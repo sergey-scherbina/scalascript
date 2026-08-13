@@ -1,0 +1,29 @@
+slug: v3-extension-in-trait
+branch: feature/ssc3-host-io-bytes
+agent: claude-code
+started: 2026-08-13T11:30:00Z
+heartbeat: 2026-08-13T11:30:00Z
+status: working
+items: v3-extension-in-trait
+paths: file:v3/src/Parser.scala file:v3/uniml/UniFront.scala
+scope: |
+  SSC3-13 slice A. `extension [A](fa: F[A]) def map[B](…)` inside a `trait` is refused by
+  `Parser.scala:1539` as "a `trait` member that is not a `def`". That single limit is what stops
+  `std/foldable-traversable.ssc` and `std/functor-applicative-monad.ssc` from loading, which is what
+  stops the whole typeclass tower the owner wants `Dataset` abstracted over — and it is 9 refusals
+  in the corpus on its own.
+
+  MEASURED BEFORE CLAIMING: higher-kinded types are NOT the blocker. `trait Foldable[F[_]]: def
+  sizeOf[A](fa: F[A]): Int` compiles and runs today.
+
+  WIDENED 2026-08-13, BEFORE the edit and not after, exactly as this claim said it would be.
+  v3's own parser now accepts the construct — but `Front.default` is UNIML when it is registered,
+  so `exec`/`build` never saw the fix. I edited the front that does not compile it, which is the
+  rule `ask-which-front-compiles-it-before-editing-a-front` exists for; three probes caught it.
+  UniML already handles `U.Extension` at top level and lifts the receiver identically, so the
+  second half is the symmetric branch in its trait-member match.
+
+  NARROW: two files, one construct, one branch each. v3 already has top-level extensions and `Lower.rewriteExtensionCalls`; this is
+  the same construct one scope deeper, so the work is expected to be in the parser rather than the
+  lowering. If it turns out to need `Lower` as well, the claim gets widened before that edit, not
+  after.
