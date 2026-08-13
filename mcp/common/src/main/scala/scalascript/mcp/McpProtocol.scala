@@ -645,10 +645,18 @@ object McpProtocol:
     toolsListChanged:      Boolean      = false,
     promptsListChanged:    Boolean      = false,
     resourcesListChanged:  Boolean      = false,
-    resourceSubscriptions: List[String] = Nil
+    resourceSubscriptions: List[String] = Nil,
+    /** Tasks extension: the task ids this stream wants pushed to it.
+     *
+     *  Keyed by ID rather than by a blanket "all my tasks" flag, which is what
+     *  the extension specifies and also the only shape that is safe here: a
+     *  listen stream has no owner the server can check a task against, so a
+     *  blanket flag would put every task's state onto every stream. */
+    taskIds: List[String] = Nil
   ):
     def isEmpty: Boolean =
-      !toolsListChanged && !promptsListChanged && !resourcesListChanged && resourceSubscriptions.isEmpty
+      !toolsListChanged && !promptsListChanged && !resourcesListChanged &&
+        resourceSubscriptions.isEmpty && taskIds.isEmpty
 
     def toJson: ujson.Value =
       val o = ujson.Obj()
@@ -657,6 +665,8 @@ object McpProtocol:
       if resourcesListChanged then o("resourcesListChanged") = true
       if resourceSubscriptions.nonEmpty then
         o("resourceSubscriptions") = ujson.Arr.from(resourceSubscriptions.map(ujson.Str(_)))
+      if taskIds.nonEmpty then
+        o("taskIds") = ujson.Arr.from(taskIds.map(ujson.Str(_)))
       o
 
     /** Does this filter admit `method` (for a resource update, `uri`)?
@@ -666,6 +676,9 @@ object McpProtocol:
       case Method.PromptsListChanged   => promptsListChanged
       case Method.ResourcesListChanged => resourcesListChanged
       case Method.ResourcesUpdated     => uri.exists(resourceSubscriptions.contains)
+      // The tasks extension reuses this parameter for the task id: same
+      // question — "is THIS one of the things you asked for" — so the same slot.
+      case Method.TasksNotification    => uri.exists(taskIds.contains)
       case _                           => false
 
   /** Read the filter off a `subscriptions/listen` request. Absent or malformed
@@ -680,8 +693,10 @@ object McpProtocol:
           def flag(k: String) = n.get(k).flatMap(_.boolOpt).getOrElse(false)
           val uris = n.get("resourceSubscriptions").flatMap(_.arrOpt)
             .map(_.iterator.flatMap(_.strOpt).toList).getOrElse(Nil)
+          val tids = n.get("taskIds").flatMap(_.arrOpt)
+            .map(_.iterator.flatMap(_.strOpt).toList).getOrElse(Nil)
           NotificationFilter(flag("toolsListChanged"), flag("promptsListChanged"),
-                             flag("resourcesListChanged"), uris)
+                             flag("resourcesListChanged"), uris, tids)
     catch case _: Throwable => NotificationFilter()
 
   /** Stamp a notification with the subscription it belongs to.

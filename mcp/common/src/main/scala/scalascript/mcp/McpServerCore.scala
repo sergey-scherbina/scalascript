@@ -286,7 +286,7 @@ class McpServerBuilder:
             else
               park.detached  = true
               park.createdAt = java.time.Instant.now().toString
-              park.publish(McpProtocol.TaskWorking)
+              park.publish(this, McpProtocol.TaskWorking)
               park.out.put(ParkOutcome.Detached)   // the dispatcher IS waiting
               true
 
@@ -347,11 +347,11 @@ class McpServerBuilder:
                   if park.detached then
                     // A TASK: nobody is waiting on the rendezvous, so the state
                     // goes where `tasks/get` will read it.
-                    park.publish(McpProtocol.TaskInputRequired, inputs = Map(k -> req))
+                    park.publish(this, McpProtocol.TaskInputRequired, inputs = Map(k -> req))
                   else
                     park.out.put(ParkOutcome.NeedsInput(k, req, scope.outgoingState))
                   val r = park.resume.take()      // parks the virtual thread
-                  if park.detached then park.publish(McpProtocol.TaskWorking)
+                  if park.detached then park.publish(this, McpProtocol.TaskWorking)
                   // A resumed handler serves a DIFFERENT request than the one it
                   // started on, so cancellation and progress must follow the new
                   // one. These are this thread's locals; only this thread can
@@ -461,14 +461,22 @@ class McpServerBuilder:
    *  `McpWsClient.dispatchInboundLine`) already understands. */
   def notify(method: String, params: ujson.Value): Unit =
     val legacyFrame = JsonRpc.encodeNotification(method, params)
-    val uri = try params.objOpt.flatMap(_.get("uri")).flatMap(_.strOpt) catch case _: Throwable => None
+    // The filter asks "is THIS one of the things you named". For a resource that
+    // is the uri; for a task, the taskId. Same question, same slot.
+    val uri = try
+      params.objOpt.flatMap(o => o.get("uri").orElse(o.get("taskId"))).flatMap(_.strOpt)
+    catch case _: Throwable => None
     subscribers.forEach { s =>
       s.filter match
         // Legacy subscriber: the frame it gets is byte-identical to what it got
         // before subscriptions existed. Everything about this revision is opt-in
         // on the wire, and a stdio client that never sent `subscriptions/listen`
         // has not opted into anything.
-        case None => s.write(legacyFrame)
+        case None =>
+          // ...except an EXTENSION's notifications. A client that never sent
+          // `subscriptions/listen` has opted into nothing, and tasks are opt-in
+          // twice over: by capability and by naming the id.
+          if method != McpProtocol.Method.TasksNotification then s.write(legacyFrame)
         case Some(f) =>
           if f.admits(method, uri) then
             val tagged = McpProtocol.tagSubscription(ujson.read(legacyFrame.trim),
@@ -728,6 +736,7 @@ private[mcp] final class Park(
   /** Every state change stamps the clock, because `lastUpdatedAt` is how a
    *  polling client tells progress from a stall. */
   def publish(
+    owner:     McpServerBuilder,
     newStatus: String,
     inputs:    Map[String, McpProtocol.InputRequest] = Map.empty,
     result:    Option[ujson.Value]                   = None,
@@ -742,6 +751,12 @@ private[mcp] final class Park(
     // measures silence, not lifetime. A terminal publish therefore also starts
     // the clock on how long the answer stays collectable.
     if ttlMs > 0L then deadlineMs = System.currentTimeMillis() + ttlMs
+    // Optional push, for a client that asked for this id on a listen stream.
+    // Polling stays authoritative — this only saves the wait — so a write that
+    // fails must not disturb a task that is otherwise fine.
+    if detached then
+      try owner.notify(McpProtocol.Method.TasksNotification, McpServerCore.taskJson(owner, this))
+      catch case _: Throwable => ()
   /** The id of the request this park most recently answered, so a
    *  `notifications/cancelled` naming that id can find it. */
   @volatile var lastRequestId: Option[Long] = None
@@ -1208,18 +1223,7 @@ object McpServerCore:
 
       // ── Tasks extension (P5c) ─────────────────────────────────────────
       case McpProtocol.Method.TasksGet =>
-        withTask(builder, params, id)(park =>
-          JsonRpc.encodeResult(id, McpProtocol.taskResult(
-            taskId         = park.token,
-            status         = park.status,
-            createdAt      = park.createdAt,
-            lastUpdatedAt  = park.lastUpdatedAt,
-            statusMessage  = park.statusMessage,
-            ttlMs          = Some(builder.parkTtlMs),
-            pollIntervalMs = Some(builder.taskPollIntervalMs),
-            result         = park.resultValue,
-            error          = park.errorValue,
-            inputRequests  = park.pendingInputs)))
+        withTask(builder, params, id)(park => JsonRpc.encodeResult(id, taskJson(builder, park)))
 
       case McpProtocol.Method.TasksUpdate =>
         withTask(builder, params, id) { park =>
@@ -1239,10 +1243,17 @@ object McpServerCore:
           // Cooperative by spec. We interrupt and mark it cancelled, and we do
           // NOT drop the park: a client that polls after cancelling should read
           // 'cancelled' rather than 'no such task'. The TTL collects it.
+          // MARK FIRST, INTERRUPT SECOND, and the order is load-bearing. The
+          // interrupt wakes the handler, whose own catch turns it into a result
+          // and publishes a terminal status; do that before claiming the status
+          // and write-once then refuses OUR 'cancelled', leaving the client
+          // told 'completed' for work it cancelled. Found by a control that
+          // failed twice and then once — the extra failure was this race, not
+          // a flaky test.
+          if !McpProtocol.isTerminalTaskStatus(park.status) then
+            park.publish(builder, McpProtocol.TaskCancelled)
           val th = park.thread
           if th != null then th.interrupt()
-          if !McpProtocol.isTerminalTaskStatus(park.status) then
-            park.publish(McpProtocol.TaskCancelled)
           JsonRpc.encodeResult(id, ujson.Obj(
             "resultType" -> McpProtocol.ResultTypeComplete))
         }
@@ -1494,6 +1505,25 @@ object McpServerCore:
     s.ctx = ctx
     s
 
+  /** The task object, rendered once.
+   *
+   *  `tasks/get` returns this and `notifications/tasks` carries it, and the
+   *  extension says they are the same thing — "identical to what tasks/get
+   *  would have returned at that moment". Two renderers would have been two
+   *  chances to drift, with the push being the one nobody looks at. */
+  private[mcp] def taskJson(builder: McpServerBuilder, park: Park): ujson.Value =
+    McpProtocol.taskResult(
+      taskId         = park.token,
+      status         = park.status,
+      createdAt      = park.createdAt,
+      lastUpdatedAt  = park.lastUpdatedAt,
+      statusMessage  = park.statusMessage,
+      ttlMs          = Some(builder.parkTtlMs),
+      pollIntervalMs = Some(builder.taskPollIntervalMs),
+      result         = park.resultValue,
+      error          = park.errorValue,
+      inputRequests  = park.pendingInputs)
+
   /** Resolve a `taskId` to a live park, or answer why not.
    *
    *  Extension methods are MODERN-ONLY: a legacy client negotiated a revision
@@ -1570,9 +1600,9 @@ object McpServerCore:
         if park.detached && !McpProtocol.isTerminalTaskStatus(park.status) then
           outcome match
             case ParkOutcome.Done(frame) =>
-              park.publish(McpProtocol.TaskCompleted, result = Some(resultOf(frame)))
+              park.publish(builder, McpProtocol.TaskCompleted, result = Some(resultOf(frame)))
             case ParkOutcome.Failed(e) =>
-              park.publish(McpProtocol.TaskFailed, error = Some(JsonRpc.Error(
+              park.publish(builder, McpProtocol.TaskFailed, error = Some(JsonRpc.Error(
                 JsonRpc.ErrorCode.InternalError,
                 Option(e.getMessage).getOrElse(e.getClass.getSimpleName))))
             case _ => ()

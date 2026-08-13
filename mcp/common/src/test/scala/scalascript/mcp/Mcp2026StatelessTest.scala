@@ -1916,3 +1916,70 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       ).render(), "srv", "9.9.9",
       modernHeaders(McpProtocol.Header.Name -> "slow")).trim)
 
+  // ── notifications/tasks — the optional push ────────────────────────────
+
+  test("the filter carries taskIds and round-trips them"):
+    val f = McpProtocol.parseNotificationFilter(ujson.Obj("notifications" ->
+      ujson.Obj("taskIds" -> ujson.Arr("t-1", "t-2"))))
+    f.taskIds shouldBe List("t-1", "t-2")
+    f.isEmpty shouldBe false
+    McpProtocol.parseNotificationFilter(
+      ujson.Obj("notifications" -> f.toJson)).taskIds shouldBe List("t-1", "t-2")
+
+  test("the filter admits the task it was given and no other"):
+    val f = McpProtocol.NotificationFilter(taskIds = List("t-1"))
+    f.admits(McpProtocol.Method.TasksNotification, Some("t-1")) shouldBe true
+    f.admits(McpProtocol.Method.TasksNotification, Some("t-2")) shouldBe false
+    f.admits(McpProtocol.Method.TasksNotification, None)        shouldBe false
+
+  test("a subscriber that named the task is pushed its state changes"):
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b    = taskServer(gate)
+    val tid  = callSlow(b)("result")("taskId").str
+    val sink = new Sink
+    b.addListenSubscriber(sink.write,
+      McpProtocol.NotificationFilter(taskIds = List(tid)), ujson.Num(5))
+    gate.countDown()
+    eventuallyCond(sink.methods.contains(McpProtocol.Method.TasksNotification))
+    val pushed = sink.frames.toList.filter(f =>
+      f.obj.get("method").flatMap(_.strOpt).contains(McpProtocol.Method.TasksNotification))
+    // "identical to what tasks/get would have returned" — same renderer, so the
+    // push carries the finished result and not merely a status word.
+    pushed.last("params")("status").str shouldBe McpProtocol.TaskCompleted
+    pushed.last("params")("result")("content")(0)("text").str shouldBe "finished"
+
+  test("a subscriber that named a DIFFERENT task is pushed nothing"):
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b    = taskServer(gate)
+    callSlow(b)
+    val sink = new Sink
+    b.addListenSubscriber(sink.write,
+      McpProtocol.NotificationFilter(taskIds = List("someone-elses-task")), ujson.Num(6))
+    gate.countDown()
+    Thread.sleep(120)
+    sink.methods should not contain McpProtocol.Method.TasksNotification
+
+  test("a LEGACY subscriber is pushed nothing — it opted into no extension"):
+    // A stdio client that never sent subscriptions/listen has a filter of None
+    // and otherwise receives every notification byte-identically. An
+    // extension's notifications are the exception, and this is why.
+    val gate = java.util.concurrent.CountDownLatch(1)
+    val b    = taskServer(gate)
+    callSlow(b)
+    val sink = new Sink
+    b.addSubscriber(sink.write)                       // no filter: the legacy shape
+    gate.countDown()
+    Thread.sleep(120)
+    sink.methods should not contain McpProtocol.Method.TasksNotification
+
+  test("cancelling an ALREADY finished task does not rewrite it as cancelled"):
+    // The other side of write-once, and deterministic where the race is not:
+    // the task is terminal before tasks/cancel is ever sent. Reordering cancel
+    // to claim the status first must not let it claim one already taken.
+    val gate = java.util.concurrent.CountDownLatch(0)      // finishes at once
+    val b    = taskServer(gate)
+    val tid  = callSlow(b)("result")("taskId").str
+    eventuallyCond(getTask(b, tid)("result")("status").str == McpProtocol.TaskCompleted)
+    post(b, McpProtocol.Method.TasksCancel, taskParams("taskId" -> ujson.Str(tid)))
+    getTask(b, tid)("result")("status").str shouldBe McpProtocol.TaskCompleted
+
