@@ -1,3 +1,86 @@
+## f-parser-gap-needs-the-package-field
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: none — open defect -->
+
+`std/parsing/core.ssc` is `GAP` with `unbound global: (global Parser)`, and it is the root of the
+largest remaining F coverage hole: four corpus files (`examples/dsl-calc-parser.ssc`,
+`dsl-json-parser`, `dsl-sql-recovery`, `dsl-yaml-like`) decline for the same reason.
+
+**Still open** as of 2026-08-13 — re-measured, because the previous census predates three front
+fixes that landed the same week. Note for whoever measures next: `ssc info --front-report` prints a
+PREAMBLE containing the word "F" ("**F** did not lower this file"), so `grep -oE '\b(F|GAP)\b' | head -1`
+reads GAP as F. Parse the TSV line (`cut -f2`); I reported "the gap closed itself" for one turn on
+exactly that mistake.
+
+**The one necessary condition found: the `package:` field in the module frontmatter.** Delete it
+and the file compiles under F. Delete ANY other frontmatter field — `name`, `version`,
+`description`, the 15-entry `exports` list — and it still declines. Prose without frontmatter: F.
+Frontmatter without prose: GAP. Neither: F.
+
+It is necessary but NOT sufficient: a small module with `package: std.parsing`, a sealed trait, a
+case class and a companion object compiles fine. So the trigger is `package:` plus something else
+in the file that is not any single declaration.
+
+**A 91-line well-formed reduction exists** (from 118), at a fixpoint: every remaining declaration
+is load-bearing — removing any one flips the verdict to F. It is `std/parsing/core.ssc` minus nine
+declarations, with `sealed trait Parser`, `object Parser` and `trait ParserContext` PINNED. The
+pinning matters: an unpinned reducer deletes the trait, which satisfies "GAP with (global Parser)"
+trivially and converges on a program that proves nothing — that is how the previous attempt failed,
+and my first pass repeated it by deleting `trait ParserContext` while keeping
+`case object NoContext extends ParserContext`. Always re-check the reduction still RUNS on the
+reference front before believing a verdict from it.
+
+**Ruled out by measurement, so the next attempt need not re-walk these:**
+* the number of case classes extending the trait — 7 synthetic ones compile fine;
+* the fence count — the one-fence version of the reduction is still GAP (I briefly concluded the
+  opposite from a variant that dropped the frontmatter AND the fences at once, and attributed the
+  effect to the wrong one);
+* the `exports:` list naming a type;
+* the trait/companion-object same-name pair;
+* a generic case class (`case class PSucceed[A](value: A) extends Parser[A]`);
+* a generic method inside the object (`def succeed[A](value: A): Parser[A]`);
+* a type-parameterised extension (`extension [A](p: Parser[A])`).
+
+**Next step:** with `package:` known necessary, bisect what it interacts with — the natural
+candidate is whatever F does with package-qualified declaration names, since the symptom is a
+declaration that is REFERENCED but never EMITTED.
+
+## f-leaks-its-own-block-end-sentinel-as-an-unbound-global
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: none — open defect -->
+
+On one variant of the `std/parsing/core.ssc` reduction (the code and prose, frontmatter stripped),
+F declines with:
+
+```
+unbound global: (global __sscBlockEnd__) is neither a top-level def nor an @-cell
+```
+
+`__sscBlockEnd__` is F's OWN sentinel: `ssc1-run-fsub.ssc0:188` appends it to each code fence so the
+block boundary survives the join, and `walkTop` is supposed to consume it. Here one reaches the
+program as a value reference instead.
+
+**Not caused by the reference-front block-tail fix that landed the same day** (`374f6ce01`). That
+change touched `ssc1-run.ssc0` and the reference lowerer only; F's runner has emitted this sentinel
+since the native lane was fixed, and `--front-report` asks F about source prepared by F's own
+runner.
+
+**Not general:** ordinary two-block documents are fine — a `val`+expression block followed by a
+`def` block, a trait block followed by a case-class block, and a `main` block followed by a helper
+block all report F. Narrowing which shape leaves a sentinel unconsumed is not done.
+
 ## ref-front-drops-every-block-tail-but-the-last
 
 <!-- status: fixed
