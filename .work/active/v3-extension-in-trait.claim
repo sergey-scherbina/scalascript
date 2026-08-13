@@ -5,7 +5,7 @@ started: 2026-08-13T11:30:00Z
 heartbeat: 2026-08-13T11:30:00Z
 status: working
 items: v3-extension-in-trait
-paths: file:v3/src/Parser.scala file:v3/uniml/UniFront.scala
+paths: file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/src/Lower.scala
 scope: |
   SSC3-13 slice A. `extension [A](fa: F[A]) def map[B](…)` inside a `trait` is refused by
   `Parser.scala:1539` as "a `trait` member that is not a `def`". That single limit is what stops
@@ -23,7 +23,18 @@ scope: |
   UniML already handles `U.Extension` at top level and lifts the receiver identically, so the
   second half is the symmetric branch in its trait-member match.
 
-  NARROW: two files, one construct, one branch each. v3 already has top-level extensions and `Lower.rewriteExtensionCalls`; this is
+  WIDENED AGAIN 2026-08-13 to `v3/src/Lower.scala`, before the edit. The parser branches alone
+  were MEASURED and REJECTED: they moved 6 corpus cases from an honest refusal to a WRONG ANSWER
+  (`Cons.fmap was called but does not exist`), because an extension member became an ordinary trait
+  method dispatched by the receiver's runtime tag. Parsing a construct without lowering it is worse
+  than refusing it.
+
+  The lowering half is the owner's decision of 2026-08-13, recorded in
+  `v3/specs/20-core-language.md` §4a1: resolve the instance from the receiver's CONSTRUCTOR and from
+  a parameter's DECLARED type, prefer the SUBTRAIT when several instances provide one method, refuse
+  when the traits are unrelated.
+
+  NARROW: three files, one construct. v3 already has top-level extensions and `Lower.rewriteExtensionCalls`; this is
   the same construct one scope deeper, so the work is expected to be in the parser rather than the
   lowering. If it turns out to need `Lower` as well, the claim gets widened before that edit, not
   after.
