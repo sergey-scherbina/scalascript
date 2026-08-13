@@ -545,6 +545,68 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-maptype-omits-array-and-set — FIXED for `Array`, MEASURED and left alone for `Set`
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 49167fb9c
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`Array[Byte]` in a struct field refused as "a type outside R.2" while an `Array(…)` EXPRESSION three
+lines away lowered fine. **`mapType` was the only decision site in the file that did not group
+`Array` with the list family** — the Copy-type test, both list-constructor tests and the
+`Any`-variant test all already name it beside `List` and `Vector`. One word, and the reason it is
+safe is that the other four sites had already made this choice.
+
+`std/mapreduce/index.ssc` reaches COMPILES. `distributed.ssc` and `shuffle.ssc` moved past it to
+their next blockers — an unsupported infix operator and a non-constructor extractor — which is
+[[rust-survey-first-reason-hides-blocker-depth]] doing what it says.
+
+**`Set[T]` was implemented, measured and REVERTED, and the reason is not the same as `Array`'s.**
+`HashSet<T>` is four lines, and behind it `std/mapreduce/failure.ssc` refuses on `ProcessPartition`,
+an actor message the crate does not define — a blocker in a different family entirely. So the type
+mapping alone moves nothing. Landing it anyway would leave a TRAP: `pending - failedPart` is
+Scala's set difference, this lane has no lowering for it, and `-` is in `ArithOps` — so the moment
+someone closes the actor blocker they would get bad Rust instead of the clear refusal they have
+today. Only two modules in std use `Set` and both are blocked deeper, so neither the type nor the
+operator can be validated here. Recorded rather than shipped.
+
+## rust-struct-field-named-like-a-rust-keyword — FIXED: `pub fn: …` is not a struct field
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 49167fb9c
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`case class NamedHandler[A, B](name: String, fn: A => B)` emitted
+
+```rust
+pub struct NamedHandler { pub name: String, pub fn: std::rc::Rc<dyn Fn(i64) -> i64>, }
+```
+
+— `error: expected identifier, found keyword fn`, with rustc itself suggesting `r#fn`.
+
+`rustIdent` already existed and already knew the reserved list; it was applied to LOCAL names and to
+none of the SIX places a field identifier is emitted — two struct declarations, two enum-variant
+declarations, the struct literal, and the field read. **Escaping only some of them would be worse
+than escaping none**, so all six move together; a declaration that says `r#fn` and a read that says
+`.fn` do not meet.
+
+**Zero blast radius by construction, and this time the claim holds:** `rustIdent` is the identity on
+every name that is not a Rust keyword, so no existing emission changes at all. (The last "safe by
+construction" claim in this backend — that every emitted type derives Clone — had a counterexample
+within the hour, which is why this one is stated with its argument attached.)
+
+Unmasked by [[rust-maptype-omits-array-and-set]]: with `Array` refusing, this struct was never
+reached. A refusal short-circuits the walk, so a fix reveals whatever stood behind it.
+
+**And it was nearly missed.** My own probe classified the module COMPILES because its regex was
+`^error\[` — this failure is `error: expected identifier`, with no bracket. The survey gate's
+classifier tests `^error\[E[0-9]+\]|^error: expected|^error: could not compile` and caught it.
+Use the gate's classifier, never a hand-rolled one.
+
 ## rust-unary-minus-is-an-unsupported-expression — FIXED, and it was the FIRST of five links, not a fix on its own
 <!-- status: fixed
      lane: v2-rust
