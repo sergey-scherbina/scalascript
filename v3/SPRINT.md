@@ -3256,3 +3256,30 @@ decision about the language and belongs to the owner, not to a parser change.
 **What this means for C.** The `extern object Dataset` in `std/mapreduce` cannot load until varargs
 are answered, so reconciling it with the prelude's `case class Dataset` is still blocked — on a
 different thing than when C was written, and now on a named one.
+
+### SSC3-14b — varargs: STARTED, REVERTED, and the diagnosis is the deliverable
+
+Attempted 2026-08-13 and backed out. What is settled, and what is not:
+
+**The SEMANTICS are settled and were read off the tree, not chosen.**
+`std/ui/data.ssc:43` is `def tableRow(cells: TkNode*): List[TkNode] = cells.toList` — the body
+already treats a vararg parameter as a COLLECTION. So at Tier 0 `T*` is an ordinary `List[T]`
+parameter, and the only missing half is that the call site passes its arguments loose. `Dataset.of`
+is called 35 times in the corpus and `std/mapreduce/dataset.ssc` cannot load without it.
+
+**The call-site pass was written and is correct in shape** — collect the trailing arguments into
+`List(…)` before `fillDefaults` and `checkArity`, since the arity check is what refuses
+`passes 3 argument(s), it takes 1` and is right to until they have been made into one. It never
+fires, because of the parser half below, so it was reverted with the rest rather than left inert.
+
+**WHERE IT STOPPED, and this is the thing to diagnose FIRST rather than code around.** After
+`skipType` returns, the next token is NOT the `*` — `isOp(…, "*")` and `isPunct(…, "*")` are both
+false there — and yet `def total(xs: Int*)` PARSES, and `Param.tpe` comes out as `Int`, without the
+star. Something consumes it, and `grep '"\*"' v3/src/Parser.scala` finds exactly ONE line, the one
+I added. So the star is being eaten below the parser — in the lexer or in `alphabet/src/Alphabet.scala`,
+which `Lexer.scala` delegates its symbol table to.
+
+**The next step is a token dump, not another parser edit.** Two attempts were made from the parser
+side — consuming the star inside `skipType`, then reading it at the parameter — and both produced a
+build that parses and still carries `tpe = Int`: a fix that looks like it works and does nothing.
+Establish what the lexer emits for `Int*` before touching either side again.
