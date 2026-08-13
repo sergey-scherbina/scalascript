@@ -1448,6 +1448,22 @@ fn show(v: &V) -> String {
             format!("List({})", items.join(", "))
         }
         V::Data(tag, fields) if fields.is_empty() => tag.clone(),
+        // A source tuple renders as `(a, b)`, NOT `Tuple2(a, b)`. The VM's rule is
+        // `t.matches("Tuple\\d+")` — a regex, so `Pair` (mira's own tuples, from `a -> b`) keeps
+        // its `Pair(a, b)` spelling through the generic arm below, deliberately. Mirrored here as
+        // "starts with Tuple, then at least one digit, all digits" rather than a bare
+        // `starts_with`, which would also swallow a user type called `TupleLike`.
+        //
+        // Found by the ANTI-ROW in `v2/conformance/list-concat.coreir` — the case put there to
+        // prove a new list arm had not eaten tuple concat. It had not; this was already wrong, in
+        // this generator and in the JVM one, and no fixture had ever asked either of them to print
+        // a tuple.
+        V::Data(tag, fields)
+            if tag.len() > 5 && tag.starts_with("Tuple")
+               && tag[5..].bytes().all(|c| c.is_ascii_digit()) => {
+            let fs: Vec<String> = fields.iter().map(show).collect();
+            format!("({})", fs.join(", "))
+        }
         V::Data(tag, fields) => {
             let fs: Vec<String> = fields.iter().map(show).collect();
             format!("{}({})", tag, fs.join(", "))
@@ -1804,9 +1820,64 @@ fn v_ige(a: V, b: V) -> V {
 
 // ── String ────────────────────────────────────────────────────────────────────
 
+fn is_list_v(v: &V) -> bool {
+    match v {
+        V::Data(tag, _) => tag == "Cons" || tag == "Nil",
+        _ => false,
+    }
+}
+
+fn unlist_v(v: &V) -> Vec<V> {
+    let mut items: Vec<V> = Vec::new();
+    let mut cur = v.clone();
+    loop {
+        match cur {
+            V::Data(ref t, ref fs) if t == "Cons" && fs.len() == 2 => {
+                items.push(fs[0].clone());
+                let next = fs[1].clone();
+                cur = next;
+            }
+            _ => break,
+        }
+    }
+    items
+}
+
+fn list_of_v(items: Vec<V>) -> V {
+    let mut acc = V::Data("Nil".to_string(), vec![]);
+    for x in items.into_iter().rev() {
+        acc = V::Data("Cons".to_string(), vec![x, acc]);
+    }
+    acc
+}
+
 fn v_sconcat(a: V, b: V) -> V {
     match (a, b) {
         (V::Str(x), V::Str(y)) => V::Str(x + &y),
+        // THE LIST ARM MUST COME FIRST, and it is not optional. The front emits `sconcat` for `++`
+        // whenever it can type the left operand as String — and it reads `++` itself as such — so
+        // the outer concat of `a ++ b ++ c` arrives here with two LISTS. A list is
+        // `Data("Cons", [head, tail])`: a two-field Data, structurally a PAIR, which the tuple arm
+        // below then concatenated field-wise. Measured on this generator before the fix:
+        //
+        //     List(1,2) ++ List(3)              ->  Tuple4(1, List(2), 3, List())
+        //     List(1,2) ++ List(3) ++ List(4,5) ->  Tuple6(1, List(2), 3, List(), 4, List(5))
+        //
+        // Same defect and same fix as the kernel's `sconcat` (v2/src/Runtime.scala) and the JVM
+        // generator's (v2/backend/jvm/JvmBackend.scala) — this file was the last of the three, and
+        // `v2/conformance/list-concat.coreir` is the fixture that finally made the harness able to
+        // see it. Nothing in `conformance/` had used `sconcat` at all.
+        //
+        // GUARDED ON BOTH OPERANDS, like the JVM twin rather than the kernel. The kernel is
+        // left-biased and accepts a non-list on the right: `List(1) ++ 5` is `List(1, 5)` there,
+        // measured, while both generators fall through to the tail below. That divergence PREDATES
+        // this fix and is not settled here — picking a third behaviour would be worse than leaving
+        // the two generators agreeing with each other. Recorded in `rust-sconcat-treats-a-cons-cell-as-a-pair`.
+        (ref l, ref r) if is_list_v(l) && is_list_v(r) => {
+            let mut xs = unlist_v(l);
+            xs.extend(unlist_v(r));
+            list_of_v(xs)
+        }
         // tuple/ADT concat: any two Data values concatenate their fields
         (V::Data(_t1, f1), V::Data(_t2, f2)) => {
             let mut fields = f1;

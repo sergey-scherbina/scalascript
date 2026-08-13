@@ -1,0 +1,59 @@
+; `sconcat` on two LISTS must concatenate them — not read their Cons cells as a pair.
+;
+; A v2 list is `Data("Cons", [head, tail])`: a two-field Data value, structurally a PAIR. The
+; generators' `sconcat` had a "concatenate the fields of any two Data values" arm for tuples, and
+; two Cons CELLS match it, so `List(1,2) ++ List(3)` came back as a `Tuple4` — which then failed far
+; away, as `Tuple4.isEmpty was called but does not exist`. That is
+; `corpus-contract-scljet-jdbc-v2-timeout`: four scljet corpus cases, red on the v2 lane, and the
+; head of a chain of six defects.
+;
+; NO EXISTING FIXTURE USED `sconcat` AT ALL — the same hole `__autoOutput__` documents one file
+; over. This harness compares every generator against the VM byte-for-byte and was green while the
+; Rust generator returned a tuple for a list concat, because nothing here ever asked it to.
+;
+; The last two cases are ANTI-ROWS and matter as much as the first three: a list arm placed ahead of
+; the Data++Data arm must not eat the behaviour that arm is FOR. String concat and tuple concat are
+; both correct today and must stay correct.
+;
+; Expected output, from the VM:
+;   List(1, 2, 3)
+;   List(1, 2, 3, 4, 5)
+;   List(7)
+;   abcd
+;   (1, 2, 3, 4)
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq
+     ; two lists
+     (prim __autoOutput__
+      (prim sconcat
+       (ctor Cons (lit (int 1)) (ctor Cons (lit (int 2)) (ctor Nil)))
+       (ctor Cons (lit (int 3)) (ctor Nil))))
+     (seq
+      ; a three-way chain — the shape the corpus actually hit, where the LEFT operand of the
+      ; outer concat is itself the result of a concat
+      (prim __autoOutput__
+       (prim sconcat
+        (prim sconcat
+         (ctor Cons (lit (int 1)) (ctor Cons (lit (int 2)) (ctor Nil)))
+         (ctor Cons (lit (int 3)) (ctor Nil)))
+        (ctor Cons (lit (int 4)) (ctor Cons (lit (int 5)) (ctor Nil)))))
+      (seq
+       ; the empty list on the left: `Nil` is Data with ZERO fields, so the tuple arm would
+       ; have turned this one into a Tuple1 rather than a Tuple4
+       (prim __autoOutput__
+        (prim sconcat
+         (ctor Nil)
+         (ctor Cons (lit (int 7)) (ctor Nil))))
+       (seq
+        ; ANTI-ROW: strings still concatenate as strings
+        (prim __autoOutput__
+         (prim sconcat (lit (str "ab")) (lit (str "cd"))))
+        ; ANTI-ROW: two tuples still concatenate their fields, which is what the Data arm is for
+        (prim __autoOutput__
+         (prim sconcat
+          (ctor Tuple2 (lit (int 1)) (lit (int 2)))
+          (ctor Tuple2 (lit (int 3)) (lit (int 4))))))))))))
+ (entry (app (global main))))

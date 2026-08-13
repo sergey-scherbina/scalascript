@@ -284,6 +284,14 @@ private def _show(v: V): String = v match
         case ("Cons", fs: Array[V]) => items += _show(fs(0)); cur = fs(1)
         case _ => go = false
       s"List(${items.mkString(", ")})"
+    // A source tuple renders as `(a, b)`, NOT `Tuple2(a, b)` — the kernel's rule verbatim
+    // (`t.matches("Tuple\\d+")` in Runtime.Show), which is a REGEX on purpose: `Pair`, mira's own
+    // tuple from `a -> b`, keeps its `Pair(a, b)` spelling through the generic arm.
+    // Found by the anti-row in `v2/conformance/list-concat.coreir`, added for a different defect
+    // (`rust-sconcat-treats-a-cons-cell-as-a-pair`) to prove its list arm had not eaten tuple
+    // concat. The concat was fine; the RENDERING was wrong here and in the Rust generator, and no
+    // fixture had ever asked either of them to print a tuple.
+    else if tag.matches("Tuple\\d+") then s"(${fields.map(_show).mkString(", ")})"
     else if fields.isEmpty then tag else s"$tag(${fields.map(_show).mkString(", ")})"
   case v: Vector[?] => v.asInstanceOf[Vector[Byte]].map(b => f"${b & 0xff}%02x").mkString("#", "", "")
   case _: Function1[?, ?] => "<closure>"
