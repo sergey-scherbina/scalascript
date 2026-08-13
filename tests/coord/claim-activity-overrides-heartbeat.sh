@@ -75,6 +75,45 @@ elif [[ "$hb" != "$act" ]]; then
   fails=$((fails + 1))
 fi
 
+# ── 5. a date in the FUTURE must be reported, not read as freshness ───────────────────────────────
+# The clamp this replaces read a negative age as 0, i.e. "just committed", which is the least safe
+# reading available: the claim looks freshly alive forever and nobody ever reaps it. It also killed a
+# whole job's self-test — tests/BUGS.md `ci-status-guard-selftest-two-stacked-defects` traced the
+# fixture's pinned clock sitting BEFORE a real commit, the age going negative, and the assertion the
+# test existed to make becoming unreachable. Deterministically dead, not flaky.
+# BOTH paths, because both clamped: the heartbeat field and the commit activity. Asserting "some
+# ANOMALY line exists" passed while the activity report was deleted — the surviving heartbeat line
+# satisfied it — so the control that should have failed did not, and the check was measuring the
+# wrong thing.
+anomaly_lines="$(grep -c 'ANOMALY:.*FUTURE' "$src" || true)"
+if [[ "${anomaly_lines:-0}" -lt 2 ]]; then
+  echo "FAIL a timestamp in the future is absorbed silently on at least one path (found $anomaly_lines of 2)"
+  echo "     both the heartbeat field and the commit activity clamped a negative age to zero;"
+  echo "     reading it as '0 seconds old' keeps a claim alive forever"
+  fails=$((fails + 1))
+fi
+
+# ── 6. and naming it is not enough: it must not COUNT as activity ────────────────────────────────
+# A report that still lets the claim through as live would satisfy check 5 and change nothing.
+if ! grep -qE 'if \[\[ -z "\$future_anomaly" && "\$activity_age_seconds" -le' "$src"; then
+  echo "FAIL the activity-freshness branch is not guarded by the future-date anomaly"
+  echo "     naming the anomaly while still counting it as freshness fixes nothing"
+  fails=$((fails + 1))
+fi
+
+# ── 7. the skew tolerance must NOT be a second copy of the staleness threshold ────────────────────
+# Same argument as check 4: two numbers deciding one question drift. The tolerance answers a
+# DIFFERENT question (is this skew or an anomaly), so it is its own constant — but it must not be
+# written as the staleness number, which would silently couple them.
+tol="$(sed -n 's/^SKEW_TOLERANCE=\([0-9][0-9]*\).*/\1/p' "$src" | head -1)"
+if [[ -z "$tol" ]]; then
+  echo "FAIL no SKEW_TOLERANCE constant — the future-date test is then a magic number at its site"
+  fails=$((fails + 1))
+elif [[ -n "$hb" && "$tol" == "$hb" ]]; then
+  echo "FAIL the skew tolerance ($tol s) is the staleness threshold — two questions, one number"
+  fails=$((fails + 1))
+fi
+
 if [[ "$fails" -gt 0 ]]; then
   echo "claim-activity-overrides-heartbeat: $fails check(s) FAILED"
   exit 1

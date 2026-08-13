@@ -188,6 +188,10 @@ claim_branch_diagnostic() {
   fi
 }
 
+# Ordinary clock skew between a runner and a developer machine is seconds, not minutes. Anything
+# further into the future is an anomaly rather than skew, and is reported instead of absorbed.
+SKEW_TOLERANCE=300
+
 NOW_EPOCH="${SSC_COORD_NOW_EPOCH:-}"
 if [[ -z "$NOW_EPOCH" ]]; then
   NOW_EPOCH="$(date -u +%s)"
@@ -463,7 +467,19 @@ else
         heartbeat_reason="invalid"
       else
         heartbeat_age_seconds=$((NOW_EPOCH - heartbeat_epoch))
-        if [[ "$heartbeat_age_seconds" -lt 0 ]]; then
+        # A FUTURE date is an anomaly, and reading it as "0 seconds old" is the least safe reading
+        # available: it makes the claim look freshly alive forever, so nobody ever reaps it. Small
+        # skew between machines is ordinary and stays silent; anything past SKEW_TOLERANCE is
+        # reported and NOT counted as freshness. tests/BUGS.md
+        # `ci-status-guard-selftest-two-stacked-defects` traced a whole job's self-test being
+        # deterministically dead to this clamp — the fixture's pinned clock sat BEFORE a real
+        # commit, the age went negative, and the assertion it existed to make became unreachable.
+        future_anomaly=""
+        if [[ "$heartbeat_age_seconds" -lt -"$SKEW_TOLERANCE" ]]; then
+          printf 'ANOMALY: %s heartbeat is %sm in the FUTURE — not counted as fresh (clock or fixture?)\n' \
+            "$slug" "$(( -heartbeat_age_seconds / 60 ))"
+          future_anomaly=1
+        elif [[ "$heartbeat_age_seconds" -lt 0 ]]; then
           heartbeat_age_seconds=0
         # 45 min, raised from 20 on 2026-07-28. The threshold is a forcing function, not just a
         # report: every live claim has to commit at least this often to stay fresh, and agents
@@ -485,8 +501,16 @@ else
       activity_epoch="$(claim_activity_epoch "$slug" "$claim_text")"
       if [[ -n "$activity_epoch" ]]; then
         activity_age_seconds=$((NOW_EPOCH - activity_epoch))
-        [[ "$activity_age_seconds" -lt 0 ]] && activity_age_seconds=0
-        if [[ "$activity_age_seconds" -le 2700 ]]; then
+        # Same anomaly, same reading, and this is the one that bit: a commit dated after `now` made
+        # `last commit 0m ago` permanent, so the claim read live by ACTIVITY forever.
+        if [[ "$activity_age_seconds" -lt -"$SKEW_TOLERANCE" ]]; then
+          printf 'ANOMALY: %s last commit is %sm in the FUTURE — not counted as activity (clock or fixture?)\n' \
+            "$slug" "$(( -activity_age_seconds / 60 ))"
+          future_anomaly=1
+        elif [[ "$activity_age_seconds" -lt 0 ]]; then
+          activity_age_seconds=0
+        fi
+        if [[ -z "$future_anomaly" && "$activity_age_seconds" -le 2700 ]]; then
           printf 'live by COMMIT activity (stale heartbeat field, ignored): %s (heartbeat=%s age=%sm, last commit %sm ago)\n' \
             "$slug" "${heartbeat:-missing}" "$(( ${heartbeat_age_seconds:-0} / 60 ))" \
             "$((activity_age_seconds / 60))"
