@@ -143,9 +143,10 @@ An unrelated pre-existing failure was found while verifying this and is filed se
      reported-by: claude-code
      reported-at: 2026-08-12
      confirmed: yes
-     gate: tests/e2e/f-output-agreement-gate.sh -->
+     fixed-in: b56c38ce9
+     gate: tests/e2e/f-nested-pattern-lambda-gate.sh -->
 
-**`f-output-agreement-gate` is RED on origin/main.** F is contradicted by BOTH other lanes on
+**FIXED in b56c38ce9.** `f-output-agreement-gate` was RED on origin/main. F is contradicted by BOTH other lanes on
 `examples/scljet-readonly.ssc` — the bucket whose ceiling is 0 and which the gate itself calls
 "a REGRESSION, not a coverage gap".
 
@@ -202,6 +203,30 @@ in this repo.
 
 **Not caused by the vararg fix landed the same day** — established by revert + rebuild, and it
 reproduces on a clean checkout of origin/main with nothing applied.
+
+**The cause, read off F's own emitted IR.** `tryLamDirect` -- the fast path for `(x) => x match { … }`
+-- emits `(lam 1 (match (local 0) …))` directly and parses the arms with `parseArms`, which has no
+nested machinery. Its own comment already scoped it to "only SIMPLE ctor arms", but `isLamSelfMatch`
+gated on nothing beyond arity 1 plus a self scrutinee:
+
+```
+F:      (lam 1 (match (local 0) ((arm Some 3 (let ((lit (int 0))) (local 1)))) (default …)))
+oracle: (lam 1 (let ((local 0)) (match (local 0) ((arm Some 1
+                  (match (local 0) ((arm Inner 1 …)) (default …)))) (default …))))
+```
+
+Wrong arity, no let-wrap, no inner match. The fast path is gated on `ar == 1`, which is exactly why
+a second binder of any kind made it work and why the whole variant table above reads as an
+off-by-one when it is really a routing miss. The fix declines nested arms there and falls through
+to `parseLamBodyG`, mirroring the `hasNestedArms` clause `parseMatchArms` already carries (:1716).
+
+Corpus gate, before → after: F-wrong 1 → 0, agree 227 → 254, measured 270 → 297. Twenty-seven more
+files compile under F and agree with the other two lanes.
+
+**The reproducer battery is a gate:** `tests/e2e/f-nested-pattern-lambda-gate.sh`, carrying the
+working shapes (two-param lambda, `def`, flat ctor arm, shallow `Some(v)`) alongside the failing
+one -- every probe with a second binder passes on the bug, and a fix that merely disabled
+tryLamDirect would pass a gate built only from the failure.
 
 ## renderTerm-is-two-and-a-half-times-the-jit-limit
 
