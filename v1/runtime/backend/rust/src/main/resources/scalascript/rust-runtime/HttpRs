@@ -33,7 +33,7 @@
       |/// `Request`, so nothing that compiles today changes shape.
       |pub enum RouteHandler {
       |    Str(Box<dyn Fn(&str) -> String + Send + Sync>),
-      |    Req(Box<dyn Fn(RequestParts) -> String + Send + Sync>),
+      |    Req(Box<dyn Fn(RequestParts) -> ResponseParts + Send + Sync>),
       |}
       |
       |static ROUTES: std::sync::OnceLock<
@@ -78,13 +78,24 @@
       |    pub form:    std::collections::HashMap<String, String>,
       |}
       |
+      |/// What a handler answers, in platform terms. `std/http.ssc` declares
+      |/// `handler: Request => Response`, and `Response` carries a status and headers that this lane
+      |/// had no way to express — every answer went out as 200 with a guessed Content-Type, so a
+      |/// route whose job is REFUSING could not refuse. Built in generated code, like RequestParts
+      |/// is consumed there, because `Response` is a case class this runtime cannot name.
+      |pub struct ResponseParts {
+      |    pub status:  u16,
+      |    pub headers: Vec<(String, String)>,
+      |    pub body:    String,
+      |}
+      |
       |/// `route(method, path, handler)` for a handler whose parameter is DECLARED `Request`.
       |/// Emitted by the walker instead of `_http_route` in that case only.
       |#[allow(dead_code)]
       |pub fn _http_route_req(
       |    method:  String,
       |    path:    String,
-      |    handler: impl Fn(RequestParts) -> String + Send + Sync + 'static,
+      |    handler: impl Fn(RequestParts) -> ResponseParts + Send + Sync + 'static,
       |) {
       |    let h = RouteHandler::Req(Box::new(move |v| handler(v)));
       |    routes().lock().unwrap().push((method.to_uppercase(), path, Arc::new(h)));
@@ -210,7 +221,11 @@
       |            guard.iter().find(|(m, p, _)| m == &method && p.ends_with('/') && path.starts_with(p.as_str()))
       |        });
       |        chosen.map(|(_, _, h)| match &**h {
-      |            RouteHandler::Str(f) => f(&arg),
+      |            // The String surface answers 200 with no headers of its own — exactly what it
+      |            // answered before ResponseParts existed. Normalising here keeps ONE path below.
+      |            RouteHandler::Str(f) => ResponseParts {
+      |                status: 200, headers: Vec::new(), body: f(&arg),
+      |            },
       |            // Built HERE and not before the lookup: a route registered with the String
       |            // surface must cost exactly what it cost before this existed.
       |            // Every field but `query` was already in hand for routing, the cookie header
@@ -237,7 +252,8 @@
       |            }),
       |        })
       |    };
-      |    if let Some(body) = out {
+      |    if let Some(parts) = out {
+      |        let body = parts.body;
       |        // Content-Type by path extension first — so a route can serve a service
       |        // worker / web manifest / icon with the MIME the browser requires; else
       |        // auto-detect HTML vs plain so `route` stays usable for dynamic pages (SSR).
@@ -256,12 +272,16 @@
       |        } else {
       |            "text/plain; charset=utf-8"
       |        };
-      |        return Ok(Response::builder()
-      |            .status(StatusCode::OK)
-      |            .header("Content-Type", ctype)
-      |            .header("Cache-Control", "no-store")
-      |            .body(Full::new(Bytes::from(body)))
-      |            .unwrap());
+      |        // The handler's own headers WIN, and the guess above only fills what it left out: a
+      |        // handler that said nothing about Content-Type keeps behaving exactly as before, and
+      |        // one that said something is not argued with. Same for Cache-Control.
+      |        let has = |n: &str| parts.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(n));
+      |        let mut b = Response::builder()
+      |            .status(StatusCode::from_u16(parts.status).unwrap_or(StatusCode::OK));
+      |        if !has("content-type")  { b = b.header("Content-Type", ctype); }
+      |        if !has("cache-control") { b = b.header("Cache-Control", "no-store"); }
+      |        for (k, v) in parts.headers { b = b.header(k, v); }
+      |        return Ok(b.body(Full::new(Bytes::from(body))).unwrap());
       |    }
       |    Ok(Response::builder()
       |        .status(StatusCode::NOT_FOUND)
