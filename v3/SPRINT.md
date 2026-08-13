@@ -3204,3 +3204,32 @@ DECLARED type, with the subtrait preferred. It must eventually be static types, 
 type inference. The three edges the approximation has — a `val` carries no type, a widened static
 type resolves where Scala would refuse, and the element type is invisible — are written out there,
 so they are known limits rather than future bug reports.
+
+### B — DONE 2026-08-13: the census, and it names the next two blockers
+
+Slice A landed (`e417a237a`). What it opened, measured rather than predicted:
+
+```text
+  std/mapreduce/failure.ssc      LOADS        std/mapreduce/handlers.ssc   LOADS
+  cluster / dataset / index      expected ')', found *        <- VARARGS
+  distributed / shuffle / typed  an `import` line must be …   <- SELECTOR-LIST IMPORT
+```
+
+Two blockers, both measured, neither guessed:
+
+**1. Varargs.** `std/mapreduce/dataset.ssc:21` is `def of[T](items: T*): Dataset[T]` — and
+`Dataset.of` is called **35 times** in the corpus. Tier 0 has no varargs, so this is a language
+question, not a parser gap: what does `T*` MEAN when the callee cannot see an array type? The honest
+options are a `List[T]` parameter with the call site collecting its arguments, or a refusal that
+names varargs instead of pointing at a `*`.
+
+**2. The selector-list import**, `import scalascript.typeddata.{DatasetWire, DatasetWirePartition}` —
+**5 corpus cases** and 3 mapreduce modules. v3 refuses it BY DESIGN, and the refusal's own text is
+the argument against itself: it says selector lists "have no meaning here, because an import brings
+the WHOLE module either way". If the form is a no-op rather than an unsupported feature, ACCEPTING
+and ignoring the selector list is closer to that stated semantics than refusing is. That is a
+decision about the language and belongs to the owner, not to a parser change.
+
+**What this means for C.** The `extern object Dataset` in `std/mapreduce` cannot load until varargs
+are answered, so reconciling it with the prelude's `case class Dataset` is still blocked — on a
+different thing than when C was written, and now on a named one.
