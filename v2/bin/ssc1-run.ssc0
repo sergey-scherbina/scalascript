@@ -181,7 +181,14 @@ def sscFenceSource = (lang, source, heading, sqlIndex, firstSqlInSection) =>
   -- `@doc` marks a DOCUMENTATION block: parsed like any other, never lowered into the
   -- program (specs/ssc-doc-blocks.md). Checked before `isCode` so it wins for every tag.
   if fenceHasFlag(lang, "doc") then ""
-  else if isCode then source
+  -- Per-block auto-output (BUGS.md v2-native-multiblock-auto-output-missing): the block boundary
+  -- dies in the join below, so mark it while it still exists. The reference lowerer consumes the
+  -- sentinel in topExprs and wraps the statement in FRONT of it in the __autoOutput__ prim. Byte
+  -- for byte what ssc1-run-fsub.ssc0:188 does for F, which has answered this correctly since the
+  -- native lane was fixed; this front was the one still printing only the whole program's value.
+  -- A prim, not a .ssc helper: Unit-ness is a RUNTIME property and no source-level test for it is
+  -- portable across consumers (F tried a helper first and the corpus caught it on the JS/v2 lane).
+  else if isCode then #sconcat(source, "\n__sscBlockEnd__")
   else if #seq(token, "yaml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))

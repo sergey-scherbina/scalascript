@@ -5978,6 +5978,16 @@ def collectSubtypeNodesAcc = (stmts, acc) =>
   }
 def collectSubtypeNodes = (stmts) => collectSubtypeNodesAcc(stmts, Nil)
 
+def isBlockEndExpr = (e) =>
+  match e { case Pair(t, d) => if #seq(t, "var") then #seq(d, "__sscBlockEnd__") else false }
+def isBlockEndNext = (ss) =>
+  match ss {
+    case Nil => false
+    case Cons(s1, r) => match s1 { case Pair(stag, sdata) =>
+      if #seq(stag, "expr") then isBlockEndExpr(sdata) else false }
+  }
+def autoWrapTop = (lowered, rest) =>
+  if isBlockEndNext(rest) then IrPrim("__autoOutput__", Cons(lowered, Nil)) else lowered
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -6044,7 +6054,14 @@ def lowerProg = (stmts) =>
         match s1 {
           case Pair(stag, sdata) =>
             if #seq(stag, "expr") then
-              Cons(lowerE(Nil, resolveE(sdata)), topExprs(rest1))
+              -- Per-block auto-output. `__sscBlockEnd__` is the sentinel ssc1-run.ssc0 appends to
+              -- each code fence; it is the ONLY thing left of the block boundary after the join.
+              -- Intercept it HERE, before lowering, so it never reaches resolveE as an unbound
+              -- global, and wrap the statement it follows. A DEFINITION is not an "expr" statement
+              -- at all and so is never wrapped -- v1's rule, for free, exactly as F gets it.
+              -- Unit-ness is decided at RUNTIME inside the prim, not here.
+              (if isBlockEndExpr(sdata) then topExprs(rest1)
+               else Cons(autoWrapTop(lowerE(Nil, resolveE(sdata)), rest1), topExprs(rest1)))
             else if #seq(stag, "assign") then
               -- K62.6b: top-level assignment → cell.set (lowerE's assign case handles isTopVar)
               Cons(lowerE(Nil, s1), topExprs(rest1))

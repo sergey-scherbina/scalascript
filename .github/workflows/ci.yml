@@ -1242,6 +1242,14 @@ jobs:
       - name: A plain string literal ends at its closing quote
         run: tests/e2e/ref-front-string-literal-gate.sh
 
+      # Also the reference front. The runner joins every fence into one source, so the block
+      # boundary survives only as a sentinel; this front never emitted it and printed only the
+      # whole program's final value, dropping every earlier block's tail. A ONE-block document
+      # looked perfect either way, which is why the gate carries one-block rows too -- they are
+      # the shape that passed on the bug.
+      - name: Each code block prints its own tail
+        run: tests/e2e/ref-front-multiblock-gate.sh
+
       # Also the reference front, and the same shape as the line above: an operator the OTHER two
       # lanes implement and this one silently did not. `--` had no token here at all, so the two
       # minus signs lexed as unary minus twice and `Set(1,2,3) -- Set(2)` quietly answered wrong.
