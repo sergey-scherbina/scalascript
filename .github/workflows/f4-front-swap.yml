@@ -91,6 +91,15 @@ jobs:
       - name: Legacy front lowers an own-line annotation
         run: SSC_JAR=/tmp/ssc-f4.jar tests/e2e/ssc1-front-annotation.sh --self-test
 
+      # The classify gate's REPORTING, checked before the gate itself runs — on a synthetic
+      # classification, in ~0 s, needing neither the jar nor the corpus. It asserts what the gate
+      # reports about the programs it DROPS: 58 % of the corpus is excluded before F is consulted,
+      # and until 2026-08-13 the report carried a count and not one name, so a program could leave
+      # the compared set and read as a pass. Runs first because a run whose report is broken is
+      # worth less than no run.
+      - name: Classify reporting names what it dropped
+        run: bash specs/v2.2-p6.5-semantic.sh self-test
+
       - name: Classify gate (output-equivalence, self-maintaining)
         run: SSC_JAR=/tmp/ssc-f4.jar V2_DIR="$PWD/v2" bash specs/v2.2-p6.5-semantic.sh classify
 

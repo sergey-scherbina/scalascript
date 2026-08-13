@@ -47,6 +47,82 @@
 #          (build: `scala-cli --power package v2/src --assembly -o /tmp/ssc.jar`)
 #          V2_DIR = <repo>/v2
 set -u
+
+# ── A FILTER MUST SAY WHAT IT DID NOT READ (POLICY P-6.3) ─────────────────────────────────────
+# `classify` reported "oracle-excluded (not F): 428" and NOTHING ELSE about those 428. That is 58 %
+# of the corpus leaving the compared set anonymously, and the gate that decides the F4 cutover then
+# compares 299 of 742 programs — 40 %. The consequence was concrete and is on the board
+# (`f4-classify-compares-40-percent-and-never-names-the-rest`): four programs a backlog entry said
+# "the F4 gate reports" appeared ZERO times in the entire run log — not as MATCH, not as GAP, not as
+# a disagreement — and from the report alone you cannot tell whether they were fixed, whether they
+# regressed, or whether the gate stopped looking at them.
+#
+# So: name every excluded program, in the log and in a file, grouped by the reason it left.
+#
+# THE HISTOGRAM IS THE SECOND HALF, and it is what makes the count readable rather than merely
+# itemised. 427 oracle errors is either legitimate (programs that need argv, a port, a display) or
+# ONE broken oracle invocation swallowing half the corpus, and a flat list of 427 names does not
+# separate those. Bucketing by the recorded `rc` does: many distinct exit codes look like real
+# programs failing for their own reasons, one code covering ~everything looks like apparatus.
+#
+# WHAT THIS STILL CANNOT SAY, stated because the next person will want it: the run captures stdout
+# only (`runir.sh` sends stderr to /dev/null so it cannot contaminate a golden), so the failure TEXT
+# is gone by the time we get here and `rc` is all there is. Keeping the first stderr line per
+# program is the natural next step; it belongs with a full classify run to verify against, which is
+# why it is not bundled here.
+report_excluded() { # $1 classify.txt, $2 file to also write
+  local src="$1" dst="$2" b n c
+  : > "$dst"
+  for b in EXCL_ORACLE_ERR EXCL_ORACLE_TIMEOUT EXCL_ORACLE_NOIR EXCL_NONDET EXCL_TOO_LARGE EXCL_LANE_NOT_DECLARED; do
+    c=$(grep -c "^$b " "$src" || true)
+    [ "${c:-0}" -gt 0 ] || continue
+    echo "  ── $b ($c) — excluded BEFORE F was consulted; not a statement about F ──"
+    grep "^$b " "$src" | awk '{print "     " $0}' | sort
+    grep "^$b " "$src" | sort >> "$dst"
+    if [ "$b" = EXCL_ORACLE_ERR ]; then
+      echo "     ↳ by exit code (one code covering ~all of them means the ORACLE INVOCATION, not the programs):"
+      grep "^$b " "$src" | sed -n 's/.*|rc=\([0-9]*\).*/\1/p' | sort | uniq -c | sort -rn \
+        | awk '{printf "        rc=%s : %s\n", $2, $1}'
+    fi
+  done
+  [ -s "$dst" ] && echo "  ── the same list, one program per line: $dst"
+  return 0
+}
+
+if [ "${1:-}" = self-test ]; then
+  # Runs the SHIPPED report_excluded above on a synthetic classify.txt — no corpus, no jar, ~0 s.
+  # Placed before the SSC_JAR/V2_DIR requirement on purpose: a self-test that needs a kernel jar is
+  # a self-test nobody runs. It asserts the two properties the fix exists for: every excluded
+  # program is NAMED, and the oracle-error exit codes are bucketed.
+  st=$(mktemp -d); trap 'rm -rf "$st"' EXIT
+  cat > "$st/classify.txt" <<'SELFTEST'
+FROZEN alpha rc=0 bytes=3 sha=deadbeef
+EXCL_ORACLE_ERR needs-argv |rc=1
+EXCL_ORACLE_ERR needs-a-port |rc=1
+EXCL_ORACLE_ERR odd-one-out |rc=70
+EXCL_ORACLE_TIMEOUT serves-forever
+EXCL_NONDET reads-the-clock
+EXCL_F_DISAGREE beta |orc=0 frc=0
+SELFTEST
+  out=$(report_excluded "$st/classify.txt" "$st/excluded.txt")
+  fails=0
+  for want in needs-argv needs-a-port odd-one-out serves-forever reads-the-clock; do
+    case "$out" in *"$want"*) ;; *) echo "self-test: '$want' was excluded and never named"; fails=1;; esac
+  done
+  # the histogram must separate the two codes, and must not invent a third
+  case "$out" in *"rc=1 : 2"*) ;; *) echo "self-test: rc=1 should count 2"; fails=1;; esac
+  case "$out" in *"rc=70 : 1"*) ;; *) echo "self-test: rc=70 should count 1"; fails=1;; esac
+  # a bucket with no members must print nothing at all (no empty headings)
+  case "$out" in *EXCL_ORACLE_NOIR*) echo "self-test: printed a heading for an empty bucket"; fails=1;; esac
+  # F-side rows are NOT oracle exclusions and must not be swept in here
+  case "$out" in *beta*) echo "self-test: an F-side non-match leaked into the oracle-excluded list"; fails=1;; esac
+  case "$out" in *alpha*) echo "self-test: a MATCH leaked into the oracle-excluded list"; fails=1;; esac
+  # the file must carry the same rows as the log
+  [ "$(grep -c . "$st/excluded.txt")" = 5 ] || { echo "self-test: the file should hold 5 rows, has $(grep -c . "$st/excluded.txt")"; fails=1; }
+  if [ "$fails" = 0 ]; then echo "✓ v2.2-p6.5-semantic self-test: every excluded program is named, exit codes bucketed"; exit 0; fi
+  echo "✗ v2.2-p6.5-semantic self-test FAILED"; exit 1
+fi
+
 JAR=${SSC_JAR:?set SSC_JAR to a run-ir-capable v2 kernel jar}; V2=${V2_DIR:?set V2_DIR to <repo>/v2}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FSUB="$ROOT/specs/v2.2-p6.5-fsub.ssc"
@@ -370,6 +446,7 @@ case "$MODE" in
     printf "    └─ DEFERRED (needs kernel δ)              : %d\n" "$deferred"
     [ "$gap" -gt 0 ] && { echo "  ── GAP programs (must be delegated/documented before the flip) ──";
       for n in $disagree $nocompile; do [ "$(bucketOf "$n")" = GAP ] && printf '     %s\n' "$n"; done; }
+    report_excluded "$WORK/classify.txt" "$WORK/oracle-excluded.txt"
     if [ -n "$stale" ]; then
       echo "  ── ⓘ RECLASSIFY (F now MATCHes these — remove from the manifest) ──"
       for n in $stale; do printf '     %s\n' "$n"; done
