@@ -5,4 +5,4 @@ rust-local-val-holding-a-fn	claude-code	2026-08-13T15:42:26Z	rust-local-val-boun
 v3-extension-in-trait	claude-code	2026-08-13T11:30:00Z	v3-extension-in-trait	file:v3/src/Parser.scala file:v3/uniml/UniFront.scala
 gate-health-programme	claude-code	2026-08-13T16:14:04Z	orphaned-e2e-gates-52	file:scripts/next file:AGENTS.md file:tests/e2e/bugs-index-gate.sh file:tests/SPRINT.md file:scripts/SPRINT.md file:.githooks/commit-msg file:scripts/bugs-report file:tests/e2e/no-orphan-gates.sh
 gwfix-anon-given	claude-code	2026-08-13T16:45:32Z	selfhost-front-given-with-swallows-the-rest-of-the-file	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/selfhost-front-gate.sh
-v2-mcp-mrtr-surface	claude-code	2026-08-13T16:46:53Z	v2-mcp-mrtr-surface	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala
+v2-mcp-mrtr-surface	claude-code	2026-08-13T16:46:53Z	v2-mcp-mrtr-surface	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh
