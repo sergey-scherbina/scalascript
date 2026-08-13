@@ -471,6 +471,22 @@ val suite = List(
   // the diagnostic showed the reason's words shuffled among the paths. Runs in a throwaway repo.
   Check("scripts", "coord-claim-broad", "tests/coord/coord-claim-broad.sh", List(), 60000),
   Check("scripts", "coord-release-note-file", "tests/e2e/coord-release-note-file-gate.sh", List(), 60000),
+  // ── the six tests/coord gates that were INVOKED BY NOTHING ────────────────────────────────────
+  //
+  // Measured 2026-08-13 while extending `coord-release-refuses-unpushed-work`: six of the eleven
+  // files in `tests/coord/` appeared in no runner — not here, not in `ci.yml`. The extension would
+  // have guarded nothing, which is the failure this whole directory exists to prevent, and it is
+  // an instance of BUGS `orphaned-e2e-gates-52`.
+  //
+  // Wiring them is cheap and cannot surprise anyone: all six PASS today and cost 9.9 s TOGETHER
+  // (57 ms, 1835, 2953, 4316, 547, 171 — each runs in a throwaway repo with a fake origin), i.e.
+  // 1.3 % of a 750 s suite. They guard the coordination tooling every parallel agent depends on.
+  Check("scripts", "coord-release-refuses-unpushed", "tests/coord/coord-release-refuses-unpushed-work.sh", List(), 120000),
+  Check("scripts", "coord-release-evidence-level", "tests/coord/coord-release-evidence-level.sh", List(), 120000),
+  Check("scripts", "coord-claim-runs", "tests/coord/coord-claim-runs.sh", List(), 120000),
+  Check("scripts", "coord-status-ledger-marker", "tests/coord/coord-status-ledger-marker.sh", List(), 60000),
+  Check("scripts", "claim-activity-overrides-heartbeat", "tests/coord/claim-activity-overrides-heartbeat.sh", List(), 60000),
+  Check("scripts", "heartbeat-threshold-single-source", "tests/coord/heartbeat-threshold-single-source.sh", List(), 60000),
   Check("scripts", "claim-scope-hierarchy", "tests/coord/claim-scope-hierarchy.sh", List(), 180000),
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),

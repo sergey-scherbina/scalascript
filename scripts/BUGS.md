@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## editing-a-coordination-script-forces-a-compiler-rebuild — `scripts/` is a digest input wholesale
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: perf
+     gate: none -->
+
+**Found 2026-08-13**, paid twice in one session. `scripts/launcher-input-digest` includes the whole
+of `scripts/` in the launcher input set — 62 files — and that set includes things the launcher does
+not contain and never loads:
+
+```
+scripts/coord-release   scripts/coord-claim   scripts/coord-status   scripts/coord-ledger
+scripts/board           scripts/ci-status     scripts/smoke-ci       scripts/smoke-ci.ssc
+```
+
+So editing `scripts/coord-release` — a bash script that talks to `git` — makes `scripts/smoke-ci`
+refuse to run ("the launcher was built from different sources than this tree"), and the only way to
+a verdict is `./install.sh --dev`: a full sbt build. Adding six `Check(...)` rows to
+`scripts/smoke-ci.ssc` costs the same. **Measured today: ~10 minutes of rebuild, twice, for edits to
+two shell scripts and one suite declaration**, none of which is compiled into the launcher. Every
+agent who pulls pays it again, and it busts the content-addressed toolchain cache.
+
+**The refusal itself is right and must stay** — a verdict from a stale toolchain is a verdict about
+the wrong code, and that guard has caught real staleness in this session alone. The question is only
+which files can make a launcher stale.
+
+**Why this is NOT a two-line exclusion, and why it is filed instead of fixed.** A cache key is the
+most dangerous thing in this repo to narrow casually: BUGS
+`trace-a-cache-key-before-building-on-it` records a directory exclusion that hid the DEFAULT FRONT,
+and `cache-a-file-not-a-directory-path` records a key that served the wrong state's classes. Some
+of `scripts/` may genuinely reach the launcher. So the work is:
+
+1. **Establish which files the launcher actually derives from** — from `install.sh` and the
+   `installBin` templates in `build.sbt`, not from a guess.
+2. Exclude the rest **by an allowlist of what CAN affect it**, never a denylist of what cannot: a
+   new script added tomorrow must default to "affects the launcher" and be proven not to.
+3. **A/B the guard before and after on a real staleness case**, e.g. a `v1/` edit, and require the
+   refusal to still fire. An exclusion that also silences a true positive is the failure mode above.
+4. Count the saving honestly: how many pushes in a week touch only excluded files.
+
 ## hand-made-claim-updates-have-no-tool-and-so-no-rollback — the landmine class that is left
 
 <!-- status: open
