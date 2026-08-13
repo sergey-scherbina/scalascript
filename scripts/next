@@ -63,8 +63,16 @@ def claimed_items():
 
 
 def has_gate(r):
+    """Does this entry name an acceptance test?
+
+    Matches on the FIRST WORD, not the whole field, and that is not pedantry: found by using this
+    tool on its first day, `gate: none — open defect` was being offered as ready to take. An exact
+    comparison against "none" let a trailing explanation smuggle an entry with no acceptance test
+    into the list this tool exists to keep clean. Two entries were doing it.
+    """
     g = (r.get("gate") or "").strip().lower()
-    return g not in ("", "-", "none", "n/a", "tbd")
+    first = g.split()[0] if g.split() else ""
+    return first not in ("", "-", "—", "none", "n/a", "tbd", "todo")
 
 
 def main():
@@ -145,6 +153,9 @@ def self_test():
       < ready.index(next(r for r in ready if r["slug"] == "gated-perf")), True)
     # `gate: none` and `-` and empty all mean the same thing; a reader writes all three.
     t("'-' counts as no gate", has_gate({"gate": "-"}), False)
+    # The shape that actually got through on day one: a trailing explanation after "none".
+    t("'none — open defect' counts as no gate", has_gate({"gate": "none — open defect"}), False)
+    t("a real path still counts as a gate", has_gate({"gate": "tests/e2e/x.sh (two lanes)"}), True)
     t("empty counts as no gate", has_gate({"gate": ""}), False)
 
     if fails:
