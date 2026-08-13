@@ -1999,11 +1999,40 @@ not an error at all.
 
 ## native-missing-required-field-is-500-not-400 — the same program answers 400 on v1
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: plugin
-     fixed-in: -
-     gate: none -->
+     fixed-in: 28522eb45
+     gate: tests/e2e/request-validation-family-gate.sh -->
+
+### FIXED 2026-08-04 by `28522eb45`, closed 2026-08-13 — the fix landed, the entry did not
+
+The commit that fixed this touched four files and NONE of them was a board: the mapping, its type,
+its thrower, and the gate. So the entry has said `status: open`, `fixed-in: -`, `gate: none` for
+nine days about a defect that stopped existing on day one. Re-measured today on the entry's OWN
+repro — `examples/validation-demo.ssc`, `GET /echo?name=alice` with `n` omitted:
+
+```text
+                    valid request              n omitted
+native (bin/ssc)    200  hi alice n=5          400  missing field: n
+v1 (--v1)           200  hi alice n=5          400  missing field: n
+```
+
+Both halves of the original complaint are gone: the status is a client error on both lanes, and the
+body no longer names an internal block form. The valid request is carried as the control — a server
+that refused everything would answer 400 to the failing row too.
+
+**Where the rule actually went, and it is better than what this entry proposed.** The entry asked
+for "a mapping in the native host". `28522eb45` put it in `FastHttpServer` — the engine SHARED by
+both lanes — with its own type, `HandlerValidationError`, so the 400-vs-500 decision is by type
+rather than by a marker anything could throw. One rule, and neither lane can drift from it again.
+
+**And `gate: none` was the field that let this sit.** `tests/e2e/request-validation-family-gate.sh`
+pins the row on BOTH lanes (the defect was a DIVERGENCE, so watching only the lane that was wrong
+cannot see it come back the other way) and additionally fails if the body ever names `validate {`
+again. It runs in `scripts/smoke-ci.ssc`. Measured today: 5/5 rows, PASSED.
+
+The original report follows, unchanged.
 
 `examples/validation-demo.ssc`, one request with a required field omitted, measured 2026-08-04:
 
@@ -2025,6 +2054,11 @@ message. So the fix is a mapping in the native host, not a change to require*.
 Left unfixed deliberately: that file is shared server code outside the validation claim, and the
 gate for the family asserts only that the NAME resolves on this path rather than pinning either
 lane's status code — pinning would freeze this defect as the contract.
+
+*(Both sentences are now out of date, and the second is the interesting one: the reason for NOT
+pinning a status code was that the lanes disagreed. Once they agree, that reason inverts into the
+reason to pin — which is what the gate does, on both lanes. A deliberately unpinned row is a debt
+that comes due the moment the divergence closes, and nothing was watching for that moment.)*
 
 ## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` died with an arity error
 
