@@ -485,6 +485,68 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-survey-first-reason-hides-blocker-depth — FIXED: the refusal histogram could not tell "wants this feature" from "mentions it on the way past"
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     fixed-in: 9cb848476
+     gate: tests/e2e/rust-std-survey-gate.sh --roadmap -->
+
+`--reasons` grouped 84 refusing modules by reason and read like a roadmap. **It is not one, and
+following it cost a day.** It counts each module ONCE, by its FIRST refusal, so a module that
+mentions a gap on its way past six other blockers is indistinguishable from one for which that gap
+is the only thing left. The top line said sixteen modules wanted a no-paren collection member; the
+feature was built and **zero of the sixteen compiled** ([[rust-no-paren-member-needs-receiver-type]]).
+
+Two more columns per module, and `--roadmap` to rank by them:
+
+| | |
+|---|---|
+| `sites` | how many defs refuse at all |
+| `shapes` | how many DISTINCT reasons those refusals have |
+
+**What it changes immediately.** `--reasons` now prints `mentions` beside `only` — modules with no
+other refusal shape — and the two rankings disagree where it matters:
+
+```
+  16 mentions    7 only   a no-paren collection member          ← REFUTED above; even the 7 do not compile
+  10 mentions    0 only   an unsupported infix operator         ← would have delivered NOTHING
+   6 mentions    6 only   a declared extern with no @rust impl  ← every one blocked only by this
+   4 mentions    4 only   a call this crate does not define
+   4 mentions    0 only   overloading across 5 arities
+```
+
+The cluster ranked second by size delivers **zero** modules. The cluster ranked fifth delivers six.
+
+**NEITHER NUMBER IS A COUNT OF WORK REMAINING, and this is the part to keep.** A refusal
+SHORT-CIRCUITS the walk — a def is abandoned at its first unlowerable thing, so everything behind it
+is unmeasured. `shapes` is a **lower bound**, never a total. What the pair genuinely separates is one
+shape at one site from one shape at many, and that separation was validated against independent
+ground truth — the rustc error counts measured when the no-paren blocker was actually lowered:
+
+| module | sites | errors when lowered |
+|---|---|---|
+| `std/fs.ssc` | 1 | 2 |
+| `std/litdoc.ssc` | 2 | 24 |
+| `std/json-core.ssc` | 2 | 47 |
+| `std/yaml-core.ssc` | 2 | 98 |
+| `std/content-core.ssc` | 6 | 207 |
+
+Rank by `sites` reproduces rank by errors exactly. All five carry `shapes = 1`, so shapes ALONE
+would have called `content-core` as close as `fs` — which is precisely the mistake that was made.
+
+**The columns check themselves before any baseline is written**, because a number nobody asserts is
+free to be wrong and these two are read by a human deciding what to build. The self-test asserts
+INVARIANTS, not fixture values — `shapes <= sites`, some module with `shapes < sites`, some module
+with `sites > 1` — so it does not rot when a module gets fixed. Each fails under a different wrong
+implementation, verified by driving it with all four. The two entangled checks are ordered
+specific-first: a `sites` capped at 1 fails both, and reporting "dedup is broken" for that defect
+would name the wrong thing.
+
+A baseline written before these columns is refused by `--reasons` and `--roadmap` rather than
+answered with a table of zeroes. `--reasons` also no longer demands a built launcher it never used.
+
 ## rust-no-paren-member-needs-receiver-type — MEASURED and deliberately NOT fixed: the lowering is four lines and buys nothing
 <!-- status: wontfix
      lane: v2-rust
