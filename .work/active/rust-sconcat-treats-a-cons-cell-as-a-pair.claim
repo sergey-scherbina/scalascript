@@ -2,10 +2,10 @@ slug: rust-sconcat-treats-a-cons-cell-as-a-pair
 branch: feature/rust-sconcat-treats-a-cons-cell-as-a-pair
 agent: claude-code
 started: 2026-08-13T09:23:39Z
-heartbeat: 2026-08-13T09:23:39Z
-status: claimed-before-planning
+heartbeat: 2026-08-13T09:26:48Z
+status: in-progress
 items: rust-sconcat-treats-a-cons-cell-as-a-pair
-paths: file:v2/backend/rust/RustBackend.scala
+paths: file:v2/backend/rust/RustBackend.scala file:v2/conformance/list-concat.coreir
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
