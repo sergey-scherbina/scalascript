@@ -1,3 +1,67 @@
+## orphan-detector-counts-a-comment-as-a-caller — the ratchet was blind to three real orphans
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     fixed-in: b97c36f2e
+     gate: tests/e2e/no-orphan-gates.sh -->
+
+`no-orphan-gates.sh` exists so that a gate nobody runs cannot report green by not running. It landed
+2026-08-13 counting a reference from any non-`.md` file as an invocation — and prose does not only
+live in `.md`. A `#` line inside a sibling gate, or inside `scripts/*`, read exactly like a call.
+
+```text
+before   183 scripts, 35 invoked by nothing, 35 frozen   PASS
+after    183 scripts, 38 invoked by nothing, 38 frozen   PASS
+```
+
+Three gates were held "wired" by a sentence that merely MENTIONS them:
+
+| gate | what was holding it "wired" |
+|---|---|
+| `bytecode-fallback-visible.sh` | a comment in `tests/e2e/f-alternative-pattern-gate.sh` |
+| `negtc-shard-gate.sh` | a comment in `scripts/native-front-corpus` and `scripts/bc-parity-sweep` |
+| `ssc1-front-annotation.sh` | a comment in `tests/e2e/silent-assertion-gate.sh` |
+
+**Two of the three are named in a `gate:` field on the v2 board** (`v2/BUGS.md`), so those entries
+claim coverage from a script nothing runs — the exact harm this ratchet exists to prevent, sitting
+inside the ratchet itself.
+
+**The tell, worth stating generally:** the search is for a STRING while the thing being detected is
+an INVOCATION. Every commented-out call, and every sentence describing one, is indistinguishable
+from the real thing under `grep -l`.
+
+### The fix, and the control
+
+`callers_of` strips the comment tail (`#`, `//`) before deciding, so the basename must survive as
+CODE. A real call with a TRAILING comment still counts — asserted in the self-test, because the
+over-strict version would silently reclassify working gates as debt to be frozen.
+
+**Verified by reverting the fix in a copy of the tree and re-running the self-test: it FAILS,
+naming the comment case.** An assertion never observed failing is not an assertion.
+
+### Two holes in the self-test, and the second is why the first survived
+
+- The "a `.md` mention does not count" case used `$TMP/prose.md` at the tree ROOT, while
+  `callers_of` reads only `.github`, `scripts` and `tests`. The file was never opened, so that
+  assertion passed whether or not the `.md` filter existed. Moved under `$TMP/tests/`.
+- There was no comment case at all. Both directions added.
+
+### FOLLOW-UP: three gates that still do not run
+
+Frozen, not wired — they are not new debt, they are the debt that was always there and could not be
+seen, and freezing is what keeps the list monotone. Each needs its own decision:
+
+- `bytecode-fallback-visible.sh` — half of it is deliberately unpinned (the marker), so wiring it
+  needs that resolved first.
+- `negtc-shard-gate.sh` — verifies the shard partition byte-for-byte against `corpus-baseline.tsv`;
+  belongs to whoever owns the negtc release gate.
+- `ssc1-front-annotation.sh` — a legacy-front gate, and by construction no conformance lane runs the
+  legacy front, which is why it was written as e2e in the first place.
+
 ## ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named
 
 <!-- status: fixed
