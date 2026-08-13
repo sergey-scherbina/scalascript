@@ -1,0 +1,11 @@
+slug: md-trailing-newline
+branch: feature/md-trailing-newline
+agent: claude-code
+started: 2026-08-13T07:59:53Z
+heartbeat: 2026-08-13T07:59:53Z
+status: claimed-before-planning
+items: ci-lint-markdown-red-on-md047
+paths: file:specs/v2-f-compile-cost.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
