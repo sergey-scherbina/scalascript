@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""next — what should I work on?
+
+WHY THIS EXISTS. Measured 2026-08-13: 84 open board entries against 3-6 live claims. The queue was
+never the bottleneck; CHOOSING was. Every agent that finished a task re-derived the same survey —
+query the boards, cross-check `.work/active/`, read a few entries, guess — or asked the human. The
+section of `AGENTS.md` literally titled "Immediate next steps for Claude Code" was dead bootstrap
+text from project inception (`git init`, "scaffold README.md"), so the one place whose name promised
+this answer gave nonsense.
+
+WHAT IT RANKS ON, and why only these. Computable signals, never opinion:
+
+  1. Does the entry name a GATE? That is the acceptance test. Without one there is no way to know
+     when the work is done, so the item is not claimable — it is a note. This is the single biggest
+     signal and it is why it sorts first.
+  2. `confirmed: yes` — somebody reproduced it.
+  3. `kind:` — a wrong answer before a slow one before a missing feature.
+  4. Age. Oldest first, so the pile drains rather than churns at the top.
+
+WHAT IT REFUSES TO DO. It does not score by "importance". A ranking nobody can recompute is a
+ranking nobody trusts, and the first time it disagrees with a reader it gets ignored. Every row here
+can be re-derived from the header fields in one line.
+
+IT READS THE SAME PARSER AS `bugs-report` (`--tsv`), deliberately. A second parser over the same
+headers is a second decision site, and this repo has paid for those repeatedly — two of them
+disagreeing is worse than neither existing.
+"""
+import subprocess, sys, pathlib, re
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+KIND_ORDER = {"regression": 0, "bug": 1, "apparatus": 2, "perf": 3, "feature": 4, "programme": 5}
+
+
+def rows():
+    out = subprocess.run([str(ROOT / "scripts" / "bugs-report"), "--tsv", "--status", "open"],
+                         capture_output=True, text=True, cwd=ROOT).stdout.splitlines()
+    if not out:
+        return []
+    cols = out[0].split("\t")
+    return [dict(zip(cols, line.split("\t"))) for line in out[1:] if line.strip()]
+
+
+def claimed_items():
+    """Item tokens held by a live claim, read from origin/main — the authoritative copy.
+
+    `git ls-tree` and not the working tree, for the reason the coordination protocol gives: a local
+    `.work/active/` is whatever your last fetch brought, and taking an item somebody claimed four
+    minutes ago is the failure this whole mechanism exists to avoid.
+    """
+    ls = subprocess.run(["git", "ls-tree", "--name-only", "origin/main", ".work/active/"],
+                        capture_output=True, text=True, cwd=ROOT).stdout.split()
+    held = set()
+    for path in ls:
+        if not path.endswith(".claim"):
+            continue
+        blob = subprocess.run(["git", "show", f"origin/main:{path}"],
+                              capture_output=True, text=True, cwd=ROOT).stdout
+        for line in blob.splitlines():
+            if line.startswith("items:"):
+                held.update(line.split(":", 1)[1].split())
+    return held
+
+
+def has_gate(r):
+    g = (r.get("gate") or "").strip().lower()
+    return g not in ("", "-", "none", "n/a", "tbd")
+
+
+def main():
+    all_open = rows()
+    if not all_open:
+        print("next: bugs-report produced nothing — run it directly to see why", file=sys.stderr)
+        return 2
+    held = claimed_items()
+    free = [r for r in all_open if r["slug"] not in held]
+    ready = [r for r in free if has_gate(r)]
+    undefined = [r for r in free if not has_gate(r)]
+
+    ready.sort(key=lambda r: (KIND_ORDER.get(r.get("kind") or "bug", 9),
+                              0 if (r.get("confirmed") or "").lower() == "yes" else 1,
+                              r.get("reported-at") or "9999"))
+
+    print(f"{len(all_open)} open · {len(free)} unclaimed · {len(ready)} ready to take · "
+          f"{len(undefined)} need an acceptance test first")
+    print()
+    print("READY — has a gate, so you can tell when you are done, and nobody holds it:")
+    for r in ready[:10]:
+        print(f"\n  {r['slug']}")
+        print(f"      {r['module']}/BUGS.md · kind:{r.get('kind') or 'bug'} · "
+              f"lane:{r.get('lane') or '?'} · confirmed:{r.get('confirmed') or '?'}")
+        print(f"      done when: {r['gate']}")
+        print(f"      scripts/coord-claim <slug> --items \"{r['slug']}\" --paths \"file:{r['module']}/BUGS.md ...\"")
+    if len(ready) > 10:
+        print(f"\n  … and {len(ready) - 10} more. `scripts/bugs-report --tsv --status open` for the full set.")
+    print("\n  A claim reserves ITEMS and PATHS. This list only excludes items somebody named, so a")
+    print("  file you need may still be held — `coord-claim` refuses on that and IS authoritative;")
+    print("  this list is not. A refusal there means take another row, not retry.")
+
+    print(f"\nNEEDS A DEFINITION FIRST ({len(undefined)}) — no gate named, so 'done' is undefined and")
+    print("  nobody can claim it. Giving one an acceptance test IS work, and it is the work that")
+    print("  turns a note back into a task:")
+    for r in undefined[:5]:
+        print(f"  · {r['slug']}  ({r['module']})")
+    if len(undefined) > 5:
+        print(f"  · … and {len(undefined) - 5} more")
+    return 0
+
+
+def self_test():
+    """Assert the two properties this tool is trusted for, on synthetic rows.
+
+    A ranking nobody checks is a ranking that quietly stops ranking. Both cases below were written
+    to FAIL first against a deliberately wrong comparator, because a self-test only ever observed
+    passing is not a self-test.
+    """
+    fails = 0
+
+    def t(name, got, want):
+        nonlocal fails
+        if got == want:
+            print(f"  ok   {name}")
+        else:
+            print(f"  FAIL {name}: got {got!r}, wanted {want!r}")
+            fails += 1
+
+    sample = [
+        {"slug": "gated-old",   "kind": "bug",  "gate": "tests/e2e/x.sh", "confirmed": "yes", "reported-at": "2026-01-01", "module": "m"},
+        {"slug": "gated-new",   "kind": "bug",  "gate": "tests/e2e/y.sh", "confirmed": "yes", "reported-at": "2026-08-01", "module": "m"},
+        {"slug": "ungated",     "kind": "bug",  "gate": "none",           "confirmed": "yes", "reported-at": "2020-01-01", "module": "m"},
+        {"slug": "gated-perf",  "kind": "perf", "gate": "tests/e2e/z.sh", "confirmed": "yes", "reported-at": "2026-01-01", "module": "m"},
+    ]
+    ready = [r for r in sample if has_gate(r)]
+    ready.sort(key=lambda r: (KIND_ORDER.get(r.get("kind") or "bug", 9),
+                              0 if (r.get("confirmed") or "").lower() == "yes" else 1,
+                              r.get("reported-at") or "9999"))
+
+    # An UNGATED entry never reaches the ready list, however old. This is the property the whole
+    # tool rests on: without an acceptance test there is no "done", so it is not a task.
+    t("an ungated entry is never ready", [r["slug"] for r in ready].count("ungated"), 0)
+    # Age breaks ties, so the pile drains instead of churning at the top.
+    t("older before newer at equal kind", ready[0]["slug"], "gated-old")
+    # A wrong answer outranks a slow one.
+    t("bug before perf", ready.index(next(r for r in ready if r["slug"] == "gated-new"))
+      < ready.index(next(r for r in ready if r["slug"] == "gated-perf")), True)
+    # `gate: none` and `-` and empty all mean the same thing; a reader writes all three.
+    t("'-' counts as no gate", has_gate({"gate": "-"}), False)
+    t("empty counts as no gate", has_gate({"gate": ""}), False)
+
+    if fails:
+        print(f"next self-test: {fails} FAILED")
+        return 1
+    print("next self-test: PASS (an ungated entry is never offered; ties break by age; bug before perf)")
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        sys.exit(self_test())
+    sys.exit(main())

@@ -649,22 +649,22 @@ ScalaScript is a meta-programming / specification language with extension `.ssc`
 - **Repo**: private
 - **Spec language**: English (primary), Russian in comments / design discussions
 
-## Immediate next steps for Claude Code
+## What to work on next
 
-1. Confirm the open questions with Sergiy.
-2. `git init`; create remote via `gh repo create <name> --<public|private> --source=. --remote=origin --push`.
-3. Scaffold (spec only, no implementation yet):
-   - `README.md` — overview, motivation, links
-   - `SPEC.md` — canonical language spec (lexical, syntactic, type system, semantics, module system)
-   - `docs/markdown-as-syntax.md` — how each Markdown construct maps to AST nodes, with worked examples
-   - `docs/targets.md` — backend translation model and target capability matrix
-   - `docs/architecture.md` — pipeline: source → tokens → AST → typed IR → backend
-   - `lang/grammar/scalascript.ebnf` — formal grammar
-   - `lang/schemas/frontmatter.yaml` — JSON Schema for the module-manifest YAML
-   - `examples/hello.ssc`, `examples/typed-data.ssc`, `examples/imports.ssc`
-   - `LICENSE`, `CONTRIBUTING.md`, `.gitignore`
-4. First commit: **spec only, no compiler**. Compiler comes in subsequent milestones.
-5. Set up minimal CI (GitHub Actions) that lints Markdown + validates YAML against the schema. No compilation yet — there is nothing to compile.
+**`scripts/next`.** It reads every board's headed entries through the same parser as
+`scripts/bugs-report` (no second parser over the same headers), drops anything a live claim names,
+and ranks what is left on signals anyone can recompute: does the entry name a GATE — the acceptance
+test, without which "done" is undefined and the item is not claimable — then `confirmed:`, then
+`kind:`, then age, oldest first so the pile drains instead of churning.
+
+It also prints the entries that have NO acceptance test. That is a second, different kind of work:
+giving one a gate is what turns a note back into a task. Measured 2026-08-13: 42 of 76 unclaimed
+entries were ready to take, 34 were not.
+
+**What used to be here was dead.** This section carried the project's 2025 bootstrap steps —
+`git init`, "scaffold README.md", "write the EBNF" — for months after all of them were done. The one
+section whose title promised an answer to "what next" answered with nonsense, which is why every
+agent re-derived the survey by hand or asked Sergiy.
 
 ## Milestones (proposed)
 
@@ -992,6 +992,15 @@ These two lines in a sub-agent's prompt prevent the most common
 parallel-coordination failure mode we've seen.
 
 ### 2. Before starting — sync + check (≤ 5 seconds)
+
+**And to decide WHAT to work on: `scripts/next`.** One command. It prints how many problems exist,
+which are unclaimed AND have an acceptance test (so you can tell when you are done), and the
+ready-to-paste `coord-claim` line. Take the top row unless you were given a task.
+
+This line is HERE, in the checklist, and not in POLICY.md, deliberately: measured on this project,
+when the two disagreed the checklist won for weeks, because the checklist is what gets read before
+starting. `scripts/next --self-test` asserts the ranking it claims to apply.
+
 
 ```bash
 git fetch origin

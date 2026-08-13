@@ -202,6 +202,10 @@ def main():
                          "BACKLOG.md entries")
     ap.add_argument("--v2", action="store_true", help="lanes native, v2-jvm, v2-rust")
     ap.add_argument("--no-gate", action="store_true", help="only entries naming no gate")
+    ap.add_argument("--tsv", action="store_true",
+                    help="machine-readable: one row per entry, tab-separated, FULL slugs. "
+                         "Exists so a consumer (scripts/next) reuses THIS parser instead of "
+                         "growing a second one over the same headers.")
     ap.add_argument("--count", action="store_true")
     a = ap.parse_args()
 
@@ -232,6 +236,20 @@ def main():
     if a.kind:   sel = [r for r in sel if r.get("kind", "bug") == a.kind]
     if a.v2:     sel = [r for r in sel if r.get("lane") in ("native", "v2-jvm", "v2-rust")]
     if a.no_gate: sel = [r for r in sel if names_no_gate(r)]
+
+    if a.tsv:
+        # Emits `sel`, i.e. AFTER every filter — the first version emitted the unfiltered `rows` and
+        # answered `--status open` with fixed entries, which a consumer would have believed.
+        # Columns are NAMED in a header line so a consumer indexes by name and stays correct when a
+        # column is added. Untruncated on purpose: the point of this mode is that the slug can be
+        # pasted into `coord-claim`, which the padded human view cannot do.
+        cols = ("status", "module", "slug", "kind", "lane", "area", "gate", "confirmed",
+                "reported-at", "fixed-in", "title")
+        print("\t".join(cols))
+        for r in sel:
+            print("\t".join(str(r.get(c, "")).replace("\t", " ") for c in cols))
+        return
+
 
     if a.kind and a.source == "bugs":
         cov = index_coverage(root)
