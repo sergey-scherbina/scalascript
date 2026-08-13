@@ -137,6 +137,23 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # which turned main red the moment the gate reached the push path. Rebuild AFTER the rebase, not
 # before; the repo has that lesson written down and it still cost a red.
 #
+# renderTerm 20085 -> 20673, from six lowering fixes behind std/ui/form.ssc. ATTRIBUTED BY REMOVAL,
+# not by guess, because guessing about this method has been wrong four times:
+#
+#   two Map-apply arms (`f.drafts(k)` and `drafts(k)`) .......... +492   (measured by deleting them)
+#   resolving a local fn alias for argument coercion ............ +104
+#   keying the field lookup by receiver instead of an
+#     interpolated "r.f" string ................................. -8
+#
+# The last line is the fourth local restructuring of this method to buy exactly 8 bytecodes. It is
+# kept because it removes a String allocation on every `Apply` node walked, which is worth having on
+# its own terms — but it is NOT a size fix and the comment beside it says so.
+#
+# What the growth pays for: six gaps that any module with those shapes hits — a Map apply on a
+# struct field and on a local bound to one, a combinator chain that is still a sequence, a local
+# holding a `Value` from a map apply, and two ways an argument can be a `Value` that the coercion
+# test could not see. std/ui/form.ssc went from nine rustc errors to three.
+#
 # renderTerm 20345 -> 20085. THE FIRST TIME THIS NUMBER HAS EVER GONE DOWN, and it went down by
 # acting on the mechanism proved in the note below rather than on the advice that preceded it.
 #
@@ -222,7 +239,7 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-20085 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+20673 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

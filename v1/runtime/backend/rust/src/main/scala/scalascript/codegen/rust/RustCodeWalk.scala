@@ -1323,8 +1323,17 @@ object RustCodeWalk:
       localOptions: Set[String] = Set.empty,
       /** Names known to hold a Map — see `collectLocalMaps`. */
       localMaps: Set[String] = Set.empty,
-      /** Locals bound to a DEF used as a value — see `collectLocalFns`. */
-      localFns: Set[String] = Set.empty,
+      /** Locals bound to a DEF used as a value, mapped to the def they ALIAS — see
+       *  `collectLocalFns`. The target is what lets a call through the alias find its signature. */
+      localFns: Map[String, String] = Map.empty,
+      /** receiver -> its HashMap-typed field names. A MAP, not a set of `"r.f"` strings, because
+       *  the guard runs on EVERY `Apply` node in the tree and an interpolated key allocates a
+       *  String at each one. Kept for that reason alone: measured against the frozen size it bought
+       *  EIGHT bytecodes, the same number every other local restructuring of this method has bought
+       *  today, so it is not a size fix and is not claimed as one. */
+      mapFields: Map[String, Set[String]] = Map.empty,
+      /** receiver -> its `Vec`-typed field names. Same shape and same reason as `mapFields`. */
+      seqFields: Map[String, Set[String]] = Map.empty,
       // The def's OWN parameter names, and every `fn name` a verbatim `rust` fence block defines.
       // Both are callable and neither is a user def, so a refusal that does not know them refuses
       // correct programs — `def apply(f: Int => Int, x: Int) = f(x)` is four of this backend's own
@@ -1475,7 +1484,9 @@ object RustCodeWalk:
         .collect { case p if p.decltpe.exists { case m.Type.Name("Any") => true; case _ => false } => p.name.value }
         .toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
-                        localMaps = collectLocalMaps(d),
+                        mapFields = collectMapFields(d, ctorMap),
+                        seqFields = collectSeqFields(d, ctorMap),
+                        localMaps = collectLocalMaps(d, collectMapFields(d, ctorMap)),
                         localFns = collectLocalFns(d, userDefs),
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
@@ -1854,18 +1865,30 @@ object RustCodeWalk:
       d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
         p.decltpe.collect { case m.Type.Name(t) => p.name.value -> t }
       }.toMap
-    def fieldIsValue(recv: String, field: String): Boolean =
-      paramType.get(recv).flatMap(ctorMap.get).exists { ec =>
+    def fieldTypeOf(recv: String, field: String): Option[String] =
+      paramType.get(recv).flatMap(ctorMap.get).flatMap { ec =>
         ec.fieldNames.indexOf(field) match
-          case -1 => false
-          case i  => ec.fieldTypes.lift(i).contains("crate::value::Value")
+          case -1 => None
+          case i  => ec.fieldTypes.lift(i)
       }
+    def fieldIsValue(recv: String, field: String): Boolean =
+      fieldTypeOf(recv, field).contains("crate::value::Value")
+    def fieldIsValueMap(recv: String, field: String): Boolean =
+      fieldTypeOf(recv, field).exists(t =>
+        t.startsWith("std::collections::HashMap") && t.endsWith("crate::value::Value>"))
     val out = scala.collection.mutable.Set.empty[String]
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => v.pats match
           case List(m.Pat.Var(m.Term.Name(n))) => v.rhs match
             case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if fieldIsValue(r, f) => out += n
+            // `val d = f.drafts(name)` — an APPLY on a `Map[_, Any]` field yields a `Value` just as
+            // reading an `Any` field does, and `d()` on it is a signal read, not a call. Without
+            // this the emitted code called a `Value`: `error[E0618]: expected function, found
+            // Value`. Fifth spelling of one defect; the others are local val, `Any` field, module
+            // val and `Signal[T]` parameter.
+            case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(r), m.Term.Name(f)), _)
+                if fieldIsValueMap(r, f) => out += n
             case _ => ()
           case _ => ()
         case _ => ()
@@ -3263,6 +3286,22 @@ object RustCodeWalk:
         sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
+    // `f.drafts(k)` — Scala's Map APPLY on a struct FIELD, and `drafts(k)` where a local was bound
+    // to that field. Two spellings, one defect: with no arm the walker emitted the Scala text
+    // verbatim, so rustc read a METHOD CALL on the struct (`no method named drafts`) or a CALL on a
+    // HashMap (`expected function, found HashMap`).
+    //
+    // `.expect(...)`, not `.unwrap_or_default()`: Scala's `Map.apply` THROWS on a missing key, and
+    // this backend already lowers `throw` to a panic carrying its message. Returning a default here
+    // would compile and answer differently, which is the failure this lane treats as the worst one.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(qual @ m.Term.Name(r), m.Term.Name(fld)), args)
+        if args.values.size == 1 && ctx.mapFields.get(r).exists(_.contains(fld)) =>
+      renderMapApply(m.Term.Select(qual, m.Term.Name(fld)), args.values.head, fld, ctx)
+
+    case m.Term.Apply.After_4_6_0(qual @ m.Term.Name(n), args)
+        if args.values.size == 1 && ctx.localMaps.contains(n) && !ctx.defParams.contains(n) =>
+      renderMapApply(qual, args.values.head, n, ctx)
+
     // `(mm: Map[K, V]).contains(k)` — Rust spells this `contains_key`, and a `HashMap` has no
     // `contains` at all. It MUST sit before the str arm below, which takes `contains` by name and
     // would otherwise emit `error[E0599]: no method named contains found for struct HashMap`.
@@ -3525,9 +3564,18 @@ object RustCodeWalk:
         // side of it — a name known to hold an `Any`, a call to an `Any`-returning def, or a case
         // class going into an `Any` parameter. Everything else is emitted byte-identically, which
         // is what keeps the existing goldens meaningful.
+        // A CALL THROUGH AN ALIAS MUST COERCE LIKE THE ORIGINAL. `val vf = validateField` then
+        // `vf(sp, d())` was made callable earlier, but the coercion below keys off the CALLEE'S
+        // NAME — and `vf` has no signature, so `Value` arguments went in uncoerced and rustc said
+        // `expected String, found Value` twice. Resolving the alias to the def it names is the
+        // whole fix; `localFns` carries the target for exactly this.
+        // (rust-local-val-bound-to-a-def-is-not-callable.)
+        val calleeName = fn match
+          case m.Term.Name(n) => ctx.localFns.getOrElse(n, n)
+          case _              => ""
         val coercedArgs = fn match
-          case m.Term.Name(fname) if _paramTypes.contains(fname) =>
-            val want = _paramTypes(fname)
+          case m.Term.Name(_) if _paramTypes.contains(calleeName) =>
+            val want = _paramTypes(calleeName)
             // Iterate the RENDERED args, not a zip with the source terms. `renderedArgs` is longer
             // whenever omitted trailing defaults were filled in above (Rust has no default
             // parameters, so they are materialised here) — and `zip` truncates to the shorter list
@@ -3999,8 +4047,20 @@ object RustCodeWalk:
     case _ => false
 
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
-    case m.Term.Name(n) => ctx.localSeqs.contains(n)
+    case m.Term.Name(n) => ctx.localSeqs.contains(n) || ctx.localArrays.contains(n)
     case m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Array"), _) => true
+    // A SEQUENCE-PRESERVING COMBINATOR ON A SEQUENCE IS STILL A SEQUENCE, and without this the
+    // no-paren lowering above stopped at the first `.filter`: `f.specs.filter(…).head` fell through
+    // to the field path and emitted `….head` — `error[E0609]: no field head on type Vec<FieldSpec>`.
+    // Only combinators that RETURN a sequence are listed; `find` and `headOption` return an Option
+    // and are deliberately absent, because saying yes to them would put `[0]` on an Option.
+    case m.Term.Apply.After_4_6_0(m.Term.Select(q, m.Term.Name(
+           "filter" | "filterNot" | "map" | "flatMap" | "sorted" | "sortBy" | "reverse" |
+           "distinct" | "take" | "drop" | "takeWhile" | "dropWhile" | "tail" | "init")), _) =>
+      isKnownVecReceiver(q, ctx)
+    // A FIELD whose declared type is a sequence — `f.specs` on `case class Form(specs: List[…])`.
+    // Same lookup as `collectMapFields`, one type over.
+    case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) => ctx.seqFields.get(r).exists(_.contains(f))
     case _ => false
 
   /** A receiver the walker still knows to be numeric: a numeric literal, or arithmetic over them.
@@ -4838,6 +4898,15 @@ object RustCodeWalk:
   private def needsAnyCoercion(arg: m.Term, target: String, ctx: Ctx): Boolean =
     val argIsValue = arg match
       case m.Term.Name(n) => ctx.anyNames.contains(n)
+      // A SIGNAL READ and a MAP APPLY both hand back a `Value`, and neither is a call to a def, so
+      // the `_returnTypes` line below cannot see either. `vf(sp, d())` and `vf(s, drafts(s.name))`
+      // therefore passed a `Value` at a `String` parameter — `expected String, found Value`, twice
+      // in std/ui/form.ssc. The coercion machinery was right; it just had no way to be asked.
+      case _ if isValueRead(arg, ctx) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
+          if args.values.size == 1 && ctx.localMaps.contains(n) => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(r), m.Term.Name(f)), args)
+          if args.values.size == 1 && ctx.mapFields.get(r).exists(_.contains(f)) => true
       case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) => _returnTypes.get(f).contains("crate::value::Value")
       case _ => false
     val argIsCaseClass = arg match
@@ -5111,7 +5180,44 @@ object RustCodeWalk:
    *  This reads DECLARATIONS, not inference — the same discipline as `localSeqs`, `localStrings`
    *  and `localOptions`, which it is modelled on. A receiver it cannot place keeps the old String
    *  lowering, so nothing that compiles today changes. */
-  private def collectLocalMaps(d: m.Defn.Def): Set[String] =
+  /** `recv.field` pairs whose field is a `HashMap` on the receiver's declared struct type.
+   *
+   *  Same lookup as `collectValueLocals` — a parameter's DECLARED type, then `ctorMap`'s field
+   *  types — asking a different question. `case class Form(…, drafts: Map[String, Any])` with
+   *  `f.drafts(name)` is Scala's Map APPLY on a field, and with no arm for it the walker emitted
+   *  `f.drafts(name)` verbatim: `error[E0599]: no method named drafts found for struct Form`.
+   *  (rust-map-apply-on-a-field-emits-a-method-call.) */
+  /** `recv.field` pairs whose field is a `Vec` — `collectMapFields` one type over. */
+  private def collectSeqFields(d: m.Defn.Def, ctorMap: Map[String, EnumCtor]): Map[String, Set[String]] =
+    collectFieldsOfType(d, ctorMap, _.startsWith("Vec<"))
+
+  private def collectMapFields(d: m.Defn.Def, ctorMap: Map[String, EnumCtor]): Map[String, Set[String]] =
+    collectFieldsOfType(d, ctorMap, _.startsWith("std::collections::HashMap"))
+
+  private def collectFieldsOfType(
+      d: m.Defn.Def, ctorMap: Map[String, EnumCtor], isWanted: String => Boolean
+  ): Map[String, Set[String]] =
+    val paramType: Map[String, String] =
+      d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).flatMap { p =>
+        p.decltpe.collect { case m.Type.Name(t) => p.name.value -> t }
+      }.toMap
+    def isWantedField(recv: String, field: String): Boolean =
+      paramType.get(recv).flatMap(ctorMap.get).exists { ec =>
+        ec.fieldNames.indexOf(field) match
+          case -1 => false
+          case i  => ec.fieldTypes.lift(i).exists(isWanted)
+      }
+    val out = scala.collection.mutable.Map.empty[String, Set[String]]
+    def walk(t: m.Tree): Unit =
+      t match
+        case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) if isWantedField(r, f) =>
+          out += (r -> (out.getOrElse(r, Set.empty) + f))
+        case _ => ()
+      t.children.foreach(walk)
+    walk(d.body)
+    out.toMap
+
+  private def collectLocalMaps(d: m.Defn.Def, mapFields: Map[String, Set[String]]): Set[String] =
     val maps = scala.collection.mutable.Set.empty[String]
     def isMapType(t: Option[m.Type]): Boolean = t match
       case Some(m.Type.Apply.After_4_6_0(m.Type.Name("Map"), _)) => true
@@ -5128,6 +5234,10 @@ object RustCodeWalk:
         args.values.lastOption.exists(isMap)
       case m.Term.Block(stats) =>
         stats.lastOption.collect { case t: m.Term => isMap(t) }.getOrElse(false)
+      // `val drafts = f.drafts` — a local bound to a Map-typed FIELD is a Map, and this is the
+      // second spelling of the same defect: without it `drafts(s.name)` emitted a CALL on a
+      // HashMap (`error[E0618]: expected function, found HashMap`).
+      case m.Term.Select(m.Term.Name(r), m.Term.Name(f)) => mapFields.get(r).exists(_.contains(f))
       case _ => false
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
       .foreach(p => if isMapType(p.decltpe) then maps += p.name.value)
@@ -5153,18 +5263,19 @@ object RustCodeWalk:
    *  Nothing needs emitting differently: Rust's `let vf = validateField;` binds the fn ITEM, the
    *  call `vf(a, b)` is ordinary, and a fn item is Copy so capturing it in a `move` closure is free.
    *  The only thing missing was permission — the call-site guard had no set that could hold it. */
-  private def collectLocalFns(d: m.Defn.Def, userDefs: Set[String]): Set[String] =
-    val fns = scala.collection.mutable.Set.empty[String]
+  private def collectLocalFns(d: m.Defn.Def, userDefs: Set[String]): Map[String, String] =
+    val fns = scala.collection.mutable.Map.empty[String, String]
     def walk(t: m.Tree): Unit =
       t match
         case v: m.Defn.Val => (v.pats, v.rhs) match
-          case (List(m.Pat.Var(m.Term.Name(n))), m.Term.Name(r))
-              if userDefs.contains(r) || fns.contains(r) => fns += n
+          case (List(m.Pat.Var(m.Term.Name(n))), m.Term.Name(r)) if userDefs.contains(r) => fns += (n -> r)
+          // An alias OF an alias resolves to the original, so the signature is still findable.
+          case (List(m.Pat.Var(m.Term.Name(n))), m.Term.Name(r)) if fns.contains(r) => fns += (n -> fns(r))
           case _ => ()
         case _ => ()
       t.children.foreach(walk)
     walk(d.body)
-    fns.toSet
+    fns.toMap
 
   /** The context for rendering INSIDE a closure: bind its parameters, and record that we are in one.
    *
@@ -5180,6 +5291,13 @@ object RustCodeWalk:
    *  (tests/BUGS.md renderTerm-is-two-and-a-half-times-the-jit-limit.) */
   private def enteringClosure(ctx: Ctx, bound: Set[String]): Ctx =
     ctx.copy(closureParams = ctx.closureParams ++ bound, inClosure = true)
+
+  /** `m(k)` on a Map — see the two arms for why there are two of them. */
+  private def renderMapApply(qual: m.Term, key: m.Term, shown: String, ctx: Ctx): Either[List[Diagnostic], String] =
+    for
+      q <- renderTerm(qual, ctx)
+      k <- renderTerm(key, ctx)
+    yield s"""$q.get(&$k).cloned().expect("key not found in $shown")"""
 
   private def isMapCtorFn(fn: m.Term): Boolean = fn match
     case m.Term.Name("Map")                                  => true
