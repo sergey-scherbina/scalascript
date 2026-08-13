@@ -1,4 +1,4 @@
-# generation: 1912
+# generation: 1913
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-extension-in-trait	claude-code	2026-08-13T11:30:00Z	v3-extension-in-trait	file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/src/Lower.scala file:v3/src/Source.scala
@@ -6,4 +6,3 @@ gate-server-leak	claude-code	2026-08-13T20:25:59Z	wired-gates-share-hard-coded-t
 rust-ctx-narrowing	claude-code	2026-08-13T20:26:12Z	renderTerm-is-two-and-a-half-times-the-jit-limit	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/v1-jit-size.sh file:tests/BUGS.md
 bigint-from-a-string	claude-code	2026-08-13T20:26:29Z	bigint-from-a-string-is-unsupported-on-native-and-bytecode	file:v2/src/Runtime.scala file:v2/backend/jvm/JvmBackend.scala file:v2/conformance/bigint-from-string.coreir
 coord-release-parks-a-refused-commit	claude-code	2026-08-13T20:26:44Z	shared-main-is-one-working-tree-for-every-agent	file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md
-rust-qualify-colliding-members	claude-code	2026-08-13T20:28:30Z	rust-member-name-flattening	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/rust-std-survey-baseline.tsv file:BUGS.md
