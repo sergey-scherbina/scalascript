@@ -547,12 +547,13 @@ after two rounds leaves a gate asserting whatever the code does. It now greps th
 
 ## the-agreement-gate-calls-the-reference-front-an-oracle-and-it-is-not-one
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: front
      reported-by: claude-code
      reported-at: 2026-08-11
      confirmed: yes
+     fixed-in: 9bf1df0da
      gate: tests/e2e/f-output-agreement-gate.sh -->
 
 **`tests/e2e/f-output-agreement-gate.sh` reports a number called "F WORSE than the reference". It
@@ -582,6 +583,25 @@ divergent rows only — which is cheap in practice, since divergences are the sm
 
 Filed rather than fixed here because the gate's thresholds are frozen against the current meaning,
 and changing what the number means changes what the freeze is worth.
+
+**Fixed in `9bf1df0da` (2026-08-12), "the agreement check gets a third lane, and its number stops
+lying"** — filed 2026-08-11, addressed the next day, and this entry was simply never closed. Both
+halves the entry asked for are in the gate now:
+
+* the label is honest — the header says the divergences are *arbitrated by the v1 interpreter*, and
+  the buckets are named `where F is WRONG (interpreter agrees with the reference)`, `where the
+  REFERENCE is wrong (interpreter agrees with F) — not F's work`, and `all three lanes differ`;
+* the third lane runs on divergent rows only (`f-output-agreement-gate.sh:126-128`), and the frozen
+  ceiling is on the tie-broken count — `worse=$fwrong`, described in the gate as "contradicted BY
+  BOTH OTHER LANES. Nothing else belongs in a ceiling."
+
+The three reference-front defects this entry was built on were all fixed on 2026-08-13
+(`050fb98d2`, `85d305116`, `374f6ce01`), and in every one the classification the new third lane
+produces is the correct one: it put them in the `REFERENCE is wrong` bucket while they were open,
+which is exactly the misattribution the entry existed to stop.
+
+Closed after reading the gate rather than re-implementing it. The entry's own prescription was
+detailed enough that it was tempting to just build it again.
 
 ## job-timeout-fires-before-the-suite-budget-can — the outer cap was tighter than the measured one
 
