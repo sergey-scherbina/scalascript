@@ -137,7 +137,7 @@ An unrelated pre-existing failure was found while verifying this and is filed se
 
 ## f-miscompiles-scljet-record-fields-to-the-fallback-arm
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
