@@ -90,16 +90,44 @@
       |    routes().lock().unwrap().push((method.to_uppercase(), path, Arc::new(h)));
       |}
       |
-      |/// Split a urlencoded string (`a=1&b=2`) into pairs — used for BOTH the URI query and a
-      |/// form body, which share the encoding. Percent-decoding is deliberately NOT done here:
-      |/// hyper hands the raw query and every other field on this lane is raw too, so decoding
-      |/// exactly one of them would be the only place a value silently changed shape.
+      |/// Split a urlencoded string (`a=1&b=2`) into pairs — used for BOTH the URI query and a form
+      |/// body, which share the encoding. Values ARE decoded: `%XX` becomes its byte and `+` becomes
+      |/// a space, which is what every client produces and every other server assumes.
+      |///
+      |/// This used to hand the raw text over, with a comment claiming that was deliberate because
+      |/// "every other field on this lane is raw too". That was wrong, and measurably so: a rozum
+      |/// route keyed on a model spec (`a:b/c` sent as `a%3Ab%2Fc`, and cascade specs containing a
+      |/// literal `+`) matched nothing, while the Rust server it was replacing matched everything.
+      |/// A raw query is not a lane convention, it is a decoder that was never written.
+      |fn percent_decode(s: &str) -> String {
+      |    let b = s.as_bytes();
+      |    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+      |    let mut i = 0;
+      |    while i < b.len() {
+      |        match b[i] {
+      |            b'+' => { out.push(b' '); i += 1; }
+      |            b'%' if i + 2 < b.len() => {
+      |                let hex = std::str::from_utf8(&b[i + 1..i + 3]).ok()
+      |                    .and_then(|h| u8::from_str_radix(h, 16).ok());
+      |                match hex {
+      |                    // A malformed escape is kept VERBATIM rather than dropped: `100%` in a
+      |                    // value is a user's text, not an error worth losing.
+      |                    Some(byte) => { out.push(byte); i += 3; }
+      |                    None       => { out.push(b[i]); i += 1; }
+      |                }
+      |            }
+      |            c => { out.push(c); i += 1; }
+      |        }
+      |    }
+      |    String::from_utf8_lossy(&out).into_owned()
+      |}
+      |
       |fn urlencoded_pairs(raw: &str) -> std::collections::HashMap<String, String> {
       |    raw.split('&')
       |        .filter(|p| !p.is_empty())
       |        .map(|p| match p.split_once('=') {
-      |            Some((k, v)) => (k.to_string(), v.to_string()),
-      |            None         => (p.to_string(), String::new()),
+      |            Some((k, v)) => (percent_decode(k), percent_decode(v)),
+      |            None         => (percent_decode(p), String::new()),
       |        })
       |        .collect()
       |}
