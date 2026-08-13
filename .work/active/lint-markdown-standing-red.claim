@@ -3,9 +3,29 @@ branch: feature/lint-markdown-standing-red
 agent: claude-code
 started: 2026-08-13T23:37:19Z
 heartbeat: 2026-08-13T23:37:19Z
-status: claimed-before-planning
+status: working
 items: lint-markdown-standing-red
 paths: file:BACKLOG.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `lint-markdown.yml` has been RED on eight consecutive commits by different agents
+  (472afb57b, 3ccec7fc1, b5a17036b, 24c3b335f, 764ebb0a9, 93bb6c2e3, 75d1c8f33, c2d62442a), always
+  on the same two rules at `BACKLOG.md:1513`. It survives because `scripts/ci-status` asks
+  `smoke.yml`, so this red is invisible to the ordinary "am I green" check and blocks nobody — which
+  is exactly how a workflow stays red forever.
+
+  ROOT CAUSE, and it is not the reported line. `BACKLOG.md:205` is ```scalascript INSIDE an open
+  fence: a CLOSING fence may not carry an info string, so that line is code CONTENT, `:207` closes
+  the block, and `:208` — a stray duplicate — OPENS a new one that never closes. Everything below is
+  parsed as code, and the first `#` in it (line 1513) is read as a heading. One block was meant, not
+  two: the prose says "an empty program whose only content is the import", and a bare `.ssc` is
+  код целиком.
+
+  Fix: the six lines become one ```scalascript block holding both lines of the repro. VERIFIED with
+  the CI command byte-for-byte (`markdownlint '**/*.md' --ignore '**/node_modules/**'`), fixed tree
+  rc=0 against unfixed rc=1 — not with a hand-rolled fence counter, which said "still broken"
+  because it also counts the word ```scalascript where the prose merely mentions it.
+
+  ORDER, stated honestly: I diagnosed and fixed before filling this in, because the whole task was
+  shorter than the claim round-trip. No module SPRINT row: this is not a queued item, and
+  `coord-release` treats "no sprint item names this slug" as the ordinary case.
+next: smoke, push, verify lint-markdown goes green on the landed sha, release
