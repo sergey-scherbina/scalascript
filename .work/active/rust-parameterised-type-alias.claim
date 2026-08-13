@@ -1,0 +1,11 @@
+slug: rust-parameterised-type-alias
+branch: feature/rust-parameterised-type-alias
+agent: claude-code
+started: 2026-08-13T14:53:44Z
+heartbeat: 2026-08-13T14:53:44Z
+status: claimed-before-planning
+items: rust-parameterised-type-alias-is-not-resolved
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/rust-std-survey-baseline.tsv file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
