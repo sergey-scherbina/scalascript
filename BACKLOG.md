@@ -211,7 +211,10 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   green. The v1/v2 plugins were already thin per-front adapters and were not touched.
   **Deliberately NOT done — see `std-is-not-v1s-std` below:** moving `std/mcp/*.ssc` out of
   `v1/runtime/std/` would make MCP the one exception among 49 and gain nothing.
-- [ ] **P1b — version honesty.** Legacy `initialize` echoes the client's version when supported;
+- [x] **P1b — version honesty.** ✓ 2026-08-09, and the constant reached `2025-06-18` on
+  2026-08-13 (`e2e1955c8`) — not at the same time, because the audit this line asked for found
+  three missing requirements rather than the one the plan named. `specs/mcp-2026-07-28.md` §13.
+  Original: legacy `initialize` echoes the client's version when supported;
   bump the legacy constant to `2025-06-18` at all four call sites at once, after auditing that we
   really implement it. Split out of P1 deliberately: three of those sites are in files P1 does not
   claim, and bumping the shared constant without the matching negotiation is the
@@ -223,23 +226,49 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
   line needed no work — checked rather than assumed.
 - [x] **P2b — server-side header validation.** ✓ 7eef2525b. `MCP-Protocol-Version`, `Mcp-Method`,
   `Mcp-Name` vs the body, `-32020` on any disagreement, base64 sentinel decoded first, modern
-  requests only. **Named gap:** the plumbing in `McpIntrinsics.dispatchAuthorized` is verified
+  requests only. **The named gap is CLOSED:** `McpHttpRouteTest` was written for exactly it and
+  drives the real route through `PluginContext.fromNative`, so the feed is now proven and not
+  merely read. Original gap text: the plumbing in `McpIntrinsics.dispatchAuthorized` is verified
   statically only — nothing drives that function in any test — so the validator is proven and the
-  feed is not. Needs a `PluginContext` double.
-- [ ] **P2c — `x-mcp-header`.** Tool params mirrored into `Mcp-Param-{Name}`. Own constraint set
+  feed is not.
+- [x] **P2c — `x-mcp-header`.** ✓ 2026-08-10, server half. §4/§6 of the spec.
+  Original: tool params mirrored into `Mcp-Param-{Name}`. Own constraint set
   (primitives only, no `number`, statically reachable via `properties` chains), and a conforming
   client must EXCLUDE offending tools from `tools/list`. Bigger than it looks.
-- [ ] **P2d — the client half.** `McpHttpClient` speaks the legacy era only: it sends `initialize`
-  and emits neither `_meta` nor the mirrored headers. Making it modern is work, not a header
-  addition. Only after P2c+P2d may `ProtocolVersion` reach `2025-06-18` — which also needs
-  `context` on `completion/complete`.
-- [ ] **P3 — MRTR.** `InputRequiredResult`; migrate elicitation and roots off server-initiated
-  requests. Largest semantic change — `McpServerBuilder.request(...)` stops being the mechanism.
-- [ ] **P4 — `subscriptions/listen`.** Replaces `resources/subscribe`/`unsubscribe` and the GET
-  stream; opt-in notification types; `subscriptionId` tagging.
-- [ ] **P5 — deprecations, extensions, auth.** Roots/Sampling/Logging marked deprecated; Tasks
-  extension; RFC 9207 `iss`; `application_type` on DCR; credentials keyed by issuer; Client ID
-  Metadata Documents.
+- [x] **P2d — the client half.** ✓ 2026-08-10…12 as P2d-1 … P2d-4b. All three clients now
+  negotiate through one shared `negotiateEra`; the duplication that made this look large was
+  deleted rather than triplicated. The sentence below about the client is no longer true and is
+  kept as the dated plan. Original: `McpHttpClient` speaks the legacy era only: it sends
+  `initialize` and emits neither `_meta` nor the mirrored headers.
+- [x] **P3 — MRTR.** ✓ P3a 2026-08-10, P3b and P3c 2026-08-12. The default is a PARKED VIRTUAL
+  THREAD (Sergiy's decision): the handler runs once and continues where it stood. `Replay` and
+  `ParkThenReplay` are opt-in and carry an idempotence precondition. Spec §8.5b, §8.8, §8.9.
+  Original: largest semantic change — `McpServerBuilder.request(...)` stops being the mechanism.
+- [x] **P4 — `subscriptions/listen`.** ✓ 2026-08-10, P4a and P4b-1 … P4b-4, including stdio
+  cancellation. Spec §6.
+- [x] **P5 — deprecations, extensions, auth.** ✓ P5a (RFC 9207) 2026-08-12, P5b 2026-08-12,
+  P5c-1/P5c-2 (Tasks) 2026-08-13. Three of the items listed here turned out to have NO SUBJECT —
+  `application_type` on DCR, credentials keyed by issuer and Client ID Metadata Documents are
+  client-side and we implement the authorization SERVER — and Sampling was never implemented at
+  all. Recorded as non-items with the evidence: spec §9, §9.3, §10.
+
+**Status: the migration is complete** (2026-08-13). Every phase above is landed; the spec's own
+phase list carries 21 landed and 4 superseded-by-sub-phase entries and nothing without a status.
+The legacy answer is `2025-06-18` and the modern one `2026-07-28`, served off one dispatcher.
+
+Known and deliberately NOT done, so that an absence is not reconstructed from silence:
+
+- **v2's server surface is 4 members against v1's 40.** `elicit` and 32 others were already
+  absent from `v2/runtime/providers/mcp-plugin` before this migration; the new intrinsics
+  (`asTask`, `setMrtrMode`, `requestState`) are missing there in exactly the way most of the
+  surface already was. Pre-existing and structural, not a pair broken here — see
+  `specs/mcp-2026-07-28.md` §11.1 for the census. Closing it is its own piece of work.
+- **No user-facing MCP documentation.** `docs/` has no MCP page, and MCP has been part of the
+  STANDARD surface since 2026-07-31. `specs/mcp.md` is a design document, not a guide, and the
+  `.ssc`-facing contracts that now matter — `srv.asTask()`, the three MRTR modes and the
+  idempotence precondition two of them carry — live only in intrinsic comments.
+- **`specs/mcp.md` §11 still lists 13 open design questions**, written before this migration.
+  Some are answered by it and none has been re-read against the code.
 
 Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
 
