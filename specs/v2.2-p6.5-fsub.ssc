@@ -2792,7 +2792,14 @@ def tupSets(names, i) = names match { case Nil => "" case h :: t => join2("(prim
 def valItem1(nm, ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (init, rest) => (("", "(prim cell.set (global " ++ nm ++ "__cell) " ++ erase(init, cx) ++ ")"), rest) }
 def exprItem(ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (e, rest) => (("", erase(e, cx)), rest) }
 def walkTop(ts, cx) = walkTop0(skipSemisF(ts), cx)
-def walkTop0(ts, cx) = if isEmpty(ts) then (("", ""), 0) else walkTopStep(parseTopItem(ts, cx), cx)
+// An EMPTY code fence still gets a `__sscBlockEnd__` appended by the runner, so the sentinel can
+// arrive with NO item in front of it. walkTopStep2 consumes it only AFTER parseTopItem has run, so
+// in that position it was parsed as an ordinary expression and reached the program as
+// `unbound global: (global __sscBlockEnd__)` -- F refused the whole file over a name the user never
+// wrote. Skip a LEADING sentinel here, the mirror of the trailing case: an empty block has no tail
+// to auto-print, so there is nothing to wrap and nothing to lose.
+def walkTop0(ts, cx) = if isEmpty(ts) then (("", ""), 0)
+  else (if isBlockEndHead(ts) then walkTop(tl(ts), cx) else walkTopStep(parseTopItem(ts, cx), cx))
 // Per-block auto-output (BUGS.md v2-native-multiblock-auto-output-missing). The native runner joins
 // every code fence into ONE source before the lexer runs, so "which statement ended a block" only
 // survives as the `__sscBlockEnd__` sentinel it emits after each fence. Consume it HERE, where the

@@ -1237,6 +1237,13 @@ jobs:
       - name: A nested pattern matches whatever binds the scrutinee
         run: tests/e2e/f-nested-pattern-lambda-gate.sh
 
+      # An empty code fence still gets a block-end sentinel, and F consumed sentinels only AFTER
+      # parsing an item -- so one arriving first was parsed as an expression and F refused the file
+      # over a name the user never wrote. It then fell back to the reference front, so the OUTPUT
+      # stayed right and only F's coverage was lost. This gate asserts the FRONT, not the output.
+      - name: An empty code fence does not cost F the file
+        run: tests/e2e/f-blockend-sentinel-gate.sh
+
       # Not an F gate: the REFERENCE front's lexer, and the one divergence this week where it was
       # the wrong one. Asserts BOTH fronts identically, because the two agreeing is the property.
       - name: A plain string literal ends at its closing quote
