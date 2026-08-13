@@ -1,0 +1,11 @@
+slug: ref-front-multiblock-auto-output
+branch: feature/ref-front-multiblock-auto-output
+agent: claude-code
+started: 2026-08-13T13:54:11Z
+heartbeat: 2026-08-13T13:54:11Z
+status: claimed-before-planning
+items: multiblock-auto-output
+paths: file:v2/lib/ssc1-lower.ssc0 file:v2/lib/ssc1-front.ssc0 file:tests/BUGS.md file:tests/e2e/ref-front-multiblock-gate.sh file:.github/workflows/ci.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
