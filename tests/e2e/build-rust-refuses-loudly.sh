@@ -422,6 +422,42 @@ SSC
     failed=1
   fi
 
+  # `++` must not CONSUME its operands (rust-list-concat-moves-its-operands). The emission was
+  # `[a, b].concat()`, which builds an array and MOVES both operands into it, so using either one
+  # again is E0382 and the program does not build AT ALL — while in ssc a list is immutable and
+  # reusing it is ordinary.
+  #
+  # BOTH statements concatenate the SAME lists, and that is the whole point: either one alone
+  # compiles under the moving form too, so a single-use probe would pass while the defect stood.
+  # The string pair is here for the same reason and is not decoration — `s ++ t` twice failed
+  # identically before the fix, so the defect was never only about lists.
+  cat > "$tmp/concatreuse.ssc" <<'SSC'
+def main(): Unit =
+  val a = List(1, 2)
+  val b = List(3)
+  val c = List(4, 5)
+  println((a ++ b ++ c).length.toString)
+  println((a ++ b ++ c).sum.toString)
+  val s = "ab"
+  val t = "cd"
+  println(s ++ t)
+  println(s ++ t)
+SSC
+  set +e
+  crb=$("$SSC" build-rust "$tmp/concatreuse.ssc" -o "$tmp/concatreusebin" 2>&1); crrc=$?
+  cr_rust=$("$tmp/concatreusebin" 2>&1)
+  cr_ref=$("$ROOT/bin/ssc" run "$tmp/concatreuse.ssc" 2>/dev/null)
+  set -e
+  if [[ $crrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — an operand reused after '++' does not build" >&2
+    echo "--- output: $(printf '%s' "$crb" | grep -E 'E0382|error\[' | head -4 | tr '\n' '|')" >&2
+    failed=1
+  elif [[ "$cr_rust" != "$cr_ref" || -z "$cr_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on reused '++' operands" >&2
+    echo "--- rust: $(printf '%s' "$cr_rust" | tr '\n' '|')   ssc: $(printf '%s' "$cr_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # The rest of the class the reporter named — `get`, `exists`, and an `Option[Any]` crossing into
   # an `Any` through a CONTAINER (`Map[String, Any]`), which is the same boundary one level down:
   # `HashMap<String, i64>` does not coerce to `HashMap<String, Value>` on its own.

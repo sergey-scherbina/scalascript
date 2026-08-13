@@ -112,8 +112,11 @@ SSR at the primitive level first (no library needed), then layer the widget libr
    - ✅ **S3e placeholder `_`-lambdas** — counter-stack desugar (mirrors JsGen), `_.foo` →
      `move |__p0| { … }`. (Cleared 8.)
    - ✅ **S3f vararg param type** — `T*` → `Vec<T>` in mapType. (Cleared 3.)
-   - ✅ **S3g `List ++` / try-`toInt` / `null`** — `a ++ b` → `[a, b].concat()`;
+   - ✅ **S3g `List ++` / try-`toInt` / `null`** — `a ++ b` → `[&(a)[..], &(b)[..]].concat()`;
      `try e.toInt catch _ => fb` → `e.parse().unwrap_or(fb)`; `null` → `Value::Unit`.
+     (The operands are BORROWED, not moved. `[a, b].concat()` was the original form and it consumed
+     them, so reusing a list after `++` was `E0382` and did not compile —
+     `rust-list-concat-moves-its-operands`. `concat()` copies either way, so borrowing costs nothing.)
    - ✅ **S3h struct field types** — `renderStruct` maps field types vs all user type names
      (Theme.colors → `ThemeColors`, not i64). (Cargo `i64 has no fields` 170 → 12.)
    - ✅ **S3i String match** — `match s.as_str() { "x" => … }`. (Cargo mismatches 110 → 69.)

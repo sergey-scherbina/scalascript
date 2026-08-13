@@ -3500,11 +3500,19 @@ object RustCodeWalk:
       collectTupleConcat(infix) match
         case Some(terms) => renderTupleElems(terms, ctx).map(renderTuple)
         case None if rargs.values.size == 1 =>
-          // List/Vec concat `a ++ b` → `[(a), (b)].concat()` (chains nest).
+          // List/Vec concat `a ++ b` → `[&(a)[..], &(b)[..]].concat()` (chains nest).
+          // BORROW the operands rather than passing them by value: `[a, b]` builds an
+          // array and MOVES both into it, so a second `a ++ b ++ c` in the same scope
+          // is E0382 `use of moved value` — ordinary code in ssc, where a list is
+          // immutable and reusing it is expected.  `concat()` on a slice-of-slices
+          // copies its elements either way, so the borrowed form costs nothing extra.
+          // Works unchanged for `String` operands (`&s[..]` is `&str`, and
+          // `[&str].concat()` is `String`), and nests: the inner `.concat()` produces a
+          // temporary that lives to the end of the enclosing statement.
           for
             l <- renderTerm(lhs, ctx)
             r <- renderTerm(rargs.values.head, ctx)
-          yield s"[$l, $r].concat()"
+          yield s"[&($l)[..], &($r)[..]].concat()"
         case None => renderInfix(infix, ctx)
 
     // Infix operators: arithmetic, comparison, boolean.
