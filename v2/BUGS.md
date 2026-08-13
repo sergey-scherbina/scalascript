@@ -11153,12 +11153,41 @@ same session as `v2-req-form-type-collision`.
 
 ## scljet-app-not-a-function-after-the-concat-fix — three scljet cases fail further in, on `app: not a function: 0`
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: bug
      gate: tests/conformance/contract-roster.tsv
-     fixed-in: - -->
+     fixed-in: b442abe5e -->
+
+### CLOSED 2026-08-13 — measured, not inherited from the note below
+
+The body already said the cause was found; the HEADER still said `open` with no `fixed-in`, which
+is the drift that makes a board unreadable — a reader skimming headers sees an open runtime bug that
+has not existed for three days. Re-measured rather than closed on the strength of that note:
+
+```text
+                     v2 rc   `app: not a function`   vs the int oracle
+scljet-crud            0             0 occurrences    byte-identical
+scljet-full            0             0 occurrences    byte-identical
+scljet-jdbc            0             0 occurrences    byte-identical
+scljet-write-table     0             0 occurrences    byte-identical
+```
+
+`scljet-crud` prints its four rowid lines on v2 now — the entry's own tell for this defect was that
+only the int lane did.
+
+**TWO commits closed it, from two agents, and the second is the one that finished it.** `c369d3210`
+fixed bare-tag alternatives (`case A | B`); `b442abe5e` fixed the PARENTHESISED form
+(`case A(_) | B(_)`), which is what `btree.ssc` actually contains, and its release note names this
+entry's exact symptom — `app: not a function: 0` with a block body. `fixed-in` carries the second
+because that is the commit after which these four cases pass; the first is named here because
+closing on it alone would have been wrong.
+
+**The structural reproduction the note below warns against was right to warn.** It says the isolated
+skeleton ran identically on both lanes and that the trigger was something else about `btree.ssc` —
+and it was: the multi-tag arm `case TableLeafPage | IndexLeafPage`, which the note lists first among
+its own suspects.
 
 **Status:** OPEN (found 2026-08-09, immediately downstream of the `sconcat` fix in
 `corpus-contract-scljet-jdbc-v2-timeout`).
