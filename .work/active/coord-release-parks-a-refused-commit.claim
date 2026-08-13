@@ -1,0 +1,11 @@
+slug: coord-release-parks-a-refused-commit
+branch: feature/coord-release-parks-a-refused-commit
+agent: claude-code
+started: 2026-08-13T20:26:44Z
+heartbeat: 2026-08-13T20:26:44Z
+status: claimed-before-planning
+items: shared-main-is-one-working-tree-for-every-agent
+paths: file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
