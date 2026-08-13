@@ -11800,6 +11800,78 @@ as lists. On the VM lane it delegates to the dynamic `++` rather than reimplemen
 the typed and untyped paths cannot disagree; the Rust equivalent is whatever `v_*` helper serves
 `(prim __arith__ "++")`.
 
+## rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist — `V::Int(i64) /*big*/`
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: v2/conformance/bigint-from-string.coreir (skipped for rust/wasm; unskip when this closes)
+     fixed-in: - -->
+
+**Found 2026-08-13** by the fixture written for
+`bigint-from-a-string-is-unsupported-on-native-and-bytecode` (root `BUGS.md`), which the VM, the
+bytecode generator and JS now pass:
+
+```text
+ok   bigint-from-string   jvm
+ok   bigint-from-string   js
+FAIL bigint-from-string   rust     ← no output at all
+FAIL bigint-from-string   wasm     ← reuses the Rust generator unchanged
+```
+
+**Not a missing arm — a missing TYPE.** `RustBackend.scala:267` lowers a big literal as
+
+```scala
+case Lit(CBig(n))  =>
+  // represent BigInt as i64 (lossy but handles common cases)
+  s"V::Int(${n.toLong}i64) /*big*/"
+```
+
+and `enum V` has `Int(i64)` with nothing wider, so there is no value in the Rust runtime that can
+hold a number beyond `Long` range. `i->big` is correspondingly `case "i->big" => a0 // keep as
+Int`. A one-line arm cannot fix this; it needs a big-integer representation in `V` (or a crate) and
+arms for every `big.*` op that follows.
+
+**The harness SKIPS those two rows with the reason printed** rather than dropping the fixture:
+`v2/backend/check.sh`'s `RUST_NO_BIGNUM_SKIP`, next to the wasm deep-recursion skip that already
+worked this way. When this entry closes, delete the fixture name from that list and the rows turn
+real — the same self-maintaining shape as a `known-red` declaration.
+
+**What it costs today:** any program whose big integer is genuinely big is silently out of reach on
+the Rust and wasm lanes. `n.toLong` on a larger literal does not refuse — it TRUNCATES, so the
+generated program runs and answers with a different number.
+
+## js-boolean-has-no-tostring-on-the-v2-lane — `__method__: no dispatch for .toString on true`
+
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: - -->
+
+**Found 2026-08-13** while measuring `BigInt(<String>)` across lanes; unrelated to that defect and
+narrower than it first looked. `(1 == 1.0).toString` threw on the v2 JS lane, which read as a
+bignum problem until the receiver was varied:
+
+```text
+                    v2 js lane (`ssc-tools run-js --v2`)   int / native / bytecode / jvm
+7.toString          7                                      7
+"x".toString        x                                      x
+3.5.toString        3.5                                    3.5
+true.toString       __method__: no dispatch for .toString on true      true
+false.toString      __method__: no dispatch for .toString on false     true/false
+```
+
+So it is exactly ONE receiver type: `Boolean`. Int, String and Float all dispatch. Any program that
+prints the result of a comparison the explicit way — `println((a == b).toString)` — dies on this
+lane, and the interpolated and bare-`println` spellings both work, which is why it has gone
+unnoticed: `println(a == b)` prints `false` correctly.
+
+**Not fixed here** — found while holding a claim on the VM and the bytecode generator, and this is
+the JS generator's method table. Filed with the one-line repro rather than carried.
+
 ## js-string-concat-chain-answers-a-tuple — the DEPRECATED js wrapper; the live lane had the opposite defect
 
 <!-- status: open

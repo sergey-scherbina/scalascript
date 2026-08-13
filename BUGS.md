@@ -348,12 +348,45 @@ freeze is not what it was: this is now a two-lane divergence, not a four-lane on
 
 ## bigint-from-a-string-is-unsupported-on-native-and-bytecode — `i->big: not Int`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: runtime
      kind: bug
-     gate: -
-     fixed-in: - -->
+     gate: v2/conformance/bigint-from-string.coreir
+     fixed-in: 58bdeb4c1 -->
+
+### FIXED 2026-08-13 — `i->big` takes the value the fronts actually hand it
+
+Both fronts lower every `BigInt(x)` to `(prim i->big x)` whatever `x` is; they are untyped, so they
+cannot route a String to a different prim. The VM and the bytecode generator each accepted an Int
+and nothing else. Both now go through one shared shape — Int, BigInt or String, with a binary float
+REFUSED rather than truncated and `f->big` named as the operation for a caller who means truncation,
+which is the position `PortableDecimal` already takes for `Decimal`.
+
+```text
+                                              before                    after
+run-ir, i->big of "123456789012345678901234567890"   i->big: not Int    123456789012345678901234567890
+   … × 2 (big.mul)                                   —                  246913578024691357802469135780
+   … of (int 7), the spelling that always worked     7                  7
+```
+
+The multiply is in the fixture for a reason: a construction row alone can be satisfied by a lane
+that quietly keeps the string, and arithmetic on the parsed value cannot.
+
+**Two lanes fixed, two lanes measured and filed instead.** `v2/backend/check.sh` on the new fixture:
+
+```text
+ok   bigint-from-string   jvm      ← the bytecode lane
+ok   bigint-from-string   js
+FAIL bigint-from-string   rust     ← no output at all
+FAIL bigint-from-string   wasm     ← reuses the Rust generator
+```
+
+The Rust generator has no big-integer type: `Lit(CBig(n))` emits `V::Int(${n.toLong}i64) /*big*/`
+and its own comment says "lossy but handles common cases". That is a design gap, not a missing arm,
+so it is filed as `rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist` and the harness
+SKIPS those two rows with the reason printed — dropping the fixture to keep a column green would
+have hidden the defect it exists for.
 
 **Found 2026-08-13** while choosing a value for the gate row above, and it is the reason that row
 uses a `Long` literal instead of the obvious spelling.
