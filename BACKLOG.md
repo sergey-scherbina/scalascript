@@ -249,6 +249,40 @@ lowerings, and the `Feature.McpClient` declaration. `Transport.Http` and `Transp
 refused, which is consistent — the server is stdio-only on this lane too, so the boundary does not
 move.
 
+**SIZED BY EXPERIMENT, 2026-08-13, and the estimate was wrong twice before it was right.**
+Declaring `Feature.McpClient` and building — with no runtime, no intrinsics, nothing else — is a
+one-line change that answers what the real wall is, and it is cheaper than reasoning about it:
+
+- The reporter's repro **emits successfully** with only that line. It is import-only, so it
+  exercises the CAPABILITY CHECK and nothing else; passing it proves nothing about lowering.
+  Worth stating, because "the repro now builds" would have been a false close.
+- A program that actually CALLS the client gives the real answer, and it is good news:
+
+      Generic(`mcpConnect` is declared `extern` and the rust backend has no implementation
+              for it (no `@rust(...)`, no intrinsic); called from `run`)
+
+  …and the same for `listTools` and `close`. **The lane refuses neither the receiver shape nor
+  the overloading.** Both were prior suspicions worth naming: an `extern class` with eight
+  methods where the server half is flat functions, and `mcpConnect` declared at two arities on a
+  lane that refuses overloading elsewhere — it is what makes `std/mcp/types.ssc` REFUSED. Neither
+  is the blocker here. Member-style intrinsic keys already exist (`Console.println`,
+  `Bench.opaque`), so `McpClient.listTools` maps the same way.
+
+**So the work is four bounded parts, not an open question:** the `Feature.McpClient` line; nine
+intrinsic map entries (`mcpConnect` plus the eight methods); a `McpClientRs` runtime mirroring
+`McpRs`'s framing over a spawned child's stdio, no new crate; and `scanMcpClientUsage` plus the
+emission wiring in `RustGen`, copied from the server's.
+
+**Two unknowns remain, both measurable before any Rust is written:** how `Transport.Spawn(cmd,
+args)` — an `.ssc` enum — arrives at the intrinsic, and whether the return types drag in
+`std/mcp/types.ssc`, which is REFUSED for an unrelated overloading reason and would block this
+independently of anything done here.
+
+**The capability line is deliberately NOT left declared.** Declaring support with no
+implementation turns an honest `Unsupported(McpClient,rust)` into "no implementation for it" at
+every call site — a promise the lane cannot keep, which is the worse direction of error and the
+one this migration has spent the day avoiding.
+
 **The reporter's own priority is recorded and respected:** not urgent for them, the interpreter
 path works and their Rust and Scala legs cover shipping. Filed so the asymmetry is known rather
 than rediscovered, which is the right reason to file.
