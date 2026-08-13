@@ -23,6 +23,65 @@ Newest first.
 
 
 
+## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-13
+     ssc-version: 2315f2ecf
+     repro: the five-line program in the body
+     confirmed: no -->
+
+**More fundamental than the collision defect below, and it absorbs it.** The definition side drops
+the qualifier and the call side keeps it, so the two disagree. Five lines reproduce it:
+
+```
+object Tool:
+  def mk(s: String): String = s
+
+@main def run(): Unit = println(Tool.mk("x"))
+```
+
+`emit-rust` exits 0 and writes this:
+
+    pub fn mk(s: String) -> String { s }
+    pub fn run() { crate::runtime::_println(Tool.mk("x".to_string())); }
+
+There is no `Tool` in the file — no struct, no module. **rustc, not my reading:**
+
+    error[E0425]: cannot find value `Tool` in this scope
+      --> src/generated/objprobe.rs:12:30
+
+`emit-rust` returning 0 is not a contradiction: it writes a crate and never invokes cargo, so the
+error lands on the user.
+
+**Why no gate is red, and this is the part worth keeping.** The survey DOES run cargo — that is
+what its BADRUST column means — and BADRUST is currently **0** across 81 REFUSED + 51 COMPILES.
+That zero is not evidence of correctness here. Every module that calls an object member from
+outside is REFUSED earlier for an unrelated reason and never reaches cargo: `std/agent-mcp.ssc`
+calls `Tool.error(...)` and `Tool.text(...)` and is refused for `McpClient`; `std/actors.ssc`
+calls `Supervisor.start(...)` and is refused generically. The instrument never crosses the
+boundary, exactly as the MCP surface gap was invisible until a case crossed it.
+
+**The fix is one change and it closes both defects.** Make the two sides AGREE, by qualifying
+consistently: an object member emits as `Qual_member` at its definition and at every call. That
+- makes ordinary object-member calls compile, which today they do not, and
+- removes the name collisions that
+  `rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member` refuses, since
+  `Tool_text` and `Resource_text` no longer share a name.
+
+Qualifying only the colliding pairs — what that entry originally recommended — would leave THIS
+defect in place for every non-colliding object. The recommendation there is superseded.
+
+**A gate has to cross the boundary or the fix is unverifiable.** The survey cannot show this while
+the modules that exercise it are refused first, so the fix needs a case that calls an object
+member from outside and reaches cargo — the same shape added to `v21-standard-mcp-smoke.sh` for
+the MCP surface.
+
 ## rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member — `SqliteCursor.close` and `SqliteStatement.close` are reported as overloading and refuse the whole module
 
 <!-- status: open
