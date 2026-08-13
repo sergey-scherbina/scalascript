@@ -5,7 +5,7 @@ started: 2026-08-13T17:54:10Z
 heartbeat: 2026-08-13T17:54:10Z
 status: claimed-before-planning
 items: v2-extension-member-call-inside-a-def-body-fails-by-arity legacy-front-single-line-extension-absorbs-the-rest-of-the-file
-paths: file:v2/lib/ssc1-front.ssc0 file:tests/e2e/single-line-extension-gate.sh
+paths: file:v2/lib/ssc1-front.ssc0 file:tests/e2e/single-line-extension-gate.sh file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
