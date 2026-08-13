@@ -137,6 +137,30 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # which turned main red the moment the gate reached the push path. Rebuild AFTER the rebase, not
 # before; the repo has that lesson written down and it still cost a red.
 #
+# renderTerm 20333 -> 20345, and the +12 is the most useful number in this file.
+#
+# IT IS NOT AN ARM. The change that grew it adds ONE FIELD to the `Ctx` record. Proved by control
+# rather than inferred, after three wrong guesses in a row: adding a SECOND field that is never read
+# anywhere took it to 20357. Twelve bytecodes per field, read or unread, because `renderTerm`
+# contains five `ctx.copy(...)` call sites and each one materialises every field.
+#
+# THAT IS WHY LOCAL RESTRUCTURING KEEPS BUYING NOTHING, and it was measured four ways today:
+#
+#   extract two arms' BODIES into helpers .......... 8 bytecodes of 291
+#   fold a new arm into an existing dispatch ....... 8 bytecodes of 96
+#   both together .................................. 36 of 96
+#   lift a nine-set guard out of the method ........ 0
+#
+# The arms are not where the bytecode is. THE CONTEXT RECORD'S WIDTH IS, multiplied by the number of
+# `copy` sites — so the lever that would actually shrink this method is fewer fields on `Ctx`, or
+# the copies factored into one helper, and NOT the "split it along its term cases" that the debt
+# entry has been recommending. tests/BUGS.md `renderTerm-is-two-and-a-half-times-the-jit-limit` is
+# corrected to say so.
+#
+# The growth itself is a real fix — a local bound to a def is now callable — and the alternative was
+# to leave a lowering that every other backend performs. Raised, announced, and with the mechanism
+# named so the next person spends their build cycles on the lever that works.
+#
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 # WHAT THE JIT LIMIT COSTS renderTerm: NOTHING MEASURABLE. Measured 2026-08-13, because three
 # raises in one day had turned "it is 2.5x the JIT limit" into a phrase nobody had checked.
@@ -180,7 +204,7 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-20333 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+20345 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

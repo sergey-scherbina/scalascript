@@ -550,7 +550,7 @@ the end.
      lane: v2-rust
      area: codegen
      kind: bug
-     fixed-in: 2d53e00cd
+     fixed-in: 9da61181d
      gate: tests/e2e/rust-std-survey-gate.sh -->
 
 Scala's `String.matches(regex)` is a **full-match regex test returning Boolean**. Rust's
@@ -573,7 +573,7 @@ was written rather than after.
      lane: v2-rust
      area: codegen
      kind: bug
-     fixed-in: 2d53e00cd
+     fixed-in: 9da61181d
      gate: tests/e2e/rust-std-survey-gate.sh -->
 
 `val vf = validateField` then `vf(sp, d())` refused with *"calls `vf`, which this crate does not

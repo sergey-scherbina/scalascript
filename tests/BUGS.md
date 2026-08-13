@@ -467,10 +467,29 @@ claim, is false for this method.** It stays open, because the debt is real — b
 str-receiver arm; an `extension` call arm must come first among the `Select` arms; a signal read
 must be decided before the generic call arms. Every one of those was a defect before it was a rule.
 
-**What closing it looks like: FEWER ARMS, not smaller ones.** Measured too — extracting two arms'
-bodies into helpers moved the method 20333 → 20325, **8 bytecodes of 291**. The cost of an arm is
-the pattern-match dispatch. Shrinking means routing a whole family of syntax (the collection
-members, say) to a separate renderer behind ONE arm.
+**What closing it looks like — and the first answer here was WRONG.** This entry used to say
+"fewer arms, not smaller ones", on the strength of one measurement: extracting two arms' bodies into
+helpers moved 20333 → 20325, eight bytecodes of 291. That was true and it was the wrong conclusion.
+
+**The bytecode is in the CONTEXT RECORD'S WIDTH, not in the arms.** Proved by control on
+2026-08-13, after three wrong guesses in a row: adding a single field to `Ctx` grows this method by
+**12 bytecodes even when the field is never read anywhere** — a second, deliberately unused field
+took it 20333 → 20357. `renderTerm` holds five `ctx.copy(...)` call sites and each one materialises
+every field.
+
+Four restructurings measured the same day, all of them local, none of them working:
+
+| | |
+|---|---|
+| extract two arms' BODIES into helpers | 8 bytecodes of 291 |
+| fold a new arm into an existing dispatch | 8 of 96 |
+| both together | 36 of 96 |
+| lift a nine-set guard out of the method | **0** |
+
+So the lever is **fewer fields on `Ctx`, or the five `copy` sites factored into one helper** — and
+splitting the term cases, which is what this entry recommended for two days, would move the arms
+around while every copy site kept paying for the same record. Anyone about to spend a build cycle on
+this should spend it there.
 
 **This does not generalise to `handleActorOp`**, the other big frozen method, and the distinction is
 the point: that one is the actor scheduler, running inside the user's long-lived program millions of
