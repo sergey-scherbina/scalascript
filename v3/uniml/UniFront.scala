@@ -234,6 +234,18 @@ object UniFront:
         // this one. `20-core-language.md` and the `AbstractVal` case twenty lines below both say
         // v3's traits carry METHODS, NOT ABSTRACT STATE — so refusing is following the recorded
         // design, not choosing a new one. (BUGS.md v3-two-fronts-differ-in-CAPABILITY, `absval`.)
+        // The mirror of the top-level `U.Extension` case: same lifting, same order, so the two
+        // fronts produce trees that agree by construction rather than by luck.
+        case U.Extension(recv, eds, es) =>
+          recv match
+            case None => no("an `extension` with no receiver parameter", es)
+            case Some(r) =>
+              eds.toList.map(d =>
+                Def(d.name, param(r) :: d.params.toList.map(param),
+                    d.body match
+                      case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
+                      case other                => expr(other),
+                    pos(d.span), d.tparams.toList, boundParams(d)))
         case other => no("a `trait` member that is not a `def`", other.span)
       }
       Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
@@ -275,6 +287,19 @@ object UniFront:
               ds = ds :+ Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
             case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
               vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
+            // THE INSTANCE SIDE of the same construct: `given listMonad: Monad[List] with`
+            // declares its operations exactly as the trait does, so refusing here would accept
+            // every interface and reject every implementation of one.
+            case U.Extension(recv, eds, es) =>
+              recv match
+                case None => no("an `extension` with no receiver parameter", es)
+                case Some(r) =>
+                  ds = ds ++ eds.toList.map(d =>
+                    Def(d.name, param(r) :: d.params.toList.map(param),
+                        d.body match
+                          case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
+                          case other                => expr(other),
+                        pos(d.span), d.tparams.toList, boundParams(d)))
             case other => no("a non-`def`, non-`val` member of a `given … with`", other.span)
           }
           // The HEAD of the declared type, so `summon` has something to match against — the same

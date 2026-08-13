@@ -1181,8 +1181,16 @@ object Parser:
     *
     * The generators are separated by newlines or `;`, and the whole list may be parenthesised. */
   private def parseFor(ts0: List[Tok], p: Pos): (Expr, List[Tok]) =
+    // BRACES AS WELL AS PARENS. `for { g <- ff; x <- fa } yield g(x)` is how the std typeclass
+    // tower writes it — `std/functor-applicative-monad.ssc:56` — and v3's own parser accepted only
+    // `(…)`, so uniml could read those modules and this front could not. That is a one-sided
+    // capability gap rather than a disagreement, and `front-diff` counts it: the gap rose 86 -> 90
+    // the moment `extension`-in-a-trait let uniml through. Closing it here is the alternative to
+    // declaring four new known-divergent files, and it is the honest one.
     val paren = isPunct(peek(ts0), "(")
-    var ts = if paren then ts0.tail else skipLayoutTokens(ts0)
+    val brace = isPunct(peek(ts0), "{")
+    val closer = if brace then "}" else ")"
+    var ts = if paren || brace then ts0.tail else skipLayoutTokens(ts0)
     var gens: List[(String, Expr, List[Expr])] = Nil   // name, source, guards
     var go = true
     while go do
@@ -1198,13 +1206,13 @@ object Parser:
         t = skipLayoutTokens(tg)
       gens = gens :+ ((n, src, guards))
       if isPunct(peek(t), ";") then ts = t.tail
-      else if isId(peek(t), "do") || isId(peek(t), "yield") || isPunct(peek(t), ")") then
+      else if isId(peek(t), "do") || isId(peek(t), "yield") || isPunct(peek(t), closer) then
         ts = t
         go = false
       else ts = t
       if !go then ()
-      else if isId(peek(ts), "do") || isId(peek(ts), "yield") || isPunct(peek(ts), ")") then go = false
-    if paren then ts = expectPunct(ts, ")")
+      else if isId(peek(ts), "do") || isId(peek(ts), "yield") || isPunct(peek(ts), closer) then go = false
+    if paren || brace then ts = expectPunct(ts, closer)
     ts = skipLayoutTokens(ts)
     val yields = isId(peek(ts), "yield")
     if !yields && !isId(peek(ts), "do") then
@@ -1477,7 +1485,12 @@ object Parser:
             if isPunct(peek(ts), "(") then depth = depth + 1
             else if isPunct(peek(ts), ")") then depth = depth - 1
             ts = ts.tail
-        if isId(peek(ts), "with") then ts = ts.tail else go = false
+        // `extends A, B` AS WELL AS `extends A with B`. Scala 3 spells a second parent with a
+        // COMMA and the std typeclass tower uses it — `trait Traversable[T[_]] extends Functor[T],
+        // Foldable[T]` (`std/foldable-traversable.ssc:48`). uniml took it, this front did not, so
+        // two modules were readable on one front only; `front-diff` counts that as a capability gap
+        // and it is the last of the four that opened when `extension`-in-a-trait landed.
+        if isId(peek(ts), "with") || isPunct(peek(ts), ",") then ts = ts.tail else go = false
       (out, ts)
 
   /** The `def` members of a `class`/`trait`/`object` body, indented or braced. One reader for all
@@ -1515,6 +1528,14 @@ object Parser:
           case v: Stmt.Val => vals = vals :+ v
           case _           => throw ParseFail(posOf(ts), "a member of a " + what + " must be a definition")
         }
+        ts = t
+      // AN `extension` BLOCK INSIDE THE BODY — how the std typeclass tower declares every one of
+      // its operations (`Foldable`, `Functor`, `Applicative`, `Traversable`). `parseExtension`
+      // already lifts the receiver into the first parameter, which is the shape a member has
+      // anyway, so this is the SAME construct one scope deeper rather than a second parser.
+      else if isId(peek(ts), "extension") then
+        val (ds, t) = parseExtension(ts.tail, posOf(ts))
+        members = ds.reverse ++ members
         ts = t
       else
         throw ParseFail(posOf(ts), "only `def` members are supported in a " + what +

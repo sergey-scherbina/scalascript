@@ -1528,6 +1528,145 @@ object Lower:
         case other => other)
       defs.map(d => d.copy(body = fix(d.body)))
 
+  /** `xs.map(f)` on a `given … with` INSTANCE — the call-site half of a typeclass extension.
+    *
+    * WHY THE PARSER HALF ALONE WAS A REGRESSION. An `extension` inside a `trait` or a `given`
+    * parses into `Def`s with the receiver lifted first, which makes them look like ordinary
+    * members — and ordinary members are dispatched by the receiver's runtime TAG. A list's tag is
+    * `Cons`, `Cons` has no `fmap`, and six corpus cases went from an honest refusal to
+    * `Cons.fmap was called but does not exist`. Parsing a construct without lowering it is worse
+    * than refusing it, which is why that state was measured and reverted rather than landed.
+    *
+    * HOW THE INSTANCE IS CHOSEN — the owner's decision, `v3/specs/20-core-language.md` §4a1, and
+    * an APPROXIMATION taken deliberately with its edges written down there:
+    *
+    *   1. the receiver's CONSTRUCTOR. A tag names exactly one type head — `Cons`/`Nil` belong only
+    *      to `List`, `Some`/`None` only to `Option` — so this is a function, not a guess, and the
+    *      rewrite still happens at LOWERING time rather than at run time.
+    *   2. otherwise a parameter's DECLARED type, which the front keeps as text in `Param.tpe`.
+    *
+    * `Stmt.Val` records no type at all, so a receiver bound by a `val` is resolved by its
+    * constructor or not at all. That is the debt, not an oversight.
+    *
+    * WHEN SEVERAL INSTANCES PROVIDE THE METHOD, THE SUBTRAIT WINS. Measured before the rule was
+    * chosen: 10 of 48 (type, method) pairs in `std` are declared by two traits — `List.foldLeft` by
+    * both `Foldable` and `Traversable`, `List.pure` by both `Monad` and `Selective` — and in every
+    * one of them the pair is a trait and a trait that EXTENDS it. Unrelated traits are left alone,
+    * so the call falls through to the existing refusal with a position rather than picking one. */
+  private def rewriteGivenExtensionCalls(defs: List[Def], objects: List[ObjectDef],
+                                         traits: List[TraitDef], classes: List[ClassDef]): List[Def] =
+    /** `Monad[List]` -> ("Monad", "List"). The whole declared type is kept by the parser, not just
+      * its head — the stale comment above `givenOf`'s assignment says otherwise and the code below
+      * it corrects itself two lines later. */
+    def headAndArg(t: String): Option[(String, String)] =
+      val i = t.indexOf('[')
+      if i < 0 || !t.endsWith("]") then None
+      else
+        val arg = t.substring(i + 1, t.length - 1).trim
+        val j = arg.indexOf('[')
+        Some((t.substring(0, i).trim, (if j < 0 then arg else arg.substring(0, j)).trim))
+
+    // (type head, method) -> (instance object name, trait head)
+    var table: Map[(String, String), List[(String, String)]] = Map.empty
+    objects.foreach { o =>
+      o.givenOf.flatMap(headAndArg).foreach { (traitHead, typeArg) =>
+        o.defs.foreach { d =>
+          val k = (typeArg, d.name)
+          table = table.updated(k, (o.name, traitHead) :: table.getOrElse(k, Nil))
+        }
+      }
+    }
+    if table.isEmpty then defs
+    else
+      /** Does `sub` extend `sup`, directly or through another trait? The rule is "the more specific
+        * one wins", and specificity here IS the extends graph. */
+      def extendsFrom(sub: String, sup: String): Boolean =
+        var seen = Set.empty[String]
+        var todo = List(sub)
+        var found = false
+        while todo.nonEmpty && !found do
+          val h = todo.head; todo = todo.tail
+          if !seen.contains(h) then
+            seen = seen + h
+            val ps = traits.find(_.name == h).map(_.parents).getOrElse(Nil)
+            if ps.contains(sup) then found = true else todo = todo ++ ps
+        found
+
+      // A CONSTRUCTOR NAMES ITS TYPE. The built-in five are the only ones where the two differ; a
+      // `case class C` is its own type, which is why the map is this short rather than a census.
+      val ctorType: Map[String, String] =
+        Map("Cons" -> "List", "Nil" -> "List", "Some" -> "Option", "None" -> "Option",
+            "Right" -> "Either", "Left" -> "Either")
+      def typeOfCtor(n: String): Option[String] =
+        ctorType.get(n).orElse(classes.find(_.name == n).map(_.name))
+
+      def receiverType(e: Expr, params: Map[String, String]): Option[String] = e match
+        case Expr.Call(fn, _, _) if fn == "List" || fn == "Seq" => Some("List")
+        case Expr.Call(fn, _, _) => typeOfCtor(fn)
+        case Expr.Name(n, _)     => typeOfCtor(n).orElse(params.get(n))
+        case _                   => None
+
+      def pick(ty: String, m: String): Option[String] =
+        table.get((ty, m)) match
+          case None | Some(Nil) => None
+          case Some(List((obj, _))) => Some(obj)
+          case Some(cands) =>
+            // The subtrait wins: keep the candidate no OTHER candidate is a supertrait of.
+            cands.filter((_, t) => !cands.exists((_, u) => u != t && extendsFrom(u, t))) match
+              case List((obj, _)) => Some(obj)
+              case _              => None   // unrelated traits — left for the existing refusal
+
+      // AN INSTANCE'S OWN BODY IS NOT REWRITTEN, and this is the arm that stops an infinite loop.
+      //
+      // `given listMonad: Monad[List] with … def map(fa) = fa.map(f)` means the CONCRETE list's
+      // `map` in its own body — that is the only reading under which it terminates, and it is what
+      // Scala resolves too, by preferring the receiver's own member over an extension. Rewriting it
+      // turned the method into a call to itself: `std-functor-applicative-monad` compiled and then
+      // SPUN, seventeen minutes before I looked, on a corpus run that had been six minutes the day
+      // before.
+      //
+      // MY PROBE MISSED IT BY ONE CHARACTER. I named the method `fmap`, so `fa.map` inside it
+      // resolved to the built-in and everything passed. `std` names it `map`, and that is the whole
+      // difference between a green probe and a hang. The corpus caught what three probes could not.
+      // Names NOTHING but a `given` instance provides. A class method or a built-in of the same
+      // name means the call has another owner and must be left alone.
+      val classMembers = classes.flatMap(c => c.methods.map(_.name)).toSet
+      val instanceOnly: Set[String] =
+        table.keySet.map((_, m) => m) -- classMembers -- builtinMethods.toSet -- defs.map(_.name).toSet
+      val instanceDefs: Set[String] =
+        objects.filter(_.givenOf.nonEmpty).flatMap(o => o.defs.map(d => o.name + "." + d.name)).toSet
+      defs.map { d =>
+        if instanceDefs.contains(d.name) then d
+        else
+          val params = d.params.flatMap(q => q.tpe.map(t => (q.name, headAndArg(t).map(_._1).getOrElse(t)))).toMap
+          val hasGiven = d.params.exists(_.given_) || d.givenParams.nonEmpty
+          d.copy(body = mapDeep(d.body, x => x match
+            case Expr.MethodCall(recv, m, args, p) =>
+              receiverType(recv, params).flatMap(ty => pick(ty, m)) match
+                case Some(obj) => Expr.Call(obj + "." + m, recv :: args, p)
+                // UNRESOLVED IS REFUSED, not left to fall through, and that is the difference
+                // between an honest refusal and a wrong answer. A name declared ONLY by `given`
+                // instances is not a method of anything: leaving it alone sends it to dispatch by
+                // the receiver's runtime tag, which cannot possibly find it, and the program dies
+                // with `Tuple2.bimap was called but does not exist` — a message about a tag, from
+                // inside v2, with no position. Measured: three corpus cases went from an honest
+                // refusal to exactly that. Refusing HERE says which name, where, and why.
+                //
+                // Only when nothing else could own the name: a class method or a built-in of the
+                // same name is a different thing entirely and is left to the paths that handle it.
+                // NOT INSIDE A DEF THAT CARRIES A `given` PARAMETER. There the receiver's type
+                // comes from a context bound and `resolveGivenArgs`/`resolveSummons` resolve it
+                // further down the pipeline — refusing here pre-empts a mechanism that works.
+                // Measured: the first version refused nine cases, six of them the `tagless-*`
+                // family (`combine`, `empty`, `pure`, `eqv`), which had been fine.
+                case None if instanceOnly.contains(m) && !hasGiven =>
+                  throw LowerFail(p, "'" + m + "' is provided by a `given` instance, and the type " +
+                    "of the receiver is not known here — it is a `val` with no declared type, or " +
+                    "the instances that provide it belong to unrelated traits")
+                case None => x
+            case other => other))
+      }
+
   private def rewriteByName(defs: List[Def]): List[Def] =
     val byNameParams: Map[String, Set[Int]] =
       defs.map(d => (d.name, d.params.zipWithIndex.filter((pm, _) => pm.byName).map(_._2).toSet))
@@ -2700,9 +2839,15 @@ object Lower:
     // left to resolve against.
     // A CONTEXT BOUND BECOMES A PARAMETER HERE, not in the parser: the two fronts print the same
     // tree that way, and only this file has to know that `[A: Monoid]` means `(using Monoid[A])`.
-    val allDefs = rewriteExtensionCalls(resolveMethodRefs(
-      resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs),
-      p.classes)
+    // `rewriteGivenExtensionCalls` runs AFTER `rewriteExtensionCalls` and before nothing else: a
+    // top-level extension is the more specific reading of `v.m(x)` — it names one function, while
+    // an instance method has to be chosen — so the unambiguous rewrite goes first and this one only
+    // sees what it left.
+    val allDefs = rewriteGivenExtensionCalls(
+      rewriteExtensionCalls(resolveMethodRefs(
+        resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs),
+        p.classes),
+      p.objects, p.traits, p.classes)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //
