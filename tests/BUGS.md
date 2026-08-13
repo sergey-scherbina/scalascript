@@ -280,26 +280,48 @@ tryLamDirect would pass a gate built only from the failure.
      confirmed: yes
      gate: tests/e2e/v1-jit-size.sh -->
 
-`scalascript.codegen.rust.RustCodeWalk$::renderTerm` is **19630 bytecodes — 2.45× the 8000-byte
-HotSpot `HugeMethodLimit`**, past which a method is never JIT-compiled at all. It has been over that
-line for a long time and is still growing: 16346 → 19550 over the period `v1-jit-size` was wired to
-nothing, then 19550 → 19630 on 2026-08-12.
+`scalascript.codegen.rust.RustCodeWalk$::renderTerm` is **20333 bytecodes — 2.54× the 8000-byte
+HotSpot `HugeMethodLimit`**, past which a method is never JIT-compiled. It has been over that line
+for a long time and keeps growing: 16346 → 19550 over the period `v1-jit-size` was wired to nothing,
+then 19550 → 19630 → 20042 → 20333, the last three raises all inside two days and all announced.
 
-**The freeze was raised to 19630 rather than the growth reverted, and this entry exists so that the
-raise is not the end of it.** By the gate's own definition growth is a regression; bumping a constant
-quietly is how a freeze stops meaning anything. What the bump does NOT mean is that anyone got
-slower today — at 2.45× the limit the method was already never JIT-compiled, so +80 is drift, not a
-new hazard. The hazard is the 19630.
+**THE JIT FRAMING WAS WRONG AND IS RETIRED HERE. Measured 2026-08-13, because three raises in one
+day had turned "2.5× the JIT limit" into a phrase nobody had checked.** The instrument was validated
+before the result was believed: `-XX:-DontCompileHugeMethods` must actually change the thing under
+test, and on a single module it does not — renderTerm is submitted zero times with the flag AND
+without, because it never gets hot. Only across 51 modules in ONE JVM does the flag bite (0 without,
+1 with, tier 3). On that workload — the most favourable one that exists — the A/B says:
+
+| | |
+|---|---|
+| capped, renderTerm never JIT-compiled | 2.25 s |
+| uncapped, renderTerm JIT-compiled | 2.29 s |
+
+**+0.040 s, in the wrong direction, inside the spread.** The work is in the ARMS — 402
+`RustCodeWalk` methods do get compiled, as separate lambda and anon-class methods — not in the
+dispatch. And that is generous: in production this compiler runs one short-lived JVM per module,
+where renderTerm is never submitted even with the flag.
+
+**So "the difference between interpreted and compiled for every emit", which this entry used to
+claim, is false for this method.** It stays open, because the debt is real — but the debt is
+**198 arms in one 2000-line match where ORDER IS SEMANTICS**. A `Map.contains` arm must precede the
+str-receiver arm; an `extension` call arm must come first among the `Select` arms; a signal read
+must be decided before the generic call arms. Every one of those was a defect before it was a rule.
+
+**What closing it looks like: FEWER ARMS, not smaller ones.** Measured too — extracting two arms'
+bodies into helpers moved the method 20333 → 20325, **8 bytecodes of 291**. The cost of an arm is
+the pattern-match dispatch. Shrinking means routing a whole family of syntax (the collection
+members, say) to a separate renderer behind ONE arm.
+
+**This does not generalise to `handleActorOp`**, the other big frozen method, and the distinction is
+the point: that one is the actor scheduler, running inside the user's long-lived program millions of
+times, which is exactly the hazard the limit describes — see `v1-interpreter-hot-path-never-jits`.
+Same list, same number, opposite meaning.
 
 **Who grew it and why they could not have known:** `189b8b111`, *fix(rust): the last four, and the
 BADRUST column reaches zero*, at 10:10 — thirty-two minutes after `d7c158fbf` made this gate capable
 of catching anything for the first time. It had been referenced by no workflow and no suite. Nobody
 did anything wrong; the gate simply did not exist yet in any sense that could have warned them.
-
-**What closing this looks like**, and it is the same shape as the interpreter's hot path
-(`v1-interpreter-hot-path-never-jits`, currently claimed): split `renderTerm` along its term cases
-until each piece is under 8000. The Rust backend's whole codegen goes through it, so this is not a
-micro-optimisation — it is the difference between interpreted and compiled for every emit.
 
 ## derived-budget-underpredicts-ci-and-reds-main — a harvester that filtered out its own evidence
 

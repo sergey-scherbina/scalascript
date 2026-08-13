@@ -137,6 +137,43 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # which turned main red the moment the gate reached the push path. Rebuild AFTER the rebase, not
 # before; the repo has that lesson written down and it still cost a red.
 #
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# WHAT THE JIT LIMIT COSTS renderTerm: NOTHING MEASURABLE. Measured 2026-08-13, because three
+# raises in one day had turned "it is 2.5x the JIT limit" into a phrase nobody had checked.
+#
+# The instrument was validated BEFORE the result was believed — `-XX:-DontCompileHugeMethods`
+# has to actually change the thing under test, and a first attempt did not:
+#
+#   one module, one JVM:   renderTerm submitted 0 times WITH the flag and 0 without   <- vacuous
+#   51 modules, one JVM:   0 without the flag; 1 WITH it, tier 3, (20334 bytes)       <- valid
+#
+# Then the A/B, alternating, on that same 51-module workload — the most favourable one there is,
+# since it is the only way the method gets hot at all:
+#
+#   capped   (renderTerm NEVER JIT-compiled)   2.25 s
+#   uncapped (renderTerm JIT-compiled)         2.29 s     delta +0.040 s, INSIDE the spread
+#
+# Allowing the JIT to compile it changes nothing, and even when allowed it only ever reaches
+# tier 3, never tier 4. The work is in the ARMS — 402 RustCodeWalk methods do get compiled, as
+# separate lambda and anon-class methods — not in the dispatch. And that measurement is generous:
+# in production this compiler runs ONE SHORT-LIVED JVM PER MODULE, where renderTerm is never
+# submitted even with the flag, because it never becomes hot.
+#
+# SO STOP CITING THE JIT FOR THIS ENTRY. The freeze on renderTerm is worth keeping, but for the
+# reason that is real: 198 arms in one 2000-line match, where ORDER IS SEMANTICS. A `Map.contains`
+# arm must precede the str-receiver arm; an `extension` call arm must come first among the Select
+# arms; a signal read must be decided before the generic call arms. Each of those was a defect
+# before it was a rule. That is a maintainability ratchet, not a performance one, and it is the
+# only argument that survives measurement.
+#
+# THIS DOES NOT GENERALISE TO `handleActorOp`, and the distinction is the point. That one is the
+# ACTOR SCHEDULER — it runs inside the user's long-lived program, millions of times, where a
+# never-JIT-compiled dispatch loop is exactly the hazard this limit describes; splitting such a
+# method elsewhere in this repo bought 2.4-10.8x. The four codegen/emitter entries run at COMPILE
+# time in a process that exits in seconds. Same list, same number, opposite meaning. Anyone
+# reusing this measurement must re-take it for the method they are actually looking at.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+#
 # The two NEW entries are frontend emitters, not the INT hot path; they are frozen with that as the
 # measured reason rather than fixed here. `handleActorOp` is UNCHANGED at 28036 — see the nested-jar
 # note below for why it briefly looked as though it had gone away.
