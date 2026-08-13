@@ -2,10 +2,10 @@ slug: gate-server-leak
 branch: feature/gate-server-leak
 agent: claude-code
 started: 2026-08-13T20:25:59Z
-heartbeat: 2026-08-13T20:25:59Z
+heartbeat: 2026-08-13T20:44:20Z
 status: claimed-before-planning
 items: wired-gates-share-hard-coded-tcp-ports
-paths: file:tests/BUGS.md file:tests/e2e/no-leaked-servers.sh file:scripts/smoke-ci.ssc
+paths: file:tests/BUGS.md file:tests/e2e/no-leaked-servers.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: wire the leak detector where the runner is isolated; land the retraction
