@@ -249,6 +249,48 @@ deployed copy was left alone.
 
 Verified on a toolchain built from current `main` plus the branch, `.build-digest` equal to the tree
 digest and the STALE banner silent.
+## toint-on-a-non-integer-diverges — toInt on a non-integer string aborts the program on run and silently yields 0 on build-rust; the natural round-trip check for is-this-a-number works on one lane and kills the other
+<!-- triage: new
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 04b2f12fc
+     repro: none
+     kind: bug -->
+
+`toInt` on a string that is not an integer does two different things, and the quiet one is the Rust
+lane.
+
+```scala
+def isInt(s: String): Boolean =
+  s.toInt.toString == s
+def main(): Unit =
+  println(isInt("8"))
+  println(isInt("8.0"))
+  println(isInt("abc"))
+main()
+```
+
+- `ssc run` → `true`, then ABORTS: `ssc: String.toInt: invalid integer`
+- `ssc-tools build-rust` → `true false false`
+
+The Rust arm is `self.trim().parse::<i64>().unwrap_or(0)`, so a non-integer silently becomes 0.
+Scala throws, and `run` matches Scala; the two lanes disagree on every non-integer input.
+
+Neither is obviously the bug — that is your call — but the shapes are not equivalent and the
+difference is invisible until the program moves lanes:
+
+- a round-trip check (`s.toInt.toString == s`) is the natural way to ask "is this an integer", and
+  it WORKS on build-rust while it kills the program on run
+- code written against `run` may rely on the throw, and on the Rust lane it will quietly compute
+  with a 0 it never asked for
+
+Whichever way you go, one lane needs changing, and `toIntOption` (or any total form) would let a
+program ask the question without depending on which one it got. Reported because this is exactly
+the class that survives a test suite: same source, same inputs, different answers, no diagnostic.
+
+NOTE, unrelated: the `&String` / `&f64` arms from the earlier rozum report are in `main` now and
+they do their job — the two-local-copies workaround I was carrying is no longer needed, the direct
+`s.toInt.toString == s` compiles. Thank you.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
