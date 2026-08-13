@@ -609,6 +609,15 @@ val suite = List(
   // --self-test falls through to the census, so this runs the detector's self-check too.
   // (v1-interpreter-hot-path-never-jits.)
   Check(".", "v1-jit-size", "tests/e2e/v1-jit-size.sh", List("--self-test"), 180000),
+  // A NEW gate in tests/e2e must be invoked by something. A gate nobody runs reports GREEN by not
+  // existing: v1-jit-size.sh sat unwired from 2026-07-30 and in that silence four frozen methods
+  // grew, two new offenders appeared, and the largest method in the tree was never censused.
+  //
+  // A RATCHET, not another sweep. orphaned-e2e-gates-52 drained the pile on 2026-08-02; re-censused
+  // 2026-08-13 it was 183 scripts and 36 orphans again, because gates are written faster than they
+  // are wired. Today's are frozen by name and the list can only shrink.
+  // (orphaned-e2e-gates-52.)
+  Check(".", "no-orphan-gates", "tests/e2e/no-orphan-gates.sh", List("--self-test"), 120000),
   // Mixed Int/Double comparison across FIVE lanes, and the only gate here whose oracle is `run-jvm`
   // rather than `--v1`: on this question the interpreter was one of the WRONG lanes, so the usual
   // shape would have frozen the defect as the reference. It refuses to judge when real Scala stops

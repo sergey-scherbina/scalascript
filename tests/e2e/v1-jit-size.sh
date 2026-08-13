@@ -104,6 +104,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # `dispatchList (4124 bytes)` reaches tier 3 AND tier 4 with the default limit in force, where at
 # 14697 bytes it was never submitted at all.
 #
+# renderTerm 19630 -> 20042 the NEXT DAY, from b68389c3b (rust extension methods lower to a function
+# taking the receiver first). RAISED, NOT REVERTED, and raised out loud: by this gate's own
+# definition growth IS a regression, so a constant bumped quietly is how a freeze stops meaning
+# anything. The commit is named, the delta is +412, and the debt underneath has its own entry —
+# renderTerm is 20042 bytecodes, 2.51x the limit, so it is never JIT-compiled and has not been for
+# a long time. That is the hazard; the +412 is drift. Third growth caught in two days, which is what
+# the gate is for: before it ran, renderTerm went 16346 -> 19550 with nobody noticing.
+#
+# Measured on a build whose stamp has b68389c3b as an ancestor — checked, not assumed, because a
+# number taken from a tree fast-forwarded but not rebuilt is how this same line went out 80 short
+# yesterday.
+#
 # renderTerm 19550 -> 19630 SAME DAY, and the miss is instructive: `189b8b111` (the Rust BADRUST
 # work) had already landed when I re-baselined, but I measured against a toolchain built BEFORE the
 # rebase that brought it in. The gate ran green on stale bytecode and the number went out 80 short —
@@ -116,7 +128,7 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-19630 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+20042 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

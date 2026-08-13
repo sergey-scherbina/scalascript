@@ -2968,7 +2968,7 @@ still a proxy for it.
      lane: apparatus
      area: build
      kind: apparatus
-     gate: none -->
+     gate: tests/e2e/no-orphan-gates.sh -->
 
 **Measured 2026-08-02.** `tests/e2e` holds 126 scripts. 52 of them are referenced by no workflow, no
 suite, and no other script — only, at most, by prose in a `.md`. Running all 52 with a built
@@ -3174,6 +3174,52 @@ week and immediately caught real defects — `negtc-mapreduce-gate` proved the p
 negtc shard rests on and had never run, and `v21-negative-toolchain-release-gate-smoke` died at its
 first line so none of its seven drift rejections ever executed. A gate that runs nowhere is not
 neutral; it is a claim of coverage that is not being made.
+
+### 2026-08-13 — THE SWEEP DID NOT HOLD, so the leak is now ratcheted shut
+
+**Re-censused today: 183 scripts, 35 invoked by nothing.** On 2026-08-02 it was 126 and 52. The pile
+was drained by 13 and refilled by new arrivals — **gates are written faster than they are wired**,
+so a one-off cleanup buys a few weeks and this entry would have to be re-opened every month.
+
+`tests/e2e/no-orphan-gates.sh` freezes today's 35 by name, fails on a NEW one, and fails when a
+frozen entry stops being an orphan, so the list can only shrink. Wired into `scripts/smoke-ci`, per
+push, ~21 s. Same shape as `v1-jit-size.sh`'s frozen debt.
+
+**Verified in both directions, on real files rather than fixtures:** a planted unwired script turns
+it RED naming the script; adding one reference to it turns it GREEN again; both artifacts removed.
+
+**Three defects it caught in itself while being written, all the same family — a search that lies:**
+
+1. **`grep` exits nonzero when a search PATH does not exist, while still printing the matches it
+   found.** Under `set -euo pipefail` that made a correctly-wired script report as an orphan, with
+   the evidence sitting in output the script had just discarded. The helper now decides on OUTPUT,
+   never on exit status, and the self-test and the census share it so they cannot drift.
+2. **IT MATCHED ITSELF.** Every frozen name is a literal string inside the gate's own file, so the
+   search found that file and called the orphan wired. The first run reported **1 orphan out of 183
+   and demanded 38 frozen entries be deleted as "now invoked"** — the detector had become a rubber
+   stamp for exactly the list it exists to hold. Same shape as a `pgrep -f` waiter matching its own
+   command line. `SELF` is excluded via `BASH_SOURCE` and the self-test asserts it.
+3. **My hand census said 39, the gate says 35, and the gate was right.** Four `v21-explicit-*`
+   gates are invoked through `tests/fixtures/v21-explicit-lanes/manifest.tsv` — a data file a runner
+   reads — which a search of `tests/e2e` alone cannot see. A caller is not always a call site.
+
+### The remaining 35, triaged — none of them is dead
+
+| | count |
+|---|---|
+| subject file still present | 22 |
+| builds its own fixture inline (no file subject) | 13 |
+| subject genuinely gone | **0** |
+
+The one that looked gone is `keyword-import-missing-module.sh`, whose subject is
+`std/nosuchmodule_9d4f.ssc` — **absent on purpose**, because the gate asserts that importing a
+missing module errors. A liveness heuristic reports exactly this as dead; do not delete on that
+signal without reading the gate.
+
+So "delete the rot" is not the answer for any of them: these are live gates nobody runs. The next
+batch is the 2026-08-02 procedure repeated — run them against a fresh launcher, wire the cheap
+passers, file the failures — now bounded, because nothing new can join the list.
+
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed
