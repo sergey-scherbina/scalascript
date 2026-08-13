@@ -40,8 +40,8 @@
 # out because I froze `BigInt(1) == 1.0` as `false`, reasoning that BigInt.equals rejects a Double;
 # the oracle answered `true` and this gate REFUSED TO JUDGE rather than charge my mistake to the
 # other lanes — which is exactly what the refuse-to-judge branch is for. They are in now
-# (2026-08-12), in two blocks: `big-agree.ssc` for the rows every lane gets right, `big-gap.ssc` for
-# the ones still wrong somewhere, each lane's current answer FROZEN so the gate speaks up when one
+# (2026-08-12), as rows 12-19 of the SAME source: 12-16 the ones every lane gets right, 17-19 the
+# ones still wrong somewhere with each lane's current answer FROZEN so the gate speaks up when one
 # of them is fixed. Whatever is added here, measure the oracle first — that habit is what caught the
 # original mistake.
 set -euo pipefail
@@ -74,9 +74,28 @@ def main(): Unit =
   println(lit(2))
   println((1 == 1).toString)
   println(("a" == "a").toString)
+  println((BigInt(1) == 1).toString)
+  println((BigInt(2) == 1.0).toString)
+  println((Decimal(1) == 1).toString)
+  println((BigDecimal(1) == 1).toString)
+  println((BigInt(2) == 2).toString)
+  println((BigInt(1) == 1.0).toString)
+  println((1.0 == BigInt(1)).toString)
+  println((BigDecimal(1) == 1.0).toString)
 EOF
 
-ROWS=11
+# 11 comparison rows, then 5 wide-type rows, then 3 that are still wrong somewhere. ONE file and
+# one process per lane, not three: this check was 166.4 s and 16% of the smoke run against a
+# baseline of 8% — the most expensive check in the suite and the reason the push path went OVER
+# BUDGET at 1004.5 s of 963 s. It grew because the wide-type rows arrived as two extra SOURCES,
+# and every source costs another launch on all five lanes, one of which compiles real Scala.
+# Rows are cheap; processes are not.
+ROWS=19
+CMP_TO=11      # 1-11   the Int/Double comparisons and the literal-pattern rows
+BIG_FROM=12    # 12-16  wide types, every lane agrees with the oracle
+BIG_TO=16
+GAP_ROWS_END=19
+GAP_FROM=17    # 17-19  wide types, some lane still disagrees — frozen per lane below
 
 # A SECOND source, and every difference from the first one is load-bearing. On 2026-08-12 the
 # native front's checker refused
@@ -127,28 +146,12 @@ run bytecode cmp.ssc "$ROWS" "$TOOLS" run --bytecode
 run js       cmp.ssc "$ROWS" "$TOOLS" run-js
 
 # ── The WIDE numeric types ───────────────────────────────────────────────────────────────────────
-# Split in two on purpose. `big-agree.ssc` holds the rows where every lane now answers what real
-# Scala answers; `big-gap.ssc` holds the rows where one or more lanes still do not, with each lane's
-# CURRENT answer frozen. A known gap left unasserted is a gap nobody notices closing — freezing the
-# wrong value makes the gate go red the day it is fixed, which is the only moment anyone will want
-# to be told.
-cat > "$tmp/big-agree.ssc" <<'EOF'
-def main(): Unit =
-  println((BigInt(1) == 1).toString)
-  println((BigInt(2) == 1.0).toString)
-  println((Decimal(1) == 1).toString)
-  println((BigDecimal(1) == 1).toString)
-  println((BigInt(2) == 2).toString)
-EOF
-BIG_ROWS=5
-
-cat > "$tmp/big-gap.ssc" <<'EOF'
-def main(): Unit =
-  println((BigInt(1) == 1.0).toString)
-  println((1.0 == BigInt(1)).toString)
-  println((BigDecimal(1) == 1.0).toString)
-EOF
-GAP_ROWS=3
+# Rows 12-19 of `cmp.ssc`, not their own sources. They are still two GROUPS and the split is the
+# point: 12-16 are rows where every lane now answers what real Scala answers, 17-19 are rows where
+# one or more lanes still do not and each lane's CURRENT answer is frozen below. A known gap left
+# unasserted is a gap nobody notices closing — freezing the wrong value makes the gate go red the
+# day it is fixed, which is the only moment anyone wants to be told.
+slice() { sed -n "$2,$3p" "$tmp/$1.txt"; }
 
 run jvm-top      top.ssc "$TOP_ROWS" "$TOOLS" run-jvm
 run int-top      top.ssc "$TOP_ROWS" "$TOOLS" run --v1
@@ -156,27 +159,16 @@ run native-top   top.ssc "$TOP_ROWS" "$SSC"   run
 run bytecode-top top.ssc "$TOP_ROWS" "$TOOLS" run --bytecode
 run js-top       top.ssc "$TOP_ROWS" "$TOOLS" run-js
 
-run jvm-big      big-agree.ssc "$BIG_ROWS" "$TOOLS" run-jvm
-run int-big      big-agree.ssc "$BIG_ROWS" "$TOOLS" run --v1
-run native-big   big-agree.ssc "$BIG_ROWS" "$SSC"   run
-run bytecode-big big-agree.ssc "$BIG_ROWS" "$TOOLS" run --bytecode
-run js-big       big-agree.ssc "$BIG_ROWS" "$TOOLS" run-js
-
-run jvm-gap      big-gap.ssc "$GAP_ROWS" "$TOOLS" run-jvm
-run int-gap      big-gap.ssc "$GAP_ROWS" "$TOOLS" run --v1
-run native-gap   big-gap.ssc "$GAP_ROWS" "$SSC"   run
-run bytecode-gap big-gap.ssc "$GAP_ROWS" "$TOOLS" run --bytecode
-run js-gap       big-gap.ssc "$GAP_ROWS" "$TOOLS" run-js
 
 # The oracle must say what this gate was written against. If real Scala ever disagrees with the
 # frozen row, the gate refuses to judge rather than charging the difference to the other lanes.
 expected_jvm=$'true\ntrue\ntrue\ntrue\nfalse\ntrue\nfalse\none\nother\ntrue\ntrue'
-if [[ "$(cat "$tmp/jvm.txt")" != "$expected_jvm" ]]; then
+if [[ "$(slice jvm 1 "$CMP_TO")" != "$expected_jvm" ]]; then
   echo "mixed-numeric-comparison: the ORACLE lane (run-jvm) does not match the frozen row." >&2
   echo "  Real Scala is the authority here — if this changed, the FROZEN ROW is what to re-derive," >&2
   echo "  not the other lanes. Refusing to judge." >&2
   echo "  expected: $(echo "$expected_jvm" | tr '\n' '/')" >&2
-  echo "  got:      $(tr '\n' '/' < "$tmp/jvm.txt")" >&2
+  echo "  got:      $(slice jvm 1 "$CMP_TO" | tr '\n' '/')" >&2
   exit 2
 fi
 
@@ -191,19 +183,19 @@ if [[ "$(cat "$tmp/jvm-top.txt")" != "$expected_top" ]]; then
 fi
 
 expected_big=$'true\nfalse\ntrue\ntrue\ntrue'
-if [[ "$(cat "$tmp/jvm-big.txt")" != "$expected_big" ]]; then
+if [[ "$(slice jvm "$BIG_FROM" "$BIG_TO")" != "$expected_big" ]]; then
   echo "mixed-numeric-comparison: the ORACLE lane (run-jvm) does not match the frozen WIDE row." >&2
   echo "  expected: $(echo "$expected_big" | tr '\n' '/')" >&2
-  echo "  got:      $(tr '\n' '/' < "$tmp/jvm-big.txt")" >&2
+  echo "  got:      $(slice jvm "$BIG_FROM" "$BIG_TO" | tr '\n' '/')" >&2
   exit 2
 fi
 
 fail=0
-for lane in int-big native-big bytecode-big js-big; do
-  if ! diff -u "$tmp/jvm-big.txt" "$tmp/$lane.txt" > "$tmp/$lane.diff"; then
+for lane in int native bytecode js; do
+  if ! diff -u <(slice jvm "$BIG_FROM" "$BIG_TO") <(slice "$lane" "$BIG_FROM" "$BIG_TO") > "$tmp/$lane-big.diff"; then
     echo "mixed-numeric-comparison: $lane disagrees with run-jvm (real Scala) on the WIDE types" >&2
     echo "  (-) jvm   (+) $lane" >&2
-    cat "$tmp/$lane.diff" >&2
+    cat "$tmp/$lane-big.diff" >&2
     echo "  rows: 1 BigInt==Int · 2 BigInt!=Double · 3 Decimal(Int) · 4 BigDecimal(Int) · 5 control" >&2
     echo "  Row 3 or 4 failing on native/bytecode means the v2 front stopped binding \`BigDecimal\`," >&2
     echo "  or \`dec.parse\` stopped accepting a non-String — those two are what made \`Decimal(1)\`" >&2
@@ -213,18 +205,18 @@ for lane in int-big native-big bytecode-big js-big; do
 done
 
 # The frozen KNOWN-WRONG block. Each lane's current answer, not the oracle's — read the comment on
-# `big-gap.ssc` above. When one of these starts matching jvm, this gate FAILS on purpose: move that
-# row into `big-agree.ssc` and delete its line here.
+# rows 17-19 above. When one of these starts matching jvm, this gate FAILS on purpose: move that
+# row up into the 12-16 group (widen BIG_TO, raise GAP_FROM) and delete its line here.
 gap_expect() { case $1 in
-  jvm-gap|js-gap)                  printf 'true\ntrue\ntrue' ;;
-  native-gap|bytecode-gap)         printf 'true\ntrue\nfalse' ;;
-  int-gap)                         printf 'false\nfalse\nfalse' ;;
+  jvm|js)             printf 'true\ntrue\ntrue' ;;
+  native|bytecode)    printf 'true\ntrue\nfalse' ;;
+  int)                printf 'false\nfalse\nfalse' ;;
 esac; }
-for lane in jvm-gap js-gap native-gap bytecode-gap int-gap; do
-  if [[ "$(cat "$tmp/$lane.txt")" != "$(gap_expect "$lane")" ]]; then
+for lane in jvm js native bytecode int; do
+  if [[ "$(slice "$lane" "$GAP_FROM" "$GAP_ROWS_END")" != "$(gap_expect "$lane")" ]]; then
     echo "mixed-numeric-comparison: the frozen KNOWN-GAP row moved on $lane" >&2
     echo "  frozen: $(gap_expect "$lane" | tr '\n' '/')" >&2
-    echo "  now:    $(tr '\n' '/' < "$tmp/$lane.txt")" >&2
+    echo "  now:    $(slice "$lane" "$GAP_FROM" "$GAP_ROWS_END" | tr '\n' '/')" >&2
     echo "  rows: 1 BigInt(1)==1.0 · 2 1.0==BigInt(1) · 3 BigDecimal(1)==1.0" >&2
     echo "  If it moved TOWARDS jvm this is a fix landing, not a regression: move the row into" >&2
     echo "  big-agree.ssc. Rows 1-2 on int are blocked on the interp \`infix2Eq\` arms; row 3 on" >&2
@@ -246,7 +238,7 @@ for lane in int-top native-top bytecode-top js-top; do
   fi
 done
 for lane in int native bytecode js; do
-  if ! diff -u "$tmp/jvm.txt" "$tmp/$lane.txt" > "$tmp/$lane.diff"; then
+  if ! diff -u <(slice jvm 1 "$CMP_TO") <(slice "$lane" 1 "$CMP_TO") > "$tmp/$lane.diff"; then
     echo "mixed-numeric-comparison: $lane disagrees with run-jvm (real Scala)" >&2
     echo "  (-) jvm   (+) $lane" >&2
     cat "$tmp/$lane.diff" >&2
