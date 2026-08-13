@@ -106,4 +106,52 @@ cmp "$tmp/server.int" "$tmp/server.v2" || {
   diff "$tmp/server.int" "$tmp/server.v2" >&2 || true; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 exact rows VM/ASM + server vs int)'
+# -- the 2026-07-28 server surface, on BOTH lanes --------------------------------
+#
+# WHY THIS EXISTS. Every case above -- and every MCP example in the corpus -- uses only `tool`,
+# `onConnected` and `onDisconnected`. Those are three of the FOUR members v2's native provider
+# implemented, so while that was the whole corpus the suite stayed green even though 36 of the
+# interpreter's 40 `srv` members were unreachable from `ssc run`, the DEFAULT lane. The gate was
+# not wrong; it never crossed the boundary. This case crosses it.
+#
+# Differential, like the server case above: whatever the two lanes answer, they must answer the
+# same, and a member missing on either fails that lane's run outright.
+cat >"$tmp/mrtr-surface.ssc" <<'MRTREOF'
+---
+name: mrtr-surface
+version: 1.0.0
+description: the 2026-07-28 srv surface must resolve on every lane
+---
+
+```scalascript
+[mcpServer, Tool](std/mcp/server.ssc)
+
+mcpServer { srv =>
+  srv.setMrtrMode("park")
+  srv.setRequestState("outside-a-request")
+  println("mode-set")
+  println("asTask=" + srv.asTask().toString)
+  println("tasks=" + srv.clientSupportsTasks().toString)
+  println("cancelled=" + srv.isCancelled().toString)
+}
+println("surface-ok")
+```
+MRTREOF
+"$ROOT/bin/ssc-tools" run --v1 "$tmp/mrtr-surface.ssc" >"$tmp/mrtr.int" 2>"$tmp/mrtr.int.err" </dev/null || {
+  echo 'v21-standard-mcp-smoke: the 2026 surface FAILED on the interpreter' >&2
+  cat "$tmp/mrtr.int.err" >&2; exit 1
+}
+"$LAUNCHER" run --v2 "$tmp/mrtr-surface.ssc" >"$tmp/mrtr.v2" 2>"$tmp/mrtr.v2.err" </dev/null || {
+  echo 'v21-standard-mcp-smoke: the 2026 surface FAILED on the standard launcher' >&2
+  echo '  a "no field ... on named-method-obj" here means v2 lacks a member v1 has' >&2
+  cat "$tmp/mrtr.v2.err" >&2; exit 1
+}
+cmp "$tmp/mrtr.int" "$tmp/mrtr.v2" || {
+  echo 'v21-standard-mcp-smoke: the 2026 surface answers DIFFERENTLY on the two lanes' >&2
+  diff "$tmp/mrtr.int" "$tmp/mrtr.v2" >&2 || true; exit 1
+}
+grep -q 'surface-ok' "$tmp/mrtr.v2" || {
+  echo 'v21-standard-mcp-smoke: the 2026 surface case did not run to completion' >&2; exit 1
+}
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes)'

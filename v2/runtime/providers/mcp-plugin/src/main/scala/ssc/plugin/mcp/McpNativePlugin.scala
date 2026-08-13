@@ -258,6 +258,39 @@ final class McpNativePlugin extends NativePlugin:
             Value.UnitV
           }
         })
+        // ── MCP 2026-07-28 (P3/P5c) ─────────────────────────────────────
+        //
+        // These existed on the interpreter's `srv` and NOT here, which meant
+        // the whole MRTR and Tasks surface was unreachable from `ssc run` —
+        // the DEFAULT lane. Nothing was red about it because the entire MCP
+        // corpus uses only `tool`, `onConnected` and `onDisconnected`: the
+        // suite never crossed the boundary, so the boundary was invisible.
+        case "setMrtrMode" => Some(closure(1) { args =>
+          // Unknown names are refused rather than silently defaulted: a typo
+          // that quietly selected a mode carrying an idempotence precondition
+          // is the worst failure available here.
+          text(args.head, "srv.setMrtrMode(mode)") match
+            case "park"           => builder.setMrtrMode(scalascript.mcp.MrtrMode.Park)
+            case "replay"         => builder.setMrtrMode(scalascript.mcp.MrtrMode.Replay)
+            case "parkThenReplay" => builder.setMrtrMode(scalascript.mcp.MrtrMode.ParkThenReplay)
+            case other            => sys.error(
+              s"srv.setMrtrMode: unknown mode '$other' (park | replay | parkThenReplay)")
+          Value.UnitV
+        })
+        case "asTask" => Some(closure(0) { _ => Value.BoolV(builder.asTask()) })
+        case "clientSupportsTasks" =>
+          Some(closure(0) { _ => Value.BoolV(builder.clientSupportsTasks) })
+        case "requestState" => Some(closure(0) { _ =>
+          builder.requestState match
+            case Some(s) => Value.DataV("Some", Vector(Value.StrV(s)))
+            case None    => Value.DataV("None", Vector.empty)
+        })
+        case "setRequestState" => Some(closure(1) { args =>
+          builder.setRequestState(text(args.head, "srv.setRequestState(state)"))
+          Value.UnitV
+        })
+        case "isCancelled" => Some(closure(0) { _ => Value.BoolV(builder.isCancelled) })
+
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head
           builder.setOnConnected(() => { context.invoke(cb, Nil); () })
