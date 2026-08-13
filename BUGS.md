@@ -72,6 +72,35 @@ as one — the survey is the instrument that will settle it.
 future `.ssc` API that gives two types a `close`, a `text`, a `name` or a `size` meets it too —
 which is most of them.
 
+**WHERE IT HAPPENS, so the next person starts from the map and not the symptom.** Two sites, and
+the second only reports what the first caused:
+
+- `RustCodeWalk.scala:1571` — `case m.Term.Select(_, m.Term.Name(n)) => n`. The receiver is
+  matched and **discarded**; only the bare member name survives. That is the flattening itself,
+  and the emitter does have the receiver syntactically at that point.
+- `RustCodeWalk.scala:~236` — `ok.filter(_.render.trim.nonEmpty).groupBy(_.name)` then refuses any
+  group of more than one. **This check is CORRECT given the naming above**: if two members really
+  do emit as `fn text`, rustc could not compile the crate either. Do not "fix" it by loosening the
+  count — that would trade a clear refusal for a rustc error inside generated code the user never
+  wrote, which is the failure mode the comments around it were written about.
+
+**Two shapes the fix can take**, and the choice is a real one:
+
+- *Qualify always* — every object member emits as `Object_member`. Uniform, but the emitter keys
+  on the bare `d.name.value` in at least eight places (`_defBodies`, `userDefs`, `effectfulDefs`,
+  `rustFnNamesInBlocks`, the default-argument map, the arity map) and every call site resolves
+  through the same bare name. It is a wide change.
+- *Qualify on collision only* — bare names stay, and only a colliding pair is disambiguated on
+  both its definition and its call sites. Much narrower, and structurally possible because the
+  receiver is present at line 1571 before being dropped. It needs a map of which qualifiers are
+  OBJECTS rather than values, which the walk does not currently build.
+
+**Handle with care, and the file says why.** The comments around the refusal record three earlier
+attempts at this area: counting declarations cost NINE modules their COMPILES status, counting
+reachable ones still cost three, and the current rule counts what actually EMITS. Whoever takes
+this should expect the survey baseline diff — not the gate — to be what catches a regression, as
+it was those three times.
+
 **Not fixed here.** Recorded with the measurement because the fix is in the emitter's naming
 scheme and deserves its own claim, and because the report it was found under can now be sized
 against the real obstacle instead of an assumed one.
