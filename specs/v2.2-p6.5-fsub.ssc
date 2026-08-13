@@ -1787,7 +1787,27 @@ def isArmValHead(ts) = isTok(hd(ts), 2, 7)
 def parseArmVal(ts, env, cx) = parseArmVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseArmVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArmValRest(nm, erase(e, cx), r, env, cx) }
 def parseArmValRest(nm, e, ts, env, cx) = armBodyExpr(skipSemisF(ts), nm :: env, cx) match { case (b, r) => (eNode("(let (" ++ e ++ ") " ++ erase(b, cx) ++ ")"), r) }
-def armBodyExpr(ts, aenv, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), aenv, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts, cx) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)))
+def armBodyExpr(ts, aenv, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), aenv, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, aenv, cx) else (if isAssignHead(ts, cx) then parseArmAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)))
+// An arm body that STARTS with an assignment returned the assignment and DROPPED the rest:
+// `case "a" => acc = 5; acc` answered `<closure>` where both other lanes answer 5 -- a wrong answer
+// at exit 0, not a refusal. The block path already had the right shape (parseBlockAssign :1702) and
+// it is MIRRORED here rather than re-derived, so the two cannot drift: a SIMPLE `x = e` is a
+// statement-position assign and continues as `(seq set rest)` with the scope UNCHANGED, while a
+// COMPOUND `x += e` is an assign EXPRESSION and continues as `(let (set) rest)` pushing an anon slot
+// -- which is precisely what armSeqCont/armSeqMore already do for a bare expression, so the compound
+// case needs no new code at all. `isTok(hd(tl(ts)), 2, 20)` is the block's own simplicity test: the
+// token after the name is `=`. A QUALIFIED `Obj.mem = v` has `.` there and takes the compound path,
+// exactly as it does in a block.
+// The only thing that differs from the block is what ENDS the sequence: an arm stops at `case` or at
+// the enclosing close, which armSeqEnd already knows.
+def parseArmAssign(ts, env, cx) =
+  parseAssign(ts, env, cx) match { case (a, r) => parseArmAssignC(a, isTok(hd(tl(ts)), 2, 20), skipSemisF(r), env, cx) }
+def parseArmAssignC(a, simple, ts, env, cx) =
+  if simple then parseArmAssignSeq(a, ts, env, cx) else armSeqCont(a, ts, env, cx)
+def parseArmAssignSeq(a, ts, env, cx) =
+  if armSeqEnd(ts) then (a, ts) else parseArmAssignMore(a, ts, env, cx)
+def parseArmAssignMore(a, ts, env, cx) =
+  armBodyExpr(ts, env, cx) match { case (b, r) => (eNode("(seq " ++ erase(a, cx) ++ " " ++ erase(b, cx) ++ ")"), r) }
 def armSeqExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => armSeqCont(e, skipSemisF(r), env, cx) }
 def armSeqCont(e, ts, env, cx) = if armSeqEnd(ts) then (e, ts) else armSeqMore(e, ts, env, cx)
 def armSeqEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 6) then true else isTok(hd(ts), 2, 29))
@@ -1795,7 +1815,7 @@ def armSeqMore(e, ts, env, cx) = armSeqStmt(ts, "" :: env, cx) match { case (b, 
 // The SECOND decision site for the same construct, reached by a different surface form: `a; val n = e; b`
 // puts the val one statement later, where armSeqStmt — not armBodyExpr — dispatches. Left out, the leak
 // survives behind a leading statement and the gate above it stays green.
-def armSeqStmt(ts, env, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts, cx) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx)))
+def armSeqStmt(ts, env, cx) = if isArmValHead(ts) then parseArmVal(tl(ts), env, cx) else (if isIndexStoreHead(ts) then parseIndexStore(ts, env, cx) else (if isAssignHead(ts, cx) then parseArmAssign(ts, env, cx) else armSeqExpr(ts, env, cx)))
 def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ erase(b, cx) ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 // A QUALIFIED ctor pattern `case Enum.Case(..)` drops the enum qualifier and matches on the CASE tag

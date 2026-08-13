@@ -1340,6 +1340,13 @@ jobs:
       - name: An empty code fence does not cost F the file
         run: tests/e2e/f-blockend-sentinel-gate.sh
 
+      # `case "a" => acc = 5; acc` returned the assignment and dropped the rest, so F answered a
+      # closure where both other lanes answer 5 — a wrong value at exit 0. The gate carries the
+      # simple and the compound form, which continue differently (seq vs let), and the arm with no
+      # continuation at all, which always worked.
+      - name: An assignment at the head of an arm keeps the rest
+        run: tests/e2e/f-assign-arm-body-gate.sh
+
       # Not an F gate: the REFERENCE front's lexer, and the one divergence this week where it was
       # the wrong one. Asserts BOTH fronts identically, because the two agreeing is the property.
       - name: A plain string literal ends at its closing quote
