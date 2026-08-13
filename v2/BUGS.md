@@ -11844,12 +11844,37 @@ generated program runs and answers with a different number.
 
 ## js-boolean-has-no-tostring-on-the-v2-lane — `__method__: no dispatch for .toString on true`
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: - -->
+     gate: v2/conformance/boolean-methods.coreir
+     fixed-in: dbac41ec5 -->
+
+### FIXED 2026-08-13 — the VM has a CATCH-ALL, the generator had only typed switches
+
+`__method__` in the JS runtime dispatches through `typeof recv==='bigint' / 'number' / 'string'`,
+lists and maps, and then throws. The VM has no Boolean arm either — what it has is
+`case (v, "toString", Nil) => StrV(anyStr(v))`, a generic arm underneath the typed ones. So this was
+never about Boolean: Boolean is simply the receiver that had no switch and was reachable. The
+generator now mirrors the catch-all rather than adding a `typeof recv==='boolean'` branch, which
+would have left the next such type to be found the same way.
+
+**Through `$bridgeShow`, not `$show`, and that is the whole subtlety.** `$show` QUOTES strings and
+renders container elements quoted; `anyStr` leaves them raw, deliberately, for output parity with
+v1. A fallback through `$show` would answer `Some("x")` where every other lane answers `Some(x)`.
+The fixture's String row is the anti-row that pins it: it prints `x`, not `"x"`.
+
+`v2/conformance/boolean-methods.coreir`, four rows, all four backends byte-identical to the VM:
+
+```text
+true.toString    true
+false.toString   false
+7.toString       7      ← anti-row: the Int switch this fix does not touch
+"x".toString     x      ← anti-row: RAW, the anyStr-vs-Show difference
+```
+
+Control: with the fallback removed, the js row fails and the other three stay green.
 
 **Found 2026-08-13** while measuring `BigInt(<String>)` across lanes; unrelated to that defect and
 narrower than it first looked. `(1 == 1.0).toString` threw on the v2 JS lane, which read as a
