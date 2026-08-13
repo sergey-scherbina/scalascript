@@ -1,3 +1,45 @@
+## ref-front-drops-every-block-tail-but-the-last
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     fixed-in: 374f6ce01
+     gate: tests/e2e/ref-front-multiblock-gate.sh -->
+
+A `.ssc` document's contract is that the last non-Unit expression **of each** top-level code block
+is printed, in source order. The reference front printed only the whole PROGRAM's final value, so
+every earlier block's tail vanished without a diagnostic.
+
+```
+tests/conformance/multiblock-auto-output.ssc
+  эталон  explicit            ← три хвоста, напечатан один
+  F       2 | 20 | explicit
+  интерп  2 | 20 | explicit
+```
+
+**Why it survived.** A ONE-block document is correct either way — the program's final value IS that
+block's tail — and most documents have one block. The corpus survey that first noticed the
+divergence recorded it as *"F prints two EXTRA lines the reference does not"*, i.e. blamed F for
+being right.
+
+**Mechanism.** The runner joins every code fence into ONE source before the lexer runs, so the block
+boundary survives only as the `__sscBlockEnd__` sentinel appended per fence. `ssc1-run-fsub.ssc0:188`
+has emitted it for F since the native lane was fixed; `ssc1-run.ssc0` never did, and the reference
+lowerer had no idea it existed.
+
+**Fix**, mirroring F line for line: the runner appends the sentinel, and `topExprs` intercepts it
+BEFORE lowering — so it never reaches `resolveE` as an unbound global — and wraps the statement it
+follows in the `__autoOutput__` prim. A definition is not an `"expr"` statement at all, so it is
+never wrapped: v1's rule, for free. Unit-ness stays a RUNTIME property decided inside the prim; a
+source-level helper is not portable across consumers, which F learned first and the corpus caught
+on the JS/v2 lane.
+
+Corpus gate: agree 254 → 273, measured 297 → 314, F-wrong still 0. The "where the REFERENCE is
+wrong" bucket is now empty — this was the last file in it.
+
 ## orphan-detector-counts-a-comment-as-a-caller — the ratchet was blind to three real orphans
 
 <!-- status: fixed
@@ -546,8 +588,16 @@ shows **5**.
   extension-call-in-a-def-body.ssc  F: `arity: 1 expected, 0 given`; the reference runs.
   multiblock-auto-output.ssc        F prints two EXTRA lines (`2`, `20`) the reference does not —
                                     an auto-output decision, both fronts running.
+                                    SETTLED 2026-08-13: F was RIGHT. The two lines are the contract
+                                    (each block's tail prints); the REFERENCE was dropping them.
+                                    Fixed in 374f6ce01, see ref-front-drops-every-block-tail-but-the-last.
   set-ops-infix.ssc                 not yet examined
+                                    SETTLED 2026-08-13: F was RIGHT. `--` had no token in the
+                                    reference lexer at all. Fixed, see the `--` entry.
   tkv2-hstack-wrap.ssc              not yet examined
+                                    SETTLED 2026-08-13: F was RIGHT. A named argument cost the
+                                    reference front all but one vararg child. Fixed, see
+                                    ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named.
 ```
 
 Three of the five are silent wrong answers rather than declines: the program runs and the answer
