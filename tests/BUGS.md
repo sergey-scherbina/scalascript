@@ -2805,9 +2805,10 @@ artifact, with two self-test mutations (`cjvm-exit`, `cjvm-artifact`). Self-test
 
 ## native-release-native-image-three-defects — the stage nothing had ever reached
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
+     fixed-in: afe93a9b3
      gate: .github/workflows/native-release.yml -->
 
 With the pipelining blocker fixed (`native-release-blocked-by-testutils-clean-compile`), run
@@ -2894,10 +2895,29 @@ BOTH halves, so a regression fails rather than being noticed by someone's broken
 **Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
 is the substantive one; 1 and 2 are bookkeeping in front of it.
 
+**All three fixed; `v0.1.0` and `v0.1.1` are published and the last two `Native Release` runs are
+green.**
+
+* **1 (config path)** and **2 (heap)** — `afe93a9b3` (2026-08-05), *"anchor native-image configs on
+  the build root, size the heap per runner"*. `build.sbt` now builds the path from
+  `(ThisBuild / baseDirectory)` rather than from cli's base, and carries a comment naming the old
+  `v1/native-image-configs` mistake so it cannot be reintroduced quietly. The heap is sized per
+  runner, which is what the entry argued for — a single `8g` would have been 114% of the arm64
+  runner's 7 GB.
+* **3 (image heap)** — resolved by `9acde80f4` *"invoke native-image without sbt"* and `d10c9460b`
+  *"the native image gets a narrower classpath"*. The `set cli / graalVMNativeImageOptions := …`
+  line the entry analysed no longer exists at all; native-image is invoked directly.
+
+Closed on the RECORD, not on reading the code: two published releases and two green runs. The
+entry's line numbers had also drifted — `build.sbt:2347-2348` is now unrelated code, which is worth
+knowing before anyone tries to verify one of these from the numbers alone.
+
+
 ## native-release-blocked-by-testutils-clean-compile — the release workflow has never produced a release
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
+     fixed-in: 6d0fba784
      gate: .github/workflows/native-release.yml -->
 
 **Found 2026-08-04** cutting `v0.1.0`, the repository's first tag. The `Native Release` workflow
@@ -3034,6 +3054,18 @@ decision.
 **This is state dependent, and that is the trap.** On a fully clean tree `testUtils/compile` passes
 with pipelining ON. So a green build proves nothing about re-enabling it, and neither does a control
 run taken after a repairing build — that mistake was made twice here already.
+
+**Fixed in `6d0fba784` (2026-08-05), "pipelining off build-wide — the scoped fix was treating a
+symptom".** The entry's headline — *no release has ever been published* — is refuted by the record:
+`v0.1.0` published 2026-08-06, `v0.1.1` on 2026-08-07, and the last two `Native Release` runs
+succeeded.
+
+Verified rather than taken from the prose. In run `30954908133`, which the sibling entry cites,
+`is not a member` appears **0 times** in the Linux log, and the failure has moved to
+`(cli / Graalvm-native-image / packageBin) Failed to run` — past compilation, inside native-image.
+The compile blocker this entry is about is gone; what remained was the image build, tracked in
+[[native-release-native-image-three-defects]] and since fixed too.
+
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
 <!-- status: duplicate
