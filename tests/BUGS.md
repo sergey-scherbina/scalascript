@@ -1335,6 +1335,45 @@ The rule this repository already had written down is exact: **reduce by declarat
 Re-run at declaration and arm granularity, the reduction converged on something real in a quarter of
 the checks.
 
+**2026-08-13 — the reduction is now REPRODUCIBLE, and its well-formedness is enforced rather than
+eyeballed.** The 124-line file described above was never stored, so every attempt re-derived it.
+This one comes from a script, and the script is here:
+
+```bash
+W=std/ui/.u0-red.ssc                      # NOT /tmp: the module has relative imports, and a copy
+cp std/ui/content.ssc "$W"                # outside its own directory fails to resolve them, which
+DECL='^(sealed trait|trait|case class|case object|object|def|extension|val|enum) '
+ok() {                                    # makes the ORIGINAL fail the predicate and the run abort
+  local l; l=$(./bin/ssc info --front-report "$W" 2>&1 | grep -F "$W	" | head -1)
+  [ -n "$l" ] || return 1                 # empty line = bin/ssc not built, NOT a verdict
+  [ "$(printf '%s' "$l" | cut -f2)" = "GAP" ] || return 1
+  printf '%s' "$l" | cut -f3 | grep -q '__u0' || return 1
+  ./bin/ssc run "$W" >/dev/null 2>&1      # ← well-formedness, INSIDE the predicate
+}
+# then: repeatedly try deleting each declaration (last to first), keep the deletion iff ok()
+```
+
+The last line of `ok()` is the point. The method failure recorded above — converging on a gutted
+module — cannot be fixed by pinning declarations by name, because you do not know in advance which
+ones the reducer will hollow out. Requiring the REFERENCE front to still compile and run the file
+expresses "well-formed" directly, and the reducer then cannot cheat.
+
+Result: **327 lines / 24 declarations → 191 lines / 6**, still `GAP` with `__u0`, still runnable on
+the reference front. The six survivors:
+
+```
+contentViewSection      contentViewBlock       tableCellStyle
+contentInlineView       ContentToolkitOptions  contentToolkitOptionsWithComponents
+```
+
+Larger than the 124-line figure above because this pass removes whole DECLARATIONS only; the earlier
+one also reduced `case` ARMS, which is the obvious next pass and needs the same predicate.
+
+**Do not re-test `"${" + x + "}"` in isolation.** It is in the refuted list above, and I re-ran it
+anyway before reading that list to the end — the `${` looked like an interpolation the front might
+mis-lex, which is a good hypothesis and a measured-dead one. Read the refuted list before probing.
+
+
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
 <!-- status: fixed
