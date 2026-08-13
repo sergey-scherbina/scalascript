@@ -112,6 +112,21 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # a long time. That is the hazard; the +412 is drift. Third growth caught in two days, which is what
 # the gate is for: before it ran, renderTerm went 16346 -> 19550 with nobody noticing.
 #
+# renderTerm 20042 -> 20333, from 3ae3258ce (std/i18n and std/ui/i18n compile — five defects behind
+# one refusal). RAISED, NOT REVERTED, on the same terms as the +412 above, and this time with the
+# alternative MEASURED rather than assumed: the two new arms' BODIES were extracted into helpers
+# first — `renderMapContains` and `renderNegate` — and that bought EIGHT bytecodes of the 291.
+# The cost of an arm is the pattern-match dispatch, not the body, so extraction does not shrink this
+# method; it only adds indirection. The extraction was reverted and the number raised instead.
+#
+# THAT IS THE USEFUL PART OF THIS ENTRY: "split the big method up" is the obvious response to a
+# frozen-size failure and it does not work here. Shrinking renderTerm means having FEWER ARMS —
+# routing whole families of syntax to a separate renderer — not moving their bodies elsewhere.
+#
+# I ALSO GOT THIS WRONG BEFORE CI CAUGHT IT: v1-jit-size was already red locally when I pushed, and
+# I filed it as a known sibling-owned red without reading the message, which named my own method.
+# A red you have decided to ignore has to be re-read on every run, or it stops being a signal.
+#
 # Measured on a build whose stamp has b68389c3b as an ancestor — checked, not assumed, because a
 # number taken from a tree fast-forwarded but not rebuilt is how this same line went out 80 short
 # yesterday.
@@ -128,7 +143,7 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-20042 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+20333 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF
