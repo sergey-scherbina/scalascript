@@ -3181,3 +3181,15 @@ The split is decided by what v2's VM has, exactly as `hostPrims` was:
 and `log`, which neither lane has. So the honest deliverable is integer `pow` plus a refusal that
 NAMES the fractional case, rather than a silent wrong answer — and adding `f.pow` to v2 is the
 alternative, which is a change to another subsystem and a separate decision.
+
+## SSC3-15 — the type-directed-resolution DEBT, owed from SSC3-13
+
+Recorded at the owner's instruction 2026-08-13, the day the approximation was chosen. **The full
+statement lives in `v3/specs/20-core-language.md` §4a1**, because a sprint board gets rewritten and
+this outlives it; this entry exists so the debt is visible from the working board too.
+
+Short form: typeclass dispatch is being resolved from the receiver's CONSTRUCTOR plus a parameter's
+DECLARED type, with the subtrait preferred. It must eventually be static types, a type checker and
+type inference. The three edges the approximation has — a `val` carries no type, a widened static
+type resolves where Scala would refuse, and the element type is invisible — are written out there,
+so they are known limits rather than future bug reports.

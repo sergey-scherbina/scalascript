@@ -294,6 +294,45 @@ the v2 VM, against expectations every lane is held to. But it does change what "
 in this document: v3's target is the LANGUAGE as the interpreter defines it, and the self-hosted
 front is a peer implementation with its own defects — not the definition.
 
+## 4a1 · TYPE-DIRECTED RESOLUTION IS DEFERRED, AND THIS IS THE DEBT — decided 2026-08-13
+
+**The owner's decision, recorded here rather than in a sprint board because a board gets rewritten
+and this outlives it:** typeclass dispatch in v3 will eventually be done PROPERLY — static types, a
+type checker, type inference — and what is being built now is an approximation taken deliberately,
+with its edges known.
+
+**What is being built now.** An extension method declared inside a `trait` or a `given … with`
+resolves at LOWERING time from two static sources:
+
+1. the CONSTRUCTOR of the receiver expression, because a runtime tag names exactly one type head —
+   `Cons`/`Nil` belong only to `List`, `Some`/`None` only to `Option`, so tag → type is a function
+   and not a guess;
+2. the receiver parameter's DECLARED type, `Param.tpe`, which the front keeps as text.
+
+When several instances provide the method for one type, the SUBTRAIT wins (`Traversable[T] extends
+Foldable[T]`, so `listTraversable` beats `listFoldable`); unrelated traits are refused by name.
+
+**What that approximation cannot do, stated so nobody discovers it as a bug:**
+
+- `Stmt.Val` records NO declared type. `val xs = List(1, 2, 3)` gives the lowering nothing, so a
+  receiver bound by a `val` is resolved by its constructor or not at all. Inferring `List[Int]` from
+  the initialiser is type INFERENCE and is not being built.
+- A value whose static type is WIDER than its runtime shape — declared `Any`, holding a list —
+  resolves here where Scala would refuse the call. That is a widening, not a wrong answer, and it is
+  the one place this deliberately differs from the language it follows.
+- The element type is invisible. `Foldable[List]` does not care, but any instance that varies by
+  element type cannot be told apart this way.
+
+**Why not do it properly now.** I-2 says the core carries no enforced notion of types, and
+`Param.tpe` is text precisely because "Tier 0 has nothing to parse it into". A type checker is not a
+larger version of this change; it is a different project, with its own decision to make about I-2.
+The approximation is chosen so the typeclass tower can load and be measured — `Foldable`,
+`Functor`, `Applicative`, `Monad`, `Traversable` all exist in `std/` today and none of them compiles
+— rather than to be the final answer.
+
+**When it is done properly, this section is what to delete.** The two sources above become one — the
+static type — and the widening in the second bullet stops being legal.
+
 ## 4b · What the number does not measure
 
 `N` counts corpus cases. It does not count how pleasant v3 is to write, and on 2026-08-05 Sergiy
