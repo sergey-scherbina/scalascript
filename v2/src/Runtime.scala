@@ -1444,7 +1444,12 @@ object Prims:
     case "f.isNaN" => a => BoolV(flt(a, 0).isNaN)
     case "f.isInf" => a => BoolV(flt(a, 0).isInfinite)
     // numeric conversions (explicit)
-    case "i->big"  => a => BigV(BigInt(int(a, 0)))
+    // `BigInt(<String>)` is the ONLY spelling that can express a value beyond Long range, and both
+    // fronts lower every `BigInt(x)` to this prim whatever `x` is — they are untyped, so they
+    // cannot route a String elsewhere. Without the String arm there was no way to write a big
+    // integer that is actually big on this lane, which is most of the point of the type
+    // (`bigint-from-a-string-is-unsupported-on-native-and-bytecode`).
+    case "i->big"  => a => BigV(bigFromValue(a(0), "i->big"))
     case "big->i"  => a => IntV(big(a, 0).toLong)
     case "i->f"    => a => FloatV(int(a, 0).toDouble)
     case "f->i"    => a => IntV(flt(a, 0).toLong)
@@ -3521,7 +3526,7 @@ object Prims:
                          case v => sys.error("str.lines: not Str") }
     case "char"     => Some { case IntV(n) => CharV(n.toChar);    case v => sys.error("char: not Int") }
     case "i->str"   => Some { case IntV(n) => StrV(n.toString);   case v => sys.error("i->str: not Int") }
-    case "i->big"   => Some { case IntV(n) => BigV(BigInt(n));     case v => sys.error("i->big: not Int") }
+    case "i->big"   => Some { v => BigV(bigFromValue(v, "i->big")) }
     case "big->i"   => Some { case BigV(n) => IntV(n.toLong);      case v => sys.error("big->i: not BigInt") }
     case "i->f"     => Some { case IntV(n) => FloatV(n.toDouble);  case v => sys.error("i->f: not Int") }
     case "f->i"     => Some { case FloatV(d) => IntV(d.toLong);    case v => sys.error("f->i: not Float") }
@@ -3690,6 +3695,21 @@ object Prims:
   private def big(a: List[Value], k: Int): BigInt = a(k) match { case BigV(n) => n; case v => sys.error(s"expected BigInt, got ${Show.show(v)}") }
   private def flt(a: List[Value], k: Int): Double = a(k) match { case FloatV(d) => d; case v => sys.error(s"expected Float, got ${Show.show(v)}") }
   private def str(a: List[Value], k: Int): String = a(k) match { case StrV(s) => s; case v => sys.error(s"expected Str, got ${Show.show(v)}") }
+
+  /** `BigInt(x)` for every `x` the language admits, shared by the two `i->big` dispatch sites so
+   *  they cannot drift apart — they already had, once, on the value model each accepted.
+   *
+   *  A binary float is REFUSED rather than truncated, which is the position `PortableDecimal`
+   *  already takes for `Decimal` ("binary floating-point input is inexact"): Scala does not compile
+   *  `BigInt(1.5)` either, and `f->big` exists for the caller who does mean truncation. Refusing by
+   *  NAMING the alternative is the difference between an error and a dead end. */
+  private def bigFromValue(v: Value, op: String): BigInt = v match
+    case IntV(n)  => BigInt(n)
+    case BigV(n)  => n
+    case StrV(s)  =>
+      scala.util.Try(BigInt(s.trim)).getOrElse(sys.error(s"$op: not a big integer: \"$s\""))
+    case FloatV(_) => sys.error(s"$op: binary floating-point input is inexact; use f->big to truncate")
+    case other     => sys.error(s"$op: expected Int, BigInt or String, got ${Show.show(other)}")
   private def formatValue(spec: String, v: Value): String =
     val conv = spec.reverse.find(_.isLetter).getOrElse('s').toLower
     val arg: AnyRef = conv match

@@ -1,0 +1,31 @@
+; `BigInt(<String>)` — the only spelling that can express a value beyond Long range.
+;
+; Both fronts lower every `BigInt(x)` to `(prim i->big x)` whatever `x` is: they are untyped, so
+; they cannot route a String to a different prim. The VM's `i->big` accepted an Int and nothing
+; else, so on the native and bytecode lanes there was no way to write a big integer that is
+; actually big — most of the point of the type. `bigint-from-a-string-is-unsupported-on-native-
+; and-bytecode`, measured against the interpreter, which prints the number and `false`.
+;
+; Row 2 is why a construction row alone is not enough: it MULTIPLIES the parsed value, so a lane
+; that quietly kept the string (or truncated it into a machine int) cannot answer it. Row 3 is the
+; ANTI-ROW — the Int spelling that always worked must keep working, since the fix widens the very
+; arm it goes through.
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq
+     ; construction from a String, well past Long range
+     (prim __autoOutput__
+      (prim big->str (prim i->big (lit (str "123456789012345678901234567890")))))
+     (seq
+      ; ARITHMETIC on the parsed value — the row a string-shaped fake cannot answer
+      (prim __autoOutput__
+       (prim big->str
+        (prim big.mul
+         (prim i->big (lit (str "123456789012345678901234567890")))
+         (prim i->big (lit (int 2))))))
+      ; ANTI-ROW: the Int spelling still constructs the same way it always did
+      (prim __autoOutput__
+       (prim big->str (prim i->big (lit (int 7))))))))))
+ (entry (app (global main))))

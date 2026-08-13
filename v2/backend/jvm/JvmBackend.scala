@@ -421,7 +421,16 @@ object R:
     case "utf8->str"=> new String(_asBytes(a0).toArray, "UTF-8")
     case "i->f"     => _asLong(a0).toDouble
     case "f->i"     => _asDouble(a0).toLong
-    case "i->big"   => BigInt(_asLong(a0))
+    // `BigInt(<String>)` is the only spelling that reaches past Long range, and the fronts lower
+    // every `BigInt(x)` to this prim because they are untyped. Mirrors the VM's `bigFromValue`
+    // (`v2/src/Runtime.scala`): a binary float is REFUSED rather than truncated, and `f->big` is
+    // named as the operation for a caller who means truncation.
+    case "i->big"   => a0 match
+                         case s: String  => scala.util.Try(BigInt(s.trim))
+                                              .getOrElse(sys.error(s"i->big: not a big integer: \"$s\""))
+                         case b: BigInt  => b
+                         case d: Double  => sys.error("i->big: binary floating-point input is inexact; use f->big to truncate")
+                         case _          => BigInt(_asLong(a0))
     case "big->i"   => _asBig(a0).toLong
     // `char` (a Char literal) exists so the VM can give the value its own identity —
     // `v2-char-is-an-int`. This lane has no Char in its value model, so it passes the code

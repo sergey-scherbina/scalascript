@@ -100,6 +100,18 @@ run_wasm() { # $1=ir-file $2=out-file — same Rust source as run_rust, cross-co
 # (shallow or properly-trampolined recursion) passes on wasm same as native.
 WASM_DEEP_RECURSION_SKIP=" tco mutual-tco "
 
+# The Rust generator has NO big-integer type: `Lit(CBig(n))` emits `V::Int(${n.toLong}i64) /*big*/`
+# and its own comment says "lossy but handles common cases" — there is no arbitrary-precision value
+# in `enum V` to hold one. So a fixture whose whole point is a value BEYOND Long range cannot pass
+# there, and wasm reuses the Rust generator unchanged.
+#
+# Skipped with the reason printed rather than left out of the harness: the fixture is real coverage
+# for the VM, the JVM/bytecode generator and JS, and dropping it to keep one column green would
+# hide the defect it exists for. The Rust gap is filed as
+# `rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist` (v2/BUGS.md); when that closes,
+# delete the fixture name from here and the row turns real.
+RUST_NO_BIGNUM_SKIP=" bigint-from-string "
+
 BACKENDS="jvm js rust"
 if rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1; then
   BACKENDS="$BACKENDS wasm"
@@ -117,6 +129,10 @@ for ir in "${IRS[@]}"; do
   for be in $BACKENDS; do
     if [ "$be" = wasm ] && [[ "$WASM_DEEP_RECURSION_SKIP" == *" $name "* ]]; then
       printf "skip %-20s %s (>64MB-deep native recursion; incompatible with wasm+V8's stack model)\n" "$name" "$be"
+      continue
+    fi
+    if { [ "$be" = rust ] || [ "$be" = wasm ]; } && [[ "$RUST_NO_BIGNUM_SKIP" == *" $name "* ]]; then
+      printf "skip %-20s %s (Rust generator has no bignum: CBig emits V::Int(i64); BUGS rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist)\n" "$name" "$be"
       continue
     fi
     if "run_$be" "$ir" "$TMP/out-$be.txt" && diff -q "$TMP/expected.txt" "$TMP/out-$be.txt" >/dev/null 2>&1; then
