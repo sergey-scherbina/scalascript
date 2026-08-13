@@ -39,6 +39,7 @@ cd "$ROOT"
 # a permanent exemption.
 read -r -d '' FROZEN <<'EOF' || true
 actors-pingpong-smoke.sh
+bytecode-fallback-visible.sh
 components-smoke.sh
 f-char-escape-gate.sh
 f-front-delegation-visible.sh
@@ -54,6 +55,7 @@ keyword-import-missing-module.sh
 member-beats-toplevel-gate.sh
 middleware-smoke.sh
 multi-name-val-gate.sh
+negtc-shard-gate.sh
 no-paren-sibling-gate.sh
 object-var-mutation-gate.sh
 pattern-undefined-name-gate.sh
@@ -62,6 +64,7 @@ req-type-collision-v2-smoke.sh
 route-params-v2-smoke.sh
 selfhost-front-gate.sh
 serve-view-frontend-v2-smoke.sh
+ssc1-front-annotation.sh
 triple-quote-trailing-quote-gate.sh
 typeerr-names-both-types.sh
 upload-smoke.sh
@@ -90,11 +93,30 @@ EOF
 #     `pgrep -f PATTERN` waiter matching its own command line. SELF is excluded by basename, taken
 #     from BASH_SOURCE so a rename cannot re-open the hole, and the self-test asserts it.
 SELF="$(basename "${BASH_SOURCE[0]}")"
-callers_of() { # callers_of <root> <basename> -> paths, one per line (empty = orphan)
+#   * AND A COMMENT IS NOT A CALLER EITHER. Excluding `.md` files stops PROSE from counting, but
+#     prose does not only live in `.md`: a `#` line inside a sibling gate, or inside `scripts/*`,
+#     read as an invocation just the same. Measured 2026-08-13, right after this gate landed: it
+#     reported 35 orphans and 38 was the true number. `bytecode-fallback-visible.sh`,
+#     `negtc-shard-gate.sh` and `ssc1-front-annotation.sh` were each held "wired" by a sentence
+#     MENTIONING them — and two of the three are named in a BUGS.md entry's `gate:` field, so those
+#     entries claimed coverage from a script nothing runs. The tell is that the search is for a
+#     STRING, while the thing being detected is an INVOCATION, and every commented-out or
+#     described call looks identical to a real one.
+#     So the match must survive having the comment tail removed. A trailing comment on a real call
+#     (`run x.sh   # why`) still counts — the self-test asserts that direction too, because the
+#     over-strict fix that drops it would silently turn working gates into "orphans" to be frozen.
+callers_of() { # callers_of <root> <basename> -> "path:line:text", one per line (empty = orphan)
   local r="$1" b="$2" out
-  out="$(grep -rlF --exclude-dir=.git --exclude="$b" --exclude="$SELF" "$b" \
+  out="$(grep -rnF --exclude-dir=.git --exclude="$b" --exclude="$SELF" "$b" \
            "$r/.github" "$r/scripts" "$r/tests" 2>/dev/null || true)"
-  printf '%s' "$out" | { grep -v '\.md$' || true; }
+  printf '%s' "$out" | { grep -v '^[^:]*\.md:' || true; } | while IFS= read -r hit; do
+    [[ -n "$hit" ]] || continue
+    local text code
+    text="${hit#*:}"; text="${text#*:}"   # strip `path:lineno:`
+    code="${text%%#*}"; code="${code%%//*}"
+    [[ "$code" == *"$b"* ]] && printf '%s\n' "$hit"
+  done
+  return 0
 }
 
 # ── self-test: a detector only ever observed staying quiet is not a detector ─────────────────────
@@ -106,8 +128,18 @@ if [[ "${1:-}" == "--self-test" ]]; then
   mkdir -p "$TMP/tests/e2e" "$TMP/scripts"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/wired-example.sh"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/orphan-example.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/commented-example.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/trailing-example.sh"
   printf 'run tests/e2e/wired-example.sh\n'                > "$TMP/scripts/caller"
-  printf 'see tests/e2e/orphan-example.sh for details\n'   > "$TMP/prose.md"
+  # THE PROSE FIXTURE MUST LIVE WHERE THE SEARCH LOOKS. It was `$TMP/prose.md`, at the root — and
+  # `callers_of` only reads `.github`, `scripts` and `tests`, so that file was never opened and the
+  # ".md does not count" assertion passed whether or not the `.md` filter existed. A probe whose
+  # subject is unreachable WITHOUT the thing under test measures nothing.
+  printf 'see tests/e2e/orphan-example.sh for details\n'   > "$TMP/tests/prose.md"
+  # A comment is prose that happens to live in a script — the case that made this fix necessary.
+  printf '# see tests/e2e/commented-example.sh for the shape\n' > "$TMP/scripts/mentions"
+  # …and the opposite direction, so the fix cannot be "drop anything near a #".
+  printf 'run tests/e2e/trailing-example.sh   # why we run it\n' > "$TMP/scripts/trailing-caller"
 
   probe() { # probe <root> <basename> -> "wired" | "orphan"
     local r="$1" b="$2" hits
@@ -116,6 +148,13 @@ if [[ "${1:-}" == "--self-test" ]]; then
   }
   [[ "$(probe "$TMP" wired-example.sh)"  == wired  ]] \
     || { echo "SELF-TEST FAIL: a script named by an executable caller was called an orphan" >&2; exit 1; }
+  [[ "$(probe "$TMP" commented-example.sh)" == orphan ]] \
+    || { echo "SELF-TEST FAIL: a script named ONLY by a COMMENT was called wired. Excluding .md is" >&2
+         echo "  not enough — prose also lives inside scripts, and that is how three real orphans" >&2
+         echo "  (bytecode-fallback-visible, negtc-shard-gate, ssc1-front-annotation) read as wired." >&2; exit 1; }
+  [[ "$(probe "$TMP" trailing-example.sh)" == wired ]] \
+    || { echo "SELF-TEST FAIL: a REAL call carrying a trailing comment was called an orphan — the" >&2
+         echo "  comment rule is over-strict and would freeze working gates as debt." >&2; exit 1; }
   [[ "$(probe "$TMP" orphan-example.sh)" == orphan ]] \
     || { echo "SELF-TEST FAIL: a script named ONLY by a .md was called wired — prose is not a caller," >&2
          echo "  and treating it as one is how these gates rot: cited everywhere, run nowhere." >&2; exit 1; }
@@ -129,7 +168,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   [[ "$(probe "$TMP" orphan-example.sh)" == orphan ]] \
     || { echo "SELF-TEST FAIL: a name appearing only in THIS gate's own frozen list was called wired." >&2
          echo "  The detector is matching itself, so its whole list reads as already fixed." >&2; exit 1; }
-  echo "no-orphan-gates self-test: PASS (an executable caller counts, a .md mention does not)"
+  echo "no-orphan-gates self-test: PASS (an executable caller counts — with or without a trailing" \
+       "comment; a .md mention and a commented-out one do not)"
   # falls through to the census, like v1-jit-size.sh: one invocation does both
 fi
 
