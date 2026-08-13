@@ -24,6 +24,8 @@ bad()  { printf '  FAIL  %s\n' "$1" >&2; fails=1; }
 
 # The payload. `date` and `whoami` are chosen because they SUCCEED — a command substitution that
 # ran would leave real output here, not an error, which is exactly how the original defect hid.
+# The payload deliberately names a SCRIPT IN THIS REPO, because that is what a real release note
+# does — and see the control at the bottom for what happened the first time this file evaluated it.
 PAYLOAD='level 3: `scripts/smoke-ci` 86/86 and `$HOME` untouched; ran `date` and $(whoami); path a\b'
 printf '%s\n' "$PAYLOAD" > "$tmp/note.txt"
 
@@ -76,11 +78,18 @@ say "--note with --note-file is refused" \
 say "--note-file with --note is refused (reverse order)" \
     "use --note OR --note-file, not both" some-slug --level 3 --note-file "$tmp/note.txt" --note "inline"
 
-# 5. THE CONTROL, and the reason this gate is worth having: the same payload passed INLINE the way
-#    a caller naturally would is corrupted by the shell before coord-release ever sees it. If this
-#    ever stops being true the trap is gone and the flag is no longer load-bearing.
-inline=$(eval "printf '%s' \"$PAYLOAD\"" 2>/dev/null || true)
-if [[ "$inline" == "$PAYLOAD" ]]; then
+# 5. THE CONTROL, and the reason this gate is worth having: a note passed INLINE the way a caller
+#    naturally would is corrupted by the shell before coord-release ever sees it. If this stops
+#    being true the trap is gone and the flag is no longer load-bearing.
+#
+#    IT USES ITS OWN, HARMLESS PAYLOAD, and the first version did not — it evaluated $PAYLOAD above,
+#    which names `scripts/smoke-ci`, so the control RAN THE WHOLE SMOKE SUITE and the gate died on
+#    its own 60 s budget. That is the defect demonstrating itself inside the test written to catch
+#    it, and it is exactly why a real release note must never reach an evaluating context: the
+#    backticks in one are the names of things in this repo, and some of them are runnable.
+CONTROL='a note mentioning `echo SUBSTITUTED` and $USER'
+inline=$(eval "printf '%s' \"$CONTROL\"" 2>/dev/null || true)
+if [[ "$inline" == "$CONTROL" ]]; then
   bad "control: an inline double-quoted note was NOT corrupted — re-check what this gate protects"
 else
   ok "control: the same note passed inline IS corrupted by the shell"

@@ -644,6 +644,42 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## coord-release-note-executes-backticks — FIXED: `--note-file`, because a workaround everyone must know is not a fix
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     kind: bug
+     fixed-in: 7bcfab999
+     gate: tests/e2e/coord-release-note-file-gate.sh -->
+
+A release note is the durable record of a piece of work. It is long, and it is full of
+`identifiers in backticks`, because that is how this repo writes about code. Passed inline as
+`--note "…`x`…"` the **shell** runs the backticked text as a command and substitutes its output, so
+the note that lands is missing words.
+
+**Five times.** Once it ate four words out of a note that had already been pushed, which then had to
+be amended and force-pushed.
+
+`--note "$(cat f)"` is safe — command substitution performs no further expansion on what it read —
+and that was the workaround. But a workaround every caller has to know about is not a fix: the trap
+is still there for whoever does not know. `--note-file <path>` removes it.
+
+Both flags guard each other, an empty file is refused as loudly as a missing one, and the flag is
+wired into `scripts/smoke-ci` rather than left as an orphan.
+
+**THE FIRST VERSION OF THE GATE WAS VACUOUS, and that is the part worth keeping.** Its checks
+asserted only that the command exited non-zero — but `coord-release` refuses to run outside the
+shared checkout, so **every** invocation from a worktree exits non-zero anyway. Driven against three
+deliberately broken implementations (readability check deleted, empty check deleted, both-flags
+check deleted) it passed all three. The subject was reachable without the thing tested. Rewritten to
+assert each complaint by its own MESSAGE, it now fails on all three, each naming its own defect —
+and a reverse-order case was added once the experiment showed checks 4 and 4b exercise *different*
+guards.
+
+The gate also states what it does NOT prove: byte fidelity of the note is not observable through the
+argument parser, so it rests on construction plus a CONTROL check that the same payload passed
+inline **is** corrupted. A gate that overclaims is the thing this entry is about.
+
 ## rust-string-matches-is-not-rust-str-matches — FIXED by REFUSING: one name, two languages, opposite meanings
 <!-- status: fixed
      lane: v2-rust
