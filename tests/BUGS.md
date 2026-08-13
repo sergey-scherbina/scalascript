@@ -4350,6 +4350,35 @@ is refused, either fix it and push, or reset your own commit — do not leave it
 already rolls its own commit back on refusal; `coord-release` and hand-made claim-updates do not, and
 all three of today's landmines were of the second kind.
 
+**2026-08-13 — one of the two remaining producers is now mechanically incapable of it, and STAYS
+OPEN for the other.** The rule above asked the owner to remember; `scripts/coord-release` no longer
+needs them to. Reproduced first, in a throwaway lab with a fake origin and a `pre-push` hook that
+refuses — standing in for the overlap guard rejecting a stranger's parked claim, which cannot be
+summoned on demand:
+
+| | rc | commits parked on local main | claim file | ledger row |
+|---|---|---|---|---|
+| before | 1 | **1** | GONE locally, alive on origin | removed |
+| after | 1 | **0** | present | present |
+
+So a refused release now leaves the shared checkout exactly as it found it, and the claim still
+stands. The second half of the same three lines was as bad: the refusal ASSERTED `main moved. Re-run
+after: git fetch && git merge --ff-only` without looking, and that is the wrong advice for the
+refusal that actually happens here — fetching does nothing for a guard rejecting somebody else's
+claim, so the reader circles while everyone stays blocked. It now diagnoses three ways: main moved ·
+the pre-push guard refused, naming `git log origin/main..HEAD --oneline` to see what is riding
+along · anything else printed verbatim with **no cause invented**. Pinned by cases 6 and 7 of
+`tests/coord/coord-release-refuses-unpushed-work.sh`, which against the pre-fix copy fail 9 times
+and nowhere else.
+
+**Why the entry stays open:** the structural fact is unchanged — the checkout is still one working
+tree for every agent — and the OTHER producer is untouched. Heartbeats, scope widenings and
+`next:` edits are still hand-written `git add && git commit && git push`, with no tool and so no
+rollback; that is the largest remaining source by volume (five of them in one session while this
+fix was being made). Filed with an acceptance test as
+`hand-made-claim-updates-have-no-tool-and-so-no-rollback` in `scripts/BUGS.md`, so it is claimable
+instead of buried in this entry's prose.
+
 ## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
 <!-- status: fixed
      lane: apparatus

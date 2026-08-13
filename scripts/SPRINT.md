@@ -21,6 +21,34 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       measured lesson that the checklist wins. The stale "Immediate next steps for Claude Code"
       section is replaced by it: today that section still says `git init` and "scaffold README.md".
 
+- [x] `coord-release-parks-a-refused-commit` — `scripts/coord-release` committed, then pushed, and on
+      a refused push printed advice and exited, **leaving the release commit on shared main**.
+      Measured in a throwaway lab with a fake origin and a `pre-push` hook that refuses (standing in
+      for the overlap guard rejecting a stranger's parked claim):
+
+          before   rc=1  parked=1  claim-file=GONE     ledger-row=0
+          after    rc=1  parked=0  claim-file=present  ledger-row=1
+
+      A parked coordination commit is refused FOR A STRANGER — the shared checkout pushes all of
+      local `main` and the guard validates every claim in `remote_tip..local_tip` — so it blocks
+      every agent's next claim until somebody finds it. `coord-claim` learned to roll back on
+      2026-08-07; this script never did, and BUGS `shared-main-is-one-working-tree-for-every-agent`
+      recorded three landmines in one day, all of this kind.
+
+      Second defect in the same three lines: the refusal ASSERTED "main moved. Re-run after: git
+      fetch && git merge --ff-only" without looking, which is the wrong advice for the refusal that
+      actually happens here. Three branches now — main moved · the pre-push guard refused, with the
+      command that shows what is riding along · anything else printed verbatim with **no cause
+      invented**, which case 7 pins so the diagnosis cannot degenerate into a new constant.
+
+      Against the pre-fix copy the new cases produce 9 failures **and no others**, so the gate is
+      scoped to the new behaviour rather than to the script.
+
+      NOT fixed here, and filed so it is claimable: **hand-made claim-updates have no tool at all**
+      — heartbeats and scope widenings are `git add && git commit && git push` by hand, with the
+      same landmine on refusal and nothing to roll them back. That was the other kind in the
+      original three.
+
 - [x] `launcher-digest-changes-when-you-COMMIT-unchanged-content` — the digest hashes a LINE PER
       INPUT and spells the same file three ways depending on git state (`untracked …`, `dirty …`,
       and the `ls-tree` form), so `git add` and `git commit` each shift it while the bytes are

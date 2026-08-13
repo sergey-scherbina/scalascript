@@ -7,6 +7,53 @@ grepping for status.
 
 Newest first.
 
+## hand-made-claim-updates-have-no-tool-and-so-no-rollback — the landmine class that is left
+
+<!-- status: open
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-13** while fixing the sibling defect in `scripts/coord-release`, which now rolls its
+commit back when the push is refused (`coord-claim` has done so since 2026-08-07). That leaves
+exactly one way to produce the landmine BUGS `shared-main-is-one-working-tree-for-every-agent`
+describes, and it is the one every agent uses several times a day:
+
+```bash
+# a heartbeat, a scope widening, a `next:` update — all of it, today:
+git add .work/active/<slug>.claim .work/active/LEDGER.tsv
+git commit -m "claim-update: …"
+git push origin main          # refused? the commit stays, and now nobody can claim
+```
+
+**There is no `coord-update`.** `scripts/coord-claim` refuses a slug that already exists (it prints
+the current claim), so widening a claim, bumping a heartbeat or rewriting `scope:`/`next:` is
+hand-written editing plus a hand-made commit — with no rollback, and with `scripts/coord-ledger
+--write` to remember separately. **I did this five times in one session** while fixing the other two
+defects; each one was a coin flip on whether the push would be refused for somebody else's parked
+commit.
+
+**Why it matters more than the tidiness:** the shared checkout pushes ALL of local `main`, and
+`.githooks/pre-push` validates every claim in `remote_tip..local_tip`. So a parked claim-update is
+refused for a stranger, and it blocks EVERY agent's next claim until somebody finds and removes it.
+
+**Acceptance test, so this is claimable rather than a note.** A `scripts/coord-update <slug>
+[--heartbeat] [--status …] [--next …] [--paths …] [--items …] [--scope-file …]` that:
+
+1. edits the claim, regenerates the ledger row (`coord-ledger --write`) and commits — one commit,
+   `.work/` only, so `.githooks/pre-commit` stays satisfied;
+2. on a refused push **rolls back to the pre-update sha and restores both files**, exactly as
+   `coord-release` now does — the lab in `tests/coord/coord-release-refuses-unpushed-work.sh` cases
+   6 and 7 is the shape to copy, including the anti-constant case;
+3. refuses to widen `paths:` onto a scope another live claim holds, reusing the pre-push guard's
+   own reader rather than a second copy of that logic;
+4. is asserted by a case that FAILS against a version without the rollback.
+
+**Not built with the release fix on purpose:** that claim was one script's push branch, and a new
+command is new surface with its own gate. Filed with its acceptance test so the next agent can take
+it without re-deriving any of this.
+
 ## coord-status-activity-lookup-reads-the-callers-cwd — a live claim reads as stale depending on where you stood
 
 <!-- status: fixed
