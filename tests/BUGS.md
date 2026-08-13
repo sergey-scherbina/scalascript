@@ -572,12 +572,13 @@ A/B: with the old trigger that commit reads `CI RED`; with the fix, `CI GREEN (d
 
 ## reference-front-answers-three-conformance-files-differently-from-both-other-lanes
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: front
      reported-by: claude-code
      reported-at: 2026-08-11
      confirmed: yes
+     fixed-in: 374f6ce01
      gate: none -->
 
 Three files where **F and the v1 interpreter agree and the reference front does not**. Found while
@@ -602,6 +603,24 @@ tests/conformance/multiblock-auto-output.ssc
 
 The last one is the loudest: the reference front emits **no output at all** for two blocks the other
 two lanes evaluate and print.
+
+**All three fixed, 2026-08-13, and in all three the REFERENCE front was the wrong one** — which is
+what the entry suspected and could not yet prove. Verified after a rebuild: reference, F and the v1
+interpreter now produce byte-identical output on each file.
+
+* `set-ops-infix.ssc` — `050fb98d2`. `--` had no token in the reference lexer at all; the two minus
+  signs lexed as unary minus applied twice, so the expression quietly evaluated to something else.
+  Lexer and lowering had to land together: with only the first half the token reaches the runtime as
+  `unbound global: --`, which is worse than the silent no-op it replaces.
+* `tkv2-hstack-wrap.ssc` — `85d305116`. A named argument cost a trailing-vararg call every child but
+  one. The front pre-fills the first clause's defaults as POSITIONALS, and the one-positional-per-param
+  walk then handed the vararg slot a default instead of the real arguments.
+* `multiblock-auto-output.ssc` — `374f6ce01`. Each code block's tail must print; the reference front
+  printed only the whole program's final value. The block boundary survives the fence join only as
+  the `__sscBlockEnd__` sentinel, which this front never emitted.
+
+Gates: `tests/e2e/ref-front-three-defects-gate.sh` (operators and the vararg shapes) and
+`tests/e2e/ref-front-multiblock-gate.sh`, both verified in BOTH directions and registered in CI.
 
 ## shipped-F-and-F-bootstrapped-from-source-disagree — RETRACTED, it was my stale kernel
 
@@ -767,7 +786,8 @@ well-formed and confirm it still reproduces. It takes one run.
 
 ## f-parser-gap-reduced-but-not-solved
 
-<!-- status: open
+<!-- status: duplicate
+     duplicate-of: f-parser-gap-needs-the-package-field
      lane: native
      area: front
      reported-by: claude-code
@@ -796,6 +816,13 @@ count was a threshold.
 
 The next thing to try is not another guess about the shape: it is to reduce WITHIN the surviving
 twelve — the case-class bodies and the method bodies — with the traits pinned throughout.
+
+**Superseded 2026-08-13 by [[f-parser-gap-needs-the-package-field]]**, which carries strictly more:
+the same files re-measured after three front fixes landed the same week, a 91-line well-formed
+reduction at a declaration fixpoint, seven shapes ruled out by measurement, and the first necessary
+condition found — the `package:` field in the module frontmatter. Kept rather than deleted because
+its account of how the reduction predicate deletes the very declaration it names is the reason the
+newer attempt pinned the trait.
 
 ## orphan-fixedin-lands-red — a rewritten `fixed-in:` turns SMOKE red for everyone, three times in two days
 
