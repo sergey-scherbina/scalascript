@@ -270,13 +270,63 @@ object OAuthClient:
   /** Build the URL the user-agent navigates to for the
    *  authorization-code flow.  Pure: caller embeds in an
    *  `<a href="...">` or 302 redirect. */
+  // ─── RFC 8707 Resource Indicators ───────────────────────────────────
+  //
+  // MCP 2025-06-18 makes these a MUST for clients, and the reason is specific:
+  // without them an access token minted for one server can be replayed against
+  // another, so a malicious server that a client talks to can harvest a token
+  // meant for someone else. The `resource` parameter binds the token to the
+  // server it was asked for.
+
+  /** The canonical resource URI for an MCP server, as RFC 8707 requires it.
+   *
+   *  Scheme and host lowercased, the default port for the scheme dropped, and
+   *  the fragment removed — RFC 8707 forbids a fragment outright. The path is
+   *  KEPT, because two MCP servers can share a host and differ only there, and
+   *  dropping it would defeat the point of the parameter. A bare trailing "/"
+   *  is dropped, since `https://h/` and `https://h` name the same resource and
+   *  an authorization server comparing strings would not know that.
+   *
+   *  Input that does not parse is returned unchanged rather than rejected: this
+   *  builds a request parameter, and failing a login over a URI the AS might
+   *  well accept is the worse error. */
+  def canonicalResourceUri(serverUrl: String): String =
+    try
+      val u      = java.net.URI(serverUrl.trim)
+      val scheme = Option(u.getScheme).map(_.toLowerCase).getOrElse("")
+      val host   = Option(u.getHost).map(_.toLowerCase).getOrElse("")
+      if scheme.isEmpty || host.isEmpty then serverUrl.trim
+      else
+        val defaultPort = scheme match
+          case "https" => 443
+          case "http"  => 80
+          case _       => -1
+        val port = u.getPort match
+          case -1                 => ""
+          case p if p == defaultPort => ""
+          case p                  => s":$p"
+        val path = Option(u.getPath).getOrElse("") match
+          case "" | "/" => ""
+          case other    => other
+        val query = Option(u.getQuery).map("?" + _).getOrElse("")
+        s"$scheme://$host$port$path$query"
+    catch case _: Throwable => serverUrl.trim
+
+  /** `resource` as a form/query parameter, or nothing when none was given. */
+  private def resourceParam(resource: Option[String]): Map[String, String] =
+    resource.map(r => "resource" -> canonicalResourceUri(r)).toMap
+
   def authorizationUrl(
     authorizationEndpoint: String,
     clientId:              String,
     redirectUri:           String,
     scopes:                Set[String],
     state:                 String,
-    pkce:                  PkcePair
+    pkce:                  PkcePair,
+    /** RFC 8707. MCP clients MUST send this; it is optional here only so that
+     *  existing non-MCP callers keep working, and its absence is a defect in
+     *  the CALLER rather than a supported mode. */
+    resource:              Option[String] = None
   ): String =
     val q = Map(
       "response_type"         -> "code",
@@ -286,6 +336,7 @@ object OAuthClient:
       "code_challenge"        -> pkce.challenge,
       "code_challenge_method" -> pkce.method
     ) ++ (if scopes.nonEmpty then Map("scope" -> scopes.toList.sorted.mkString(" ")) else Map.empty)
+      ++ resourceParam(resource)
     val qs = OAuthRoutes.queryString(q)
     if authorizationEndpoint.contains("?")
     then authorizationEndpoint + "&" + qs
@@ -317,7 +368,11 @@ object OAuthClient:
     code:          String,
     verifier:      String,
     clientSecret:  Option[String] = None,
-    timeoutMs:     Long           = 5000L
+    timeoutMs:     Long           = 5000L,
+    /** RFC 8707. MUST match the `resource` sent on the authorization request:
+     *  binding the code and not the token would leave the swap this prevents
+     *  wide open at the last step. */
+    resource:      Option[String] = None
   ): TokenResult =
     val form = Map(
       "grant_type"    -> "authorization_code",
@@ -325,7 +380,7 @@ object OAuthClient:
       "redirect_uri"  -> redirectUri,
       "client_id"     -> clientId,
       "code_verifier" -> verifier
-    ) ++ clientSecret.map("client_secret" -> _).toMap
+    ) ++ clientSecret.map("client_secret" -> _).toMap ++ resourceParam(resource)
     postForm(tokenEndpoint, form, timeoutMs)
 
   /** Refresh an access token using a previously-issued refresh token. */
@@ -335,14 +390,17 @@ object OAuthClient:
     refreshToken:  String,
     scopes:        Set[String]    = Set.empty,
     clientSecret:  Option[String] = None,
-    timeoutMs:     Long           = 5000L
+    timeoutMs:     Long           = 5000L,
+    /** RFC 8707. A refresh that omits it can widen a token's audience back
+     *  out again, which is the hole the original binding closed. */
+    resource:      Option[String] = None
   ): TokenResult =
     val form = Map(
       "grant_type"    -> "refresh_token",
       "refresh_token" -> refreshToken,
       "client_id"     -> clientId
     ) ++ (if scopes.nonEmpty then Map("scope" -> scopes.toList.sorted.mkString(" ")) else Map.empty)
-      ++ clientSecret.map("client_secret" -> _).toMap
+      ++ clientSecret.map("client_secret" -> _).toMap ++ resourceParam(resource)
     postForm(tokenEndpoint, form, timeoutMs)
 
   /** Machine-to-machine: mint a token directly from client credentials. */
@@ -351,13 +409,17 @@ object OAuthClient:
     clientId:      String,
     clientSecret:  String,
     scopes:        Set[String] = Set.empty,
-    timeoutMs:     Long        = 5000L
+    timeoutMs:     Long        = 5000L,
+    /** RFC 8707, and it applies here too: a machine-to-machine token is as
+     *  replayable as any other. */
+    resource:      Option[String] = None
   ): TokenResult =
     val form = Map(
       "grant_type"    -> "client_credentials",
       "client_id"     -> clientId,
       "client_secret" -> clientSecret
     ) ++ (if scopes.nonEmpty then Map("scope" -> scopes.toList.sorted.mkString(" ")) else Map.empty)
+      ++ resourceParam(resource)
     postForm(tokenEndpoint, form, timeoutMs)
 
   // ─── Stateful token store (auto-refresh) ──────────────────────────

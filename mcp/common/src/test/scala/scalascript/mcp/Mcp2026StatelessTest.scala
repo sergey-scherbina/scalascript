@@ -2032,3 +2032,63 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
       "srv", "9.9.9")
     b.completionContext shouldBe Map.empty
 
+  // ── RFC 8707 Resource Indicators (2025-06-18 makes these a client MUST) ──
+
+  test("the canonical resource URI lowercases, drops the default port and the fragment"):
+    import scalascript.oauth.OAuthClient.canonicalResourceUri as canon
+    canon("HTTPS://MCP.Example.COM/mcp")      shouldBe "https://mcp.example.com/mcp"
+    canon("https://h:443/mcp")                shouldBe "https://h/mcp"
+    canon("http://h:80/mcp")                  shouldBe "http://h/mcp"
+    canon("https://h:8443/mcp")               shouldBe "https://h:8443/mcp"
+    // RFC 8707 forbids a fragment outright.
+    canon("https://h/mcp#frag")               shouldBe "https://h/mcp"
+    // `https://h/` and `https://h` name one resource; an AS comparing strings
+    // would not know that, so we pick one.
+    canon("https://h/")                       shouldBe "https://h"
+    canon("https://h")                        shouldBe "https://h"
+
+  test("the PATH is kept, because two servers can share a host"):
+    import scalascript.oauth.OAuthClient.canonicalResourceUri as canon
+    canon("https://h/team-a/mcp") should not be canon("https://h/team-b/mcp")
+
+  test("unparseable input is passed through rather than failing a login"):
+    import scalascript.oauth.OAuthClient.canonicalResourceUri as canon
+    canon("not a uri at all") shouldBe "not a uri at all"
+    canon("   ")              shouldBe ""
+
+  test("the authorization URL carries `resource`, canonicalised, and omits it when unset"):
+    def url(res: Option[String]) = scalascript.oauth.OAuthClient.authorizationUrl(
+      "https://as.example/authorize", "cid", "https://app/cb", Set("mcp"), "st",
+      scalascript.oauth.OAuthClient.PkcePair("v", "c", "S256"), res)
+    url(Some("HTTPS://MCP.Example.COM/mcp:443".replace(":443", ""))) should include (
+      "resource=https%3A%2F%2Fmcp.example.com%2Fmcp")
+    url(None) should not include "resource="
+
+  test("the token exchange and the refresh both carry it — the last step is where the swap lands"):
+    // Driven through a recording endpoint rather than asserted on a string, so
+    // this measures the form that is SENT.
+    val seen = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val server = com.sun.net.httpserver.HttpServer.create(
+      java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/token", { ex =>
+      seen.add(new String(ex.getRequestBody.readAllBytes(), "UTF-8"))
+      val body = ujson.write(ujson.Obj("access_token" -> "t", "token_type" -> "Bearer"))
+                   .getBytes("UTF-8")
+      ex.getResponseHeaders.add("Content-Type", "application/json")
+      ex.sendResponseHeaders(200, body.length.toLong)
+      ex.getResponseBody.write(body); ex.getResponseBody.close()
+    })
+    server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
+    server.start()
+    try
+      val ep = s"http://127.0.0.1:${server.getAddress.getPort}/token"
+      scalascript.oauth.OAuthClient.exchangeAuthorizationCode(
+        ep, "cid", "https://app/cb", "code", "verifier", None, 3000L, Some("https://H/mcp"))
+      scalascript.oauth.OAuthClient.refresh(
+        ep, "cid", "rt", Set.empty, None, 3000L, Some("https://H/mcp"))
+      val forms = seen.toArray.map(_.toString).toList
+      forms should have size 2
+      // canonicalised on the way out: the host was upper-case going in.
+      all (forms) should include ("resource=https%3A%2F%2Fh%2Fmcp")
+    finally server.stop(0)
+
