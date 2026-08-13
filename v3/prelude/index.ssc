@@ -107,3 +107,65 @@ object Dataset:
     if p != DsAbsent() then xs = xs :+ p
     Dataset(xs)
 ```
+
+## The `List` companion
+
+`List.fill`, `List.tabulate` and `List.range` — the members Scala puts on `List`'s companion
+object. Measured before writing: `List` is 4 of the corpus's `unknown name` refusals, asked for as
+`List.fill(4)(0)`, `List.tabulate(5)(i => i*i)`, `List.range(1, 6)` and `List.range(0, 10, 3)`.
+
+HERE AND NOT IN THE KERNEL, because the project's rule is that new intrinsics go to a library and
+never to the core — and a library written in ScalaScript reaches BOTH lanes with no host surface at
+all, which is the whole reason the prelude exists.
+
+`object List` COEXISTS with the `List(…)` literal, which `Lower` special-cases: one is the name
+`List` and the other is `List.fill`, and they are different entries in the signature table. Probed
+before this was written rather than hoped for.
+
+`range` takes its step as a DEFAULTED parameter rather than being declared twice. Two `def`s of one
+name would be arity overloading, and `checkArity` resolves a call with `sigs.find` — the FIRST match
+by name — so the three-argument call would be checked against the two-argument signature and
+refused. One signature with `step: Int = 1` answers both spellings.
+
+Each loop counts DOWN and conses onto the front, so the result comes out in order without a
+reverse — `::` is the only list constructor Tier 0 has.
+
+`range` COUNTS FIRST and then builds, which reads as a detour and is the fix for an EMPTY range.
+The first version walked up to remember the last value and then walked down from it, so
+`List.range(5, 5)` and `List.range(5, 3)` each produced ONE element instead of none: the downward
+loop runs at least once whatever the bound. Counting makes emptiness `n = 0`, and a loop that never
+starts. The corpus case does not contain an empty range, so this would have shipped behind a green
+measurement — the edge probe is what caught it.
+
+```scalascript
+object List:
+  def fill(n: Int)(x: Any): List[Any] =
+    var acc = Nil
+    var i = 0
+    while i < n do
+      acc = x :: acc
+      i = i + 1
+    acc
+
+  def tabulate(n: Int)(f: Int => Any): List[Any] =
+    var acc = Nil
+    var i = n - 1
+    while i >= 0 do
+      acc = f(i) :: acc
+      i = i - 1
+    acc
+
+  def range(lo: Int, hi: Int, step: Int = 1): List[Int] =
+    var acc = Nil
+    var n = 0
+    var i = lo
+    while i < hi do
+      n = n + 1
+      i = i + step
+    i = lo + (n - 1) * step
+    while n > 0 do
+      acc = i :: acc
+      i = i - step
+      n = n - 1
+    acc
+```
