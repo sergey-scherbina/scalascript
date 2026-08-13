@@ -545,6 +545,123 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-unary-minus-is-an-unsupported-expression — FIXED, and it was the FIRST of five links, not a fix on its own
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 3ae3258ce
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`val i = if n < 0 then -n else n` refused the whole def: Scala 3 parses negation as
+`Term.ApplyUnary`, and the walker had an arm for `!` and none for `-`. It was the SOLE recorded
+blocker of `std/i18n.ssc` and `std/ui/i18n.ssc` — both at `sites = 1` in `--roadmap`, the strongest
+proximity signal the corpus has.
+
+**And it was not enough, which is the finding.** A refusal SHORT-CIRCUITS the walk, so what stood
+behind it had never been measured. Lowering `-` alone turned both modules REFUSED → BADRUST. What
+was behind it, each found only once the one before it was fixed:
+
+| | module | |
+|---|---|---|
+| 1 | both | `-x` unlowered — this entry |
+| 2 | both | `Map.contains` emitting `str::contains` → [[rust-map-contains-emits-str-contains]] |
+| 3 | ui/i18n | a MODULE-level signal val read as a call → [[rust-module-level-signal-val-reads-as-a-call]] |
+| 4 | ui/i18n | a no-arg closure consuming its capture → [[rust-noarg-closure-moves-its-capture]] |
+| 5 | ui/i18n | a closure param at an `Any` parameter → [[rust-closure-param-at-an-any-parameter]] |
+
+Five distinct defects, one visible. `sites = 1` bounded how many DEFS refuse; it says nothing about
+how many defects sit inside the one that does — which is exactly the lower-bound caveat
+[[rust-survey-first-reason-hides-blocker-depth]] documents, now with a second measurement behind it.
+
+Landed together, because separately each reads as a regression: REFUSED 84 → 82, COMPILES 48 → 50,
+BADRUST still 0.
+
+**No coercion on the operand**, deliberately: `ssc_int` is total but would TRUNCATE an `f64`, and a
+wrong answer is worse than a refusal. Rust's `Neg` covers `i64` and `f64` exactly. A `Value` operand
+would need `impl Neg for Value` and none exists in the corpus — the whole std tree holds one unary
+minus, on an `n: Int`. Unary `+` and `~` were looked for in the same pass and do not occur.
+
+## rust-map-contains-emits-str-contains — FIXED: one member name, two source types, and the arm knew only one
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 3ae3258ce
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`contains` was lowered by name into `str::contains`, which is right for a String and wrong for a
+Map: Rust's `HashMap` has no `contains` at all. `if catalog.contains(locale)` emitted
+`error[E0599]: no method named contains found for struct HashMap`.
+
+The fix is NOT in the shared arm — it is a new arm before it, firing only when the receiver's
+DECLARED type places it as a Map (`collectLocalMaps`: params by `decltpe`, locals by an RHS that can
+only be a Map). A receiver this lane cannot place keeps the str lowering, so nothing that compiles
+today moves. Modelled on `localSeqs` / `localStrings` / `localOptions`, which is the same discipline:
+read declarations, never infer.
+
+`getOrElse`'s default is read from the LAST argument — `Map.getOrElse(key, d)` has two and the first
+is the KEY. `collectLocalStrings` records making exactly that mistake and printing 71 for 8.
+
+## rust-module-level-signal-val-reads-as-a-call — FIXED, and it was the third and fourth spelling of one defect
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 3ae3258ce
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`val localeSignal: Signal[String] = signal("locale", "en")` declared beside the defs that read it —
+`collectLocalSignals` walks a DEF'S BODY, so it could not see it. Every read lowered to a Rust call
+on a `Value`: `error[E0618]: expected function, found Value`.
+
+**A signal reaches a def by four routes and each was found only after the previous was closed:** a
+local `val`, a signal in an `Any` FIELD (fixed earlier), a MODULE-level val, and a PARAMETER declared
+`Signal[T]` — the last one surfaced in this same module the moment the third was fixed. Both new
+routes read a DECLARATION. The module-level collector reuses the local one on a synthetic block
+rather than restating what a signal is, so the two cannot drift apart.
+
+## rust-noarg-closure-moves-its-capture — FIXED: "has parameters" was standing in for "is inside a closure"
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 3ae3258ce
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`cloneIfMoved` already knew that a captured non-Copy value must be cloned at the USE — an `Fn`
+closure may run many times and cannot consume what it captured. Its test for "am I inside a closure"
+was `closureParams.nonEmpty`, and **a zero-argument closure binds nothing**, so inside `() => …` the
+rule read false. `computedSignal(() => translateIn(catalog, …, key, base))` produced eight
+`error[E0507]: cannot move out of catalog, a captured variable in an Fn closure`.
+
+Fixed by threading an explicit `inClosure` through all five closure-body contexts — the two questions
+are different and one was standing in for the other.
+
+**A wider fix was tried first and REVERTED, and the corpus is why.** Pre-cloning every captured
+parameter into the closure looked safe under "every type this backend emits derives Clone" — false
+for exactly one: a parameter whose declared type is a FUNCTION renders as `impl Fn(Ctx) -> i64`,
+which carries no Clone bound, and `let body = body.clone();` took `std/ui/component.ssc` out of
+COMPILES. `backendRust/test` stayed 278/278 through that; only the corpus gate saw it. The pre-clone
+was also unnecessary — cloning at the use is what fixes an `Fn` closure, not cloning into it.
+
+## rust-closure-param-at-an-any-parameter — FIXED: the one binding the Any-boundary rule could not recognise
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: 3ae3258ce
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`locales.map(loc => signalButton(sig, loc, …))` — `loc` is bound by a closure with no declared type,
+so `needsAnyCoercion` saw neither an `anyName`, nor a case class, nor a literal, and passed a
+`String` at a parameter declared `Any`: `expected Value, found String`.
+
+Added by NAME-BINDING (`closureParams`) rather than by widening the rule to every argument, which
+keeps the narrowing that function documents and exists for: `Value::from` is total, so coercing
+everything would be CORRECT but would rewrite every emitted call in the repository, and the goldens
+are how this backend is reviewed.
+
 ## rust-survey-first-reason-hides-blocker-depth — FIXED: the refusal histogram could not tell "wants this feature" from "mentions it on the way past"
 <!-- status: fixed
      lane: apparatus
