@@ -105,11 +105,20 @@
       |}
       |
       |/// `serve(port)` — start the HTTP server and block until killed.
+      |///
+      |/// Binds `SSC_HTTP_BIND` when it is set and `0.0.0.0` otherwise, so the default is exactly
+      |/// what it was. The variable exists because there was previously NO way to keep a server off
+      |/// the network: every ScalaScript service is reachable from the LAN whether or not it was
+      |/// meant to be, and `serve` takes a port and nothing else, so the program cannot say
+      |/// otherwise. A service that replaces a loopback-only one needs to be able to say it.
       |#[allow(dead_code)]
       |pub fn _http_serve(port: i64) {
       |    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
       |    rt.block_on(async move {
-      |        let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+      |        let host = std::env::var("SSC_HTTP_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
+      |        let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap_or_else(|e| {
+      |            panic!("serve({}): SSC_HTTP_BIND={:?} is not an address: {}", port, host, e)
+      |        });
       |        let listener = TcpListener::bind(addr).await
       |            .unwrap_or_else(|e| panic!("serve({}): {}", port, e));
       |        eprintln!("Listening on http://{}", listener.local_addr().unwrap());
