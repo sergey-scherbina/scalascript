@@ -127,8 +127,31 @@
       |impl SscToInt for f64    { fn ssc_to_int(self) -> i64 { self as i32 as i64 } }
       |impl SscToInt for String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
       |impl SscToInt for &str   { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |// Reference arms so the CALLER can borrow. `_to_int(s)` took the String, and a body that read
+      |// `s` again was E0382 — `s.toInt.toString == s` did not compile while the same check through
+      |// two local copies did. Reported from rozum. Borrowing costs nothing and a clone would have
+      |// allocated on every conversion.
+      |impl SscToInt for &String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |impl SscToInt for &i64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
+      |impl SscToInt for &f64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
       |#[allow(dead_code)]
       |pub fn _to_int<T: SscToInt>(x: T) -> i64 { x.ssc_to_int() }
+      |
+      |// `toDouble` / `toFloat`, the twin of the above and for the same reason: `s as f64` is not a
+      |// cast Rust has for a String either (E0605), and that is what EVERY receiver got here — the
+      |// String arm was never written, only the numeric one. Reported from rozum, whose CSV field
+      |// test reached for `toDouble` and could not use it.
+      |#[allow(dead_code)]
+      |pub trait SscToDouble { fn ssc_to_double(self) -> f64; }
+      |impl SscToDouble for f64    { fn ssc_to_double(self) -> f64 { self } }
+      |impl SscToDouble for i64    { fn ssc_to_double(self) -> f64 { self as f64 } }
+      |impl SscToDouble for String { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
+      |impl SscToDouble for &str   { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
+      |impl SscToDouble for &String { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
+      |impl SscToDouble for &i64    { fn ssc_to_double(self) -> f64 { *self as f64 } }
+      |impl SscToDouble for &f64    { fn ssc_to_double(self) -> f64 { *self } }
+      |#[allow(dead_code)]
+      |pub fn _to_double<T: SscToDouble>(x: T) -> f64 { x.ssc_to_double() }
       |
       |// A Char on the Rust lane. Rust has no inheritance, so the property `CharV extends IntV` gives
       |// the v2 kernel for free is spelled out here: Display prints the CHARACTER, and every numeric

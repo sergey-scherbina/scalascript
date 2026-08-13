@@ -2410,12 +2410,17 @@ object RustCodeWalk:
         // coercions, and it beats a refusal because the program keeps working.
         if isStringToIntExpr(qual) then Right(s"($q.parse::<i64>().unwrap_or(0))")
         else if isNumericExpr(qual, ctx) then Right(s"($q as i32 as i64)")
-        else Right(s"crate::runtime::_to_int($q)")
+        else Right(s"crate::runtime::_to_int(&$q)")
       }
-    case m.Term.Select(qual, m.Term.Name("toDouble")) =>
-      renderTerm(qual, ctx).map(q => s"($q as f64)")
-    case m.Term.Select(qual, m.Term.Name("toFloat")) =>
-      renderTerm(qual, ctx).map(q => s"($q as f64)")
+    // Same three arms as `toInt` above, and for the reason written there: `s as f64` is not a cast
+    // Rust has for a String (E0605). Only the numeric arm existed here, so every String receiver got
+    // an invalid cast — `"1.5".toDouble` did not compile at all. Reported from rozum.
+    case m.Term.Select(qual, m.Term.Name("toDouble" | "toFloat")) =>
+      renderTerm(qual, ctx).map { q =>
+        if isStringExpr(qual) then s"($q.trim().parse::<f64>().unwrap_or(0.0))"
+        else if isNumericExpr(qual, ctx) then s"($q as f64)"
+        else s"crate::runtime::_to_double(&$q)"
+      }
     case m.Term.Select(qual, m.Term.Name("toString")) =>
       renderTerm(qual, ctx).map(q => s"format!(\"{}\", $q)")
     // `xs.zipWithIndex` — a Select, not a call. Scala pairs (element, index); Rust's `enumerate`
