@@ -39,7 +39,6 @@ cd "$ROOT"
 # a permanent exemption.
 read -r -d '' FROZEN <<'EOF' || true
 actors-pingpong-smoke.sh
-bytecode-fallback-visible.sh
 components-smoke.sh
 f-char-escape-gate.sh
 f-front-delegation-visible.sh
