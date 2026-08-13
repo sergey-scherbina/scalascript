@@ -127,5 +127,60 @@ out=$(bash "$TOOL" goneb --level 3 --note "branch already tidied" 2>&1) && rc=0 
 check "a claim naming a deleted branch still releases" 0 "$rc"
 contains "and the silence is named"  "is gone locally" "$out"
 
+# ── 6. A REFUSED PUSH MUST NOT PARK THE COMMIT ────────────────────────────────
+#
+# The shared checkout is one working tree for every agent, `coord-claim` pushes the whole of local
+# `main`, and the pre-push guard validates every claim in `remote_tip..local_tip`. So a release
+# commit left parked here is refused FOR A STRANGER and blocks every agent's next claim until
+# somebody finds it. BUGS `shared-main-is-one-working-tree-for-every-agent` recorded three such
+# landmines in one day; `coord-claim` learned to roll back on 2026-08-07 and this script had not.
+#
+# The occupant is manufactured, because the real refusal cannot be summoned on demand: a `pre-push`
+# hook that exits 1, standing in for the overlap guard rejecting somebody else's parked claim. What
+# is asserted is not the hook — it is that after ANY refused push the checkout is exactly as it was.
+seed_claim parked feature/parked
+make_branch feature/parked pushed
+mkdir -p .git/hooks
+printf '#!/bin/sh\necho "✋ pre-push: file %s is already claimed by %s" >&2\nexit 1\n' \
+  "'x.sh'" "'somebody-else'" > .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+out=$(bash "$TOOL" parked --level 3 --note "will be refused" 2>&1) && rc=0 || rc=$?
+check "a refused push exits non-zero" 1 "$rc"
+check "AND LEAVES NO COMMIT PARKED ON MAIN" 0 "$(git rev-list --count origin/main..HEAD)"
+check "the claim file is back" \
+      yes "$([ -f .work/active/parked.claim ] && echo yes || echo no)"
+check "the ledger row is back" 1 "$(grep -c '^parked	' .work/active/LEDGER.tsv || true)"
+contains "the rollback is announced, not silent" "rolled back" "$out"
+# The refusal must be DIAGNOSED. Saying "main moved" when a hook refused sends the reader in a
+# circle — fetch and merge do nothing for it — while the parked commit blocks everyone else.
+contains "a hook refusal is not reported as 'main moved'" "pre-push guard" "$out"
+contains "and it says how to see what is riding along" "git log origin/main..HEAD" "$out"
+rm -f .git/hooks/pre-push
+
+# ── 7. THE DIAGNOSIS MUST NOT BE A CONSTANT ───────────────────────────────────
+#
+# A tool that answers "the pre-push guard refused" for EVERY failure passes case 6 while being
+# exactly as wrong as the unconditional "main moved" it replaced. So: a refusal that is neither
+# shape, and the tool must decline to name a cause it cannot see.
+#
+# A fresh slug, because case 6's subject is only in a releasable state if the rollback worked —
+# reusing it would make this case's verdict depend on that one and report a second failure for the
+# same defect.
+seed_claim opaque feature/opaque
+make_branch feature/opaque pushed
+printf '#!/bin/sh\necho "remote end hung up unexpectedly" >&2\nexit 1\n' > .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+out=$(bash "$TOOL" opaque --level 3 --note "refused for an unrecognised reason" 2>&1) && rc=0 || rc=$?
+check "an unrecognised refusal still exits non-zero" 1 "$rc"
+check "and still parks nothing" 0 "$(git rev-list --count origin/main..HEAD)"
+contains "the reason is shown verbatim" "remote end hung up" "$out"
+contains "and no cause is invented" "the output above is the reason" "$out"
+case "$out" in
+  *"main moved"*|*"pre-push guard"*)
+    printf 'FAIL  an unrecognised refusal must not be labelled\n        got=%s\n' "$out"; fail=1 ;;
+  *) printf 'PASS  an unrecognised refusal must not be labelled\n' ;;
+esac
+rm -f .git/hooks/pre-push
+
 if [ "$fail" -ne 0 ]; then echo "coord-release-refuses-unpushed-work: FAIL"; exit 1; fi
 echo "coord-release-refuses-unpushed-work: OK"

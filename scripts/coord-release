@@ -209,8 +209,19 @@ if [ -n "$landed" ]; then
 
 landed (commits on ${branch} touching this claim's scope): ${landed}"
 fi
+# THE SHA BEFORE THE COMMIT, because a refused push must not leave the commit behind.
+#
+# `scripts/coord-claim` learned this on 2026-08-07 and this script did not. The difference is not
+# cosmetic: the shared checkout is ONE working tree for every agent, `coord-claim` pushes the whole
+# of local `main`, and the pre-push guard validates every claim in `remote_tip..local_tip`. So a
+# release commit parked here is refused for a stranger, and it blocks EVERY agent's next claim until
+# somebody finds and removes it. BUGS `shared-main-is-one-working-tree-for-every-agent` recorded
+# three such landmines in one day, all of this kind.
+pre_release_sha="$(git rev-parse HEAD)"
 git commit -q -m "${msg} [skip ci]"
-if git push -q origin main; then
+push_log="$(mktemp "${TMPDIR:-/tmp}/coord-release-push.XXXXXX")"
+if git push origin main >"$push_log" 2>&1; then
+  rm -f "$push_log"
   echo "✓ released ${slug}: claim file and ledger row, one commit"
   # The item cannot be written HERE: `.githooks/pre-commit` refuses paths outside `.work/` in the
   # shared checkout, which is what keeps a release to one reviewable shape. So this NAMES the line to
@@ -240,6 +251,35 @@ if git push -q origin main; then
   fi
   echo "  (nothing to do for the in-flight list — scripts/board derives it from .work/active/)"
 else
-  echo "coord-release: push refused; main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2
+  # THE REFUSAL IS DIAGNOSED, NOT ASSUMED. This line used to say "main moved. Re-run after: git
+  # fetch && git merge --ff-only" unconditionally — and the refusal that actually happens here is
+  # usually the OTHER one: the pre-push guard rejecting a claim carried in `remote_tip..local_tip`
+  # that belongs to somebody else. Fetching and merging does nothing for that, so the advice sent
+  # the reader in a circle while their commit sat parked, blocking every agent's next claim.
+  push_out="$(cat "$push_log" 2>/dev/null || true)"
+  printf '%s\n' "$push_out" >&2
+  case "$push_out" in
+    *non-fast-forward*|*"fetch first"*|*"Updates were rejected"*)
+      echo "coord-release: push refused — main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2 ;;
+    *pre-push*|*"already claimed"*|*"✋"*)
+      echo "coord-release: push refused by the pre-push guard, and it may not be about YOUR claim." >&2
+      echo "  The shared checkout pushes all of local main, so a commit somebody else parked here is" >&2
+      echo "  validated too. Look at what is riding along, and ask its owner in the room:" >&2
+      echo "    git log origin/main..HEAD --oneline" >&2
+      echo "  Release from a worktree instead, which carries only your commit:" >&2
+      echo "    git -C <worktree> fetch origin && git -C <worktree> rebase origin/main && git -C <worktree> push origin HEAD:main" >&2 ;;
+    *)
+      echo "coord-release: push refused — the output above is the reason." >&2 ;;
+  esac
+  # ROLL THE COMMIT BACK. Targeted, never `reset --hard`: this script does not require a clean tree,
+  # and a hard reset would delete work that has nothing to do with the release. Restoring the two
+  # paths from the pre-release commit puts the claim file and its ledger row back exactly as they
+  # were, so the claim is still live and still visible to everyone.
+  if [ "$(git rev-parse HEAD)" != "$pre_release_sha" ]; then
+    git reset -q --mixed "$pre_release_sha"
+    git checkout -q -- "$claim" .work/active/LEDGER.tsv 2>/dev/null || true
+    echo "  (rolled back the local release commit — the shared checkout is clean again, the claim still stands)" >&2
+  fi
+  rm -f "$push_log"
   exit 1
 fi
