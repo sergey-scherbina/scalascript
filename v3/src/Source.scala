@@ -22,7 +22,17 @@ object Source:
     val lines = text.split("\n", -1).toList
     // A bare `.ssc` is code in its entirety, so its import LINKS are in the middle of the program
     // and have to go — blanked, not removed, so every line number still matches the file.
-    if !lines.exists(isCodeFenceOpen) then lines.map(blankIfImport).mkString("\n")
+    // ANY FENCE, not any CODE fence. The rule is "a document with fences is fenced, and only its
+    // code blocks are code" — asking `isCodeFenceOpen` here instead meant a file whose ONLY fence
+    // is ```` ```text ```` counted as fenceless, so its markdown headings went to the parser and it
+    // died on `#`. `std/index.ssc:70` is that file: an aggregator whose whole content is prose and
+    // markdown-link imports, readable by uniml and not by this front, and the last of the four
+    // one-sided files that SSC3-13 opened.
+    //
+    // Measured before the rule was changed rather than after: exactly TWO files in the tree have a
+    // fence and no code fence — `std/index.ssc` and `std/graphql.ssc` — and BOTH are refused today,
+    // so no working file can regress through this.
+    if !lines.exists(l => trimmed(l).startsWith("```")) then lines.map(blankIfImport).mkString("\n")
     else
       var out: List[String] = Nil
       var inCode = false

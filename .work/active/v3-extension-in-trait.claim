@@ -5,7 +5,7 @@ started: 2026-08-13T11:30:00Z
 heartbeat: 2026-08-13T11:30:00Z
 status: working
 items: v3-extension-in-trait
-paths: file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/src/Lower.scala
+paths: file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/src/Lower.scala file:v3/src/Source.scala
 scope: |
   SSC3-13 slice A. `extension [A](fa: F[A]) def map[B](…)` inside a `trait` is refused by
   `Parser.scala:1539` as "a `trait` member that is not a `def`". That single limit is what stops
@@ -34,7 +34,15 @@ scope: |
   a parameter's DECLARED type, prefer the SUBTRAIT when several instances provide one method, refuse
   when the traits are unrelated.
 
-  NARROW: three files, one construct. v3 already has top-level extensions and `Lower.rewriteExtensionCalls`; this is
+  WIDENED A THIRD TIME to `v3/src/Source.scala`, before the edit. The last one-sided file is
+  `std-index`: `Source.program` treats a `.ssc` as code IN ITS ENTIRETY when it finds no CODE fence,
+  but `std/index.ssc` has a ```text fence and no scalascript one — so its markdown headings reach
+  the parser and it dies on `#`. The rule should ask whether the file has ANY fence, not whether it
+  has a code fence. Measured blast radius before touching it: exactly TWO files in the tree match
+  that shape, `std/index.ssc` and `std/graphql.ssc`, and BOTH are refused today, so nothing that
+  works can regress.
+
+  NARROW: four files, one construct and one fence rule. v3 already has top-level extensions and `Lower.rewriteExtensionCalls`; this is
   the same construct one scope deeper, so the work is expected to be in the parser rather than the
   lowering. If it turns out to need `Lower` as well, the claim gets widened before that edit, not
   after.
