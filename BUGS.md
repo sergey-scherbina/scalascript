@@ -252,17 +252,38 @@ method at different arities. There the receiver is an expression, the method is 
 run time, no name is available at this point, and the suffix search is all there is. It needs more
 than a lookup and is not guessed at here.
 
-## statements-after-a-try-catch-run-before-it — `A; try…catch; C; D` prints `C D A B`
+## statements-after-a-try-catch-run-before-it — RETRACTED, the tree I measured on was half-edited
 
-<!-- status: open
+<!-- status: wontfix
      lane: v3
      area: codegen
      kind: bug
      gate: none -->
 
-**Reproduced 2026-08-12 on both v3 lanes, identically**, which is why nothing in the tree can see
-it: the executor and the bridge share the lowering, so no differential compares the two answers and
-the front differential compares trees rather than output.
+**RETRACTED 2026-08-13. THE PREMISE WAS MINE AND IT DOES NOT REPRODUCE.** The same probe files,
+byte for byte, now print `A B-handler C D` — the correct order — ten runs out of ten, on both
+lanes. It does not reproduce at `c87dc95cf~1` either, so nothing "fixed" it: the ordering I
+reported was never there.
+
+**WHAT I ACTUALLY DID.** I ran that probe while `v3/src/Exec.scala` was half-edited — mid-way
+through adding `Value.VBytes` and its prims — and minutes after deleting `v3/.jars` wholesale to
+force a rebuild. So the measurement came from a tree I was still changing, through a jar cache I
+had just removed. I cannot say which of those produced the inversion and I am not going to guess;
+what is certain is that three probes agreeing with each other is worth nothing when all three ran
+against the same suspect build.
+
+**THE RULE IT EARNS, and it is the one this repository keeps re-learning from the other side:** a
+defect is filed from a CLEAN, COMMITTED tree. Every previous version of this lesson is about
+measuring performance or N against a stale artifact; this is the same error producing a phantom
+BUG, which is worse, because a wrong number gets re-measured and a filed bug gets hunted.
+
+The original report follows, unedited, because the shape of the mistake is the useful part.
+
+---
+
+**Reported 2026-08-12 as reproduced on both v3 lanes, identically**, with the reasoning that nothing
+in the tree could see it: the executor and the bridge share the lowering, so no differential
+compares the two answers and the front differential compares trees rather than output.
 
 ```scalascript
 def main(): Unit =
@@ -299,7 +320,10 @@ run in the wrong order matches the symptom exactly, and would explain why the tw
 execute the same mis-ordered IR.
 
 **Not fixed here.** Found under `v3-host-io-bytes`, whose claim is two files and does not include
-the CPS transform; filing it is the honest move and taking it would be claim creep.
+the CPS transform; filing it is the honest move and taking it would be claim creep. — And that
+judgement was right about scope and wrong about the finding, which is the part worth keeping: I was
+careful about whose file it was and careless about whether the tree I measured on was one anybody
+would recognise.
 
 ## multi-effect-marker-is-lost-in-a-bare-ssc — the same program is multi-shot fenced and one-shot bare
 
