@@ -3907,6 +3907,24 @@ homeless but they are not smoke's: smoke measured 897.7 s of a 1027 s budget on 
 `interpreter-fast` do not) — and that is batch 2.
 
 
+### 2026-08-13, batch 2 — the 17 verified passers are wired; the list is 33 -> 16
+
+All seventeen went into `conformance-extras`, each with its measured cost on the line. **Not smoke**,
+and the reason is arithmetic rather than taste: they total ~11 minutes and smoke was already at
+765 s of a 1027 s budget. `conformance-extras` is tier 2 — no `if:`, and `ci.yml` runs on
+`pull_request` plus the nightly schedule — and it builds a launcher, which they need. Cadence
+checked, not assumed.
+
+`f-char-escape-gate.sh` is wired **here and nowhere else on purpose**: it is the one gate of the
+twenty that SKIPS rather than fails when the launcher cannot run (`ssc_usable_or_skip`), so on a
+host without one it would report success having tested nothing. This job guarantees a launcher.
+
+**What is left is 16, and every one of them FAILS** — they were measured in batch 1 and none is
+wired, because a gate red on arrival is how a suite becomes noise. Their diagnosis is the next
+batch, expected to be 3-4 shared causes rather than 16 separate ones: the 2026-08-02 sweep found two
+mechanical causes explaining 22 of 26.
+
+
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed
      lane: apparatus

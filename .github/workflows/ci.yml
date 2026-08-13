@@ -660,6 +660,54 @@ jobs:
       - name: Every wired gate can fail (stub-launcher evidence audit)
         run: tests/e2e/no-orphan-gates.sh --evidence
 
+      # ── 17 gates that were invoked by NOTHING, drained here ─────────────────────────────────────
+      #
+      # Each was RUN against a freshly built launcher (2026-08-13) and passed; the measured cost is
+      # on each line, and it is what put them HERE rather than in smoke — they total ~11 minutes and
+      # smoke was already at 765 s of a 1027 s budget. This job is tier 2 (no `if:`, ci.yml runs on
+      # pull_request + the nightly schedule) and it builds a launcher, which they need.
+      #
+      # Each was also checked NOT to be vacuous: re-run with the launcher replaced by a failing
+      # stub, all of them go red — except `f-char-escape`, which SKIPS by design
+      # (`ssc_usable_or_skip`) and is therefore declared in no-orphan-gates.sh. It is wired here and
+      # nowhere else precisely because this job guarantees a launcher; on a host without one it
+      # would report success having tested nothing.
+      # (orphaned-e2e-gates-52.)
+      - name: pattern-undefined-name (12s, was an orphan)
+        run: tests/e2e/pattern-undefined-name-gate.sh
+      - name: member-beats-toplevel (18s, was an orphan)
+        run: tests/e2e/member-beats-toplevel-gate.sh
+      - name: components-smoke (24s, was an orphan)
+        run: tests/e2e/components-smoke.sh
+      - name: middleware-smoke (24s, was an orphan)
+        run: tests/e2e/middleware-smoke.sh
+      - name: health-defaults-smoke (25s, was an orphan)
+        run: tests/e2e/health-defaults-smoke.sh
+      - name: import-parse-error (25s, was an orphan)
+        run: tests/e2e/import-parse-error-gate.sh
+      - name: fm-routes-smoke (26s, was an orphan)
+        run: tests/e2e/fm-routes-smoke.sh
+      - name: int-imported-registry (30s, was an orphan)
+        run: tests/e2e/int-imported-registry-gate.sh
+      - name: jvm-json-import (34s, was an orphan)
+        run: tests/e2e/jvm-json-import-gate.sh
+      - name: multi-name-val (35s, was an orphan)
+        run: tests/e2e/multi-name-val-gate.sh
+      - name: f-front-delegation-visible (36s, was an orphan)
+        run: tests/e2e/f-front-delegation-visible.sh
+      - name: object-var-mutation (42s, was an orphan)
+        run: tests/e2e/object-var-mutation-gate.sh
+      - name: triple-quote-trailing-quote (42s, was an orphan)
+        run: tests/e2e/triple-quote-trailing-quote-gate.sh
+      - name: f-char-escape (44s, was an orphan)
+        run: tests/e2e/f-char-escape-gate.sh
+      - name: validation-smoke (76s, was an orphan)
+        run: tests/e2e/validation-smoke.sh
+      - name: upload-smoke (84s, was an orphan)
+        run: tests/e2e/upload-smoke.sh
+      - name: no-paren-sibling (180s, was an orphan)
+        run: tests/e2e/no-paren-sibling-gate.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

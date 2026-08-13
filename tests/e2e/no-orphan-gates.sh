@@ -39,37 +39,20 @@ cd "$ROOT"
 # a permanent exemption.
 read -r -d '' FROZEN <<'EOF' || true
 actors-pingpong-smoke.sh
-components-smoke.sh
-f-char-escape-gate.sh
-f-front-delegation-visible.sh
-fm-routes-smoke.sh
-health-defaults-smoke.sh
-import-parse-error-gate.sh
 install-sh-reports-failure-gate.sh
-int-imported-registry-gate.sh
-jvm-json-import-gate.sh
-member-beats-toplevel-gate.sh
-middleware-smoke.sh
-multi-name-val-gate.sh
 negtc-shard-gate.sh
-no-paren-sibling-gate.sh
-object-var-mutation-gate.sh
-pattern-undefined-name-gate.sh
 render-smoke.sh
 req-type-collision-v2-smoke.sh
 route-params-v2-smoke.sh
 selfhost-front-gate.sh
 serve-view-frontend-v2-smoke.sh
-triple-quote-trailing-quote-gate.sh
 typeerr-names-both-types.sh
-upload-smoke.sh
 v21-build-jvm-smoke.sh
 v21-native-content-smoke.sh
 v21-native-doc-render-smoke.sh
 v21-portable-gates-smoke.sh
 v21-typeclass-dictionary-smoke.sh
 v21-unhandled-effect-smoke.sh
-validation-smoke.sh
 wc-card-smoke.sh
 EOF
 
