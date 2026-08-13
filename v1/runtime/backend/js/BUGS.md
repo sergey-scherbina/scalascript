@@ -2090,11 +2090,43 @@ for its timeout instead of reporting.
 are larger than a bug fix and neither should be picked by whoever happened to find the deadlock.
 
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: none -->
+     gate: tests/conformance/js-derives-segmented.ssc
+     fixed-in: c8168ef90 -->
+
+### CLOSED 2026-08-13 — both halves fixed, and the RESIDUAL this entry was held open for is gone too
+
+Measured today on the shipped toolchain, not read off the text below:
+
+```text
+                                                  js lane            int oracle
+emit-js js-derives-segmented.ssc | node           Point#2            Point#2
+                                                  Person/3           Person/3
+emit-js --no-tree-shake … | node                  identical          —
+examples/rozum-agent-schema-derived.ssc, run-js   Done               Done
+                                                  Derived posted.    Derived posted.
+                                                  Explicit posted.   Explicit posted.
+                                                  2  (rc=0)          2
+```
+
+**The example is the part worth stating.** This entry stayed open on it after the `derives` half
+was fixed: it no longer raised a `ReferenceError`, it HUNG — 180 s and killed. That hang was traced
+to [`js-httppost-to-own-serveasync-deadlocks`](#js-httppost-to-own-serveasync-deadlocks) and fixed
+there (`066d4f281`), so the residual belonged to another entry and this one had nothing left to
+hold. It now terminates on the js lane with the same four lines as `--v1`, in well under the cap.
+
+**`gate: none` was stale.** `tests/conformance/js-derives-segmented.ssc` exists, is rostered, and
+pins BOTH scan paths this entry names — a same-module `object Tagged` with `def derived`, and an
+imported `Labelled` that reaches `emitMirrorAndDerives` only via `importedTypeclassObjects`. The
+`elemLabels.length` in each derived value (`Point#2`, `Person/3`) is what proves the MIRROR was
+emitted and not merely some object under the right name; a Mirror without labels reports `0`.
+
+`fixed-in` names `c8168ef90`, the commit that restored `emitMirrorAndDerives` on the segmented path
+and made a `derives` clause a tree-shaker root. The `coroutineCancel` half was already fixed when
+this was filed and the text below says so.
 
 **Re-checked 2026-08-02 at `ec70eb062` (freshly built): the residual is STILL THERE but it is NO
 LONGER THE RECORDED SYMPTOM.** `examples/rozum-agent-schema-derived.ssc` on the js lane does not
