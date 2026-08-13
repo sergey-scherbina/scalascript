@@ -1,0 +1,11 @@
+slug: mcp-user-guide
+branch: feature/mcp-user-guide
+agent: claude-code
+started: 2026-08-13T16:39:46Z
+heartbeat: 2026-08-13T16:39:46Z
+status: claimed-before-planning
+items: mcp-user-guide
+paths: file:docs/mcp.md file:docs/README.md file:std/mcp/server.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
