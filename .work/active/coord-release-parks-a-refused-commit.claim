@@ -3,9 +3,23 @@ branch: feature/coord-release-parks-a-refused-commit
 agent: claude-code
 started: 2026-08-13T20:26:44Z
 heartbeat: 2026-08-13T20:26:44Z
-status: claimed-before-planning
+status: working
 items: shared-main-is-one-working-tree-for-every-agent
-paths: file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md
+paths: file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md file:scripts/SPRINT.md file:scripts/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  MEASURED FIRST, in a throwaway lab with a fake origin and a `pre-push` hook that refuses (standing
+  in for the overlap guard rejecting a stranger's parked claim): `scripts/coord-release` exits 1 and
+  LEAVES ITS COMMIT ON SHARED MAIN — 1 parked, claim file gone locally, ledger row gone, while both
+  still exist on origin. `scripts/coord-claim` learned to roll back on 2026-08-07; this script never
+  did. A parked coordination commit is refused FOR A STRANGER, because the shared checkout pushes all
+  of local main and the guard validates every claim in remote_tip..local_tip — BUGS
+  shared-main-is-one-working-tree-for-every-agent recorded three such landmines in one day.
+
+  Second defect in the same three lines: the refusal asserts "main moved. Re-run after: git fetch &&
+  git merge --ff-only" without looking. The refusal that actually happens here is the OTHER one, and
+  fetching does nothing for it — the advice sends the reader in a circle while everyone is blocked.
+
+  NARROW: the push branch of one script, plus cases 6 and 7 in the lab that already exists for it.
+  Widened to scripts/SPRINT.md + scripts/BUGS.md for the board row and for the remaining kind of
+  landmine, which is hand-made claim-updates and has no tool at all.
+next: board row + entries, smoke, push, release
