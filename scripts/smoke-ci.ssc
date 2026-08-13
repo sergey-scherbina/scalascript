@@ -618,6 +618,16 @@ val suite = List(
   // are wired. Today's are frozen by name and the list can only shrink.
   // (orphaned-e2e-gates-52.)
   Check(".", "no-orphan-gates", "tests/e2e/no-orphan-gates.sh", List("--self-test"), 120000),
+  // Three of the 36 frozen orphans, drained. Each was RUN against a fresh launcher (6s, 6s, 7s) and
+  // each was checked NOT to be vacuous: re-run with both launcher jars removed, all three go RED.
+  // That control found one gate in twenty that stays green with no toolchain at all —
+  // f-char-escape-gate, which calls ssc_usable_or_skip and SKIPS rather than fails. Not vacuous,
+  // but it reports success while testing nothing, so it belongs only where a launcher is
+  // guaranteed. These three have no such guard.
+  // (orphaned-e2e-gates-52.)
+  Check(".", "info-unknown-flag", "tests/e2e/info-unknown-flag-gate.sh", List(), 60000),
+  Check(".", "keyword-import-missing-module", "tests/e2e/keyword-import-missing-module.sh", List(), 60000),
+  Check("v1/runtime/backend/js", "js-char-classification-parity", "tests/e2e/js-char-classification-parity.sh", List(), 60000),
   // Mixed Int/Double comparison across FIVE lanes, and the only gate here whose oracle is `run-jvm`
   // rather than `--v1`: on this question the interpreter was one of the WRONG lanes, so the usual
   // shape would have frozen the defect as the reference. It refuses to judge when real Scala stops

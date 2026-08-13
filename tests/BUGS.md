@@ -3324,6 +3324,54 @@ batch is the 2026-08-02 procedure repeated — run them against a fresh launcher
 passers, file the failures — now bounded, because nothing new can join the list.
 
 
+### 2026-08-13, batch 1 — all 36 RUN against a fresh launcher, and a vacuity control on every passer
+
+**20 pass, 16 fail, and the costs decide where each can live.** Ran with a 180 s cap each:
+
+| passing, by cost | |
+|---|---|
+| ≤7 s | `info-unknown-flag` 6, `keyword-import-missing-module` 6, `js-char-classification-parity` 7 |
+| 12-44 s | `pattern-undefined-name` 12, `member-beats-toplevel` 18, `components-smoke` 24, `middleware-smoke` 24, `health-defaults` 25, `import-parse-error` 25, `fm-routes` 26, `int-imported-registry` 30, `jvm-json-import` 34, `multi-name-val` 35, `f-front-delegation-visible` 36, `object-var-mutation` 42, `triple-quote-trailing-quote` 42, `f-char-escape` 44 |
+| 76-180 s | `validation-smoke` 76, `upload-smoke` 84, `no-paren-sibling` 180 |
+
+| failing | rc | | failing | rc |
+|---|---|---|---|---|
+| `wc-card-smoke` | 1 | | `serve-view-frontend-v2` | 1 |
+| `actors-pingpong-smoke` | 1 | | `typeerr-names-both-types` | 1 |
+| `install-sh-reports-failure` | 1 | | `v21-build-jvm-smoke` | 1 |
+| `render-smoke` | 1 | | `v21-typeclass-dictionary` | 1 |
+| `req-type-collision-v2` | 1 | | `v21-unhandled-effect` | 1 |
+| `route-params-v2` | 1 | | `v21-portable-gates` | 2 |
+| `negtc-shard-gate` | 124 | | `selfhost-front-gate` | 124 |
+| `v21-native-content` | 124 | | `v21-native-doc-render` | 124 |
+
+The failures are REAL differences, not the mechanical breakage the 2026-08-02 sweep cleared — e.g.
+`wc-card-smoke` reports three missing needles (`shadow.innerHTML`, `Card.render(...)`,
+`attributeChangedCallback()`), `typeerr-names-both-types` is 1 ok / 1 FAIL. Each needs its own
+diagnosis; none is wired, because a gate red on arrival is how a suite becomes noise.
+
+### The vacuity control, and the one thing it found (which was not what it looked like)
+
+A gate that passes without asserting anything is worse than an absent one, so before wiring anything
+**every passer was re-run with both launcher jars moved aside**. One mutation, all 20 answered:
+**19 went RED**, as a gate that actually runs a program must.
+
+**One stayed green: `f-char-escape-gate.sh` — and it is NOT vacuous.** It calls
+`ssc_usable_or_skip`, which prints `SKIP` and exits 0 when the launcher cannot run a probe. So the
+control cannot tell "asserts nothing" from "declines to judge", and reporting it as vacuous would
+have been wrong. What IS worth knowing: a skip-guarded gate reports SUCCESS while testing nothing,
+so it may only be wired where a launcher is guaranteed. It is the only one of the twenty with that
+guard.
+
+### Wired (3), and the list is 36 -> 33
+
+The three ≤7 s passers went into `scripts/smoke-ci`, per push. The 12-180 s passers are **not**
+homeless but they are not smoke's: smoke measured 897.7 s of a 1027 s budget on 2026-08-13, so
+~600 s of extra checks does not fit. Their home is `conformance-extras` or `conformance` in
+`ci.yml` — the only tier-2 jobs that build a launcher (`validate`, `lint`, `uniml` and
+`interpreter-fast` do not) — and that is batch 2.
+
+
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed
      lane: apparatus

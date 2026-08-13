@@ -45,12 +45,9 @@ f-front-delegation-visible.sh
 fm-routes-smoke.sh
 health-defaults-smoke.sh
 import-parse-error-gate.sh
-info-unknown-flag-gate.sh
 install-sh-reports-failure-gate.sh
 int-imported-registry-gate.sh
-js-char-classification-parity.sh
 jvm-json-import-gate.sh
-keyword-import-missing-module.sh
 member-beats-toplevel-gate.sh
 middleware-smoke.sh
 multi-name-val-gate.sh
