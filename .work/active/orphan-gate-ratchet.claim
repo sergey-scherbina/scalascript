@@ -1,0 +1,11 @@
+slug: orphan-gate-ratchet
+branch: feature/orphan-gate-ratchet
+agent: claude-code
+started: 2026-08-13T07:43:04Z
+heartbeat: 2026-08-13T07:43:04Z
+status: claimed-before-planning
+items: orphaned-e2e-gates-52
+paths: file:tests/e2e/no-orphan-gates.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
