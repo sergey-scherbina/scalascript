@@ -1,0 +1,11 @@
+slug: rust-flattening-sizing
+branch: feature/rust-flattening-sizing
+agent: claude-code
+started: 2026-08-13T20:24:15Z
+heartbeat: 2026-08-13T20:24:15Z
+status: claimed-before-planning
+items: rust-member-name-flattening
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
