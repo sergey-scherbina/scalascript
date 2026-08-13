@@ -1,0 +1,27 @@
+; `.toString` on a Boolean — the receiver type the JS generator's method table had no branch for.
+;
+; `__method__` in the JS runtime dispatches through typed switches (bigint / number / string / list
+; / map) and then throws. Boolean had no switch, so `true.toString` died with
+; "__method__: no dispatch for .toString on true" while `7.toString`, `"x".toString` and
+; `3.5.toString` all answered. The VM has no Boolean arm either — it has a generic
+; `case (v, "toString", Nil) => StrV(anyStr(v))` catch-all, which is what the generator now mirrors.
+; `js-boolean-has-no-tostring-on-the-v2-lane`.
+;
+; The Int and String rows are ANTI-ROWS: they go through the typed switches this fix does NOT
+; touch, so a fallback that swallowed everything would show up here as a rendering change — a
+; string must stay RAW (`x`, not `"x"`), which is the difference between the VM's `anyStr` and its
+; `Show.show`, and the reason the generator's fallback goes through `$bridgeShow`.
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq
+     (prim __autoOutput__ (prim __method__ (lit (str "toString")) (lit true)))
+     (seq
+      (prim __autoOutput__ (prim __method__ (lit (str "toString")) (lit false)))
+      (seq
+       ; ANTI-ROW: an Int keeps its own switch
+       (prim __autoOutput__ (prim __method__ (lit (str "toString")) (lit (int 7))))
+       ; ANTI-ROW: a String renders RAW, not quoted
+       (prim __autoOutput__ (prim __method__ (lit (str "toString")) (lit (str "x"))))))))))
+ (entry (app (global main))))

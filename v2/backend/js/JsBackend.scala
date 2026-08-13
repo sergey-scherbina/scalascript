@@ -920,6 +920,21 @@ function $method(name,recv){
     if(name==='length'||name==='size') return BigInt(recv.length);
     if(name==='toList') return $listOf(recv);
   }
+  // GENERIC `.toString`, mirroring the VM's `case (v, "toString", Nil) => StrV(anyStr(v))` — and
+  // `$bridgeShow` is this file's anyStr-equivalent, NOT `$show`. The difference is not cosmetic:
+  // `$show` QUOTES strings and renders container elements quoted, while `anyStr` leaves them raw
+  // precisely for v1 output parity, so a fallback through `$show` would answer `Some("x")` where
+  // every other lane answers `Some(x)`.
+  // The typed switches above cover bigint / number / string / list / map, so a receiver with no
+  // switch of its own reached the throw: `true.toString` and `false.toString` died with
+  // "no dispatch for .toString on true" while `7.toString`, `"x".toString` and `3.5.toString`
+  // all answered. Boolean is the receiver that had no branch, and it is not special — it is the
+  // one that happened to be reachable, which is why this mirrors the VM's CATCH-ALL rather than
+  // adding a `typeof recv==='boolean'` switch that would leave the next type to be found the same
+  // way. `println(a == b)` prints correctly, so only the explicit spelling `(a == b).toString`
+  // was affected — that is why it went unnoticed.
+  // v2/BUGS.md js-boolean-has-no-tostring-on-the-v2-lane.
+  if(name==='toString'&&args.length===0) return $bridgeShow(recv);
   throw new Error('__method__: no dispatch for .'+name+' on '+$show(recv));
 }
 function $mkMethodObj(pairs){
