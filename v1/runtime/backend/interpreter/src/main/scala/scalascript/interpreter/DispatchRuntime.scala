@@ -3984,13 +3984,22 @@ private[interpreter] object DispatchRuntime:
   // took the other branch. The twin below (`infix2Ord`) has widened Int/Double since it was
   // written, which is why `1 < 2.0` was right and `1 == 1.0` was wrong on the same line.
   //
-  // Int/Double ONLY, and not because the other pairs are right. `BigInt(1) == 1.0` and
-  // `BigDecimal(1) == 1.0` are ALSO `true` in Scala and ALSO `false` here — I predicted the
-  // opposite from memory and the gate's oracle refused to judge rather than accept the freeze,
-  // which is the whole reason it compares against a lane that runs real Scala. They are a
-  // different pair set, they need arms in more than one place, and native does not even bind
-  // `BigDecimal`; filed separately rather than widened blind on the way past.
-  // (lanes-disagree-on-mixed-numeric-comparison.)
+  // The WIDE types against a Double now have arms too, and they were filed separately rather than
+  // widened blind on the way past — the note that used to stand here said `BigInt(1) == 1.0` and
+  // `BigDecimal(1) == 1.0` are ALSO `true` in Scala and ALSO `false` here, predicted the opposite
+  // from memory, and was corrected by the gate's oracle refusing to judge rather than accept the
+  // freeze. That is the whole reason it compares against a lane that runs real Scala.
+  // (lanes-disagree-on-mixed-numeric-comparison, bigint-and-bigdecimal-do-not-widen-against-a-double.)
+  //
+  // THE WIDE ARMS DELEGATE, they do not reimplement: `BigInt.equals(Any)` and
+  // `BigDecimal.equals(Any)` already carry the rule, including the part that is easy to get wrong —
+  // a value too large to be represented exactly as a Double must stay `false`, which `isValidDouble`
+  // decides. Writing `a.toDouble == b` here would answer `true` for such a value and would agree
+  // with the oracle on every small number in the gate, so the gate could not have caught it. The v2
+  // side was widened the same way and for the same reason.
+  //
+  // Double-on-the-LEFT is written `b == a`, not `a == b`: the authority is the wide type's own
+  // `equals`, and `Double == AnyRef` does not route through it.
   private def infix2Eq(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
     op match
       case "==" => (lhs, rhs) match
@@ -4002,6 +4011,10 @@ private[interpreter] object DispatchRuntime:
         case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) == b)
         case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a == BigDecimal(b))
         case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) == b)
+        case (Value.BigIntV(a),  Value.DoubleV(b)) => Computation.pureBool(a == b)
+        case (Value.DoubleV(a),  Value.BigIntV(b)) => Computation.pureBool(b == a)
+        case (Value.DecimalV(a), Value.DoubleV(b)) => Computation.pureBool(a == b)
+        case (Value.DoubleV(a), Value.DecimalV(b)) => Computation.pureBool(b == a)
         // Cross-`Seq` equality: a `List` and a `Vector` compare element-wise, as in real Scala
         // (`Vector(1,2,3) == List(1,2,3)` is `true`). Same-type combos use the default below.
         // (collection-vector-indexed.)
@@ -4017,6 +4030,10 @@ private[interpreter] object DispatchRuntime:
         case (Value.IntV(a),     Value.DecimalV(b))=> Computation.pureBool(BigDecimal(a) != b)
         case (Value.DecimalV(a), Value.BigIntV(b)) => Computation.pureBool(a != BigDecimal(b))
         case (Value.BigIntV(a), Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) != b)
+        case (Value.BigIntV(a),  Value.DoubleV(b)) => Computation.pureBool(a != b)
+        case (Value.DoubleV(a),  Value.BigIntV(b)) => Computation.pureBool(b != a)
+        case (Value.DecimalV(a), Value.DoubleV(b)) => Computation.pureBool(a != b)
+        case (Value.DoubleV(a), Value.DecimalV(b)) => Computation.pureBool(b != a)
         case (l: Value.ListV, v: Value.VectorV) => Computation.pureBool(l.items != v.items)
         case (v: Value.VectorV, l: Value.ListV) => Computation.pureBool(v.items != l.items)
         case _                                     => Computation.pureBool(lhs != rhs)

@@ -142,10 +142,9 @@ are current — this is a different pair set, not the same defect measured again
 **Three distinct defects here, deliberately kept in one entry because one measurement found them
 and splitting would lose that:**
 
-- **interp — `BigInt`/`BigDecimal` against a `Double` fall to structural equality.** `infix2Eq`
-  lists `BigInt×Int`, `Decimal×Int` and `Decimal×BigInt` and no Double pairing, so the same
-  omission that made `Int×Double` wrong is still there for the wide types. One arm each, in the
-  same place the Int/Double arms now sit.
+- ~~**interp — `BigInt`/`BigDecimal` against a `Double` fall to structural equality.**~~ **FIXED
+  2026-08-13**, four arms each in `==` and `!=`, in the same place the Int/Double arms sit. See the
+  closing section at the end of this entry — including why they DELEGATE rather than convert.
 - **native — `BigInt(1) == 1` is `false`**, which interp gets right. So the v2 kernel's `__eq__`
   needs a BigV arm against IntV as well as against FloatV; only the Int/Float pair was widened.
 - **native — `BigDecimal` is not bound at all** (`ssc: unbound global: BigDecimal`). That is a
@@ -161,6 +160,96 @@ to that gate without measuring the oracle first.
 
 **The gate to write** is the same shape as that one — `run-jvm` as the oracle, never `--v1`, because
 on this question the interpreter is again one of the wrong lanes.
+
+---
+
+### CLOSING 2026-08-13 — the interp arms landed; what is left is a DECISION, not an omission
+
+The blocker this entry recorded had expired: `DispatchRuntime.scala` was held by claim
+`split-dispatchlist` when the note was written, and that claim is gone. Re-measured before touching
+anything — `BigInt(1) == 1.0` was still `false` on interp — because a deferral's REASON dates faster
+than its subject.
+
+**The arms DELEGATE, they do not convert**, and that is the whole of the design. `BigInt.equals` and
+`BigDecimal.equals` already carry the rule, including the part that is easy to get wrong: a value
+too large to be represented exactly as a `Double` must stay `false`, which `isValidDouble` decides.
+`a.toDouble == b` agrees with the oracle on **every small number**, so it would have passed the gate
+as it stood. Double-on-the-left is written `b == a` for the same reason — `Double == AnyRef` does not
+route through the wide type's `equals`.
+
+**That hole in the gate is closed with a row, not a comment.** Row 19 is
+`BigInt(9007199254740993L) == 9.007199254740992e15` — 2^53+1 against the `Double` it rounds to —
+which real Scala answers `false` and the naive implementation answers `true`. It was **verified as a
+guard, not assumed to be one**: with the arms deliberately rewritten to `a.toDouble == b` and the
+toolchain rebuilt, interp still answered every small row identically and the gate failed on **that
+row alone**, printing the diagnosis the message was written to print. Row 19 avoids a `String`
+literal on purpose — see the new entry below for why it has to.
+
+Rows 17-18 left the frozen block and joined the all-lanes-agree group (`BIG_TO` 16→19, `GAP_FROM`
+17→20), exactly as that block's instructions said to do when a row starts matching jvm.
+
+**Two of the three defects in this entry are now closed** — the native `BigInt(1) == 1` arm and the
+`BigDecimal` binding landed on 2026-08-12, this one today. **The third is not a defect anyone should
+fix in passing** and it is carried out of here into its own entry, because leaving an entry open on
+a question nobody has been asked to answer is how a board rots.
+
+## bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken — native says `false`, real Scala says `true`
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh (the frozen row 20) -->
+
+**Carried out of `bigint-and-bigdecimal-do-not-widen-against-a-double` on 2026-08-13**, where it was
+the one of three defects that is not an omission. Every other row in that entry is now green on
+every lane.
+
+    BigDecimal(1) == 1.0        jvm/js true · int true · native/bytecode FALSE
+
+**Why it is not a bug to go and fix.** `PortableDecimal` refuses binary floating-point input in
+three separate places — `toJava` ("binary floating-point input is inexact"), `construct`, and
+`arith` ("Decimal and Double cannot be mixed"). That is a deliberate, argued position, stated three
+times. Making the lanes agree means DECIDING that a binary float may be read as a decimal, which is
+exactly what that module declines to do. Whoever owns that contract decides; nobody should widen it
+in passing to get a gate green, and the gate says so in the message it prints.
+
+**It is asserted, not merely noted.** Row 20 of `tests/e2e/mixed-numeric-comparison-gate.sh` freezes
+each lane's CURRENT answer — jvm/js/int `true`, native/bytecode `false` — so the day the decision is
+taken either way, the gate goes red and names this entry rather than letting the change land unread.
+
+**The interp side of this row moved today** (it was `false` and is now `true`), which is why the
+freeze is not what it was: this is now a two-lane divergence, not a four-lane one.
+
+## bigint-from-a-string-is-unsupported-on-native-and-bytecode — `i->big: not Int`
+
+<!-- status: open
+     lane: v2-jvm
+     area: runtime
+     kind: bug
+     gate: -
+     fixed-in: - -->
+
+**Found 2026-08-13** while choosing a value for the gate row above, and it is the reason that row
+uses a `Long` literal instead of the obvious spelling.
+
+    println((BigInt("123456789012345678901234567890") == 1.2345678901234568e29).toString)
+
+    jvm       false          ← real Scala
+    int       false
+    js        false
+    native    ssc: i->big: not Int
+    bytecode  ssc: i->big: not Int
+
+`BigInt(<Int>)` and `BigInt(<Long literal>)` both work on all five lanes; only the `String`
+constructor is missing, and it is the ONLY spelling that can express a value beyond `Long` range.
+So on native and bytecode there is currently no way to write a big integer that is actually big —
+which is most of the point of the type.
+
+**Not a gate row, deliberately.** The mixed-numeric gate runs one process per lane over one shared
+source; a row that dies on two lanes takes their whole column with it, so this needs its own check
+written against the lanes that support it, or the fix first. Filed rather than worked around
+silently, because "the gate uses a Long literal" would otherwise look like an arbitrary choice.
 
 ## lanes-disagree-on-mixed-numeric-comparison — `1 == 1.0` is `false` on interp, `true` on the v2 runtime, and a TYPEERR through the native front
 
