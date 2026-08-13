@@ -491,6 +491,17 @@ splitting the term cases, which is what this entry recommended for two days, wou
 around while every copy site kept paying for the same record. Anyone about to spend a build cycle on
 this should spend it there.
 
+**DONE, AND IT IS THE FIRST TIME THIS NUMBER HAS GONE DOWN: 20345 → 20085.** Five of the six
+`ctx.copy(...)` sites in the method were the SAME SHAPE — bind a closure's parameters, set
+`inClosure` — and each materialised all 24 fields. One helper, `enteringClosure`, replaced all five:
+**−260 bytecodes**, no behaviour change (`backendRust/test` 278/278, the std corpus unmoved at
+REFUSED 81 / COMPILES 51 / BADRUST 0). The frozen number was LOWERED to match rather than left as
+headroom, and the marginal cost of the next `Ctx` field falls with it — one copy site in the method
+instead of six.
+
+Still 2.51× the JIT limit, and by the measurement above that costs nothing here. What it buys is the
+ratchet: a change that adds a field now moves this number by about 2, not 12.
+
 **This does not generalise to `handleActorOp`**, the other big frozen method, and the distinction is
 the point: that one is the actor scheduler, running inside the user's long-lived program millions of
 times, which is exactly the hazard the limit describes — see `v1-interpreter-hot-path-never-jits`.

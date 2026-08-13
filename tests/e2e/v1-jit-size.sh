@@ -137,6 +137,18 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 # which turned main red the moment the gate reached the push path. Rebuild AFTER the rebase, not
 # before; the repo has that lesson written down and it still cost a red.
 #
+# renderTerm 20345 -> 20085. THE FIRST TIME THIS NUMBER HAS EVER GONE DOWN, and it went down by
+# acting on the mechanism proved in the note below rather than on the advice that preceded it.
+#
+# Five of the six `ctx.copy(...)` sites in the method were the SAME SHAPE — bind a closure's params,
+# set `inClosure` — and each was materialising all 24 fields of `Ctx`. One helper, `enteringClosure`,
+# replaced all five: -260 bytecodes, and no behaviour change (backendRust/test 278/278, the std
+# corpus unmoved at REFUSED 81 / COMPILES 51 / BADRUST 0).
+#
+# THE NUMBER IS LOWERED, NOT LEFT AT 20345. A freeze kept above the measurement is free headroom for
+# the next drift, which is the opposite of what a ratchet is for. The marginal cost of a new `Ctx`
+# field also falls with it: one copy site left in the method instead of six.
+#
 # renderTerm 20333 -> 20345, and the +12 is the most useful number in this file.
 #
 # IT IS NOT AN ARM. The change that grew it adds ONE FIELD to the `Ctx` record. Proved by control
@@ -204,7 +216,7 @@ CENSUS="$ROOT/scripts/bytecode-size-census"
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
 25328 scalascript.codegen.JsGen::genExpr
-20345 scalascript.codegen.rust.RustCodeWalk$::renderTerm
+20085 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 11387 scalascript.frontend.custom.StaticJsEmitter$Ctx::compile
 10670 scalascript.frontend.solid.SolidEmitter$Ctx::compile
 EOF

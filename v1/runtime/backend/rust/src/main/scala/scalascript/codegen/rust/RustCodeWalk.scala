@@ -2901,7 +2901,7 @@ object RustCodeWalk:
       val arms = pf.cases.map { c =>
         // The arm body runs inside the closure: `__pf` + the pattern binders are
         // closure-locals; everything else it touches is captured.
-        val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ patBoundNames(c.pat) + "__pf", inClosure = true)
+        val bodyCtx = enteringClosure(ctx, patBoundNames(c.pat) + "__pf")
         for
           pat   <- renderPattern(c.pat, ctx)
           guard <- c.cond match
@@ -2924,7 +2924,7 @@ object RustCodeWalk:
       // on capture-cloning (a captured non-Copy like `theme` in `lower(_, theme)` is
       // cloned, not moved out of the resulting `FnMut`).  `__pN` names are excluded from
       // cloning in the arg rule (they're the closure's own params).
-      val bodyR = renderTerm(af.body, ctx.copy(closureParams = ctx.closureParams + "__ph", inClosure = true))
+      val bodyR = renderTerm(af.body, enteringClosure(ctx, Set("__ph")))
       val count = _phCounters.headOption.getOrElse(0)
       _phCounters = _phCounters.drop(1)
       bodyR.map { b =>
@@ -4384,7 +4384,7 @@ object RustCodeWalk:
       val p1 = params.lift(1).map(_.name.value).getOrElse("__b")
       // Block bodies (multi-stmt) use renderBody with isUnit=true for foreach/foldLeft.
       val isUnitCtx = method == "foreach"
-      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ Set(p0, p1), inClosure = true)
+      val bodyCtx = enteringClosure(ctx, Set(p0, p1))
       val bodyResult = fn2.body match
         case blk: m.Term.Block => renderBody(blk, bodyCtx, isUnit = isUnitCtx)
         case t                 => renderTerm(t, bodyCtx)
@@ -4451,7 +4451,7 @@ object RustCodeWalk:
       case fn: m.Term.Function if fn.paramClause.values.sizeIs == 1 =>
         val raw = fn.paramClause.values.head.name.value
         val p   = if raw.isEmpty || raw == "_" then "_" else raw
-        val bodyCtx = ctx.copy(closureParams = ctx.closureParams + p, inClosure = true)
+        val bodyCtx = enteringClosure(ctx, Set(p))
         renderTerm(fn.body, bodyCtx).map(b => s"{ let $p = $v; $b }")
       case other =>
         renderTerm(other, ctx).map(f => s"($f)($v)")
@@ -4470,7 +4470,7 @@ object RustCodeWalk:
     if errs.nonEmpty then Left(errs.flatten)
     else
       val paramNames = params.map(_.name.value).toSet
-      val bodyCtx = ctx.copy(closureParams = ctx.closureParams ++ paramNames, inClosure = true)
+      val bodyCtx = enteringClosure(ctx, paramNames.toSet)
       // A `move` closure that reads a signal local (e.g. a `computedSignal(() => loc())`)
       // captures that signal by value — moving it out of the enclosing scope, which breaks
       // any later use of the same signal (`signalText(loc)` after the computed). Capture a
@@ -5165,6 +5165,21 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(d.body)
     fns.toSet
+
+  /** The context for rendering INSIDE a closure: bind its parameters, and record that we are in one.
+   *
+   *  A HELPER RATHER THAN FIVE `ctx.copy(...)` CALLS, and the reason is measured, not stylistic.
+   *  `Ctx` is a 24-field case class, and a `copy` MATERIALISES EVERY FIELD at its call site — so
+   *  each copy inside `renderTerm` was paying for all 24, and adding a single new field cost 12
+   *  bytecodes in a method frozen at 2.5x the JIT limit whose ratchet had been raised three times in
+   *  two days. Proved by control: a second field that is never read anywhere cost another 12.
+   *
+   *  Five of the six copies in that method were the SAME SHAPE, which is what makes this safe: the
+   *  helper is the shape, not an abstraction over different ones. The sixth (`resumeParam`) is left
+   *  alone rather than folded into something it does not fit.
+   *  (tests/BUGS.md renderTerm-is-two-and-a-half-times-the-jit-limit.) */
+  private def enteringClosure(ctx: Ctx, bound: Set[String]): Ctx =
+    ctx.copy(closureParams = ctx.closureParams ++ bound, inClosure = true)
 
   private def isMapCtorFn(fn: m.Term): Boolean = fn match
     case m.Term.Name("Map")                                  => true
