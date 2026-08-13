@@ -2478,6 +2478,56 @@ everything else; the line comes out when either shape lands.
 written and the entry did not exist. A dangling reference in a gate reads as "someone looked at
 this" when nobody had.
 
+## selfhost-front-given-with-swallows-the-rest-of-the-file — everything after a `given … with` disappears, exit 0
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/selfhost-front-gate.sh
+     fixed-in: - -->
+
+**Measured 2026-08-13, narrowed to one construct.** On front F everything AFTER a `given X with`
+and its body is lost — no diagnostic, no partial output, exit 0. v1 answers correctly.
+
+    trait S:
+      def z(): Int
+    given S with
+      def z(): Int = 7
+    println("после")        ← never printed on F; v1 prints it
+
+**The narrowing, one признак at a time — the method that found the one-line `while` this morning
+after three readings of the code had not:**
+
+| form | front F |
+|---|---|
+| `given X with` + body, then a statement | **statement LOST** |
+| `given X = Impl()` (no `with`) | works |
+| a `println` BEFORE the given | printed — only what FOLLOWS is lost |
+| a `trait` carrying an `extension` member | works |
+| a top-level `extension` | works |
+
+So it is `given … with` alone, not `extension`, and not `given` in general. **24 programs across
+tests, examples, std and bench write this form.**
+
+**Where it points, not yet proven.** `givenItem` (`specs/v2.2-p6.5-fsub.ssc:2249`) tests
+`fst(hd(tl(ts))) == 1` — the LOWER-CASE identifier kind — and an uppercase trait name is kind 3, so
+`given S with` falls to the `else` arm and is handed to `skipStmt`. That is the same token-kind
+confusion that made `isQualAssignHead` unable to fire on `Counter.n = 5`
+(`selfhost-front-qualified-assignment-to-an-object-member-is-ignored`, fixed the same day): kind 1
+is what a `var` is, kind 3 is what `parseAtom1` routes to `parseCtor`.
+
+**What that does NOT yet explain**, and is why this is filed rather than fixed: `skipStmt`'s nesting
+is balanced — `isOpenNest` is 21/28/50 and `isCloseNest` is 22/29/51 — so a layout block ought to be
+entered and left cleanly and the skip ought to stop at the following `;`. Either the layout for
+`with` does not emit that pair, or the loss happens after the skip. Whoever takes it should start by
+printing the token stream around `with`, not by reading further.
+
+**How I found it, which is worth recording:** looking for why front F is silent on an
+extension-in-trait program. The extension was not the cause at all. The gate I added this morning
+against exactly this class of defect — `tests/e2e/selfhost-front-gate.sh` — does not catch it, so it
+is narrower than the class it was written for. A case is added there now.
+
 ## v3-trait-extension-member-refused — an `extension` inside a trait is called "not a `def`", and seven std modules stop
 
 <!-- status: open

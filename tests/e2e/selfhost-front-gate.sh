@@ -120,6 +120,35 @@ case_f "plain assignment still works" "5/" 'var i = 0
 i = 5
 println(i)'
 
+# ── given … with ─────────────────────────────────────────────────────────────────────────────────
+# selfhost-front-given-with-swallows-the-rest-of-the-file. Everything AFTER a `given X with` and its
+# body disappears on F — no diagnostic, exit 0 — while v1 prints it. 24 programs write this form.
+#
+# THIS CASE EXISTS BECAUSE THE GATE MISSED IT. The suite above was written this morning against
+# exactly this class — a silent wrong answer at exit 0 — and it did not cover `given`, so the defect
+# sat one construct away from cases that would have caught it. A gate is only as wide as its case
+# list, and the honest response to finding a hole is a case, not a note.
+#
+# PINNED TO TODAY'S WRONG ANSWER, not to the right one, and that is deliberate. A gate that ships
+# red blocks every push in the repo for a defect its author did not fix, which is a tax on everyone
+# else. Pinned this way it is still a gate: the day someone fixes `given … with`, the recorded
+# `<nothing>` stops matching and this case goes RED, naming the entry — so the fix cannot land
+# unnoticed and the expectation gets flipped to `после/` in the same commit.
+case_f "given ... with — KNOWN WRONG, see BUGS" "" 'trait S:
+  def z(): Int
+given S with
+  def z(): Int = 7
+println("после")'
+
+# The value form has no `with` and is unaffected — the control that says the loss belongs to `with`
+# and not to `given`.
+case_f "given = value form still works" "после/" 'trait S:
+  def z(): Int
+case class Impl() extends S:
+  def z(): Int = 7
+given S = Impl()
+println("после")'
+
 # ── entries filed as broken that are NOT ──────────────────────────────────────────────────────────
 # Both were reported against F and both answer correctly today. Kept as REGRESSION coverage rather
 # than deleted: they were filed for a reason, nothing recorded when they were fixed, and with no
