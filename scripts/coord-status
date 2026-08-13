@@ -459,6 +459,12 @@ else
     heartbeat_epoch=""
     heartbeat_reason=""
     heartbeat_age_seconds=""
+    # Reset with its siblings, not where it is first assigned. It used to be
+    # initialised inside the branch that runs only when the heartbeat PARSES,
+    # while the read below happens on every path — so a claim whose heartbeat
+    # was unparseable ("not-a-time" in the ci-status-guard fixture) skipped the
+    # initialisation, reached the read, and `set -u` killed the whole run.
+    future_anomaly=""
     if [[ -z "$heartbeat" ]]; then
       heartbeat_reason="missing"
     else
@@ -474,7 +480,6 @@ else
         # `ci-status-guard-selftest-two-stacked-defects` traced a whole job's self-test being
         # deterministically dead to this clamp — the fixture's pinned clock sat BEFORE a real
         # commit, the age went negative, and the assertion it existed to make became unreachable.
-        future_anomaly=""
         if [[ "$heartbeat_age_seconds" -lt -"$SKEW_TOLERANCE" ]]; then
           printf 'ANOMALY: %s heartbeat is %sm in the FUTURE — not counted as fresh (clock or fixture?)\n' \
             "$slug" "$(( -heartbeat_age_seconds / 60 ))"
