@@ -404,10 +404,18 @@ constructor is missing, and it is the ONLY spelling that can express a value bey
 So on native and bytecode there is currently no way to write a big integer that is actually big —
 which is most of the point of the type.
 
-**Not a gate row, deliberately.** The mixed-numeric gate runs one process per lane over one shared
-source; a row that dies on two lanes takes their whole column with it, so this needs its own check
-written against the lanes that support it, or the fix first. Filed rather than worked around
-silently, because "the gate uses a Long literal" would otherwise look like an arbitrary choice.
+~~**Not a gate row, deliberately.**~~ It was not one when this was filed — the mixed-numeric gate
+runs one process per lane over one shared source, and a row that dies on two lanes takes their whole
+column with it, so it needed the fix first. **It is one now.** With `58bdeb4c1` built in, all five
+lanes answer `false` and the spelling is row 20 of
+`tests/e2e/mixed-numeric-comparison-gate.sh`, beside the `Long`-literal row 19 rather than replacing
+it: 19 is inside `Long` range and 20 is not, so together they say the equality is right for a value
+the `Long` constructor can express and for one only the `String` constructor can.
+
+**Worth recording about the re-measurement, not the fix.** The first re-check said the defect was
+still there. It was reading a toolchain built from a commit **16 minutes older than the fix** — the
+build stamp settled it in one command, and without that check this entry would have been reopened
+against code that no longer exists. Same trap `c6bce74bd` records for the reference front.
 
 ## lanes-disagree-on-mixed-numeric-comparison — `1 == 1.0` is `false` on interp, `true` on the v2 runtime, and a TYPEERR through the native front
 
