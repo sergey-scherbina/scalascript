@@ -185,6 +185,74 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## build-rust-mcp-client-unsupported — std/mcp/client.ssc cannot be lowered for the Rust backend (Unsupported(McpClient,rust)) while the SERVER half is supported there, so a .ssc program that consumes MCP runs under the interpreter but can never be built into a binary
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: feature
+     gate: tests/e2e/rust-std-survey-gate.sh
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-13
+     ssc-version: bin/ssc-tools built from 7eecad50a
+     repro: the import-only program in the body
+     impact: workaround
+     confirmed: no -->
+
+Minimal repro — an empty program whose only content is the import:
+
+```
+[McpClient, mcpConnect, Transport](std/mcp/client.ssc)
+```scalascript
+@main def run(): Unit = println("built")
+```
+```
+
+`ssc-tools emit-rust` → `[error] Unsupported(McpClient,rust)`. The same file runs under `ssc run`.
+
+What makes this worth a report rather than a shrug is the asymmetry: `RustCapabilities` already
+declares `Feature.McpServer` — "MCP server over stdio (JSON-RPC 2.0, hand-rolled; only serde_json
+dep)" — so the Rust backend speaks MCP in one direction. The client half is the missing one, and
+`Feature.McpClient` is annotated `// std.mcp client-side (jvm, js)` in the SPI.
+
+Consequence for us: our agent has three implementations of one contract (Rust, Scala 3,
+ScalaScript), and the ScalaScript one uses `std/mcp/client.ssc` to reach MCP servers. It runs
+correctly under the interpreter — measured 2026-08-01, a real `rozum mcp-proxy` listed its seven
+tools and the model called one end to end — but it cannot be built into a binary, so that leg of the
+contract can never ship as an artifact.
+
+Not urgent for us: the interpreter path works and the Rust and Scala legs cover shipping. Filed
+because "supported in one direction only" is the kind of gap that is cheaper to know about than to
+rediscover.
+
+**Routed from `INBOX.md` on 2026-08-13. Everything above the line is the reporter's, in their
+words. What follows is ours.**
+
+**Reproduced from the reporter's own repro, unchanged:** `ssc-tools emit-rust` on the import-only
+program answers `[error] Unsupported(McpClient,rust)`. The asymmetry they name is exact and I
+confirmed it independently before reading the report — `RustCapabilities` declares
+`Feature.McpServer` and not `Feature.McpClient`, and the survey baseline already records the
+consequence in three rows:
+
+    std/mcp/client.ssc   REFUSED  Unsupported(McpClient,rust)
+    std/mcp/index.ssc    REFUSED  Unsupported(McpClient,rust)
+    std/agent-mcp.ssc    REFUSED  Unsupported(McpClient,rust)
+    std/mcp/server.ssc   COMPILES
+
+So this is a declared gap rather than a codegen slip, which is why it is `feature` and not `bug`.
+
+**Sized against what already exists.** The server half is `McpRs`, 101 lines: a tool registry and
+a stdio loop answering `initialize`, `tools/list` and `tools/call`, hand-rolled on `serde_json`
+alone. The client is its mirror and needs no new crate either — `std::process::Command` with piped
+stdio for `Transport.Spawn`, the same JSON-RPC framing, and responses matched by id. What must be
+built: the runtime template, the `mcpConnect` / `listTools` / `callTool` / `close` intrinsic
+lowerings, and the `Feature.McpClient` declaration. `Transport.Http` and `Transport.Ws` stay
+refused, which is consistent — the server is stdio-only on this lane too, so the boundary does not
+move.
+
+**The reporter's own priority is recorded and respected:** not urgent for them, the interpreter
+path works and their Rust and Scala legs cover shipping. Filed so the asymmetry is known rather
+than rediscovered, which is the right reason to file.
+
 ## mcp-2026-07-28 — speak the stateless MCP revision, dual-era
 
 Spec: [`specs/mcp-2026-07-28.md`](specs/mcp-2026-07-28.md). Cross-module by construction —
@@ -256,19 +324,48 @@ and we never built either (grep, 2026-08-09, zero hits repo-wide).
 phase list carries 21 landed and 4 superseded-by-sub-phase entries and nothing without a status.
 The legacy answer is `2025-06-18` and the modern one `2026-07-28`, served off one dispatcher.
 
-Known and deliberately NOT done, so that an absence is not reconstructed from silence:
+### Queued after the migration (2026-08-13)
 
-- **v2's server surface is 4 members against v1's 40.** `elicit` and 32 others were already
-  absent from `v2/runtime/providers/mcp-plugin` before this migration; the new intrinsics
-  (`asTask`, `setMrtrMode`, `requestState`) are missing there in exactly the way most of the
-  surface already was. Pre-existing and structural, not a pair broken here — see
-  `specs/mcp-2026-07-28.md` §11.1 for the census. Closing it is its own piece of work.
-- **No user-facing MCP documentation.** `docs/` has no MCP page, and MCP has been part of the
-  STANDARD surface since 2026-07-31. `specs/mcp.md` is a design document, not a guide, and the
-  `.ssc`-facing contracts that now matter — `srv.asTask()`, the three MRTR modes and the
-  idempotence precondition two of them carry — live only in intrinsic comments.
-- **`specs/mcp.md` §11 still lists 13 open design questions**, written before this migration.
-  Some are answered by it and none has been re-read against the code.
+**The framing of the first item was corrected by measuring it.** It was written here an hour
+earlier as "pre-existing and structural, closing it is its own piece of work" — too mild. The
+gap is not v2 completeness; it is the reason the 2026-07-28 work is not usable where users run.
+`ssc run` IS the v2 native lane, and each of `elicit`, `asTask`, `requestState`, `isCancelled`,
+`log` and `notifyToolsListChanged` failed there with `no field '<x>' on named-method-obj` on a
+freshly built toolchain. The interpreter has all forty, but `ssc run --v1` needs the optional
+compatibility tier, so a standard install has only the lane that was missing them.
+
+Nothing was red about it because the entire MCP corpus — both examples and the conformance case —
+uses `tool`, `onConnected` and `onDisconnected`: three of the four members v2 had. The gate was a
+real differential and never crossed the boundary. `v21-standard-mcp-smoke.sh` now carries a case
+that does, proven in both directions.
+
+- [x] **v2 MRTR core.** `setMrtrMode`, `asTask`, `clientSupportsTasks`, `requestState`,
+      `setRequestState`, `isCancelled` reach the default lane, plus the boundary-crossing gate.
+- [ ] **`elicit` on v2.** Deliberately NOT in the slice above: two things need MEASURING rather
+      than assuming, and carrying v1's answers across is the mistake this migration punished
+      repeatedly. (1) The return shape — v1 hands back a record with `action`/`content` fields
+      and v2's value model is positional, so agreeing by accident is not available. (2) Whether
+      the MRTR control signal survives v2's `context.invoke`; that was measured for v1 by test
+      and never for v2.
+- [ ] **The remaining ~30 `srv` members on v2**, in groups that stand alone: auth (7),
+      roots/sampling (6), notifications and progress (7), registration —
+      `toolWithSchema`/`resourceTemplate`/`prompt` (3), completions (2), paging (2),
+      subscriptions (2), `currentLogLevel`. The census is `specs/mcp-2026-07-28.md` §11.1.
+- [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
+      answered by it; none has been re-read against the code. A review, not a build.
+- [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the
+      STANDARD surface since 2026-07-31, so the `.ssc` contracts that now matter — `srv.asTask()`,
+      the three MRTR modes, and the idempotence precondition two of them carry — live only in
+      intrinsic comments. **Write the examples by RUNNING them.** A draft written from the Scala
+      member names was wrong in every line: the real shape is a bracketed import list,
+      `[mcpServer, Tool, requireString](std/mcp/server.ssc)`, inside a fenced block in a markdown
+      document, with `Tool.text(...)` and `requireString(args, ...)`. It was discarded rather
+      than landed. Ordering matters here too: a guide teaching `srv.asTask()` while the default
+      lane errors on it is worse than no guide, so this follows the v2 items.
+- [ ] **`std/mcp/server.ssc` says "Not available on interpreter"** in its descriptor. The
+      interpreter is exactly where the full surface DOES work — `McpSscApiTest` runs `.ssc`
+      through it. Prose, nothing reads it as a capability, but it points a reader away from the
+      one lane that has everything.
 
 Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
 

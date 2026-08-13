@@ -56,40 +56,6 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
-## build-rust-mcp-client-unsupported — std/mcp/client.ssc cannot be lowered for the Rust backend (Unsupported(McpClient,rust)) while the SERVER half is supported there, so a .ssc program that consumes MCP runs under the interpreter but can never be built into a binary
-<!-- triage: new
-     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
-     reported-at: 2026-08-13
-     ssc-version: bin/ssc-tools built from 7eecad50a
-     repro: none
-     kind: feature
-     impact: workaround -->
-
-Minimal repro — an empty program whose only content is the import:
-
-```
-[McpClient, mcpConnect, Transport](std/mcp/client.ssc)
-```scalascript
-@main def run(): Unit = println("built")
-```
-```
-
-`ssc-tools emit-rust` → `[error] Unsupported(McpClient,rust)`. The same file runs under `ssc run`.
-
-What makes this worth a report rather than a shrug is the asymmetry: `RustCapabilities` already
-declares `Feature.McpServer` — "MCP server over stdio (JSON-RPC 2.0, hand-rolled; only serde_json
-dep)" — so the Rust backend speaks MCP in one direction. The client half is the missing one, and
-`Feature.McpClient` is annotated `// std.mcp client-side (jvm, js)` in the SPI.
-
-Consequence for us: our agent has three implementations of one contract (Rust, Scala 3,
-ScalaScript), and the ScalaScript one uses `std/mcp/client.ssc` to reach MCP servers. It runs
-correctly under the interpreter — measured 2026-08-01, a real `rozum mcp-proxy` listed its seven
-tools and the model called one end to end — but it cannot be built into a binary, so that leg of the
-contract can never ship as an artifact.
-
-Not urgent for us: the interpreter path works and the Rust and Scala legs cover shipping. Filed
-because "supported in one direction only" is the kind of gap that is cheaper to know about than to
-rediscover.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
