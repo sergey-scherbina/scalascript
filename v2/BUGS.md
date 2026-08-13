@@ -11519,8 +11519,8 @@ proved what it does — but do not bill it as a user-visible Rust bug until some
 reach it.**
 
 **A DIFFERENT Rust defect, measured on the way and filed separately as
-`rust-list-concat-moves-its-operands`:** `++` consumes its operands, so a list used in two
-statements fails to COMPILE — `error[E0382]: use of moved value: a` for a program as ordinary as
+`rust-list-concat-moves-its-operands` (FIXED 4bcee3805):** `++` consumed its operands, so a list used in
+two statements failed to COMPILE — `error[E0382]: use of moved value: a` for a program as ordinary as
 printing `a ++ b ++ c` twice. That is the reason the subject here uses inline literals.
 
 **What this correction cost, and the rule it repeats:** the entry above was filed as INFERRED and
@@ -11612,12 +11612,41 @@ points users at — is now correct on all seven rows.
 
 ## rust-list-concat-moves-its-operands — a list used after `++` fails to COMPILE on the Rust lane
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: - -->
+     gate: tests/e2e/build-rust-refuses-loudly.sh
+     fixed-in: 4bcee3805 -->
+
+### FIXED 2026-08-13 — `++` borrows its operands now
+
+`RustCodeWalk` emits `[&(a)[..], &(b)[..]].concat()` in place of `[a, b].concat()`. `concat()` on a
+slice-of-slices copies its elements either way, so the borrowed form costs nothing the moving form
+did not already pay; it nests unchanged, because the inner `.concat()` yields a temporary that lives
+to the end of the enclosing statement.
+
+**The entry was filed as a LIST defect and it was wider than that.** `s ++ t` twice failed the same
+way, and one arm fixes both — `&s[..]` is `&str` and `[&str].concat()` is `String`:
+
+```text
+                    before                          after
+list program        3 x E0382, no binary            builds, prints 5 / 15
+string program      2 x E0382, no binary            builds, prints abcd / abcd
+default lane        5 / 15  and  abcd / abcd — agrees with the rust lane on both
+```
+
+**Verified against the ABSENT state, not assumed:** the pre-fix toolchain was run on the same two
+programs and produced the E0382s above. Also built and compared against the default lane: literals,
+`++` over function PARAMETERS, nested `(a ++ b) ++ (c ++ d)`, a string chain, and a call passing the
+same list twice — 3 / 3 / 10 / xyz / 6 on both lanes. `backendRust/test` 278/278.
+
+**Gate — it went where the cargo cost is already paid.** `tests/e2e/build-rust-refuses-loudly.sh`
+already builds a list program and compares it with the default lane, so the reuse row joined it
+rather than becoming a new CI step. Both statements in the probe concatenate the SAME lists on
+purpose: either one ALONE compiles under the moving form, so a single-use probe would have passed
+while the defect stood. Measured cost of the row on this host: ~1 s of build against the gate's
+62 s, so the smoke budget is untouched.
 
 **Status:** OPEN (found 2026-08-09 while measuring `rust-sconcat-treats-a-cons-cell-as-a-pair` —
 this is what the measurement hit instead of the defect it went looking for).
