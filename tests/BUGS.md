@@ -1,3 +1,79 @@
+## f-package-namespace-breaks-on-an-object-with-extends
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: none — open defect -->
+
+**An `object … extends …` in a module with `package:` breaks the generated package namespace: the
+next generated name comes out unbound.** This is the root of the largest remaining F coverage hole —
+`std/parsing/core.ssc` and the four `dsl-*` examples that import it.
+
+Minimal reproducer, 4 lines of code plus the frontmatter:
+
+```
+---
+package: std.parsing
+---
+
+```scalascript
+trait T
+object A extends T
+object B:
+  def g(): Int = 2
+```
+```
+→ `GAP  unbound global: (global B)`. Delete `extends T` and it compiles. Delete `object B` and put a
+plain `def helper(): Int = 1` there instead, and the failure moves to
+`unbound global: (global __pkgref_std_parsing__helper)`.
+
+**The law, from a variant sweep:**
+* `package:` is required — no package, no generated namespace, no failure;
+* an object with an `extends` clause is required. `case object` vs plain `object` makes no
+  difference, and the trait may be declared before OR after the object;
+* objects WITHOUT `extends` are fine at any count — one, two and three all compile;
+* what breaks is not the offending object but the NEXT generated name, which is why the real file
+  reports `(global Parser)`: `case object NoContext extends ParserContext` sits in front of
+  `object Parser`.
+
+**The generated source is CORRECT — this was dumped, not assumed.** A driver built from the F runner
+(replace its `main`, call `sscPkgNsSource(sscPkgName(fileStr), sscDefsOnly(parse(modSrc)))`) prints:
+
+```
+def __pkgref_std_parsing__helper = helper
+object std:
+  def __pkg = 0
+object std_parsing:
+  def __pkg = 0
+  def helper = __pkgref_std_parsing__helper
+object std_parsing_A:
+  def __pkg = 0
+```
+
+The alias F calls unbound is defined on the FIRST line of that text. So the fault is downstream of
+generation — in `nsDefs = sscDefsOnly(parse(nsSrc))` or in the splice that follows, not in
+`sscPkgObjBlocks`/`sscPkgMemberNames`, which produce exactly the right lines.
+
+**Next step:** dump `parse(nsSrc)` and `sscDefsOnly` of it for the failing case and see which
+statements survive. The generator is exonerated; the parse or the splice is not.
+
+**Ruled out earlier by measurement** (recorded so nobody re-walks them): the number of case classes
+extending a trait, the number of objects, the number of code fences, the `exports:` list, the
+trait/companion same-name pair, a generic case class, a generic method inside an object, and a
+type-parameterised extension. Supersedes the `package:`-is-necessary finding in
+[[f-parser-gap-needs-the-package-field]], which this narrows from "necessary but not sufficient" to
+a four-line reproducer.
+
+**A trap that cost me several rounds, twice:** `bin/ssc` in a fresh worktree is not built until
+`install.sh --dev` runs, and `ssc info --front-report` then prints
+`Could not find or load main class scalascript.cli.StandardMain` on stderr and NO tsv line — so a
+verdict extracted with `cut -f2` comes back EMPTY, which reads as "no verdict" rather than "no
+binary". I collected a whole table of empty verdicts before noticing. Build first, and treat an
+empty verdict as a broken run, never as data.
+
 ## f-parser-gap-needs-the-package-field
 
 <!-- status: open
