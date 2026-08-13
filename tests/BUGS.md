@@ -1,3 +1,51 @@
+## coord-labs-inherit-the-dev-boxs-git-config-so-a-runner-gap-cannot-be-seen-here
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: none -->
+
+**Found 2026-08-14 by turning `main` red.** I wired six `tests/coord/*.sh` gates into smoke after
+measuring all six green here; **three went red on the runner within the hour**. Not a defect in the
+gates: a CI runner has no global git identity and cannot derive one from `user@host`, so the REAL
+script under test exits 128 with `Author identity unknown`. The labs set `-c user.email` only for
+the commits they make THEMSELVES; the tool's own `git commit` ran with ambient config, which on a
+dev box silently works.
+
+**The property that is missing is hermeticity: a lab inherits whatever git config the person
+running it happens to have.** Anything the dev box provides and the runner does not is invisible
+until it lands. Identity is simply the instance that happened to bite.
+
+**Reproducing a runner is harder than it looks, and getting this wrong sends you after a phantom.**
+`HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null` is NOT enough — git still derives `user@host` and
+all three labs pass. The environment that reproduces it exactly:
+
+```bash
+HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.useConfigOnly GIT_CONFIG_VALUE_0=true \
+bash tests/coord/<lab>.sh
+```
+
+Same three fail (2, 6 and 12 identity errors), same three pass — an exact match with the runner.
+
+**Acceptance test for the mechanism fix**, which is why this is filed rather than patched: make each
+lab set that environment FOR ITSELF at the top, so it is hermetic no matter who runs it and a lab
+that forgets to configure identity fails on a dev box too.
+
+1. Every `tests/coord/*.sh` exports the block above before creating its first repo.
+2. **Deleting the repo-local `git config user.email` from any one lab must make it RED HERE.** That
+   is the whole point; without that assertion the change is decoration.
+3. All 11 still pass unchanged on this host and on a runner.
+4. Not done under time pressure with `main` red, and not narrowed to the three I had already
+   claimed: eleven gate files other agents may be editing is a deliberate change, not a drive-by.
+
+**Immediate damage is repaired** — the three labs now set a repo-local identity (`coord-claim-broad`,
+wired earlier, always did, which is why it never failed). This entry is about the class.
+
 ## f-extension-call-in-a-def-body-refuses-with-a-wrong-arity
 
 <!-- status: open
