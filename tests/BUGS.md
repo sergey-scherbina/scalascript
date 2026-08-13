@@ -3581,10 +3581,43 @@ fixed — they stopped being measured. Worth stating in the layout spec either w
 `backend: jvm` means int-only today so nobody reads those green rows as backend coverage.
 
 ## ci-status-guard-selftest-two-stacked-defects — `Validate ScalaScript` is red on the guard's OWN self-test, twice over
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: tests/e2e/ci-status-guard.sh -->
+     gate: tests/e2e/ci-status-guard.sh
+     fixed-in: 65746b35d -->
+
+**CLOSED 2026-08-13 — the SYMPTOM was already gone, the CAUSE was not, and the cause is what was
+fixed.** `tests/e2e/ci-status-guard.sh` passes today: the fixture collision that made defect 1
+deterministic resolved itself when the real `ci-red-main` claim was released and the dates moved.
+Defect 2 (`invalid-heartbeat`) does not reproduce either — the whole gate is green.
+
+**But the clamp this entry argued about was still in `scripts/coord-status`, in BOTH places** — the
+heartbeat field and the commit activity — turning a negative age into `0`. This entry's own sentence
+was the specification and nobody had acted on it: *"a commit dated after now is a clock or fixture
+anomaly, and reporting it as 'just committed' is the least safe reading available."*
+
+The consequence is not cosmetic. A claim whose timestamp sits in the future reads as **freshly alive
+forever**, so it is never reaped and the files it holds are never released. And it is exactly how
+this entry's defect 1 worked: the fixture's pinned clock sat before a real commit, the age went
+negative, and the assertion the test existed to make became unreachable — deterministically dead, as
+recorded.
+
+Fixed: skew below `SKEW_TOLERANCE` (300 s) stays silent, because seconds of drift between machines
+are ordinary; beyond it the line is printed by slug and the claim is **not** counted as fresh.
+
+**No second copy of the staleness threshold**, because check 4 of the same test forbids exactly that
+— *"two numbers deciding the same question will drift"*. My first version wrote `2700 + 1` at both
+sites; it is a flag now, and the tolerance is its own constant answering a different question.
+
+**Three checks added, each A/B'd — and the first one proved nothing until it was fixed.** It grepped
+for any `ANOMALY:.*FUTURE`, so deleting the ACTIVITY report left it green on the surviving heartbeat
+line: the control that should have failed passed. It now requires the anomaly named on BOTH paths,
+which is what the two clamps were. Coord suite: 11 tests, 0 failing.
+
+**Left alone deliberately:** defect 2's `invalid-heartbeat` diagnosis. It does not reproduce, and
+inventing a fix for a green check would be guessing.
+
 
 **Found 2026-07-30.** `Validate ScalaScript` fails on every push at
 `tests/e2e/ci-status-guard.sh`. Nothing in the repository is broken — the guard's own fixtures are.
