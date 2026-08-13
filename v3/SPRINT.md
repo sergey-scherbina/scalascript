@@ -3116,3 +3116,68 @@ and parallelism, not IO. Slice D is the honest accounting: re-measure the six bl
 cases after B, say which moved, and file the rest by what they actually need.
 
 **Claims are taken per slice, on the files that slice edits, and only when it starts editing.**
+
+## SSC3-13 — `extension` inside a `trait`, so the typeclass tower can load
+
+**The owner's design call, 2026-08-13:** `Dataset` should be an abstraction over a `Foldable`
+typeclass with `List` as only the DEFAULT backend, and map-reduce should be reachable from it.
+
+**That design is not new — it is already in the tree**, which is what makes this a repair rather
+than a proposal:
+
+```text
+  std/foldable-traversable.ssc      trait Foldable[F[_]] with extension [A](fa: F[A])
+  std/functor-applicative-monad.ssc trait Functor[F[_]], Applicative[F[_]], Monad
+  std/mapreduce/                    dataset.ssc shuffle.ssc distributed.ssc cluster.ssc typed.ssc
+                                    — and `extern object Dataset`, "lazy, parallel-capable pipeline"
+```
+
+**MY OWN WORK IS THE COUNTER-EXAMPLE, and it is recorded here rather than quietly fixed later:**
+the prelude's `case class Dataset(items: List[Any])` (SSC3-11) is a SECOND `Dataset`, with the list
+welded into the type rather than chosen as a backend. It was the right way to move N yesterday and
+it is the wrong architecture for tomorrow. Reconciling it is step 3, and which of the two survives
+is the owner's call, not this sprint's.
+
+### The blocker is ONE Tier 0 limit, and it is measured
+
+Higher-kinded types are NOT the problem — `trait Foldable[F[_]]: def sizeOf[A](fa: F[A]): Int`
+compiles and runs today, probed before this was written. What stops the tower is:
+
+```text
+  std/functor-applicative-monad.ssc:38:3
+  a `trait` member that is not a `def` is outside SSC3 core Tier 0
+        -> extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+```
+
+`extension` INSIDE a `trait`. The same message is **9 refusals in the corpus**, the third-largest
+blocker after `unknown name` and `call to unknown function`.
+
+**A — accept `extension` inside a `trait`.** v3 already has extensions at top level
+(`v3/extension-gate.sh` guards their vocabulary); this is the same rewrite one scope deeper. Done
+when `std/foldable-traversable.ssc` and `std/functor-applicative-monad.ssc` LOAD, and N does not
+fall.
+
+**B — measure what that opens.** Which of `std/mapreduce/*` becomes loadable, and which of the 9
+refusals actually move. Not predicted here; the census after A decides what is next.
+
+**C — reconcile the two `Dataset`s.** Only with A and B measured, and it is a decision to put to the
+owner rather than take.
+
+## SSC3-14 — `math`, and the one member neither lane can do
+
+Measured 2026-08-13 and NOT started. `math` is 4 of the corpus's `unknown name` refusals —
+`arithmetic`, `case-classes`, `js-scala-fenced-block`, `sealed-traits` — asking for
+`math.pow` (3), `math.sqrt` (2), `math.round` (2), `math.Pi` (2), `math.abs` (1).
+
+The split is decided by what v2's VM has, exactly as `hostPrims` was:
+
+```text
+  f.sqrt  f.round  f.floor  f.ceil     v2 has these -> reachable through an extern, like readFile
+  Pi  abs                              pure ScalaScript, straight into the prelude
+  pow                                  NO v2 prim at all
+```
+
+`pow` splits again: an INTEGER exponent is a loop and needs nothing; a fractional one needs `exp`
+and `log`, which neither lane has. So the honest deliverable is integer `pow` plus a refusal that
+NAMES the fractional case, rather than a silent wrong answer — and adding `f.pow` to v2 is the
+alternative, which is a change to another subsystem and a separate decision.
