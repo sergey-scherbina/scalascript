@@ -153,6 +153,50 @@ prints `Could not find or load main class scalascript.cli.StandardMain` AND exit
 are verified on the toolchain your shared checkout ships, which its own banner reports as built from
 61eaefc57, and independently on a build of my own branch off b8849cf45. If either is already fixed
 on current main, ignore it — I would rather send a possibly-stale report than sit on a real one.
+## serve-binds-all-interfaces — serve(port) always binds 0.0.0.0 with no way to say otherwise; four live .ssc services are LAN-reachable while every Rust service on the same machine binds loopback. Branch feature/ssc-http-bind-address pushed
+<!-- triage: new
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 61eaefc57
+     repro: none
+     kind: bug -->
+
+`serve(port)` binds `0.0.0.0` and there is no way to say otherwise, so every ScalaScript HTTP
+service is reachable from the LAN whether or not it was meant to be.
+
+EVIDENCE, from the machine this was found on — every listening socket, split by who built it:
+
+```
+rozum-gateway  127.0.0.1:8089   127.0.0.1:8401   127.0.0.1:8411   127.0.0.1:8779   (Rust)
+rozum-meeting  *:8405   *:8406                                                     (.ssc)
+ssc_program    *:8493   *:8497                                                     (.ssc)
+```
+
+Four live services listening on every interface. Not one of them chose that: `_http_serve` in the
+Rust runtime template does `SocketAddr::from(([0, 0, 0, 0], port as u16))` and `serve` takes a port
+and nothing else, so the program cannot express the narrower choice.
+
+WHERE IT BIT: a rozum console route is moving from an in-process Rust handler to a .ssc program.
+The Rust one binds loopback. The .ssc one cannot, so the move would widen exposure as a side effect
+of a refactor that is supposed to be behaviour-preserving. That is the whole reason this is a report
+and not a preference.
+
+A BRANCH IS PUSHED: `feature/ssc-http-bind-address` (21e9ad9ba). It reads `SSC_HTTP_BIND` when set
+and keeps `0.0.0.0` otherwise, so nothing that serves the network today stops doing so, and a value
+that does not parse fails loudly at startup rather than silently binding wider than asked:
+
+```
+serve(8499): SSC_HTTP_BIND="не-адрес" is not an address: invalid socket address syntax
+```
+
+Measured with a four-line server built by that toolchain (`.build-digest` equals the tree digest,
+STALE banner silent): unset → `*:8499`; `SSC_HTTP_BIND=127.0.0.1` → `127.0.0.1:8499` with the LAN
+address refused; a bad value → the panic above.
+
+An environment variable rather than a `serve(host, port)` overload on purpose — smallest change that
+makes an existing deployment confinable, no typer or lowering change. The second arity is the better
+API; take it instead if you prefer, the branch does not block it. Either way the default should stay
+`0.0.0.0` so nobody's running service goes dark on upgrade.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
