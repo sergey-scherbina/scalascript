@@ -426,34 +426,23 @@ fn main() {
 
 /** The v3 column. v3 is a different PRODUCT, not another backend of the same CLI: it has its own
  *  driver (`v3/ssc3`), its own IR and its own executor, and `bin/ssc --backend v3` does not exist.
+ *  It is measured by the SAME wrapper as every other column anyway: the tools binary is asked to
+ *  print what `generateWrapper` produced (`bench --emit-wrapper`, which runs nothing), and `ssc3`
+ *  runs those bytes. One generator, two runners — reimplementing the wrapper inside v3 would be a
+ *  second decision site for the measurement apparatus, and the first divergence between the copies
+ *  would be invisible in every number either produced.
  *
- *  It is not yet timed by the shared wrapper the other columns use. The reason this comment gave
- *  until 2026-08-11 — "v3 has no clock" — is STALE: v3 has had one since 2026-08-09, spelled
- *  `nanoTime()` in the language and `io.nanoTime` in the prim table. Two measured gaps remain,
- *  and they are small and named rather than a standing exception:
+ *  Until 2026-08-13 this column was timed driver-side instead, and the exception is gone rather
+ *  than edited because the three things holding it up are fixed: v3 resolves `System.nanoTime()`
+ *  (the wrapper cannot use v3's bare spelling — the js backend maps only Scala's, to
+ *  `Math.round(performance.now() * 1e6)`), the wrapper's fallback sink is `= 0` instead of a `null`
+ *  v3 does not have, and v3 widens mixed Int/Double arithmetic, which the wrapper's last line
+ *  (`_ssc_reps * 1000000.0`) needs.
  *
- *    1. THE SPELLING. The wrapper must keep `System.nanoTime()`, because the js backend maps only
- *       that spelling — it compiles to `Math.round(performance.now() * 1e6)`, while a bare
- *       `nanoTime()` is emitted verbatim as an undefined JS function and dies at run time. So the
- *       wrapper cannot move to v3's spelling; v3 has to resolve Scala's. Today it answers
- *       `unknown name 'System'` (`v3/src/Lower.scala`, the `builtins` table).
- *    2. THE FALLBACK SINK. For a workload returning anything other than Int/Long/Double/Boolean
- *       the wrapper declares `var _ssc_sink: Any = null`, and v3 has no `null`. This one is the
- *       WRAPPER's to fix, not v3's: a null-free language is a feature, and `= 0` serves every lane.
- *
- *  Everything else the wrapper uses already runs on v3 — measured 2026-08-11, not assumed:
- *  underscore numeric literals (`100_000_000L`), nested `while`, a `def` with a parameter,
- *  `Long`/`Double` vars, and string concatenation of both.
- *
- *  `ssc3 bench` does the loop driver-side meanwhile, keeping the two things that make the numbers
- *  comparable: compilation is excluded (lower + verify happen before the clock starts) and the
- *  window doubles until it reaches 100 ms.
- *
- *  The asymmetry that costs, stated because a reader will otherwise assume it away: v3's rep
- *  counter, seed increment and sink update are a HOST loop, so v3 is not charged for executing
- *  them while every other column is. The direction is known — it flatters v3, and most on the
- *  cheapest rows — but the SIZE is unmeasured, so no adjective here is load-bearing. Closing gaps
- *  1 and 2 is what makes it zero; that is §55 B1.
+ *  THE NUMBERS GOT WORSE WHEN THIS LANDED, and that is the point. Driver-side, v3's rep counter,
+ *  seed increment and sink update ran as host code, so v3 was not charged for executing them while
+ *  every other column was. It flattered v3, most on the cheapest rows. Now every column pays for
+ *  its own loop.
  *
  *  A blank v3 cell means the row produced no number, and as of 2026-08-11 that is no longer
  *  usually a front refusal: v3 ACCEPTS all 36 corpus files. **The count is not repeated here on
@@ -465,23 +454,40 @@ fn main() {
  *  is also what now fails when a row STOPS computing, which is how `typeclass-fold` was able to
  *  regress for three days while the conformance number `N` never moved.
  */
-def runV3Bench(file: java.io.File): Option[Double] =
-  val buf = new java.io.ByteArrayOutputStream
-  val ps  = new java.io.PrintStream(buf, true)
+def runV3Bench(sscPath: String, file: java.io.File): Option[Double] =
+  // `sscPath` is a parameter for the same reason it is one in `runSscBenchBackend`: the val is
+  // defined further down this file, and a def closing over it would depend on initialisation order
+  // rather than on being called after it.
+  val warmupArgs = warmupTimeMs match
+    case Some(ms) => Seq("--warmup-time", ms.toString)
+    case None     => Seq("--warmup", warmup.toString)
+  // Beside the SOURCE, exactly as the native lane's `os.temp(dir = path / os.up)` does: the wrapper
+  // inlines the corpus file's own code, so a relative import in it must resolve from the same
+  // directory or the two lanes are not running the same program.
+  val tmp = java.io.File.createTempFile("ssc-bench-v3-", ".ssc", file.getParentFile)
   try
-    Process(
-      Seq(s"$root/v3/ssc3", "bench", "--warmup", warmup.toString, "--reps", reps.toString,
-          file.getAbsolutePath),
+    val wrapper = Process(
+      Seq(sscPath, "--backend", "ssc", "bench", "--emit-wrapper") ++ warmupArgs ++
+        Seq("--reps", reps.toString, file.getAbsolutePath),
       new java.io.File(root)
-    ).!(ProcessLogger(ps.println, _ => ()))
-    buf.toString.linesIterator.collectFirst {
-      case l if l.startsWith("BENCH_MS:") => l.stripPrefix("BENCH_MS:").trim.toDoubleOption
-    }.flatten
+    ).!!(ProcessLogger(_ => ()))
+    java.nio.file.Files.write(tmp.toPath, wrapper.getBytes("UTF-8"))
+    val buf = new java.io.ByteArrayOutputStream
+    val ps  = new java.io.PrintStream(buf, true)
+    Process(Seq(s"$root/v3/ssc3", "run", tmp.getAbsolutePath), new java.io.File(root))
+      .!(ProcessLogger(ps.println, _ => ()))
+    // `lastOption`, matching the shared `parseBenchMs`, not `collectFirst`: a lane that printed a
+    // second measurement would otherwise be read by its first here and by its last everywhere else.
+    buf.toString.linesIterator
+      .filter(_.startsWith("BENCH_MS:"))
+      .flatMap(_.stripPrefix("BENCH_MS:").trim.toDoubleOption)
+      .toSeq.lastOption
   catch case _: Throwable => None
+  finally tmp.delete()
 
 def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[Double] =
   if b == "rust" then return runRustBench(sscPath, file)
-  if b == "v3" then return runV3Bench(file)
+  if b == "v3" then return runV3Bench(sscPath, file)
   val errLog: String => Unit = line =>
     if !line.startsWith("NOTE: Picked up") && !line.contains("skipping backend plugin") then
       System.err.println(line)

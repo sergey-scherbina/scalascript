@@ -7916,16 +7916,27 @@ final class BenchCmd extends CliCommand:
             case _        => "1"
           val seedDecl = if hasSeed then s"var _ssc_seed: $seedTy = $seedOne\n" else ""
           val wc       = if hasSeed then "workload(_ssc_seed)" else "workload()"
-          def upd(core: String) = if hasSeed then s"{ _ssc_seed = _ssc_seed + 1; $core }" else core
+          // TWO STATEMENTS, not `{ a; b }`. The braced-with-semicolon form is valid Scala and was
+          // used here until 2026-08-13, when the v3 column moved onto this wrapper: v3's front
+          // parses NEITHER a `;` statement separator NOR a braced block in statement position
+          // (`expected an expression, found ;` / `found {`), so every corpus file that declares
+          // `def workload(seed: …)` — 17 of the 36 — produced no number at all. Measured on one
+          // binary, and the replacement measured on three: `a = a + 1` and `b = b + a` as separate
+          // lines answer identically on v3, native and interp.
+          //
+          // The indent is a PARAMETER because this string is interpolated at two depths (inside a
+          // `while` at 2, inside a nested `while` at 4). Emitting `\n` without it silently
+          // dedents the second statement out of the loop, which still compiles and measures the
+          // wrong thing.
           returnTy match
-            case "Int"     => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc.toLong"), "_ssc_sink")
-            case "Long"    => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
+            case "Int"     => (seedDecl + "var _ssc_sink: Long = 0L",   s"_ssc_sink = _ssc_sink + $wc.toLong", "_ssc_sink")
+            case "Long"    => (seedDecl + "var _ssc_sink: Long = 0L",   s"_ssc_sink = _ssc_sink + $wc",        "_ssc_sink")
             // `0.0`, never `0d`: the Scala Double suffix is not lexed by the self-hosted front
             // (BUGS.md v2-front-drops-float-literal-suffix), so a `0d` here made the harness
             // depend on a parser gap and reported it as the BACKEND failing to run three
             // float workloads. The wrapper must not use anything a measured lane cannot parse.
-            case "Double"  => (seedDecl + "var _ssc_sink: Double = 0.0", upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
-            case "Boolean" => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + (if $wc then 1L else 0L)"), "_ssc_sink")
+            case "Double"  => (seedDecl + "var _ssc_sink: Double = 0.0", s"_ssc_sink = _ssc_sink + $wc",        "_ssc_sink")
+            case "Boolean" => (seedDecl + "var _ssc_sink: Long = 0L",   s"_ssc_sink = _ssc_sink + (if $wc then 1L else 0L)", "_ssc_sink")
             // `= 0`, never `= null`, for the same reason the Double arm says `0.0` and not `0d`:
             // the wrapper must not use anything a measured lane cannot parse. v3 has no `null` at
             // all and should not get one — a null-free language is a feature, not a gap — and `0`
@@ -7933,22 +7944,29 @@ final class BenchCmd extends CliCommand:
             // print `List(1, 2)` then `x` for a `var s: Any = 0` reassigned to each; on js the two
             // spellings are indistinguishable). The initial value is never read: the sink is
             // overwritten by the first workload call, warmup included.
-            case _         => (seedDecl + "var _ssc_sink: Any = 0",     upd(s"_ssc_sink = $wc"),                     "_ssc_sink")
+            case _         => (seedDecl + "var _ssc_sink: Any = 0",     s"_ssc_sink = $wc",                     "_ssc_sink")
+      // NOT on the jvm lane, and that asymmetry predates this function. The jvm branch above builds
+      // its own sink update around an `AtomicLong` and never mentions `_ssc_seed` — it defeats
+      // folding with the atomic instead, and its `seedDecl` is not prepended either. Advancing a
+      // seed it never declares turns every jvm cell into `Not Found: _ssc_seed`, which is exactly
+      // what `bench-seed-type-gate.sh` reported the first time this was written without the guard.
+      def updAt(ind: String, core: String) =
+        if hasSeed && targetBackend != "jvm" then s"_ssc_seed = _ssc_seed + 1\n$ind$core" else core
       val warmupBlock = warmupTimeMs match
         case Some(ms) =>
           val ns       = ms * 1000000L
           val phase2Ns = (ms / 6) * 1000000L
           s"""val _ssc_wt_end = System.nanoTime() + ${ns}L
              |while System.nanoTime() < _ssc_wt_end do
-             |  $sinkUpdate
+             |  ${updAt("  ", sinkUpdate)}
              |val _ssc_sw_end = System.nanoTime() + ${phase2Ns}L
              |while System.nanoTime() < _ssc_sw_end do
              |  var _ssc_iw = 0
              |  while _ssc_iw < 50 do
-             |    $sinkUpdate
+             |    ${updAt("    ", sinkUpdate)}
              |    _ssc_iw = _ssc_iw + 1""".stripMargin
         case None =>
-          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  $sinkUpdate\n  _ssc_w = _ssc_w + 1"
+          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  ${updAt("  ", sinkUpdate)}\n  _ssc_w = _ssc_w + 1"
       s"""# bench-wrapper
          |
          |```scalascript
@@ -7989,7 +8007,7 @@ final class BenchCmd extends CliCommand:
          |  val _ssc_t0 = System.nanoTime()
          |  var _ssc_r = 0
          |  while _ssc_r < _ssc_reps do
-         |    $sinkUpdate
+         |    ${updAt("    ", sinkUpdate)}
          |    _ssc_r = _ssc_r + 1
          |  _ssc_ns = System.nanoTime() - _ssc_t0
          |  if _ssc_ns < 100_000_000L then _ssc_reps = _ssc_reps * 2

@@ -2806,7 +2806,18 @@ repository has paid for that confusion more than once.
         at type-check time with `cannot unify Int vs Float`. That is a cross-module entry for the
         root `BUGS.md`; it needs a claim on that file, which this slice did not hold. v3 refuses,
         matching the majority, and deliberately was not changed.
-      - **B1a — the wrapper keeps `System.nanoTime()`, so v3 must resolve it.** One entry in the
+      - **B1a — DONE 2026-08-13.** v3 resolves `System.nanoTime()` — one arm in `Lower.scala`
+        beside the `Bench.opaque` precedent, guarded on a user-defined `System` class or function so
+        it stays a SPELLING and not a keyword (verified: a program with its own `case class System`
+        still works). The real emitted wrapper now runs on v3 end to end and prints BENCH_MS.
+      - **B1d — a FOURTH gap, found only by switching the column.** The wrapper's seeded update was
+        `{ _ssc_seed = _ssc_seed + 1; core }`, and v3's front parses neither `;` nor a braced block
+        in statement position. 17 of the 36 corpus files declare `def workload(seed: …)`, so the
+        switch would have BLANKED them — caught because a three-row sample happened to include
+        `option-chain`, not because the plan expected it. Fixed in the generator: two statements at
+        the indent the site actually sits at. Same text for every lane; measured identical on v3,
+        native and interp.
+      - ~~B1a — the wrapper keeps `System.nanoTime()`, so v3 must resolve it.~~ One entry in the
         `builtins` table of `v3/src/Lower.scala`: `"System.nanoTime" -> "io.nanoTime"`. It cannot be
         solved from the wrapper side instead: the js backend maps ONLY that spelling
         (`Math.round(performance.now() * 1e6)`) and emits a bare `nanoTime()` verbatim as an

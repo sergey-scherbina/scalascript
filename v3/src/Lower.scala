@@ -465,6 +465,21 @@ object Lower:
         if !classes.exists(c => c.name == "Bench") =>
       lower(argE, fns, classes, zeroArity, st0)
 
+    // `System.nanoTime()` is Scala's spelling of the clock, and the SHARED bench wrapper has to use
+    // it: the js backend maps only that spelling — to `Math.round(performance.now() * 1e6)` — and
+    // emits a bare `nanoTime()` verbatim as an undefined JS function. So the wrapper cannot move to
+    // v3's spelling; v3 resolves Scala's, and the two lanes measure the same text. Without this the
+    // emitted wrapper died here with `unknown name 'System'` and the v3 column had to be timed by a
+    // second, driver-side path (§55 B1).
+    //
+    // A SPELLING, NOT A KEYWORD, and the guards are what keep it one: a program that defines its own
+    // `System` class or its own `System.nanoTime` function keeps them, exactly as `Bench.opaque`
+    // above yields to a user `Bench`. An unconditional match here would break `System` as an
+    // ordinary name, which is how an earlier `extension` refusal broke `extension = extension + 1`.
+    case Expr.MethodCall(Expr.Name("System", _), "nanoTime", Nil, p)
+        if !classes.exists(c => c.name == "System") && !fns.contains("System.nanoTime") =>
+      lower(Expr.Call("nanoTime", Nil, p), fns, classes, zeroArity, st0)
+
     case Expr.MethodCall(Expr.Name("LazyList", _), "from", List(argE), _)
         if !classes.exists(c => c.name == "LazyList") =>
       val (ai, ar, st1) = lower(argE, fns, classes, zeroArity, st0)
