@@ -1,0 +1,11 @@
+slug: lint-markdown-standing-red
+branch: feature/lint-markdown-standing-red
+agent: claude-code
+started: 2026-08-13T23:37:19Z
+heartbeat: 2026-08-13T23:37:19Z
+status: claimed-before-planning
+items: lint-markdown-standing-red
+paths: file:BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
