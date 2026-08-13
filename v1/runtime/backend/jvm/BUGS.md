@@ -54,12 +54,68 @@ divergence survived. A fix should land the §2.1 row as a conformance case acros
 
 ## jvm-std-import-inside-a-fence-plus-def-main-emits-broken-scala
 
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      area: codegen
      kind: bug
-     gate: none
-     fixed-in: - -->
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/codegen/JvmGenInFenceImportTest.scala
+     fixed-in: 35b01be29 -->
+
+### FIXED 2026-08-13 — the block's SOURCE was emitted verbatim, and the import line came with it
+
+Read off the generated file rather than inferred. `emitBlock` passes a block's source through
+UNCHANGED whenever the block needs no rewriting, and `Block.src` was `cb.source` — the raw fence
+text, import link and all. The tails of the two generated files, one line each:
+
+```text
+def main       …}\n\n[exists](std/fs.ssc)\ndef main(): Unit = println(1)\n\n// entrypoint…\nmain()
+top-level stmt …}\n\nlocally { val _auto: Any = println(1); if _auto != () … }
+```
+
+**That is why exactly two conditions reproduce it, and the matrix below now has a cause.** An
+entrypoint `def main` is the shape with NOTHING to rewrite, so the raw text is emitted as-is; a
+top-level statement needs auto-output wrapping, and rebuilding the block from its parsed tree drops
+the line as a side effect. A document-level import is not in the fence text at all. The IMPORT was
+never the problem — `inlineImports` already inlines it, which was
+`js-jvm-codegen-in-fence-imports-not-followed`. What was left behind is the LINE.
+
+**Fix: hand the block the preprocessed source.** `Parser.rewriteInlineImports` replaces the line
+with `// list-import: …`, the same rewrite the parser itself runs (`PreprocessorRegistry`, priority
+10) before producing `cb.tree` — so the block's text and its tree now agree instead of diverging.
+For the single-line form it is an in-place substitution and nothing shifts; a multi-line import span
+collapses to one comment line, exactly as it already does for the tree.
+
+**Only this lane.** int, v2 and js all print `1` for the program below — measured, not assumed, so
+this is not a two-front pair.
+
+**Gate: `JvmGenInFenceImportTest`**, in the interpreter module's test tree beside the other JvmGen
+unit tests. It carries BOTH conditions rather than the failing one, because a fix that only handled
+the loud shape would pass a one-row test; it adds the BARE `.ssc` shape, which is where most
+programs put the import now that fences are optional; and it asserts on the emitted source MINUS
+comment lines, so the rewritten `// list-import:` cannot pass for the wrong reason. Each row asserts
+the program SURVIVED as well — a fix that dropped the whole block would satisfy the link assertion
+otherwise.
+
+**One row parses the emitted file rather than pattern-matching it**, because the report was scalac
+refusing the file and a second junk line of another shape would slip past a regex. Getting that row
+right took two corrections worth keeping: what JvmGen emits is a SCRIPT (`object … :` then a
+top-level `main()`), so plain `dialects.Scala3` rejects it at `main()` — *illegal start of
+definition*, against a generator that was already fixed. `JvmGen.scala:3214` had learned exactly
+this before and says so in a comment; the row now uses `withAllowToplevelTerms`, the dialect
+scalameta provides for that shape.
+
+Control: with the fix reverted, three rows fail — def-main, bare-file, and the parse row, which
+points straight at the offending text:
+
+```text
+<emitted>:7109: error: `=>` expected but `(` found
+[exists](std/fs.ssc)
+        ^
+```
+
+scalameta words it differently from scalac's `expression expected but '[' found`, and the line
+number is its own (scala-cli wraps the file before compiling), but it is the same line and the same
+defect.
 
 A `std/…` import written INSIDE a `scalascript` fence, together with an entrypoint `def main`,
 makes the jvm backend emit Scala that does not parse:
