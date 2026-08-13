@@ -37,6 +37,43 @@ export SSC_NO_BUILD_CHECK=1
 echo "── a plain string literal ends at its closing quote"
 ssc_usable_or_skip ref-front-string-literal-gate "$ssc"
 
+# ── PREFLIGHT: the toolchain must carry the front source this gate is about ───────────────────
+# The reference front is INTERPRETED from `ssc1-front.ssc0`, staged into the toolchain by the
+# build — so a toolchain built before a front fix still runs the OLD lexer even though the
+# checkout holds the new one, and `SSC_NO_BUILD_CHECK=1` above (set for the suite's noise budget)
+# silences the launcher's own staleness warning.
+#
+# That is not hypothetical: on 2026-08-10 this gate's 3 failures were read as a residual defect
+# and written into `v2/BUGS.md` as "the commit narrowed it, the front still swallows the closing
+# quote". The lookback had been in `v2/lib/ssc1-front.ssc0` since the day before. The 3 rows were
+# the PRE-FIX front, staged by an older build. Reproduced exactly, 2026-08-13, by reverting the
+# lookback in a private copy of the toolchain: same 3 rows, same bytes.
+#
+# So compare the two files before asserting anything. A stale toolchain must read as "rebuild",
+# never as a defect in the code being measured.
+front_src="$ROOT/v2/lib/ssc1-front.ssc0"
+front_staged=""
+for c in "$(dirname -- "$ssc")/lib/standard/native-front/tower/lib/ssc1-front.ssc0" \
+         "$(dirname -- "$ssc")/lib/native-front/tower/lib/ssc1-front.ssc0"; do
+  [[ -r "$c" ]] && { front_staged="$c"; break; }
+done
+if [[ -n "$front_staged" && -r "$front_src" ]]; then
+  if cmp -s "$front_staged" "$front_src"; then
+    echo "  · toolchain carries this checkout's reference front"
+  else
+    echo "  ✗ STALE TOOLCHAIN — the front staged in the toolchain is NOT this checkout's:"
+    echo "      staged:   $front_staged"
+    echo "      checkout: $front_src"
+    echo "    Every row below would measure the staged copy, and a front fix in the checkout"
+    echo "    would read as a defect that is still open. Rebuild: ./install.sh --dev"
+    exit 1
+  fi
+else
+  # Said out loud rather than skipped in silence: an unchecked premise that prints nothing is how
+  # the stale measurement above became a bug entry.
+  echo "  · front staleness NOT checked — no staged ssc1-front.ssc0 under $(dirname -- "$ssc")/lib"
+fi
+
 # $1 name, $2 expected first line, $3 source. Asserts BOTH fronts.
 both_print() {
   local name=$1 want=$2 src=$3

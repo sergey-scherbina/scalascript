@@ -11796,7 +11796,7 @@ rather than the push path.
 
 ## reference-front-mislexes-a-dollar-brace-inside-a-plain-string-literal
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
@@ -11805,6 +11805,43 @@ rather than the push path.
      confirmed: yes
      fixed-in: 7d172273e
      gate: tests/e2e/ref-front-string-literal-gate.sh -->
+
+### FIXED — and the three failures below were a STALE TOOLCHAIN, not a residual defect (2026-08-13)
+
+`tests/e2e/ref-front-string-literal-gate.sh` is GREEN, 10 of 10, both fronts. So is every row the
+section at the bottom of this entry recorded as red. Nothing was fixed today: `7d172273e` fixed all
+of it on 2026-08-09, and the entry has been open for four days against a measurement of code that
+commit had already replaced.
+
+**The reference front is INTERPRETED from `ssc1-front.ssc0`, which the build STAGES into the
+toolchain** (`bin/lib/standard/native-front/tower/lib/`). A toolchain built before the fix keeps
+running the old lexer while the checkout holds the new one — and this gate exports
+`SSC_NO_BUILD_CHECK=1`, which silences the launcher's own staleness warning. The two together make
+a stale build indistinguishable from an open bug.
+
+**Reproduced rather than argued.** A private copy of the toolchain, with the one-byte lookback
+reverted in its staged front and nothing else changed:
+
+```text
+                            reverted lookback        today, unmodified
+dollar-brace-alone          ✗ reference='${")'       ✓ ${
+dollar-brace-concatenated   ✗ '${" + s + "}'         ✓ ${x}
+ctl-plain-after-interp      ✗ reference='${")'       ✓ ${
+                            3 failures               10/10 PASSED
+```
+
+Three failures, the same three, and `ctl-plain-after-interp` byte-identical to the line quoted
+below. That is what the 2026-08-10 run measured.
+
+**And it proves the running lexer IS the file this entry names** — patching the staged copy changed
+the output, so comparing that copy against `v2/lib/ssc1-front.ssc0` (byte-identical at HEAD) is a
+sufficient freshness check for this gate. No rebuild of the shared checkout was needed to close it,
+and none was done: the toolchain in the shared tree is stale by digest for other reasons.
+
+**The gate now checks that premise itself** — it compares the staged front against the checkout's
+before asserting a single row, and a mismatch exits 1 saying `STALE TOOLCHAIN … Rebuild`. If the
+staged copy cannot be found it says so out loud instead of skipping in silence. Self-tested in both
+directions: the reverted copy produces the stale verdict, the restored one 10/10.
 
 **The REFERENCE front is the wrong one here, and F is right** — worth saying plainly, because every
 other entry filed this week runs the other way.
@@ -11843,6 +11880,8 @@ rules agree — nothing was weighed, they just pointed the same way.
 same commit; the field now names it.
 
 **AND THAT GATE IS RED — 3 failures, measured today**, which is why `status` stays `open`:
+*(WRONG — a stale toolchain. Read the FIXED section at the top of this entry; the rows below are
+the pre-fix lexer, and they are kept because reproducing them is what closed this.)*
 
 ```text
 ✓ ctl-simple-interp        v=5
@@ -11858,3 +11897,11 @@ where the ownership checker files the entry. The commit narrowed the defect; the
 still swallows the closing quote after an interpolation. Left in place because it is factually the
 commit that attacked this, and because it is what routes the entry to the board that owns the code
 — but the status is the field to believe.
+
+**That paragraph is the part worth keeping, inverted.** It reasoned carefully about a `fixed-in` on
+an open entry and concluded the field was overclaiming — and the field was right and the `status`
+was wrong. The tell it could not see was that BOTH fronts are asserted here and only ONE of them
+was failing: F comes from a different source (`specs/v2.2-p6.5-fsub.ssc`) staged by the same build,
+and a front fix that is live on one lane and absent on the other, on a lexer the checkout shows as
+fixed, is a build question before it is a code question. **A row where the two fronts DISAGREE and
+the checkout says they should not is a staleness signal, not a defect signal.**
