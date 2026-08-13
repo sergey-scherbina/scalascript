@@ -1,0 +1,11 @@
+slug: rust-member-name-flattening
+branch: feature/rust-member-name-flattening
+agent: claude-code
+started: 2026-08-13T19:56:56Z
+heartbeat: 2026-08-13T19:56:56Z
+status: claimed-before-planning
+items: rust-member-name-flattening
+paths: file:BUGS.md file:BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
