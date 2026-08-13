@@ -334,6 +334,12 @@ val suite = List(
   Check("v2", "list-concat-chain", "tests/e2e/list-concat-chain-gate.sh", List(), 300000),
   Check("v2", "v2-dsl-yaml-like", "tests/e2e/dsl-yaml-like-v2-smoke.sh", List(), 60000),
   Check("v2", "v2-indent-layout", "tests/e2e/indent-layout-v2-smoke.sh", List(), 60000),
+  // Beside the layout smoke above because it IS a layout property: a single-line
+  // `extension (r) def m` never opened its member block, so the receiver stayed live and every
+  // following `def` was silently absorbed as a member — the reference front then ran nothing and
+  // exited 0. Seven rows, both fronts; four are KNOWN-RED on F and FAIL if F starts passing, so the
+  // unfixed half cannot be closed without this saying so.
+  Check("v2", "single-line-extension", "tests/e2e/single-line-extension-gate.sh", List(), 300000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),

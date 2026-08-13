@@ -3380,6 +3380,15 @@ def topStackIs = (wanted, stack) =>
       match top { case Pair(tag, ind) => #seq(tag, wanted) }
   }
 
+-- Is the head of a RAW token list the `def` keyword? Used to tell a single-line
+-- `extension (r) def m …` from the multi-line form, whose receiver `)` is followed by NL.
+def headIsDefKw = (ts) =>
+  match ts {
+    case Nil => false
+    case Cons(t, rest) =>
+      match t { case Pair(k, v) => if #seq(k, "kw") then #seq(v, "def") else false }
+  }
+
 def extensionReceiverParen = (extensionHead, stack) =>
   if extensionHead then
     if topStackIs("P", stack) then false
@@ -3432,7 +3441,29 @@ def layout = (toks) =>
           else if #seq(k, ")") then
             if topStackIs("X", stack) then
               match closeToDelim("X", stack) {
-                case Pair(cs, ns) => append(cs, Cons(t, go(rest, ns, true, true, declHead, false, true)))
+                case Pair(cs, ns) =>
+                  -- SINGLE-LINE `extension (r) def m …`: the member is on THIS line, so no NL
+                  -- follows the receiver and the `if prevOpener` arm above never runs. The E frame
+                  -- was therefore never opened, no `extension_end` was ever emitted, and
+                  -- `extensionParamsCell` — set when `extension` was parsed and cleared ONLY by
+                  -- that marker — stayed set for the rest of the file. Every following top-level
+                  -- `def` then had the receiver prepended to its parameters, i.e. it silently
+                  -- became a member of the extension:
+                  --
+                  --   extension (s: String) def boxed: String = s
+                  --   def tagged: String = "T"          -- "a".tagged answers "T": ABSORBED
+                  --   def main(): Unit = …              -- absorbed too, so nothing runs: exit 0, no output
+                  --
+                  -- Give that form the same virtual block the multi-line form gets, so the parser
+                  -- and the lowerer see ONE shape. The sentinel indent closes the frame at the next
+                  -- NL whatever its column — the body is exactly this line. A body continued after
+                  -- a layout opener (`= ` ⏎, `= e match` ⏎ arms) is unaffected: that NL takes the
+                  -- prevOpener arm, which pushes its own frame ABOVE this one, and the dedent that
+                  -- ends the body closes both.
+                  if headIsDefKw(rest) then
+                    append(cs, Cons(t, Cons(mkTok("{", ""),
+                      go(rest, Cons(Pair("E", 1000000), ns), false, false, declHead, false, false))))
+                  else append(cs, Cons(t, go(rest, ns, true, true, declHead, false, true)))
               }
             else
               match closeToDelim("P", stack) {
