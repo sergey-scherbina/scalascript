@@ -285,7 +285,14 @@ fi
 # are left to it rather than double-reported here.
 jars=()
 while IFS= read -r j; do jars+=("$j"); done < <(
-  find "$ROOT/bin/lib/jars" -name 'scalascript-*.jar' 2>/dev/null | grep -v -- '-v2-' | sort)
+  # -prune on the BASENAME, not the path. `grep -v -- '-v2-'` matched the whole
+  # line, so a worktree whose directory name contained `-v2-` — e.g.
+  # scalascript-wt-v2-mcp-mrtr-surface — filtered out every jar it had just
+  # built and the gate exited 2 with "no shipped scalascript jars found". A
+  # correct build, reported as a missing one, in a check that then measures
+  # nothing. `-not -name` asks the question about the file, which is what was
+  # meant all along.
+  find "$ROOT/bin/lib/jars" -name 'scalascript-*.jar' -not -name '*-v2-*' 2>/dev/null | sort)
 if [[ ${#jars[@]} -eq 0 ]]; then
   echo "v1-jit-size: no shipped scalascript jars found — build first (bash install.sh --dev)" >&2
   echo "  looked for: bin/lib/jars/scalascript-*.jar" >&2
