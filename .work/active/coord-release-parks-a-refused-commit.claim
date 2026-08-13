@@ -5,7 +5,7 @@ started: 2026-08-13T20:26:44Z
 heartbeat: 2026-08-13T20:26:44Z
 status: working
 items: shared-main-is-one-working-tree-for-every-agent
-paths: file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md file:scripts/SPRINT.md file:scripts/BUGS.md file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md
+paths: file:scripts/coord-release file:tests/coord/coord-release-refuses-unpushed-work.sh file:tests/BUGS.md file:scripts/SPRINT.md file:scripts/BUGS.md file:scripts/smoke-ci.ssc file:TASK/v2-perfomance.md file:tests/coord/coord-claim-runs.sh file:tests/coord/coord-release-evidence-level.sh
 scope: |
   MEASURED FIRST, in a throwaway lab with a fake origin and a `pre-push` hook that refuses (standing
   in for the overlap guard rejecting a stranger's parked claim): `scripts/coord-release` exits 1 and
