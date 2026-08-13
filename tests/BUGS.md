@@ -55,8 +55,14 @@ naming the comment case.** An assertion never observed failing is not an asserti
 Frozen, not wired — they are not new debt, they are the debt that was always there and could not be
 seen, and freezing is what keeps the list monotone. Each needs its own decision:
 
-- `bytecode-fallback-visible.sh` — half of it is deliberately unpinned (the marker), so wiring it
-  needs that resolved first.
+- ~~`bytecode-fallback-visible.sh`~~ **WIRED 0c7de52f5** into `ci.yml`'s `validate` job (PR +
+  nightly + dispatch, checked — not the smoke suite, at 52 s). The concern that it needed the
+  unpinned marker resolved first was wrong: the marker's remaining source is deliberately unpinned
+  and the gate says so in a `note:` line, while everything it DOES assert passes. Removed from
+  FROZEN, 38 to 37. The override that ran its oversized subject on the legacy front is gone too, on
+  the condition the gate itself stated — `f-front-compile-cost-7x-on-scljet` was fixed in
+  `ee53eff5d`, and `scljet-hello` now takes 20 s per lane on the default front against >1800 s
+  before, so the subject covers the lane users actually get.
 - `negtc-shard-gate.sh` — verifies the shard partition byte-for-byte against `corpus-baseline.tsv`;
   belongs to whoever owns the negtc release gate.
 - `ssc1-front-annotation.sh` — a legacy-front gate, and by construction no conformance lane runs the
