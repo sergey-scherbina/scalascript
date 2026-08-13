@@ -200,11 +200,9 @@ verbatim, on 2026-07-30.
 
 Minimal repro — an empty program whose only content is the import:
 
-```
-[McpClient, mcpConnect, Transport](std/mcp/client.ssc)
 ```scalascript
+[McpClient, mcpConnect, Transport](std/mcp/client.ssc)
 @main def run(): Unit = println("built")
-```
 ```
 
 `ssc-tools emit-rust` → `[error] Unsupported(McpClient,rust)`. The same file runs under `ssc run`.
