@@ -1286,6 +1286,8 @@ object RustCodeWalk:
       localOptions: Set[String] = Set.empty,
       /** Names known to hold a Map — see `collectLocalMaps`. */
       localMaps: Set[String] = Set.empty,
+      /** Locals bound to a DEF used as a value — see `collectLocalFns`. */
+      localFns: Set[String] = Set.empty,
       // The def's OWN parameter names, and every `fn name` a verbatim `rust` fence block defines.
       // Both are callable and neither is a user def, so a refusal that does not know them refuses
       // correct programs — `def apply(f: Int => Int, x: Int) = f(x)` is four of this backend's own
@@ -1437,6 +1439,7 @@ object RustCodeWalk:
         .toSet
       val ctx     = Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs, lseqs ++ paramSeqs, larrays, lstrings,
                         localMaps = collectLocalMaps(d),
+                        localFns = collectLocalFns(d, userDefs),
                         localOptions = collectLocalOptions(d.body,
                           Ctx(intrinsics, userDefs, ctorMap, topVals, name, effectfulDefs)),
                         defParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -3223,6 +3226,28 @@ object RustCodeWalk:
         sep <- renderStrPatternArg(args.values.head, ctx)
       yield s"""$q.split($sep).map(|p| p.to_string()).collect::<Vec<String>>()"""
 
+    // `s.matches(regex)` — REFUSED, and this one is not a coverage gap but a NAME COLLISION with
+    // opposite meanings. Scala's `String.matches` is a full-match REGEX test returning Boolean;
+    // Rust's `str::matches` returns an ITERATOR over occurrences of a literal pattern. There was no
+    // arm for it, so it fell through and emitted `value.matches(spec.pattern)` verbatim — the same
+    // call, a different language, a different answer.
+    //
+    // IT WAS CAUGHT BY LUCK, WHICH IS THE ARGUMENT FOR REFUSING IT. The only site in std negates
+    // the result, so rustc said `error[E0600]: cannot apply unary operator ! to Matches<'_, String>`
+    // and the module failed loudly. In any context that consumes an iterator, or discards the
+    // result, the same emission COMPILES and is silently wrong — the failure this backend treats as
+    // worse than not lowering at all.
+    //
+    // A correct lowering needs a regex engine this crate does not depend on. Refuse by NAME, the
+    // same device as CollectionOnlyMembers below. (rust-string-matches-is-not-rust-str-matches.)
+    case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("matches")), args)
+        if args.values.size == 1 =>
+      Left(List(unsupported(
+        s"def `${ctx.defName}` calls `matches`, which in Scala is a full-match REGEX test and in " +
+        s"Rust is an iterator over literal occurrences; this lane has no regex engine and will not " +
+        s"emit the Rust member of the same name"
+      )))
+
     // `(mm: Map[K, V]).contains(k)` — Rust spells this `contains_key`, and a `HashMap` has no
     // `contains` at all. It MUST sit before the str arm below, which takes `contains` by name and
     // would otherwise emit `error[E0599]: no method named contains found for struct HashMap`.
@@ -4280,7 +4305,8 @@ object RustCodeWalk:
                           ctx.localSignals.contains(n) || ctx.localSeqs.contains(n) ||
                           ctx.localStrings.contains(n) || ctx.anyNames.contains(n) ||
                           ctx.localOptions.contains(n) ||
-                          ctx.defParams.contains(n) || ctx.rustFnNames.contains(n)
+                          ctx.defParams.contains(n) || ctx.rustFnNames.contains(n) ||
+                          ctx.localFns.contains(n)
                         plainName match
                           case Some(n) if joined.nonEmpty && !locallyKnown(n) =>
                             Left(List(unsupported(
@@ -5099,6 +5125,31 @@ object RustCodeWalk:
       t.children.foreach(walk)
     walk(d.body)
     maps.toSet
+
+  /** Locals bound to a def used as a VALUE — `val vf = validateField`, then `vf(sp, d())`.
+   *
+   *  Scala eta-expands a bare def name in value position, and std/ui/form.ssc does this ON PURPOSE:
+   *  the comment above it records that a thunk invoked later from ANOTHER module's context does not
+   *  resolve this module's global names, so the function has to be captured as a local first. Every
+   *  other backend takes it; this lane refused with "calls `vf`, which this crate does not define —
+   *  no def, no intrinsic, no local of that name", which was true of every set it knew and false
+   *  about the program. (rust-local-val-bound-to-a-def-is-not-callable.)
+   *
+   *  Nothing needs emitting differently: Rust's `let vf = validateField;` binds the fn ITEM, the
+   *  call `vf(a, b)` is ordinary, and a fn item is Copy so capturing it in a `move` closure is free.
+   *  The only thing missing was permission — the call-site guard had no set that could hold it. */
+  private def collectLocalFns(d: m.Defn.Def, userDefs: Set[String]): Set[String] =
+    val fns = scala.collection.mutable.Set.empty[String]
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => (v.pats, v.rhs) match
+          case (List(m.Pat.Var(m.Term.Name(n))), m.Term.Name(r))
+              if userDefs.contains(r) || fns.contains(r) => fns += n
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(d.body)
+    fns.toSet
 
   private def isMapCtorFn(fn: m.Term): Boolean = fn match
     case m.Term.Name("Map")                                  => true
