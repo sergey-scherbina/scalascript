@@ -1,3 +1,42 @@
+## f-extension-call-in-a-def-body-refuses-with-a-wrong-arity
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-13
+     confirmed: yes
+     gate: tests/e2e/f-output-agreement-gate.sh -->
+
+**`f-output-agreement-gate` is RED on origin/main, ceiling 0.** On
+`tests/conformance/extension-call-in-a-def-body.ssc`:
+
+```
+F               ssc: arity: 1 expected, 0 given
+эталон          body-a
+интерпретатор   body-a
+```
+
+**Unmasked, not introduced.** The defect is old — the corpus survey recorded it on 2026-08-11 as
+*"F: `arity: 1 expected, 0 given`; the reference runs"*. What changed is the OTHER lane: until
+`374f6ce01` (2026-08-13) the reference front printed nothing for this file, because it emitted only
+the whole program's final value instead of each block's tail. With all three lanes differing the
+file sat in the `all three differ` bucket, which the ceiling ignores. Now the reference is right,
+the interpreter agrees with it, and F is alone — so the same defect is charged to F for the first
+time.
+
+That is the gate working as designed: a divergence needs a third opinion, and the third opinion has
+only just become available for this file. It is also a clean instance of two defects masking each
+other — fixing the reference one is what made the F one visible.
+
+**Not caused by the arm-body assignment fix** (`0ea4a4a83`, same day). Reproduced with that change
+reverted and the tree rebuilt: identical output on all three lanes.
+
+**Not narrowed.** F refuses rather than answering wrongly, so this is a coverage defect, not a
+silent one; `arity: 1 expected, 0 given` on a call with an extension method in a def body points at
+the extension-dispatch path rather than at the arm machinery. The file is small and the reproducer
+is the file itself.
+
 ## f-package-namespace-breaks-on-an-object-with-extends
 
 <!-- status: open
@@ -2149,14 +2188,15 @@ without a written record would repeat the mistake this file exists to prevent.
 
 ## f-assignment-headed-arm-body-drops-the-rest-and-returns-a-closure
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-08
      ssc-version: d7546f299
      confirmed: yes
-     gate: none -->
+     fixed-in: 0ea4a4a83
+     gate: tests/e2e/f-assign-arm-body-gate.sh -->
 
 Sibling of `f-ordered-match-arm-body-is-not-a-statement-sequence`, found while probing that fix for
 regressions, and **pre-existing** — measured identical before and after it, so it is not fallout.
@@ -2186,6 +2226,21 @@ statements still have to be parsed, and today they are discarded.
 Not fixed with its sibling on purpose: that claim was about `(global v)`, this needs the seq-form
 lowering reasoned through separately, and no corpus file currently hits it. Worth doing before any
 corpus file does, because the failure mode is a wrong answer rather than a refusal.
+
+**Fixed in `0ea4a4a83`.** The continuation the entry says is missing is now there, and it is
+the BLOCK path's, mirrored rather than re-derived: a simple `x = e` continues as `(seq set rest)`
+with the scope unchanged, a compound `x += e` as `(let (set) rest)` pushing an anon slot — the
+latter being exactly what `armSeqCont`/`armSeqMore` already do for a bare expression, so the
+compound case needed no new code at all.
+
+Changed at BOTH dispatch sites. `armSeqStmt` is the second one, reached by `a; acc = 5; acc`, and
+the file warns about it three lines from the edit: leaving it out keeps the defect alive behind a
+leading statement while a gate built on the leading form goes green.
+
+Five shapes verified across all three lanes — simple-then-expr, compound-then-expr, two assigns in
+a row, a `val` before the assign, and an arm that is ONLY an assignment. The last is the shape that
+always worked and is carried in the gate so that a fix appending a sequence unconditionally would
+not pass.
 
 ## f-ordered-match-arm-body-is-not-a-statement-sequence
 
