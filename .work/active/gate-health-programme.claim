@@ -2,10 +2,10 @@ slug: gate-health-programme
 branch: feature/gate-health-programme
 agent: claude-code
 started: 2026-08-13T16:14:04Z
-heartbeat: 2026-08-13T16:16:55Z
+heartbeat: 2026-08-13T16:19:52Z
 status: claimed-before-planning
 items: orphaned-e2e-gates-52
-paths: file:scripts/next file:AGENTS.md file:tests/e2e/bugs-index-gate.sh file:tests/SPRINT.md file:scripts/SPRINT.md file:.githooks/commit-msg
+paths: file:scripts/next file:AGENTS.md file:tests/e2e/bugs-index-gate.sh file:tests/SPRINT.md file:scripts/SPRINT.md file:.githooks/commit-msg file:scripts/bugs-report
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: commit-msg silently rejects any commit touching a board with no ## headings — fix first
+next: bugs-report gains --tsv (one parser, two renderers); scripts/next consumes it
