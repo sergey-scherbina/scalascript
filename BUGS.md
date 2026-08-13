@@ -95,6 +95,39 @@ the second only reports what the first caused:
   receiver is present at line 1571 before being dropped. It needs a map of which qualifiers are
   OBJECTS rather than values, which the walk does not currently build.
 
+**THE RECIPE, with the pieces the file already provides.** The narrow shape is the one to take,
+and it does NOT touch the eight places keying on the bare `d.name.value` — reachability, defaults,
+arities all keep working on bare names. Only two things get qualified:
+
+1. **The definition.** In `renderDef`, a colliding member emits its `fn` header as `Qual_member`.
+2. **The call.** `RustCodeWalk.scala:~4302`, the `plainName.filter(ctx.userDefs.contains)` branch —
+   when the call term was `Select(Name(q), Name(n))` and `(q, n)` collides, emit `q_n`.
+
+Then the refusal at ~236 groups by the EMITTED name, the collision is gone, and the check is left
+exactly as it is — which matters, because it is correct.
+
+Three pieces already exist and should be reused rather than reinvented:
+
+- `qualifiedName` (line ~5462) already builds `QualifiedName("Tool.text")` from a `Select`. It is
+  used for intrinsic lookup today; the call site needs the same value.
+- `collectEffectOps` (line ~749) already walks objects STRUCTURALLY and keeps `o.name.value -> its
+  members`. That is the qualifier map this needs.
+- `collectDefs` (line ~563) is where the qualifier is lost: `node.tree.collect { case d: Defn.Def
+  => d }` is a DEEP collect that lifts members out of objects and traits with no record of where
+  they came from.
+
+**One trap to handle while implementing.** Line ~194 builds `byName = defs.map(d => d.name.value
+-> d).toMap`. On a collision that silently DROPS one def. It is harmless today because collisions
+are refused before anything can depend on it; once they are allowed, the reachability walk starts
+scanning only one of the two bodies and can under-approximate. The final filter is
+`defs.filter(d => seen.contains(d.name.value))`, so both defs still reach the render list — the
+risk is a missed reference, not a lost definition.
+
+**How to know it worked, and it is not the gate.** Re-run the Rust std survey and DIFF
+`tests/rust-std-survey-baseline.tsv`. The prediction to check against: the six REFUSED rows named
+above should flip, and nothing else should move. The gate only asserts BADRUST does not grow,
+which is exactly why it missed the three regressions below.
+
 **Handle with care, and the file says why.** The comments around the refusal record three earlier
 attempts at this area: counting declarations cost NINE modules their COMPILES status, counting
 reachable ones still cost three, and the current rule counts what actually EMITS. Whoever takes
