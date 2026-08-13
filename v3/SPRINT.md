@@ -2562,6 +2562,15 @@ one §3 J1 item never built, and now the only one the evidence points at.
       10 → 8 — a fifth of the dispatches in the corpus's hottest loop.
       **Not established: any speedup.** 3 of 8 / 6 of 8 / 3 of 8 at host load 42–45; a 20 % effect is
       an order below this host's ~2× floor. The ratios are noise in both directions.
+      **RE-MEASURED 2026-08-13 (`d1778f75d`), and it now LEANS to the change.** 15 pairs, one binary,
+      with a matched control (ON vs ON) measured *inside every pair* so the control sees the
+      experiment's conditions: `nested-loop` 13 of 15 against a control of 9 of 15 (p ≈ 0.007),
+      `arith-loop` 12 of 15 against 8 of 15 (p ≈ 0.04), `list-fold` 6 of 15 and `recursion-fib`
+      9 of 15 — **null, and predicted**, because their instruction counts move 56→54 and 18→17 while
+      the two that moved the clock are the two that move 20→16 and 34→28. The clock now agrees with
+      the instruction counts on all four rows, which is a stronger result than any single ratio.
+      **No magnitude is claimed**: load climbed 10 → 46 mid-run and the CONTROL — identical code both
+      sides — spread 0.548 to 2.096. Harness kept as `v3/bench-ab.sh`.
       *Gate:* `--no-optimize` is the OFF arm and `--identity` gained a fourth comparison for it —
       this is the pass that rewrites the instruction list itself, so it does not ride on the
       specializer's arm.
@@ -2575,6 +2584,20 @@ host** — not because hoisting and superinstructions are bad ideas, but because
 measurements have PROVED, rather than assumed, that nothing under ~2× is visible here. Whoever gets a
 quiet machine should first re-run the `bench/history.tsv` rows for J1b, J1c and J1d: two may be wins
 nobody can see, and one is a revert that might not have been necessary.
+
+**AMENDED 2026-08-13 — the ~2× floor is a property of a LOADED host, not of this measurement.** J1d
+was re-run (see its item above) with a control measured inside every pair, and the correction that
+matters is what the CONTROL did. In a genuine quiet window (load 6.9) it resolved to within 3 %
+— 0.987 to 1.032 on identical code — while the experiment arm sat at 0.837–0.880. Two pairs only,
+so that magnitude is an observation and not a result; but a host that separates identical code to
+within 3 % is not a host with a 2× floor, and the paragraph above should not be read as saying a
+15–20 % effect is unmeasurable *in principle* here. **The blocker is finding a quiet window, not the
+instrument** — the window that produced those numbers lasted about five minutes before another
+agent's build took load to 46, which is also why no magnitude is recorded for the 15-pair run.
+So the standing recommendation changes shape: not "stop optimising this executor", but "do not
+measure it while the machine is busy, and read `v3/bench-ab.sh`'s control column before its
+experiment column." **J1b and J1c are still owed** — both need two class directories rather than one
+binary with a flag, which is why J1d was the one re-run first.
 
 **FRAME POOLING IS REFUTED — do not build it.** It was the obvious next move: `recursion-fib` is the
 slowest row, nothing has moved it, and `callFunc` allocates a frame per call. The assumption was
