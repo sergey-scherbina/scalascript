@@ -14,7 +14,7 @@ Newest first.
      area: other
      kind: bug
      gate: tests/e2e/ci-status-guard.sh
-     fixed-in: daaa36b0f -->
+     fixed-in: 4045a1e45 -->
 
 **Found 2026-08-13** while moving `tests/e2e/ci-status-guard.sh`'s fixture out of the shared
 repository. `claim_activity_epoch` held **the only three `git log` calls in `scripts/coord-status`
