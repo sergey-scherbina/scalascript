@@ -1,0 +1,11 @@
+slug: mcp-backlog-truth
+branch: feature/mcp-backlog-truth
+agent: claude-code
+started: 2026-08-13T16:18:16Z
+heartbeat: 2026-08-13T16:18:16Z
+status: claimed-before-planning
+items: mcp-backlog-truth
+paths: file:BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
