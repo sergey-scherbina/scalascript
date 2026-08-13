@@ -1,0 +1,21 @@
+slug: v3-list-companion
+branch: feature/ssc3-host-io-bytes
+agent: claude-code
+started: 2026-08-13T09:20:00Z
+heartbeat: 2026-08-13T09:20:00Z
+status: working
+items: v3-list-companion
+paths: mod:v3/prelude
+scope: |
+  `List.fill` / `List.tabulate` / `List.range` — the List COMPANION, which v3 does not have.
+  Measured, not assumed: `List` is 4 of the corpus's `unknown name` refusals, and the shapes it is
+  asked for are `List.fill(4)(0)`, `List.tabulate(5)(i => i*i)`, `List.range(1,6)` and
+  `List.range(0,10,3)`.
+
+  IN THE PRELUDE, IN ScalaScript — not in the kernel. The project's own rule is that new intrinsics
+  go to a library and never to the core, and a library written this way reaches BOTH lanes with no
+  host surface at all. Probed before claiming: an `object List` coexists with the `List(…)` literal
+  constructor, which `Lower` special-cases, because one is the name `List` and the other is
+  `List.fill` — different entries in `sigs`.
+
+  NARROW: one file. No kernel, no gate script, no board.
