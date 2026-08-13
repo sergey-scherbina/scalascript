@@ -43,7 +43,9 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     val reply = McpServerCore.dispatch(
       new McpServerBuilder, McpProtocol.Method.Initialize, ujson.Obj(), ujson.Num(1),
       "srv", "9.9.9")
-    reply shouldBe """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{"listChanged":true},"resources":{"subscribe":true,"listChanged":true},"prompts":{"listChanged":true},"logging":{},"completions":{}},"serverInfo":{"name":"srv","version":"9.9.9"}}}""" + "\n"
+    // The version moved on 2026-08-13 and NOTHING ELSE in this frame did, which
+    // is what the freeze is here to show: the legacy shape survived the raise.
+    reply shouldBe """{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true},"resources":{"subscribe":true,"listChanged":true},"prompts":{"listChanged":true},"logging":{},"completions":{}},"serverInfo":{"name":"srv","version":"9.9.9"}}}""" + "\n"
 
   test("legacy: tools/list frame is unchanged by the 2026-07-28 work"):
     val reply = McpServerCore.dispatch(
@@ -220,13 +222,30 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     reply("result")("protocolVersion").str shouldBe McpProtocol.ProtocolVersion
 
   test("we advertise only revisions we implement"):
-    // 2025-06-18 is deliberately absent: its `MCP-Protocol-Version` header and
-    // `completion/complete` `context` field are not implemented (measured 0
-    // occurrences, 2026-08-09). Advertising it would trade a four-revision
-    // under-claim for an over-claim. P2 closes both, then this changes.
-    McpProtocol.SupportedProtocolVersions should not contain "2025-06-18"
-    McpProtocol.ProtocolVersion shouldBe "2025-03-26"
+    // Raised on 2026-08-13 once the census in specs 13 had no missing row:
+    // `context` on completion/complete, the client's MCP-Protocol-Version
+    // header, and RFC 8707 Resource Indicators all landed; batching needed
+    // nothing, since the revision removes it and we never had it.
+    McpProtocol.ProtocolVersion shouldBe "2025-06-18"
     McpProtocol.SupportedProtocolVersions.head shouldBe McpProtocol.ModernProtocolVersion
+
+  test("raising what we PREFER did not drop what we ACCEPT"):
+    // The failure this guards is quiet: a client pinned to the older revision
+    // would start being answered with one it never asked for.
+    McpProtocol.SupportedProtocolVersions should contain ("2025-03-26")
+    McpProtocol.SupportedProtocolVersions should contain ("2024-11-05")
+    McpProtocol.negotiateLegacyVersion(Some("2025-03-26")) shouldBe "2025-03-26"
+    McpProtocol.negotiateLegacyVersion(Some("2024-11-05")) shouldBe "2024-11-05"
+    // and a client asking for something we do not speak gets our best legacy
+    // answer, not silence
+    McpProtocol.negotiateLegacyVersion(Some("1999-01-01")) shouldBe McpProtocol.ProtocolVersion
+
+  test("the raised version is still a LEGACY one — it must not enter the modern set"):
+    // `isModernVersion` is a date compare, so this is the case that would
+    // break if the raise ever crossed the modern boundary by accident.
+    McpProtocol.isModernVersion(McpProtocol.ProtocolVersion) shouldBe false
+    McpProtocol.LegacyProtocolVersions should contain (McpProtocol.ProtocolVersion)
+    McpProtocol.LegacyProtocolVersions should not contain McpProtocol.ModernProtocolVersion
 
   // ── P2: CacheableResult — ttlMs + cacheScope on exactly six operations ──
 

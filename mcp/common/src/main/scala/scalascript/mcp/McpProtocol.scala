@@ -150,20 +150,30 @@ object McpProtocol:
   /** The best LEGACY revision we actually implement — what an `initialize`
    *  handshake asks for as a client, and falls back to as a server.
    *
-   *  `2025-03-26`, raised from `2024-11-05` by P1b after an audit rather than
-   *  a guess. Everything that revision added is present: tool annotations,
-   *  audio content, the completions capability, Streamable HTTP, the OAuth
-   *  framework, resource templates, and `message` on progress.
+   *  `2025-06-18`, raised from `2025-03-26` on 2026-08-13 and, like the raise
+   *  before it, after an audit rather than a guess. The earlier scaladoc named
+   *  the two blockers and said the constant would move when they landed; it
+   *  named too few. Re-derived from the revision's changelog, `2025-06-18`
+   *  carries TWELVE changes, and the census found three gaps:
    *
-   *  **It is deliberately NOT `2025-06-18`,** even though we have that
-   *  revision's headline features (structured tool output, elicitation,
-   *  resource links, RFC 9728 metadata). Two of its requirements are simply
-   *  absent — the `MCP-Protocol-Version` HTTP header and the `context` field
-   *  on `completion/complete`, both measured at zero occurrences on
-   *  2026-08-09. Advertising it would swap a four-revision UNDER-claim for an
-   *  over-claim, which is the same defect pointing the other way. P2 owns the
-   *  header; when both land, this constant and the list below move together. */
-  val ProtocolVersion = "2025-03-26"
+   *    - `context` on `completion/complete` — landed
+   *    - `MCP-Protocol-Version` on our client's HTTP requests — landed
+   *    - RFC 8707 Resource Indicators, a client MUST — landed
+   *
+   *  JSON-RPC batching, which the revision REMOVES, needed nothing: we never
+   *  implemented it. The remainder was already present and was re-checked by
+   *  substance rather than by counting files that mention a string — the
+   *  mistake that produced §9.3 — so `resource_link` was confirmed at its
+   *  emitting site and `title` on all four record types.
+   *
+   *  `2025-03-26` stays in `SupportedProtocolVersions`: raising what we PREFER
+   *  is not dropping what we ACCEPT, and a client that asks for the older
+   *  revision still gets it.
+   *
+   *  The direction of error is why this waited. Under-claiming a version costs
+   *  a client features it could have used; over-claiming costs it a promise we
+   *  cannot keep, which is worse and is discovered later. specs/mcp-2026-07-28.md §13. */
+  val ProtocolVersion = "2025-06-18"
 
   /** MCP 2026-07-28 — the stateless revision, and what we prefer to speak.
    *  There is no handshake in this era: a client states this version in the
@@ -175,7 +185,7 @@ object McpProtocol:
    *  `UnsupportedProtocolVersion` carrying this list, which is how a client
    *  discovers what to retry with. */
   val SupportedProtocolVersions: List[String] =
-    List(ModernProtocolVersion, ProtocolVersion, "2024-11-05")
+    List(ModernProtocolVersion, ProtocolVersion, "2025-03-26", "2024-11-05")
 
   /** True iff `v` is a revision that uses per-request `_meta` rather than an
    *  `initialize` handshake.  Version strings are ISO dates, so a lexical
