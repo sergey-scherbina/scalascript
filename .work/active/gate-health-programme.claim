@@ -2,10 +2,10 @@ slug: gate-health-programme
 branch: feature/gate-health-programme
 agent: claude-code
 started: 2026-08-13T16:14:04Z
-heartbeat: 2026-08-13T16:25:03Z
-status: claimed-before-planning
+heartbeat: 2026-08-13T17:47:56Z
+status: in-progress
 items: orphaned-e2e-gates-52
 paths: file:scripts/next file:AGENTS.md file:tests/e2e/bugs-index-gate.sh file:tests/SPRINT.md file:scripts/SPRINT.md file:.githooks/commit-msg file:scripts/bugs-report file:tests/e2e/no-orphan-gates.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: step 2 — the vacuity axis, merged into the orphan ratchet's file
+next: STEP 2 IS NOT LANDABLE YET — the --evidence run is NOT REPRODUCIBLE (105 invoked/14 blind, then 104/15, with route-handler-shapes-gate.sh appearing only in the second). A frozen list over a flaky measurement becomes a flaky gate, which is the worst possible outcome for this programme. Find the source of the variance (timeouts? a gate whose launcher use is conditional?) and make the population deterministic BEFORE wiring --evidence anywhere. Work is uncommitted in scalascript-wt-gate-health-programme; launchers verified restored. Step 1 (scripts/next + the checklist + the commit-msg hook fix) IS landed: c2be40002, 8878317b5.
