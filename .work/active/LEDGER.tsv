@@ -1,5 +1,6 @@
-# generation: 1779
+# generation: 1780
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 f-scljet-record-pattern-fallback	claude-code	2026-08-13T07:38:02Z	f-miscompiles-scljet-record-fields-to-the-fallback-arm	file:specs/v2.2-p6.5-fsub.ssc file:tests/BUGS.md file:tests/e2e/f-nested-ctor-pattern-gate.sh
 rust-total-seq-members	claude-code	2026-08-13T07:39:40Z	rust-no-paren-member-needs-receiver-type	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:BUGS.md file:tests/rust-std-survey-baseline.tsv
+mcp-p5c-tasks-protocol	claude-code	2026-08-13T07:42:10Z	mcp-p5c-tasks-protocol	file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md

@@ -1,0 +1,11 @@
+slug: mcp-p5c-tasks-protocol
+branch: feature/mcp-p5c-tasks-protocol
+agent: claude-code
+started: 2026-08-13T07:42:10Z
+heartbeat: 2026-08-13T07:42:10Z
+status: claimed-before-planning
+items: mcp-p5c-tasks-protocol
+paths: file:mcp/common/src/main/scala/scalascript/mcp/McpProtocol.scala file:mcp/common/src/test/scala/scalascript/mcp/Mcp2026StatelessTest.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
