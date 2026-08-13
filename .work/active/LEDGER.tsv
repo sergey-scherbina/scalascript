@@ -1,5 +1,4 @@
-# generation: 1799
+# generation: 1800
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
-orphan-detector-counts-a-comment-as-a-caller	claude-code	2026-08-13T08:34:43Z	orphan-detector-counts-a-comment-as-a-caller	file:tests/e2e/no-orphan-gates.sh
 mcp-phase-list-truth	claude-code	2026-08-13T08:35:35Z	mcp-phase-list-truth	file:specs/mcp-2026-07-28.md
