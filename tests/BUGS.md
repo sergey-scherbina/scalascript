@@ -4434,10 +4434,36 @@ lowers to a mangled `O_apply` global, and `O` itself is not applicable — the r
 So: VM, not front. `v2/src` was held by a live claim when this was found.
 
 ## scljet-write-freelist-errors-are-swallowed — reclaiming pager accepts corrupt staged graphs
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: front
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: b9b060e6e -->
+
+**CLOSED 2026-08-13 — fixed by `b9b060e6e` and never marked. The opposite failure to the two entries
+closed beside it today:** there the instance had vanished while the mechanism lived; here the
+mechanism was repaired and the entry outlived it. That costs differently and it cost today: a
+sibling picked up work I had already scoped, and only a hand-off in the room stopped it being done
+twice.
+
+**The mechanism this entry named is gone.** `readExistingFree` returned a plain `List[Int]`; it
+returns `Either[ByteError, List[Int]]` since `b9b060e6e`, which also added `validateFreedPages`, and
+`applyFreelist` now rejects a caller page-size disagreement before reading anything and propagates
+every `Left`.
+
+**Checked by BEHAVIOUR, not only by reading — because a passing conformance case proves nothing on
+its own.** A case passes when it matches its EXPECTED file, and that file could have recorded the
+buggy answers. It does not: of 27 observables it records **24 as `left stable=true`** — every
+negative this entry lists, head/count disagreement through trunk cycle, duplicate and overlapping
+pages, page 1, reserved-byte and auto-vacuum modes, caller page-size mismatch — and the 3 `right`
+answers are explicit `accept(...)` calls, including `valid-staged=right count=12`.
+
+So the acceptance criterion written here — *"every negative case must fail before returning a changed
+pager"* — is met and asserted, on INT and JS.
+
+**What the entry described as `right` on all 16 negatives is now `left` on 24.** The count grew
+because the fix added observables the original report did not have.
+
 
 **Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
 reporter: Codex production-completion audit; baseline `b6967a79f`).
