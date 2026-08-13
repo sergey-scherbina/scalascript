@@ -158,15 +158,29 @@ claim_activity_epoch() {
   branch="$(claim_declared_branch "$claim_text")"
   [[ -n "$branch" ]] || branch="feature/$slug"
 
+  # EVERY LOOKUP HERE IS `-C "$ROOT"` AND USES `$REMOTE_REF`, and both halves were once missing.
+  #
+  # These three `git log` calls were the only ones in this file without `-C "$ROOT"`, so the
+  # commit-activity rule resolved against the CALLER'S working directory rather than the
+  # repository this script belongs to — and each is `2>/dev/null || true`, so a lookup that found
+  # the wrong repo (or no repo) returned "no activity" silently, which reads as "stale". Measured
+  # on the live repo at one instant on 2026-08-13: 4 claims reported stale when run from inside the
+  # repo, 5 when run from `/tmp`. A claim reported stale is one the triage table says may be
+  # released and reclaimed, so the caller's `cd` could hand a live agent's work to somebody else.
+  # It survived because a linked worktree shares `refs/heads/*` with the main checkout, so the
+  # usual callers happened to agree.
+  #
+  # The last call also hardcoded `origin/main` while the rest of the script honours `$REMOTE_REF`,
+  # which is the seam every deterministic test injects through.
   for ref in "refs/heads/$branch" "refs/remotes/origin/$branch"; do
-    candidate="$(git log -1 --format=%ct "$ref" 2>/dev/null || true)"
+    candidate="$(git -C "$ROOT" log -1 --format=%ct "$ref" 2>/dev/null || true)"
     if [[ -n "$candidate" ]] && { [[ -z "$newest" ]] || [[ "$candidate" -gt "$newest" ]]; }; then
       newest="$candidate"
     fi
   done
 
   # The claim file's own last touch covers claim-update / heartbeat commits on main.
-  candidate="$(git log -1 --format=%ct origin/main -- ".work/active/$slug.claim" 2>/dev/null || true)"
+  candidate="$(git -C "$ROOT" log -1 --format=%ct "$REMOTE_REF" -- ".work/active/$slug.claim" 2>/dev/null || true)"
   if [[ -n "$candidate" ]] && { [[ -z "$newest" ]] || [[ "$candidate" -gt "$newest" ]]; }; then
     newest="$candidate"
   fi

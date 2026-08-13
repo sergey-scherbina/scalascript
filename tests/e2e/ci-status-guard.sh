@@ -8,13 +8,26 @@ SHA="abc123abc123abc123abc123abc123abc123abc1"
 CLAIM_WT=""
 CLAIM_BRANCH=""
 
+# EVERYTHING THIS CHECK CREATES LIVES UNDER $TMP, so one `rm -rf` is the whole cleanup.
+#
+# It used to build its claim fixture with `git -C "$ROOT" worktree add`, which registers a worktree
+# and a branch in the repository EVERY OTHER AGENT SHARES, from inside the pre-push suite. Three
+# consequences, all measured on 2026-08-13:
+#
+#   - an interrupted run leaves the registration behind FOREVER. `git worktree prune` honours
+#     `gc.worktreePruneExpire` — three months by default — so `scripts/rm-worktree`'s prune does not
+#     collect it. This host carried `claim-wt`, `claim-wt1` and `claim-wt2` from 09/08 and 12/08.
+#   - while the fixture is live it is visible to every sibling's `coord-status` as an unexplained
+#     worktree on a branch nobody claimed.
+#   - the check's own cost scales with how much litter the shared repo has accumulated, because
+#     `coord-status` walks `git worktree list` and this file calls it seven times. The comment in
+#     `scripts/coord-status` records the earlier measurement: pruning 46 leftovers took this guard
+#     from 74 s to 12 s.
+#
+# BUGS `ci-status-guard-races-the-shared-repo-index-lock` blames a lock race. That root cause is
+# REFUTED — see the entry — but the shared-state dependence it points at is real, and a throwaway
+# clone removes the whole class rather than making one symptom rarer.
 cleanup() {
-  if [[ -n "$CLAIM_WT" ]]; then
-    git -C "$ROOT" worktree remove --force "$CLAIM_WT" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$CLAIM_BRANCH" ]]; then
-    git -C "$ROOT" branch -D "$CLAIM_BRANCH" >/dev/null 2>&1 || true
-  fi
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -629,6 +642,46 @@ fi
 
 # A claim may use a slug whose every heuristic token is filtered out. The explicit
 # branch metadata remains an exact observable and must win before legacy slug matching.
+#
+# ── THE FIXTURE OWNS ITS OWN REPOSITORY ───────────────────────────────────────────────────────
+#
+# A throwaway `--local --no-checkout` clone: 0.066 s and no object copying (git hardlinks), so this
+# is cheaper than the shared-repo worktree it replaces, not a tax paid for hygiene.
+FIXTURE_ROOT="$TMP/repo"
+git clone --quiet --local --no-checkout "$ROOT" "$FIXTURE_ROOT"
+# THE CODE UNDER TEST MUST BE THE WORKING TREE'S, NOT THE CLONE'S HEAD. This guard exists to catch
+# an unpushed edit to `scripts/coord-status` before it is pushed; a clone checks out the COMMITTED
+# copy, so without this the check would go green on a tree it never read. `coord-status` and
+# `ci-status` both resolve their root from their own path, which is what makes the clone work at
+# all — and what makes overwriting them the whole of the fix.
+mkdir -p "$FIXTURE_ROOT/scripts"
+cp -R "$ROOT/scripts/." "$FIXTURE_ROOT/scripts/"
+
+# What the fixture is FORBIDDEN to leave in the shared repo. Scoped to the two shapes this file
+# creates — a `claim-wt*` worktree registration and a `feature/ci-red-main-*` branch — because a
+# whole-repo snapshot would be flaky by construction: siblings add and remove worktrees while this
+# runs, and a check that fails on a sibling's unrelated activity is the exact defect being fixed.
+shared_fixture_state() {
+  local common
+  common="$(git -C "$ROOT" rev-parse --git-common-dir)"
+  ls -1 "$common/worktrees" 2>/dev/null | grep -E '^claim-wt[0-9]*$' | sed 's/^/worktree /' || true
+  git -C "$ROOT" for-each-ref --format='branch %(refname:short)' 'refs/heads/feature/ci-red-main-*'
+}
+SHARED_BEFORE="$(shared_fixture_state)"
+
+assert_shared_untouched() {
+  local phase="$1" now
+  now="$(shared_fixture_state)"
+  if [[ "$now" != "$SHARED_BEFORE" ]]; then
+    printf 'ci-status-guard[shared-repo-%s]: the claim fixture mutated the SHARED repository.\n' "$phase" >&2
+    printf '  It must build its worktree inside $TMP/repo, never in the repo other agents share:\n' >&2
+    printf '  an interrupted run leaves the registration behind for three months (gc.worktreePruneExpire),\n' >&2
+    printf '  siblings see an unclaimed branch, and this check gets slower with every leftover.\n' >&2
+    printf '  expected=%q\n  got=%q\n' "$SHARED_BEFORE" "$now" >&2
+    exit 1
+  fi
+}
+
 CLAIM_WT="$TMP/claim-wt"
 CLAIM_BRANCH="feature/ci-red-main-final-fixture-$$"
 # The slug is UNIQUE per run, and that is load-bearing too.
@@ -682,7 +735,10 @@ fi
 # One second past the threshold: the smallest input that must be reported stale.
 STALE_AGE_SECS=$(( STALE_THRESHOLD_SECS + 1 ))
 STALE_NOW_EPOCH=$(( 1784246400 + STALE_AGE_SECS ))   # heartbeat is 2026-07-17T00:00:00Z = 1784246400
-git -C "$ROOT" worktree add -q -b "$CLAIM_BRANCH" "$CLAIM_WT" HEAD
+git -C "$FIXTURE_ROOT" worktree add -q -b "$CLAIM_BRANCH" "$CLAIM_WT" HEAD
+# The moment the old code differed: this line failed before the clone landed, because the worktree
+# and the branch had just appeared in the shared repository.
+assert_shared_untouched fixture-live
 mkdir -p "$CLAIM_WT/.work/active"
 printf '%s\n' \
   "claim: $FIXTURE_SLUG" \
@@ -715,12 +771,12 @@ live_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 live_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$live_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 live_code=$?
 set -e
 if [[ "$live_code" -ne 0 || "$live_output" == *"maybe stale: $FIXTURE_SLUG"* ||
       "$live_output" == *"potentially stale heartbeat: $FIXTURE_SLUG"* ]]; then
-  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  observed_branches="$(git -C "$FIXTURE_ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[live-claim]: expected=live got=stale exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
     "$live_code" '2026-07-17T00:00:00Z' 600 "$CLAIM_BRANCH" "$observed_branches" "$live_output" >&2
   exit 1
@@ -729,12 +785,12 @@ fi
 set +e
 stale_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$live_sha" SSC_COORD_NOW_EPOCH="$STALE_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 stale_code=$?
 set -e
 stale_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=2026-07-17T00:00:00Z age=${STALE_AGE_SECS}s/$((STALE_AGE_SECS / 60))m reason=${STALE_REASON} branch=live:$CLAIM_BRANCH)"
 if [[ "$stale_code" -ne 0 || "$stale_output" != *"$stale_expected"* ]]; then
-  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  observed_branches="$(git -C "$FIXTURE_ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[stale-heartbeat]: expected=%q got_output=%q exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n' \
     "$stale_expected" "$stale_output" "$stale_code" '2026-07-17T00:00:00Z' "$STALE_AGE_SECS" \
     "$CLAIM_BRANCH" "$observed_branches" >&2
@@ -755,12 +811,12 @@ missing_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 missing_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$missing_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 missing_code=$?
 set -e
 if [[ "$missing_code" -ne 0 || "$missing_output" != *"maybe stale: $FIXTURE_SLUG"* ||
       "$missing_output" == *"potentially stale heartbeat: $FIXTURE_SLUG"* ]]; then
-  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  observed_branches="$(git -C "$FIXTURE_ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[missing-claim]: expected=missing-worktree got=other exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
     "$missing_code" '2026-07-17T00:00:00Z' 600 "$missing_branch" "$observed_branches" "$missing_output" >&2
   exit 1
@@ -780,12 +836,12 @@ invalid_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 invalid_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$invalid_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$invalid_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 invalid_code=$?
 set -e
 invalid_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=not-a-time age=unknown reason=invalid branch=live:$CLAIM_BRANCH)"
 if [[ "$invalid_code" -ne 0 || "$invalid_output" != *"$invalid_expected"* ]]; then
-  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  observed_branches="$(git -C "$FIXTURE_ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[invalid-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
     "$invalid_expected" "$invalid_output" "$invalid_code" "$CLAIM_BRANCH" "$observed_branches" >&2
   exit 1
@@ -803,12 +859,12 @@ missing_heartbeat_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 missing_heartbeat_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_heartbeat_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$missing_heartbeat_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 missing_heartbeat_code=$?
 set -e
 missing_heartbeat_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=missing age=unknown reason=missing branch=live:$CLAIM_BRANCH)"
 if [[ "$missing_heartbeat_code" -ne 0 || "$missing_heartbeat_output" != *"$missing_heartbeat_expected"* ]]; then
-  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  observed_branches="$(git -C "$FIXTURE_ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[missing-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
     "$missing_heartbeat_expected" "$missing_heartbeat_output" "$missing_heartbeat_code" \
     "$CLAIM_BRANCH" "$observed_branches" >&2
@@ -856,7 +912,7 @@ active_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 active_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$active_sha" SSC_CI_GH="$FAKE_GH" \
   SSC_COORD_REF="$active_sha" SSC_COORD_NOW_EPOCH="$STALE_NOW_EPOCH" \
-  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  "$FIXTURE_ROOT/scripts/coord-status" --no-fetch 2>&1)"
 active_code=$?
 set -e
 active_expected="live by COMMIT activity (stale heartbeat field, ignored): $FIXTURE_SLUG"
@@ -866,6 +922,10 @@ if [[ "$active_code" -ne 0 || "$active_output" != *"$active_expected"* ||
     "$active_expected" "$active_output" "$active_code" >&2
   exit 1
 fi
+
+# Asserted at BOTH ends, because the two failures are different: `fixture-live` catches building the
+# fixture in the wrong repository, this one catches anything the six cases above added along the way.
+assert_shared_untouched fixture-done
 
 
 # ─────────────────────────────────────────────────────────────────────────────
