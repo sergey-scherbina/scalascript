@@ -7,6 +7,49 @@ grepping for status.
 
 Newest first.
 
+## coord-status-activity-lookup-reads-the-callers-cwd — a live claim reads as stale depending on where you stood
+
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     kind: bug
+     gate: tests/e2e/ci-status-guard.sh
+     fixed-in: daaa36b0f -->
+
+**Found 2026-08-13** while moving `tests/e2e/ci-status-guard.sh`'s fixture out of the shared
+repository. `claim_activity_epoch` held **the only three `git log` calls in `scripts/coord-status`
+without `-C "$ROOT"`**, so the commit-activity rule — the one that decides a claim is alive because
+its branch has recent commits — resolved against the **caller's working directory** rather than the
+repository the script belongs to. Each call is `2>/dev/null || true`, so looking at the wrong repo
+(or none) returns "no activity" **silently**, and no activity reads as stale. The last call also
+hardcoded `origin/main` where the rest of the file honours `$REMOTE_REF`, the seam every
+deterministic test injects through.
+
+**Measured on the live repo, same script, same claims, same instant:**
+
+| invoked from | claims reported stale |
+|---|---|
+| the repository | 4 |
+| `/tmp` | **5** |
+
+**What that costs.** A claim reported stale is one the triage table says may be released and
+reclaimed. So `cd` somewhere else, run the status command, and the tool offers you a live agent's
+work — with no error, no warning, and a plausible-looking report.
+
+**Why it survived.** A linked worktree shares `refs/heads/*` with the main checkout, and every
+routine caller runs from inside the repo, so the accident held. It only became visible when a
+caller appeared whose `$ROOT` was NOT the caller's CWD: a `coord-status` running inside a throwaway
+clone, where the branch under test exists only in the clone.
+
+**Fixed** by `-C "$ROOT"` on all three lookups and `$REMOTE_REF` in place of `origin/main`.
+
+**The gate is `tests/e2e/ci-status-guard.sh`, and it was chosen because it can fail.** Its
+commit-activity case now depends on a branch that exists only inside the clone, so re-introducing a
+bare `git log` makes it red — observed, not assumed: that is exactly how this defect was found.
+**`tests/coord/claim-activity-overrides-heartbeat.sh` is blind to it** and stayed green throughout,
+because it runs from the repository, where the bug is invisible. Worth a CWD case of its own when
+someone is next in that file.
+
 ## stale-build-refusal-reads-as-a-ten-minute-rebuild — so the rational move became measuring old code
 
 <!-- status: fixed

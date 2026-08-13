@@ -3773,13 +3773,63 @@ program still prints the right answer. So a broken F shows up as neither a wrong
 failing gate — only as a trace line under `SSC_FRONT_TRACE=1`, which nobody sets.
 
 ## ci-status-guard-races-the-shared-repo-index-lock — a smoke check that fails on a busy host
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     gate: none -->
+     fixed-in: daaa36b0f
+     gate: tests/e2e/ci-status-guard.sh -->
+
+**Fixed 2026-08-13 in `daaa36b0f` — and the root cause this entry stated is REFUTED.** Both halves
+matter, so both are recorded.
+
+**What was refuted.** The entry said `git worktree add` takes the shared index lock. It does not:
+it writes `.git/worktrees/<name>/`, and the lock in the reported error is that new worktree's OWN
+index lock, not the repository's. Three mechanisms that could produce the reported `File exists`
+were built and run, and none reproduced it:
+
+| manufactured occupant | iterations | failures |
+|---|---|---|
+| two concurrent `worktree add`, same basename, empty repo | 20 | 0 |
+| the same, in a full 7 688-file checkout (a wide window) | 5 | 0 |
+| a **prunable leftover** holding the basename, then two racing adds | 5 | 0 |
+| one `add` against a 400-iteration `worktree prune` loop | 6 | 0 |
+
+git allocates `claim-wt`, `claim-wt1`, `claim-wt2`… without colliding, and `worktree prune` cannot
+be the racer either — it honours `gc.worktreePruneExpire`, three months by default, so it never
+touches a registration made seconds ago. **The 2026-07-31 failure remains unexplained.**
+
+**What was proven instead, and is why this closes anyway.** The shared-state dependence the entry
+points at is real and cost something every day, independently of the race:
+
+- **The check littered the shared repository permanently.** Found on 2026-08-13: `claim-wt`,
+  `claim-wt1`, `claim-wt2` registered from 09/08 and 12/08, plus three orphan
+  `feature/ci-red-main-final-fixture-*` branches. The cleanup trap only runs on a normal exit, and
+  `git worktree prune` will not collect them for three months. The success path was measured and is
+  clean — **only interrupted runs leak**, one registration each, forever.
+- **The check's own cost scaled with the litter.** `coord-status` walks `git worktree list` and this
+  file calls it seven times; this host carried 110 registrations. Moving the fixture into a
+  throwaway clone took the guard from **67 s to 33 s**. The same effect is recorded in
+  `scripts/coord-status` from 2026-08-01: pruning 46 leftovers took it from 74 s to 12 s.
+- **While the fixture was live it was visible to every sibling** as an unclaimed branch in their
+  `coord-status`.
+
+**The fix.** The fixture builds its worktree in a `--local --no-checkout` clone under `$TMP`
+(0.066 s — git hardlinks the objects, so this is *cheaper* than what it replaces), the tree's
+`scripts/` is copied over the clone's committed copy so the code under test stays the WORKING
+TREE's and not `HEAD`'s, and the guard asserts at both ends of the fixture that the shared repo's
+`claim-wt*` registrations and `feature/ci-red-main-*` branches are unchanged. Reverting the one
+`git -C` makes that assertion fire naming the exact worktree and branch that appeared, so it is a
+check that can fail (P-6.1b). Cleanup is now one `rm -rf "$TMP"`.
+
+**It also exposed a real defect one layer down**, filed as
+`coord-status-activity-lookup-reads-the-callers-cwd` in `scripts/BUGS.md`: the commit-activity rule
+resolved `git log` against the caller's working directory, which only worked because the fixture
+branch used to be in the shared repo.
+
+### Original report (superseded 2026-08-13)
 
 **Found 2026-07-31** by `scripts/smoke-ci` going red on `tests / ci-status-guard` during the
-`v2-wide-jit-j0` claim, on a diff (`v2/src/Jit.scala`, `RunNativeV2.scala`) that cannot reach it:
+`v2-wide-jit-j0` claim, on a diff (`v2/src/Jit.scala`, `RunNativeV2.scala`) that could not reach it:
 
 ```
 FAIL ci-status-guard    50.1s
@@ -3788,18 +3838,14 @@ FAIL ci-status-guard    50.1s
    | Another git process seems to be running in this repository, or the lock file may be stale
 ```
 
-Re-run alone immediately afterwards: `ci-status-guard: PASS`, rc 0. So this is contention, not a
-regression.
+A re-run alone immediately afterwards gave `ci-status-guard: PASS`, rc 0, so it was read as
+contention rather than a regression. The diagnosis at the time — since refuted — was that
+`git worktree add` takes the shared index lock, making the check's success depend on nobody else
+running git for that instant.
 
-**Root cause is structural, not transient.** The check builds a temporary worktree (`claim-wt1`)
-**in the shared main repo**, whose `.git` index is contended by every sibling agent — there were 45
-worktrees and several agents committing at the time. `git worktree add` takes the shared index lock,
-so the check's success depends on nobody else running git for that instant. On a quiet host it
-always passes; under the parallel-agent load this repo is designed for, it fails at random.
-
-**Why it matters more than one red run:** a pre-push suite that fails for reasons unrelated to the
+**Why it mattered more than one red run:** a pre-push suite that fails for reasons unrelated to the
 diff teaches agents to re-run until green and then to stop reading it — which is how a real red gets
-waved through. This one cost a full re-run of a 256 s suite to attribute.
+waved through. That one cost a full re-run of a 256 s suite to attribute.
 
 **Fix directions** (not attempted here — `scripts/ci-status` and `tests/e2e/ci-status-guard.sh` are
 held by the live `negtc-gate-shard-reduce` claim): give the check its own throwaway clone

@@ -661,10 +661,23 @@ cp -R "$ROOT/scripts/." "$FIXTURE_ROOT/scripts/"
 # creates — a `claim-wt*` worktree registration and a `feature/ci-red-main-*` branch — because a
 # whole-repo snapshot would be flaky by construction: siblings add and remove worktrees while this
 # runs, and a check that fails on a sibling's unrelated activity is the exact defect being fixed.
+# `--path-format=absolute` is not decoration. From the MAIN checkout `--git-common-dir` answers the
+# RELATIVE `.git`, so `ls "$common/worktrees"` would resolve against the caller's working directory
+# — empty for any caller standing elsewhere, and an empty snapshot compared with an empty snapshot
+# is an assertion that passes without looking. That is the same defect this check exists to remove,
+# which is why the registry is also required to be READABLE rather than assumed.
 shared_fixture_state() {
   local common
-  common="$(git -C "$ROOT" rev-parse --git-common-dir)"
-  ls -1 "$common/worktrees" 2>/dev/null | grep -E '^claim-wt[0-9]*$' | sed 's/^/worktree /' || true
+  common="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)"
+  if [[ ! -d "$common" ]]; then
+    printf 'ci-status-guard[registry-unreadable]: --git-common-dir gave %q, which is not a directory.\n' \
+      "$common" >&2
+    exit 1
+  fi
+  # `worktrees/` is absent in a repo that has never had one — legitimately empty, not unreadable.
+  if [[ -d "$common/worktrees" ]]; then
+    ls -1 "$common/worktrees" | grep -E '^claim-wt[0-9]*$' | sed 's/^/worktree /' || true
+  fi
   git -C "$ROOT" for-each-ref --format='branch %(refname:short)' 'refs/heads/feature/ci-red-main-*'
 }
 SHARED_BEFORE="$(shared_fixture_state)"
