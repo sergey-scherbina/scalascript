@@ -2,7 +2,7 @@ slug: ci-status-guard-owns-its-repo
 branch: feature/ci-status-guard-owns-its-repo
 agent: claude-code
 started: 2026-08-13T17:30:00Z
-heartbeat: 2026-08-13T20:05:00Z
+heartbeat: 2026-08-13T20:55:00Z
 status: working
 items: ci-status-guard-races-the-shared-repo-index-lock coord-status-activity-lookup-reads-the-callers-cwd
 paths: file:tests/e2e/ci-status-guard.sh file:tests/BUGS.md file:tests/SPRINT.md file:scripts/coord-status file:scripts/BUGS.md
@@ -24,4 +24,4 @@ scope: |
   triage table says may be released and reclaimed. Fix is `-C "$ROOT"` on all three plus
   `$REMOTE_REF`; the guard's commit-activity case is what proves it, since that case now depends on
   a branch that exists only in the clone.
-next: smoke green -> push fix + both entries, then release
+next: final smoke running on the rebased branch; then mark the SPRINT row [x], push, release
