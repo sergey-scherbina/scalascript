@@ -545,6 +545,50 @@ from the old binary.
 This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-08-10, this one at
 the end.
 
+## rust-parameterised-type-alias-is-not-resolved — FIXED: the binder was on the LEFT and both collectors read only the RHS
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     fixed-in: e4c86f5c0
+     gate: tests/e2e/rust-std-survey-gate.sh -->
+
+`infix type throws[A, E] = Either[E, A]` was collected by nothing. One collector takes
+`type X = [A] =>> body` — a type LAMBDA, binder on the right. The other takes a placeholder alias
+`type IntKey = Map[Int, _]`. An alias written the ordinary way, **with its parameters on the left**,
+matched neither, so `A throws E` refused as "a type outside R.2" — a type the language plainly has,
+declared eleven lines above the def that used it.
+
+It is the same object as a type lambda with the binder moved, so it goes in the same table and **the
+β-reducer needed no change at all**. Infix application (`A throws E`) is a new arm, guarded on the
+name being a known two-parameter alias so that `!` and every other infix type keep theirs.
+
+**NO MODULE CHANGED CLASS, and the depth columns are how the work is visible at all** — which is
+what [[rust-survey-first-reason-hides-blocker-depth]] was built for this morning:
+
+| module | sites | shapes |
+|---|---|---|
+| `std/error-handling.ssc` | 10 → **5** | 1 → 3 |
+| `std/actors.ssc` | 37 → **31** | 7 → 7 |
+| `std/dsl/passes.ssc` | 17 → 17 | 3 → **5** |
+
+**Eleven defs stopped refusing.** `ActorRef[M]`, `ActorGroup[M]`, `LocalActorRef[M]`, `Pass[A, B]`,
+`RemoteSource[A]`, `throws` and `throwsRaw` are the seven parameterised aliases in std, and they now
+resolve everywhere they appear.
+
+**`dsl/passes` going from 3 shapes to 5 is not a regression** and will look like one to anyone
+reading `--roadmap` later. The same defs refuse; they simply get FURTHER before doing it, and report
+what was behind the alias. A refusal short-circuits the walk, so removing an early one always
+reveals more distinct reasons — the count going up is the fix working.
+
+**Why land something that moved no module:** the refusals it leaves are TRUE. `error-handling.ssc`
+now says it cannot lower `ArithmeticException`, a `Left(e)` extractor, and the union type
+`A | E` — all three correct, all three previously hidden behind a complaint about a type alias that
+this lane simply had not collected. This backend's contract is that a refusal is a message the user
+can act on, and "your type alias is outside R.2" was not one. Unlike the `Set` mapping recorded in
+[[rust-maptype-omits-array-and-set]], this leaves no trap: β-reduction is total, so there is no
+half-supported type waiting to emit bad Rust once something else is fixed.
+
 ## rust-maptype-omits-array-and-set — FIXED for `Array`, MEASURED and left alone for `Set`
 <!-- status: fixed
      lane: v2-rust
