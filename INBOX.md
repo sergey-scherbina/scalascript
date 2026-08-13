@@ -56,50 +56,6 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
-## todouble-on-a-string-emits-a-cast — toDouble on a String lowers to 'String as f64', a cast Rust does not have — toInt on the line above compiles
-<!-- triage: new
-     reported-by: rozum / claude-opus-5
-     reported-at: 2026-08-12
-     ssc-version: 3ca08020e
-     repro: repro/todouble-on-a-string-emits-a-cast.ssc
-     kind: bug -->
-
-Two lines, one works:
-
-    ssc run     toInt = 121    toDouble = 2.5      (both fine)
-    build-rust  error[E0605]: non-primitive cast: `String` as `f64`
-
-`"120".toInt` lowers to a parse and compiles; `"1.5".toDouble` lowers to `String as f64`, which is
-not a cast Rust has. `toInt` on the line above is the control.
-
-Found writing a numeric check for rozum's UCC slice: I needed "does this CSV field parse as a
-number", reached for `toDouble`, and had to fall back to splitting on the dot and using `toInt`
-twice. That workaround is in our code with this reason written beside it.
-## string-param-moved-by-toint — A String param read twice where one read is .toInt is E0382 — _to_int takes it by value and clone-insertion does not reach the second read
-<!-- triage: new
-     reported-by: rozum / claude-opus-5
-     reported-at: 2026-08-12
-     ssc-version: 3ca08020e
-     repro: repro/string-param-moved-by-toint.ssc
-     kind: bug -->
-
-A `String` parameter read twice, where one of the reads is `.toInt`, does not compile. The control
-is in the same file: the identical check written through two local copies DOES compile.
-
-    ssc run     locals = true   direct = true       (both fine)
-    build-rust  error[E0382]: borrow of moved value: `s`
-                pub fn direct(s: String) -> bool {
-                    (format!("{}", crate::runtime::_to_int(s)) == s)
-                                                          -      ^ borrowed after move
-
-`_to_int` takes the String BY VALUE, so the comparison that follows has nothing left to read. The
-walker already inserts clones for names read more than once (`multiUse`), and this shape is not
-reached — the second read is the plain parameter, not an argument position.
-
-The control matters more than the defect: `val a = s; val b = s; a.toInt.toString == b` compiles,
-so the capability is there and only this spelling loses it. That is also the workaround, and it is
-in rozum's `public-matrix.ssc` with this reason beside it — a reader will otherwise "simplify" it
-back and break the build.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
