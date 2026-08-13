@@ -1,0 +1,11 @@
+slug: rust-survey-blocker-depth
+branch: feature/rust-survey-blocker-depth
+agent: claude-code
+started: 2026-08-13T08:54:24Z
+heartbeat: 2026-08-13T08:54:24Z
+status: claimed-before-planning
+items: rust-survey-first-reason-hides-blocker-depth
+paths: file:tests/e2e/rust-std-survey-gate.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
