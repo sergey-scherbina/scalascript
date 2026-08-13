@@ -1895,7 +1895,22 @@ class JvmGen(
             val (blocks, importedPkg) = inlineImport(imp.path)
             blocks ++ aliasBlock(imp.bindings, importedPkg).toList
           }
-          inFence ++ cb.tree.map(t => JvmGen.Block(t, cb.source, origStart, currentContentSectionIndex)).toList
+          // …and the LINE ITSELF must not reach the emitted Scala. `emitBlock` passes `block.src`
+          // through VERBATIM whenever the block needs no rewriting, so `[exists](std/fs.ssc)`
+          // arrived in the generated file as code and scalac reported
+          // `expression expected but '[' found` — thousands of lines from anything the user wrote.
+          //
+          // It reproduced only with an entrypoint `def main` because that is the shape with nothing
+          // to rewrite: a top-level statement needs auto-output wrapping, which re-emits the block
+          // from its parsed tree and drops the line as a side effect. Neither condition alone is
+          // red, which is exactly what a four-row matrix in the entry records.
+          //
+          // `rewriteInlineImports` REPLACES the line with `// list-import: …` — a comment, in place
+          // — so the line COUNT does not move and `origStart`/the SMAP still point where they did.
+          // Stripping the line instead would shift every later line by one.
+          // v1/runtime/backend/jvm/BUGS.md jvm-std-import-inside-a-fence-plus-def-main-emits-broken-scala.
+          val blockSrc = scalascript.parser.Parser.rewriteInlineImports(cb.source)
+          inFence ++ cb.tree.map(t => JvmGen.Block(t, blockSrc, origStart, currentContentSectionIndex)).toList
         case cb: Content.CodeBlock if Lang.isStringBlock(cb.lang) =>
           // Reserve a position in the eventual emission order so the
           // String val lands between the surrounding parsed blocks.
