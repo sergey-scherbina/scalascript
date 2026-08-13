@@ -74,7 +74,7 @@ verdict extracted with `cut -f2` comes back EMPTY, which reads as "no verdict" r
 binary". I collected a whole table of empty verdicts before noticing. Build first, and treat an
 empty verdict as a broken run, never as data.
 
-## wired-gates-share-hard-coded-tcp-ports — a gate can pass against a NEIGHBOUR's server
+## wired-gates-share-hard-coded-tcp-ports — CAUSE RETRACTED; the measured defect is a LEAKED SERVER — a gate can pass against a NEIGHBOUR's server
 
 <!-- status: open
      lane: apparatus
@@ -83,7 +83,7 @@ empty verdict as a broken run, never as data.
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
-     gate: tests/e2e/no-orphan-gates.sh --evidence -->
+     gate: tests/e2e/no-leaked-servers.sh --self-test -->
 
 **Wired gates hard-code TCP ports and several share one.** Counted 2026-08-13 across `tests/e2e`:
 
@@ -122,6 +122,76 @@ and this is a new instance of it.
 `no-orphan-gates --evidence` works around the symptom by re-verifying every blind candidate ALONE
 before classifying it — which is why its verdict is now reproducible (105 invoked / 14 blind, twice
 consecutively). That workaround is not a fix: it makes the audit honest, not the suite.
+
+---
+
+### CORRECTION 2026-08-13, same day — the cause above is REFUTED by a tighter measurement
+
+**The damage stands; the explanation does not.** This entry blamed the audit's non-reproducible
+verdict on wired gates sharing hard-coded ports. Re-measured with comments stripped and **restricted
+to the population that actually runs** — the audit sweeps WIRED gates only:
+
+    collisions among ALL gates (incl. orphans)   3   8768 x3, 8769 x2, 8797 x2
+    collisions among WIRED gates                 0
+
+**Zero.** The three collisions each involve at least one gate from the frozen orphan list, and an
+orphan is by definition not in the sweep. So a neighbour on the same port cannot be what happened.
+The first count also named 8766 and 8767, which the comment-stripped pass does not reproduce — it
+was matching port numbers inside comments, which is the third time in two days that a search for a
+STRING has been mistaken for a search for a FACT.
+
+**What IS established, and it is a real defect:** gates leak servers. Measured after the sweeps, two
+orphaned `ssc_progr` processes were still LISTENING on 8493 and 8497 with no gate running. A gate
+that exits without stopping its server leaves a listener that a later run of the SAME gate can talk
+to — which would explain a verdict that passes in a sweep and fails in isolation, since an isolated
+first run has nothing left over to answer it.
+
+**NOT established:** that this is what caused the 15-vs-14 variance. The two suspects use 8793 and
+8795 and neither was listening when checked. Stated plainly rather than assumed, because assuming it
+is how the shared-port explanation got written in the first place.
+
+**The acceptance test changes accordingly** — from the unprovable to the measurable:
+
+1. **A gate must not leave a listener behind.** Run each server-using gate, then assert nothing is
+   listening on its port. That is a check that can be written today and cannot be argued with.
+2. The port-uniqueness check from the original entry is still worth having, but as HYGIENE for the
+   orphans, not as the fix for anything: 8768 is written into three gates and will collide the day
+   two of them are wired.
+
+`no-orphan-gates --evidence` is unaffected — it re-verifies every blind candidate ALONE, which makes
+it reproducible whatever the mechanism, and that workaround was justified by measurement (5/5 stable
+in isolation) rather than by this diagnosis.
+
+
+### 2026-08-13 — the leak is REAL, it is the RUST lane, and the first detector could not see it
+
+`tests/e2e/no-leaked-servers.sh` landed. Two orphaned listeners were found and named:
+
+    pid 44704   ssc_progr   *:8497   ./target/debug/ssc_program
+    pid 48753   ssc_progr   *:8493   ./target/debug/ssc_program
+
+Still listening HOURS after their test. They come from the Rust lane's built binaries, **not from
+any gate** — which is why the check's first version reported PASS while looking straight at them: it
+enumerated ports out of `tests/e2e/*.sh` sources, and no gate source mentions 8493 or 8497 because
+the binary picks them itself.
+
+**That is the third time in two days the POPULATION was the defect rather than the check** — a
+mention counted as a caller on the orphan axis, a mention counted as an execution on the evidence
+axis, and now ports read out of source instead of processes read out of the machine. The rewritten
+check asks the machine: is anything of ours listening. No guessing about who could be.
+
+**Wired LAST in `conformance-extras`, with `if: always()`** — last because the question is only
+meaningful once everything that starts servers has finished, and `always()` so a failing suite
+still gets its leak reported rather than hiding it behind an earlier red.
+
+**CI only, and the gate says why in its own header.** On a dev machine a sibling agent's live test
+is a listening server indistinguishable from a leak; on an isolated runner the reading is exact.
+The failure text prints pids so a human can tell in one look.
+
+**Still open:** the two pids above were left alone rather than killed — they are not mine to
+reap and killing by name is how a live sibling's test dies. The remaining work is the Rust lane's
+cleanup path, which must stop its server on every exit, not only the happy one.
+
 
 ## f-parser-gap-needs-the-package-field
 

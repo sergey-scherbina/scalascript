@@ -667,6 +667,19 @@ jobs:
         run: |
           ./bin/ssc-tools check examples/*.ssc
 
+      # LAST in this job on purpose: it asks whether anything this project started is still
+      # listening, and that is only meaningful once the things that start servers have finished.
+      #
+      # CI ONLY, and not smoke. On a dev machine a sibling agent's live test is a listening server
+      # indistinguishable from a leak; on an isolated runner the reading is exact. Measured
+      # 2026-08-13: two `target/debug/ssc_program` processes were still listening on 8493 and 8497
+      # hours after their test, from the RUST lane — not from any gate, which is why the first
+      # version of the check (ports enumerated out of tests/e2e sources) reported PASS while looking
+      # straight at them. (wired-gates-share-hard-coded-tcp-ports.)
+      - name: No server outlives its test
+        if: always()
+        run: tests/e2e/no-leaked-servers.sh --self-test
+
   uniml:
     name: UniML — standalone build
     runs-on: ubuntu-latest
