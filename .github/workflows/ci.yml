@@ -1230,6 +1230,13 @@ jobs:
       - name: F keeps a chain of ++ a list
         run: tests/e2e/f-std-ui-gate.sh
 
+      # The one that got past everything: a nested ctor pattern in a ONE-parameter lambda took F's
+      # tryLamDirect fast path, which has no nested machinery, and the arm silently never fired.
+      # Two parameters was always correct, so every probe with a second binder passes on the bug --
+      # which is why this gate carries both shapes rather than just the failing one.
+      - name: A nested pattern matches whatever binds the scrutinee
+        run: tests/e2e/f-nested-pattern-lambda-gate.sh
+
       # Not an F gate: the REFERENCE front's lexer, and the one divergence this week where it was
       # the wrong one. Asserts BOTH fronts identically, because the two agreeing is the property.
       - name: A plain string literal ends at its closing quote

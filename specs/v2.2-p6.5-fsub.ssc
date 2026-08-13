@@ -1001,7 +1001,17 @@ def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2
 // postfix/binop (`p match {..} + 1`) must stay a normal expr.
 def parseLamBody(ar, env2, ts, cx) = if isLamSelfMatch(ar, env2, ts) then tryLamDirect(env2, ts, cx) else parseLamBodyG(ar, env2, ts, cx)
 def parseLamBodyG(ar, env2, ts, cx) = bodyExpr(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ erase(b, cx) ++ ")", r) }
-def isLamSelfMatch(ar, env2, ts) = if ar == 1 then isLSM2(env2, ts) else false
+// A NESTED ctor arm is not a "simple ctor arm" and must not take this fast path. tryLamDirect emits
+// (lam 1 (match (local 0) ..)) with NO let-wrap and parses the arms with parseArms, which has no
+// nested machinery: `(x: Option[Inner]) => x match { case Some(Inner(v)) => v case _ => -1 }` came
+// out as `(arm Some 3 (let ((lit (int 0))) (local 1)))` -- wrong arity, no inner match -- so the arm
+// never fired and the default was taken, silently, at exit 0. The SAME match in a two-param lambda
+// was already correct, because ar == 1 gates this path; that is why one extra binder of any kind
+// "fixed" it. Declining here falls through to parseLamBodyG, which produces the let-wrapped ordered
+// form the oracle emits and F already gets right. Mirrors the hasNestedArms clause parseMatchArms
+// carries (:1716). Scanned only AFTER isLSM2 confirms `x match {`, so tl(tl(ts)) is a match body.
+def isLamSelfMatch(ar, env2, ts) = if ar == 1 then (if isLSM2(env2, ts) then notNestedLamArms(ts) else false) else false
+def notNestedLamArms(ts) = if hasNestedArms(matchBody(tl(tl(ts)))) then false else true
 def isLSM2(env2, ts) = if isSelfScrutId(env2, ts) then isLSM3(tl(ts)) else false
 def isSelfScrutId(env2, ts) = if fst(hd(ts)) == 1 then lookup(snd(hd(ts)), env2) == 0 else false
 def isLSM3(ts) = if isTok(hd(ts), 2, 5) then isCtorMatchArms(matchBody(tl(ts))) else false
