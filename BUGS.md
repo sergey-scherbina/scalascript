@@ -77,6 +77,36 @@ consistently: an object member emits as `Qual_member` at its definition and at e
 Qualifying only the colliding pairs — what that entry originally recommended — would leave THIS
 defect in place for every non-colliding object. The recommendation there is superseded.
 
+**WHAT THE FIX HAS TO DO — three sites, and the third is the one that bites.** Measured, not
+listed from memory: a sibling call inside an object emits as a BARE name today and works precisely
+because both ends are flattened.
+
+    object Tool:
+      def a(): String = b()      // emits as `b()` — correct today
+      def b(): String = "x"
+
+So renaming definitions without site 3 breaks code that currently compiles:
+
+1. **The definition** — `fn mk` becomes `fn Tool_mk`.
+2. **The qualified call from outside** — `Tool.mk(x)` becomes `Tool_mk(x)`. Today it emits
+   `Tool.mk(x)`, which is the defect.
+3. **The unqualified sibling call from inside** — `b()` becomes `Tool_b()`.
+
+Site 3 is the hard one, and it is why "just qualify the definition" is not a fix. The emitter must
+tell a bare name that is a SIBLING MEMBER from a bare name that is a top-level def, a parameter or
+a local. It cannot today: `userDefs` is a flat `Set[String]` of bare names. It needs the owner map
+— the structural walk `collectEffectOps` already performs and `collectDefs` deliberately does not,
+since the latter is a deep `collect` that lifts members out with no record of origin.
+
+**Two conditions on accepting it, not optional.**
+
+4. A gate that CROSSES THE BOUNDARY: a case calling an object member from outside that reaches
+   cargo. Without it the change is unverifiable, because BADRUST reads 0 today for the reason
+   above — not because the output is right.
+5. Verification by the survey baseline DIFF, with the prediction stated first: the six REFUSED
+   rows flip, BADRUST stays 0, and nothing else moves. The gate alone only asserts that BADRUST
+   does not GROW, which is exactly what let three earlier regressions through.
+
 **A gate has to cross the boundary or the fix is unverifiable.** The survey cannot show this while
 the modules that exercise it are refused first, so the fix needs a case that calls an object
 member from outside and reaches cargo — the same shape added to `v21-standard-mcp-smoke.sh` for
