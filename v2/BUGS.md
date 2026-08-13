@@ -11457,14 +11457,90 @@ carry: the multi-tag arm `case TableLeafPage | IndexLeafPage`, the surrounding f
 earlier definitions, or a construct further up. Whoever takes this next should widen the skeleton
 toward the real file rather than re-derive it from this shape.
 
-## rust-sconcat-treats-a-cons-cell-as-a-pair — a latent unguarded arm; the Rust lane a user reaches is CORRECT
+## v2-source-generators-render-a-tuple-with-its-tag — `Tuple4(1, 2, 3, 4)` where the VM prints `(1, 2, 3, 4)`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: - -->
+     gate: v2/conformance/list-concat.coreir
+     fixed-in: 0323d0cc5 -->
+
+**Found 2026-08-13 by the ANTI-ROW of another defect's fixture.** `v2/conformance/list-concat.coreir`
+carries a tuple-concat case purely to prove that the new list arm in `sconcat`
+(`rust-sconcat-treats-a-cons-cell-as-a-pair`) had not eaten the behaviour the Data arm exists for.
+The concat was fine. The RENDERING was not:
+
+```text
+VM (oracle)       (1, 2, 3, 4)
+rust generator    Tuple4(1, 2, 3, 4)
+jvm generator     Tuple4(1, 2, 3, 4)
+js generator      (1, 2, 3, 4)          ← already correct
+```
+
+`v2/backend/check.sh` requires every generator to be byte-identical to the VM, so this is a
+divergence by that harness's own contract. It survived because **no fixture had ever asked either
+generator to print a tuple** — the same shape as the defect it was found next to.
+
+**Fix: the kernel's rule, verbatim.** `Runtime.Show` uses `t.matches("Tuple\\d+")`, and the regex is
+deliberate — `Pair`, mira's own tuple from `a -> b`, keeps its `Pair(a, b)` spelling through the
+generic arm. The JVM generator now spells the same regex; the Rust generator spells it "starts with
+`Tuple`, then at least one digit, all digits", because a bare `starts_with("Tuple")` would also
+swallow a user type named `TupleLike`.
+
+Verified: all four backends green on the new fixture, and the FULL harness green across every
+fixture — the `show` change touches the rendering of every Data value, so a whole-corpus run is the
+control that matters, not the one case that motivated it.
+
+## rust-sconcat-treats-a-cons-cell-as-a-pair — a latent unguarded arm; the Rust lane a user reaches is CORRECT
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: v2/conformance/list-concat.coreir
+     fixed-in: 0323d0cc5 -->
+
+### FIXED 2026-08-13 — and the arm was MEASURED at last, not read
+
+The entry below was filed as INFERRED and said so. It is now a measurement: the generator was run,
+its Rust built, and the binary executed.
+
+```text
+                                     VM (oracle)          rust generator, before
+List(1,2) ++ List(3)                 List(1, 2, 3)        Tuple4(1, List(2), 3, List())
+List(1,2) ++ List(3) ++ List(4,5)    List(1, 2, 3, 4, 5)  Tuple6(1, List(2), 3, List(), 4, List(5))
+Nil ++ List(7)                       List(7)              Tuple2(7, List())
+```
+
+**What made it invisible was not subtlety — it was that nothing asked.** `v2/backend/check.sh`
+compares every generator against the VM byte-for-byte, and NO FIXTURE IN `v2/conformance/` USED
+`sconcat` AT ALL. The harness was green while this lane returned a tuple for a list concat. Added
+`v2/conformance/list-concat.coreir`; the same hole `__autoOutput__` documents.
+
+**Guarded on BOTH operands, mirroring the JVM twin rather than the kernel.** The kernel is
+left-biased and accepts a non-list on the right — `List(1) ++ 5` is `List(1, 5)` there, measured on
+`run-ir`, while both generators fall through to their string tail. **That divergence predates this
+fix and is NOT settled here**: inventing a third behaviour would be worse than leaving the two
+generators agreeing with each other. It is a real open question about `++` with mixed operands, and
+it belongs to whoever specifies that operator, not to a defect about Cons cells.
+
+### A SECOND defect, found by the anti-row — filed as `v2-source-generators-render-a-tuple-with-its-tag`
+
+The fixture carries a tuple-concat case for one reason: to prove that a list arm placed ahead of the
+Data arm has not eaten the behaviour that arm exists FOR. It had not. But the row failed anyway, in
+two generators, for an unrelated reason — they printed `Tuple4(1, 2, 3, 4)` where the VM prints
+`(1, 2, 3, 4)`. Fixed in the same commit; the separate entry carries the detail.
+
+**That is what an anti-row is for**, and it is worth stating plainly: the case added to prove a fix
+was harmless is the case that found the next bug.
+
+### The reachability question the entry below leaves open is still open
+
+Nothing here shows a user path delivering `(prim sconcat …)` with two list operands to this
+generator; it remains a standalone CoreIR→Rust tool with its own `main`. The arm is fixed because it
+was wrong and the file was open, exactly as the paragraph below asked — not because a user route was
+found.
 
 **Status:** OPEN (found 2026-08-09 while fixing the same arm on the VM and bytecode lanes —
 `corpus-contract-scljet-jdbc-v2-timeout`).
