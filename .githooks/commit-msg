@@ -85,6 +85,24 @@ text
 text
 '
   t "a DATE in the heading is not the key"              0 "$(run 'board: drop alpha-entry-one' "$datedGone")"
+
+  # A BOARD WITH NO `## ` HEADINGS AT ALL must be waved through, and until 2026-08-13 it was not:
+  # the `before=` pipeline ended in `grep '^## '`, which exits 1 on zero matches, and under
+  # `set -euo pipefail` the hook DIED — rc=1, empty output, no explanation. Every commit touching
+  # `scripts/SPRINT.md` or `tests/SPRINT.md`, which use `- [ ]` items and no headings, was silently
+  # refused. The twin line (`after=`) already carried `|| true`; this one did not.
+  #
+  # The five cases above could not see it because every one of them uses a board that HAS headings.
+  # A self-test that only exercises the interesting shape cannot catch the degenerate one.
+  ( cd "$lab" && printf '# Sprint\n\n- [ ] item one\n- [x] item two\n' > BACKLOG.md \
+      && git add -A && git commit -qm noheadings >/dev/null 2>&1 && git update-ref refs/remotes/origin/main HEAD ) >/dev/null 2>&1
+  noHeadings='# Sprint
+
+- [ ] item one
+- [x] item two
+- [ ] item three
+'
+  t "a board with NO ## headings does not kill the hook" 0 "$(run 'plan: add an item' "$noHeadings")"
   if [ "$fails" = 0 ]; then echo "commit-msg self-test: PASS"; exit 0
   else echo "commit-msg self-test: $fails FAILED"; exit 1; fi
 fi
@@ -120,7 +138,15 @@ offenders=""
 for f in $(git diff --cached --name-only --diff-filter=ACMRD); do
   is_board "$f" || continue
   git cat-file -e "origin/main:$f" 2>/dev/null || continue   # new file: nothing can be lost
-  before=$(git show "origin/main:$f" 2>/dev/null | grep '^## ' | sed 's/^## //' | sort -u)
+  # `|| true` on BOTH, and the missing one on `before` was a live block, not a tidiness point:
+  # `grep` exits 1 on zero matches and this hook runs under `set -euo pipefail`, so ANY commit
+  # touching a board file with no `## ` headings died HERE — rc=1, no output, no explanation. The
+  # `after` line already had the guard; its twin did not, which is the whole shape of the bug.
+  # Measured 2026-08-13: `scripts/SPRINT.md` and `tests/SPRINT.md` use `- [ ]` items and no `##`
+  # headings at all, so nobody could commit to either. The `[ -n "$before" ] || continue` on the
+  # next line was already written to mean "no headings, nothing to guard" — control simply never
+  # reached it.
+  before=$(git show "origin/main:$f" 2>/dev/null | grep '^## ' | sed 's/^## //' | sort -u || true)
   after=$(git show ":$f" 2>/dev/null | grep '^## ' | sed 's/^## //' | sort -u || true)
   [ -n "$before" ] || continue
   gone=$(comm -23 <(printf '%s\n' "$before") <(printf '%s\n' "$after"))

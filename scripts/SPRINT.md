@@ -10,6 +10,17 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] `scripts/next` — the "what should I do" command. Step 1 of the GATE-HEALTH PROGRAMME, whose
+      goal, evidence and full three-step plan are in [`../tests/SPRINT.md`](../tests/SPRINT.md); do
+      not read this item alone, it is a slice.
+      Ranks UNCLAIMED board entries on computable signals only — a named `gate:` (an acceptance test
+      exists, so the item is claimable), `confirmed:`, `kind:`, age — and prints the ready-to-paste
+      `coord-claim` line. Totals first, so "nothing to do" stops being the default assumption when
+      there are 84 open entries against 3-6 live claims.
+      Wired into `AGENTS.md` §2 "Before starting" — the pre-work CHECKLIST, not POLICY, per the
+      measured lesson that the checklist wins. The stale "Immediate next steps for Claude Code"
+      section is replaced by it: today that section still says `git init` and "scaffold README.md".
+
 - [x] `launcher-digest-changes-when-you-COMMIT-unchanged-content` — the digest hashes a LINE PER
       INPUT and spells the same file three ways depending on git state (`untracked …`, `dirty …`,
       and the `ls-tree` form), so `git add` and `git commit` each shift it while the bytes are
