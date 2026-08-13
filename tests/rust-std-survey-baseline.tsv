@@ -1,4 +1,4 @@
-std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	37	7
+std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	31	7
 std/agent-mcp.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
 std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	18	6
 std/auth.ssc	COMPILES	
@@ -21,13 +21,13 @@ std/crypto.ssc	COMPILES
 std/dep-cps-ping.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	2	2
 std/dsl/ast.ssc	COMPILES	
 std/dsl/builders.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	4	2
-std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	17	3
+std/dsl/passes.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	17	5
 std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	2	1
 std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (a.asInstanceOf[A])	2	2
 std/dstreams.ssc	COMPILES	
 std/either.ssc	COMPILES	
 std/eq.ssc	REFUSED	Generic(def `_` emits 5 times (overloading); Rust has no overloading and this lane does not mangle names	3	2
-std/error-handling.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	10	1
+std/error-handling.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0	5	3
 std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	25	4
 std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	8	1
 std/fs.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	1	1

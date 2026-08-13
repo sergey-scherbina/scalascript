@@ -804,7 +804,18 @@ object RustCodeWalk:
           case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), _, rhs, _)
               if !rhs.isInstanceOf[m.Type.Lambda] =>
             desugarPlaceholders(rhs).map(n -> _)
-        }.flatten.toList
+        }.flatten.toList ++
+        // Parameterised: `type throws[A, E] = Either[E, A]`. The parameters are on the LEFT, and
+        // both collects above read only the RHS — a `[A] =>> body` lambda or a `_` placeholder —
+        // so an alias written the ordinary way was collected by neither and `A throws E` refused
+        // as "a type outside R.2". It is the same object as a type lambda with the binder moved,
+        // so it goes in the same table and the beta-reducer below needs no change at all.
+        // (rust-parameterised-type-alias-is-not-resolved.)
+        node.tree.collect {
+          case m.Defn.Type.After_4_6_0(_, m.Type.Name(n), tparams, rhs, _)
+              if tparams.values.nonEmpty && !rhs.isInstanceOf[m.Type.Lambda] =>
+            n -> (tparams.values.map(_.name.value).toList, rhs)
+        }.toList
       case _ => Nil
     def fromSection(s: ast.Section): List[(String, (List[String], m.Type))] =
       s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
@@ -2148,6 +2159,15 @@ object RustCodeWalk:
         )))
     // `T ! EffectName` — strip the effect, return the base type.
     // The effect parameter is threaded separately via `_eff` (see renderDef).
+    // `A throws E` — an alias APPLIED INFIX, which is how a two-parameter alias is meant to read
+    // and the only way std/error-handling.ssc ever writes it. Same reduction as the applied form
+    // `throws[A, E]` above; only the spelling differs. Guarded on the name being a known
+    // two-parameter alias, so `!` below and any other infix type keep their own arms.
+    case m.Type.ApplyInfix(lhs, m.Type.Name(n), rhs)
+        if _typeLambdas.get(n).exists(_._1.length == 2) =>
+      val (params, body) = _typeLambdas(n)
+      mapType(substType(body, Map(params(0) -> lhs, params(1) -> rhs)), defName, enumNames, inField)
+
     case m.Type.ApplyInfix(baseType, m.Type.Name("!"), _) =>
       mapType(baseType, defName, enumNames)
     // Unknown simple type name — likely a type parameter (e.g. `A` in `combineAll[A: Monoid]`).
