@@ -3776,10 +3776,10 @@ failing gate — only as a trace line under `SSC_FRONT_TRACE=1`, which nobody se
 <!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: 4045a1e45
+     fixed-in: 7f6c81efb
      gate: tests/e2e/ci-status-guard.sh -->
 
-**Fixed 2026-08-13 in `4045a1e45` — and the root cause this entry stated is REFUTED.** Both halves
+**Fixed 2026-08-13 in `7f6c81efb` — and the root cause this entry stated is REFUTED.** Both halves
 matter, so both are recorded.
 
 **What was refuted.** The entry said `git worktree add` takes the shared index lock. It does not:
