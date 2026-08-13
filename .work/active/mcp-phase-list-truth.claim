@@ -1,0 +1,11 @@
+slug: mcp-phase-list-truth
+branch: feature/mcp-phase-list-truth
+agent: claude-code
+started: 2026-08-13T08:35:35Z
+heartbeat: 2026-08-13T08:35:35Z
+status: claimed-before-planning
+items: mcp-phase-list-truth
+paths: file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
