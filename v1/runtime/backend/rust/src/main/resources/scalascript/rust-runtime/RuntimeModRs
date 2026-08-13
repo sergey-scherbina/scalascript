@@ -134,6 +134,16 @@
       |impl SscToInt for &String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
       |impl SscToInt for &i64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
       |impl SscToInt for &f64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
+      |// A CHARACTER converts to its code point — `'a'.toInt` is 97 and `'9'.toInt` is 57, not 9.
+      |// That is what `run` answers and what Scala means, so the two lanes now agree instead of one
+      |// of them refusing to build. Both spellings are needed: `charAt` yields `SscChar` while
+      |// `toList` yields plain `char`, and a program that mixes them hit whichever arm was missing.
+      |// Reported from rozum, where `s.trim.toList.map(c => c.toInt).sum` — a colour hash over a
+      |// name — made a whole PWA unbuildable on the Rust lane.
+      |impl SscToInt for char     { fn ssc_to_int(self) -> i64 { self as u32 as i64 } }
+      |impl SscToInt for &char    { fn ssc_to_int(self) -> i64 { *self as u32 as i64 } }
+      |impl SscToInt for SscChar  { fn ssc_to_int(self) -> i64 { self.0 } }
+      |impl SscToInt for &SscChar { fn ssc_to_int(self) -> i64 { self.0 } }
       |#[allow(dead_code)]
       |pub fn _to_int<T: SscToInt>(x: T) -> i64 { x.ssc_to_int() }
       |
