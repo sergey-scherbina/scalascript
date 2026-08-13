@@ -2,7 +2,7 @@ slug: rust-list-concat-moves-its-operands
 branch: feature/rust-list-concat-moves-its-operands
 agent: claude-code
 started: 2026-08-13T08:02:48Z
-heartbeat: 2026-08-13T08:04:58Z
+heartbeat: 2026-08-13T08:12:39Z
 status: in-progress
 items: rust-list-concat-moves-its-operands
 paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh
@@ -14,4 +14,4 @@ scope: |
   Widened to tests/e2e/build-rust-refuses-loudly.sh: it already pays for cargo and already builds
   a list program against the default lane, so the operand-reuse row belongs there rather than in
   a new CI step.
-next: verify the rebuilt toolchain emits the borrowed form and the program runs 5/15
+next: rust-std-survey-gate is running — it EXITS 1 on improvement too, so its verdict decides whether the baseline must be regenerated before this lands
