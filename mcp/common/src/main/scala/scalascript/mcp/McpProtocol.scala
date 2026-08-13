@@ -79,6 +79,17 @@ object McpProtocol:
     val SubscriptionsListen       = "subscriptions/listen"
     val SubscriptionsAcknowledged = "notifications/subscriptions/acknowledged"
 
+    // ── Tasks extension `io.modelcontextprotocol/tasks` (P5c) ────────────
+    // Polling, not blocking: `tasks/get` is the primary mechanism and there is
+    // deliberately NO `tasks/list` — a task id is a capability, and an
+    // enumeration endpoint would hand out every one of them.
+    val TasksGet    = "tasks/get"
+    val TasksUpdate = "tasks/update"
+    val TasksCancel = "tasks/cancel"
+    /** Optional push, when the client opted in through `subscriptions/listen`.
+     *  Polling stays authoritative; this only saves latency. */
+    val TasksNotification = "notifications/tasks"
+
   /** MCP 2026-07-28 — reserved `_meta` keys.  The revision moved protocol
    *  version, client identity and client capabilities out of the
    *  `initialize` handshake and onto every individual request, keyed
@@ -723,6 +734,132 @@ object McpProtocol:
    *  invalid to a client, so these are the only two we may emit. */
   val ResultTypeComplete      = "complete"
   val ResultTypeInputRequired = "input_required"
+
+  /** Added by the Tasks EXTENSION, not by the core revision — which is why the
+   *  core `resultType` set stays two values and this one is only legitimate
+   *  once the client has advertised the extension. The spec is explicit that a
+   *  `resultType` the client does not recognise is invalid, so emitting this
+   *  to a client that never declared support is a protocol error on our side,
+   *  not a nicety. */
+  val ResultTypeTask = "task"
+
+  // ── Tasks extension `io.modelcontextprotocol/tasks` (P5c) ───────────────
+
+  /** The extension's identifier, used both as a capability key and as the
+   *  `_meta` prefix its own keys live under. */
+  val TasksExtension = "io.modelcontextprotocol/tasks"
+
+  /** Task lifecycle. Two states are non-terminal and three are terminal, and
+   *  the distinction is the whole polling contract: a client keeps calling
+   *  `tasks/get` until it sees a terminal one. */
+  val TaskWorking       = "working"
+  val TaskInputRequired = "input_required"
+  val TaskCompleted     = "completed"
+  val TaskFailed        = "failed"
+  val TaskCancelled     = "cancelled"
+
+  val TerminalTaskStatuses: Set[String] =
+    Set(TaskCompleted, TaskFailed, TaskCancelled)
+
+  def isTerminalTaskStatus(status: String): Boolean =
+    TerminalTaskStatuses.contains(status)
+
+  /** Did this request's client advertise the Tasks extension?
+   *
+   *  Read per request, like everything else in this revision: there is no
+   *  session to remember it in, and a server that assumed otherwise would be
+   *  answering the SECOND client with the FIRST one's capabilities. */
+  def clientSupportsTasks(ctx: RequestContext): Boolean =
+    ctx.clientCapabilities
+      .flatMap(_.objOpt).flatMap(_.get("extensions"))
+      .flatMap(_.objOpt).exists(_.contains(TasksExtension))
+
+  /** The error a server owes a client whose capabilities do not cover a task.
+   *
+   *  `-32021`, from the core revision's reserved range, and NOT the `-32003`
+   *  that the extension's own page shows: that value sits in the `-32000`..
+   *  `-32019` legacy sub-range the core spec forbids new implementations from
+   *  using. Where two pages of one specification disagree, the core one that
+   *  defines the allocation policy wins. */
+  def missingTasksCapability(): ujson.Value =
+    ujson.Obj("requiredCapabilities" -> ujson.Obj(
+      "extensions" -> ujson.Obj(TasksExtension -> ujson.Obj())))
+
+  /** The handle a `tools/call` returns instead of a result when the server
+   *  decides to make the call a task. The server is the SOLE decider — the
+   *  revision gives a client no way to ask — so this is built from what the
+   *  handler chose, never from anything in the request. */
+  def createTaskResult(
+    taskId:         String,
+    status:         String = TaskWorking,
+    ttlMs:          Option[Long] = None,
+    pollIntervalMs: Option[Long] = None
+  ): ujson.Value =
+    val o = ujson.Obj("resultType" -> ResultTypeTask, "taskId" -> taskId, "status" -> status)
+    ttlMs.foreach(v => o("ttlMs") = ujson.Num(v.toDouble))
+    pollIntervalMs.foreach(v => o("pollIntervalMs") = ujson.Num(v.toDouble))
+    o
+
+  /** The full task, as `tasks/get` returns it.
+   *
+   *  `result` and `error` and `inputRequests` are mutually exclusive by state,
+   *  and this builder enforces that rather than trusting the caller: a task
+   *  carrying both a result and an error would be unreadable by any client. */
+  def taskResult(
+    taskId:         String,
+    status:         String,
+    createdAt:      String,
+    lastUpdatedAt:  String,
+    statusMessage:  Option[String]              = None,
+    ttlMs:          Option[Long]                = None,
+    pollIntervalMs: Option[Long]                = None,
+    result:         Option[ujson.Value]         = None,
+    error:          Option[JsonRpc.Error]       = None,
+    inputRequests:  Map[String, InputRequest]   = Map.empty
+  ): ujson.Value =
+    require(!(result.isDefined && error.isDefined),
+      "a task carries a result or an error, never both")
+    require(status != TaskCompleted || result.isDefined,
+      "a completed task must carry its result")
+    require(status != TaskFailed || error.isDefined,
+      "a failed task must carry its error")
+    require(status != TaskInputRequired || inputRequests.nonEmpty,
+      "an input_required task must say what input it needs")
+    val o = ujson.Obj(
+      "resultType"    -> ResultTypeTask,
+      "taskId"        -> taskId,
+      "status"        -> status,
+      "createdAt"     -> createdAt,
+      "lastUpdatedAt" -> lastUpdatedAt)
+    statusMessage.foreach(s => o("statusMessage") = s)
+    ttlMs.foreach(v => o("ttlMs") = ujson.Num(v.toDouble))
+    pollIntervalMs.foreach(v => o("pollIntervalMs") = ujson.Num(v.toDouble))
+    result.foreach(r => o("result") = r)
+    error.foreach(e => o("error") =
+      ujson.Obj("code" -> ujson.Num(e.code.toDouble), "message" -> e.message))
+    if inputRequests.nonEmpty then
+      o("inputRequests") = ujson.Obj.from(inputRequests.map { (k, r) =>
+        k -> (ujson.Obj("method" -> r.method, "params" -> r.params): ujson.Value)
+      })
+    o
+
+  /** `taskId` out of a tasks-extension request. */
+  def parseTaskId(params: ujson.Value): Option[String] =
+    try params.objOpt.flatMap(_.get("taskId")).flatMap(_.strOpt)
+    catch case _: Throwable => None
+
+  /** The answers on a `tasks/update`.
+   *
+   *  Shaped `{key: {value: …}}` rather than MRTR's `{key: …}` — the same
+   *  question answered through a different door, and the wrapper is the
+   *  difference. Unwrapped here so the machinery below sees one shape. */
+  def parseTaskInputs(params: ujson.Value): Map[String, ujson.Value] =
+    try
+      params.objOpt.flatMap(_.get("inputs")).flatMap(_.objOpt)
+        .map(_.toMap.map { (k, v) =>
+          k -> v.objOpt.flatMap(_.get("value")).getOrElse(v)
+        }).getOrElse(Map.empty)
+    catch case _: Throwable => Map.empty
 
   /** One server→client request, carried INSIDE a result instead of being sent
    *  as its own JSON-RPC request. That inversion is the whole of MRTR. */

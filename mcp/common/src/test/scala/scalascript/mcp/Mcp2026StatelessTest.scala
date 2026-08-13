@@ -1679,3 +1679,94 @@ class Mcp2026StatelessTest extends AnyFunSuite with Matchers:
     callAsk(b, answerWith(asked, "elicit-1" -> answer("yes")))("error")("code").num.toInt shouldBe
       McpProtocol.ErrorCode.InputSessionNotFound
 
+  // ── P5c-1 — Tasks extension, protocol layer ────────────────────────────
+
+  private def ctxWithCaps(caps: ujson.Value): McpProtocol.RequestContext =
+    McpProtocol.parseRequestMeta(ujson.Obj("_meta" -> ujson.Obj(
+      McpProtocol.MetaKey.ProtocolVersion    -> McpProtocol.ModernProtocolVersion,
+      McpProtocol.MetaKey.ClientCapabilities -> caps)))
+
+  test("tasks support is read from THIS request's capabilities"):
+    McpProtocol.clientSupportsTasks(ctxWithCaps(ujson.Obj("extensions" ->
+      ujson.Obj(McpProtocol.TasksExtension -> ujson.Obj())))) shouldBe true
+
+  test("a client with other extensions but not tasks does NOT support tasks"):
+    McpProtocol.clientSupportsTasks(ctxWithCaps(ujson.Obj("extensions" ->
+      ujson.Obj("com.example/other" -> ujson.Obj())))) shouldBe false
+
+  test("no extensions block at all is not support"):
+    McpProtocol.clientSupportsTasks(ctxWithCaps(ujson.Obj())) shouldBe false
+
+  test("the missing-capability payload names the extension, at -32021 not -32003"):
+    // The extension's own page shows -32003. That value is in the -32000..-32019
+    // LEGACY sub-range the core spec forbids new implementations from using, and
+    // the core spec is where the allocation policy lives, so it wins.
+    McpProtocol.ErrorCode.MissingRequiredClientCapability shouldBe -32021
+    McpProtocol.missingTasksCapability()("requiredCapabilities")("extensions")
+      .obj.keySet shouldBe Set(McpProtocol.TasksExtension)
+
+  test("a task handle is a resultType the CORE set does not contain"):
+    val h = McpProtocol.createTaskResult("t-1", pollIntervalMs = Some(1000L))
+    h("resultType").str shouldBe "task"
+    h("taskId").str     shouldBe "t-1"
+    h("status").str     shouldBe McpProtocol.TaskWorking
+    h("pollIntervalMs").num.toLong shouldBe 1000L
+    Set(McpProtocol.ResultTypeComplete,
+        McpProtocol.ResultTypeInputRequired) should not contain McpProtocol.ResultTypeTask
+
+  test("three statuses are terminal and two are not — the polling contract"):
+    McpProtocol.TerminalTaskStatuses shouldBe
+      Set(McpProtocol.TaskCompleted, McpProtocol.TaskFailed, McpProtocol.TaskCancelled)
+    McpProtocol.isTerminalTaskStatus(McpProtocol.TaskWorking)       shouldBe false
+    McpProtocol.isTerminalTaskStatus(McpProtocol.TaskInputRequired) shouldBe false
+
+  private def task(status: String,
+                   result: Option[ujson.Value] = None,
+                   error: Option[JsonRpc.Error] = None,
+                   inputs: Map[String, McpProtocol.InputRequest] = Map.empty) =
+    McpProtocol.taskResult("t-1", status, "2026-08-13T00:00:00Z", "2026-08-13T00:00:01Z",
+      result = result, error = error, inputRequests = inputs)
+
+  test("a completed task carries its result, and is refused without one"):
+    task(McpProtocol.TaskCompleted, result = Some(ujson.Obj("x" -> 1)))(
+      "result")("x").num.toInt shouldBe 1
+    an [IllegalArgumentException] should be thrownBy task(McpProtocol.TaskCompleted)
+
+  test("a failed task carries its error, and is refused without one"):
+    task(McpProtocol.TaskFailed,
+      error = Some(JsonRpc.Error(-32000, "boom")))("error")("message").str shouldBe "boom"
+    an [IllegalArgumentException] should be thrownBy task(McpProtocol.TaskFailed)
+
+  test("an input_required task must say WHAT input it needs"):
+    an [IllegalArgumentException] should be thrownBy task(McpProtocol.TaskInputRequired)
+    task(McpProtocol.TaskInputRequired, inputs = Map("approval" ->
+      McpProtocol.InputRequest(McpProtocol.Method.ElicitationCreate, ujson.Obj())))(
+      "inputRequests")("approval")("method").str shouldBe McpProtocol.Method.ElicitationCreate
+
+  test("a result and an error together are refused — no client could read it"):
+    an [IllegalArgumentException] should be thrownBy task(McpProtocol.TaskWorking,
+      result = Some(ujson.Obj()), error = Some(JsonRpc.Error(-32000, "boom")))
+
+  test("tasks/update inputs are unwrapped from their {value: …} envelope"):
+    McpProtocol.parseTaskInputs(ujson.Obj("inputs" -> ujson.Obj(
+      "approval" -> ujson.Obj("value" -> ujson.Str("yes"))))) shouldBe
+      Map("approval" -> (ujson.Str("yes"): ujson.Value))
+
+  test("an input sent WITHOUT the envelope is taken as the value itself"):
+    // Tolerant on the way in, because the wrapper is the one place the tasks
+    // shape differs from MRTR's and a client is likely to send either.
+    McpProtocol.parseTaskInputs(ujson.Obj("inputs" -> ujson.Obj(
+      "approval" -> ujson.Str("yes")))) shouldBe
+      Map("approval" -> (ujson.Str("yes"): ujson.Value))
+
+  test("taskId and inputs survive absent or malformed params"):
+    McpProtocol.parseTaskId(ujson.Obj("taskId" -> "t-9")) shouldBe Some("t-9")
+    McpProtocol.parseTaskId(ujson.Str("nonsense"))        shouldBe None
+    McpProtocol.parseTaskInputs(ujson.Str("nonsense"))    shouldBe Map.empty
+
+  test("there is deliberately no tasks/list — a task id is a capability"):
+    val methods = Set(McpProtocol.Method.TasksGet, McpProtocol.Method.TasksUpdate,
+                      McpProtocol.Method.TasksCancel)
+    methods should contain ("tasks/get")
+    methods.exists(_.endsWith("/list")) shouldBe false
+
