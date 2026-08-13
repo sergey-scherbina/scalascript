@@ -197,6 +197,58 @@ An environment variable rather than a `serve(host, port)` overload on purpose �
 makes an existing deployment confinable, no typer or lowering change. The second arity is the better
 API; take it instead if you prefer, the branch does not block it. Either way the default should stay
 `0.0.0.0` so nobody's running service goes dark on upgrade.
+## toint-on-a-char-and-tolist-on-a-string — toInt on a character does not compile on build-rust (no SscToInt arm; branch pushed) and String.toList returns a closure on run — together they made a deployed PWA unbuildable on both lanes since 2026-08-08
+<!-- triage: new
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 04b2f12fc
+     repro: none
+     kind: bug -->
+
+Two defects, found together because one line needs both lanes and neither lane can run it.
+`s.trim.toList.map(c => c.toInt).sum` — a colour hash over a handle in rozum's meeting PWA.
+
+**A. `build-rust`: no `toInt` for a character.** FIXED on `feature/ssc-toint-on-a-char` (7c6fc5b30),
+pushed.
+
+```scala
+def main(): Unit =
+  println("abc".charAt(0).toInt)
+  println("9".charAt(0).toInt)
+main()
+```
+
+- `ssc run` → `97`, `57` — the code point, as Scala means
+- `ssc-tools build-rust` → `error[E0277]: the trait bound &SscChar: SscToInt is not satisfied`
+
+`toList` gives plain `char` and hits the same wall from the other side:
+`error[E0277]: the trait bound &char: SscToInt is not satisfied`. The branch adds all four arms
+(`char`, `&char`, `SscChar`, `&SscChar`), and both lanes then answer 97 / 57, with
+`"ab".toList.map(c => c.toInt).sum` = 195 = `'a' + 'b'`.
+
+**B. `run`: `String.toList` returns a closure.** NOT fixed — I did not want to guess at interpreter
+internals.
+
+```scala
+def main(): Unit =
+  println("ab".toList.length)
+main()
+```
+
+- `ssc run` → `<closure>`
+- `ssc-tools build-rust` → `2`
+
+Everything downstream then fails with `__method__: no dispatch for .map on <closure>`, which reads
+like a user error in the lambda and is not one.
+
+**Why it mattered here.** Together these made a program unbuildable on BOTH lanes, and it is a
+program that is deployed: rozum's meeting PWA has not been rebuildable from source since
+2026-08-08 — the running binary was the only artifact, and our installer had a `SKIP` branch and a
+comment explaining why. With (A) it builds again (1,708,272 bytes, runs, binds its port). The
+deployed copy was left alone.
+
+Verified on a toolchain built from current `main` plus the branch, `.build-digest` equal to the tree
+digest and the STALE banner silent.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
