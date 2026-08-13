@@ -42,6 +42,16 @@ git init -q --bare -b main origin.git
 git clone -q origin.git main 2>/dev/null
 cd main
 git symbolic-ref HEAD refs/heads/main
+# The TOOL UNDER TEST runs its own `git commit`, so the lab repo must carry an identity —
+# the `-c user.email=…` array above only covers the commits this file makes itself. A CI
+# runner has no global identity and cannot derive one from user@host the way a dev box
+# does, so without this the real script exits 128 with "Author identity unknown" and the
+# case reports whatever it was actually asserting. Reproduce that here with:
+#   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=1 \
+#   GIT_CONFIG_KEY_0=user.useConfigOnly GIT_CONFIG_VALUE_0=true bash <this file>
+git config user.email test@example.com
+git config user.name test
+git config commit.gpgsign false
 mkdir -p .work/active
 printf '# generation: 1\n#slug\tagent\tstarted\titems\tpaths\n' > .work/active/LEDGER.tsv
 seed_claim() {  # seed_claim <slug>
