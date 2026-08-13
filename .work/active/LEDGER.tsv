@@ -1,3 +1,4 @@
-# generation: 1833
+# generation: 1834
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
+mcp-census-row-truth	claude-code	2026-08-13T13:49:22Z	mcp-census-row-truth	file:specs/mcp-2026-07-28.md
