@@ -74,6 +74,23 @@ jobs:
       - name: Package v2 kernel jar
         run: scala-cli --power package v2/src --assembly -o /tmp/ssc-f4.jar --force
 
+      # WIRED 2026-08-13, having been invoked by nothing since it was written — one of three orphans
+      # `no-orphan-gates` could not see while it counted a comment as a caller (b97c36f2e), and named
+      # in a `gate:` field on the v2 board, so that entry claimed coverage from a script nobody ran.
+      #
+      # IT BELONGS HERE RATHER THAN IN ci.yml, for two reasons that point the same way. The jar is
+      # already built one step above, so the gate costs ~2 s instead of the ~4-minute assembly it
+      # does for itself when `SSC_JAR` is unset. And the subject is this workflow's own premise: these
+      # gates compare F against the untyped legacy ORACLE, and this asserts the oracle still lowers an
+      # annotation on its own line — a broken oracle makes every comparison above meaningless.
+      # Deliberately NOT on the push path.
+      #
+      # `--self-test` first: it proves the probe can fail (a malformed program must produce `_err`)
+      # before the real checks run, which matters because the whole assertion is the ABSENCE of a
+      # sentinel — the state a probe that looks at nothing also reports.
+      - name: Legacy front lowers an own-line annotation
+        run: SSC_JAR=/tmp/ssc-f4.jar tests/e2e/ssc1-front-annotation.sh --self-test
+
       - name: Classify gate (output-equivalence, self-maintaining)
         run: SSC_JAR=/tmp/ssc-f4.jar V2_DIR="$PWD/v2" bash specs/v2.2-p6.5-semantic.sh classify
 

@@ -63,7 +63,6 @@ req-type-collision-v2-smoke.sh
 route-params-v2-smoke.sh
 selfhost-front-gate.sh
 serve-view-frontend-v2-smoke.sh
-ssc1-front-annotation.sh
 triple-quote-trailing-quote-gate.sh
 typeerr-names-both-types.sh
 upload-smoke.sh

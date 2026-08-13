@@ -63,10 +63,18 @@ seen, and freezing is what keeps the list monotone. Each needs its own decision:
   the condition the gate itself stated — `f-front-compile-cost-7x-on-scljet` was fixed in
   `ee53eff5d`, and `scljet-hello` now takes 20 s per lane on the default front against >1800 s
   before, so the subject covers the lane users actually get.
-- `negtc-shard-gate.sh` — verifies the shard partition byte-for-byte against `corpus-baseline.tsv`;
-  belongs to whoever owns the negtc release gate.
-- `ssc1-front-annotation.sh` — a legacy-front gate, and by construction no conformance lane runs the
-  legacy front, which is why it was written as e2e in the first place.
+- `negtc-shard-gate.sh` — **STAYS FROZEN. Sergiy's decision, 2026-08-13: do not wire it.** Recorded
+  here so the next reader does not re-open it as unfinished work — it is a deliberate exemption, not
+  an oversight, and this is the one entry in FROZEN that is not expected to shrink.
+- ~~`ssc1-front-annotation.sh`~~ **WIRED** into the NIGHTLY `f4-front-swap.yml` (cron 04:30 UTC +
+  dispatch), explicitly not the push path. It went there rather than into `ci.yml` because that
+  workflow already packages the v2 kernel jar one step above, which drops the gate from a ~4-minute
+  self-built assembly to **2 s** with `SSC_JAR` — and because the subject is that workflow's own
+  premise: its gates compare F against the untyped legacy ORACLE, and this asserts the oracle still
+  lowers an own-line annotation. A broken oracle would make every comparison there meaningless.
+  Run with `--self-test`, which proves the probe can fail before the real checks run — necessary
+  when the assertion is the ABSENCE of an `_err` sentinel, the same answer a probe looking at
+  nothing would give. FROZEN 37 to 36.
 
 ## ref-front-drops-all-but-one-vararg-when-an-earlier-param-is-named
 
