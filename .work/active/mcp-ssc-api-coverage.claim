@@ -1,0 +1,11 @@
+slug: mcp-ssc-api-coverage
+branch: feature/mcp-ssc-api-coverage
+agent: claude-code
+started: 2026-08-13T09:24:42Z
+heartbeat: 2026-08-13T09:24:42Z
+status: claimed-before-planning
+items: mcp-ssc-api-coverage
+paths: file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/McpSscApiTest.scala file:specs/mcp-2026-07-28.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

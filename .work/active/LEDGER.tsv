@@ -1,5 +1,6 @@
-# generation: 1807
+# generation: 1808
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 rust-survey-blocker-depth	claude-code	2026-08-13T08:54:24Z	rust-survey-first-reason-hides-blocker-depth	file:tests/e2e/rust-std-survey-gate.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
 rust-sconcat-treats-a-cons-cell-as-a-pair	claude-code	2026-08-13T09:23:39Z	rust-sconcat-treats-a-cons-cell-as-a-pair	file:v2/backend/rust/RustBackend.scala
+mcp-ssc-api-coverage	claude-code	2026-08-13T09:24:42Z	mcp-ssc-api-coverage	file:v1/runtime/backend/interpreter-plugin-tests/src/test/scala/scalascript/McpSscApiTest.scala file:specs/mcp-2026-07-28.md
