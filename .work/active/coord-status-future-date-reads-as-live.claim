@@ -1,0 +1,11 @@
+slug: coord-status-future-date-reads-as-live
+branch: feature/coord-status-future-date-reads-as-live
+agent: claude-code
+started: 2026-08-13T09:32:42Z
+heartbeat: 2026-08-13T09:32:42Z
+status: claimed-before-planning
+items: coord-status-clamps-a-negative-age-to-zero
+paths: file:scripts/coord-status file:tests/BUGS.md file:tests/coord/claim-activity-overrides-heartbeat.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
