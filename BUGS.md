@@ -2582,6 +2582,46 @@ extension-in-trait program. The extension was not the cause at all. The gate I a
 against exactly this class of defect — `tests/e2e/selfhost-front-gate.sh` — does not catch it, so it
 is narrower than the class it was written for. A case is added there now.
 
+## selfhost-front-accepts-a-parameterised-anonymous-given-the-language-rejects — F runs a program v1 refuses to parse
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: -
+     fixed-in: - -->
+
+**Measured 2026-08-13, while fixing
+`selfhost-front-given-with-swallows-the-rest-of-the-file`.** A parameterised anonymous given is not
+in the subset — v1 refuses both spellings — and front F does not refuse either of them.
+
+    trait S[A]:
+      def z(a: A): Int
+    given [A]: S[A] with        ← v1: error: `;` expected but `:` found  (also for `given [A] => S[A] with`)
+      def z(a: A): Int = 7
+    println("posle")
+
+| front | before the skip fix | after it |
+|---|---|---|
+| v1 (oracle) | `error … :3:14` rc=1 | unchanged — refuses |
+| F | empty output, rc=0 | `posle`, rc=0 |
+
+**The fix did not cause this and does not settle it.** F failed to refuse the program both before and
+after; what changed is only which wrong answer it gives — it used to drop the user's code along with
+the given, and now it erases the given and runs the rest. Recording the shift matters because a
+reader diffing the two would otherwise see F "start working" on a program that is not legal.
+
+**Why F should DECLINE rather than accept.** F already has the right move for input it cannot
+handle: it declines the file and the reference front compiles it (`ssc: F did not lower this file`,
+visible in `ssc info --front-report`). That path is what keeps F's coverage honest, because a
+declined file is counted as F's gap. Silently erasing an unsupported head instead spends the
+program's meaning to keep F's number up.
+
+**No gate case, deliberately.** `tests/e2e/selfhost-front-gate.sh` compares F against v1 on OUTPUT,
+and v1 has no output here — it refuses. A case would need the gate to compare refusals, which it
+does not do today. That is the work: either teach the gate a refuse-vs-refuse comparison, or make
+`givenItem` decline a head it does not recognise instead of erasing it.
+
 ## v3-trait-extension-member-refused — an `extension` inside a trait is called "not a `def`", and seven std modules stop
 
 <!-- status: open

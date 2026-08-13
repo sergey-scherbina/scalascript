@@ -121,32 +121,73 @@ i = 5
 println(i)'
 
 # ── given … with ─────────────────────────────────────────────────────────────────────────────────
-# selfhost-front-given-with-swallows-the-rest-of-the-file. Everything AFTER a `given X with` and its
-# body disappears on F — no diagnostic, exit 0 — while v1 prints it. 24 programs write this form.
+# selfhost-front-given-with-swallows-the-rest-of-the-file — FIXED, and these cases were pinned to
+# the wrong answer until it was, so the fix could not land unnoticed. They are now pinned to the
+# right one and are ordinary regression cases.
 #
-# THIS CASE EXISTS BECAUSE THE GATE MISSED IT. The suite above was written this morning against
-# exactly this class — a silent wrong answer at exit 0 — and it did not cover `given`, so the defect
-# sat one construct away from cases that would have caught it. A gate is only as wide as its case
-# list, and the honest response to finding a hole is a case, not a note.
+# THE CASE LIST EXISTS BECAUSE THE GATE MISSED IT. The suite above was written against exactly this
+# class — a silent wrong answer at exit 0 — and did not cover `given`, so the defect sat one
+# construct away from cases that would have caught it. A gate is only as wide as its case list.
 #
-# PINNED TO TODAY'S WRONG ANSWER, not to the right one, and that is deliberate. A gate that ships
-# red blocks every push in the repo for a defect its author did not fix, which is a tax on everyone
-# else. Pinned this way it is still a gate: the day someone fixes `given … with`, the recorded
-# `<nothing>` stops matching and this case goes RED, naming the entry — so the fix cannot land
-# unnoticed and the expectation gets flipped to `после/` in the same commit.
-case_f "given ... with — KNOWN WRONG, see BUGS" "" 'trait S:
+# The defect: an ANONYMOUS given is erased by design, but `skipStmt` stops at the first depth-0 `;`
+# and the layout emits no separator after a block's closing brace, so the skip ran past the brace
+# and took the next statement with it.
+case_f "anonymous given ... with, statement after" "после/" 'trait S:
   def z(): Int
 given S with
   def z(): Int = 7
 println("после")'
 
-# The value form has no `with` and is unaffected — the control that says the loss belongs to `with`
-# and not to `given`.
+# THE DAMAGE WAS EXACTLY ONE STATEMENT, not the rest of the file, and this case is what says so:
+# with three statements after the given the first vanished and the other two ran. That distinction
+# is why the fix is a bounded skip and not a re-parse — and a case pinned to "все три" fails for
+# either shape of the bug, so it does not need the entry's original (wrong) wording to stay honest.
+case_f "anonymous given eats no following statement" "1/2/3/" 'trait S:
+  def z(): Int
+given S with
+  def z(): Int = 7
+println(1)
+println(2)
+println(3)'
+
+# The shape std/ actually writes — show, hash, order and eq are all anonymous `given TC[T] with`,
+# 20 of them, back to back. Consecutive givens are the case where "eats the next statement" means
+# eating the next GIVEN's header, so the loss compounds instead of costing one line.
+case_f "consecutive anonymous typeclass givens" "ok/" 'trait Show[A]:
+  def show(a: A): String
+given Show[Int] with
+  def show(a: Int): String = "i"
+given Show[String] with
+  def show(a: String): String = "s"
+given Show[Boolean] with
+  def show(a: Boolean): String = "b"
+println("ok")'
+
+# NOT A CASE, deliberately: `given [A]: S[A] with` and `given [A] => S[A] with` both look like the
+# sharpest test of the new skipper (a head opening on `[`), and both were dropped after measuring the
+# ORACLE — v1 REFUSES them, `;` expected but `:` found. A parameterised anonymous given is not in the
+# subset, so a case built on it would measure a missing feature and not this fix. Worth recording
+# where it was found: F answers those two programs with empty output at exit 0 rather than refusing,
+# which is a silent wrong answer of its own and is filed separately, not smuggled in here.
+
+# The value form has no `with` and was never affected — the control that says the loss belonged to
+# the layout block and not to `given`. It also holds the OTHER branch of the new skipper (`= expr`
+# → skip to `;`), so a change that fixed the block path by breaking the value path goes red here.
 case_f "given = value form still works" "после/" 'trait S:
   def z(): Int
 case class Impl() extends S:
   def z(): Int = 7
 given S = Impl()
+println("после")'
+
+# NAMED givens are compiled, not erased, and take an entirely different path (givenNamed). Kept so
+# that a change to the erasing branches cannot quietly disturb the compiled one. It asserts only the
+# statement AFTER the given: calling `s.z()` here makes F decline the file and fall back to the
+# reference front, so a case built on the call would be measuring the fallback and not F.
+case_f "named given ... with, statement after" "после/" 'trait S:
+  def z(): Int
+given s: S with
+  def z(): Int = 7
 println("после")'
 
 # ── entries filed as broken that are NOT ──────────────────────────────────────────────────────────

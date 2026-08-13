@@ -2245,10 +2245,15 @@ def isObjVarMember(name, m, cx) = if name == "" then false else memL(m, objVarMe
 // (staticMemberObjectArgs :539, __mk_method_obj__ :4277). `given n [: T] = body` (given-val, :2667/:2692
 // → :4118) → `(def n <body>)`. Anonymous givens (uid after `given`) are erased. Member CALLS `n.m(args)`
 // and bare selections `n.m` static-dispatch via the objReg slot (collectObjReg scans given_obj too).
+// ERASING one is not the same as SKIPPING it: `skipStmt` stops at the first depth-0 `;`, and the layout
+// emits NO separator after a block's closing brace, so on `given S with <block>` it ran past the brace
+// and ate the NEXT statement whole — measured, one statement, silently, exit 0. skipGivenDecl is the
+// skipper written for this shape (with-body → skip the layout `{…}`; `= expr` → to `;`), so the three
+// erasing branches use it instead. It also covers heads skipStmt cannot see: `given [T] …` opens on `[`.
 def isGivenHead(ts) = isWord(hd(ts), "given")
-def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (("", ""), skipStmt(ts))
-def givenNamed(gname, t2, ts, cx) = if isTok(hd(t2), 2, 20) then givenValItem(gname, tl(t2), cx) else (if isTok(hd(t2), 2, 34) then givenAfterColon(gname, skipTypeRef(tl(t2)), ts, cx) else (("", ""), skipStmt(ts)))
-def givenAfterColon(gname, t3, ts, cx) = if isWord(hd(t3), "with") then givenObjItem(gname, objBodyToks(t3), cx) else (if isTok(hd(t3), 2, 20) then givenValItem(gname, tl(t3), cx) else (("", ""), skipStmt(ts)))
+def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (("", ""), skipGivenDecl(ts))
+def givenNamed(gname, t2, ts, cx) = if isTok(hd(t2), 2, 20) then givenValItem(gname, tl(t2), cx) else (if isTok(hd(t2), 2, 34) then givenAfterColon(gname, skipTypeRef(tl(t2)), ts, cx) else (("", ""), skipGivenDecl(ts)))
+def givenAfterColon(gname, t3, ts, cx) = if isWord(hd(t3), "with") then givenObjItem(gname, objBodyToks(t3), cx) else (if isTok(hd(t3), 2, 20) then givenValItem(gname, tl(t3), cx) else (("", ""), skipGivenDecl(ts)))
 def givenValItem(gname, ts, cx) = bodyExpr(ts, Nil, cx) match { case (b, r) => (("(def " ++ gname ++ " " ++ erase(b, cx) ++ ")", ""), r) }
 def givenObjItem(gname, ts, cx) = if isTok(hd(ts), 2, 28) then givenObjEmit(gname, collectObjMembers(tl(ts)), cx, skipBrace(tl(ts), 1)) else (("", ""), ts)
 def givenObjEmit(gname, ms, cx, rest) = ((join2(givenDefsStr(gname, ms, cx), givenMethodObj(gname, ms, cx)), ""), rest)
