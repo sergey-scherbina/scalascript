@@ -540,12 +540,108 @@ Next step for the remainder: find where the binder is lost between `wrapPh`'s `p
 parse for an argument that is itself inside another call — the `(global __u0)` reason names the
 synthesised binder, so the rename and the env push are disagreeing about scope.
 
+## legacy-front-single-line-extension-absorbs-the-rest-of-the-file — exit 0 and NO output
+
+<!-- status: fixed
+     lane: native
+     area: front
+     kind: bug
+     gate: tests/e2e/single-line-extension-gate.sh
+     fixed-in: 0428861ff -->
+
+**The reference front's half of `v2-extension-member-call-inside-a-def-body-fails-by-arity`, below —
+same mechanism, different symptom, and this one is worse because it is SILENT.** Measured
+2026-08-13; it was not recorded anywhere, because every probe that entry carries was run on the
+default lane.
+
+```text
+extension (s: String) def boxed: String = s
+def main(): Unit = println("after-extension")
+
+F (default lane)   ssc: arity: 1 expected, 0 given
+reference front    (nothing)                            rc=0
+```
+
+**The mechanism, measured rather than guessed — and it is not what the entry below supposed.** The
+receiver parameters are stashed in `extensionParamsCell` when `extension` is parsed and cleared by
+exactly one thing: the `extension_end` token that `prependLayoutClose` emits when an E layout frame
+closes. The E frame is opened by the NL after the receiver `)`. **In the single-line form there is
+no such NL**, so the frame is never opened, `extension_end` is never emitted, and the receiver stays
+live for the rest of the file — every following `def` silently becomes a member of the extension:
+
+```text
+def main(): Unit = println("m: " + "a".tagged)
+extension (s: String) def boxed: String = s
+def tagged: String = "T"
+
+BOTH fronts print   m: T
+```
+
+`"a".tagged` answering `T` is the proof: a top-level `def tagged` is not a `String` member and could not be
+reached that way unless it had been absorbed. That one probe explains both symptoms — F's `main`
+gains the receiver parameter and is called with none (`arity: 1 expected, 0 given`); the reference
+front's `main` stops being a top-level `main`, so nothing runs and the exit code is 0.
+
+**FIXED on the reference front** by giving the single-line form the same virtual block the
+multi-line form already gets: at the receiver `)`, when a `def` follows on the same line, emit `{`
+and push an E frame whose sentinel indent closes it at the next NL. The parser and the lowerer then
+see ONE shape. A body continued after a layout opener (`=` ⏎, `= e match` ⏎ arms) is untouched —
+that NL takes the `prevOpener` arm, which pushes its own frame above this one, and the dedent that
+ends the body closes both.
+
+**The existing sites were the risk, and measuring them changed what this entry claims.** Nine sites
+in this repo already use the single-line form — `std/functor-applicative-monad.ssc`,
+`std/monaderror.ssc`, `tests/conformance/typeclass-extension.ssc` — all inside `trait` /
+`given … with` bodies, and all working. **They work only because nothing follows them that the leak
+can corrupt**: that conformance file ends in top-level `println`s. Append a `def` after the givens
+and the receiver leaks out of the `given … with` body into it — reference front silent, F fine. So
+the row written into the gate as a control for those shapes was itself RED, and it is labelled as
+both.
+
+Blast radius, measured as a differential on the reference front (before vs after, every source in
+the repo that declares an extension — 16 conformance cases, six std modules, four v21-native layout
+fixtures): **26 files, 25 identical, 1 changed** — `extension-call-in-a-def-body.ssc`, from nothing
+at all to `body-a`. That is the whole intended radius, and it is bounded by construction: the new
+arm can only fire where a `)` closes an extension-receiver frame, which requires the token
+`extension` to have been seen.
+
+**The F half is still open** (see below): its front file is held by another claim, and the new gate
+asserts F as KNOWN-RED so that fixing it fails this gate rather than passing unnoticed.
+
 ## v2-extension-member-call-inside-a-def-body-fails-by-arity — two conditions, and one of them is a spelling
 
 <!-- status: open
      lane: native
-     area: runtime
-     gate: tests/conformance/extension-call-in-a-def-body.ssc -->
+     area: front
+     gate: tests/e2e/single-line-extension-gate.sh -->
+
+### ROOT CAUSE LOCATED 2026-08-13 — and the hypothesis below is refuted
+
+This entry ends with "reads like the single-line form's registration being emitted lazily at the
+first top-level statement … Not verified; nobody has read the emitter." It has now been read, and
+that is not it. **Nothing about registration or the emitter is involved: the single-line form's
+member block is never opened, so the receiver parameters are never cleared, and every following
+`def` is absorbed as an extension member.** The full derivation, the probe that proves absorption
+directly, and the fix on the reference front are one entry up, in
+`legacy-front-single-line-extension-absorbs-the-rest-of-the-file`.
+
+Three things this changes about the entry below:
+
+- **`area` was `runtime`; it is `front`.** The arity error is a symptom reported by the runtime, and
+  the entry was filed where the message came from rather than where the cause is.
+- **It is not about the call site.** The table below varies the call site because that is what the
+  first probes varied. A file whose `main` never touches the extension at all fails identically —
+  the declaration alone is enough.
+- **"A top-level statement above fixes it, whatever it contains" now has a reason.** A statement
+  ends the run of declarations that the un-terminated receiver scope can absorb; content cannot
+  matter because absorption is positional. Note this is F-specific — on the reference front a
+  statement between did NOT help, which is a second, smaller divergence between the two fronts'
+  layout handling.
+
+**Still open, and deliberately not fixed here**: the F front lives in `specs/v2.2-p6.5-fsub.ssc`,
+held by two other claims while this was written. `tests/e2e/single-line-extension-gate.sh` carries
+the F rows as KNOWN-RED and **fails when F starts passing**, so the fix cannot land without this
+entry being closed.
 
 ```scalascript
 case class Box(v: String)
