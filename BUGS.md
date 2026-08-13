@@ -2532,14 +2532,57 @@ everything else; the line comes out when either shape lands.
 written and the entry did not exist. A dangling reference in a gate reads as "someone looked at
 this" when nobody had.
 
-## selfhost-front-given-with-swallows-the-rest-of-the-file — everything after a `given … with` disappears, exit 0
+## selfhost-front-given-with-swallows-the-rest-of-the-file — an anonymous `given … with` ate the statement after its body
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
      gate: tests/e2e/selfhost-front-gate.sh
-     fixed-in: - -->
+     fixed-in: 69294ecbf -->
+
+**FIXED 2026-08-13.** The slug says "the rest of the file" and that is not what it did — see the
+correction below, which is the measurement that made the fix obvious. Kept under the original slug
+because the claim, the gate cases and the commit all name it.
+
+**The mechanism.** An anonymous given — an upper-case head, so there is no name to bind — is ERASED
+by design, and `givenItem` erased it by calling `skipStmt`. `skipStmt` stops at the first depth-0
+`;`, and the layout emits NO separator after a block's closing brace. So on `given S with` plus an
+indented body the skip walked out of the block and kept going, taking the next statement with it.
+The fix is to erase it with `skipGivenDecl` (`:2374`) instead — the skipper already in the file,
+written for exactly this shape and used by `collectTopExtMethods` since it was added. All three
+erasing branches (`givenItem`, `givenNamed`, `givenAfterColon`) now use it.
+
+**THE CORRECTION, and it is the useful part of this entry.** The damage was ONE statement, not the
+rest of the file. It was filed as total because the reproducer had exactly one statement after the
+given:
+
+| program | before | after | v1 |
+|---|---|---|---|
+| given, then one statement | `<nothing>` | `после` | `после` |
+| given, then THREE statements | `2/3` | `1/2/3` | `1/2/3` |
+| three back-to-back givens, then one statement | `<nothing>` | `ok` | `ok` |
+
+The middle row is the one that names the mechanism: the first statement vanishes and the rest run.
+The third shows why consecutive givens look total — each given's skip eats the next given's header,
+so the loss compounds until something emits a depth-0 `;`.
+
+**WHAT THIS DOES NOT FIX**, measured before it was claimed. `std/show`, `std/eq`, `std/hash` and
+`std/order` hold 20 anonymous `given TC[T] with` between them, and they are NOT repaired. Both
+fronts answer their probes identically — `unbound global: __missing_using_Eq` — because those givens
+were being erased by design anyway, and a fenced-block boundary stops the skip before the helper
+defs. Anonymous-given RESOLUTION is a separate unimplemented feature; this change only stops the
+erasure destroying its neighbours. The `20 uses in std/` census looked like the payoff and was not.
+
+**Evidence.** `selfhost-front-gate` 17/17 with five given cases — three flip old→new above, and the
+value-form and named-form controls hold on BOTH sides, so the cases discriminate rather than merely
+pass. `smoke-ci` 86/86, 564.8s of a 1027s budget. `native-front-corpus --standard` A/B with only the
+staged front swapped (same tree, same jars, same corpus, each side sanity-probed before its run):
+**byte-identical reports**, 214 rows, front-ok 126, run-ok 55 on both. Clean no-regression, and
+explicitly NOT an improvement — the corpus holds no program of this shape, which is why 214 programs
+never caught it.
+
+<details><summary>The original filing, kept — its narrowing was right and its guess was not</summary>
 
 **Measured 2026-08-13, narrowed to one construct.** On front F everything AFTER a `given X with`
 and its body is lost — no diagnostic, no partial output, exit 0. v1 answers correctly.
@@ -2581,6 +2624,17 @@ printing the token stream around `with`, not by reading further.
 extension-in-trait program. The extension was not the cause at all. The gate I added this morning
 against exactly this class of defect — `tests/e2e/selfhost-front-gate.sh` — does not catch it, so it
 is narrower than the class it was written for. A case is added there now.
+
+*Scored afterwards.* The route was right — kind 3 does fall to the `else` arm and reach `skipStmt`.
+The paragraph above that stopped short was right to stop and wrong about where to look next: the
+nesting IS balanced, and that is not a reason to doubt the reading. What it missed is that balance
+says nothing about where the skip STOPS — the pair is entered and left cleanly and then the walk
+continues, because the thing it waits for (a depth-0 `;`) is not emitted after a layout brace. The
+instruction it left for the next person — print the token stream around `with` — would have worked;
+what actually settled it was cheaper, four one-line programs differing only in how many statements
+follow the given.
+
+</details>
 
 ## selfhost-front-accepts-a-parameterised-anonymous-given-the-language-rejects — F runs a program v1 refuses to parse
 
