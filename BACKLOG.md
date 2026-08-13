@@ -273,7 +273,17 @@ intrinsic map entries (`mcpConnect` plus the eight methods); a `McpClientRs` run
 `McpRs`'s framing over a spawned child's stdio, no new crate; and `scanMcpClientUsage` plus the
 emission wiring in `RustGen`, copied from the server's.
 
-**Two unknowns remain, both measurable before any Rust is written:** how `Transport.Spawn(cmd,
+**ONE OF THE TWO UNKNOWNS IS NOW ANSWERED, AND IT IS THE BLOCKER.** `std/mcp/client.ssc`
+imports `std/mcp/types.ssc`, which is REFUSED — and the reason is not MCP's. The lane flattens
+members of distinct receivers into one namespace and refuses on a name collision, calling it
+overloading: `object Tool: def text` versus `object Resource: def text`. Worse for this entry,
+fixing that file is not enough, because `McpClient.close` collides with `SseStream.close` from
+`std/http.ssc` the same way. Filed as its own defect,
+`rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member` in `BUGS.md`, with a
+six-module census. **This entry is blocked on it**: the nine intrinsic entries and the runtime
+are still the right work, and none of it can compile until member names are qualified.
+
+**The other unknown remains:** how `Transport.Spawn(cmd,
 args)` — an `.ssc` enum — arrives at the intrinsic, and whether the return types drag in
 `std/mcp/types.ssc`, which is REFUSED for an unrelated overloading reason and would block this
 independently of anything done here.

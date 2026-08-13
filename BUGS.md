@@ -23,6 +23,59 @@ Newest first.
 
 
 
+## rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member — `SqliteCursor.close` and `SqliteStatement.close` are reported as overloading and refuse the whole module
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-13
+     ssc-version: db5dc1c3d
+     repro: emit-rust std/mcp/types.ssc
+     confirmed: no -->
+
+**Found underneath `build-rust-mcp-client-unsupported` (BACKLOG), and it is the real blocker
+there.** The Rust lane flattens members of distinct receivers into one namespace, then refuses
+the module when two of them share a name, reporting it as *overloading*:
+
+    def `text`  emits 2 times (overloading); Rust has no overloading and this lane
+                does not mangle names
+
+The name is a misnomer, and that is what hid this. In `std/mcp/types.ssc` the two are
+`object Tool: def text(s)` and `object Resource: def text(s, mimeType)` — **different objects**.
+In `std/scljet/index.ssc` there are three `def close`, on `trait SqliteCursor`,
+`trait SqliteStatement` and `trait SqliteConnection` — **three different traits**. Neither is
+overloading in any language sense; they are distinct qualified names, and
+`SqliteCursor.close` is no more an overload of `SqliteStatement.close` than `Console.println` is
+of `Bench.opaque`. The lane already keys intrinsics by qualified member name — `Console.println`,
+`Bench.opaque` — so the qualification it needs is one it already speaks.
+
+**Census, from the committed survey baseline rather than from my own run.** Six modules of the
+81 REFUSED carry this exact reason, and they are not one area:
+
+    std/mcp/types.ssc            Tool.text        vs Resource.text
+    std/scljet/address.ssc       close, transitively
+    std/scljet/jdbc.ssc          close, transitively
+    std/scljet/mutate.ssc        close, transitively
+    std/scljet/sql.ssc           close, transitively
+    std/scljet/typedsql.ssc      close, transitively
+
+The five scljet rows do not declare the clashing member themselves; they import the closure that
+does, so a single qualification fix should move all six. That is a prediction and is written down
+as one — the survey is the instrument that will settle it.
+
+**Why this matters beyond the six.** It is what actually blocks the Rust MCP client. Fixing
+`types.ssc` alone would not be enough: `std/mcp/client.ssc` declares `McpClient.close` while
+`std/http.ssc` declares `SseStream.close`, so the client meets the same wall one step later. Any
+future `.ssc` API that gives two types a `close`, a `text`, a `name` or a `size` meets it too —
+which is most of them.
+
+**Not fixed here.** Recorded with the measurement because the fix is in the emitter's naming
+scheme and deserves its own claim, and because the report it was found under can now be sized
+against the real obstacle instead of an assumed one.
+
 ## string-param-moved-by-toint — A String param read twice where one read is .toInt is E0382 — _to_int takes it by value and clone-insertion does not reach the second read
 
 <!-- status: fixed
