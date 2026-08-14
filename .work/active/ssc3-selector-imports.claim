@@ -5,7 +5,7 @@ started: 2026-08-14T09:10:59Z
 heartbeat: 2026-08-14T09:10:59Z
 status: working
 items: SSC3-14c
-paths: file:v3/src/Source.scala file:v3/loader-gate.sh file:v3/src/Loader.scala file:v3/src/Parser.scala
+paths: file:v3/src/Source.scala file:v3/loader-gate.sh file:v3/src/Loader.scala file:v3/src/Parser.scala file:v3/tests/front
 scope: |
   SSC3-14c — `import a.b.{X, Y}`, the owner's decision of 2026-08-14: "списки имен в импортах
   должны работать". Today both fronts refuse it inside a fence and only v3's refuses it in a bare
@@ -60,4 +60,11 @@ scope: |
   "have no meaning here" — false the moment this lands. `Parser.scala:1814` warns about exactly this
   in its own comment: a stale message is the dangerous kind, because a reader deletes a line that
   works. The decision logic stays in `Source.scalaImportPath`; these two edits are the wording.
-next: correct both copies of the refusal text, then measure N
+  WIDENED 2026-08-14 to `v3/tests/front`, BEFORE the edit, because `front-gate` went RED and it is
+  RIGHT to: `v3/tests/front/scala-import-selector.ssc` is a NEGATIVE fixture asserting the old
+  decision, and its prose spells that decision out ("A selector list has no meaning here —
+  REFUSED"). The gate needs no script change — its rule is that a fixture with no `.expected` must
+  be refused — so flipping it means rewriting the fixture's prose and giving it an `.expected`.
+  Found by running the gates, not by reading the diff; it is the one gate that encodes this
+  decision.
+next: flip the negative fixture, re-run front-gate, then push
