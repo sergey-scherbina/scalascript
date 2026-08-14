@@ -225,7 +225,21 @@ object Parser:
     // this function is in expression position. Without it the type ended at `Int`, the `! Logger`
     // was then read as an expression, and `effect-pure.ssc` failed pointing at the `=` that follows
     // — a diagnostic about the body of a `def` whose actual problem was its return type.
-    if isOp(peek(ts), "=>") || isOp(peek(ts), "!") then skipType(ts.tail) else ts
+    // VARARGS — a trailing `*`, as in `def of[T](items: T*)`. CONSUMED HERE, which is also what
+    // puts it into the type's text: `typeTextOf` reassembles from exactly the tokens this function
+    // takes, and it already maps a `TOp` to its spelling, so `T*` comes out `T*` with no edit
+    // there. `Lower` keys on that text; the other front carries the identical string.
+    //
+    // Unambiguous in TYPE position — there is nothing here for a `*` to multiply — which is the
+    // same argument `ScalaSpike.skipTypeTail` makes for the same character.
+    //
+    // BEFORE the arrow rather than after: `T*` is a complete type, and reaching the `=>` case with
+    // the star still unread would send it back through as if a function type began at the star.
+    // Without this, v3's own front refused `def total(xs: Int*)` with `expected ')', found *` at
+    // the star's own column while the uniml front took the file — one language, two answers,
+    // decided by whether `v3/.jars/uniml.cp` happened to exist.
+    val tsv = if isOp(peek(ts), "*") then ts.tail else ts
+    if isOp(peek(tsv), "=>") || isOp(peek(tsv), "!") then skipType(tsv.tail) else tsv
 
   /** Consume a balanced `[…]` if one is here. Type arguments and type parameters are DISCARDED at
     * Tier 0 for the same reason annotations are: there is no checker, and half-reading them would

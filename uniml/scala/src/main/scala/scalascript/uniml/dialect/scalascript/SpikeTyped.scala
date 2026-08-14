@@ -206,6 +206,14 @@ object SpikeTyped:
         // The arrow the grammar now keeps. It arrives BEFORE the type, which is why it is read as
         // its own role rather than inferred from `tpe`.
         case Some(r) if r.endsWith("byname") => byName = true
+        // VARARGS. Carried in the type TEXT rather than as a field on `Param`, because the text is
+        // already what every consumer reads and `def.typearg` directly above rewrites it the same
+        // way. `T*` is `List[T]` at Tier 0; the marker exists so the CALL SITE can collect its
+        // tail, and `v3/src/Parser.scala` reconstructs the identical text from its own tokens.
+        //
+        // AFTER the type and after its arguments, so `tpe` is already the whole of `List[Int]`.
+        case Some(r) if r.endsWith("vararg") =>
+          tpe = tpe.map(t => TypeRef(t.text + "*", t.span))
         case Some(r) if r == dfltRole => dflt = Some(expr(c))
         case _                        => ()
     }

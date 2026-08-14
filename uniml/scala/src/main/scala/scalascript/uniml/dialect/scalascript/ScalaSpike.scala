@@ -928,6 +928,20 @@ object SpikeParse:
                 case k if k == "spike.id" || k == "spike.uid" =>
                   c.advance().foreach(t => kids += Node.Leaf(t, Some("def.typearg")))
                 case _ => c.advance()
+          // VARARGS — `def of[T](items: T*)`. Taken HERE rather than left to `skipTypeTail`, which
+          // consumes the star and throws it away (its comment says so, and that is right for every
+          // OTHER caller: a return type or a pattern has nobody to tell). A parameter does: `T*` is
+          // `List[T]` at Tier 0 and the CALL SITE has to collect its tail, so the fact has to reach
+          // the projection or the arity check refuses `passes 3, it takes 1`.
+          //
+          // A LEAF WITH A ROLE, exactly as `def.byname` above and for the same reason — the token
+          // is real source and the tree is the storage. `skipTypeTail` still runs below and finds
+          // no star, so its own case is left alone and its other callers are untouched.
+          //
+          // AFTER the type args, never before: `xs: List[Int]*` reaches here with `[Int]` already
+          // taken, so the star is what is next in both `T*` and `List[Int]*`.
+          if c.peekKind == "spike.op" && c.peekLexeme == "*" then
+            c.advance().foreach(t => kids += Node.Leaf(t, Some("def.vararg")))
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
           // a default value `param: T = expr` — captured (def.dflt) so defNodes can emit the funcdefaults node
           // for call-site synthesis (`f(a)`→`f(a, dflt…)`); appears right after its param, before the next one.

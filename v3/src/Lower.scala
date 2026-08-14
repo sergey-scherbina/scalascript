@@ -2136,7 +2136,13 @@ object Lower:
         def fits(ps: List[Param]): Boolean =
           val positional = as.takeWhile(a => !a.isInstanceOf[Expr.NamedArg])
           val named = as.drop(positional.length).collect { case Expr.NamedArg(n, _, _) => n }
-          positional.length <= ps.length &&
+          // A VARARG SIGNATURE HAS NO UPPER BOUND. `positional.length <= ps.length` is the right
+          // test for every other shape and the wrong one here: `def of[T](items: T*)` takes one
+          // parameter and `Dataset.of(1, 2, 3)` supplies three, so a vararg candidate was filtered
+          // out and the call was left alone — which reads as "ambiguous" and is really "the only
+          // candidate was rejected for the one thing that makes it match".
+          (if isVararg(ps) then positional.length >= ps.length - 1
+           else positional.length <= ps.length) &&
           named.forall(n => ps.exists(q => q.name == n)) &&
           ps.drop(positional.length).forall(q => q.default.isDefined || named.contains(q.name))
         val chosen = exact.map((_, ps0) => own(ps0)).orElse {
@@ -2154,11 +2160,47 @@ object Lower:
           case None     => x
       case other => other)
 
+  /** Does this signature end in a VARARG parameter — `def of[T](items: T*)`?
+    *
+    * Read off the declared type's TEXT, which is where both fronts put the star: v3's own parser
+    * reassembles it from the tokens `skipType` consumes, and the uniml dialect appends it in
+    * `SpikeTyped.slots` from the `def.vararg` leaf. One spelling, so one test. */
+  private def isVararg(ps: List[Param]): Boolean =
+    ps.nonEmpty && ps.last.tpe.exists(_.endsWith("*"))
+
+  /** The tail of a vararg call, COLLECTED INTO A LIST. `Dataset.of(1, 2, 3)` becomes
+    * `Dataset.of(1 :: 2 :: 3 :: Nil)`.
+    *
+    * `T*` IS `List[T]` AT TIER 0 — that is read off the corpus, not chosen: `std/ui/data.ssc:43` is
+    * `def tableRow(cells: TkNode*): List[TkNode] = cells.toList`, so the body already treats the
+    * parameter as an ordinary list. Nothing about the callee changes; only the call site does.
+    *
+    * IT RUNS INSIDE `resolveArgs` and therefore BEFORE `checkArity`, and the order is the whole
+    * reason this is here rather than in a pass of its own. The arity check is RIGHT to refuse
+    * `passes 3, it takes 1` until the tail has been gathered, so gathering has to happen first —
+    * and `resolveArgs` is the one place that already has both the arguments and the RESOLVED
+    * signature, receiver and all. A separate pass would have had to redo the receiver lookup, which
+    * is the duplicate-decision-site shape this file has paid for twice.
+    *
+    * EMPTY IS A LIST TOO: `tableRow()` gives `Nil`, not a missing argument.
+    *
+    * LEFT ALONE when the call is too short to have a tail at all, so a genuine arity mistake is
+    * still reported as one; and when NAMED arguments are present, because a named argument for the
+    * vararg parameter itself means something this tier has not decided and quietly wrapping it
+    * would be a guess. */
+  private def collectVarargs(as: List[Expr], ps: List[Param], p: Pos): List[Expr] =
+    if !isVararg(ps) || as.exists(_.isInstanceOf[Expr.NamedArg]) || as.length < ps.length - 1 then as
+    else
+      val fixed = as.take(ps.length - 1)
+      fixed :+ as.drop(ps.length - 1)
+                 .foldRight(Expr.Name("Nil", p))((h, t) => Expr.Bin("::", h, t, p))
+
   /** Positional arguments, then NAMED ones placed by their parameter's name, then DEFAULTS for
     * whatever is still missing. Returns the arguments UNCHANGED when the call cannot be completed,
     * so an arity mistake is still reported as an arity mistake rather than being papered over with
     * a confusing substitution. */
-  private def resolveArgs(as: List[Expr], ps: List[Param], what: String, p: Pos): List[Expr] =
+  private def resolveArgs(as0: List[Expr], ps: List[Param], what: String, p: Pos): List[Expr] =
+    val as = collectVarargs(as0, ps, p)
     val positional = as.takeWhile(a => !a.isInstanceOf[Expr.NamedArg])
     val rest = as.drop(positional.length)
     if rest.isEmpty && as.length >= ps.length then as
