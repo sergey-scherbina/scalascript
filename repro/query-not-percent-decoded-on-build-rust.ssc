@@ -1,0 +1,18 @@
+#!/usr/bin/env ssc
+---
+name: query-decode
+version: 0.1.0
+description: What a route handler receives in req.query for a percent-encoded value.
+---
+# query-decode
+
+```scalascript
+[route, serve, Request](std/http.ssc)
+
+def handler(req: Request): String =
+  "m=[" + req.query.get("m").getOrElse("<absent>") + "] q=[" + req.query.get("q").getOrElse("<absent>") + "]"
+
+def main(): Unit =
+  route("GET", "/q", req => handler(req))
+  serve(8479)
+```

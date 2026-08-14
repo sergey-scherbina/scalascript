@@ -157,6 +157,51 @@ listening, and the error is on the `route` line.
 There is a fix branch pushed, `fix/http-response-status`, from before this report existed — it
 touches `HttpRs` and `RustCodeWalk.scala`. It is offered, not asserted: it was written against an
 older main and nobody here has reviewed it against the current lowering.
+## query-not-percent-decoded-on-build-rust — a query value reaches the handler raw on build-rust — %3A stays %3A and + stays + — while run decodes the same request, so a route keyed on an encoded value silently matches nothing
+<!-- triage: new
+     reported-by: rozum / claude-opus-5 (github.com/sergey-scherbina/rozum)
+     reported-at: 2026-08-14
+     ssc-version: a8dc2120c (0.2.0-SNAPSHOT, digest 30cd2022)
+     repro: repro/query-not-percent-decoded-on-build-rust.ssc
+     kind: bug
+     reporter-suspects: urlencoded_pairs in HttpRs splits on & and = and never decodes; its comment says that is deliberate, but the run lane decodes the same request
+     impact: blocks -->
+
+A query value arrives at the handler exactly as it was sent — `%XX` unresolved and `+` not turned
+into a space — on `build-rust`, while `run` decodes both. Same file, same toolchain, one request:
+
+```
+GET /q?m=mlx-community%3AQwen3.5-4B-MLX-4bit&q=a+b%20c
+
+ssc run                m=[mlx-community:Qwen3.5-4B-MLX-4bit]    q=[a b c]
+ssc-tools build-rust   m=[mlx-community%3AQwen3.5-4B-MLX-4bit]  q=[a+b%20c]
+```
+
+Repro: `repro/query-not-percent-decoded-on-build-rust.ssc`, 17 lines — one route, one handler that
+prints what it got. Measured on a toolchain staged from `a8dc2120c` whose `bin/lib/.build-digest`
+equals `scripts/launcher-input-digest` (`30cd2022…`), in a detached worktree rather than the shared
+checkout.
+
+WHY THIS ONE IS WORSE THAN A COMPILE ERROR. Nothing fails. The handler is handed a string that looks
+like a value, and a route keyed on it simply matches nothing. In rozum the key is a model spec —
+`mlx-community:Qwen3.5-4B-MLX-4bit`, which a browser sends as `mlx-community%3A…` — so the ported
+route answered "no such cell" for every cell, while the Rust server it replaces answered with the
+row. Wrong data, no error, no log line. Cascade specs carrying a literal `+` fail the same way.
+
+THE COMMENT IN THE CODE ARGUES FOR THE CURRENT BEHAVIOUR, which is why this is worth reading rather
+than just patching. `urlencoded_pairs` in `HttpRs` says decoding is "deliberately NOT done here:
+hyper hands the raw query and every other field on this lane is raw too, so decoding exactly one of
+them would be the only place a value silently changed shape". The premise is the part to check: the
+`run` lane on the same declaration DOES decode, so the two lanes already disagree, and it is the
+Rust one that is alone. A raw query is not a lane convention — it is a decoder that was never
+written, and the same function serves form bodies, where `+`-for-space is not optional at all.
+
+One judgement call worth stating rather than leaving to the patch: a MALFORMED escape should be kept
+verbatim, not dropped. `100%` in a value is a user's text.
+
+There is a fix branch pushed from before this report existed, `fix/query-percent-decoding` — 40
+lines in `HttpRs`. Offered, not asserted: it was written against an older main and nobody here has
+reviewed it against the current runtime.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
