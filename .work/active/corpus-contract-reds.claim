@@ -1,0 +1,11 @@
+slug: corpus-contract-reds
+branch: feature/corpus-contract-reds
+agent: claude-code
+started: 2026-08-14T09:09:44Z
+heartbeat: 2026-08-14T09:09:44Z
+status: claimed-before-planning
+items: corpus-contract-ui-remote-table-v2-unrecorded
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
