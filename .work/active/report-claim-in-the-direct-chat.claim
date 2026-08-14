@@ -1,0 +1,11 @@
+slug: report-claim-in-the-direct-chat
+branch: feature/report-claim-in-the-direct-chat
+agent: claude-code
+started: 2026-08-14T16:37:29Z
+heartbeat: 2026-08-14T16:37:29Z
+status: claimed-before-planning
+items: report-claim-in-the-direct-chat
+paths: file:AGENTS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
