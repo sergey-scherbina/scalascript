@@ -610,10 +610,33 @@ asserts F as KNOWN-RED so that fixing it fails this gate rather than passing unn
 
 ## v2-extension-member-call-inside-a-def-body-fails-by-arity — two conditions, and one of them is a spelling
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
+     fixed-in: 41ae217cd
      gate: tests/e2e/single-line-extension-gate.sh -->
+
+### FIXED 2026-08-14 — F's half, and the two "conditions" were always one
+
+`layoutCloseX` (`specs/v2.2-p6.5-fsub.ssc`) gives the single-line form the virtual block the
+multi-line form already gets: at the receiver `)`, when a `def` follows on the same line, emit `{`
+and push an L frame whose sentinel indent closes it at the next NL. `extMembers` then stops after
+the one real member instead of scanning on through the file, so nothing below is absorbed.
+
+The reference half landed a day earlier in `0428861ff`; this entry stayed open because F's front
+file was held by two other claims. The gate carried the four F rows as KNOWN-RED **in a form that
+FAILS when F starts passing** — and that is how the promotion happened: the fixed build turned all
+four into "F is GREEN now, promote this row", they are `both()` now, and `ref_only` is deleted with
+its last caller.
+
+Scope was measured, not argued. The new arm is reachable only from a TOP-LEVEL `extension`
+(`isExtIdentTop` requires an empty stack), so the eight single-line members inside `trait` /
+`given … with` bodies never enter it. The whole repository holds exactly ONE top-level single-line
+extension — the conformance case. The five sources with a top-level BLOCK-form extension were run
+under F before and after: byte-identical once the checkout path is normalised out of the diagnostic,
+and the conformance case is the only one of the six that moved.
+
+The conformance case has dropped its `known-red:` and is green on int, jvm, js and v2.
 
 ### ROOT CAUSE LOCATED 2026-08-13 — and the hypothesis below is refuted
 
@@ -638,10 +661,11 @@ Three things this changes about the entry below:
   statement between did NOT help, which is a second, smaller divergence between the two fronts'
   layout handling.
 
-**Still open, and deliberately not fixed here**: the F front lives in `specs/v2.2-p6.5-fsub.ssc`,
+~~**Still open, and deliberately not fixed here**: the F front lives in `specs/v2.2-p6.5-fsub.ssc`,
 held by two other claims while this was written. `tests/e2e/single-line-extension-gate.sh` carries
 the F rows as KNOWN-RED and **fails when F starts passing**, so the fix cannot land without this
-entry being closed.
+entry being closed.~~ — Closed as designed on 2026-08-14: the gate did fail, on all four rows, the
+moment F started passing. See the FIXED note at the top of this entry.
 
 ```scalascript
 case class Box(v: String)

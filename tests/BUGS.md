@@ -48,13 +48,25 @@ wired earlier, always did, which is why it never failed). This entry is about th
 
 ## f-extension-call-in-a-def-body-refuses-with-a-wrong-arity
 
-<!-- status: open
+<!-- status: duplicate
+     duplicate-of: v2-extension-member-call-inside-a-def-body-fails-by-arity
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
-     gate: tests/e2e/f-output-agreement-gate.sh -->
+     gate: tests/e2e/single-line-extension-gate.sh -->
+
+**DUPLICATE, and I should have found that before filing.** The defect was already root-caused in
+`v2/BUGS.md v2-extension-member-call-inside-a-def-body-fails-by-arity`, which even carried the gate
+that pinned F as known-red. What I did here was file the symptom again from the corpus gate's
+output without grepping the other board — the conformance file's own frontmatter named the entry, in
+the `known-red:` line, and I read the file without reading that line. Fixed 2026-08-14 in
+`41ae217cd`; the four gate rows are `both()` now.
+
+**What is NOT duplicated is why the gate went red on 2026-08-13**, so that stays below: the F defect
+was three days old and unchanged, and what moved was the OTHER lane. Keep this entry for the
+unmasking, not for the bug.
 
 **`f-output-agreement-gate` is RED on origin/main, ceiling 0.** On
 `tests/conformance/extension-call-in-a-def-body.ssc`:
