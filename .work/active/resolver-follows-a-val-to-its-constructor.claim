@@ -1,0 +1,11 @@
+slug: resolver-follows-a-val-to-its-constructor
+branch: feature/resolver-follows-a-val-to-its-constructor
+agent: claude-code
+started: 2026-08-14T23:09:02Z
+heartbeat: 2026-08-14T23:09:02Z
+status: claimed-before-planning
+items: resolver-follows-a-val-to-its-constructor v3-stmt-val-discards-a-type-the-author-wrote
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
