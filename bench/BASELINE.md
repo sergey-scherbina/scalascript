@@ -23,6 +23,89 @@ the v2 columns need `--backends ssc,v2,v2-bytecode` (one machine state, v1 kept 
 control) and carry an A/B history the generator would overwrite. Note when reading either: the
 DEFAULT v2 execution lane is `v2-bytecode`; plain `v2` is the `--interpret` reference lane.
 
+## Three versions side by side — 2026-08-14 (v3/SPRINT.md §55 B4)
+
+**The firm result of this run is the PAIRED table; the ratio table is softer and the ms are softest
+of all.** Eight interleaved rounds, `./bench.sh <row> --backends ssc,ssc-asm,jvm,js,v2,v2-bytecode,v3
+--reps 30`, at 1-minute load 7–68 (recorded per round) — not the quiet host B4 asked for, because ten sibling agents
+held the machine there all day and the window never came. What survives that and what does not is a
+property of the harness: `bench/run.sc` measures every column of a row back-to-back, so two columns
+of ONE row see one machine state, while the same column across rounds does not.
+
+Since §55 B1 landed (`17fbdf00e`) every column runs the same emitted wrapper, verified for this run
+rather than inherited: on the seeded row `option-chain` the emission is byte-identical (2363 bytes)
+for `ssc`, `v2` and `js`. `jvm` differs by design — C2 constant-folds a monotonic seed, so its
+wrapper reads the seed from an `AtomicLong` sink — which makes `jvm` the compiled-Scala floor rather
+than a same-program column on seeded rows. All eight rows compiled on front `F`.
+Toolchain PINNED for the whole run at launcher digest `7bcfe0324` (installed from `d6fc3a24b`; main
+moved on during the run and `bin/lib` did not).
+
+### v3's executor against the v2 VM — paired inside each row, eight rounds
+
+Both lanes are measured inside the same row, so each round is one paired trial and the count is a
+sign test. This is the half of the run that does not divide by anything load-sensitive.
+
+| Workload | rounds v3 faster | median v3/v2 | reading |
+| --- | --- | --- | --- |
+| `arith-loop` | **8 of 8** | 0.41 | v3 ~2.4× faster |
+| `nested-loop` | **8 of 8** | 0.38 | v3 ~2.6× faster |
+| `tuple-monoid` | **8 of 8** | 0.58 | v3 ~1.7× faster |
+| `list-fold` | 0 of 8 | 2.23 | v2 ~2.2× faster, and the tightest row in the run (1.94–2.32) |
+| `option-chain` | 0 of 8 | 1.38 | v2 faster |
+| `hof-pipeline` | 1 of 8 | 1.52 | v2 faster — leaning, not established |
+| `recursion-fib` | 2 of 8 | 1.32 | v2 faster — leaning, not established |
+| `string-concat` | 4 of 8 | 1.17 | **parity — unresolved, and left that way** |
+
+**The split is not noise, it is the two designs.** v3 wins every row whose body is a counted loop
+over primitives — what its register IR and `Specialize` were built for — and loses every row that
+spends its time in closures, cons cells and `Option`/`String` allocation, where v2's VM has runtime
+work behind it that v3 has not written. `string-concat` sits between the two and the run says so
+instead of picking a side.
+
+### Ratio to `ssc` (v1 interp + bytecode JIT = 1.00), median over 8 rounds
+
+Spreads are `[min..max]` over rounds. Where a spread crosses an order of magnitude the row is
+telling you about the DENOMINATOR, not about the lane — see the bimodality note below.
+
+| Workload | ssc-asm | jvm | js | v2 | v2-bytecode | v3 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `arith-loop` | 1.05 | 1.00 | 68.7 | 284 | 2.29 | 134 |
+| `nested-loop` | 1.01 | 1.15 | 73.1 | 356 | 3.06 | 139 |
+| `recursion-fib` | 1.02 | 1.11 | 5.61 | 119 | 0.99 | 158 |
+| `hof-pipeline` | 1.03 | 1.82 | 3.88 | 60.5 | 42.4 | 74.3 |
+| `option-chain` | 1.13 | 0.05 | 4.70 | 20.1 | 8.53 | 28.3 |
+| `string-concat` | 2.17 | 0.91 | 8.56 | 30.6 | 14.9 | 34.9 |
+| `tuple-monoid` | 0.94 | 0.04 | 5.54 | 20.2 | 8.93 | 12.0 |
+| `list-fold` | 1.00 | 0.22 | 61.6 | 3077 † | 530 † | 6637 † |
+
+† `list-fold`'s numbers are the clearest case of a bimodal denominator: in one round `ssc` read
+0.114 ms where six other rounds read 0.0019 ms — 60× — while the other six columns of that same row
+moved by 1.4×. Since all seven columns of a row are measured back-to-back, a 60× move in one column
+whose neighbours moved by a third is **v1's own JIT deciding differently on different runs**, not the
+host. `string-concat` and `tuple-monoid` show the same shape at 4× and 9×. Read `list-fold`'s v2/v3
+row from the paired table above, where the `ssc` cell never enters.
+
+### What the table says
+
+1. **v1's JIT is the fastest thing here, and on counted loops it reaches compiled Scala.**
+   `arith-loop` and `nested-loop` put `ssc` at 1.00 and 1.15 of `jvm`. Neither v2's VM nor v3's
+   executor is within two orders of magnitude on those rows.
+2. **Emitting JVM bytecode is the only mechanism in this repository that has ever closed the gap** —
+   and only where the shape is a counted loop over primitives. `v2-bytecode` is 2.3–3.1× v1 on
+   `arith-loop`/`nested-loop` and 0.99× on `recursion-fib`, but 42× on `hof-pipeline` and 530× on
+   `list-fold`. So bytecode emission is not a general answer: the collection rows are paying for the
+   collection runtime, whatever executes them.
+3. **v3 versus v2 is two answers, not one** — see the paired table. This settles four of the five
+   rows the previous comparison could not resolve and leaves `string-concat` explicitly open.
+
+### What this run does NOT say
+
+- **No absolute claim from the eight rounds.** `bench/history.tsv` carries the ms with the load
+  recorded per row; comparing them against the 2026-06-15 baseline below compares a quiet host with
+  a load-40 one.
+- **`rust` is not in the table.** It builds a cargo project per row, and it is a fourth product
+  rather than a third version.
+
 ## Wall-clock baselines (`./bench.sh`)
 
 Captured 2026-06-15 with `./bench.sh --reps 20 --warmup-time 800` (all 5 backends, `bin/ssc`

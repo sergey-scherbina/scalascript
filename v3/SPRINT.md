@@ -3024,11 +3024,39 @@ repository has paid for that confusion more than once.
       by hand on 2026-08-11, three days after it could have been.
       *Done when:* a gate runs the bench corpus for a NUMBER (not a timing) and fails when a row
       that computed stops computing. Cheap: `--warmup 1 --reps 1` and check for `BENCH_SINK`.
-- [~] **B4 — the three-version table, on a quiet host.** Only after B1–B3. Load was 29 when this
-      was written and identical code spreads by 2.5× at load 5.5, so a table taken now would be
-      published noise.
-      *Done when:* `bench/run.sc` runs with all three versions and every backend, on a host below
-      load 5, with the run recorded in `bench/history.tsv`.
+- [x] **B4 — the three-version table. TAKEN 2026-08-14 at load 7–68, published as RATIOS for that
+      reason, and Sergiy's call when the alternative was to keep waiting.** The window below load 5
+      never came: ten sibling agents held the machine at 14–68 for six hours. What that costs and
+      what it does not:
+      - **The firm half is the PAIRED v3-vs-v2 table**, because `bench/run.sc` measures every
+        column of a row back-to-back, so two columns of ONE row see one machine state. Eight
+        interleaved rounds, `--reps 30`, one sign test per row. v3 faster **8 of 8** on
+        `arith-loop` (median 0.41), `nested-loop` (0.38) and `tuple-monoid` (0.58); v2 faster
+        **0 of 8** on `list-fold` (2.23 — the tightest row in the run, 1.94–2.32) and
+        `option-chain` (1.38); leaning v2 on `hof-pipeline` (1 of 8) and `recursion-fib` (2 of 8);
+        **`string-concat` is 4 of 8 — parity, and it is left unresolved rather than called.**
+        That settles four of the five rows the previous comparison could not.
+      - **The split is the two designs, not noise.** v3 wins every row whose body is a counted loop
+        over primitives — what the register IR and `Specialize` were built for — and loses every
+        row that lives in closures, cons cells and `Option`/`String` allocation, where v2's VM has
+        runtime work behind it that v3 has not written.
+      - **The v1 column is BIMODAL on three rows and the run shows it.** One round in eight read
+        `ssc` = 0.114 ms on `list-fold` where six read 0.0019 ms — 60× — while the other six
+        columns of that same row moved by 1.4×. Back-to-back measurement is what makes that
+        attributable: a 60× move in one column whose neighbours moved by a third is v1's own JIT
+        deciding differently between runs, not the host. `string-concat` and `tuple-monoid` show
+        the same shape at 4× and 9×. It is also why the paired table, which never divides by the
+        `ssc` cell, is the half to trust.
+      - **The toolchain is PINNED, not stale by accident:** launcher digest `7bcfe0324` (installed
+        from `d6fc3a24b`) for all eight rounds, with `SSC_NO_BUILD_CHECK=1` because the
+        per-invocation staleness check re-hashes the whole tree and cost more than the cell it
+        guards. main moved to `9ebc13413` during the run; `bin/lib` did not.
+      - **The columns run the same bytes, verified for this run:** on the seeded row `option-chain`
+        the emitted wrapper is byte-identical (2363 bytes) for `ssc`, `v2` and `js`. `jvm` differs
+        by design (AtomicLong anti-fold; C2 folds a monotonic seed), so it is the compiled-Scala
+        floor rather than a same-program column. All eight rows compiled on front `F`.
+      *Recorded:* 32 rows in `bench/history.tsv`; tables, method and caveats in `bench/BASELINE.md`.
+      *Not done:* `rust` — a cargo build per row, and a fourth product rather than a third version.
 - [ ] **J1 — read the table before touching the JIT.** Runtime and JIT work is what Sergiy asked
       for and it is LAST on purpose: the one measurement this repository already has says the
       biggest v3 cost is `Exec.invoke` at 13415 bytecodes, which HotSpot never compiles — a fact
