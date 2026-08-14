@@ -37,7 +37,7 @@ trap release EXIT INT TERM
 acquire() {
   [ "${SSC_BUILD_NO_GUARD:-0}" = 1 ] && return 0
   mkdir -p "$SEM_DIR" 2>/dev/null
-  local deadline=$(( SECONDS + WAIT_SECS )) announced=0
+  local deadline=$(( SECONDS + WAIT_SECS )) announced=0 started=$SECONDS
   while :; do
     # Reap slots whose owner is gone or which are older than STALE_SECS. Without this one killed
     # build wedges every future one — the failure mode a semaphore is most likely to have.
@@ -58,7 +58,14 @@ acquire() {
         echo "$$"          > "$SLOT/pid"
         date +%s           > "$SLOT/at"
         printf '%s\n' "$*" > "$SLOT/cmd" 2>/dev/null
-        echo "build-slot: slot $i/$MAX acquired"
+        # PRINT THE WAIT, always, including the zero. The queue's cost was argued from the two
+        # constants in this file — MAX and a "~8 min" build in a comment — and nobody could say what
+        # an agent actually waits, because nothing recorded it. One number per acquisition turns
+        # that into data; a week of logs answers whether MAX=2 is right far better than arithmetic.
+        # Computed HERE and not at the bottom of the loop: read from there it is one poll interval
+        # stale, so a 10 s wait printed as 5 s — a measurement that is wrong by a constant is worse
+        # than none, because it looks precise.
+        echo "build-slot: slot $i/$MAX acquired after $(( SECONDS - started ))s"
         return 0
       fi
     done

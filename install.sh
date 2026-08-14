@@ -139,17 +139,32 @@ _cache_entry=""
 # while the checkout that published the entry kept working because its launchers were already
 # there. An entry published before this fix has no `bin/`, so it is treated as a MISS and rebuilt —
 # that is what heals the ones already on disk, rather than requiring anyone to clear a cache.
-if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ] && [ -d "$_cache_entry/bin" ]; then
-  echo "Toolchain cache HIT ($_digest) — restoring bin/lib instead of building."
-  echo "  from: $_cache_entry"
+# One restore, two callers. The second is the re-check inside the build slot below, and it must be
+# BYTE-FOR-BYTE the same operation as the hit path — a second, hand-written copy of "restore" is how
+# the two drift until one of them stages something the other does not.
+#
+# `cp -Rc` asks APFS to CLONE (copy-on-write) instead of duplicating 176 MB. Not for speed — plain
+# `cp -R` of `bin/lib` measures 0.37 s here and the clone 0.06 s, both irrelevant — but for DISK:
+# there are 92 worktrees on this host and every one of them holds a private copy of the same bytes.
+# It must stay a COPY and never a symlink: `bin/lib/*/native-front/tower/` is read at runtime and
+# editing a staged copy is a normal thing to do here (see the note further up), so a shared symlink
+# would let one agent's experiment change what every other agent runs. Falls back to `cp -R` when
+# the filesystem cannot clone, so this is a saving where available and a no-op where not.
+_restore_from_cache() { # $1 = cache entry dir
   rm -rf "$LIB"
   mkdir -p "$BIN"
-  cp -R "$_cache_entry/lib" "$LIB"
-  for _l in "$_cache_entry"/bin/*; do
+  cp -Rc "$1/lib" "$LIB" 2>/dev/null || cp -R "$1/lib" "$LIB"
+  for _l in "$1"/bin/*; do
     [ -f "$_l" ] || continue
     cp "$_l" "$BIN/$(basename "$_l")"
     chmod +x "$BIN/$(basename "$_l")"
   done
+}
+
+if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ] && [ -d "$_cache_entry/bin" ]; then
+  echo "Toolchain cache HIT ($_digest) — restoring bin/lib instead of building."
+  echo "  from: $_cache_entry"
+  _restore_from_cache "$_cache_entry"
   # The witness below asserts a build RAN; a restore is not a build, so it is skipped rather than
   # faked. What replaces it is the same assertion the build path makes afterwards: the four staged
   # artefacts must be present, and they are checked for both paths further down.
@@ -174,18 +189,49 @@ _stamp_before=""
 # Through the host-wide build slot when it is available: a cache MISS is the expensive path and the
 # only one worth queueing. A cache HIT never reaches here, so restoring costs no wait — which is the
 # composition that matters, since most agents on a shared base will hit.
+#
+# AND THE CACHE IS CONSULTED AGAIN ONCE THE SLOT IS OURS, which is the whole point of this shape.
+# The miss was decided BEFORE queueing, and the wait is minutes: agents rebase onto the same new
+# `main`, compute the same new digest and miss together, so the second one used to wait ~8 minutes
+# for a slot and then rebuild what the first had already published to the shared cache while it
+# waited. Two slots bounded the CONCURRENCY without stopping them from building the SAME SOURCES —
+# which is the thing `scripts/build-slot`'s own header names as the original problem. A herd now
+# costs one build instead of one per pair.
+#
+# The step runs as an exported function rather than a second copy of these lines, so the restore is
+# the same code as the hit path, and it leaves a marker file when it restored: a restore is not a
+# build, so the stamp witness below must be skipped exactly as the hit path skips it. Without the
+# marker this would fail with "sbt reported success but cli/installBin did not run" — correctly, and
+# unhelpfully.
+_slot_restored="$(mktemp -t ssc-install-restored.XXXXXX)"; rm -f "$_slot_restored"
+_slot_step() {
+  if [ -n "$_cache_entry" ] && [ -d "$_cache_entry/lib" ] && [ -d "$_cache_entry/bin" ]; then
+    echo "  another agent published this digest while we waited — restoring, not rebuilding."
+    _restore_from_cache "$_cache_entry"
+    : > "$_slot_restored"
+    return 0
+  fi
+  sbt -no-colors cli/installBin
+}
+export -f _slot_step _restore_from_cache
+export _cache_entry _slot_restored LIB BIN
 if [ -x "$ROOT/scripts/build-slot" ]; then
-  (cd "$ROOT" && "$ROOT/scripts/build-slot" sbt -no-colors cli/installBin)
+  (cd "$ROOT" && "$ROOT/scripts/build-slot" bash -c '_slot_step')
 else
-  (cd "$ROOT" && sbt -no-colors cli/installBin)
+  (cd "$ROOT" && bash -c '_slot_step')
 fi
-_stamp_after=""
-[ -f "$_stamp" ] && _stamp_after="$(_stat_mtime "$_stamp")"
-if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
-    echo "install.sh: sbt reported success but cli/installBin did not run —" >&2
-    echo "  $_stamp was not rewritten, so nothing was staged and bin/lib is whatever it was before." >&2
-    echo "  Anything measured with this tree would be the OLD toolchain." >&2
-    exit 1
+if [ -f "$_slot_restored" ]; then
+  rm -f "$_slot_restored"
+  echo "  restored $(du -sh "$LIB" 2>/dev/null | cut -f1) from the cache — no build was run."
+else
+  _stamp_after=""
+  [ -f "$_stamp" ] && _stamp_after="$(_stat_mtime "$_stamp")"
+  if [ -z "$_stamp_after" ] || [ "$_stamp_after" = "$_stamp_before" ]; then
+      echo "install.sh: sbt reported success but cli/installBin did not run —" >&2
+      echo "  $_stamp was not rewritten, so nothing was staged and bin/lib is whatever it was before." >&2
+      echo "  Anything measured with this tree would be the OLD toolchain." >&2
+      exit 1
+  fi
 fi
 
 # Publish AFTER the witness: a cached failed build would be served to every other worktree.
@@ -237,12 +283,53 @@ fi
 # It is a SEPARATE sbt build (not in the root aggregate), hence its own invocation. Local publish
 # only: whether this plugin should be published for real is an open product question, and until it
 # is, this makes the scaffolds work for anyone who builds ssc from source.
-echo "Publishing the sbt interop plugin locally (ssc new needs it to resolve)..."
-(cd "$ROOT/v1/tools/sbt-plugin" && sbt -no-colors -batch publishLocal) || {
-    echo "install.sh: sbt-plugin publishLocal failed — 'ssc new' will produce projects that cannot" >&2
-    echo "  load their build. See tests/BUGS.md scaffolded-projects-cannot-load-their-build." >&2
-    exit 1
-}
+#
+# IT IS ALSO THE ONLY STEP THAT USED TO RUN UNCONDITIONALLY, and it sits outside the cache branch
+# above — so an install that hit the toolchain cache, and therefore did no building at all, still
+# started a whole second sbt JVM for a separate build. It was additionally the only build step NOT
+# holding a `scripts/build-slot` slot, i.e. the one thing guaranteed to run was the one thing not
+# queued. Measured while asking why a worktree install is expensive.
+#
+# What it produces goes to `~/.ivy2/local`, which is HOST-WIDE: 92 worktrees on this machine were
+# publishing identical bytes to one shared path. So the artefact is skippable exactly when it is
+# already there for the version this build would produce AND nothing under the plugin has changed
+# since — the same "is my output already on disk" question the toolchain cache above asks, answered
+# with mtimes because the plugin is one small project rather than a digest-worth of inputs.
+#
+# NOT simply deleted, and the distinction matters: `ssc new` scaffolds five of six templates with
+# `addSbtPlugin(... sbt-scalascript-interop ...)`, so without the artefact a generated project
+# cannot load its build at all (tests/BUGS.md scaffolded-projects-cannot-load-their-build). The
+# guarantee is preserved; only the repetition is removed. `SSC_SKIP_SBT_PLUGIN=1` skips it outright
+# for someone who knows they will not scaffold.
+_plugin_dir="$ROOT/v1/tools/sbt-plugin"
+_plugin_version="$(sed -n 's/^ThisBuild \/ version *:= *"\(.*\)".*/\1/p' "$_plugin_dir/build.sbt" | head -1)"
+_plugin_ivy="$HOME/.ivy2/local/org.scalascript/sbt-scalascript-interop/scala_2.12/sbt_1.0/$_plugin_version/jars/sbt-scalascript-interop.jar"
+_publish_needed=1
+if [ "${SSC_SKIP_SBT_PLUGIN:-0}" = 1 ]; then
+    _publish_needed=0
+    echo "Skipping the sbt interop plugin publish (SSC_SKIP_SBT_PLUGIN=1) — 'ssc new' scaffolds will"
+    echo "  not resolve it unless it was published earlier."
+elif [ -n "$_plugin_version" ] && [ -f "$_plugin_ivy" ]; then
+    # `find -newer` over the plugin's own sources: any change to them, or to its build definition,
+    # makes the published jar stale and the publish necessary again. Cheap — this is one small
+    # project, and the alternative (start sbt to ask) is the cost being avoided.
+    if [ -z "$(find "$_plugin_dir" -type f \( -name '*.scala' -o -name '*.sbt' -o -name '*.properties' \) -newer "$_plugin_ivy" -print -quit 2>/dev/null)" ]; then
+        _publish_needed=0
+        echo "sbt interop plugin $_plugin_version already published locally and unchanged — skipping."
+    fi
+fi
+if [ "$_publish_needed" = 1 ]; then
+    echo "Publishing the sbt interop plugin locally (ssc new needs it to resolve)..."
+    if [ -x "$ROOT/scripts/build-slot" ]; then
+        (cd "$_plugin_dir" && "$ROOT/scripts/build-slot" sbt -no-colors -batch publishLocal)
+    else
+        (cd "$_plugin_dir" && sbt -no-colors -batch publishLocal)
+    fi || {
+        echo "install.sh: sbt-plugin publishLocal failed — 'ssc new' will produce projects that cannot" >&2
+        echo "  load their build. See tests/BUGS.md scaffolded-projects-cannot-load-their-build." >&2
+        exit 1
+    }
+fi
 
 [ -f "$LIB/standard/ssc.jar" ]  || { echo "Stage did not produce $LIB/standard/ssc.jar" >&2; exit 1; }
 [ -d "$LIB/standard/jars" ]     || { echo "Stage did not produce $LIB/standard/jars/" >&2; exit 1; }
