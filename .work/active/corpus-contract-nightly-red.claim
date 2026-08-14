@@ -1,0 +1,11 @@
+slug: corpus-contract-nightly-red
+branch: feature/corpus-contract-nightly-red
+agent: claude-code
+started: 2026-08-14T21:39:18Z
+heartbeat: 2026-08-14T21:39:18Z
+status: claimed-before-planning
+items: corpus-contract-declared-backend-skips-red-on-all-four-shards backend-jvm-cases-have-no-verdict-on-any-backend-they-name
+paths: file:v2/BUGS.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
