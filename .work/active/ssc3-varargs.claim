@@ -3,9 +3,56 @@ branch: feature/ssc3-varargs
 agent: claude-code
 started: 2026-08-14T07:21:05Z
 heartbeat: 2026-08-14T07:21:05Z
-status: claimed-before-planning
+status: working
 items: SSC3-14b
 paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  SSC3-14b — varargs, `def f(xs: T*)`. `Dataset.of` is called 35 times in the corpus and
+  `std/mapreduce/dataset.ssc:21` declares `def of[T](items: T*)`, which is what blocks the module;
+  `std/ui/data.ssc:43` is the other declarer.
+
+  THE PLAN IS HERE AND NOT IN SPRINT.md BECAUSE `v3/SPRINT.md` IS CLAIMED by
+  `bench-b4-three-version-table`, taken 2026-08-14T07:17Z — live, not stale. Write-before-do is
+  satisfied by this field: it is in git, before the edit. SSC3-14b's entry in SPRINT.md gets
+  corrected when that path frees; posted in the room so its holder can do it first.
+
+  THE RECORDED DIAGNOSIS IN SPRINT.md IS WRONG AND MUST NOT BE ACTED ON. It says "the star is eaten
+  below the parser — in the lexer or in `alphabet/src/Alphabet.scala`" and tells the next reader to
+  dump tokens. The dump was taken, against the built kernel classes: `def total(xs: Int*)` lexes as
+  `TId(Int) TOp(*) TPunct())` — the star is a real token at 1:18 and the lexer never touches it.
+
+  WHAT IS ACTUALLY TRUE, and it is a two-front pair. `SSC3_FRONT=v3` refuses at exactly 1:18,
+  `expected ')', found *` — v3's own `skipType` has no case for the star. The DEFAULT front takes
+  the file, because `v3/.jars/uniml.cp` exists and `Front.default` is uniml when it is registered;
+  uniml then DISCARDS the star at `ScalaSpike.scala:708` inside `skipTypeTail`, deliberately and
+  with a comment saying so. So `Param.tpe` arrives as `Int` and the vararg fact is gone before
+  `UniFront` can see it. My two earlier attempts edited `v3/src/Parser.scala` — the front that does
+  not compile it — which is the same trap `v3-extension-in-trait` recorded one task earlier.
+
+  THE STAR RIDES IN THE TYPE TEXT, no new field on any AST. `SpikeTyped.slots` already REWRITES
+  `tpe.text` for `def.typearg` (`Show` + `A` -> `Show[A]`), so appending `*` there is the shape the
+  file already has; `UniFront.scala:429` carries `p.tpe.map(_.text)` unchanged and needs no edit,
+  which is why it is not in `paths`; v3's own `typeTextOf` reassembles the type from its tokens and
+  produces `Int*` for free once `skipType` stops refusing. `Lower` then keys on
+  `ps.last.tpe.exists(_.endsWith("*"))` at ONE site.
+
+  FOUR EDITS. (1) `ScalaSpike.scala`, in the param loop only, capture the star as a `def.vararg`
+  leaf BEFORE `skipTypeTail` gets it — the roled-leaf precedent that file states for `def.byname`,
+  and leaving `skipTypeTail`'s own case alone so its other callers (return types, patterns) are
+  untouched. (2) `SpikeTyped.slots`, one arm appending `*` to the type it follows. (3)
+  `Parser.skipType`, accept a trailing star so v3's own front stops refusing. (4) `Lower`,
+  `collectVarargs` BEFORE `fillDefaults` and `checkArity` — the order matters, the arity check
+  legitimately rejects `passes 3, it takes 1` until the tail is collected.
+
+  SEMANTICS READ OFF THE TREE, NOT CHOSEN: `std/ui/data.ssc:43` is
+  `def tableRow(cells: TkNode*): List[TkNode] = cells.toList`, so the body already treats a vararg
+  parameter as an ordinary `List[T]`. At Tier 0 `T*` IS `List[T]` and only the call site changes.
+
+  RISK, and it is why uniml is in scope at all: `Param.tpe` text feeds instance resolution
+  (`resolveGivenArgs` unifies type TEXT). A parameter typed `Int*` simply matches no instance, which
+  is correct, but the consumers get checked before the edit rather than after. Touching a SHARED
+  subsystem, so uniml's own test suite runs too — a green v3 corpus is not evidence for uniml.
+
+  MEASUREMENT: N with floors DIFF 3 and CRASH 9, against the same tree minus exactly this change.
+  v3's gates do not cover the corpus, so gates green is not evidence that N held.
+next: capture the star in uniml, then unrefuse it in v3's parser, then collect at the call site
