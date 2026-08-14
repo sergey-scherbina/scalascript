@@ -3024,44 +3024,71 @@ repository has paid for that confusion more than once.
       by hand on 2026-08-11, three days after it could have been.
       *Done when:* a gate runs the bench corpus for a NUMBER (not a timing) and fails when a row
       that computed stops computing. Cheap: `--warmup 1 --reps 1` and check for `BENCH_SINK`.
-- [x] **B4 — the three-version table. TAKEN 2026-08-14 at load 7–68, published as RATIOS for that
-      reason, and Sergiy's call when the alternative was to keep waiting.** The window below load 5
-      never came: ten sibling agents held the machine at 14–68 for six hours. What that costs and
-      what it does not:
-      - **The firm half is the PAIRED v3-vs-v2 table**, because `bench/run.sc` measures every
-        column of a row back-to-back, so two columns of ONE row see one machine state. Eight
-        interleaved rounds, `--reps 30`, one sign test per row. v3 faster **8 of 8** on
-        `arith-loop` (median 0.41), `nested-loop` (0.38) and `tuple-monoid` (0.58); v2 faster
-        **0 of 8** on `list-fold` (2.23 — the tightest row in the run, 1.94–2.32) and
-        `option-chain` (1.38); leaning v2 on `hof-pipeline` (1 of 8) and `recursion-fib` (2 of 8);
-        **`string-concat` is 4 of 8 — parity, and it is left unresolved rather than called.**
-        That settles four of the five rows the previous comparison could not.
-      - **The split is the two designs, not noise.** v3 wins every row whose body is a counted loop
-        over primitives — what the register IR and `Specialize` were built for — and loses every
-        row that lives in closures, cons cells and `Option`/`String` allocation, where v2's VM has
-        runtime work behind it that v3 has not written.
-      - **The v1 column is BIMODAL on three rows and the run shows it.** One round in eight read
-        `ssc` = 0.114 ms on `list-fold` where six read 0.0019 ms — 60× — while the other six
-        columns of that same row moved by 1.4×. Back-to-back measurement is what makes that
-        attributable: a 60× move in one column whose neighbours moved by a third is v1's own JIT
-        deciding differently between runs, not the host. `string-concat` and `tuple-monoid` show
-        the same shape at 4× and 9×. It is also why the paired table, which never divides by the
-        `ssc` cell, is the half to trust.
-      - **The toolchain is PINNED, not stale by accident:** launcher digest `7bcfe0324` (installed
-        from `d6fc3a24b`) for all eight rounds, with `SSC_NO_BUILD_CHECK=1` because the
-        per-invocation staleness check re-hashes the whole tree and cost more than the cell it
-        guards. main moved to `9ebc13413` during the run; `bin/lib` did not.
-      - **The columns run the same bytes, verified for this run:** on the seeded row `option-chain`
-        the emitted wrapper is byte-identical (2363 bytes) for `ssc`, `v2` and `js`. `jvm` differs
-        by design (AtomicLong anti-fold; C2 folds a monotonic seed), so it is the compiled-Scala
-        floor rather than a same-program column. All eight rows compiled on front `F`.
-      *Recorded:* 32 rows in `bench/history.tsv`; tables, method and caveats in `bench/BASELINE.md`.
-      *Not done:* `rust` — a cargo build per row, and a fourth product rather than a third version.
+- [x] **B4 — the three-version table. DONE 2026-08-14, and the quiet host B4 asked for DID arrive**
+      — a fifteen-minute window at load 3–5 after six hours at 14–68. Full tables, method and
+      caveats in [`bench/BASELINE.md`](../bench/BASELINE.md); 64 rows in `bench/history.tsv` (32 at
+      load 7–68, 32 at load 3–10, each carrying its own load).
+      - **Quiet set — five rounds under load 10 end to end, two of them over the whole 36-row
+        corpus.** Paired inside each row, v3's executor is ahead of the v2 VM on **23 of the 33
+        rows both lanes computed**, typically by 2–2.5×, and behind on ten. 5/5 for v3 on
+        `arith-loop` (0.42), `nested-loop` (0.38), `tuple-monoid` (0.58) and `string-concat` (0.83);
+        0/5 on `hof-pipeline` (1.23), `option-chain` (1.45), `recursion-fib` (1.40) and 1/5 on
+        `list-fold` (2.24).
+      - **THE LOADED SET GOT ONE ROW WRONG, AND THAT IS THE METHODOLOGICAL RESULT.** Eight rounds
+        at load 7–68 read `string-concat` as 4-of-8 parity; every quiet round makes it v3 by 1.2×.
+        Load did not bias the row, it DISSOLVED it. Seven of the eight subset rows agree across the
+        two sets, which is what makes the eighth worth naming.
+      - **And the subset was a biased sample by construction** — it was chosen from the rows a
+        previous comparison could not resolve, so four of its eight are rows v2 wins, against ten of
+        thirty-three corpus-wide. "v3 wins counted loops and loses the rest" fits the subset and is
+        contradicted by the corpus: v3 also wins `vector-index` (0.42), `lazylist-take` (0.34),
+        `map-ops` (0.48), `range-sum` (0.52) and `streams-pipeline` (0.47).
+      - **Two bimodal cells, both found because the row's other columns sat still.** Under load,
+        `ssc` read 0.114 ms on `list-fold` in one round of eight where six read 0.0019 — 60× — while
+        the other six columns of that row moved by 1.4×: that is v1's JIT deciding differently
+        between runs, not the host. On the quiet host `list-fold`'s **v2** cell is bimodal
+        (4.81, 4.95, 13.2) while its v3 cell moved 11.1→12.6, which is what flipped that row's one
+        dissenting round.
+      - **Apparatus checked, not inherited:** the emitted wrapper is byte-identical (2363 bytes) for
+        `ssc`, `v2` and `js` on the seeded row `option-chain`; `jvm` differs by design (AtomicLong
+        anti-fold — C2 folds a monotonic seed), so it is the compiled-Scala floor rather than a
+        same-program column. Toolchain PINNED at launcher digest `7bcfe0324` (installed from
+        `d6fc3a24b`) for every round, `SSC_NO_BUILD_CHECK=1`, because the per-invocation staleness
+        check re-hashes the whole tree and cost more than the cell it guards.
+      - *Not done:* `rust` — a cargo build per row, and a fourth product rather than a third version.
+      **FOUND WHILE MEASURING, and it belongs to whoever owns handlers, not to this claim:**
+      `v3/bench-corpus-gate.sh` is **RED** — `effect-multishot STOPPED computing — it produced a
+      number before`. Probed rather than assumed: `ssc3 bench` and the shared bench wrapper through
+      `ssc3 run` refuse it IDENTICALLY with `flatMap needs a List and got the Int 13 — it
+      contributes no elements, so the result would be silently short`, which is `7730f6039
+      fix(v3): flatMap refuses a non-list instead of silently dropping it` doing exactly what it
+      says. So the number that row used to print was a short result, and the gate is right to be
+      red. It needs a decision: give the corpus row's handler its return clause, or declare the row
+      in `KNOWN_BLANK` with that reason. (My first hypothesis — that the gate and the harness have
+      measured different paths since B1 — was FALSE, and testing it is what named the real cause.)
 - [ ] **J1 — read the table before touching the JIT.** Runtime and JIT work is what Sergiy asked
       for and it is LAST on purpose: the one measurement this repository already has says the
       biggest v3 cost is `Exec.invoke` at 13415 bytecodes, which HotSpot never compiles — a fact
       about method SIZE, not about the algorithm. Whether that still dominates is a question for
       B4's table.
+      **B4's table is in (2026-08-14) and it answers a different question than J1 was written to
+      ask.** Three things it says, before anyone opens `Exec.scala`:
+      - **The gap to v1 is two orders of magnitude on the loop rows and NOT uniform**: v3 is 110×
+        `ssc` on `arith-loop` and 133× on `nested-loop`, but *ahead* of v1 on `streams-pipeline`
+        (0.5×), `typeclass-monoid` (0.2×) and `type-lambda-native` (0.4×). A single "the executor is
+        ~100× off" number hides both ends.
+      - **The only mechanism in this repository that has ever closed that gap is emitting JVM
+        bytecode, and it works only where the shape is a counted loop over primitives.**
+        `v2-bytecode` is 2.2× `ssc` on `arith-loop`, 1.0× on `recursion-fib` and `recursion-tco` —
+        and 67× on `hof-pipeline`, 530× on `list-fold`, 1070× on `lazylist-take`. So J3's
+        by-name-seam question is the one the numbers put next, and its expected payoff is bounded to
+        the loop rows; the collection rows pay for the collection runtime whatever executes them.
+      - **v3 is already ahead of the v2 VM on 23 of 33 rows**, so "catch up with v2" is not the
+        available target — v1's JIT is.
+      Still owed from `specs/ssc3-jit.md` §10.1 and now cheap, since a quiet window exists: re-run
+      the **J1b** and **J1c** rows on it. Two of those three may be wins nobody could see, and J1c is
+      a revert that might have been unnecessary. J1d was re-run 2026-08-13 (`4584fe61d`). J1b is
+      claimed as `ssc3-j1b-quiet`.
 
 ## 54 · PLAN FOR 2026-08-09/10 — every remaining typeclass row, in dependency order
 

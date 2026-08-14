@@ -25,86 +25,152 @@ DEFAULT v2 execution lane is `v2-bytecode`; plain `v2` is the `--interpret` refe
 
 ## Three versions side by side — 2026-08-14 (v3/SPRINT.md §55 B4)
 
-**The firm result of this run is the PAIRED table; the ratio table is softer and the ms are softest
-of all.** Eight interleaved rounds, `./bench.sh <row> --backends ssc,ssc-asm,jvm,js,v2,v2-bytecode,v3
---reps 30`, at 1-minute load 7–68 (recorded per round) — not the quiet host B4 asked for, because ten sibling agents
-held the machine there all day and the window never came. What survives that and what does not is a
-property of the harness: `bench/run.sc` measures every column of a row back-to-back, so two columns
-of ONE row see one machine state, while the same column across rounds does not.
+The window B4 asked for — 1-minute load below 5 — did open, at 12:40–12:55, after six hours at
+14–68 with about ten sibling agents on the machine. **The headline tables below are from that
+window.** A second set of rounds was taken while waiting, at load 7–68, and it is kept here because
+comparing the two is what shows which conclusions a loaded host can and cannot support: one of its
+verdicts did not replicate.
+
+Method: `./bench.sh [rows] --backends ssc,ssc-asm,jvm,js,v2,v2-bytecode,v3 --reps 30`, medians over
+rounds. **Quiet set** — five rounds whose load stayed under 10 end to end, two of them over the
+whole 36-row corpus. **Loaded set** — eight interleaved rounds at load 7–68 over an eight-row
+subset. Every column of a row is measured back-to-back, so two columns of ONE row see one machine
+state; the same column across rounds does not.
 
 Since §55 B1 landed (`17fbdf00e`) every column runs the same emitted wrapper, verified for this run
 rather than inherited: on the seeded row `option-chain` the emission is byte-identical (2363 bytes)
 for `ssc`, `v2` and `js`. `jvm` differs by design — C2 constant-folds a monotonic seed, so its
 wrapper reads the seed from an `AtomicLong` sink — which makes `jvm` the compiled-Scala floor rather
-than a same-program column on seeded rows. All eight rows compiled on front `F`.
-Toolchain PINNED for the whole run at launcher digest `7bcfe0324` (installed from `d6fc3a24b`; main
-moved on during the run and `bin/lib` did not).
+than a same-program column on seeded rows. Toolchain PINNED at launcher digest `7bcfe0324`
+(installed from `d6fc3a24b`) for every round, with `SSC_NO_BUILD_CHECK=1`, because the
+per-invocation staleness check re-hashes the whole tree and cost more than the cell it guards.
 
-### v3's executor against the v2 VM — paired inside each row, eight rounds
+### Quiet host, whole corpus — ms/iter, median of two rounds at load 4.8–8.7
+
+Lower is better. `n/a` = the lane produced no number; for `v3` that is three rows, and one of them
+is a live regression rather than a gap — see the note under the table.
+
+| Workload | ssc | ssc-asm | jvm | js | v2 | v2-bytecode | v3 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `arith-loop` | 0.277 | 0.274 | 0.270 | 19.8 | 73.7 | 0.609 | 30.6 |
+| `array-update` | 0.725 | 0.684 | 0.523 | 15.3 | 59.0 | 40.3 | 30.6 |
+| `bool-predicate` | 0.0052 | 0.0052 | 0.00070 | 0.0645 | 0.278 | 0.111 | 0.241 |
+| `effect-multishot` | 1.07 | 1.07 | 0.089 | 0.444 | 0.581 | 0.503 | n/a † |
+| `effect-oneshot` | 0.026 | 0.024 | 0.189 | 4.94 | 0.846 | 0.00056 | 0.162 |
+| `effect-pure` | 0.0033 | 0.0034 | 0.0034 | 0.0036 | 0.730 | 0.050 | n/a |
+| `effect-stream` | 0.0105 | 0.011 | n/a | 0.022 | 13.6 | 12.6 | n/a |
+| `either-chain` | 0.0081 | 0.0080 | 0.0016 | 0.0445 | 0.214 | 0.101 | 0.172 |
+| `float-fold` | 0.0065 | 0.0065 | 0.0053 | 0.0026 | 4.59 | 0.857 | 11.7 |
+| `float-loop` | 1.26 | 1.25 | 1.27 | 0.604 | 65.8 | 1.70 | 28.8 |
+| `hello-world` | 0.00057 | 0.00058 | 0.00050 | 0.000040 | 0.00027 | 0.00015 | 0.00067 |
+| `hof-pipeline` | 0.0018 | 0.0018 | 0.0052 | 0.011 | 0.177 | 0.121 | 0.229 |
+| `instance-field` | 0.259 | 0.523 | 0.0061 | 0.780 | 5.44 | 1.83 | 2.91 |
+| `lambda-call` | 0.244 | 0.245 | 0.245 | 4.29 | 16.4 | 7.66 | 12.4 |
+| `lazylist-take` | 0.0545 | 0.0545 | 0.0525 | 1.21 | 57.8 | 58.2 | 19.4 |
+| `list-fold` | 0.0017 | 0.0017 | 0.00048 | 0.108 | 9.07 ‡ | 0.901 | 11.8 |
+| `literal-match` | 0.0132 | 0.0065 | 0.0079 | 0.101 | 0.824 | 0.382 | 0.230 |
+| `map-ops` | 0.026 | 0.030 | 0.0755 | 0.830 | 2.29 | 2.98 | 1.44 |
+| `mutual-recursion` | 2.29 | 3.34 | 2.20 | 7.99 | 100 | 16.0 | 91.9 |
+| `nested-loop` | 0.258 | 0.258 | 0.254 | 19.2 | 90.8 | 0.524 | 34.3 |
+| `option-chain` | 0.0095 | 0.0109 | 0.00055 | 0.043 | 0.189 | 0.080 | 0.274 |
+| `pattern-match-heavy` | 0.054 | 0.053 | 0.0495 | 0.0515 | 80.7 | 6.95 | 157 |
+| `range-sum` | 0.00094 | 0.00091 | 0.0135 | 0.0265 | 0.708 | 0.418 | 0.367 |
+| `recursion-fib` | 1.19 | 1.18 | 1.31 | 6.61 | 143 | 1.21 | 190 |
+| `recursion-tco` | 0.0265 | 0.0265 | 0.0255 | 0.508 | 5.37 | 0.0265 | 5.88 |
+| `streams-pipeline` | 0.0039 | 0.0037 | 0.000057 | 0.00053 | 0.00415 | 0.0027 | 0.00195 |
+| `string-concat` | 0.0915 | 0.206 | 0.0885 | 0.783 | 3.05 | 1.05 | 2.31 |
+| `string-split` | 0.188 | 0.144 | 0.0845 | 0.411 | 1.52 | 1.02 | 1.33 |
+| `tuple-monoid` | 2.12 | 2.04 | 0.086 | 11.5 | 43.0 | 19.1 | 24.9 |
+| `type-lambda-native` | 0.00056 | 0.00058 | 0.000008 | 0.00012 | 0.00040 | 0.00011 | 0.00024 |
+| `type-lambda-placeholder` | 0.0034 | 0.0034 | 0.0012 | 0.033 | 0.109 | 0.0565 | 0.101 |
+| `typeclass-fold` | 0.812 | 0.843 | 0.0027 | 0.081 | 0.179 | 0.108 | 0.325 |
+| `typeclass-monoid` | 0.0013 | 0.0012 | 0.0000050 | 0.00029 | 0.00175 | 0.00135 | 0.00026 |
+| `var-expr-init` | 2.38 | 2.32 | 2.34 | 41.1 | 122 | 62.0 | 54.1 |
+| `var-expr-init-int` | 3.09 | 3.04 | 3.30 | 51.9 | 152 | 43.8 | 72.8 |
+| `vector-index` | 0.855 | 0.837 | 0.506 | 11.0 | 53.2 | 34.4 | 22.4 |
+
+† **`effect-multishot`'s blank is a REGRESSION, not a capability gap, and `v3/bench-corpus-gate.sh`
+is RED on it right now** — "STOPPED computing — it produced a number before". Probed rather than
+guessed: `ssc3 bench` and the shared wrapper through `ssc3 run` refuse it *identically* with
+`flatMap needs a List and got the Int 13 — it contributes no elements, so the result would be
+silently short`, which is `7730f6039 fix(v3): flatMap refuses a non-list instead of silently
+dropping it` doing what it says. So the number this row used to print was a short result. It needs
+a decision from whoever owns handlers: give the corpus row's handler its return clause, or declare
+the row in `KNOWN_BLANK` with that reason. `effect-pure` and `effect-stream` are the two declared
+blanks and want a library, not a compiler change.
+
+‡ `list-fold`'s `v2` cell is BIMODAL on a quiet host: 4.81, 4.95 and 13.2 ms across rounds while the
+`v3` cell of the same row moved 11.1 → 12.6. The median above is the two-round median; the paired
+table below reports every round.
+
+### v3's executor against the v2 VM — paired inside each row, quiet set
 
 Both lanes are measured inside the same row, so each round is one paired trial and the count is a
-sign test. This is the half of the run that does not divide by anything load-sensitive.
+sign test. Five rounds for the eight subset rows, two for the rest. **v3 is faster on 23 of the 33
+rows both lanes computed.**
 
-| Workload | rounds v3 faster | median v3/v2 | reading |
-| --- | --- | --- | --- |
-| `arith-loop` | **8 of 8** | 0.41 | v3 ~2.4× faster |
-| `nested-loop` | **8 of 8** | 0.38 | v3 ~2.6× faster |
-| `tuple-monoid` | **8 of 8** | 0.58 | v3 ~1.7× faster |
-| `list-fold` | 0 of 8 | 2.23 | v2 ~2.2× faster, and the tightest row in the run (1.94–2.32) |
-| `option-chain` | 0 of 8 | 1.38 | v2 faster |
-| `hof-pipeline` | 1 of 8 | 1.52 | v2 faster — leaning, not established |
-| `recursion-fib` | 2 of 8 | 1.32 | v2 faster — leaning, not established |
-| `string-concat` | 4 of 8 | 1.17 | **parity — unresolved, and left that way** |
+| v3/v2 | Workload(s) |
+| ---: | --- |
+| 0.15–0.20 | `typeclass-monoid`, `effect-oneshot` |
+| 0.34–0.44 | `lazylist-take`, **`nested-loop` 5/5**, `literal-match`, **`arith-loop` 5/5**, `vector-index`, `float-loop`, `var-expr-init` |
+| 0.47–0.53 | `streams-pipeline`, `map-ops`, `var-expr-init-int`, `array-update`, `range-sum`, `instance-field` |
+| 0.58–0.60 | **`tuple-monoid` 5/5**, `type-lambda-native` |
+| 0.75–0.93 | `lambda-call`, `either-chain`, **`string-concat` 5/5**, `bool-predicate`, `string-split`, `type-lambda-placeholder` |
+| 1.10–1.45 | `recursion-tco`, **`hof-pipeline` 0/5**, `mutual-recursion`, **`recursion-fib` 0/5**, **`option-chain` 0/5** |
+| 1.81–2.55 | `typeclass-fold`, `pattern-match-heavy`, **`list-fold` 1/5**, `hello-world`, `float-fold` |
 
-**The split is not noise, it is the two designs.** v3 wins every row whose body is a counted loop
-over primitives — what its register IR and `Specialize` were built for — and loses every row that
-spends its time in closures, cons cells and `Option`/`String` allocation, where v2's VM has runtime
-work behind it that v3 has not written. `string-concat` sits between the two and the run says so
-instead of picking a side.
+### The loaded set, and the verdict of its that did not replicate
 
-### Ratio to `ssc` (v1 interp + bytecode JIT = 1.00), median over 8 rounds
+Eight interleaved rounds at load 7–68 over the eight-row subset, taken while the window was closed:
 
-Spreads are `[min..max]` over rounds. Where a spread crosses an order of magnitude the row is
-telling you about the DENOMINATOR, not about the lane — see the bimodality note below.
+| Workload | loaded, v3 faster | loaded median | quiet, v3 faster | quiet median |
+| --- | --- | ---: | --- | ---: |
+| `arith-loop` | 8 of 8 | 0.41 | 5 of 5 | 0.42 |
+| `nested-loop` | 8 of 8 | 0.38 | 5 of 5 | 0.38 |
+| `tuple-monoid` | 8 of 8 | 0.58 | 5 of 5 | 0.58 |
+| `list-fold` | 0 of 8 | 2.23 | 1 of 5 | 2.24 |
+| `option-chain` | 0 of 8 | 1.38 | 0 of 5 | 1.45 |
+| `hof-pipeline` | 1 of 8 | 1.52 | 0 of 5 | 1.23 |
+| `recursion-fib` | 2 of 8 | 1.32 | 0 of 5 | 1.40 |
+| **`string-concat`** | **4 of 8 — parity** | 1.17 | **5 of 5 — v3** | 0.83 |
 
-| Workload | ssc-asm | jvm | js | v2 | v2-bytecode | v3 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `arith-loop` | 1.05 | 1.00 | 68.7 | 284 | 2.29 | 134 |
-| `nested-loop` | 1.01 | 1.15 | 73.1 | 356 | 3.06 | 139 |
-| `recursion-fib` | 1.02 | 1.11 | 5.61 | 119 | 0.99 | 158 |
-| `hof-pipeline` | 1.03 | 1.82 | 3.88 | 60.5 | 42.4 | 74.3 |
-| `option-chain` | 1.13 | 0.05 | 4.70 | 20.1 | 8.53 | 28.3 |
-| `string-concat` | 2.17 | 0.91 | 8.56 | 30.6 | 14.9 | 34.9 |
-| `tuple-monoid` | 0.94 | 0.04 | 5.54 | 20.2 | 8.93 | 12.0 |
-| `list-fold` | 1.00 | 0.22 | 61.6 | 3077 † | 530 † | 6637 † |
+Seven of the eight agree. `string-concat` does not: at load 7–68 it read as a coin flip, and on a
+quiet host it is v3 by 1.2× in every round (0.76, 0.76, 0.83, 0.83, 0.84). **Load did not bias the
+row, it dissolved it** — which is the honest failure mode to expect and the reason the loaded set is
+published beside the quiet one rather than instead of it.
 
-† `list-fold`'s numbers are the clearest case of a bimodal denominator: in one round `ssc` read
-0.114 ms where six other rounds read 0.0019 ms — 60× — while the other six columns of that same row
-moved by 1.4×. Since all seven columns of a row are measured back-to-back, a 60× move in one column
-whose neighbours moved by a third is **v1's own JIT deciding differently on different runs**, not the
-host. `string-concat` and `tuple-monoid` show the same shape at 4× and 9×. Read `list-fold`'s v2/v3
-row from the paired table above, where the `ssc` cell never enters.
+**And the subset itself was a biased sample, by construction.** It was chosen from the rows a
+previous comparison could not resolve, so it over-represents rows where the two lanes are close —
+four of its eight are rows v2 wins, against ten of thirty-three corpus-wide. A conclusion of the
+form "v3 wins counted loops and loses everything else" fits the subset and is contradicted by the
+corpus: v3 also wins `vector-index`, `lazylist-take`, `map-ops`, `range-sum` and `streams-pipeline`.
 
 ### What the table says
 
 1. **v1's JIT is the fastest thing here, and on counted loops it reaches compiled Scala.**
-   `arith-loop` and `nested-loop` put `ssc` at 1.00 and 1.15 of `jvm`. Neither v2's VM nor v3's
-   executor is within two orders of magnitude on those rows.
-2. **Emitting JVM bytecode is the only mechanism in this repository that has ever closed the gap** —
-   and only where the shape is a counted loop over primitives. `v2-bytecode` is 2.3–3.1× v1 on
-   `arith-loop`/`nested-loop` and 0.99× on `recursion-fib`, but 42× on `hof-pipeline` and 530× on
-   `list-fold`. So bytecode emission is not a general answer: the collection rows are paying for the
-   collection runtime, whatever executes them.
-3. **v3 versus v2 is two answers, not one** — see the paired table. This settles four of the five
-   rows the previous comparison could not resolve and leaves `string-concat` explicitly open.
+   `arith-loop` 0.277 against `jvm` 0.270; `nested-loop` 0.258 against 0.254; `float-loop` 1.26
+   against 1.27. On `range-sum` it beats compiled Scala by 14× (0.00094 against 0.0135).
+2. **Emitting JVM bytecode is the only mechanism in this repository that has ever closed the gap,
+   and only where the shape is a counted loop over primitives.** `v2-bytecode` is 2.2× `ssc` on
+   `arith-loop`, 2.0× on `nested-loop`, 1.0× on `recursion-fib` and 1.0× on `recursion-tco` — and
+   67× on `hof-pipeline`, 530× on `list-fold`, 1070× on `lazylist-take`. The collection rows pay
+   for the collection runtime whatever executes them.
+3. **v3's executor is ahead of v2's VM on most of the corpus** (23 of 33), typically by 2–2.5×, and
+   behind on ten rows, notably `float-fold` (2.6×), `hello-world` (2.5×), `pattern-match-heavy`
+   (2.0×) and `list-fold` (2.2×). Against v1 it is two orders of magnitude behind on the loop rows
+   (110× on `arith-loop`, 133× on `nested-loop`) and *ahead* on three (`streams-pipeline` 0.5×,
+   `typeclass-monoid` 0.2×, `type-lambda-native` 0.4×).
 
 ### What this run does NOT say
 
-- **No absolute claim from the eight rounds.** `bench/history.tsv` carries the ms with the load
-  recorded per row; comparing them against the 2026-06-15 baseline below compares a quiet host with
-  a load-40 one.
 - **`rust` is not in the table.** It builds a cargo project per row, and it is a fourth product
   rather than a third version.
+- **Two rounds is two rounds.** The 28 rows outside the subset carry a two-round quiet sign test
+  (p ≈ 0.25 if unanimous); the eight subset rows carry five. Rows near 1.0 — `type-lambda-placeholder`
+  at 0.93, `bool-predicate` at 0.87, `recursion-tco` at 1.10 — are not called by this run.
+- **The `ssc` column is bimodal under load.** In one loaded round of eight it read 0.114 ms on
+  `list-fold` where six read 0.0019 — 60× — while the other six columns of that row moved by 1.4×.
+  Back-to-back measurement is what makes that attributable to v1's JIT rather than to the host.
 
 ## Wall-clock baselines (`./bench.sh`)
 
