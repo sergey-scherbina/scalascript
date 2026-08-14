@@ -324,7 +324,17 @@ check_identity() {
     # data-shaped, which is precisely the kind an output differential catches and a unit test of the
     # cache would not.
     notag="$(v3/ssc3 exec --no-tag-cache "$f" 2>&1)"
-    if [ "$on" != "$notag" ]; then
+    # SSC3-J4d: a SEVENTH arm. `prepare`'s identity fast path decides whether the derived tables —
+    # the constant pool, the function table, the prim table and the closure lane's compiled units —
+    # are rebuilt for this module. A mis-keyed memo hands a program ANOTHER module's tables, which
+    # is a wrong answer with no diagnostic, so it is checked the same way as the others.
+    noprep="$(v3/ssc3 exec --no-prepare-cache "$f" 2>&1)"
+    if [ "$on" != "$noprep" ]; then
+      echo "  FAIL $name — the PREPARE cache changed the output:"
+      diff <(printf '%s\n' "$noprep") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-prepare-cache, right = default."
+      fail=1
+    elif [ "$on" != "$notag" ]; then
       echo "  FAIL $name — the TYPE-TAG CACHE changed the output:"
       diff <(printf '%s\n' "$notag") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-tag-cache, right = default."

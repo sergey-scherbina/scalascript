@@ -129,6 +129,9 @@ object Exec:
     * mid-run would leave half a module compiled, so `Cli` sets it once from the command line. */
   private[ssc3] def useClosures(on: Boolean): Unit =
     closureLane = on
+    // The memo has to go with it: `prepare` builds `compiled` only when this is on, so a lane
+    // switched after a prepare would otherwise run with tables built for the other one.
+    preparedOwner = null
     compiled = new Array[Array[Op]](0)  // force `prepare` to rebuild rather than serve the old lane
 
   private var constPool: Array[Value] = new Array[Value](0)
@@ -147,7 +150,29 @@ object Exec:
     * exactly the same pool sizes in one process, which `Cli` does not create — one program is
     * loaded, prepared and run. Named here rather than left for someone to find.
     */
+  // SSC3-J4d. `prepare` runs at the top of EVERY `callFunc` — once per function call and once per
+  // closure application — and its guard read `m.consts.length`, `m.funcs.length` and
+  // `m.prims.length`. All three are `List`, so all three are O(n): a corpus program walks 6 to 32
+  // cons cells on every call before deciding it has nothing to do. `hof-pipeline` walks 32,
+  // `list-fold` 17.
+  //
+  // The fast path is the module's IDENTITY, the same key and the same argument as the type-tag cache
+  // below: `Module` is an immutable case class, so one reference is one set of tables.
+  //
+  // IT ALSO CLOSES A LATENT HOLE. The length guard rebuilt only when a length DIFFERED, so two
+  // different modules whose consts, funcs and prims happened to match in count would have shared the
+  // first one's tables — a wrong-program answer with no diagnostic. Reference identity cannot do
+  // that: a different module always rebuilds.
+  private var preparedOwner: Module | Null = null
+  private var prepareCacheOn: Boolean = true
+
+  private[ssc3] def usePrepareCache(on: Boolean): Unit =
+    prepareCacheOn = on
+    preparedOwner = null
+
   private def prepare(m: Module): Unit =
+    if prepareCacheOn && (preparedOwner eq m) then return
+    preparedOwner = if prepareCacheOn then m else null
     if constPool.length != m.consts.length
        || funcTable.length != m.funcs.length
        || primTable.length != m.prims.length then
