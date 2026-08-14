@@ -23,6 +23,109 @@ Newest first.
 
 
 
+## build-rust-indexof-on-string — indexOf on a String takes the LIST lowering, and String has no `iter`
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — the repro is four lines, below
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 61eaefc57
+     repro: none
+     confirmed: yes -->
+
+Routed from `INBOX.md` on 2026-08-14. The reporter's section is theirs, in their words; the
+mechanism and the line number are mine, read off the walker.
+
+**Reproduced on current main** — the reporter could not re-check their own report ("a fresh detached
+worktree does not bootstrap"), so this is the missing verification:
+
+```scala
+def main(): Unit =
+  val s: String = "abc</head>def"
+  val i = s.indexOf("</head>")
+  println(i)
+main()
+```
+
+- `ssc run` → `3`
+- `ssc-tools emit-rust` → `let i = (s.iter().position(|__e| *__e == "</head>".to_string())…)`
+- `ssc-tools build-rust` → rc=101, `error[E0599]: no method named iter found for struct String`
+
+Reporter: "The list lowering for `indexOf` is being applied to a String receiver. Rust's own
+suggestion (`chars()`) is not the fix — that would index by codepoint, not by the substring asked
+for; the substring case wants `str::find`. WHERE IT BIT: injecting a `<script>` before `</head>` in
+a served HTML page. Either lowering is fine by me. Refusing at compile time with 'indexOf on a
+String is not supported' would also be an improvement over emitting code that cannot build."
+
+**The site is `RustCodeWalk.scala:3148`.** The arm matches `x.indexOf(v)` for every receiver except
+an Option or a Range, so a String receiver takes the Vec lowering. Adding `isStringExpr(qual)` as a
+third exclusion and emitting the string form is the shape of the fix.
+
+**One trap for whoever writes it, worth more than the arm itself:** `str::find` answers a BYTE
+offset and Scala's `indexOf` answers a CHARACTER index. They agree for ASCII and diverge for
+anything else, so `q.find(&v).map(|i| i as i64).unwrap_or(-1)` is right for the reporter's HTML case
+and silently wrong for a non-ASCII haystack — which is the same class of defect as the one that got
+this file its `.expect()` and panic arms today. `char_indices` is the honest form.
+
+## build-rust-concat-list-element-with-toplevel-val — `parts(0) + SEP` emits `String + String`, which Rust has no impl for
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — the repro is four lines, below
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 61eaefc57
+     repro: none
+     confirmed: yes -->
+
+Routed from `INBOX.md` on 2026-08-14. The reporter's section, including their narrowing table, is
+theirs; the mechanism and the line number are mine.
+
+**Reproduced on current main:**
+
+```scala
+val SEP: String = "-"
+def main(): Unit =
+  val parts: List[String] = List("a", "b")
+  println(parts(0) + SEP)
+main()
+```
+
+- `ssc run` → `a-`
+- `ssc-tools emit-rust` → `crate::runtime::_println((parts[(0i64) as usize].clone() + SEP));`
+- `ssc-tools build-rust` → rc=101, `error[E0308]: expected &str, found String`
+
+The reporter narrowed it themselves, and the table is the useful part — it is the ORIGIN of the left
+operand that decides, not the arity and not the list:
+
+| expression                                   | build-rust |
+|---|---|
+| `a + SEP` where `val a: String = "x"`        | ok — emitted as `format!` |
+| `a + SEP` where `val a: String = parts(0)`   | FAILS |
+| `parts(0) + SEP`                             | FAILS |
+| `parts(0) + "-" + parts(1)` (literal middle) | ok |
+| `a + SEP + b` (three plain locals)           | ok |
+
+Reporter: "Workaround is to keep every concatenation to exactly two operands and avoid a top-level
+`val` on the right — which is a rule no author could guess from the source."
+
+**The site is `RustCodeWalk.scala:3650`.** The `format!` lowering fires when
+`isStringExpr(t) || ctx.localStrings.contains(name)` holds for EITHER operand. `parts(0)` is a
+list-index expression the walker does not classify as a string, and `SEP` is a TOP-LEVEL val, which
+`ctx.localStrings` does not carry — so neither side qualifies, the arm is skipped, and the numeric
+`+` emits `String + String`. That is exactly why the reporter's table moves with the origin of the
+operands rather than with their count.
+
+Two candidate fixes, and the table decides between them rather than taste: teach the string test
+that an index into a `List[String]` is a string, and/or give top-level `val`s of a string type the
+same registry `ctx.localStrings` gives locals. The second alone would fix rows 1 and 3 and leave
+row 2, so the first is the one the reporter's own data asks for.
+
 ## toint-on-a-non-integer-diverges — toInt on a non-integer aborts on run and silently yields 0 on build-rust; HALF FIXED
 
 <!-- status: open
