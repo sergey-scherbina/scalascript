@@ -7,6 +7,64 @@ grepping for status.
 
 Newest first.
 
+## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: none — open defect -->
+
+**A member that exists NOWHERE, on a String or an Int receiver, is not refused: it evaluates to a
+closure and the program prints it.** Two lines:
+
+```scalascript
+def main(): Unit = println("m: " + "a".nosuch)
+```
+
+```text
+v2 legacy front   m: <closure>      ← silent wrong answer
+v2 F front        m: <closure>      ← silent wrong answer
+int               [ERROR] [line 1, col 36] No method 'nosuch' on StringV(a)
+```
+
+**Both v2 fronts agree with each other and disagree with the golden lane**, so this is not a front
+divergence — it is the shared member-dispatch path for builtin receivers, and neither front is the
+place to look first.
+
+**Narrowed by five probes, which is what makes this filable rather than a note.** The hole is not
+"unknown members"; it is unknown members reached WITHOUT parentheses on a BUILTIN receiver:
+
+| probe | v2 (both fronts) | int |
+| --- | --- | --- |
+| `"a".nosuch` | `m: <closure>` ❌ | refuses |
+| `42.nosuch` | `m: <closure>` ❌ | refuses |
+| `"a".nosuch()` | refuses: `__method__: no di…` ✅ | refuses |
+| `Box("x").nosuch` (case class) | refuses: `` `Box.nosuch` was … `` ✅ | refuses |
+| `List(1,2).nosuch` | refuses: `` `Cons.nosuch` was … `` ✅ | refuses |
+
+So constructed types already refuse correctly and so does the call form; adding `()` to the very
+same expression turns a silent wrong answer into a clean refusal. That asymmetry is the lead.
+
+**How it was found, because the route matters.** While checking that removing
+`extension-call-in-a-def-body`'s `known-red` was honest, an old absorption probe changed answer from
+`m: T` to `m: <closure>`. The first reading — "the single-line-extension fix in `41ae217cd` caused
+it" — is WRONG, and one probe killed it: `"a".nosuch`, with no extension and no same-named `def`
+anywhere in the file, behaves identically. Before the absorption fixes the top-level `def tagged`
+was being reached as a real member, which MASKED this; now the name resolves to nothing and the
+general hole is what answers. Two defects, one hiding the other, and the second only became visible
+when the first was fixed.
+
+**Not the same as `v2-local-parameterless-def-not-invoked`** (`df5fe52f3`), which was about a
+parameterless def not being invoked at its own call site. Here there is no such def to invoke: the
+receiver simply has no such member, and the lane still produces a value.
+
+**Acceptance test:** the two-line program above must be refused on the v2 lane, with the position
+and the receiver named as `int` already does. A conformance case would carry it once it refuses.
+
 
 
 
