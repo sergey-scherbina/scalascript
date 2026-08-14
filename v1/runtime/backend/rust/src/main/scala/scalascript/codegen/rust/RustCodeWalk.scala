@@ -98,6 +98,7 @@ object RustCodeWalk:
     val unloweredExtensions = collectAllExtensionMembers(module).filterNot((n, _) => _extensionOf.contains(n))
     _typeAliases = collectPlainTypeAliases(module)
     _moduleSignals = collectModuleSignals(module)
+    _moduleStrings = collectModuleStrings(module)
     // Collect names of defs that carry a `T ! EffectName` return type so
     // call sites can thread the `_eff` parameter automatically.
     val effectfulDefs: Set[String] = defs.flatMap(d => defEffectName(d).map(_ => d.name.value)).toSet
@@ -450,7 +451,7 @@ object RustCodeWalk:
         defName = mName,
         localStrings = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
           .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
-          .toSet)
+          .toSet ++ _moduleStrings)
       val bodyRs  = renderTerm(d.body, bodyCtx).getOrElse("unimplemented!()")
       s"    #[allow(dead_code)]\n    pub fn $mName(&self, $pList) -> $retTRs { $bodyRs }"
     }.mkString("\n")
@@ -724,6 +725,8 @@ object RustCodeWalk:
    *  representation, and the representation is what this target has. */
   /** Signals declared beside the defs rather than inside one. See `collectModuleSignals`. */
   private var _moduleSignals: Map[String, String] = Map.empty
+  /** Top-level `val`s DECLARED `String`. See `collectModuleStrings`. */
+  private var _moduleStrings: Set[String] = Set.empty
   private var _typeAliases: Map[String, m.Type] = Map.empty
   /** Constructor name → the ENUM that owns it, for a variant used as a TYPE.
    *
@@ -1501,7 +1504,7 @@ object RustCodeWalk:
       val stringParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
         .collect { case p if p.decltpe.exists { case m.Type.Name("String") => true; case _ => false } => p.name.value }
         .toSet
-      val lstrings = collectLocalStrings(d.body) ++ stringParams
+      val lstrings = collectLocalStrings(d.body) ++ stringParams ++ _moduleStrings
       // Params declared `Any` hold a `crate::value::Value`. Read off the signature — the boundary
       // never guesses.
       val anyParams = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -1807,6 +1810,29 @@ object RustCodeWalk:
    *  concatenating it emitted Rust's `String + String` — which needs `&str` on the
    *  right — instead of `format!`. The value's PROVENANCE was the whole difference:
    *  `val plain = "s1"` on the line above compiled. */
+  private def declaresString(t: Option[m.Type]): Boolean = t.exists {
+    case m.Type.Name("String") => true
+    case _                     => false
+  }
+
+  /** Top-level `val NAME: String = …`, which `collectLocalStrings` cannot see because it walks a
+   *  def BODY. `val SEP: String = "-"` at module level was invisible to the concat test, so
+   *  `parts(0) + SEP` emitted `String + String` — an impl Rust does not have — while the same
+   *  expression with a literal in it compiled. Mirrors `collectModuleSignals`, which solved the
+   *  identical "declared beside the defs rather than inside one" problem for signals.
+   */
+  private def collectModuleStrings(module: ast.Module): Set[String] =
+    def fromContent(c: ast.Content): List[m.Defn.Val] = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) =>
+        node.tree.collect { case v: m.Defn.Val => v }.toList
+      case _ => Nil
+    def fromSection(s: ast.Section): List[m.Defn.Val] =
+      s.content.flatMap(fromContent) ++ s.subsections.flatMap(fromSection)
+    module.sections.flatMap(fromSection).toList.collect {
+      case v if declaresString(v.decltpe) =>
+        v.pats.collect { case m.Pat.Var(m.Term.Name(n)) => n }
+    }.flatten.toSet
+
   private def collectLocalStrings(body: m.Term): Set[String] =
     val strs = scala.collection.mutable.Set.empty[String]
     def isStr(rhs: m.Term): Boolean = rhs match
@@ -1835,11 +1861,20 @@ object RustCodeWalk:
       case _                                          => false
     def walk(t: m.Tree): Unit =
       t match
+        // A DECLARED type counts on its own, before any reading of the right-hand side. This is the
+        // same discipline as `stringParams` above — the declaration says so — and without it a
+        // binding erased what the source had stated: `val a: String = parts(0)` was not a string
+        // here, so `a + SEP` fell to Rust's `+` and rustc answered `expected &str, found String`
+        // while the identical `val a: String = "x"` compiled. Reported by rozum with a five-row
+        // table that moves with the ORIGIN of the operand, which is exactly this line.
+        // (build-rust-concat-list-element-with-toplevel-val.)
         case v: m.Defn.Val => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => if isStr(v.rhs) then strs += n
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            if declaresString(v.decltpe) || isStr(v.rhs) then strs += n
           case _                               => ()
         case v: m.Defn.Var => v.pats match
-          case List(m.Pat.Var(m.Term.Name(n))) => if isStr(v.body) then strs += n
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            if declaresString(v.decltpe) || isStr(v.body) then strs += n
           case _                               => ()
         case _ => ()
       t.children.foreach(walk)
@@ -2580,7 +2615,14 @@ object RustCodeWalk:
         // was known to rustc and not to us. `ssc_to_int` is implemented for i64, f64 and String, so
         // it is right whichever the receiver turns out to be — the same trick as the `Any`
         // coercions, and it beats a refusal because the program keeps working.
-        if isStringToIntExpr(qual) then Right(s"($q.parse::<i64>().unwrap_or(0))")
+        // A STRING GOES THROUGH THE HELPER TOO, since 2026-08-14, and that is the whole fix for
+        // `toint-on-a-non-integer-diverges`. The direct form here was `parse::<i64>().unwrap_or(0)`,
+        // so `"abc".toInt` was 0 on this lane and fatal on `run` — the same source, the same input,
+        // two answers, no diagnostic. `_to_int` panics naming the operation and the input, which is
+        // what `run` does and what Scala means; keeping a second implementation of the semantics
+        // inline is how the two drifted apart in the first place. Only the NUMERIC receiver keeps a
+        // direct form, because `as i32 as i64` cannot fail.
+        if isStringToIntExpr(qual) then Right(s"crate::runtime::_to_int(&$q)")
         else if isNumericExpr(qual, ctx) then Right(s"($q as i32 as i64)")
         else Right(s"crate::runtime::_to_int(&$q)")
       }
@@ -2589,7 +2631,9 @@ object RustCodeWalk:
     // an invalid cast — `"1.5".toDouble` did not compile at all. Reported from rozum.
     case m.Term.Select(qual, m.Term.Name("toDouble" | "toFloat")) =>
       renderTerm(qual, ctx).map { q =>
-        if isStringExpr(qual) then s"($q.trim().parse::<f64>().unwrap_or(0.0))"
+        // Same change as `toInt` above and for the same reason: the inline form swallowed a bad
+        // parse as 0.0 while `run` throws. The twin was not in the report — it sat one line below.
+        if isStringExpr(qual) then s"crate::runtime::_to_double(&$q)"
         else if isNumericExpr(qual, ctx) then s"($q as f64)"
         else s"crate::runtime::_to_double(&$q)"
       }
@@ -3168,6 +3212,35 @@ object RustCodeWalk:
 
     // xs.indexOf(v) → position, as an i64, and -1 when absent — Scala's contract, not Rust's
     // `Option<usize>`.
+    // A STRING receiver is not a Vec, and it took this arm until 2026-08-14: `s.indexOf("</head>")`
+    // emitted `s.iter().position(…)` and rustc answered `no method named iter found for struct
+    // String`, so the program could not build while `run` answered 3. Reported from rozum, who hit
+    // it injecting a `<script>` before `</head>` in a served page.
+    //
+    // `str::find` ANSWERS A BYTE OFFSET and Scala's `indexOf` answers an index into the string's
+    // UTF-16 code units. They agree for ASCII and diverge for everything else, so the byte offset is
+    // converted rather than returned: `encode_utf16().count()` over the prefix is exactly Scala's
+    // number, including for a surrogate pair. Returning `find`'s offset directly would have been
+    // right for the reporter's HTML and silently wrong for a non-ASCII haystack — the same class of
+    // defect as the `unwrap_or(0)` this file carried for `toInt`.
+    //
+    // `&str` bindings rather than `let __h = $q`: taking the value would MOVE a String local and
+    // the next read of it becomes E0382, which is a defect this backend has already shipped once.
+    // A char argument and the two-argument form are left to the arm below, unchanged.
+    case m.Term.Apply.After_4_6_0(
+        m.Term.Select(qual, m.Term.Name("indexOf")), args
+    ) if args.values.size == 1 && !isRangeExpr(qual) && {
+          def strOp(t: m.Term) = isStringExpr(t) || (t match
+            case m.Term.Name(n) => ctx.localStrings.contains(n)
+            case _              => false)
+          strOp(qual) && strOp(args.values.head)
+        } =>
+      for
+        q <- renderTerm(qual, ctx)
+        v <- renderTerm(args.values.head, ctx)
+      yield s"{ let __h: &str = &$q; let __n: &str = &$v; " +
+            "__h.find(__n).map(|__b| __h[..__b].encode_utf16().count() as i64).unwrap_or(-1) }"
+
     case m.Term.Apply.After_4_6_0(
         m.Term.Select(qual, m.Term.Name("indexOf")), args
     ) if args.values.size == 1 && !isOptionExpr(qual, ctx) && !isRangeExpr(qual) =>

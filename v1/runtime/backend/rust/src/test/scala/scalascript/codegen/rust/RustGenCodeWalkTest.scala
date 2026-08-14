@@ -165,7 +165,10 @@ class RustGenCodeWalkTest extends AnyFunSuite:
       |""".stripMargin
     val g = assets(src)("src/generated/ssc_program.rs")
     assert(g.contains("(n as i64)"))
-    assert(g.contains("parse::<i64>().unwrap_or(0)"), s"toInt parse path missing in:\n$g")
+    // The String path is `_to_int`, not an inline parse: `parse::<i64>().unwrap_or(0)` answered 0
+    // for a non-integer while `run` throws, so the semantics moved into the runtime helper where
+    // there is one implementation of them (toint-on-a-non-integer-diverges).
+    assert(g.contains("crate::runtime::_to_int("), s"toInt parse path missing in:\n$g")
     assert(g.contains("(n as f64)"), s"toDouble missing in $g")
     assert(g.contains("(n as f64)"), s"toFloat missing in $g")
 

@@ -20,19 +20,25 @@
 # identical `unwrap_or(0.0)`, and fixing the reported one alone would have left it. It is asserted
 # here so the pair stays fixed together.
 #
-# HALF OF THIS DEFECT IS STILL OPEN, and the rows below say which half by what they ask. The silent
-# zero has TWO emission paths, which this gate found by failing:
+# THE SILENT ZERO HAD TWO EMISSION PATHS, and this gate is what established that — it went red on a
+# fix I had already called done:
 #
-#   receiver's type not statically known   ->  `_to_int(x)`  ->  the runtime template   FIXED
-#   walker knows the receiver is a String  ->  `("abc".to_string().parse::<i64>().unwrap_or(0))`
-#                                                                  emitted INLINE       OPEN
+#   receiver's type not statically known   ->  `_to_int(x)`, the runtime template
+#   walker knows it is a String            ->  `("abc".to_string().parse::<i64>().unwrap_or(0))`
+#                                              emitted INLINE, never reaching the helper
 #
-# So `def f(s: String) = s.toInt` stops on both lanes now, and `"abc".toInt` written straight into
-# the call still answers 0 on the Rust lane. The inline sites are RustCodeWalk.scala:2559, :2568,
-# :2978 and :4372-4373; that file is under another agent's claim today, so the second half stays
-# OPEN in the routed entry (BUGS `toint-on-a-non-integer-diverges`) rather than being half-done in
-# silence. Every row here is one that passes — a gate that ships red is not a gate — and the open
-# half is named in the entry, which is the record people read, not only in a comment.
+# Both now route through `_to_int` / `_to_double`, which is why there are rows for BOTH spellings:
+# a fix to either one alone passes half of them.
+#
+# TWO MORE ROZUM REPORTS ARE ASSERTED HERE, because they are the same lane disagreement in a
+# different method and they were fixed in the same pass:
+#
+#   `s.indexOf("</head>")`   took the LIST lowering (`s.iter().position(…)`) and did not compile
+#   `parts(0) + SEP`         emitted `String + String`, an impl Rust does not have
+#
+# The `indexOf` rows include a NON-ASCII haystack on purpose: `str::find` answers a byte offset and
+# Scala answers a UTF-16 index, so a fix that returns `find`'s number is right for ASCII and quietly
+# wrong for anything else. `"héllo</head>x"` is 5 in Scala and 6 in bytes, and the row pins 5.
 #
 # COST: three cargo builds, measured 9 s standalone on a WARM cargo cache — the crates carry no
 # external dependencies, which is why it is nothing like `build-rust-refuses-loudly` (74.8 s, one of
@@ -61,7 +67,7 @@ echo "── a numeric conversion answers the same on both lanes"
 run_says() { # $1 name, $2 expected output (newlines as |), $3 source
   local name=$1 want=$2 src=$3 out
   printf '%s\n' "$src" > "$sandbox/$name.ssc"
-  out=$(timeout 200 "$ssc" run "$sandbox/$name.ssc" 2>&1 | head -6 | tr '\n' '|')
+  out=$(timeout 200 "$ssc" run "$sandbox/$name.ssc" 2>&1 | head -12 | tr '\n' '|')
   if [[ "$out" == "$want" ]]; then
     echo "  ✓ run  $name: $out"
   else
@@ -72,14 +78,22 @@ run_says() { # $1 name, $2 expected output (newlines as |), $3 source
 
 # THE GOOD PATH, and it is one program on purpose: every row that does NOT stop the process shares a
 # binary, because each cargo build is ~30 s and only a row that ABORTS needs one of its own.
-GOOD='def main(): Unit =
+GOOD='val SEP: String = "-"
+def main(): Unit =
   println("8".toInt)
   println("1.5".toDouble)
   println("abc".charAt(0).toInt)
   println("ab".toList.length)
   println("ab".toList.map(c => c.toInt).sum)
+  val h: String = "abc</head>def"
+  println(h.indexOf("</head>"))
+  val u: String = "héllo</head>x"
+  println(u.indexOf("</head>"))
+  println(u.indexOf("zzz"))
+  val parts: List[String] = List("a", "b")
+  println(parts(0) + SEP)
 main()'
-GOOD_WANT='8|1.5|97|2|195|'
+GOOD_WANT='8|1.5|97|2|195|3|5|-1|a-|'
 
 run_says good "$GOOD_WANT" "$GOOD"
 
@@ -109,7 +123,7 @@ else
       tail -3 "$sandbox/$name.build" | sed 's/^/        /'
       fails=$((fails + 1)); return
     fi
-    out=$(cd "$sandbox" && timeout 200 "./$name" 2>/dev/null | head -6 | tr '\n' '|'); rc=$?
+    out=$(cd "$sandbox" && timeout 200 "./$name" 2>/dev/null | head -12 | tr '\n' '|'); rc=$?
     # The binary's own exit code, not the pipeline's — a panic is the POINT of two of these rows.
     (cd "$sandbox" && timeout 200 "./$name" >/dev/null 2>&1); rc=$?
     if [[ "$out" == "$want" && "$rc" -eq "$wantrc" ]]; then
@@ -127,6 +141,13 @@ else
   # other. A PARAMETER receiver is not incidental: it is what routes through `_to_int`, and the
   # literal spelling still takes the inline path (see the header).
   rust_says bad-toint '' 101 "$BAD_INT"
+
+  # THE OTHER EMISSION PATH, and the one a user actually writes. A literal receiver is typed for the
+  # walker, so it used to take an INLINE `parse::<i64>().unwrap_or(0)` and never reached the runtime
+  # helper at all — the first version of this gate went red here, on a fix I had already called
+  # done. Both spellings now route through `_to_int`.
+  rust_says bad-toint-literal '' 101 'def main(): Unit = println("abc".toInt)
+main()'
 
   # THE TWIN NOBODY REPORTED.
   rust_says bad-todouble '' 101 "$BAD_DBL"

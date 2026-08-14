@@ -173,7 +173,7 @@ class RustGenR23Test extends AnyFunSuite:
     val g = gen(src)
     assert(g.contains(""".split(",").map(|p| p.to_string()).collect::<Vec<String>>()"""))
     assert(g.contains(".trim().to_string()"))
-    assert(g.contains(".parse::<i64>().unwrap_or(0)"))
+    assert(g.contains("crate::runtime::_to_int("))
 
   test("String.split(sep, limit) supports Vec-like chaining"):
     val src =
@@ -192,7 +192,8 @@ class RustGenR23Test extends AnyFunSuite:
         |```
         |""".stripMargin
     val g = gen(src)
-    assert(g.contains("\"42\".to_string().parse::<i64>().unwrap_or(0)"))
+    // `_to_int` rather than an inline parse — see the note in RustGenCodeWalkTest.
+    assert(g.contains("crate::runtime::_to_int(&\"42\".to_string())"))
 
   test("Numeric conversions and String+number concat lower to expected Rust casts"):
     val src =
