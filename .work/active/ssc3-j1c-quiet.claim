@@ -1,0 +1,11 @@
+slug: ssc3-j1c-quiet
+branch: feature/ssc3-j1c-quiet
+agent: claude-code
+started: 2026-08-14T13:10:59Z
+heartbeat: 2026-08-14T13:10:59Z
+status: claimed-before-planning
+items: SSC3-J1c
+paths: file:v3/src/Exec.scala file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md file:v3/bench-ab.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
