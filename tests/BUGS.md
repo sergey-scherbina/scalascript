@@ -2870,6 +2870,74 @@ row stays cheap. That reproducer is already well-formed and was reduced by DECLA
 ARM — see `a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration` for why
 that matters — so whoever takes this starts from it rather than from the module.
 
+### 2026-08-15 — WHERE THE CODE IS, and it is not where a grep puts you
+
+Static reading only, no build, so none of this depends on host load. Reproduced first on the
+installed launcher (stale, built from `9dd11248a`) to confirm the entry is still live:
+
+```bash
+SSC_NO_BUILD_CHECK=1 ./bin/ssc info --front-report <worktree>/std/ui/content.ssc
+# …/std/ui/content.ssc	GAP	unbound global: (global __u0) is neither a top-level def nor an @-cell
+```
+
+**F is `specs/v2.2-p6.5-fsub.ssc`** — staged as `tower/bin/fsub.ssc`, run through
+`tower/bin/ssc1-run-fsub.ssc0`, selected by `frontIsF` in
+`v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala` (`nativeFrontLayout`, ~line 900).
+Its placeholder machinery is **token-level**, lines 1421-1478: `parseArgExpr` → `phArgWrap` →
+`wrapPh`, with `phScanArg`/`phScan` counting and `renameArgPh`/`renamePhD` renaming.
+
+**`v3/src/Lower.scala` IS NOT F, and it is where the obvious search lands you.** It declares
+`package ssc3`; the CLI calls `_root_.ssc.Lower`. It is `ssc3`'s own front, AST-level, with a
+completely different implementation of the same rule (`hasPh`/`replacePh`/`wrapPhArg`/
+`expandPlaceholders`, ~1974-2034). A repo grep for `__u` restricted to `v2/ v3/` finds ONLY that
+file — `specs/` is not in the path — so the natural first move puts you in the wrong front. Two
+things confirm it is not the lane under test: `v3/ssc3 ir std/ui/content.ssc` does not even reach
+lowering (`std/ui/primitives.ssc:74:26: expected an expression, found =` — its parser has no
+`opaque type`), and its two walks are symmetric anyway (see below). **Ask which front compiles the
+file before reading any front.**
+
+**Three directions closed by reading, so nobody re-opens them:**
+
+1. **`v3/src/Lower.scala` is irrelevant** — wrong front, above.
+2. **In that file, `hasPh` and `replacePh` cover exactly the same node set** (`Name`, `Bin`, `Neg`,
+   `Not`, `Call`→args only, `MethodCall`→receiver+args, `Apply`→fn+args). "The detector and the
+   rewriter drifted apart" is refuted there. It also means `__u0` cannot be born unbound in that
+   front: `wrapPhArg` builds its `Lambda` binder from the same `n` it just counted.
+3. **The verdict path is not the bug.** `GAP` is decided in `RunNativeV2` ~line 273: F's IR is run
+   through `validateNoReader` (~756-766), which walks a de Bruijn IR and reports
+   `(global X)` for any name that resolved to a global and matches no def. The reference front then
+   compiles the same file, which is what turns `BOTH-UNBOUND` into `GAP`. So `__u0` really is
+   emitted as a GLOBAL by F — the name was not in the local environment at emit time.
+
+**Where to look next, and the one asymmetry found so far.** `wrapPh` does two walks over what must
+be the same token region:
+
+```
+def wrapPh(ts, n, env, cx) = parseExpr(renameArgPh(ts), 0, pushU(0, n, env), cx) …"(lam " ++ n ++ …
+```
+
+`renameArgPh` renames each `_` to `__u<k>`, k left-to-right; `pushU(0, n, env)` binds exactly
+`__u0..__u(n-1)`; the emitted lambda is `(lam n …)`. **Any token region the renamer covers but the
+counter does not produces a `__u<k>` with no binder — which is exactly this symptom.** The two
+walks share `isArgEnd`, `isOpenB`, `isCloseB`, `isWild` and agree on all of them except one:
+
+- `phScanTok` treats **token 28** as `depth + 1` (and sets `binder`).
+- `renamePhTok` has **no case for token 28**, so depth is unchanged there — while both treat
+  **token 29** as a closer through `isCloseB` (which lists 22, 51 and 29; `isOpenB` lists only 21
+  and 50, so 29's opener is handled nowhere but in `phScanTok`).
+
+A renamer whose depth is one low after a `28 … 29` region stops at the wrong `isArgEnd` and can run
+past this argument, renaming a `_` that belongs to a later one — outside the lambda it emits.
+**That is a candidate, not a finding, and it looks MASKED:** token 28 also sets `binder = true`, and
+`phArgWrap` bails to plain `parseExpr` whenever `binder`, so `wrapPh` should never run on a region
+containing a 28. Confirm or kill the mask before building on it — it is the only structural
+asymmetry between the two walks, so if the mask holds, the divergence is in the region's EXTENT
+rather than its depth arithmetic, and the next probe is to print what `phScanArg` counts versus
+what `renameArgPh` rewrites for the failing argument.
+
+**Not claimed further:** `specs/v2.2-p6.5-fsub.ssc` is held by `f-cons2-no-arm`, so the fix belongs
+to whoever holds F. This section is the handoff.
+
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
 <!-- status: fixed
