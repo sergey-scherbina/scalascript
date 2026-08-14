@@ -2607,6 +2607,18 @@ by measurement rather than by taste.**
       *For whoever retries it:* the array-of-closures dispatch is what lost. A CHAINED design, each
       closure calling its successor instead of returning to a loop, is what the literature actually
       measures. Different experiment, not a tweak.
+      **RE-MEASURED ON A QUIET HOST 2026-08-14 (load 1.5–3.4) AND CONFIRMED — 0 of 25 on all four
+      rows.** `specs/ssc3-jit.md` §10.1 asked for this because a verdict taken at load 69–96 might
+      be a win nobody could see; J1b turned out to be exactly that (`7fe1b7525`), and this one is
+      the opposite. 25 alternating pairs, one binary, matched control inside every pair, order
+      rotated (`v3/bench-ab.sh`): controls 8, 10, 11, 11 of 25 against n/2 = 12.5, experiment 0 of
+      25 everywhere, and **no per-pair ratio among the 100 pairs crosses 1.0**. Means:
+      `nested-loop` 1.95×, `arith-loop` 1.79×, `list-fold` 1.17×, `recursion-fib` 1.12× slower with
+      closures. Both lanes answer identically on all four rows.
+      *One correction to the entry above:* `list-fold` is NOT the control that cannot move — it
+      moves, 17 %. `Invoke` is delegated, but the row's non-invoke instructions still go through
+      `ops(i)(regs)`. The cost is proportional to dispatch density, not switched on by it, which is
+      the same mechanism stated more precisely. Rows in `bench/history.tsv`.
 
 - [x] **SSC3-J1c — the two-bank frame: built, measured, REVERTED from the executor.** The mechanism
       worked — `arith-loop` went from ~4 087 MB of young generation to **~391 MB, 10.5× less**, with
@@ -2631,6 +2643,13 @@ is dispatch-bound and its dispatch is already good.** The next thing to try is t
 cheaper dispatch but FEWER of them: superinstructions, fusing `Bin(Lt); BrIf` and `Const; Bin` at
 load time, which keep the exact loop J0c tuned and push fewer instructions through it. That is the
 one §3 J1 item never built, and now the only one the evidence points at.
+**Amended 2026-08-14 by the quiet-host re-runs, and the through-line survives them intact.** J1b —
+which is *also* a cheaper-dispatch change, not a replacement — moved from "bought NOTHING" to a win
+at p 9.5e-7 (`7fe1b7525`), and J2 — which replaces the dispatch — lost every one of 100 pairs when
+re-measured quiet. So the split is sharper than it was: **making the existing dispatch cheaper wins
+twice, replacing it loses twice.** J1c is the one row still owed a quiet re-run, and it is the
+expensive one: its lane was reverted out (−241 lines) of a file that has since gained +373, so it is
+a port rather than a flag. Budget the port, not the measurement.
 
 - [x] **SSC3-J1d — copy propagation.** `cf8cd36e4`. `<something> → r` followed by `Move(d, r)`, with
       `r` written and read exactly once in the function, folds into one instruction.

@@ -225,6 +225,44 @@ design — each closure calling its successor directly instead of returning to a
 a monomorphic-per-site call and is the shape the literature actually measures. That is a different
 experiment, not a tweak to this one.
 
+#### J2 RE-MEASURED ON A QUIET HOST — 2026-08-14, and this one CONFIRMS
+
+§10.1 asked whoever got a quiet machine to re-run J1b, J1c and J1d, on the reasoning that a verdict
+taken at load 45–96 might be a win nobody could see. J1b came back a **win** and overturned the
+board (`7fe1b7525`). J2 was re-run the same day at load **1.5–3.4** — the quietest window in this
+file's history — and it comes back **the same way it went in, only much louder**:
+
+25 alternating pairs per workload, one binary, `--closures` against the default, with a matched
+control (ON vs ON) measured inside every pair and the order rotated — `v3/bench-ab.sh`, the harness
+J1b was settled with:
+
+| workload | control (of 25) | closures won | mean ON/OFF | per-pair range |
+|---|---|---|---|---|
+| `nested-loop` | 8 | **0 of 25** | 0.516 | 0.432–0.662 |
+| `arith-loop` | 10 | **0 of 25** | 0.565 | 0.521–0.819 |
+| `list-fold` | 11 | **0 of 25** | 0.854 | 0.810–0.906 |
+| `recursion-fib` | 11 | **0 of 25** | 0.893 | 0.841–0.915 |
+
+Every control sits near 12.5, so the host was steady and the experiment column is readable. **No
+per-pair ratio in any of the 100 pairs crosses 1.0** — on a quiet host the effect is larger than the
+instrument's noise, which is why the sign test is unanimous rather than merely significant. Both
+lanes answer identically on all four rows (`VInt(499999500000)`, `VInt(249500250000)`,
+`VInt(550000)`, `VInt(832040)`), so this is two execution strategies on the same program.
+
+**One correction to the reading above.** `list-fold` was called "the control that could not move,
+and did not" — 4 of 8 at load 69–96. It moves: 0 of 25 and ~17 % slower. The delegation of `Invoke`
+is real, but an `invoke`-bound row still runs its non-invoke instructions through `ops(i)(regs)`,
+and it pays there. The cost is proportional to dispatch density rather than switched on by it —
+1.8–1.9× on the two tight-loop rows, 1.12–1.17× on the two call-bound ones — which is a cleaner
+statement of the same mechanism, not a different one.
+
+**And the methodological point cuts both ways, which is the reason to write this down.** The same
+day produced one loaded verdict that INVERTED under a quiet re-run (J1b: ratio 1.13 ON-slower became
+1.131 ON-faster) and one that was confirmed and sharpened (this). A measurement taken under load is
+not wrong — it is *unreliable*, and unreliable means you cannot tell which of the two you have
+without re-running it. That is the argument for the re-runs, and it is not an argument for
+distrusting every loaded number.
+
 ### 8.2 · Frame pooling: refuted before it was written
 
 `recursion-fib` is the slowest row in the corpus and the one nothing has moved, and `callFunc`
@@ -353,27 +391,38 @@ the ratios must not be quoted as a regression.
 
 ### 10.1 · Where the ladder actually stands, stated plainly
 
-Five attempts, and the score is one clear win:
+Five attempts. **The score below was written from measurements taken at host load 42–96, and three
+of the five have since been re-run on a quiet machine — one of them reversed.** The `loaded` column
+is what this file said when the ladder was built; the `quiet` column is what a re-run found.
 
-| | mechanism | did the mechanism work? | did the clock move? |
-|---|---|---|---|
-| J0a/b | derived tables, `invoke` split | yes — never-compiled → compiled | **yes**, 7 of 8 pairs |
-| J0c | `step` under the inline limit | yes — `inline (hot)` | part of the same win |
-| J1b | `Exec` reads `kind` | yes | no, 5 of 10 |
-| J2 | closure compilation | yes | **worse**, 1 of 8 |
-| J1c | unboxed long bank | yes — 10.5× less allocated | **worse**, 3 of 8 |
-| J1d | copy propagation | yes — 20 % fewer instructions | unmeasurable here |
+| | mechanism | did the mechanism work? | clock, LOADED | clock, QUIET re-run |
+|---|---|---|---|---|
+| J0a/b | derived tables, `invoke` split | yes — never-compiled → compiled | **yes**, 7 of 8 pairs | not re-run |
+| J0c | `step` under the inline limit | yes — `inline (hot)` | part of the same win | not re-run |
+| J1b | `Exec` reads `kind` | yes | no, 5 of 10 | **WIN — 20 of 20, p 9.5e-7** (`7fe1b7525`) |
+| J2 | closure compilation | yes | **worse**, 1 of 8 | **confirmed worse — 0 of 25 on all four rows** |
+| J1c | unboxed long bank | yes — 10.5× less allocated | **worse**, 3 of 8 | **still owed** — see below |
+| J1d | copy propagation | yes — 20 % fewer instructions | unmeasurable here | leans to the change, 12/15 and 13/15 (`4584fe61d`) |
 
 **The one thing that worked was making the existing dispatch cheaper to run, not replacing it and
-not feeding it less.** Everything since has moved its own target and left the clock alone or worse.
+not feeding it less** — and the quiet re-runs did not disturb that reading, they sharpened it. J1b,
+which is *also* a cheaper-dispatch change, joined J0 on the winning side; J2, which replaces the
+dispatch, lost by 1.8–1.9× on the tight-loop rows with every one of 100 pairs agreeing.
 
-**So the honest recommendation is to stop optimising this executor on this host.** Not because the
-remaining ideas are bad — loop-invariant hoisting and superinstructions both reduce dispatch counts
-further, and both are cheap — but because **nothing under about 2× can be told from noise here**, and
-four consecutive measurements have proved that rather than assumed it. The next person with a quiet
-machine should re-run the `bench/history.tsv` rows for J1b, J1c and J1d before writing any new code:
-two of those three may already be wins nobody can see, and one of them is a revert that might have
-been unnecessary.
+**The recommendation this section used to give — "stop optimising this executor on this host,
+because nothing under about 2× can be told from noise here" — is WITHDRAWN, and the reason is
+measured.** That floor was a property of a loaded host, not of the method: at load 1.5–3.4 the
+matched control (identical code both sides) sits at 8–11 of 25 while the experiment is 25 of 25, and
+J1b's 11.6 % effect was resolved at p 9.5e-7. The correct instruction is **do not measure while the
+machine is busy**, and read the control column before the experiment column.
+
+**Still owed: J1c**, and it is the expensive one. Its executor lane was reverted out (`ee63d02a6`,
+−241 lines) of a file that has since gained +373, so re-running it is a PORT into a changed design
+rather than a flag, and a mis-ported lane would be measured as if it were the idea. Two things bear
+on whether that is worth doing, and they point in opposite directions: J1b shows a loaded verdict
+can invert, while J2's quiet re-run confirms the mechanism J1c's revert blamed — both changes route
+execution off the 236-byte `step` that J0c got inlined, and both lost. Anyone taking it should
+budget the port, not the measurement.
 
 **Kept from this attempt:** `Specialize.longBanks` and its `--banks` gate. The analysis is correct,
 hand-checked and asserted, and it is what any future unboxing needs on day one — including the
