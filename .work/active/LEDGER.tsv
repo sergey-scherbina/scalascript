@@ -1,6 +1,5 @@
-# generation: 2033
+# generation: 2034
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 gate-server-identity	claude-code	2026-08-14T09:08:42Z	a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own	file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/serve-view-frontend-v2-smoke.sh
 rust-toint-lane-parity	claude-code	2026-08-14T11:02:33Z	toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges build-rust-indexof-on-string build-rust-concat-list-element-with-toplevel-val	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR23Test.scala file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md
-v2-bytecode-map-ops	claude-code	2026-08-14T13:43:09Z	v2-bytecode-slower-than-its-own-vm-on-map-ops	file:v2/BUGS.md file:bench/history.tsv file:TASK/v2-perfomance.md
