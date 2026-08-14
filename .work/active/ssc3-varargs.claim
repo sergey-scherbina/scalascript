@@ -5,7 +5,7 @@ started: 2026-08-14T07:21:05Z
 heartbeat: 2026-08-14T07:21:05Z
 status: working
 items: SSC3-14b
-paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/front-capability-gate.sh
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/front-capability-gate.sh file:v3/BUGS.md
 scope: |
   SSC3-14b — varargs, `def f(xs: T*)`. `Dataset.of` is called 35 times in the corpus and
   `std/mapreduce/dataset.ssc:21` declares `def of[T](items: T*)`, which is what blocks the module;
@@ -76,4 +76,16 @@ scope: |
   WIDENED 2026-08-14 to `v3/front-capability-gate.sh`, BEFORE the edit. The gate is
   self-maintaining and demands its own declared list be corrected in the commit that fixes a row,
   which is the only reason it is touched: four names come out of KNOWN_uniml, nothing else changes.
-next: drop the four fixed rows from KNOWN_uniml, finish the gates, then push
+  WIDENED AGAIN 2026-08-14 to `v3/BUGS.md`, BEFORE the edit, to FILE A DEFECT THIS WORK FOUND AND
+  DID NOT CAUSE. `bench-corpus-gate` is RED on `effect-multishot`, and the proof it is not mine is a
+  control: the identical refusal appears at the parent commit with uniml REBUILT there (stamp
+  ef81729f, not my dec0f0be), and the kernel-front A/B is 0 vs 0 across the change while `Lower` —
+  the only half of this change either front shares — is common to both.
+
+  MY FIRST PROBE OF IT MEASURED NOTHING and I nearly drew a conclusion from it: running the fixture
+  directly gives rc=0 and ZERO BYTES *by construction*, because `bench/corpus/effect-multishot.ssc`
+  defines `workload(seed)` and never calls or prints it — the harness does. Empty-vs-empty is not an
+  A/B. The reading that counts uses the gate's own mechanism, `ssc3 bench --warmup 1 --reps 1` with
+  `BENCH_SINK`, plus a POSITIVE control (`effect-oneshot` returns 1) so a 0 means the row and not
+  the apparatus.
+next: file the effect-multishot entry, then release
