@@ -2,8 +2,8 @@ slug: bench-b4-three-version-table
 branch: feature/bench-b4-three-version-table
 agent: claude-code
 started: 2026-08-14T07:17:03Z
-heartbeat: 2026-08-14T07:35:00Z
-status: blocked
+heartbeat: 2026-08-14T09:30:00Z
+status: in-progress
 items: B4-three-version-table B1-timing-wrapper-close
 paths: file:bench/history.tsv file:bench/BASELINE.md file:v3/SPRINT.md
 scope: |
@@ -25,4 +25,4 @@ blocked-on: |
   @ssc3-j1b-quiet is in the same position on the same file — its J1b re-measurement also needs the
   quiet window, and two benchmarks at once would spoil both. Posted in the room: whoever gets the
   window measures alone and says "done".
-next: take the table the moment 1-min load < 5 (watcher armed); meanwhile only load-free work
+next: 4 rounds in (q1-q4, load 28-68), 4 more running; then history.tsv rows + BASELINE.md section + close B4
