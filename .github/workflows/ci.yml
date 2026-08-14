@@ -352,6 +352,16 @@ jobs:
       - name: build-rust refuses loudly
         run: tests/e2e/build-rust-refuses-loudly.sh
 
+      # Beside the gate above because it needs the same thing — cargo — and for the same reason it
+      # is not on the push path. Two user reports from rozum, one line apart in the Rust runtime
+      # template: `"abc".toInt` was 0 on this lane and fatal on `run`, and `"ab".toList` was a
+      # closure on `run` and a list here. Same shape both times — same source, same input, two
+      # answers, no diagnostic. The rows assert the halves that are FIXED (the `_to_int` path and
+      # `String.toList`); the inline `parse::<i64>().unwrap_or(0)` emissions in RustCodeWalk are
+      # still open and named in the entry. 9 s warm; the crates pull no dependencies.
+      - name: a numeric conversion answers the same on both lanes
+        run: tests/e2e/rust-toint-parity-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

@@ -122,16 +122,39 @@
       |// The i64 arm truncates through i32 and widens back, preserving the Int wraparound the direct
       |// lowering has: this helper must not quietly mean something different from `x as i32 as i64`.
       |#[allow(dead_code)]
+      |// A NUMERIC CONVERSION THAT FAILS STOPS THE PROGRAM, on this lane as on the others. Both
+      |// parses used to be `unwrap_or(0)` / `unwrap_or(0.0)`, so `"abc".toInt` was 0 here and fatal
+      |// on `run` — the same source, the same input, two answers, no diagnostic. Reported from rozum
+      |// (INBOX `toint-on-a-non-integer-diverges`), where the natural round-trip check
+      |// `s.toInt.toString == s` worked on this lane and killed the program on the other.
+      |//
+      |// `run` is the oracle and it throws, matching Scala, so the quiet lane is the one that moved.
+      |// The message names the operation AND the input, which the run lane's does not — a panic
+      |// naming neither is how a 0 becomes a bug report three days later.
+      |//
+      |// THIS LEAVES NO TOTAL FORM ON THIS LANE, and that is filed rather than papered over:
+      |// `toIntOption` exists on the run lane and is not lowered for Rust, so a program that wants
+      |// to ASK whether a string is a number has nothing here yet.
+      |#[allow(dead_code)]
+      |fn ssc_parse_int(s: &str) -> i64 {
+      |    s.trim().parse::<i64>()
+      |        .unwrap_or_else(|_| panic!("String.toInt: invalid integer: {:?}", s))
+      |}
+      |#[allow(dead_code)]
+      |fn ssc_parse_double(s: &str) -> f64 {
+      |    s.trim().parse::<f64>()
+      |        .unwrap_or_else(|_| panic!("String.toDouble: invalid number: {:?}", s))
+      |}
       |pub trait SscToInt { fn ssc_to_int(self) -> i64; }
       |impl SscToInt for i64    { fn ssc_to_int(self) -> i64 { self as i32 as i64 } }
       |impl SscToInt for f64    { fn ssc_to_int(self) -> i64 { self as i32 as i64 } }
-      |impl SscToInt for String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
-      |impl SscToInt for &str   { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |impl SscToInt for String { fn ssc_to_int(self) -> i64 { ssc_parse_int(&self) } }
+      |impl SscToInt for &str   { fn ssc_to_int(self) -> i64 { ssc_parse_int(self) } }
       |// Reference arms so the CALLER can borrow. `_to_int(s)` took the String, and a body that read
       |// `s` again was E0382 — `s.toInt.toString == s` did not compile while the same check through
       |// two local copies did. Reported from rozum. Borrowing costs nothing and a clone would have
       |// allocated on every conversion.
-      |impl SscToInt for &String { fn ssc_to_int(self) -> i64 { self.trim().parse::<i64>().unwrap_or(0) } }
+      |impl SscToInt for &String { fn ssc_to_int(self) -> i64 { ssc_parse_int(self) } }
       |impl SscToInt for &i64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
       |impl SscToInt for &f64    { fn ssc_to_int(self) -> i64 { *self as i32 as i64 } }
       |// A CHARACTER converts to its code point — `'a'.toInt` is 97 and `'9'.toInt` is 57, not 9.
@@ -155,9 +178,9 @@
       |pub trait SscToDouble { fn ssc_to_double(self) -> f64; }
       |impl SscToDouble for f64    { fn ssc_to_double(self) -> f64 { self } }
       |impl SscToDouble for i64    { fn ssc_to_double(self) -> f64 { self as f64 } }
-      |impl SscToDouble for String { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
-      |impl SscToDouble for &str   { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
-      |impl SscToDouble for &String { fn ssc_to_double(self) -> f64 { self.trim().parse::<f64>().unwrap_or(0.0) } }
+      |impl SscToDouble for String { fn ssc_to_double(self) -> f64 { ssc_parse_double(&self) } }
+      |impl SscToDouble for &str   { fn ssc_to_double(self) -> f64 { ssc_parse_double(self) } }
+      |impl SscToDouble for &String { fn ssc_to_double(self) -> f64 { ssc_parse_double(self) } }
       |impl SscToDouble for &i64    { fn ssc_to_double(self) -> f64 { *self as f64 } }
       |impl SscToDouble for &f64    { fn ssc_to_double(self) -> f64 { *self } }
       |#[allow(dead_code)]

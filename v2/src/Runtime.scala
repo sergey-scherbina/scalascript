@@ -2260,6 +2260,22 @@ object Prims:
         case (StrV(s), "getBytes",    List(StrV(enc))) =>
           listOf(s.getBytes(enc).map(b => IntV((b & 0xff).toLong)).toList)
         case (StrV(s), "toCharArray", Nil)              => listOf(s.toCharArray.map(c => StrV(c.toString)).toList)
+        // A STRING'S CHARACTERS, and the elements are CharV rather than one-char strings. This
+        // dispatcher had `toList` for a list, an Option, a Set, a Map, a LazyList and an
+        // ArrayBuffer, and none for a String — so `"ab".toList` matched nothing, fell into the
+        // `__method__` eta fallback and became a function value. Reported from rozum (INBOX
+        // `toint-on-a-char-and-tolist-on-a-string`): it printed `<closure>` and everything
+        // downstream died with `no dispatch for .map on <closure>`, which reads like a user error in
+        // the lambda and is not one. It refuses loudly since `2e7ad72dc`; this is the missing
+        // feature behind the refusal.
+        //
+        // CharV, NOT StrV, because the oracle says so and because the arithmetic depends on it:
+        // `--v1` answers `List(a, b)` and `"ab".toList.map(c => c.toInt).sum` = 195 = 'a' + 'b'.
+        // `CharV extends IntV(c.toLong)`, so an element renders as the character and converts to its
+        // code point, which is also what the Rust lane's `SscToInt for char` arm answers. The
+        // neighbouring `toCharArray` yields one-char STRINGS, whose `.toInt` would throw; that
+        // divergence is older than this fix and is filed, not quietly changed here.
+        case (StrV(s), "toList", Nil)                   => listOf(s.map(c => CharV(c)).toList)
         case (StrV(s), "matchPrefix", List(StrV(pat))) =>
           val m = java.util.regex.Pattern.compile(pat).matcher(s)
           if m.lookingAt() then DataV("Some", Array[Value](StrV(m.group()))) else DataV("None", Array.empty[Value])
