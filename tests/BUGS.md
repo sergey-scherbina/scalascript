@@ -3473,6 +3473,78 @@ Note this is NOT the same defect as `smoke-suite-over-its-own-budget`, though bo
 over budget (627.6 s and 629.1 s of 600 s). That one is about total wall time with every check
 green; this is two checks going red for being sized against the wrong host.
 
+## a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator — measured over 75 checks
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     confirmed: yes
+     gate: tests/e2e/smoke-guard-headroom.sh (to be written — the ratio is computable without running the suite) -->
+
+**The successor to `smoke-check-guards-sized-by-local-time`, which is FIXED and whose fix was not
+enough.** That entry raised `run-lane-flags-are-flags` from a 60 s guard to 180 s because 60 s sat at
+~85 % of the check's own cost. Correct, and it moved the check from *certain* flake to *coin flip*:
+its baseline is 56.5 s, so the new guard is **3.2×**, and on 2026-08-14 it timed out again.
+
+**The number, computed from the repo's own two sources** — `timeoutMs` in `scripts/smoke-ci.ssc` and
+the measured cost in `tests/smoke-baseline.tsv` (column 1 is deciseconds; the column sums to 699.3 s,
+which is the `sum-seconds` header, so the unit is not a guess). 75 checks carry both:
+
+| ratio | check | baseline | guard | 2026-08-14 |
+|---|---|---|---|---|
+| **2.7×** | `stub-does-not-serialise` | 22.6 s | 60 s | **TIMED OUT in 3 of 4 runs** |
+| 3.0× | `mixed-numeric-comparison` | 59.5 s | 180 s | — |
+| 3.0× | `import-alias` | 39.4 s | 120 s | — |
+| **3.2×** | `run-lane-flags-are-flags` | 56.5 s | 180 s | **TIMED OUT in 2 of 4** |
+| **3.3×** | `entry-auto-invoke-once` | 36.6 s | 120 s | **TIMED OUT in 1 of 4** |
+| 3.4× | `v2-indent-layout` | 17.8 s | 60 s | — |
+| 5.3×–… | the other 69 | | | none timed out |
+
+**The three that timed out are ranked 1st, 4th and 5th tightest out of 75.** Nothing above 3.4× timed
+out at all. That is the finding: the guards are ceilings on a check's *standalone* time, but the
+suite runs on a host where ten agents are building, and the inflation is measured at **2.5–7×**.
+
+Standalone on the same tree, load 23–25, against their guards: `stub-does-not-serialise` 17 s and
+24 s (guard 60), `entry-auto-invoke-once` 29 s (120), `run-lane-flags-are-flags` 47 s (180),
+`request-validation-family` 5 s (300). Every one comfortable. Inside the suite, three of them hit
+100 % of their guard exactly.
+
+**Four full runs, and no two failed the same way** — which is the operational cost, because each
+false red costs a re-run of ~25–35 minutes:
+
+| run | tree | wall / budget | failed |
+|---|---|---|---|
+| 1 | branch | 1951 s / 1027 s | `run-lane-flags-are-flags` (180.0 = its guard), `stub-does-not-serialise` |
+| 2 | branch | 1636 s / 1027 s | `std-ui-forms`, `stub-does-not-serialise` (60.0 = its guard) |
+| 3 | **pristine `origin/main`** | 1261 s / 1027 s | `freeze-consistency` (a REAL red, fixed 20 min later by `a8cde6ecd`), `response-transforms` |
+| 4 | branch, rebased | 2203 s / 1027 s | `request-validation-family`, plus all three TIMED OUT |
+
+Run 3 is the control and it matters twice: it says the reds are not a property of any branch, and it
+caught main genuinely red for an unrelated reason inside the same hour.
+
+**The total budget is already handled and is NOT this.** The runner prints *"over budget LOCALLY —
+reported, not failed"* and means it. The per-check guards get no such treatment: they are absolute
+milliseconds compared against a wall clock that a neighbouring build stretches by 2–4×.
+
+**Why this is worth a gate rather than another round of raising numbers.** Both halves of the ratio
+already live in the repo and neither needs the suite to run, so the check costs milliseconds:
+for every `Check`, `timeoutMs / baseline` must clear a threshold; freeze today's six that do not,
+fail on a new one. The same ratchet shape as `no-orphan-gates` and `v1-jit-size`. Raising a guard
+costs the budget **nothing** — `timeoutMs` is a ceiling, not a cost — which is the sentence
+`scripts/smoke-ci.ssc` already carries and which makes the fix cheap once the gate names the rows.
+
+**And the fourth failure is a different defect, recorded so it is not swept in here.**
+`request-validation-family` did not time out — 15.1 s against a 300 s guard, i.e. 26× headroom. It
+failed an assertion: `optional*, fields absent — '' lacks 's=None'`, an **empty response body**,
+while the three checks before it in the same run got their 400s. Standalone it passes in 5 s. That is
+the signature of `wired-gates-share-hard-coded-tcp-ports`, not of a guard.
+
+Found while trying to get a clean pre-push verdict for `orphaned-e2e-gates-52` batch 4. It took four
+suite runs and ~90 minutes to establish that none of the reds were mine, and that cost is the point:
+a suite that fails at random teaches agents to push past red, which is exactly what
+`tests/BUGS.md` records as having happened on eight consecutive commits the same morning.
+
 ## launcher-digest-gate-is-225s-of-a-500s-budget — two processes per line, 7272 lines
 
 <!-- status: fixed
@@ -4723,6 +4795,96 @@ same day.
 | real defect revealed underneath, filed | 1 |
 | never broken, only cut off | 1 |
 | still failing, causes not shared | 13 |
+
+
+### 2026-08-14, batch 4 — the 12 remaining ran ALONE at a 420 s cap, and they are SIX groups
+
+**Batch 3 left "13, causes not shared" and that was the right reading, but it is not the useful
+one.** Ran all twelve still-failing frozen orphans one at a time — never inside a sweep, because
+wired gates share hard-coded ports and answer each other's requests — with the cap raised to 420 s
+so a cut-off could not be mistaken for a failure again. What comes back is not thirteen unrelated
+product bugs. It is **seven apparatus/measurement defects and five product differences**, and only
+one mechanical cause is shared by more than one gate.
+
+| group | gates | what it is |
+|---|---|---|
+| the gate outlived its runner | `actors-pingpong-smoke`, `wc-card-smoke` | apparatus, shared cause |
+| infrastructure moved in front of the subject | `install-sh-reports-failure-gate` | apparatus — **fixed and wired** |
+| fails without saying why | `v21-build-jvm-smoke`, `v21-typeclass-dictionary-smoke` | apparatus |
+| a precondition the tree does not satisfy | `v21-portable-gates-smoke` | apparatus/environment |
+| ~100x more expensive than its own header claims | `negtc-shard-gate` | measurement |
+| a real product difference, one each | `render-smoke`, `typeerr-names-both-types`, `v21-native-content-smoke`, `v21-native-doc-render-smoke`, `v21-unhandled-effect-smoke` | product |
+
+**THE ONE FINDING WORTH THE WHOLE BATCH: a gate can stop reaching its subject without anything
+changing in the gate or in the subject.** `install-sh-reports-failure-gate` guards `scripts/BUGS.md
+install-sh-exits-0-when-sbt-project-load-fails` — install.sh must not report success for a build
+that produced nothing. The witness is **intact**. What broke is the route to it: the toolchain cache
+landed in install.sh on 2026-08-09, three days after the gate, and on a `launcher-input-digest` HIT
+it restores `bin/lib` and skips `sbt cli/installBin` entirely, which is where the witness lives.
+
+| arm (throwaway clone, one variable) | install.sh | exit | the gate concluded |
+|---|---|---|---|
+| cache ON, stub sbt exits **0** | HIT, sbt never called | 0 | "the defect is BACK" — **false red** |
+| cache ON, stub sbt exits **1** | HIT, sbt never called, died at the LATER `sbt-plugin publishLocal` | 1 | "row 1 holds" — **false green**, right answer about the wrong command |
+| cache OFF, stub sbt exits **0** | built, witness fired | 1 | the subject, intact |
+
+One row a false red and the other a false green, from one cause, and neither had anything to say
+about the witness. **The exit code cannot separate the two situations; the mechanism string can** —
+so the gate now asserts, before returning any verdict, that the run printed `Staging ssc …` and not
+`cache HIT`, and each row asserts the words of the guard it claims to exercise. It also asserts it
+left `bin/lib/.build-stamp` untouched: the HIT path does `rm -rf bin/lib` plus a 176 MB restore, in
+whichever tree invoked the gate, twice per run — this gate was mutating the shared checkout and
+nothing said so. Deleting the witness from install.sh turns row 2 red and leaves row 1 green, which
+is the control that says the gate covers the defect and not merely the environment. Wired into
+`conformance-extras` at 2 s; frozen list **13 -> 12**.
+
+**The shared mechanical cause explains two, and it is the oldest one in this entry.**
+`actors-pingpong-smoke` and `wc-card-smoke` still drive `scala-cli run "$ROOT/compiler"
+--main-class scalascript.cli.ssc`, a project that no longer exists anywhere in the repo, with
+stderr sent to `/dev/null`. So every assertion is made against an EMPTY string: `actors-pingpong`
+reports all three lanes (INT, JS, JVM) producing nothing, and `wc-card` misses **all nine** needles.
+They are the only two scripts in `tests/e2e` that still reference it — measured, `grep -rl
+'ROOT/compiler\|main-class scalascript.cli.ssc' tests/e2e` returns exactly these two — and they are
+both orphans, which is *why* the rot survived: nothing ran them.
+
+**Two gates fail and do not say why, which is its own defect.** `v21-typeclass-dictionary-smoke`
+exits 1 having printed **nothing at all**. `v21-build-jvm-smoke` writes its three JVM artifacts and
+then dies silently at a bare `grep -E … >/dev/null` under `set -e` — the assertion is that a JVM
+stack trace carries `ssc.gen.Entry…(source-map-failure.ssc:4)`, and when it does not, the gate has
+no message to give. A gate whose failure is unreadable costs a diagnosis every time it fires.
+
+**Three of batch 1's rows are corrected by re-measurement, all in the same direction.**
+
+| gate | batch 1 (180 s cap) | today (420 s, run alone) |
+|---|---|---|
+| `v21-native-doc-render-smoke` | rc 124 — recorded as a hang | **fails in 259 s** with a message: `standard run loaded a forbidden compatibility/parser class` |
+| `wc-card-smoke` | "three missing needles" | **nine of nine** miss — the bundle is empty, the compiler never ran |
+| `negtc-shard-gate` | rc 124 at 180 s | **still no verdict at 420 s**, checks passing throughout — and its own header says *"Cheap by construction … runs in seconds"*. This is not a slow gate, it is a gate that has quietly become two orders of magnitude more expensive than what is written at the top of it, and nobody could see that because nothing runs it |
+
+The first two were misread because a cap was treated as a verdict, which is the third time that
+mistake appears in this entry (the 2026-08-02 "six hangers", `selfhost-front-gate` in batch 3, and
+now these). **A census cap belongs in the output as a third outcome, never folded into "red".**
+
+**The five product differences, at their first divergence**, each needing its own entry and none of
+them wired while red:
+
+| gate | first divergence |
+|---|---|
+| `render-smoke` | headless render 4076 bytes vs served 54 — the served path answers with something that is not the page |
+| `typeerr-names-both-types` | 1 ok / 1 FAIL: `curried-three-clauses` wanted `cannot unify tuple: () vs (Int -> t…)` and **got `6`** — the program ran and printed a value where a type error was expected |
+| `v21-native-content-smoke` | `unexpected binding output` — the content-binding render disagrees with its golden |
+| `v21-native-doc-render-smoke` | `standard run loaded a forbidden compatibility/parser class` (the standard-tier class allowlist) |
+| `v21-unhandled-effect-smoke` | 2 ok / 1 FAIL: `bridge ASM x402 Op` gives `ssc: unbound global: Network` where an `unhandled runtime effect: Wallets.metaMask` rejection was expected |
+
+| | count |
+|---|---|
+| apparatus, fixed and wired this batch | 1 |
+| apparatus, one shared mechanical cause | 2 |
+| apparatus, fails without a message | 2 |
+| apparatus/environment precondition | 1 |
+| no verdict — a duration to measure | 1 |
+| real product differences, one each | 5 |
+| **frozen orphans after this batch** | **12** |
 
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
