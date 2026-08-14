@@ -3637,11 +3637,12 @@ a pattern arm and is unlikely to be reachable from only two files.
 
 ## jvm-artifact-stack-trace-never-names-the-users-own-file
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: codegen
      kind: bug
      confirmed: yes
+     fixed-in: e2f5812e1
      gate: tests/e2e/v21-build-jvm-smoke.sh -->
 
 **Measured 2026-08-14.** A jar built by `ssc build-jvm` from a two-line program throws, and **not one
