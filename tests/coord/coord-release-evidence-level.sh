@@ -162,5 +162,69 @@ msg=$(git log -1 --format=%s)
 contains "positional note reaches the message" "landed abc1234"      "$msg"
 contains "positional form still records the level" "[evidence: level 1]" "$msg"
 
+# ── 5. releasing onto a RED main is refused, and the three non-reds are not ───
+#
+# `ci-smoke-red-streak-nobody-stopped`: twelve consecutive smoke.yml runs failed over 71 minutes and
+# twelve different agents released on top without looking. The gate that caught the underlying defect
+# worked; nothing stopped anybody.
+#
+# The lab plants its own `scripts/ci-status`, because the script asks `$root/scripts/ci-status` and
+# `$root` here is this fake repo. That is the whole stub: no network, no `gh`, and the four cases
+# below are just its four exit codes.
+#
+# THE THREE NON-RED CASES ARE THE POINT, not padding. A guard that refuses whenever it cannot get a
+# green answer would block every release made while GitHub is slow, unreachable, or simply has not
+# finished the run that was pushed a moment ago — and POLICY.md §P-6.7 is explicit that a rule nobody
+# can satisfy "does not gate, it relocates the lying". So: 1 refuses; 0 and 2 must not.
+plant_ci_status() {  # plant_ci_status <exit-code>
+  mkdir -p scripts
+  printf '#!/usr/bin/env bash\nexit %s\n' "$1" > scripts/ci-status
+  chmod +x scripts/ci-status
+  git add -A; git "${G[@]}" commit -qm "lab: ci-status stub exiting $1" --no-verify >/dev/null
+  git push -q origin main
+}
+
+plant_ci_status 1
+seed_claim redmain
+out=$(bash "$TOOL" redmain --level 3 --note "should not land" 2>&1) && rc=0 || rc=$?
+check "a RED main refuses the release" 3 "$rc"
+check "the refused release leaves the claim in place" \
+      yes "$([ -f .work/active/redmain.claim ] && echo yes || echo no)"
+contains "the refusal names the entry so the reader can check it" "ci-smoke-red-streak-nobody-stopped" "$out"
+contains "the refusal offers the recorded override" "--on-red" "$out"
+
+# …and the override lands, WITH its reason in a fixed position in the message.
+out=$(bash "$TOOL" redmain --level 3 --on-red "main is red on a sibling's freeze, not mine" --note "landed anyway" 2>&1) && rc=0 || rc=$?
+check "--on-red releases despite the red" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        ─ output ─\n%s\n' "$out" | sed 's/^/        /'
+msg=$(git log -1 --format=%s)
+contains "the override is recorded in the message" "[released onto RED main: main is red on a sibling" "$msg"
+check "the override actually released the claim" \
+      no "$([ -f .work/active/redmain.claim ] && echo yes || echo no)"
+
+# ANTI-CASE A — a GREEN main releases normally. Without this the refusal could be unconditional and
+# every case above would still pass.
+plant_ci_status 0
+seed_claim greenmain
+out=$(bash "$TOOL" greenmain --level 3 --note "green" 2>&1) && rc=0 || rc=$?
+check "a GREEN main releases normally" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        ─ output ─\n%s\n' "$out" | sed 's/^/        /'
+
+# ANTI-CASE B — PENDING / ABSENT / UNQUERYABLE (exit 2) must NOT refuse. This is the difference
+# between "refuse on a red" and "require a green", and it is the one an over-eager implementation
+# gets wrong: a tip pushed seconds ago has no verdict yet, and an offline box has none at all.
+plant_ci_status 2
+seed_claim pendingmain
+out=$(bash "$TOOL" pendingmain --level 3 --note "no verdict yet" 2>&1) && rc=0 || rc=$?
+check "a PENDING/unqueryable main does NOT refuse" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        ─ output ─\n%s\n' "$out" | sed 's/^/        /'
+
+# ANTI-CASE C — no ci-status at all (fresh clone, no tooling) must not refuse either.
+git rm -q scripts/ci-status; git "${G[@]}" commit -qm "lab: no ci-status" --no-verify >/dev/null; git push -q origin main
+seed_claim noci
+out=$(bash "$TOOL" noci --level 3 --note "no ci-status in this checkout" 2>&1) && rc=0 || rc=$?
+check "a checkout without ci-status does NOT refuse" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        ─ output ─\n%s\n' "$out" | sed 's/^/        /'
+
 if [ "$fail" -eq 0 ]; then echo "coord-release-evidence-level: OK"; else echo "coord-release-evidence-level: FAILED" >&2; fi
 exit "$fail"

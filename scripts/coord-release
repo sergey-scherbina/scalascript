@@ -36,12 +36,28 @@ usage: scripts/coord-release <slug> --level <1|2|3> [--note "<what landed>" | --
              2  the specific job that would catch this change, green — name it in --note
              3  local gates only — list them by name in --note
            `cancelled` is RED, never neutral, and never write "green" for a run with no verdict.
+  --on-red "<why>"
+           release even though origin/main's latest smoke.yml run is RED. Without it the release
+           is REFUSED (exit 3) on a definite red — pending, absent or unqueryable never refuses.
+           The reason is written into the release commit: this exists to make the act visible,
+           not to make it hard.
 USAGE
 }
 
-slug=""; extra=""; level=""; note_from_file=""
+slug=""; extra=""; level=""; note_from_file=""; on_red=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    # --on-red: release anyway, and SAY WHY in the record.
+    #
+    # The refusal below is about the act twelve consecutive pushes had in common, not about the
+    # freeze defect that happened to cause that streak. An escape hatch is still necessary — a red
+    # main is often somebody else's breakage and the queue must not deadlock on it — but an escape
+    # that leaves no trace recreates the original problem in one move. This one is only usable by
+    # writing a reason, and the reason lands in the release commit where the next reader meets it.
+    --on-red)
+      [ $# -ge 2 ] || { echo 'coord-release: --on-red needs a reason' >&2; usage; exit 2; }
+      [ -n "$2" ] || { echo 'coord-release: --on-red needs a non-empty reason' >&2; exit 2; }
+      on_red="$2"; shift 2 ;;
     --level)
       [ $# -ge 2 ] || { echo 'coord-release: --level needs a value' >&2; usage; exit 2; }
       level="$2"; shift 2 ;;
@@ -98,6 +114,46 @@ git fetch -q origin && git merge --ff-only -q origin/main
 
 claim=".work/active/${slug}.claim"
 [ -f "$claim" ] || { echo "coord-release: no such claim: $claim" >&2; exit 2; }
+
+# ── refuse to release onto a RED main ────────────────────────────────────────────────────────────
+#
+# MEASURED, not supposed (tests/BUGS.md `ci-smoke-red-streak-nobody-stopped`): twelve consecutive
+# `smoke.yml` runs failed over seventy-one minutes, every one on `freeze-consistency` and nothing
+# else, and twelve different agents pushed on top without looking. The gate that caught the defect
+# worked perfectly; what nothing did was STOP anyone.
+#
+# WHY HERE AND NOT IN `--level`. The entry proposed narrowing an existing mechanism — "`--level 1`
+# runs ci-status and refuses". It does not. `ci-status` appears in this file exactly once, in the
+# usage text; the level is validated as one of 1|2|3 and then written into the commit message.
+# Nothing has ever verified it, so `--level 1` is a claim about CI that no code reads. The check has
+# to be an actual check, at every level, or it is more write-only metadata.
+#
+# RED, NOT "NOT GREEN", and that distinction is POLICY.md §P-6.7's whole argument: level 1 became
+# unreachable under churn (6 of 14 runs on main ended `cancelled`) and "a rule nobody can satisfy
+# does not gate, it relocates the lying". So this refuses on a FACT and never on the absence of one.
+# `ci-status` already draws that line in its exit codes: 0 green, 1 completed RED or missing a
+# required job, 2 pending / absent / could not be queried. Only 1 stops a release.
+#
+# FAIL OPEN on everything else, deliberately: no `ci-status` in this checkout, no network, no `gh`,
+# a query that times out — none of those are evidence of a red main, and a coordination tool that
+# refuses to finish work when GitHub is unreachable would be a worse outage than the one it guards.
+_ci="$root/scripts/ci-status"
+if [ -z "$on_red" ] && [ -x "$_ci" ]; then
+  _ci_rc=0
+  # `--latest`: the question is "is main's most recent smoke run red", not "is this exact sha green".
+  # A tip that was pushed seconds ago legitimately has no verdict yet, and asking by sha would turn
+  # that into a 2 on every fast release — true, and useless.
+  timeout 60 "$_ci" --latest >/dev/null 2>&1 || _ci_rc=$?
+  if [ "$_ci_rc" = 1 ]; then
+    echo 'coord-release: REFUSING — the latest smoke.yml run on origin/main is RED.' >&2
+    echo '  Releasing onto a red main is the one act twelve consecutive pushes had in common on' >&2
+    echo '  2026-08-14 (tests/BUGS.md ci-smoke-red-streak-nobody-stopped). Read it first:' >&2
+    echo '      scripts/ci-status --latest' >&2
+    echo '  Then either repair it, or say why you are releasing anyway — the reason is recorded:' >&2
+    printf '      scripts/coord-release %s --level <n> --on-red "<why>" …\n' "$slug" >&2
+    exit 3
+  fi
+fi
 
 # REFUSE TO ANNOUNCE WORK THAT IS NOT THERE. Until 2026-08-07 this tool fast-forwarded main and then
 # never asked whether the claim's own work was reachable from it, so a release could write "Landed"
@@ -203,6 +259,9 @@ if [ -n "$branch" ] && git rev-parse --verify -q "refs/heads/$branch" >/dev/null
 fi
 
 msg="release-claim: ${slug} [evidence: level ${level}]"
+# The override is recorded BEFORE the note and in a fixed position, for the same reason the level is:
+# a reader scanning `git log` for who released onto a red main must find it without reading prose.
+[ -n "$on_red" ] && msg="${msg} [released onto RED main: ${on_red}]"
 [ -n "$extra" ] && msg="${msg} — ${extra}"
 if [ -n "$landed" ]; then
   msg="${msg}
