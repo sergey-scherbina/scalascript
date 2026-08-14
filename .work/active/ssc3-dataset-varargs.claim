@@ -1,0 +1,11 @@
+slug: ssc3-dataset-varargs
+branch: feature/ssc3-dataset-varargs
+agent: claude-code
+started: 2026-08-14T10:05:10Z
+heartbeat: 2026-08-14T10:05:10Z
+status: claimed-before-planning
+items: SSC3-13c
+paths: file:v3/prelude/index.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
