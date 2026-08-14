@@ -1,0 +1,11 @@
+slug: rust-object-member-call-gate
+branch: feature/rust-object-member-call-gate
+agent: claude-code
+started: 2026-08-14T07:14:50Z
+heartbeat: 2026-08-14T07:14:50Z
+status: claimed-before-planning
+items: rust-object-member-call-emits-invalid
+paths: file:tests/e2e/rust-object-member-call.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
