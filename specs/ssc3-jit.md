@@ -416,6 +416,46 @@ matched control (identical code both sides) sits at 8–11 of 25 while the exper
 J1b's 11.6 % effect was resolved at p 9.5e-7. The correct instruction is **do not measure while the
 machine is busy**, and read the control column before the experiment column.
 
+### 10.2 · What "fewer dispatches" is worth, counted before anything is built — 2026-08-14
+
+The through-line says the next move is not a cheaper dispatch but FEWER of them. That is cheap to
+SIZE without writing the pass, because instruction counts are load-independent — the one measurement
+this host never argues with. Counting rule, applied to what `ssc3 ir` prints, per LOOP BODY (the
+unit the J1d entry used, and what the executor dispatches over and over):
+
+- **copy-prop** — `<something> → r` then `(move d r)`. Already shipped as J1d, so it is SUBTRACTED
+  from the baseline rather than credited to fusion.
+- **const-fuse** — `(const c k)` then an instruction naming `c`: one dispatch instead of two.
+- **cmp-branch** — `(bin <cmp> _ d a b)` `(un not _ e d)` `(brif e L)`: three dispatches for one
+  decision, and the shape every counted loop in the corpus ends with.
+
+| workload | body today (post-J1d) | const-fuse | cmp-branch | body after | cut |
+|---|---|---|---|---|---|
+| `arith-loop` | 8 | 2 | 1 | **4** | **50 %** |
+| `nested-loop` | 18 | 5 | 2 | **9** | **50 %** |
+| `var-expr-init` | 14 | 5 | 1 | 7 | 50 % |
+| `var-expr-init-int` | 15 | 5 | 1 | 8 | 47 % |
+| `instance-field` | 19 | 6 | 1 | 11 | 42 % |
+| `literal-match` | 17 | 5 | 1 | 10 | 41 % |
+| `list-fold` | 10 | 2 | 1 | 6 | 40 % |
+| `recursion-fib` | — | 0 | 0 | — | **0 %** |
+
+Across the 29 corpus rows that have a loop body at all: **mean cut 36 %, and 13 rows at 40 % or
+more.** For scale, J1d removed 20 % of the instructions and its clock effect needed a quiet host and
+15 pairs to see; J1b's 11.6 % resolved at p 9.5e-7 once the host was quiet. A 36–50 % cut is not in
+the same difficulty class as anything the ladder has measured so far.
+
+**`recursion-fib` has NO fusible pair and is the control this experiment gets for free.** It has no
+loop body — its time is per-call-frame — so if the pass is built and `recursion-fib` moves, the
+measurement is wrong before its result is read. Write that prediction down before running it.
+
+**Two honesties about the number.** Dispatch count is not time: a fused instruction still does the
+work, it saves the dispatch, the intermediate register write and its read. And the unit undercounts
+rows whose hot path is a called function body rather than an explicit loop — `hof-pipeline`,
+`array-update` and `vector-index` carry 62, 65 and 66 straight-line instructions each, executed once
+per `workload()` call, and the same two fusions apply there. The loop-body column is the
+conservative half of the estimate, not the whole of it.
+
 **Still owed: J1c**, and it is the expensive one. Its executor lane was reverted out (`ee63d02a6`,
 −241 lines) of a file that has since gained +373, so re-running it is a PORT into a changed design
 rather than a flag, and a mis-ported lane would be measured as if it were the idea. Two things bear

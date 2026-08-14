@@ -2643,6 +2643,22 @@ is dispatch-bound and its dispatch is already good.** The next thing to try is t
 cheaper dispatch but FEWER of them: superinstructions, fusing `Bin(Lt); BrIf` and `Const; Bin` at
 load time, which keep the exact loop J0c tuned and push fewer instructions through it. That is the
 one §3 J1 item never built, and now the only one the evidence points at.
+- [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
+      The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
+      two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,
+      `nested-loop` 18 → **9**, `var-expr-init` 14 → 7, `instance-field` 19 → 11, `list-fold` 10 → 6.
+      **Across the 29 corpus rows that have a loop body: mean cut 36 %, thirteen rows at 40 % or
+      more.** The two shapes are `(const c k)` followed by an instruction naming `c`, and the
+      `(bin <cmp>) (un not) (brif)` triple that every counted loop ends with — three dispatches for
+      one decision.
+      *The control is free and must be written down first:* `recursion-fib` has NO fusible pair (no
+      loop body; its time is per-call-frame). If it moves when the pass lands, the measurement is
+      wrong before its result is read.
+      *Scale:* J1d removed 20 % of the instructions and needed a quiet host and 15 pairs to see;
+      J1b's 11.6 % resolved at p 9.5e-7 once quiet. 36–50 % is a different difficulty class.
+      *Table and the two honesties about it (dispatch count is not time; the loop-body unit
+      undercounts rows whose hot path is a called body) in* [`specs/ssc3-jit.md`](../specs/ssc3-jit.md) §10.2.
+
 **Amended 2026-08-14 by the quiet-host re-runs, and the through-line survives them intact.** J1b —
 which is *also* a cheaper-dispatch change, not a replacement — moved from "bought NOTHING" to a win
 at p 9.5e-7 (`7fe1b7525`), and J2 — which replaces the dispatch — lost every one of 100 pairs when
