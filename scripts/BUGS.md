@@ -275,11 +275,46 @@ it, and both are rows in that gate.
 
 ## hand-made-claim-updates-have-no-tool-and-so-no-rollback — the landmine class that is left
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: other
      kind: bug
-     gate: tests/coord/coord-update-rolls-back.sh -->
+     gate: tests/coord/coord-update-rolls-back.sh
+     fixed-in: 891a62044747c5b7ad66120befe5df789b1111ef -->
+
+> **FIXED 2026-08-15. `scripts/coord-update` exists and all four numbered requirements are cases in
+> the gate this entry named.** Requirement 3 — refuse a widening onto another live claim's scope —
+> is satisfied by NOT reimplementing it: the pre-push guard already refuses that, with a reader that
+> handles the `repo:`/`mod:`/`file:` levels, the claim-vs-ledger union and the `verify-*` exemption.
+> The push is the check; the rollback is what makes that refusal free. A second copy of the reader
+> would be the very thing `claim-ledger-claimfile-scope-drift` is about.
+>
+> **The control is sharper than the requirement, and the difference is worth keeping.** Against a
+> copy with both halves of the recovery removed, case 4 reports
+>
+> ```text
+> FAIL  HEAD is back where it was — no parked commit
+> PASS  the checkout is left CLEAN for every other agent      ← still passes
+> ```
+>
+> `git status --porcelain` is EMPTY against the broken tool, because the commit consumed the index.
+> The landmine this entry describes is a COMMIT, not a dirty tree, so a case that watched only the
+> working tree would have let it through. That is why the case asserts HEAD.
+>
+> **Two defects the lab found in the tool that reading it would not have:** the no-op must be decided
+> on the CLAIM before the ledger is regenerated (`coord-ledger --write` bumps `# generation:` every
+> run, so the first version committed a bare generation bump — a counter whose whole purpose is to
+> make two concurrent CLAIMS collide); and an empty staged set is the no-op, not a violation, which
+> the "staged more than the claim and its ledger row" guard was refusing with an empty list under it.
+>
+> **NOT WIRED YET.** `tests/coord/` is run only from `scripts/smoke-ci.ssc`, held by the live claim
+> `f-cons2-no-arm`. One line, beside its siblings, for whoever holds that file next:
+>
+> ```scala
+> Check("scripts", "coord-update-rolls-back", "tests/coord/coord-update-rolls-back.sh", List(), 60000),
+> ```
+>
+> Said here rather than left to be discovered, because an unwired gate is `orphaned-e2e-gates-52`.
 
 **Found 2026-08-13** while fixing the sibling defect in `scripts/coord-release`, which now rolls its
 commit back when the push is refused (`coord-claim` has done so since 2026-08-07). That leaves
