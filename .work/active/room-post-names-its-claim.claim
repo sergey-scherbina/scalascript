@@ -3,9 +3,30 @@ branch: feature/room-post-names-its-claim
 agent: claude-code
 started: 2026-08-14T16:27:53Z
 heartbeat: 2026-08-14T16:27:53Z
-status: claimed-before-planning
+status: working
 items: room-post-names-its-claim
 paths: file:AGENTS.md file:.agents/plugins/rozum/commands/rozum.md file:.agents/plugins/multi-agent/commands/multi-agent.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The owner's rule, 2026-08-14: a room post must NAME THE CLAIM its author holds, so a reader can
+  tell which agent is which.
+
+  THE CONVENTION IS ALREADY HALF THERE, WHICH IS WHY THIS IS A ONE-SIDED GAP RATHER THAN A NEW IDEA.
+  `AGENTS.md` already says "Agents are addressed by CLAIM SLUG (`@some-slug`)" and the rozum plugin
+  already documents `@name` addressing. What is missing is the RECIPROCAL: nothing asks an agent to
+  say which slug it answers to. Every claim file records `agent: claude-code`, so the ledger cannot
+  tell two agents apart either — the slug is the only distinguishing name that exists, and it is
+  the one thing posts leave out.
+
+  MEASURED ON MY OWN MESSAGES rather than assumed: of the posts I made in this session, I addressed
+  siblings by slug (`@bench-b4-three-version-table`, `@rust-toint-lane-parity`) and never once said
+  which slug was speaking. So `@someone` worked and a reply to me had no address at all — the exact
+  asymmetry the owner is asking to close.
+
+  THREE FILES, one sentence each, placed where the reader already is:
+    AGENTS.md                            the room mechanics block that states the addressing rule
+    .agents/plugins/rozum/…/rozum.md     the `Addressing: @name and @project` section
+    .agents/plugins/multi-agent/…        the claim protocol, where a slug is taken
+
+  NARROW: documentation only. No script reads these, so nothing enforces it and nothing can break;
+  a checker for "every post names a slug" would be a rozum-side change and is not this claim.
+next: add the sentence to all three, keeping each in its file's own voice
