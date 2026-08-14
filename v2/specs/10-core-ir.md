@@ -334,9 +334,19 @@ compare `i.eq i.lt i.le i.gt i.ge` → `Bool`
 compare `big.eq big.lt big.le big.gt big.ge` → `Bool`
 
 **Float — IEEE-754 double (`f.*`):**
-`f.add f.sub f.mul f.div f.neg` · `f.sqrt` · `f.floor f.ceil f.round f.trunc` ·
+`f.add f.sub f.mul f.div f.neg` · `f.sqrt f.pow` · `f.floor f.ceil f.round f.trunc` ·
 compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · `f.isNaN f.isInf` → `Bool`
-(transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the kernel)
+(the ELEMENTARY functions `sqrt` and `pow` are kernel; the transcendentals `sin`/`cos`/`log`/`exp`
+live in the `Mira` prelude, not here)
+
+**`f.pow` was added 2026-08-14 and the line above was narrowed in the same commit**, because the old
+wording — "transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the
+kernel" — read as excluding it. Three things decided otherwise. `f.sqrt` was already kernel and IS
+`pow(x, ½)`, so the boundary was not where the sentence implied. Every backend that implements
+`f.sqrt` spells `pow` in one libm call — `Math.pow`, `math.pow`, `.powf`, `pow`. And nothing was on
+the other side of the line: no `f.exp`, `f.log` or `f.pow` existed anywhere in the tree, so the
+`Mira` prelude named there is an intention rather than an implementation, and a fractional exponent
+had no answer on ANY lane. v3's `math.pow` had to refuse one, because its bridge emits this prim.
 
 **Numeric conversions (explicit — the kernel has no implicit coercion):**
 `i->big` · `big->i` (may overflow) · `i->f` · `f->i` (truncate toward zero) · `big->f` ·

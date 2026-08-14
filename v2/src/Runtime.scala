@@ -1458,6 +1458,13 @@ object Prims:
     case "f.mul" => a => FloatV(flt(a, 0) * flt(a, 1))
     case "f.div" => a => FloatV(flt(a, 0) / flt(a, 1))
     case "f.neg" => a => FloatV(-flt(a, 0))
+    // `f.pow` is a KERNEL prim by the owner's decision of 2026-08-14, and the spec's
+    // transcendentals parenthetical was narrowed in the same commit rather than left to contradict
+    // this. The argument: `f.sqrt` is already here and IS `pow(x, ½)`, the list that names what
+    // belongs to Mira says `sin`/`cos`/`log`/`exp` and not `pow`, and on every backend that already
+    // implements `f.sqrt` this is one libm call. Without it a fractional exponent has no answer
+    // anywhere — v3's `math.pow` had to refuse one, since its bridge emits this prim.
+    case "f.pow"   => a => FloatV(math.pow(flt(a, 0), flt(a, 1)))
     case "f.sqrt"  => a => FloatV(math.sqrt(flt(a, 0)))
     case "f.floor" => a => FloatV(math.floor(flt(a, 0)))
     case "f.ceil"  => a => FloatV(math.ceil(flt(a, 0)))

@@ -507,6 +507,9 @@ object R:
     case "f.sub"    => _asDouble(a0) - _asDouble(a1)
     case "f.mul"    => _asDouble(a0) * _asDouble(a1)
     case "f.div"    => _asDouble(a0) / _asDouble(a1)
+    // `f.pow` is BINARY, so it belongs here and not beside `f.sqrt` in `prim1` — where it was
+    // written first, against an `a1` that does not exist in that scope.
+    case "f.pow"    => math.pow(_asDouble(a0), _asDouble(a1))
     case "f.eq"     => _asDouble(a0) == _asDouble(a1)
     case "f.lt"     => _asDouble(a0) <  _asDouble(a1)
     case "f.le"     => _asDouble(a0) <= _asDouble(a1)

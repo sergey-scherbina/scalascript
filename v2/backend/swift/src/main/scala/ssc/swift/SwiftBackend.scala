@@ -121,7 +121,7 @@ object SwiftBackend:
     "dec.to-bigint", "dec.to-string",
     "effect.pure", "effect.perform", "effect.perform.oneshot", "effect.handle",
     "f.add", "f.sub", "f.mul", "f.div", "f.neg",
-    "f.sqrt", "f.floor", "f.ceil", "f.round", "f.trunc",
+    "f.pow", "f.sqrt", "f.floor", "f.ceil", "f.round", "f.trunc",
     "f.eq", "f.lt", "f.le", "f.gt", "f.ge", "f.isNaN", "f.isInf",
     "i->f", "f->i", "i->str", "f->str",
     "slen", "sconcat", "sslice", "scodeAt", "sfromCodes",

@@ -1105,6 +1105,7 @@ private final class Machine {
         case "f.mul": return .float(float(args, 0) * float(args, 1))
         case "f.div": return .float(float(args, 0) / float(args, 1))
         case "f.neg": return .float(-float(args, 0))
+        case "f.pow": return .float(pow(float(args, 0), float(args, 1)))
         case "f.sqrt": return .float(sqrt(float(args, 0)))
         case "f.floor": return .float(floor(float(args, 0)))
         case "f.ceil": return .float(ceil(float(args, 0)))

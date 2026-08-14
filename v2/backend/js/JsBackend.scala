@@ -326,6 +326,7 @@ object JsGen:
       case "f.le"   => s"(${a(0)}<=${a(1)})"
       case "f.gt"   => s"(${a(0)}>${a(1)})"
       case "f.ge"   => s"(${a(0)}>=${a(1)})"
+      case "f.pow"  => s"Math.pow(${a(0)},${a(1)})"
       case "f.sqrt" => s"Math.sqrt(${a(0)})"
       case "f.floor"=> s"Math.floor(${a(0)})"
       case "f.ceil" => s"Math.ceil(${a(0)})"
