@@ -1,14 +1,27 @@
-# A selector list has no meaning here — REFUSED
+# A selector list names the whole module, like every other import
 
-No `.expected`, so the front gate requires this to be refused.
+`import credential.{credentialEnv, credentialFile}` loads `std/credential.ssc` and every
+definition in it — exactly what `import credential.credentialEnv` and `[credentialEnv](std/credential.ssc)`
+load. The names between the braces are NOT read.
 
-`import a.{b, c}` imports two names and nothing else, which is a statement about NAMESPACING —
-and Tier 0 has none: an import brings the whole module either way. Accepting the spelling would
-mean accepting a promise the language cannot keep, so it is refused BY NAME rather than parsed
-into something that quietly does more than it says.
+That is not a shortcut, it is the only thing the spelling can mean here: a selector list is a
+statement about NAMESPACING, and Tier 0 has none. So the list is normalised to `.*`
+(`Source.selectorsToStar`) and the module arrives whole.
+
+**This fixture used to assert the opposite** — it had no `.expected`, which is how this gate says
+"must be refused", and its prose argued that accepting the spelling would mean accepting a promise
+the language cannot keep. The premise was right and the conclusion was wrong: refusing did not keep
+the promise either, it just cost three `std/mapreduce/` modules and made v3's own front disagree
+with uniml, which dropped the line and ran. The owner's decision of 2026-08-14 is that it works.
+
+The proof it is the SAME load is that this prints what `scala-import.expected` prints, from the
+same module, through the other spelling.
 
 ```scalascript
 import credential.{credentialEnv, credentialFile}
 
-println("unreachable")
+val c = credentialEnv("API_TOKEN")
+println(c.kind)
+println(c.source)
+println(c.scheme)
 ```
