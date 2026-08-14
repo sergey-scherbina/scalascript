@@ -390,6 +390,12 @@ val suite = List(
   // Fourteen rows, both fronts; three of them exist only to reach the second resolver, which a
   // sealed-trait scrutinee never does.
   Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000),
+  // Fourth of the family, and the one the CENSUS found rather than a person: `case h :: Nil` in the
+  // ordered resolver, which had no cons rule, so the arm became a catch-all VAR bound to the whole
+  // scrutinee — `one:List(4, 5)` where the reference says `other`. Wrong value AND wrong arm, on
+  // nine tests/conformance/scljet-* files. Eleven rows; eight reach the ordered resolver because
+  // their `Nil` tail is what routes them there, three reach the ctor path as controls.
+  Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

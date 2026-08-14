@@ -1988,7 +1988,35 @@ def parseGenAtBind3(q, nm, ar, vs, ts, menv, cx) = if isTok(hd(ts), 2, 2) then p
 // on the ORIGINAL menv, which matters more here than on the ctor path: genCtorMatch calls genScrut,
 // and genScrut is `lookup("__m", menv)` — hand it a renamed env and it emits `(local -1)`.
 def parseGenAtBindBody(q, nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, bindScrut(q, menv)), cx) match { case (body, r) => parseGenCtorPlain2(nm, ar, erase(body, cx), r, menv, cx) }
-def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))))
+// A CONS ARM IN THE ORDERED RESOLVER — `case h :: Nil`, `case a :: b :: Nil`. There was no rule for
+// one here at all, and the way F picks a resolver is what made that a silent wrong answer instead of
+// a decline: parseMatchArms sends a match to parseGenMatch when ANY of its arms is nested, and a
+// `Nil` tail is nested. So the shape that most needs a cons rule is exactly the shape that lands in
+// the resolver that had none, and it fell through to parseGenVar — which reads `h` as a catch-all
+// VAR arm bound to the whole scrutinee and takes `:: Nil => …` as the body:
+//
+//   xs match { case h :: Nil => "one:" + h  case _ => "other" }
+//     f(List(5))     one:List(5)   (ref one:5)     -- h is the LIST, not the head
+//     f(List(4, 5))  one:List(4,5) (ref other)     -- and a catch-all tests NOTHING, so the
+//                                                     one-element arm matched a two-element list
+//
+// The second line is the worse one: not a mis-bound name but the wrong ARM. Nine corpus files carry
+// this (every tests/conformance/scljet-*, in a showRow/showValue helper) and all nine reported
+// `unbound global: (global h)` — a name plainly present in the pattern.
+//
+// parseNestedArm already does everything needed, because a `Nil` tail is just a refined field: it
+// binds the fields, collects the OBLIGATIONS the refined ones impose, discharges them against a
+// fail-scope, and makes the rest of the arms the default. `parsePatF` already reads `h :: Nil` as
+// ("cpat", ("Cons", [h, Nil])). So this is a routing fix, not new machinery.
+//
+// GUARDED cons arms are deliberately left alone: `parseNestedArm` assumes the token after the
+// pattern is `=>` and would swallow the guard as the body — turning today's honest DECLINE into a
+// wrong answer. isConsArmHead therefore requires the `=>`, and `case h :: t if g` keeps declining.
+def consArmUnguarded(pr) = pr match { case (p, r) => isTok(hd(r), 2, 30) }
+def isConsArmHead(ts) = if isTok(hd(tl(ts)), 2, 49) then consArmUnguarded(parsePatF(ts)) else false
+def parseGenCons(ts, menv, cx) = parseGenCons1(parsePatF(ts), menv, cx)
+def parseGenCons1(pr, menv, cx) = pr match { case (p, r) => parseNestedArm(p, r, menv, cx) }
+def parseGenArm(ts, menv, cx) = if isConsArmHead(ts) then parseGenCons(ts, menv, cx) else (if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))))))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
