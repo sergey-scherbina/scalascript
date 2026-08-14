@@ -238,6 +238,59 @@ element renders as the character and converts to its code point, which is also w
 would throw rather than give a code point. That divergence is older than this fix and is not what
 was reported; changing it here would have been an unrequested semantic change to a second method.
 
+## rust-nested-typed-pattern-is-dropped — `case Some(s: String)` binds a raw Value, and the arm returns it where a String is declared
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/build-rust-refuses-loudly.sh
+     found-by: claude-code
+     found-at: 2026-08-14
+     ssc-version: 79461dcfa
+     repro: std/mcp/types.ssc requireString / requireInt
+     confirmed: no -->
+
+**The last blocker under `std/mcp/types.ssc`, whose error count is now 6 and all six are this.**
+
+    def requireString(args: Map[String, Any], key: String): String =
+      args.get(key) match
+        case Some(s: String) => s          // ← the ascription is dropped
+        case Some(v)         => throw McpError(…)
+
+`s` stays a `Value`, the arm returns it, and the declared return type is `String`: E0308. The
+`Int` variant adds `_to_int(&n)` on a `&Value`, which no impl covers.
+
+**The mechanism ALREADY EXISTS and the gap is POSITION.** `anyVariantTest(tpe, subj, ctx)` is
+exactly the runtime test for `case x: T` against an `Any`, and its own comment records why it had
+to exist: dropping the ascription made the first arm irrefutable, so `case l: List[Any]` matched a
+Map and answered wrongly — "it compiled and ran, which is the worse failure". But it is applied
+only at the TOP level of an `Any`-subject match. Nested inside an extractor — `Some(x: T)` — the
+ascription is dropped by `renderPattern`, which turns a pattern into Rust pattern SYNTAX, and a
+type test cannot be written there.
+
+**Where the fix hooks, and it needs no signature change.** A Rust match guard can name the
+bindings its pattern introduced, so `Some(s) if matches!(s, Value::Str(_))` is legal. A pure
+`typedPatternGuards(pat, ctx): List[String]` can walk the pattern, collect `anyVariantTest` for
+each nested `Pat.Typed`, and the arm builder at `RustCodeWalk.scala:~5175` — where `c.cond`
+becomes the Rust guard — can AND them in. `renderPattern`'s 9 call sites stay untouched.
+
+**THE RISK THAT STOPPED ME, and it is the reason this is a map rather than a patch.**
+`matches!(s, Value::Str(_))` only compiles when the binder really IS a `Value`. For
+`Map[String, Any]` it is; for `List[String]` the binder is a `String` and the same guard is a type
+error. Telling those apart needs the element type, which the emitter does not track at this point.
+Emitting the guard unconditionally would produce invalid Rust from valid source — the exact
+failure this lane has been burned by three times this week, and the one its own comments keep
+warning about. So the guard must be conditional on the binder being dynamic, and establishing that
+is the actual work.
+
+**What it unblocks, in order:** these six errors, then `std/mcp/types.ssc` COMPILES, then the
+object-member qualification can land (it is written and verified — see the entry below — and is
+held only because removing the collision refusal while types.ssc cannot compile trades a refusal
+for bad code), then `std/mcp/client.ssc`, then the Rust MCP client itself:
+`Feature.McpClient`, nine intrinsic entries and a runtime mirroring `McpRs` over a spawned child's
+stdio, with no new crate.
+
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 
 <!-- status: open
