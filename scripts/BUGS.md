@@ -7,6 +7,63 @@ grepping for status.
 
 Newest first.
 
+## coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: none -->
+
+**Observed 2026-08-14, releasing a claim.** The first invocation printed **nothing at all** and did
+not release. The second, identical, refused:
+
+```text
+coord-release: working tree is dirty
+```
+
+`git status` in the shared checkout showed the first run's leftovers, staged:
+
+```text
+M  .work/active/LEDGER.tsv
+D  .work/active/pre-push-message-backticks.claim
+```
+
+**That is a release half-applied to a tree five other agents share.** `scripts/coord-release`
+`git rm`s the claim at line 148 and `git add`s the rewritten ledger at line 171, then does other work
+— deriving the landed shas from the branch — before committing at line 221. Anything that fails in
+that window leaves the staging behind. Line 96 of the same script, and the equivalent in
+`coord-claim`, then refuse to run at all while the tree is dirty: **one agent's interrupted release
+blocks every agent's next claim and release**, with a message that names neither the owner nor the
+files.
+
+**Recovered by restoring exactly those two paths from HEAD** — `git restore --staged --worktree` —
+after checking `HEAD == origin/main`, so the restore was lossless for everyone. A third invocation
+then succeeded with exit 0. **Not `git reset`**, which in this checkout means "undo whatever the last
+agent did" (see `shared-main-is-one-working-tree-for-every-agent`).
+
+**WHAT KILLED THE FIRST RUN IS NOT KNOWN, and is stated as unknown rather than guessed.** Its exit
+code was not captured, it emitted nothing on either stream, and the identical command succeeded
+afterwards, so it did not reproduce. The window between line 148 and line 221 runs several `git`
+commands against a shared index other agents are writing to, which is a plausible source and is not
+evidence. What IS established is the damage and its blast radius, which do not depend on the cause.
+
+**This is the same shape the script already guards against one step later, and says so in its own
+comment.** `pre_release_sha` was added so that a refused PUSH does not leave the commit parked on
+shared main — "a release commit parked here is refused for a stranger, and it blocks EVERY agent's
+next claim until somebody finds and removes it." The staging window is that lesson applied one line
+too late.
+
+**Acceptance test.** Stage the release inside a `trap … EXIT` that restores the claim file and the
+ledger unless the commit succeeded, and assert it: run `coord-release` with the commit forced to
+fail, then require `git status --porcelain` to be empty and the claim file to be present. The
+negative control is the pre-fix script, which must leave both leftovers — otherwise the check cannot
+fail. Same remedy as `clean-up-in-a-trap-because-the-leftover-blocks-the-next-agent`, and the third
+tool in this repo to need it.
+
 ## build-ram-guard-selftest-measures-the-machine-not-itself — an intermittent red in the pre-push suite
 
 <!-- status: fixed
