@@ -71,14 +71,40 @@ than one that builds twice:
 
 ## coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: tests/coord/coord-release-refuses-unpushed-work.sh -->
+     gate: tests/coord/coord-release-refuses-unpushed-work.sh
+     fixed-in: f6e53a127399fb965a116b92b5292c7f49de2327 -->
+
+> **FIXED 2026-08-14, exactly as this entry's acceptance test specified.** The staging window
+> (`git rm` → `git commit`) now runs under an `EXIT HUP INT TERM` trap that restores the claim file
+> and the ledger unless the commit was reached, and says so instead of leaving the tree to be
+> discovered by the next agent. Targeted restore of those two paths only — never `git reset`, which
+> here means "undo whatever the last agent did".
+>
+> **The negative control prints this entry's own two lines back.** Against the pre-fix script the new
+> lab case leaves
+>
+> ```text
+> M  .work/active/LEDGER.tsv
+> D  .work/active/staging-trap.claim
+> ```
+>
+> with the claim and its row gone from the tree — the blocked-next-agent state. Against the fixed
+> script `git status --porcelain` is empty and both survive.
+>
+> The commit is forced to fail with a `pre-commit` hook, since the script passes no `--no-verify`:
+> that lands the failure in the window rather than anywhere convenient. **The cause of the original
+> run's death is still unknown and is not guessed at** — the case reproduces the WINDOW, which is
+> what the fix closes.
+>
+> The case carries a control for itself: with the hook removed the SAME claim releases normally, so
+> it cannot be satisfied by a script that refuses everything.
 
 **Observed 2026-08-14, releasing a claim.** The first invocation printed **nothing at all** and did
 not release. The second, identical, refused:
