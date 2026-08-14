@@ -3,9 +3,56 @@ branch: feature/ssc3-selector-imports
 agent: claude-code
 started: 2026-08-14T09:10:59Z
 heartbeat: 2026-08-14T09:10:59Z
-status: claimed-before-planning
+status: working
 items: SSC3-14c
 paths: file:v3/src/Source.scala file:v3/loader-gate.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  SSC3-14c — `import a.b.{X, Y}`, the owner's decision of 2026-08-14: "списки имен в импортах
+  должны работать". Today both fronts refuse it inside a fence and only v3's refuses it in a bare
+  file. (`v3/SPRINT.md` is still claimed by `bench-b4-three-version-table`, blocked on host load, so
+  the plan is here — in git, before the edit — as it was for SSC3-14b.)
+
+  IT WILL NOT MOVE N, AND THAT IS MEASURED BEFORE THE EDIT RATHER THAN DISCOVERED AFTER IT. This is
+  the varargs lesson applied one task later. The only selector-list imports the corpus can reach are
+  three lines in `std/mapreduce/{distributed,typed,shuffle}.ssc`, and all three name
+  `scalascript.typeddata`, which is a JVM BACKEND SCALA PACKAGE
+  (`backend/typed-data/src/main/scala/scalascript/typeddata`) and not an `.ssc` module. Probed with
+  the SUPPORTED spelling, which produces the identical target:
+
+      import scalascript.typeddata.*
+      -> cannot find the import 'std/scalascript/typeddata.ssc' — looked in: …
+
+  So accepting the selector list exchanges one honest refusal for another honest refusal. A refusal
+  short-circuits; what it hides is another refusal. Expect PASS/DIFF/CRASH unchanged.
+
+  WHAT IT DOES BUY, and this is the reason to do it beyond the owner's say-so: a real I-3
+  divergence. In a BARE `.ssc` — no fence, so `Loader.imports` never scans it as code and its
+  `inCode` guard never fires — `import std.geo.{Point, Region}` is REFUSED by v3's own front at
+  `Parser.scala:1822` and SILENTLY DROPPED by uniml, which then runs and prints. One language, two
+  answers, chosen by whether `v3/.jars/uniml.cp` exists. The control says the divergence is specific
+  to this spelling and not to bare files: with the supported `import std.geo.*` both fronts print
+  `ok`.
+
+  ONE EDIT, because there are three sites and they already share a decider. `Source.scalaImportPath`
+  is what `Loader` consults (its refusal, `Loader.scala:60`), what `Source.blankIfImport` consults,
+  and therefore what decides whether the leftover ever reaches `Parser.scala:1822` at all — that
+  refusal only ever sees spellings `blankIfImport` did not blank. Widening the one function closes
+  all three without a second decision site.
+
+  NORMALISE THE LIST TO `.*` rather than carrying it. The refusal's own text says why — "an import
+  brings the WHOLE module either way" — so `a.b.{X, Y}` becomes the path `a.b.*`, which makes
+  `Loader.scalaImportTarget` derive the module by the code path that already exists instead of a new
+  one that happens to agree.
+
+  IN SCOPE: single-line lists, with and without an `as` rename INSIDE the list —
+  `std/mapreduce/shuffle.ssc:46` writes `{DatasetWire, DatasetWirePartition, JsonValue as
+  TJsonValue}`. OUT OF SCOPE and stated rather than silently unhandled: a MULTI-LINE list
+  (`import x.{` then names on following lines) needs cross-line state in a line-at-a-time scanner;
+  the only ones in the tree are in `examples/`, which the corpus does not load, so nothing that runs
+  needs it. Also out of scope: `import a.b as c` — a rename WITHOUT a list — because the owner asked
+  for lists and the narrow-claim rule says take what was asked.
+
+  MEASUREMENT: N with floors DIFF 3 and CRASH 9 against the same tree minus exactly this change, and
+  the bare-file divergence probed on BOTH fronts before and after. Gates green is not evidence about
+  N — v3's gates do not cover the corpus.
+next: widen `scalaImportPath`, prove both fronts agree on a bare file, then measure
