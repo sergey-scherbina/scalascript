@@ -23,6 +23,19 @@
 #   extern def rd(options: Int = 5)   rd()        REF (app (global rd))          no default synthesis
 #   extern def va(xs: Int*)           va(1, 2)    REF (app (global va) 1 2)      no vararg list
 #
+# THE FIRST OF THOSE TWO ROWS IS NO LONGER TRUE, since 2026-08-14: both fronts now DO synthesise an
+# extern's declared default, and `rd()` lowers with the default filled. It was corrected rather than
+# deleted because the reasoning around it is still exactly right — the line was an observation of
+# the oracle, not a decision that defaults must not be filled, and the two neighbours it sits with
+# ARE decisions. What changed and why: `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected,
+# 1 given` on both fronts while the interpreter ran it, so every `extern def` in std/ with a default
+# was callable only at full arity (v2/BUGS.md
+# v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity). Clause flattening
+# and the vararg collapse rewrite HOW the native is called, which the native owns; a default
+# supplies a missing argument whose VALUE is an ssc expression only a front can evaluate, and the
+# native's registered arity says it wants that argument. The curried and vararg exclusions below are
+# untouched, and `tests/e2e/v2-extern-default-args-gate.sh` carries the anti-rows for both.
+#
 # The corresponding NON-extern forms must keep their transformations — that is what makes this a
 # distinction rather than a retreat, and they are asserted below as controls.
 set -uo pipefail

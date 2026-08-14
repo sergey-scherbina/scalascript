@@ -386,6 +386,15 @@ val suite = List(
   // Fourteen rows, both fronts; three of them exist only to reach the second resolver, which a
   // sealed-trait scrutinee never does.
   Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000),
+  // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
+  // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
+  // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
+  // against the PLUGIN's arity while the interpreter ran the same source; every `extern def` in
+  // std/ with a default was callable only at full arity. Half the rows are anti-rows: a curried
+  // extern must still nest (flattening it is what silently dropped a block in examples/_bug1b.ssc)
+  // and a plain def's defaults must still fill. Measured 18 s, five rows over two lanes.
+  Check("v2", "v2-extern-default-args", "tests/e2e/v2-extern-default-args-gate.sh",
+        List("--self-test"), 300000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),

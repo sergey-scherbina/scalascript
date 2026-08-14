@@ -2643,7 +2643,24 @@ def collectEAR2(ename, pr) = pr match { case (cases, r) => Cons((ename, caseName
 // `extern def va(xs: Int*)` started emitting a Cons list where the oracle passes the two arguments
 // individually. Caught by dumping F0's IR beside the oracle's rather than by any test, which is the
 // argument for having built that instrument.
-def collectFuncDflts(ts) = if isEmpty(ts) then Nil else (if isExternHead(ts) then collectFuncDflts(tl(tl(ts))) else collectFD1(ts))
+// EXCEPT their DEFAULTS, since 2026-08-14, and only their defaults. The exclusion above is right
+// about the calling convention and wrong about this one thing: `extern def f(a, b = d)` called
+// `f(x)` died `arity: 2 expected, 1 given` on both fronts while the interpreter ran it, and every
+// `extern def` in std/ with a default — nfc, actors, streams, openapi, ui/content, ui/primitives,
+// cluster — was callable only at full arity. The distinction that makes this safe: clause
+// flattening and the vararg collapse rewrite HOW the native is called, which the native owns; a
+// default supplies a MISSING ARGUMENT whose value is an expression written in ssc source, which
+// only a front can evaluate, and the native's own registered arity says it wants that argument.
+// So externDfltEntry registers a single-clause extern that actually HAS a default, and nothing
+// else: a curried extern is excluded (the flat `fullCallStr` shape is exactly the _bug1b defect)
+// and a vararg-only extern is excluded (that is `dfltRegVA`'s half of the registry, and it is the
+// collapse this comment's author removed).
+def collectFuncDflts(ts) = if isEmpty(ts) then Nil else (if isExternHead(ts) then collectExternD(ts) else collectFD1(ts))
+def collectExternD(ts) = appEnv(externDfltEntry(tl(ts)), collectFuncDflts(tl(tl(ts))))
+def externDfltEntry(ts) = if isDefHead(ts) then externDfltE1(snd(hd(tl(ts))), skipGen(tl(tl(ts)))) else Nil
+def externDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then externDfltE2(nm, collectPD(tl(afterName), Nil)) else Nil
+def externDfltE2(nm, pr) = pr match { case (pd, r) => externDfltE3(nm, pd, r) }
+def externDfltE3(nm, pd, r) = if isTok(hd(r), 2, 21) then Nil else (if pdAnyDflt(pd) then Cons((nm, pd), Nil) else Nil)
 def collectFD1(ts) = if isDefHead(ts) then appEnv(defDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isCCHead(ts) then appEnv(ccDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isEnumHead(ts) then appEnv(enumDfltEntries(ts), collectFuncDflts(tl(ts))) else collectFuncDflts(tl(ts))))
 def isDefHead(ts) = if isTok(hd(ts), 2, 1) then isNameTok(hd(tl(ts))) else false
 def isNameTok(t) = if fst(t) == 1 then true else fst(t) == 3

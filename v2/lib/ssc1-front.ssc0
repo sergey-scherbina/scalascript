@@ -1846,6 +1846,36 @@ def skipTypeParams = (toks) =>
     skip(advance(toks))
   else toks
 
+-- An `extern def`'s DEFAULTS, and nothing else about it.
+--
+-- An extern is a signature: the statement parser skips it whole (it has no body) and emits a no-op,
+-- so its parameter list was never read and its defaults never reached `funcDefaultsCell`. The call
+-- site then had nothing to fill from, and the short spelling died with `arity: 2 expected, 1 given`
+-- against the plugin's registered arity — for a signature the program was written against.
+-- (v2/BUGS.md v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity.)
+--
+-- ONLY the defaults. `specs/v2.2-p6.5-fsub.ssc` excludes externs from the same registry on purpose,
+-- and its comment says why with measurements: rewriting an extern CALL to match a source signature
+-- the native never sees is what made `examples/_bug1b.ssc` silently drop a block (clause
+-- flattening) and what turned `va(1, 2)` into a Cons list (vararg collapse). Those two rewrite the
+-- CALLING CONVENTION, which the native owns. A default is the other thing: the missing argument's
+-- VALUE is an expression written in ssc source, so nobody but the front can produce it, and the
+-- native's own declared arity says it wants that argument. That is why this registers the default
+-- registry and touches neither `varargDefsCell` nor `firstListDfltsCell`.
+-- A CURRIED extern is excluded, and that exclusion is the _bug1b lesson written as a condition: the
+-- call-site synthesis emits a call at the REGISTERED arity, which for `f(a)(b)` is the flat shape
+-- the native does not have. `httpClient(url)(block)` carries no default so it never reaches here
+-- anyway; the guard is for the one somebody writes next.
+def registerExternDflts = (tsName) =>
+  let nm = tokVal(peek(tsName)) in
+  let tsP = skipTypeParams(advance(tsName)) in
+  if kindIs("(", tsP) then
+    let _clr = #cell.set(paramDefaultsCell, Nil) in
+    let rp = parseParamList(tsP) in
+    if kindIs("(", prT(rp)) then 0
+    else registerParamDflts(nm, prV(rp))
+  else 0
+
 -- KC5: skip a single [T] type argument list after a TC name
 def skipTypeArgs = (ts) =>
   if kindIs("[", ts) then
@@ -3095,6 +3125,10 @@ def parseOneStmt = (toks) =>
           pr(Pair("sealed", ""), ts3)
         else
           let ts2 = if kindIs("kw", ts1) then advance(ts1) else ts1 in
+          -- ts2 is at the NAME. The declaration is still skipped whole — an extern has no body —
+          -- but an `extern def`'s parameter defaults are read on the way past; see
+          -- registerExternDflts for why the defaults and only the defaults.
+          let _xd = if kwIs("def", ts1) then registerExternDflts(ts2) else 0 in
           pr(Pair("sealed", ""), skipToStmt(ts2))
       else if #seq(v, "opaque") then
         -- K62.8: `opaque type X = Y` — erased alias, skip to next stmt.
