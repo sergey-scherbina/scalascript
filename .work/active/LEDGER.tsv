@@ -1,4 +1,4 @@
-# generation: 2140
+# generation: 2141
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -6,3 +6,4 @@ f-cons2-no-arm	claude-code	2026-08-14T23:07:37Z	f-compiler-crashes-with-no-arm-f
 resolver-follows-a-val-to-its-constructor	claude-code	2026-08-14T23:09:02Z	resolver-follows-a-val-to-its-constructor v3-stmt-val-discards-a-type-the-author-wrote	file:v3/src/Lower.scala file:v3/BUGS.md
 rust-route-handler-shapes	claude-code	2026-08-14T23:41:50Z	rust-inline-route-handler-is-typed-as-a-string-handler	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-route-handler-shapes-gate.sh file:.github/workflows/ci.yml file:BUGS.md
 rust-mcp-client-sdk-members	claude-code	2026-08-14T23:42:26Z	rust-mcp-client-sdk-members-need-generated-adapters	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustIntrinsics.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/McpClientRs file:tests/e2e/build-rust-refuses-loudly.sh file:tests/rust-std-survey-baseline.tsv file:BACKLOG.md file:BUGS.md
+native-default-arg-discriminator	claude-code	2026-08-14T23:42:57Z	native-serve-does-not-apply-a-default-argument-so-every-short-call-fails	file:v2/BUGS.md

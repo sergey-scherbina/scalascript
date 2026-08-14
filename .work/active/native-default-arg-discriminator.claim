@@ -1,0 +1,11 @@
+slug: native-default-arg-discriminator
+branch: feature/native-default-arg-discriminator
+agent: claude-code
+started: 2026-08-14T23:42:57Z
+heartbeat: 2026-08-14T23:42:57Z
+status: claimed-before-planning
+items: native-serve-does-not-apply-a-default-argument-so-every-short-call-fails
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
