@@ -2,10 +2,10 @@ slug: corpus-contract-nightly-red
 branch: feature/corpus-contract-nightly-red
 agent: claude-code
 started: 2026-08-14T21:39:18Z
-heartbeat: 2026-08-14T21:45:18Z
+heartbeat: 2026-08-14T21:49:12Z
 status: working
 items: corpus-contract-declared-backend-skips-red-on-all-four-shards backend-jvm-cases-have-no-verdict-on-any-backend-they-name
-paths: file:v2/BUGS.md file:tests/BUGS.md file:examples/cluster-capability.ssc file:examples/distributed-dataset-wire-protocol.ssc file:examples/distributed-dataset-typed-helpers.ssc file:examples/distributed-dataset-wire-shuffle.ssc file:examples/remote-registry-rpc.ssc file:examples/streams.ssc file:examples/distributed-streams.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
+paths: file:v2/BUGS.md file:tests/BUGS.md file:examples/cluster-capability.ssc file:examples/distributed-dataset-wire-protocol.ssc file:examples/distributed-dataset-typed-helpers.ssc file:examples/distributed-dataset-wire-shuffle.ssc file:examples/remote-registry-rpc.ssc file:examples/streams.ssc file:examples/distributed-streams.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:v1/runtime/backend/js/BUGS.md file:tests/conformance/native-import-in-fence.ssc
 scope: |
   The Corpus Contract nightly has been RED for eight nights (2026-08-07 .. 08-14). The entry blames
   a 08-13 reporting change; the per-night census refutes that — the streak is FOUR different failure
@@ -23,6 +23,18 @@ scope: |
   `* SKIP` is FROZEN IN THE BASELINE — a baseline row enshrining a stale path. They are in scope for
   that reason: fixing the path makes a frozen known-red start passing, which fails the suite by
   design, so both halves move together.
+
+  WIDENED before the edit, for the FIFTH row. `0796774ad` removed `native-import-in-fence js
+  KNOWN-RED` from BOTH halves and marked `js-jvm-codegen-in-fence-imports-not-followed` fixed, but
+  js STILL fails: `_call(square, 5)` with `square` never defined. Control run here — the identical
+  import OUTSIDE the fence works on js, INSIDE it does not, and int does both. JsGen's three
+  collection sites do use the new `Parser.sectionImports`; the miss is UPSTREAM, in the CLI's own
+  import discovery (`AutoResolve.scala:211`, `Main.scala:1557/3636/3931`, `BundleCommand`,
+  `LockCommands`), which the commit's five-site census never counted because it counted GENERATORS.
+
+  Restoring the declaration, not fixing the CLI: the gap is old and tracked, so a `known-red:` is
+  what it is for, and the CLI fix belongs to whoever takes that entry. Reopening it with the control
+  and the exact sites so it arrives claimable.
 
   NARROW: seven example import paths, the baseline rows that freeze their skips, and the roster
   digest paired with the baseline. No compiler or harness change.
