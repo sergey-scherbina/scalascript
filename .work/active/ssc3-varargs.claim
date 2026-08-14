@@ -1,0 +1,11 @@
+slug: ssc3-varargs
+branch: feature/ssc3-varargs
+agent: claude-code
+started: 2026-08-14T07:21:05Z
+heartbeat: 2026-08-14T07:21:05Z
+status: claimed-before-planning
+items: SSC3-14b
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
