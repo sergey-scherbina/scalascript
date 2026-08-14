@@ -201,7 +201,57 @@ time.sleep(20)
   fi
   rm -rf "$plant"; trap - EXIT
 
-  echo "no-leaked-servers self-test: PASS (leaks both directions, collisions both directions)"
+  # ── ownership: a gate must know its own server from anybody else's ─────────────────────────────
+  #
+  # The sibling defect (`a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own`) is
+  # about a gate that polls a port and calls whatever answers a success. It is asserted HERE, and
+  # the plant is the whole point: the failing case is a gate whose launcher is BROKEN while a
+  # foreign server holds the port, which is exactly the state that used to read GREEN. Observing
+  # `assert_own_listener` stay quiet on a healthy run would prove nothing at all.
+  . "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh"
+  oport=19741
+  if listening_on "$oport" | grep -q .; then
+    echo "no-leaked-servers self-test: port $oport already in use — ownership half skipped" >&2
+  else
+    listener_cmd="import socket,time,sys
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+s.bind(('127.0.0.1',$oport)); s.listen(1); sys.stderr.write('up\n'); sys.stderr.flush()
+time.sleep(20)"
+
+    # NEGATIVE — somebody else holds the port and our launcher produced nothing that listens.
+    python3 -c "$listener_cmd" 2>/dev/null &
+    foreign_pid=$!
+    sleep 5 & broken_launcher_pid=$!          # what a broken launcher leaves behind: alive, deaf
+    for _ in 1 2 3 4 5 6 7 8 9 10; do listening_on "$oport" | grep -q . && break; sleep 0.3; done
+    if assert_own_listener "$oport" "$broken_launcher_pid" "PLANT" >/dev/null 2>&1; then
+      kill "$foreign_pid" "$broken_launcher_pid" 2>/dev/null
+      echo "SELF-TEST FAIL: a FOREIGN server on :$oport was accepted as this gate's own — the" >&2
+      echo "  ownership check cannot tell a leaked/sibling process from the one it started" >&2
+      exit 1
+    fi
+    kill "$broken_launcher_pid" 2>/dev/null
+    echo "  ok   refuses a foreign server holding the port"
+
+    # POSITIVE, and it must go through a CHILD. `bin/ssc` is a launcher script, so on some lanes the
+    # JVM is the same pid and on others it is a descendant; a check that only accepted an exact pid
+    # would be testing `exec` versus `&` rather than ownership. The listener here is deliberately a
+    # grandchild of the pid handed in.
+    kill "$foreign_pid" 2>/dev/null
+    for _ in 1 2 3 4 5 6 7 8 9 10; do listening_on "$oport" | grep -q . || break; sleep 0.3; done
+    bash -c "python3 -c \"\$1\" 2>/dev/null" _ "$listener_cmd" &
+    own_pid=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do listening_on "$oport" | grep -q . && break; sleep 0.3; done
+    if ! assert_own_listener "$oport" "$own_pid" "PLANT"; then
+      kill "$own_pid" 2>/dev/null; pkill -P "$own_pid" 2>/dev/null
+      echo "SELF-TEST FAIL: a server this script started as a CHILD was called foreign — every" >&2
+      echo "  gate wiring this in would go red on a healthy run" >&2
+      exit 1
+    fi
+    kill "$own_pid" 2>/dev/null; pkill -P "$own_pid" 2>/dev/null
+    echo "  ok   accepts a server started underneath the pid it was given"
+  fi
+
+  echo "no-leaked-servers self-test: PASS (leaks both directions, collisions both directions, ownership both directions)"
   # falls through to the real check, like v1-jit-size.sh: one invocation does both
 fi
 

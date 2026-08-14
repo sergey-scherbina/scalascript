@@ -28,6 +28,9 @@ FIXTURE="$ROOT/e2e/fixtures/route-params-smoke.ssc"
 BIN="$ROOT/../bin/ssc-tools"
 PORT=8797
 
+# shellcheck source=lib/own-server.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh"
+
 trap 'lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
 
 kill_port() { lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null; sleep 1; }
@@ -42,6 +45,14 @@ run_lane() {
         curl -sS -o /dev/null -m 1 "http://localhost:$PORT/end/probe" 2>/dev/null && break
         sleep 0.5
     done
+    # Something answered — but WHOSE? This port is shared with `request-validation-family-gate.sh`,
+    # and a leaked or sibling process on it would satisfy the poll above and let this gate report a
+    # result it never produced. (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
+    if ! assert_own_listener "$PORT" "$pid" "$lane"; then
+        kill "$pid" 2>/dev/null; kill_port
+        echo "$lane: FOREIGN-SERVER"
+        return
+    fi
     local mid; mid=$(curl -s -m 5 "http://localhost:$PORT/mid/hello/tail")
     local end; end=$(curl -s -m 5 "http://localhost:$PORT/end/hello")
     kill "$pid" 2>/dev/null
