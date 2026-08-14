@@ -16,7 +16,8 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: tests/e2e/v2-map-updated-shape-gate.sh -->
+     gate: tests/e2e/v2-map-updated-shape-gate.sh
+     fixed-in: 184276c96 -->
 
 **`MapV` is a mutable `LinkedHashMap`, and every immutable update COPIES IT ENTIRELY**
 (`v2/src/Runtime.scala:2801`):
