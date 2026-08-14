@@ -168,13 +168,62 @@ is the file itself.
 
 ## f-package-namespace-breaks-on-an-object-with-extends
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 88c5741f6
+     gate: tests/e2e/f-bodyless-object-gate.sh -->
+
+### FIXED 2026-08-14 — and this entry's title, law and next step were all wrong
+
+**The package namespace has nothing to do with it.** `objBodyToks`
+(`specs/v2.2-p6.5-fsub.ssc`) advanced from an object header to its body `{` with NO stop condition,
+so a BODYLESS `object A` ran on to whatever brace came next anywhere in the file — and when the file
+had none, it consumed the file. The oracle has always had the missing arm: `ssc1-front.ssc0
+skipToBrace :2714` stops at `{`, EOF **or `;`**. One arm, six callers, three symptoms.
+
+Every clause of the law below is refuted by a reproducer with NO frontmatter at all:
+
+| the entry said | measured 2026-08-14 |
+| --- | --- |
+| `package:` is required | not required — `object A` + `def h` + `def main` fails with no frontmatter |
+| an `extends` clause is required | not required — `bodyless-plain` has none and fails |
+| `case object` vs `object` makes no difference | it makes a difference in `objectItem` and NONE in the four raw-token collectors, which scan for the WORD `object` — one token along in `case object A` |
+| the fault is downstream of generation, in `parse(nsSrc)` or the splice | the generator and the splice are both innocent; the module's OWN tokens were already mis-scanned |
+
+**Why `package:` looked necessary.** Deleting it made `std/parsing/core.ssc` compile, and that was
+a true measurement of a false cause. The misattribution happens either way; the generated namespace
+is what adds `def __pkgref_std_parsing__Parser = Parser`, i.e. the REFERENCE that turns a silently
+mis-scanned object into a fatal `unbound global: (global Parser)`. Remove the reference and the
+defect stops being visible in that file — which is not the same as stopping.
+
+**What it unblocked**, front verdicts before and after on real builds:
+
+```
+std/parsing/core.ssc          GAP (global Parser) -> F
+std/parsing/combinators.ssc   GAP (global Parser) -> F
+std/parsing/layout.ssc        GAP (global Parser) -> F
+examples/dsl-calc-parser.ssc  GAP (global Parser) -> F
+examples/dsl-json-parser.ssc  GAP (global Parser) -> F
+examples/dsl-yaml-like.ssc    GAP (global Parser) -> F
+std/parsing/recovery.ssc      GAP (global Parser) -> GAP (global _)    [advanced, other cause]
+examples/dsl-sql-recovery.ssc GAP (global Parser) -> GAP (global _)    [advanced, other cause]
+```
+
+All five dsl examples F now compiles answer IDENTICALLY to the reference front, so unblocking this
+path revealed no second defect behind it. The two remaining GAPs moved to `(global _)` — a
+placeholder cause, and the same one `f-placeholder-u0-reduced-but-not-solved` is about.
+
+**The 91-line reduction was at a fixpoint and still could not see this**, which is worth recording:
+it pinned `sealed trait Parser`, `object Parser` and `trait ParserContext`, and reduced by
+declaration until every survivor was load-bearing — but `case object NoContext extends
+ParserContext` is one of the survivors and reads as an ordinary declaration. Nothing about the
+reduction says "the object above the failing one is the culprit". What found it was asking a
+different question: not "which declarations are needed" but "what does F do with the SIMPLEST
+possible object", and the answer was that a five-line file without frontmatter already failed.
 
 **An `object … extends …` in a module with `package:` breaks the generated package namespace: the
 next generated name comes out unbound.** This is the root of the largest remaining F coverage hole —
@@ -432,13 +481,27 @@ with `if: always()`, so the first real instance will name itself, with its age a
 
 ## f-parser-gap-needs-the-package-field
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 88c5741f6
+     gate: tests/e2e/f-bodyless-object-gate.sh -->
+
+### FIXED 2026-08-14 — and the title names a correlate, not a cause
+
+`std/parsing/core.ssc` is `F` now, with its `package:` field untouched. The cause was
+`objBodyToks`' missing `;` stop — see `f-package-namespace-breaks-on-an-object-with-extends` for
+the derivation, the refuted law and the before/after verdicts. `package:` was necessary only to make
+the defect FATAL: the generated namespace is what emits `def __pkgref_std_parsing__Parser = Parser`,
+the reference that turns a silently misfiled object into an unbound global. The measurement recorded
+below — "delete `package:` and the file compiles" — is true and was read as a cause.
+
+The ruled-out list below stays: every item on it is still ruled out, and none of them was ever going
+to be it, because the trigger is not a declaration at all — it is a bodyless `object` header being
+followed by any brace at all.
 
 `std/parsing/core.ssc` is `GAP` with `unbound global: (global Parser)`, and it is the root of the
 largest remaining F coverage hole: four corpus files (`examples/dsl-calc-parser.ssc`,
@@ -479,9 +542,11 @@ reference front before believing a verdict from it.
 * a generic method inside the object (`def succeed[A](value: A): Parser[A]`);
 * a type-parameterised extension (`extension [A](p: Parser[A])`).
 
-**Next step:** with `package:` known necessary, bisect what it interacts with — the natural
+~~**Next step:** with `package:` known necessary, bisect what it interacts with — the natural
 candidate is whatever F does with package-qualified declaration names, since the symptom is a
-declaration that is REFERENCED but never EMITTED.
+declaration that is REFERENCED but never EMITTED.~~ — The reasoning was sound and the premise was
+not: `package:` is not necessary, and the declaration was never emitted because a bodyless `object`
+above it had already swallowed the scan. See the FIXED note at the top.
 
 ## f-leaks-its-own-block-end-sentinel-as-an-unbound-global
 
