@@ -23,13 +23,14 @@ Newest first.
 
 
 
-## build-rust-indexof-on-string — indexOf on a String takes the LIST lowering, and String has no `iter`
+## build-rust-indexof-on-string — indexOf on a String took the LIST lowering, and String has no `iter`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the repro is four lines, below
+     fixed-in: d50eb34e1
+     gate: tests/e2e/rust-toint-parity-gate.sh
      reported-by: rozum
      reported-at: 2026-08-13
      ssc-version: 61eaefc57
@@ -64,19 +65,25 @@ String is not supported' would also be an improvement over emitting code that ca
 an Option or a Range, so a String receiver takes the Vec lowering. Adding `isStringExpr(qual)` as a
 third exclusion and emitting the string form is the shape of the fix.
 
-**One trap for whoever writes it, worth more than the arm itself:** `str::find` answers a BYTE
-offset and Scala's `indexOf` answers a CHARACTER index. They agree for ASCII and diverge for
-anything else, so `q.find(&v).map(|i| i as i64).unwrap_or(-1)` is right for the reporter's HTML case
-and silently wrong for a non-ASCII haystack — which is the same class of defect as the one that got
-this file its `.expect()` and panic arms today. `char_indices` is the honest form.
+**FIXED with the trap handled, and the trap was worth more than the arm.** `str::find` answers a
+BYTE offset while Scala's `indexOf` answers an index into UTF-16 code units; returning `find`'s
+number would have been right for the reporter's ASCII HTML and silently wrong for anything else. The
+emitted form converts the prefix — `__h[..__b].encode_utf16().count()` — and the gate pins it with a
+NON-ASCII row: `"héllo</head>x".indexOf("</head>")` is **5** on both lanes, where the byte offset is
+6. The bindings are `&str` rather than `let __h = $q`, because taking the value would move a String
+local and the next read of it is E0382 — a defect this backend has shipped before.
 
-## build-rust-concat-list-element-with-toplevel-val — `parts(0) + SEP` emits `String + String`, which Rust has no impl for
+A char argument and the two-argument form still take the old arm, unchanged: the new one requires
+both the receiver and the argument to be string-shaped.
 
-<!-- status: open
+## build-rust-concat-list-element-with-toplevel-val — `parts(0) + SEP` emitted `String + String`, which Rust has no impl for
+
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the repro is four lines, below
+     fixed-in: d50eb34e1
+     gate: tests/e2e/rust-toint-parity-gate.sh
      reported-by: rozum
      reported-at: 2026-08-13
      ssc-version: 61eaefc57
@@ -121,18 +128,31 @@ list-index expression the walker does not classify as a string, and `SEP` is a T
 `+` emits `String + String`. That is exactly why the reporter's table moves with the origin of the
 operands rather than with their count.
 
-Two candidate fixes, and the table decides between them rather than taste: teach the string test
-that an index into a `List[String]` is a string, and/or give top-level `val`s of a string type the
-same registry `ctx.localStrings` gives locals. The second alone would fix rows 1 and 3 and leave
-row 2, so the first is the one the reporter's own data asks for.
+**FIXED, and there were TWO causes, not one — measured by emitting all five rows rather than
+reasoning about them.** Both are the same mistake in different places: a DECLARATION was present in
+the source and not read.
 
-## toint-on-a-non-integer-diverges — toInt on a non-integer aborts on run and silently yields 0 on build-rust; HALF FIXED
+1. `collectLocalStrings` judged a local by its right-hand SIDE, so `val a: String = parts(0)` was
+   not a string although the source says it is. It now takes a declared `String` type on its own,
+   which is the discipline the neighbouring `stringParams` already used.
+2. Top-level `val`s were never collected at all — that walker only descends a def BODY, so
+   `val SEP: String = "-"` beside the defs was invisible. `collectModuleStrings` mirrors
+   `collectModuleSignals`, which had solved the identical "declared beside the defs" problem.
 
-<!-- status: open
+**My earlier note in this entry said the second fix alone would leave row 2. That was wrong**, and
+the emission table is why: with `SEP` recognised, row 2's `a + SEP` takes the `format!` arm through
+its RIGHT operand. Both fixes are still right — each reads a declaration that was being ignored —
+but the claim about which rows they cover was reasoning where measuring was available. All five rows
+now emit `format!`, and the two that were broken are rows 2 and 3.
+
+## toint-on-a-non-integer-diverges — toInt on a non-integer aborts on run and silently yielded 0 on build-rust
+
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/rust-toint-parity-gate.sh
+     fixed-in: d50eb34e1
      reported-by: rozum
      reported-at: 2026-08-13
      ssc-version: 04b2f12fc
@@ -170,20 +190,22 @@ different answers, no diagnostic.
 fabricated 0 is a wrong answer that reaches production. `toIntOption` already exists on the run lane
 as the total form.
 
-**HALF FIXED, and the half that is open is the common spelling.** The silent zero has TWO emission
-paths, which the new gate found by going red on the first attempt at this fix:
+**IT HAD TWO EMISSION PATHS, and the gate is what established that** — it went red on the first
+attempt at this fix, which had only changed the runtime template:
 
-| how the receiver reaches the walker | emitted | state |
+| how the receiver reaches the walker | emitted before | now |
 |---|---|---|
-| type not statically known (a `def` parameter) | `_to_int(x)` → the runtime template | FIXED |
-| walker knows it is a String (a literal, a typed local) | `("abc".to_string().parse::<i64>().unwrap_or(0))` INLINE | OPEN |
+| type not statically known (a `def` parameter) | `_to_int(x)` → the template's `unwrap_or(0)` | panics |
+| walker knows it is a String (a literal, a typed local) | `("abc".to_string().parse::<i64>().unwrap_or(0))` INLINE | `_to_int(&…)` |
 
-So `def f(s: String) = s.toInt` now stops on both lanes, and `"abc".toInt` written straight into the
-call still answers 0 on the Rust lane. The inline sites are `RustCodeWalk.scala:2559` (i64), `:2568`
-(f64), `:2978` (`unwrap_or($fb)`) and `:4372-4373` (`unwrap_or_default()`); the fix is mechanical —
-call the same `ssc_parse_int` / `ssc_parse_double` the template now carries, which panic naming the
-operation AND the input (`String.toInt: invalid integer: "abc"`). Left open because that file was
-under another agent's claim; the gate asserts only what is actually fixed.
+Both spellings now route through the same helper, so there is ONE implementation of the semantics
+instead of two that drifted. The gate carries a row for each, because a fix to either alone passes
+half of them.
+
+**A correction to my own first reading of this entry:** `RustCodeWalk.scala:4372-4373`
+(`unwrap_or_default()`) is NOT this defect. Those two lines read a Signal's stored value and coerce
+it by the signal's declared element type — an internal representation read, not a user-written
+`toInt` — and they are deliberately left alone.
 
 **The twin nobody reported is fixed with it:** `toDouble` sat one line below with the identical
 `unwrap_or(0.0)`, and both run lanes throw for it too. Fixing the reported arm alone would have left
