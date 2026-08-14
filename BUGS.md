@@ -559,13 +559,14 @@ measure it, not a one-line edit at the end of another claim.
 
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-13
+     fixed-in: dc3cfeeef
      ssc-version: 2315f2ecf
      repro: the five-line program in the body
      confirmed: yes -->
