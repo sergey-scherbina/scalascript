@@ -190,7 +190,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   actors-cluster-coordinator
   actors-cluster-visibility
   actors-global-registry
-  cluster-connect
   coroutine-native-lifecycle
   curried-def-clauses
   dataset-agg
@@ -219,9 +218,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   scljet-readonly-pager-btree
   std-fs-failure
   std-fs-failure-raises
-  std-os
-  std-os-doc-import
-  std-os-readline
   std-ui-i18n
   std-ui-native-css-scope
   std-ui-native-css-scope-lib
