@@ -69,7 +69,7 @@ under F and all agree with the reference front.
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none -->
+     gate: tests/coord/coord-release-evidence-level.sh -->
 
 **Measured from the CI run list on 2026-08-14, not inferred, and now SETTLED — bounded by a green on
 each side.** Twelve consecutive `smoke.yml` runs failed, and every one of them failed on
@@ -136,6 +136,22 @@ what happened: `55d4e5554`, `scripts/ci-status` exit 0, `ok freeze-consistency 1
 mechanism — twelve agents pushing onto a red `smoke.yml` without reading it — and no commit here
 changes that. Closing on the strength of the freeze repair would be closing a habit finding because
 its example went away.
+
+**Gate named 2026-08-14 — and the entry is right that "add a check" is the wrong reading, so this is
+not one.** The check existed and was red; what nothing does is STOP anyone. But the repo already
+owns the mechanism: `coord-release --level 1` runs `scripts/ci-status --sha <landed-sha>` and
+refuses on non-zero, so "read the CI you triggered" is enforced at exactly one level and nowhere
+else. The checkable form of the habit is therefore a narrowing, not a new tool: **`coord-release`
+refuses at ANY level when `origin/main`'s latest `smoke.yml` run is RED**, because releasing onto a
+red main is the act the twelve pushes have in common.
+
+`tests/coord/coord-release-evidence-level.sh` is the lab that already drives that script through its
+level logic against a fake origin, so the case goes there.
+
+**Done when** that gate has a red-main case and its anti-case (green main releases normally), and
+the case FAILS against the current script. **This is a proposal, not a decision** — the alternative
+close is to write in `POLICY.md` that pushing onto a red smoke is allowed and why. Either settles it;
+what cannot stay is a finding whose whole content is "people should look".
 
 ## pre-push-refusal-message-executes-its-own-backticks — the coordination guard runs `scripts/coord-claim` while refusing you
 
@@ -298,7 +314,7 @@ gate. Filed here rather than done silently.
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none -->
+     gate: tests/coord/labs-are-hermetic.sh -->
 
 **Found 2026-08-14 by turning `main` red.** I wired six `tests/coord/*.sh` gates into smoke after
 measuring all six green here; **three went red on the runner within the hour**. Not a defect in the
@@ -336,6 +352,17 @@ that forgets to configure identity fails on a dev box too.
 
 **Immediate damage is repaired** — the three labs now set a repo-local identity (`coord-claim-broad`,
 wired earlier, always did, which is why it never failed). This entry is about the class.
+
+**Gate named 2026-08-14: `tests/coord/labs-are-hermetic.sh`, which does not exist yet.** The four
+numbered requirements above ARE its cases, and requirement 2 is the anti-constant one — deleting a
+lab's repo-local identity must turn it red HERE, or the change is decoration. One gate over all
+eleven labs beats a line in each: the property is "no lab reads ambient git config", and one place
+to assert it is one place to keep true.
+
+**Done when** that gate passes under the reproduction environment above
+(`HOME=$(mktemp -d) GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null`), and requirement 2
+fails against a lab with its identity removed. Note the entry's own warning: the weaker environment
+without `GIT_CONFIG_SYSTEM` does NOT reproduce, so a gate built on it would be green and blind.
 
 ## f-extension-call-in-a-def-body-refuses-with-a-wrong-arity
 
@@ -1770,7 +1797,7 @@ pointed the wrong way.
      reported-by: claude-code
      reported-at: 2026-08-10
      confirmed: yes
-     gate: none -->
+     gate: .agents/plugins/isolate/commands/isolate.md -->
 
 **Method, not code — and it cost two investigations in one day.**
 
@@ -1797,6 +1824,20 @@ the twelve are all well-formed.
 
 A cheaper check that would have caught both: before trusting a reduced artifact, REBUILD it
 well-formed and confirm it still reproduces. It takes one run.
+
+**This is a METHOD record, and its end state is a rule an agent reads before reducing — not a gate
+over code.** Named 2026-08-14 so it stops being unclaimable:
+`.agents/plugins/isolate/commands/isolate.md` is the skill every reduction in this repo runs from,
+and it is where the two rules belong.
+
+**Done when** that skill says both of them: **pin the declaration of any identifier the predicate
+names**, so the reducer cannot take the trivial solution of deleting it; and **rebuild the reduced
+artifact well-formed and confirm it still reproduces** before trusting it. The second costs one run
+and would have caught both instances above.
+
+Deliberately not a gate over code: there is no reducer script in this repository to assert against,
+and inventing one so that there is something to test would be the tail wagging the dog. The
+measurable claim is the skill's text.
 
 ## f-parser-gap-reduced-but-not-solved
 
@@ -2200,7 +2241,7 @@ bound). Those now announce themselves by name instead of arriving as rustc error
      reported-at: 2026-08-09
      ssc-version: 6b9fc4352
      confirmed: yes
-     gate: none -->
+     gate: tests/e2e/f-front-delegation-visible.sh -->
 
 `(global __u0)` is **F's own** decline reason on 11 corpus files — 2 `GAP` and 9 where the reference
 declines for its own, different reason (`__yamlSection__`). It originates in one module,
@@ -2272,6 +2313,15 @@ one also reduced `case` ARMS, which is the obvious next pass and needs the same 
 anyway before reading that list to the end — the `${` looked like an interpolation the front might
 mis-lex, which is a good hypothesis and a measured-dead one. Read the refuted list before probing.
 
+**Gate named 2026-08-14: `tests/e2e/f-front-delegation-visible.sh`** — the gate that already owns
+F's decline behaviour end to end (a file F compiles prints nothing; a user typo delegates silently;
+a real gap announces). A per-file verdict row belongs beside those three rather than in a new file.
+
+**Done when** `ssc info --front-report runtime/std/ui/content.ssc` answers **F** rather than
+`GAP … (global __u0)`, asserted there, with the 124-line reproducer above kept as the fixture so the
+row stays cheap. That reproducer is already well-formed and was reduced by DECLARATION and by `case`
+ARM — see `a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration` for why
+that matters — so whoever takes this starts from it rather than from the module.
 
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
@@ -2370,7 +2420,7 @@ Fixed to `./studio.ssc`. Both then move `ERROR` → `BOTH-UNBOUND` — they stil
      reported-at: 2026-08-09
      ssc-version: fd8304965
      confirmed: yes
-     gate: none -->
+     gate: tests/conformance/run.sh -->
 
 A census of the five `ERROR` files in the 140-file front-report sample — the one bucket nobody had
 looked at. **None of them is an F lowering gap.**
@@ -2395,6 +2445,20 @@ remaining work is the 17 `GAP` files, and that is the whole of it.
 **Still open** because the three unparseable files are a real defect in the native frontend's parser,
 just not F's: `struct…` truncated in the message above is where the parse stops, and no one has
 reduced it. Filed here rather than left in a census note so it has a slug to be found by.
+
+**The census half is DELIVERED and is what this entry was for**: the ERROR bucket holds no F gaps,
+and F's real denominator is 70 rather than 140 — 53 of 70, 76%, against the 38% that had been quoted
+all week. Nothing further is owed on that.
+
+**Gate named 2026-08-14 for the remainder, which is a different defect than the title:**
+`tests/conformance/run.sh`. Three files are rejected by the REFERENCE front's parser
+(`ssc: native frontend rejected incomplete parse … struct…`), nobody has reduced them, and that is a
+native-frontend parser bug rather than an F one.
+
+**Done when** those three files parse — the corpus runner accepts them — or when the refusal is
+shown to be correct and the files are fixed instead, which is the outcome the two sibling ERROR
+files already had. Whoever takes it should split the remainder into its own slug: this title will
+otherwise keep the entry open forever for a reason it does not describe.
 
 ## json-core-emitted-rust-does-not-compile
 
@@ -3196,7 +3260,7 @@ Newest first.
 <!-- status: open
      lane: apparatus
      area: front
-     gate: - -->
+     gate: tests/e2e/f-front-delegation-visible.sh -->
 
 `ssc info --front-report` classifies a file `BOTH-UNBOUND` when the REFERENCE front also fails
 `validateNoReader`, and the surrounding comment reads that as "the file is broken whichever front
@@ -3290,6 +3354,20 @@ Not fixed here, and the reason is the same one the extern entry recorded: wideni
 accept plugin intrinsics trades a loud misclassification for a silent wrong answer if the name is
 genuinely absent, so it wants the registry consulted rather than a pattern match on leading
 underscores. Owner call, like its predecessor.
+
+**Gate named 2026-08-14: `tests/e2e/f-front-delegation-visible.sh`**, the same gate that owns the
+delegation verdict this census is about — and it already carries the anti-case shape this needs, a
+user typo that must delegate SILENTLY.
+
+**Done when** a name the runtime actually binds stops counting as `BOTH-UNBOUND`, asserted there,
+**with the anti-case that a genuinely absent name still does**. That pairing is the whole difficulty
+and the entry already says so: widening the guard trades a loud misclassification for a silent wrong
+answer unless the registry is consulted per name.
+
+**The blocker is named and is not this entry's alone to solve:** three sources disagree —
+`pluginNativeNames` is `private[interpreter]` and in the wrong lane, the native side has no
+equivalent table, and `__yamlSection__` is synthesised by the RUNNER (`v2/bin/ssc1-run.ssc0:187`),
+not by any plugin. Unifying those is the work; the gate above is how you know it landed.
 
 ## uniml-version-drifted-from-root — the standalone build would publish two versions of one artifact
 
@@ -5255,7 +5333,7 @@ wrong code. **Not being able to answer must not look like answering "no".**
 <!-- status: open
      lane: apparatus
      area: other
-     gate: none -->
+     gate: tests/coord/coord-update-rolls-back.sh -->
 
 **Found 2026-07-30** across four attempts to land ONE two-file claim-release commit. Not a theory — each
 symptom below was observed, and the last two cost real work.
@@ -5406,6 +5484,17 @@ no trace outside the reflog.
 This is the same root as the entry's title — one working tree, many agents — but it is a distinct
 mechanism from the two already recorded, and the only one of the three that can destroy work rather
 than lose a bookkeeping edit.
+
+**Gate named 2026-08-14: `tests/coord/coord-update-rolls-back.sh`** — deliberately the SAME gate as
+`scripts/BUGS.md hand-made-claim-updates-have-no-tool-and-so-no-rollback`, because once `coord-claim`
+and `coord-release` learned to roll their commits back, the hand-made claim-update is the last
+remaining way to produce the landmine this entry describes. One mechanism left, one gate.
+
+**Done when** `scripts/coord-update` exists with rollback and that gate's anti-case fails against a
+version without it. The two recovery rules this entry establishes stay as prose, because they are
+things a reader must know rather than things code can hold: **never `git reset` in the shared
+checkout** — it undoes whatever the last agent did — and **a rejected push does not mean your commit
+did not land**, so check `git merge-base --is-ancestor <sha> origin/main` before undoing anything.
 
 ## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
 <!-- status: fixed
@@ -6331,7 +6420,8 @@ skill should stop restating the number and point at `scripts/coord-status` as th
 ## ci-sbt-job-is-28x-the-code-push-interval — the arithmetic no queue policy can fix
 <!-- status: open
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     gate: .github/workflows/ci.yml -->
 
 **Status:** OPEN — **measurement, handed to whoever owns the `sbt` job** (2026-07-28,
 `ci-bookkeeping-floods-verdicts`). Not mine to fix: job structure and `timeout-minutes` belong to
@@ -6360,6 +6450,18 @@ per-push verdict comes from something that already is. The other three jobs meas
 `ci-runs-cancelled-under-churn` ("gate the fast jobs as the per-push verdict and run `sbt` on a
 schedule") is not one option among several; it is the only shape that fits the arithmetic without
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
+
+**Gate named 2026-08-14: `.github/workflows/ci.yml`** — the change IS the workflow, so the file is
+the acceptance test, in the same sense as `corpus-contract.yml` is for the corpus entries.
+
+**Done when** the per-push verdict comes from jobs that fit inside the push interval — `Validate`
+34 s and `Lint` 28 s are already measured — and `sbt` runs on a schedule instead. The entry's own
+arithmetic rules the alternatives out: queue management was necessary and changed this ratio not at
+all, because it was never the docs commits.
+
+**The measurement that says it worked** is the one that produced the finding: median
+push-to-verdict interval against the job's duration. Re-run it after the change rather than letting
+the shape imply the number.
 
 ## scljet-jdbc-nan-binding-diverges — PreparedStatement binds NaN as REAL instead of SQLite NULL
 <!-- status: fixed
@@ -6413,7 +6515,8 @@ SclJet-written file, and gets `PRAGMA integrity_check = ok`.
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
 <!-- status: open
      lane: apparatus
-     area: front -->
+     area: front
+     gate: tests/e2e/scljet-m2-corpus-smoke.sh -->
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion` while
 running the assembled IPK-affinity matrix). This is a declared SC-8 grammar
@@ -6430,6 +6533,15 @@ digit, supports only `digits` and `digits.digits`, and INSERT `VALUES` accepts
 one unsigned literal token rather than a signed expression. SC-8 must add the
 full SQLite signed decimal/exponent/hex source-literal grammar and differential
 vectors without changing the distinct TEXT-affinity grammar.
+
+**Gate named 2026-08-14: `tests/e2e/scljet-m2-corpus-smoke.sh`** — the scljet corpus gate, already
+wired into `ci.yml` and already the home of scljet's differential vectors against reference SQLite.
+
+**Done when** `INSERT INTO t VALUES (-5)`, bare `2e2` and bare `0x10` produce rowids `-5`, `200` and
+`16` there, matching reference SQLite — **and TEXT `'0x10'` still fails as a datatype mismatch under
+affinity**. That second half is not a detail: the entry states the TEXT-affinity grammar is
+deliberately different, so a change that makes all four succeed has broken something while turning
+the first three green.
 
 ## scljet-update-ignores-unconsumed-numeric-tail — mutation parsers can execute a recognized prefix
 <!-- status: fixed
