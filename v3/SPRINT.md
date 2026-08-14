@@ -2909,7 +2909,11 @@ repository has paid for that confusion more than once.
       *Done when:* an effectful program either runs identically on both lanes or is refused with a
       position naming the instruction, and `v3/tests/effects/` fixtures can move back beside the
       differential.
-- [ ] **B1 — one timing wrapper for every column.** `bench/run.sc` times v3 differently and says
+- [x] **B1 — one timing wrapper for every column. DONE 2026-08-13 as `17fbdf00e`**, and the
+      *Expect the v3 column to get SLOWER* warning at the end of this entry is now a statement of
+      fact rather than a prediction. The four sub-items below (B1z, B1a, B1b, B1d) each landed; B1c
+      is the switch itself and its "HALF DONE" paragraph is closed in place.
+      **Original plan:** `bench/run.sc` times v3 differently and says
       why in its own comment: the shared wrapper calls `nanoTime()` as ordinary ScalaScript and
       "v3 has no clock". **v3 has one since 2026-08-09** — `nanoTime()` → `io.nanoTime`, the same
       prim name v2 uses. The asymmetry the comment admits ("v3 is not charged for executing the rep
@@ -2982,6 +2986,14 @@ repository has paid for that confusion more than once.
         hand-built copy. A blank column is worse than a column with a disclosed asymmetry, and a
         fallback that quietly reverts to `ssc3 bench` would make each cell's measurement method
         unknowable, which is the same disease in a new place.
+        **THE SWITCH LANDED 2026-08-13 in `17fbdf00e`, and it was not one line.** `runV3Bench` asks
+        the tools binary for the wrapper (`bench --emit-wrapper`), writes those bytes beside the
+        corpus source — `createTempFile(…, file.getParentFile)`, because a relative `import` in a
+        corpus file resolves against the file's own directory — runs `v3/ssc3 run` on them and reads
+        `BENCH_MS:` with `lastOption`. There is no fallback to `ssc3 bench`: a row that cannot be
+        measured through the shared wrapper prints a blank, so no cell's method is unknowable. The
+        exception comment in `bench/run.sc` was DELETED rather than edited, as this entry required.
+        B1a and B1d were both needed to get here and only B1a was in the plan.
       *Gate:* the emitted text must be byte-identical for v3 and for the lane it is compared
       against — otherwise the columns are again measuring two different programs.
       *Expect the v3 column to get SLOWER when this lands, and say so when publishing:* today v3
@@ -3012,7 +3024,7 @@ repository has paid for that confusion more than once.
       by hand on 2026-08-11, three days after it could have been.
       *Done when:* a gate runs the bench corpus for a NUMBER (not a timing) and fails when a row
       that computed stops computing. Cheap: `--warmup 1 --reps 1` and check for `BENCH_SINK`.
-- [ ] **B4 — the three-version table, on a quiet host.** Only after B1–B3. Load was 29 when this
+- [~] **B4 — the three-version table, on a quiet host.** Only after B1–B3. Load was 29 when this
       was written and identical code spreads by 2.5× at load 5.5, so a table taken now would be
       published noise.
       *Done when:* `bench/run.sc` runs with all three versions and every backend, on a host below
