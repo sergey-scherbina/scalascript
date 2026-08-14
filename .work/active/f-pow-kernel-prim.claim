@@ -3,9 +3,44 @@ branch: feature/f-pow-kernel-prim
 agent: claude-code
 started: 2026-08-14T21:35:55Z
 heartbeat: 2026-08-14T21:35:55Z
-status: claimed-before-planning
+status: working
 items: f-pow-kernel-prim v3-math-pow-fractional-needs-a-v2-prim
 paths: file:v2/src/Runtime.scala file:v2/backend/js/JsBackend.scala file:v2/backend/jvm/JvmBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala file:v2/specs/10-core-ir.md file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/prelude/index.ssc file:v3/tests/parity file:v3/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `f.pow` in v2's Core IR kernel, so v3's `math.pow` stops being partial. The owner's decision of
+  2026-08-14, taken after I brought him the boundary question rather than deciding it myself.
+
+  I TOLD HIM "ONE LINE" AND THAT WAS WRONG — measured after, and this claim exists at the size the
+  measurement showed. `f.sqrt` is implemented at SIX sites, not one: `v2/src/Runtime.scala` (the
+  VM), the js, jvm, rust and swift backends, plus swift's ALLOWED-PRIM LIST, and it is named in
+  `v2/specs/10-core-ir.md`. A prim added only to the VM runs on v3's bridge and dies on any other
+  backend compiling the same Core IR.
+
+  AND THE SPEC ARGUES AGAINST IT, which is why this was a question and not a task: line 338 says
+  "(transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the kernel)".
+  `pow` is not in that list, `sqrt` IS in the kernel and is exactly `pow(x, ½)`, and no `f.exp` /
+  `f.log` / `f.pow` exists anywhere in the tree — the Mira prelude is an intention in that
+  parenthetical, not code. The owner chose the kernel. The spec line gets NARROWED to say what it
+  now means rather than left to contradict the code.
+
+  WHY NO v3-ONLY FIX WORKS, measured before asking: the reference lane is libm-exact
+  (`pow(2.0, 0.1)` = 1.0717734625362931, bit for bit JVM's `Math.pow`), so a ScalaScript series or
+  the repeated-sqrt expansion — tempting since both lanes have `f.sqrt` — differs in the last bits.
+  And v3 cannot do it on one lane: the bridge emits a prim to v2.
+
+  PLAN. Each backend gets its own spelling of one libm call, beside its `f.sqrt`:
+    Runtime.scala   FloatV(math.pow(flt(a,0), flt(a,1)))
+    JvmBackend      math.pow(_asDouble(a0), _asDouble(a1))
+    JsBackend       Math.pow(a0, a1)
+    RustBackend     V::Float(as_float(a0).powf(as_float(a1)))
+    SwiftRuntime    .float(pow(float(args,0), float(args,1)))
+    SwiftBackend    add "f.pow" to the allowed list — a list is exactly what gets forgotten
+    10-core-ir.md   list it, and narrow the transcendentals parenthetical
+  Then v3: `hostPrims` entry, an `Exec` case, and the prelude's `pow` delegating with `.toDouble`
+  on BOTH arguments — v2's `flt` refuses an Int, measured this afternoon.
+
+  MEASUREMENT: v3's two lanes must agree on fractional, integer, negative and zero exponents, and
+  must match the REFERENCE lane bit for bit — `pow(2.0, 0.1)` is the row that fails if anyone ever
+  swaps in an approximation. N with floors DIFF 3 / CRASH 9; no corpus case uses a fractional
+  exponent, so N is expected to hold, not rise.
+next: v2 kernel + five backends + spec, then the v3 side, then parity probes
