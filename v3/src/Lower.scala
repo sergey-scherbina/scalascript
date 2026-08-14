@@ -1638,6 +1638,40 @@ object Lower:
         if n.startsWith("Tuple") && n.drop(5).forall(_.isDigit) && n.length > 5 then Some(n)
         else ctorType.get(n).orElse(classes.find(_.name == n).map(_.name))
 
+      /** Every name BOUND ONCE in this body, as (name, initialiser).
+        *
+        * TWO SHAPES, because a top-level `val` is not a `Stmt.Val` by the time this runs. Top-level
+        * statements are HOISTED — `Stmt.Val(n, v, _, q)` becomes `Stmt.Exp(Expr.Assign(n, v, q))`
+        * so the name is a global — and that rewrite drops the `mutable` flag, so after it a `val`
+        * and a `var` are the same node. My first version collected only `Stmt.Val` and found
+        * nothing at all in `std-bifunctor`, whose three vals are all top-level.
+        *
+        * SO IMMUTABILITY IS INFERRED FROM THE COUNT, not from a flag that no longer exists: a name
+        * bound EXACTLY ONCE cannot have been reassigned, whichever keyword declared it. Any name
+        * appearing twice is dropped whole — not merged, not preferred — because the second binding
+        * is either a reassignment or a shadow, and both make the first one prove nothing. That is
+        * stricter than comparing the two types and it is the right side to err on: a wrong answer
+        * here dispatches a method to the wrong instance, which is worse than the refusal it
+        * replaces.
+        *
+        * Flat, with no scope tracking, for the same reason.
+        *
+        * Local rather than in `Ast`: nothing else wants this. */
+      def valBindings(e: Expr): List[(String, Expr)] =
+        var out: List[(String, Expr)] = Nil
+        mapDeep(e, x =>
+          x match
+            case Expr.Block(stmts, _, _) =>
+              stmts.foreach {
+                case Stmt.Val(n, v, false, _)          => out = (n, v) :: out
+                case Stmt.Exp(Expr.Assign(n, v, _))    => out = (n, v) :: out
+                case _                                 => ()
+              }
+            case _ => ()
+          x)
+        val counts = out.groupBy((n, _) => n).map((n, bs) => (n, bs.length))
+        out.reverse.filter((n, _) => counts.getOrElse(n, 0) == 1)
+
       def receiverType(e: Expr, params: Map[String, String]): Option[String] = e match
         case Expr.Call(fn, _, _) if fn == "List" || fn == "Seq" => Some("List")
         case Expr.Call(fn, _, _) => typeOfCtor(fn)
@@ -1680,10 +1714,36 @@ object Lower:
           // head and that is the shape this fix exists for.
           val params = d.params.flatMap(q => q.tpe.map(t =>
             (q.name, tupleHead(t).orElse(headAndArg(t).map(_._1)).getOrElse(t)))).toMap
+          // A `val` IS FOLLOWED ONE STEP TO ITS INITIALISER'S CONSTRUCTOR, and that is the whole of
+          // it. `val t = (10, "ok")` binds a name whose runtime tag is `Tuple2` no matter what else
+          // the program does, so asking `receiverType` about the INITIALISER answers the same
+          // question the spec already licences for a receiver written in place: "a runtime tag names
+          // exactly one type head … tag -> type is a function and not a guess" (§4a1, source 1).
+          //
+          // NOT TYPE INFERENCE, and the boundary is worth stating because §4a1 defers inference on
+          // purpose: no unification, no type variable, no propagation through a function, and it
+          // stops at the FIRST step. `val a = b` where `b` is another val yields nothing.
+          //
+          // THE ROUTE THIS REPLACES was to make `Stmt.Val` carry the type the AUTHOR WROTE. Counted
+          // before choosing: `Stmt.Val` is used at 39 sites over six files, 21 of them PATTERNS on
+          // four positional fields that a fifth breaks; it needs both fronts to populate it; and the
+          // DEFAULT front cannot, because it drops a parenthesised parameter type entirely. This
+          // covers strictly more for one file — `val xs = List(1, 2, 3)` has no written type at all
+          // and resolves here.
+          //
+          // `val` ONLY, never `var`: a `var` can be reassigned to another constructor, so its
+          // binding proves nothing about the receiver at the call. A name bound twice to DIFFERENT
+          // types is dropped rather than guessed at — shadowing is rare and a wrong answer here is
+          // a wrongly-dispatched method, not a refusal.
+          val valTypes: Map[String, String] =
+            valBindings(d.body).flatMap((n, init) => receiverType(init, params).map(t => (n, t))).toMap
           val hasGiven = d.params.exists(_.given_) || d.givenParams.nonEmpty
           d.copy(body = mapDeep(d.body, x => x match
             case Expr.MethodCall(recv, m, args, p) =>
-              receiverType(recv, params).flatMap(ty => pick(ty, m)) match
+              // A PARAMETER WINS OVER A `val` of the same name: the parameter's type is DECLARED and
+              // the val's is derived, and an inner `val` shadowing a parameter is the case where
+              // trusting the derivation would be guessing.
+              receiverType(recv, valTypes ++ params).flatMap(ty => pick(ty, m)) match
                 case Some(obj) => Expr.Call(obj + "." + m, recv :: args, p)
                 // UNRESOLVED IS REFUSED, not left to fall through, and that is the difference
                 // between an honest refusal and a wrong answer. A name declared ONLY by `given`
