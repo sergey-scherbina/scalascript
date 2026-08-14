@@ -2753,6 +2753,22 @@ object Prims:
         // the user's method, not index the object.
         case (lv @ DataV("Cons", _), "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
         case (lv @ DataV("Nil", _),  "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
+        case _ => methodDispatch8b(recv, name, margs)
+
+  /** The tail of `methodDispatch8`, split out on 2026-08-14 because the single method was 8406
+    * bytecodes — over HotSpot's HugeMethodLimit of 8000, which means it was NEVER JIT-compiled, on
+    * the hot path of every method call this runtime makes. Found by a dispatched `ci.yml` run: the
+    * gate that measures this lives in the compile job and `ci.yml` has no push trigger, so nothing
+    * on the push path could see it.
+    *
+    * NOTHING IS REORDERED AND NOTHING IS DUPLICATED — this is the split the gate's own message
+    * prescribes: part N tries its cases in the ORIGINAL order and falls through to part N+1, so the
+    * first matching case is still the one the single `match` chose. The cut is at a section
+    * boundary (Set, then Map) rather than at an arbitrary line, so the parts stay readable.
+    */
+  private def methodDispatch8b(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
+
         // ── Set ──────────────────────────────────────────────────────────────────
         // `union`/`intersect` used to fall past every arm and answer the `Stub` sentinel at exit 0
         // — the v2 failure mode that no exit code reveals. The element-order contract is insertion
