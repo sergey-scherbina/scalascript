@@ -186,7 +186,8 @@ Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.m
 verbatim, on 2026-07-30.
 
 ## build-rust-mcp-client-unsupported — std/mcp/client.ssc cannot be lowered for the Rust backend (Unsupported(McpClient,rust)) while the SERVER half is supported there, so a .ssc program that consumes MCP runs under the interpreter but can never be built into a binary
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 28100232d
      lane: v2-rust
      area: codegen
      kind: feature
@@ -336,6 +337,43 @@ by emission rather than inferred.
 **Not landed, deliberately: the experiment was reverted.** No capability line, no intrinsic entries.
 The refusal this entry describes is still the honest one, and it is better than the alternative
 measured above.
+
+**DONE — landed 28100232d. `std/mcp/client.ssc` and `std/mcp/index.ssc` COMPILE, and a built Rust
+binary drives a built Rust MCP server end to end:** `open=true / tools=1:greet / call=hello from
+ssc`.
+
+**The SDK-shaped members were not implemented, and could not be.** `listTools(): List[
+ToolDescriptor]`, `callTool(…): ToolResult` and `mcpConnect(t: Transport)` traffic entirely in
+GENERATED types, which exist only once a program reaches them — no runtime can write a signature
+naming one. So `client.ssc` grew a PRIMITIVE surface beside them: `listToolNames`, `callToolText`,
+`readResourceText`, `isOpen`, and a free `mcpConnectSpawn(command, args)`, in strings, lists of
+strings and booleans only. The SDK members are untouched; JVM and JS are unaffected, and on Rust
+those members refuse only if a program calls them.
+
+**The handle is an `i64`,** because `mapType` sends an unknown type name there — so `extern class
+McpClient` is naturally an index into a table the runtime owns, and its members lower as FREE
+FUNCTIONS WITH THE RECEIVER FIRST. An extern class has no Rust type here, so a member cannot be an
+inherent method.
+
+**Two more places where a bare name was the wrong key** — the third and fourth in this chain. The
+member intrinsic is keyed `Class.member`, because a bare `close` says nothing about whose it is and
+std has six. And the unimplemented-extern REFUSAL keyed on the bare name too, so it fired on members
+that lower perfectly well; it now resolves the owner by def POSITION.
+
+**Measured against a prediction stated first:** client.ssc moves, the other two not predicted
+because a refusal short-circuits. Result: REFUSED 80 → 78, COMPILES 52 → 54, BADRUST 0. client.ssc
+and index.ssc COMPILE; `std/agent-mcp.ssc` stays REFUSED with its REASON CHANGED — the capability
+gate was its first blocker and the overloading refusal behind it is now its first, which is trait
+and given-instance members rather than object members.
+
+**Gate:** `tests/e2e/build-rust-refuses-loudly.sh` builds BOTH halves and runs them; an emission
+check would pass on a client that connects and then hangs, and the survey cannot see any of it
+because client.ssc is a declaration module. Negative control: with the receiver map emptied it fails
+with `the MCP client half does not build`.
+
+**Still open, and now the only gap:** the SDK-shaped members on Rust. Closing them needs the
+generated-side adapter pattern `route` uses on the HTTP lane — the struct literal built in emitted
+code — and that is a separate piece of work, not a missing intrinsic.
 
 ## mcp-2026-07-28 — speak the stateless MCP revision, dual-era
 
