@@ -22,7 +22,6 @@ derived-route-clients	*	SKIP
 distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
 dsl-sql-recovery	js	FAIL
-extension-call-in-a-def-body	v2	KNOWN-RED
 fetch-auth	*	SKIP
 graph-fullstack-rdf	*	SKIP
 graph-janusgraph-gremlin	*	SKIP
