@@ -1780,7 +1780,35 @@ def isBindArm(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 30) else false
 // import levels away.
 def bindScrut(nm, menv) = menv match { case Nil => Nil case h :: t => if h == "__m" then Cons(nm, t) else Cons(h, bindScrut(nm, t)) }
 def parseBindArm(ts, menv, cx) = armBodyExpr(tl(tl(ts)), bindScrut(snd(hd(ts)), menv), cx) match { case (b, r) => (("", " (default " ++ erase(b, cx) ++ ")"), armsRest(r)) }
-def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx))))
+// An @-BIND arm — `case ok @ ParseOk(_, _, _) => …` — names the WHOLE matched value as well as
+// destructuring it. F had no rule for it at all, and the failure was not a diagnostic: the arm fell
+// through to parseConsArm, which reads `h :: t` positionally, so the pattern's `_`s ended up in
+// EXPRESSION position and F reported `unbound global: (global _)` — a name the user never wrote,
+// three import levels from the file that has the pattern. That one message is the whole of
+// std/parsing/recovery.ssc's and examples/dsl-sql-recovery.ssc's remaining GAP.
+//
+// THIS IS THE F TWIN of v21-native-sql-recovery-parser-sentinel, fixed on the other front in
+// 1bf9c7c06 (2026-07-11) on the same three `case ok @ ParseOk(_, _, _)` lines. Same source, same
+// construct, second front — the shape two-front-bug-pairs describes.
+//
+// THE `@` IS NOT A TOKEN HERE. `opCode` (:245) maps unknown punctuation to 0 and `lexOp1` DROPS it,
+// so `q @ P(a, b)` reaches the parser as `q P ( a , b )` — an ident (kind 1) directly followed by a
+// ctor (kind 3), which no legal arm can otherwise produce. That is what isAtBindArm keys on, and it
+// is deliberate: adding `@` to the lexer would materialise a token in the 49 corpus files that carry
+// `@main` / `@model` / `@key` annotations and currently rely on it vanishing. `case q @ (A | B)`
+// keeps a `(` after the name, so it does NOT match here and is left to the old path.
+//
+// THE BIND IS SCOPED TO THIS ARM'S BODY, which is why this cannot reuse parseCtorArm2. `bindScrut`
+// RENAMES the synthetic `__m` scrutinee slot, and parseArmBody hands the same menv to the arms that
+// FOLLOW: threading a renamed menv down would leave later arms with no `__m` at all, so a later
+// `case other =>` would silently stop binding and genScrut's `lookup("__m", menv)` would emit
+// `(local -1)`. The body gets `bindScrut(q, menv)`, the continuation gets `menv` untouched.
+def isAtBindArm(ts) = if fst(hd(ts)) == 1 then fst(hd(tl(ts))) == 3 else false
+def parseAtBindArm(ts, menv, cx) = parseAtBind1(snd(hd(ts)), tl(ts), menv, cx)
+def parseAtBind1(q, ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseAtBind2(q, nm, r, menv, cx) }
+def parseAtBind2(q, nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parsePatVars(tl(ts), Nil) match { case (vs, r) => parseAtBindBody(q, nm, dlen(vs), vs, r, menv, cx) } else parseAtBindBody(q, nm, 0, Nil, ts, menv, cx)
+def parseAtBindBody(q, nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, bindScrut(q, menv)), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ erase(body, cx) ++ ")", r, menv, cx) }
+def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else (if isBindArm(ts) then parseBindArm(ts, menv, cx) else (if isAtBindArm(ts) then parseAtBindArm(ts, menv, cx) else parseConsArm(ts, menv, cx)))))
 // A single-line match-arm body can be a statement-position ASSIGNMENT (`case Left(e) => adA = adA`):
 // the front's finishAssignment (:1536) makes `id = e`/`id += e` an assign EXPRESSION, so it is the arm's
 // value. parseExpr alone stops at `=` (not a binop) and drops the RHS; armBodyExpr parses the assign when
@@ -1938,7 +1966,29 @@ def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
 // IrLit(IrUnit)), NOT `(lit (int 0))`. Only reachable when a match ends in a ctor/int arm with no
 // catch-all (every currently-MATCHing ordered file ends in a var/wildcard, so this is a latent-bug fix).
 def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else ("(lit unit)", armsRest(ts))
-def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))))))
+// THE SECOND RESOLVER'S @-BIND ARM, and the comment 40 lines below is the reason this exists: which
+// resolver a match uses is decided by its FIRST pattern, so `case ok @ ParseOk(..)` under a scrutinee
+// whose first arm is a ctor goes to parseArm, and the SAME arm under an ordered/scalar-first match
+// comes here. The first version of this fix did only parseArm and had a green eleven-row gate,
+// because every row in it matched on a sealed trait and never reached this function. What that
+// missed was not a decline but a SILENT WRONG ANSWER: with no rule, `ok` fell through to parseGenVar,
+// which reads it as a catch-all VAR arm and takes `POk(_, _, _) => body` as the arm's BODY — so the
+// match evaluated to a lambda and F printed `<closure>` where both other lanes print the value.
+//
+// Guarded and NESTED @-binds route to the ordinary paths WITHOUT the bind: the arm is then
+// structurally right and only `q` is unbound, so F declines honestly instead of answering wrongly.
+// That is strictly better than today and does not pretend to be complete.
+def patNestedAt(ts) = parsePatF(ts) match { case (p, r) => patNested(p) }
+def parseGenAtBind(ts, menv, cx) = parseGenAtBindD(snd(hd(ts)), tl(ts), menv, cx)
+def parseGenAtBindD(q, ts, menv, cx) = if patNestedAt(ts) then parseGenCtorDisp(ts, menv, cx) else parseGenAtBind1(q, ts, menv, cx)
+def parseGenAtBind1(q, ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseGenAtBind2(q, nm, r, menv, cx) }
+def parseGenAtBind2(q, nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parsePatVars(tl(ts), Nil) match { case (vs, r) => parseGenAtBind3(q, nm, dlen(vs), vs, r, menv, cx) } else parseGenAtBind3(q, nm, 0, Nil, ts, menv, cx)
+def parseGenAtBind3(q, nm, ar, vs, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenCtorArm(nm, ar, vs, ts, menv, cx) else parseGenAtBindBody(q, nm, ar, vs, ts, menv, cx)
+// The bind is scoped to the BODY. parseGenCtorPlain2 parses the rest of the arms and builds the match
+// on the ORIGINAL menv, which matters more here than on the ctor path: genCtorMatch calls genScrut,
+// and genScrut is `lookup("__m", menv)` — hand it a renamed env and it emits `(local -1)`.
+def parseGenAtBindBody(q, nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, bindScrut(q, menv)), cx) match { case (body, r) => parseGenCtorPlain2(nm, ar, erase(body, cx), r, menv, cx) }
+def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isUnitPatHead(ts) then parseGenUnit(tl(tl(ts)), menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if isNumLitHead(hd(ts)) then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else (if isAtBindArm(ts) then parseGenAtBind(ts, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the

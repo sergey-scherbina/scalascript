@@ -374,6 +374,13 @@ val suite = List(
   // it. Six rows, each on both fronts — twelve `ssc run`s, measured 30.6 s on a loaded dev host.
   Check("v2", "v2-unknown-member-refuses", "tests/e2e/v2-unknown-member-refuses-gate.sh",
         List("--self-test"), 300000),
+  // The third of the same family, and the one that says a pattern form can be missing from TWO
+  // parsers: `case ok @ Ctor(..)` had no rule in either resolver. On the ctor path it declined with
+  // `unbound global: (global _)`; on the ordered path it was read as a catch-all VAR arm, making the
+  // match evaluate to a lambda — F printed `<closure>` where both other lanes print the value.
+  // Fourteen rows, both fronts; three of them exist only to reach the second resolver, which a
+  // sealed-trait scrutinee never does.
+  Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
