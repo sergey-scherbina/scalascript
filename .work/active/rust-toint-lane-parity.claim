@@ -5,7 +5,7 @@ started: 2026-08-14T11:02:33Z
 heartbeat: 2026-08-14T11:02:33Z
 status: in-progress
 items: toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges build-rust-indexof-on-string build-rust-concat-list-element-with-toplevel-val
-paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR23Test.scala file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md
+paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:tests/e2e/v2-jit-size.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR23Test.scala file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md
 scope: |
   Two INBOX reports from rozum. (1) `toint-on-a-char…` part A is ALREADY on main as 2315f2ecf (the
   reporter's branch content, landed under another sha) — the entry only needs routing; part B,
