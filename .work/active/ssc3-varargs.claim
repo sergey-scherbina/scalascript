@@ -5,7 +5,7 @@ started: 2026-08-14T07:21:05Z
 heartbeat: 2026-08-14T07:21:05Z
 status: working
 items: SSC3-14b
-paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/front-capability-gate.sh
 scope: |
   SSC3-14b — varargs, `def f(xs: T*)`. `Dataset.of` is called 35 times in the corpus and
   `std/mapreduce/dataset.ssc:21` declares `def of[T](items: T*)`, which is what blocks the module;
@@ -55,4 +55,25 @@ scope: |
 
   MEASUREMENT: N with floors DIFF 3 and CRASH 9, against the same tree minus exactly this change.
   v3's gates do not cover the corpus, so gates green is not evidence that N held.
-next: capture the star in uniml, then unrefuse it in v3's parser, then collect at the call site
+
+  MEASURED 2026-08-14, AND THE MOTIVATION ABOVE DID NOT MATERIALISE. N is 212/369 with the change
+  and 212/369 without it — PASS, DIFF, UNSUPPORTED, CRASH and LANE-EXCL all identical, so varargs
+  delivered ZERO new passes. The reason is not a mystery and is worth writing down: the prelude's
+  own `object Dataset` declares `of` with SIXTEEN DEFAULTED PARAMETERS, which is a workaround for
+  exactly this missing feature, so every `dataset-*` case already passed through it. And
+  `std/mapreduce/dataset.ssc` is an `extern object` — declarations with no implementation, so its
+  names are host gaps on v3 and would refuse even with the parse fixed. "35 call sites blocked" was
+  a LOWER BOUND on the blocker and never a forecast of the yield; a refusal short-circuits, so what
+  it hides can be another refusal.
+
+  WHAT IT DID DELIVER, measured by the gate built to see it: `front-capability-gate` turns RED in
+  the GOOD direction, reporting four rows that NO LONGER DIVERGE — `std-os`, `std-os-doc-import`,
+  `std-os-readline` (all on `std/os.ssc:61`, `extern def pathJoin(parts: String*)`) and
+  `cluster-connect`. Those were declared `accepted only by uniml`: one language answering two ways
+  depending on whether `v3/.jars/uniml.cp` happened to exist. That is the result of this change,
+  and it is a front-agreement result rather than an N result.
+
+  WIDENED 2026-08-14 to `v3/front-capability-gate.sh`, BEFORE the edit. The gate is
+  self-maintaining and demands its own declared list be corrected in the commit that fixes a row,
+  which is the only reason it is touched: four names come out of KNOWN_uniml, nothing else changes.
+next: drop the four fixed rows from KNOWN_uniml, finish the gates, then push
