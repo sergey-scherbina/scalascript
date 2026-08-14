@@ -30,7 +30,11 @@ run_lane() {
     done
     local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://localhost:$PORT/")
     local fe;   fe=$(grep -oE "frontend=[a-z]+" "/tmp/serve-view-$lane.log" | head -1)
-    local swift; swift=$(grep -c "swiftui.*native-only" "/tmp/serve-view-$lane.log" 2>/dev/null || echo 0)
+    # `grep -c` PRINTS 0 and EXITS 1 when there are no matches, so `|| echo 0` appended a SECOND
+    # zero and `$swift` became the two lines "0\n0" — which is why this gate's own FAIL line used to
+    # come out split across three lines with a bare `0` under it. The count grep already prints is
+    # the right answer; only the fallback was wrong.
+    local swift; swift=$(grep -c "swiftui.*native-only" "/tmp/serve-view-$lane.log" 2>/dev/null); swift=${swift:-0}
     kill "$pid" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
     echo "$lane: http=$code $fe swiftui-crash=$swift"
 }
@@ -39,7 +43,20 @@ echo "$V1"; echo "$V2"
 for r in "$V1" "$V2"; do
   case "$r" in
     *"http=200 frontend=react swiftui-crash=0"*) : ;;
-    *) echo "serve-view-frontend FAIL: $r"; exit 1 ;;
+    *)
+      echo "serve-view-frontend FAIL: $r"
+      # PRINT THE LANE'S OWN OUTPUT. `http=000` means nothing ever listened, and this gate used to
+      # report only that — while the log sitting next to it said, in one line, WHY:
+      # `ssc: unbound global: contentToolkitBlock`. The entry filed against this gate consequently
+      # sent its reader to the v2 `serve` path, which the program never reaches.
+      # (v2-lane-does-not-serve-the-content-introspection-view.)
+      case "$r" in
+        --v1:*) lane_log="/tmp/serve-view---v1.log" ;;
+        *)      lane_log="/tmp/serve-view---v2.log" ;;
+      esac
+      echo "  ── last lines of $lane_log:"
+      tail -5 "$lane_log" 2>/dev/null | sed 's/^/  | /'
+      exit 1 ;;
   esac
 done
 echo "serve-view-frontend PASS: both lanes serve frontend=react (no swiftui crash)"

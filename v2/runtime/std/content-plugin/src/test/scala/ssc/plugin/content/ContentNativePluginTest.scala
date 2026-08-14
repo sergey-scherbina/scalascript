@@ -125,3 +125,66 @@ class ContentNativePluginTest extends AnyFunSuite:
     val named = Term.Prim("__method__", List(text("copy"), original, text("value"), text("named")))
     assert(run(positional) == Value.DataV("Text", Vector(Value.StrV("new"))))
     assert(run(named) == Value.DataV("Text", Vector(Value.StrV("named"))))
+
+  // `contentToolkitBlock(id)` — the registration that was missing while its helper was present.
+  //
+  // The failure this pins was not a wrong answer: `V2PluginRegistry.lookupGlobal` had no entry, so
+  // every program calling it was refused at LOAD with `unbound global: contentToolkitBlock` and
+  // nothing ran at all. The first assertion below is therefore the absent-state control — it is
+  // `false` on the code as it stood, and no later assertion can even be reached.
+  test("contentToolkitBlock renders one @ui=toolkit block, and refuses the two ways it can miss"):
+    def cvmap(entries: (String, Value)*): Value =
+      Value.DataV("MapV", Vector(Value.MapV.from(entries.map { case (k, v) => Value.StrV(k) -> v })))
+    val control  = cvmap("type" -> str("heading"), "text" -> str("Team"))
+    val toolkit  = Value.DataV("Embedded", Vector(
+      Value.StrV("yaml"), Value.StrV("controls: …"), Value.DataV("StructuredData", Vector.empty),
+      Value.DataV("Some", Vector(cvmap("controls" -> control))),
+      attrs("id" -> "team-controls", "ui" -> "toolkit")))
+    // ANTI-ROW subject: same block shape, no `@ui=toolkit`. It is findable and NOT renderable,
+    // which is the pair that tells a typo'd id apart from an unsupported one.
+    val plainYaml = Value.DataV("Embedded", Vector(
+      Value.StrV("yaml"), Value.StrV("answer: 42"), Value.DataV("StructuredData", Vector.empty),
+      Value.DataV("Some", Vector(cvmap("answer" -> str("42")))),
+      attrs("id" -> "plain")))
+    val root = NativeContentModule(
+      "main.ssc", explicitRoot = true, Nil, "main",
+      document(section("team", "Team", toolkit, plainYaml)))
+    NativePluginHost.installProviders(
+      List(ContentNativePlugin()), NativeRuntimeConfig(contentModules = List(root)))
+
+    // The control: the intrinsic EXISTS. Without the registration this is None and the suite stops.
+    assert(V2PluginRegistry.lookupGlobal("contentToolkitBlock").isDefined,
+      "contentToolkitBlock is not registered — a caller is refused at load, before anything runs")
+
+    // One arg and two args, because the callers spell it both ways
+    // (`examples/content-introspection.ssc` uses the one-arg form).
+    val node = call("contentToolkitBlock", Value.StrV("team-controls"))
+    assert(node == Value.DataV("HeadingNode", Vector(Value.IntV(2), Value.StrV("Team"))), node.toString)
+    assert(call("contentToolkitBlock", Value.StrV("team-controls"), Value.UnitV) == node)
+
+    // The section twin must still answer, and its children must CONTAIN the very value the block
+    // selector returned — the same `toolkitBlockNode` serves both, so this is what says the two
+    // selectors did not drift apart. Compared as VALUES, not as a rendered substring: the first
+    // spelling of this row matched on `toString` and failed on `IntV(2)` vs `2`, i.e. on the
+    // printer rather than on the tree.
+    val sectionNode = call("contentToolkitSection", Value.StrV("team"))
+    def items(v: Value): List[Value] = v match
+      case Value.DataV("Cons", IndexedSeq(head, tail)) => head :: items(tail)
+      case _                                           => Nil
+    val sectionKids = sectionNode match
+      case Value.DataV("VStackNode", IndexedSeq(_, kids)) => items(kids)
+      case other => fail(s"contentToolkitSection did not answer a VStackNode: $other")
+    assert(sectionKids.contains(node), sectionNode.toString)
+    // …and the section adds its own heading on top of it, so this is not vacuously true.
+    assert(sectionKids.head == Value.DataV("HeadingNode", Vector(Value.IntV(1), Value.StrV("Team"))),
+      sectionKids.head.toString)
+
+    // MISS 1 — no such id.
+    val missing = intercept[IllegalArgumentException](call("contentToolkitBlock", Value.StrV("nope")))
+    assert(missing.getMessage == "contentToolkitBlock: no block with id 'nope'", missing.getMessage)
+
+    // MISS 2 — the id resolves to a block this selector cannot render. It must REFUSE and say so:
+    // answering an empty fragment here would make an unsupported block look like an empty one.
+    val notToolkit = intercept[IllegalArgumentException](call("contentToolkitBlock", Value.StrV("plain")))
+    assert(notToolkit.getMessage.startsWith("contentToolkitBlock: block 'plain' is not a `@ui=toolkit` block"),
+      notToolkit.getMessage)

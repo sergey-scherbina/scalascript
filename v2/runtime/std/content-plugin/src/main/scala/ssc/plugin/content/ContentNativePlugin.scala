@@ -506,6 +506,34 @@ final class ContentNativePlugin extends NativePlugin:
       case Some(section) => toolkitSectionNode(section, options)
       case None => throw new IllegalArgumentException(s"contentToolkitSection: no section with id '$id'")
 
+  /** `contentToolkitBlock(id)` — the block-level twin of `toolkitSectionById`.
+    *
+    *  Everything it needs was already here: `toolkitBlockNode` was ported with the rest of the
+    *  toolkit engine (see the port note above) and `toolkitSectionNode` calls it for every block of
+    *  a section. Only the INTRINSIC was never registered, so a program calling it was refused at
+    *  LOAD with `unbound global: contentToolkitBlock` — nothing ran, and the failure looked like a
+    *  missing subsystem rather than a missing line.
+    *
+    *  Two DELIBERATE differences from v1's `toolkitBlockById`, stated because silent divergence is
+    *  how the next reader is misled:
+    *
+    *  - v1 raises on a DUPLICATE id; `findBlock` here answers the first match, exactly as
+    *    `findSection` does for the section twin. Consistency inside this file wins over
+    *    consistency with v1 — changing `findBlock` would change `contentBlock`/`contentData` too.
+    *  - v1 renders ANY block through this selector (a GFM table becomes a `TableNode`);
+    *    `toolkitBlockNode` answers `None` for anything that is not `@ui=toolkit`, because it is
+    *    written for the section tree, where non-toolkit blocks are omitted by design. Rendering
+    *    that `None` as an empty fragment would make a typo'd id and a table id both draw nothing,
+    *    so it REFUSES and names the limit instead. */
+  private def toolkitBlockById(document: Value, id: String, options: Value): Value =
+    findBlock(document, id) match
+      case Some(block) =>
+        toolkitBlockNode(block, options).getOrElse(
+          throw new IllegalArgumentException(
+            s"contentToolkitBlock: block '$id' is not a `@ui=toolkit` block — native 2.1 renders " +
+            "only toolkit-control blocks through this selector"))
+      case None => throw new IllegalArgumentException(s"contentToolkitBlock: no block with id '$id'")
+
   def install(context: NativePluginContext): Unit =
     pluginCtx = context
     val modules = context.contentModules
@@ -529,6 +557,13 @@ final class ContentNativePlugin extends NativePlugin:
       case Value.StrV(id) :: options :: Nil => toolkitSectionById(rootDocument, id, options)
       case Value.StrV(id) :: Nil            => toolkitSectionById(rootDocument, id, Value.UnitV)
       case _ => throw new IllegalArgumentException("contentToolkitSection(id, options)")
+    }
+    // contentToolkitBlock(id, options): the same for ONE `@ui=toolkit` block. Registered here
+    // because it was not — the helper it calls has been in this file since the toolkit port.
+    native(context, "contentToolkitBlock", 2) {
+      case Value.StrV(id) :: options :: Nil => toolkitBlockById(rootDocument, id, options)
+      case Value.StrV(id) :: Nil            => toolkitBlockById(rootDocument, id, Value.UnitV)
+      case _ => throw new IllegalArgumentException("contentToolkitBlock(id, options)")
     }
     native(context, "contentBlock", 1) {
       case Value.StrV(id) :: Nil => option(findBlock(rootDocument, id))
