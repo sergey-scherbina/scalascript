@@ -8,7 +8,7 @@
      reported-at: 2026-08-14
      confirmed: yes
      gate: tests/e2e/no-live-backticks-in-heredocs.sh
-     fixed-in: 49308fb1b -->
+     fixed-in: c5a74aa09 -->
 
 **Met as a reader on 2026-08-14, not found by reading code.** A claim of mine was correctly refused
 — a sibling had claimed the same two items two minutes earlier, which is exactly what the overlap
