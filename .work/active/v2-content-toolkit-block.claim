@@ -5,7 +5,27 @@ started: 2026-08-14T08:40:12Z
 heartbeat: 2026-08-14T08:40:12Z
 status: claimed-before-planning
 items: v2-lane-does-not-serve-the-content-introspection-view
-paths: file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:tests/e2e/serve-view-frontend-v2-smoke.sh
+paths: file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:tests/e2e/serve-view-frontend-v2-smoke.sh file:v2/runtime/std/content-plugin/src/test/scala/ssc/plugin/content/ContentNativePluginTest.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `v2-lane-does-not-serve-the-content-introspection-view` says the v2 lane "never starts listening"
+  and points at v2's `serve` path. MEASURED BEFORE CLAIMING: it never reaches `serve` —
+  `bin/ssc-tools --v2 examples/content-introspection.ssc` answers
+  `ssc: unbound global: contentToolkitBlock`, rc 1, and nothing runs. The gate only greps its log,
+  so the line naming the cause was never read.
+
+  The v2 native content plugin registers 15 intrinsics including `contentToolkitSection`, but NOT
+  `contentToolkitBlock` — while the helper it needs, `toolkitBlockNode`, has been in that file since
+  the toolkit port and is already called by the section builder. A missing registration, not a
+  missing subsystem.
+
+  TWO BLOCKERS, counted rather than assumed, because a refusal short-circuits: the second is
+  `contentCurrentSection()`, which the example calls twice and which this plugin registers as a
+  deliberate throw ("unavailable on native 2.1 without source-aware call identity"). Probed on its
+  own: prints, then dies, rc 1. So THIS fix does not turn the gate green — it moves the failure from
+  "refuses to load" to a documented limit already filed as
+  `content-current-section-native-unavailable`. Saying so up front, because "fixed" would otherwise
+  read as "closed".
+
+  WIDENED to the plugin's test file BEFORE the edit: the registration needs an absent-state control
+  that lives in the repo, and `V2PluginRegistry.lookupGlobal` is the thing that was empty.
+next: register contentToolkitBlock, add the test rows, re-measure both blockers
