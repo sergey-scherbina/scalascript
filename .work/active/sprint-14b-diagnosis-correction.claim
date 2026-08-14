@@ -1,0 +1,11 @@
+slug: sprint-14b-diagnosis-correction
+branch: feature/sprint-14b-diagnosis-correction
+agent: claude-code
+started: 2026-08-14T19:13:20Z
+heartbeat: 2026-08-14T19:13:20Z
+status: claimed-before-planning
+items: SSC3-14b-diagnosis
+paths: file:v3/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
