@@ -1300,7 +1300,8 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
 <!-- status: open
      lane: jvm
-     area: front -->
+     area: front
+     gate: tests/e2e/v2-swift-cli.sh -->
 
 **Status:** CORE FIXED by swift-sibling work since the report; only the signed
 
@@ -1364,6 +1365,20 @@ adapter (feature-scale, swift specialists). _Original report:_ reported by `nati
   design APPROVE before implementation. Close only after real unsigned macOS
   build/inspection/bounded launch, installed iOS 26.5 Simulator build, signed
   adapter routing tests, full affected suites, and reviewer confirmation.
+
+**Gate named 2026-08-14: `tests/e2e/v2-swift-cli.sh`** — and the entry itself says why one is
+needed: *"Nothing noticed for two and a half weeks because no gate builds the Swift target."* That
+is the finding, not a detail of it. The existing gate already drives `ssc-tools` down the Swift
+path, so the macOS target build belongs beside it rather than in a new file.
+
+**Done when** `build --v2 --target macos` succeeds on the fixture again — it currently fails with
+`swift backend: unsupported global 'forJsonView'`, a UI primitive added 2026-07-20 (`221c940f2`)
+for the DOM lane only, filed as `v2/BUGS.md swift-macos-build-broken-by-forJsonView` — and the
+regression is asserted there, so the next lane-only primitive cannot repeat it silently.
+
+**What is NOT in scope, stated so the entry can close:** the codesign/notarize/TestFlight
+distribution adapter is feature-scale and belongs to swift specialists. The bundle-identity claims
+this entry was opened for were verified end-to-end against a real Xcode and are done.
 
 ## v21-native-zero-arg-println-arity — blank println fails before later statements
 <!-- status: fixed

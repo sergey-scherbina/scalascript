@@ -13,7 +13,7 @@ Newest first.
      lane: apparatus
      area: conformance
      fixed-in: -
-     gate: - -->
+     gate: .github/workflows/corpus-contract.yml -->
 
 **THE GATE IS GREEN AGAIN — 2026-08-07, run 31132402054 on `c5c3d7d27`, all four shards `success`.**
 First green since 2026-08-01, so it was red for five consecutive nights. That sha carries both
@@ -88,6 +88,21 @@ normally in the same window. That is the phenomenon the guess above describes �
 what the nightlies were doing. It is recorded here because it is the trap this entry exists for: a
 `cancelled` run reads like a verdict and is not one, so the fixes landed today still have no CI
 confirmation, and the 04:00 UTC nightly is where it will come from.
+
+**Gate named 2026-08-14: `.github/workflows/corpus-contract.yml`** — the workflow this entry is
+about, and the file any fix to it edits.
+
+**Done when** a red night is expensive to ignore rather than cheap. What stays open is not the
+backlog of causes — those landed, and the gate has been green since `c5c3d7d27` — it is the third
+item: **the nightly costs 27 minutes, and that cost is what made five consecutive red nights cheap
+to leave.** Two shapes close it and either is acceptable: the run gets short enough that a red is
+looked at the same morning, or a red run produces a signal that reaches somebody without them
+choosing to look — `scripts/ci-status` is the natural carrier, since every agent already runs it.
+
+**And the trap this entry exists for stays true, so any fix must respect it:** a `cancelled` run is
+NOT a verdict. Two manual dispatches came back with all four shards `cancelled` at exactly 15:00
+elapsed and zero steps recorded. A "did the nightly pass" check that counts `cancelled` as anything
+but "no answer" reproduces the original defect in the instrument.
 
 ## corpus-contract-freeze-pairing-unchecked — editing the baseline without the roster header bricks the whole gate, and the freeze gate does not notice
 <!-- status: fixed
@@ -169,7 +184,7 @@ out-of-scope rows, so the two interact and the order matters.
 <!-- status: open
      lane: apparatus
      area: conformance
-     gate: none -->
+     gate: tests/conformance/run.sh -->
 
 **Found 2026-07-30** by `v2-content-inlines`, in its own `--update-baseline` output. Adjacent to
 [[corpus-contract-baseline-stale-after-improvements]] but a different failure: that one is the freeze
@@ -218,6 +233,18 @@ the digests. The baseline file has no header and is plain sorted rows; canonical
 the roster's NAME lines only, both stored in the roster header. The contract validates both before doing
 anything else, so an incorrect digest fails loudly rather than silently — which is what makes the manual
 route safe.
+
+**Gate named 2026-08-14: `tests/conformance/run.sh`** — the runner that owns `--update-baseline`, so
+the refusal belongs in the tool rather than in a reviewer's eyes. It was caught only because the
+diff was read line by line before committing, which is not a mechanism.
+
+**Done when** `--update-baseline` REFUSES to replace a measured row with `SKIP`/`TIMEOUT` — the
+`rozum-agent-schema-derived  js  TIMEOUT` -> `*  SKIP` rewrite above is the case — **with the
+anti-case that a genuinely new SKIP is still recorded**, or the refresh becomes unable to record
+truth. Both halves, because a rule that only ever refuses turns the tool into a wish.
+
+Item 3 of the remedies above is worth keeping whatever shape the refusal takes: record the host's
+load beside the freeze, so a suspicious refresh can be re-judged later instead of re-run blind.
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 <!-- status: open
@@ -362,7 +389,8 @@ in `9f136e21f`.
 ## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 126/402
 <!-- status: open
      lane: apparatus
-     area: conformance -->
+     area: conformance
+     gate: .github/workflows/ci.yml -->
 
 **Status:** OPEN (accepted 2026-07-28 as UPR-2 from the pinned compare-first gate).
 
@@ -389,6 +417,21 @@ partial event prefixes.
 **Fix acceptance.** Complete UPR-2a–e without exclusions: exact validity and normalized event
 semantics for all 402 cases on JVM and Scala.js, source/chunks 402/402, zero crashes, portable lint,
 Core Schema differential, standalone/root transition, and affected conformance green.
+
+**Gate named 2026-08-14: `.github/workflows/ci.yml`, the `uniml` job** — the only automated thing
+that runs the UniML build, added on 2026-08-04 after `grep uniml .github/workflows/` returned
+nothing and ten projects with ~300 tests were run by no gate at all.
+
+**Done when** the acceptance already written above holds under that job: UPR-2a–e complete without
+exclusions — exact validity and normalized event semantics for all 402 cases on JVM and Scala.js,
+source/chunks 402/402, zero crashes, portable lint, Core Schema differential, standalone/root
+transition, affected conformance green. The census command
+(`unimlYaml/Test/runMain scalascript.uniml.dialect.yaml.yamlOfficialCorpusStrict`) is how you read
+the number; the job is what makes it not depend on anyone running it.
+
+**The frozen baseline is the anti-case** and must move deliberately: SHA-256
+`7cd2d76efd0e26252097722ac1fb7d577936fb9f665ae6e852c811a9098123e3` at strict 126/402. A change that
+improves the count while leaving that digest untouched has measured nothing.
 
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
 <!-- status: fixed

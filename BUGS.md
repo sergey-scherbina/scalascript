@@ -2352,7 +2352,7 @@ and the second job green as before. The previous 48 runs had none of that.
      lane: v3
      area: front
      kind: gap
-     gate: none -->
+     gate: tests/conformance/run.sh -->
 
 **THE CENSUS IS DONE, 2026-08-12, and it licenses the refusal.** `listOut` was instrumented to
 REPORT rather than refuse and the whole corpus was run:
@@ -2466,6 +2466,15 @@ by-name parameter and it composes, with the perform inside a `while` loop.
 **Two ways out, and the choice is the language's:** give `handle` a return clause, or define the
 continuation to return the handled type implicitly. Until then `effect-multishot` should not be
 counted as a passing row — it is counted here instead.
+
+**Gate named 2026-08-14: `tests/conformance/run.sh`** — and the fix has TWO halves, because the
+census above found the divergence was *invisible by construction*.
+
+**Done when** `tests/conformance/js-effect-multishot-long-fold.ssc` declares **v3 among its
+`backends:`** and answers **204** there rather than 0. Declaring the lane is not a formality: the
+case says `backends: [int, js]`, so the corpus verdict never looked at v3 and a wrong answer read as
+a pass. Adding the lane first makes the corpus runner the acceptance test; fixing `handle` without
+it leaves the same blind spot for the next divergence.
 
 ## rust-backend-two-tests-red-on-origin-main-after-the-Any-boundary-work
 
@@ -3370,7 +3379,7 @@ follow the given.
      lane: native
      area: front
      kind: bug
-     gate: -
+     gate: tests/e2e/f-output-agreement-gate.sh
      fixed-in: - -->
 
 **Measured 2026-08-13, while fixing
@@ -3403,6 +3412,14 @@ program's meaning to keep F's number up.
 and v1 has no output here — it refuses. A case would need the gate to compare refusals, which it
 does not do today. That is the work: either teach the gate a refuse-vs-refuse comparison, or make
 `givenItem` decline a head it does not recognise instead of erasing it.
+
+**Gate named 2026-08-14: `tests/e2e/f-output-agreement-gate.sh`** — the gate whose whole subject is
+F agreeing with the v1 oracle, which is exactly the disagreement here: v1 refuses and F runs.
+
+**Done when** F refuses **both spellings** — `given [A]: S[A] with` and `given [A] => S[A] with` —
+asserted there against the v1 oracle's own message. Both, because the entry measured both and a gate
+that pins one leaves the other free to diverge. The anti-case is already the gate's design: a
+program v1 accepts must still run on F.
 
 ## v3-trait-extension-member-refused — an `extension` inside a trait is called "not a `def`", and seven std modules stop
 
@@ -4981,7 +4998,7 @@ clause count. Filed separately as `v2-curried-def-partial-application-unsupporte
 <!-- status: open
      lane: native
      area: front
-     gate: none -->
+     gate: tests/conformance/run.sh -->
 
 ```scalascript
 def two(a: Int)(b: Int): Int = a + b
@@ -5034,6 +5051,16 @@ put one of them.
 stopped rather than ship the unsafe version. Recorded here so the next person does not spend the same
 hour discovering it.
 
+**Gate named 2026-08-14: `tests/conformance/run.sh`**, with an anti-case that is the whole
+difficulty of this entry.
+
+**Done when** a case applying `def two(a: Int)(b: Int)` one clause at a time prints `3` — **and
+`curried-def-clauses.ssc` still passes unchanged**. That second half is not caution: the entry
+records that a curried def lowers at its TOTAL arity and its call site flattens, and that conformance
+case pins exactly that as intended. Lowering to nested lambdas would turn the new case green by
+changing what the old one asserts, which is a regression wearing a fix's clothes. The other route —
+synthesising a partial-application wrapper when a call supplies fewer arguments than the arity —
+leaves that pin intact, and choosing between them is the work.
 
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed

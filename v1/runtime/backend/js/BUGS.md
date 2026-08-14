@@ -1893,7 +1893,8 @@ before enabling the live helper.
 ## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
 <!-- status: open
      lane: js
-     area: front -->
+     area: front
+     gate: .github/workflows/ci.yml -->
 
 **Status:** OPEN (found 2026-07-28 during the UPR-2a.2 corpus and grammar audit;
 SPRINT `UPR-2a.2`).
@@ -1923,6 +1924,16 @@ termination, and full expanded global-URI validation. The complete 402-row diff
 may change only `2SXE`, `LHL4`, and `U99R`; target census from the corrected
 baseline is actual errors `218`, validity `216`, semantics `138`, strict `126`,
 failures `276`, source/chunks `402/402`, and zero crashes.
+
+**Gate named 2026-08-14: `.github/workflows/ci.yml`, the `uniml` job** — the same carrier as
+`tests/conformance/BUGS.md uniml-yaml-official-conformance-gap`, because these three cases are rows
+of that same 402-case corpus and splitting them across two gates would be a second decision site
+over one population.
+
+**Done when** `2SXE` produces 10 events rather than 13, and `LHL4` and `U99R` are REJECTED — the
+first is a valid case being over-read, the other two are expected-error cases being accepted, so a
+fix that only tightens or only loosens the delimiter rule moves one and breaks the other. That
+pairing is the acceptance test; the corpus count is the report.
 
 ## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
 <!-- status: fixed
