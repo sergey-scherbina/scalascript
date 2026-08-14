@@ -1,3 +1,72 @@
+## policy-selftest-stages-into-the-shared-index — an interrupted gate blocks the NEXT agent's rebase
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: apparatus
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     fixed-in: 36c9d1445
+     gate: tests/e2e/policy-selftest-residue-gate.sh -->
+
+**Reported 2026-08-14 in the coordination room by the agent it blocked**, who could not rebase and
+found ` D specs/_policy-single-source-selftest.md` in a checkout where nobody had touched that path.
+
+`tests/e2e/policy-single-source.sh --self-test` needs its fixture to be VISIBLE to `git ls-files` —
+that is how the gate builds its document list, so a file merely on disk is invisible to the check it
+exists to trip. It got there with `git add -N` into the checkout's own index and was unstaged three
+lines later. **Between those two lines the state lives in the one place every agent in this checkout
+shares.** A run that never reaches the third line leaves an intent-to-add entry for a file that is no
+longer on disk, and the next `git rebase` refuses to start:
+
+```
+error: cannot rebase: You have unstaged changes.
+error: additionally, your index contains uncommitted changes.
+```
+
+Reproduced in four lines, before any of this was written:
+
+```sh
+git add -N specs/_fixture.md && rm -f specs/_fixture.md
+git status --porcelain     #  D specs/_fixture.md
+git rebase HEAD            # error: cannot rebase: You have unstaged changes.
+```
+
+The reporter's run died on an unrelated check under host load, which is the ordinary way this
+happens — smoke kills a check on its own timeout and the killed process runs no cleanup.
+
+**"Clean up in a trap" is the reflex and it is not sufficient.** The interruption that actually
+occurs here is a killed process group; a SIGKILL runs no trap, so a trap-only fix would still leave
+the entry whenever the suite is the thing that does the killing. Three mechanisms, weakest last:
+
+1. **The shared index is never written.** `GIT_INDEX_FILE` points the self-test, and the child run
+   it drives, at a COPY of the index. `git ls-files` reads that copy, so the fixture is visible to
+   the check and invisible to everything else. No signal can undo this.
+2. **A trap** (`EXIT INT TERM HUP`) removes the file on disk when the process is allowed to run code.
+3. **`.gitignore` carries the fixture path**, so even a SIGKILL leftover is inert: it does not make
+   `git status` dirty and cannot be swept into a sibling's `git add -A`.
+
+**The gate interrupts a real run rather than asserting on the source.**
+`tests/e2e/policy-selftest-residue-gate.sh` builds throwaway repositories, puts a `git` shim first
+on `PATH` that parks the run at the first `ls-files` after the fixture appears — the child run
+inside the self-test, i.e. the exact window — and kills the process group with SIGTERM and then with
+SIGKILL. What it asserts is the reported symptom itself, `git rebase` must still start, plus a clean
+`status` and an index with no entry. Its own self-test reruns both interruptions against **the same
+script with the fix stripped by an asserted-non-empty transform**, and both are caught, so a green
+cannot mean "the checker does not look".
+
+**Census, because the interesting question is whether this is a class.** `grep -rln 'git add' tests/
+scripts/` finds nine gates; the eight in `tests/coord/` all build `mktemp -d` labs, and
+`tests/e2e/launcher-digest-gate.sh` — the one other gate that edits tracked files — already works in
+a temporary git worktree under `trap cleanup EXIT`, and says in its header why. This was the only
+gate writing into the shared index.
+
+**What is NOT fixed** is the general property: nothing stops the next gate from doing the same
+thing. A checker for "a gate must not modify the checkout it runs in" would need to snapshot
+`git status` plus the index around every gate in the suite, which is a suite-runner change, not a
+gate. Filed here rather than done silently.
+
 ## coord-labs-inherit-the-dev-boxs-git-config-so-a-runner-gap-cannot-be-seen-here
 
 <!-- status: open
