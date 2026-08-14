@@ -3085,10 +3085,14 @@ repository has paid for that confusion more than once.
         the loop rows; the collection rows pay for the collection runtime whatever executes them.
       - **v3 is already ahead of the v2 VM on 23 of 33 rows**, so "catch up with v2" is not the
         available target — v1's JIT is.
-      Still owed from `specs/ssc3-jit.md` §10.1 and now cheap, since a quiet window exists: re-run
-      the **J1b** and **J1c** rows on it. Two of those three may be wins nobody could see, and J1c is
-      a revert that might have been unnecessary. J1d was re-run 2026-08-13 (`4584fe61d`). J1b is
-      claimed as `ssc3-j1b-quiet`.
+      Still owed from `specs/ssc3-jit.md` §10.1: **J1c**, the revert that might have been
+      unnecessary. J1d was re-run 2026-08-13 (`4584fe61d`) and **J1b came back a WIN on the same
+      quiet window this table was taken on** (`7fe1b7525`, 20 of 20 on `arith-loop`, p 9.5e-7) —
+      after the board had recorded it as "it bought NOTHING. Measured." That is the second
+      independent case today of a loaded verdict inverting: J1b's loaded run reported ratio 1.13
+      with the change SLOWER and the quiet run reports 1.131 with it FASTER, and B4's
+      `string-concat` read 4-of-8 parity loaded and v3 by 1.2× in every quiet round. **A null taken
+      under load is not evidence of no effect**, and neither is a marginal verdict.
 
 ## 54 · PLAN FOR 2026-08-09/10 — every remaining typeclass row, in dependency order
 

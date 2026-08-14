@@ -136,7 +136,11 @@ Eight interleaved rounds at load 7–68 over the eight-row subset, taken while t
 
 Seven of the eight agree. `string-concat` does not: at load 7–68 it read as a coin flip, and on a
 quiet host it is v3 by 1.2× in every round (0.76, 0.76, 0.83, 0.83, 0.84). **Load did not bias the
-row, it dissolved it** — which is the honest failure mode to expect and the reason the loaded set is
+row, it dissolved it**  — and the same window produced a second, independent case: SSC3-J1b, which
+the board had recorded as "it bought NOTHING. Measured." at load 45–54, came back 20 of 20 with
+p 9.5e-7 when re-measured quiet (`7fe1b7525`), with the loaded run's ratio 1.13 ON-SLOWER and the
+quiet run's 1.131 ON-FASTER. Same magnitude, opposite sign. **A null or a marginal verdict taken
+under load is not evidence** — which is the honest failure mode to expect and the reason the loaded set is
 published beside the quiet one rather than instead of it.
 
 **And the subset itself was a biased sample, by construction.** It was chosen from the rows a
