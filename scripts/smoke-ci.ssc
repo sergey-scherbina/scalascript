@@ -365,6 +365,15 @@ val suite = List(
   // to the WRONG object) and five are the shapes that must not move, including the `given … with`
   // body that reaches the same shared scan.
   Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 300000),
+  // The `list-concat-chain` disease one dispatch over, and found the same way — by somebody
+  // checking something else. A bare `recv.name` on a BUILTIN receiver has no nullary dispatch, so
+  // it becomes the eta-expansion function value; that fallback cannot tell a genuine method
+  // reference from a typo, so `println("m: " + "a".nosuch)` printed `m: <closure>` and exited 0.
+  // Stopped where the value would ESCAPE, exactly like the `Stub` breadcrumb, because the
+  // fallback itself is load-bearing: rows 4 and 5 are the anti-rows that fail if someone deletes
+  // it. Six rows, each on both fronts — twelve `ssc run`s, measured 30.6 s on a loaded dev host.
+  Check("v2", "v2-unknown-member-refuses", "tests/e2e/v2-unknown-member-refuses-gate.sh",
+        List("--self-test"), 300000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),

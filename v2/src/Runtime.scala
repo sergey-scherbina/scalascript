@@ -4149,6 +4149,22 @@ object Show:
     if fr == null then null else fr(h)
 
   import Value.*
+
+  /** A bare `recv.name` that produced the eta fallback and then had to be RENDERED. The receiver
+    * is rendered without `show` when it is itself such a closure: `show` would re-enter this
+    * method and die while building its own message. */
+  private[ssc] def etaSelectionEscaped(c: ClosV): Nothing =
+    val (name, recv) = c.etaMethodRef.asInstanceOf[(String, Value)]
+    val r = recv match
+      case _: ClosV => "<closure>"
+      case other    => show(other)
+    sys.error(
+      s"`$r.$name` was selected but never called. A bare `recv.name` on a builtin receiver " +
+      "becomes the function value `x => recv.name(x)`, so a method that does not exist survived " +
+      s"as `<closure>` instead of failing. Call it, or check the method name — `$r.$name()` " +
+      "refuses here, and the reference front refuses the bare selection outright."
+    )
+
   def show(v: Value): String = v match
     case UnitV        => "()"
     case BoolV(x)     => x.toString
@@ -4188,6 +4204,26 @@ object Show:
       s"Set(${elems.iterator.map(show).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
+    // THE SAME DISEASE AS `Stub` ABOVE, WITH A DIFFERENT SENTINEL — and this is the arm that
+    // stops it. `recv.name` on a BUILTIN receiver has no nullary dispatch, so it becomes the
+    // eta-expansion function value `x => recv.name(x)` (:3009). That fallback is deliberate and
+    // v2 needs it — `List("b","z").exists("abc".contains)` answers `true` because the closure is
+    // CALLED — but it CANNOT tell a genuine method reference from a typo, and a typo that is
+    // never called rendered as `<closure>` and exited 0: `println("m: " + "a".nosuch)` printed
+    // `m: <closure>`. `42.nosuch` too; the receiver's type is not the point, the missing nullary
+    // dispatch is.
+    //
+    // MEASURED AGAINST THE REFERENCE, because "refuse it" and "keep it" are both defensible until
+    // you ask the oracle: the interpreter refuses a BARE selection on a builtin receiver outright,
+    // even for a method that EXISTS — `println("abc".contains)` is `No method 'contains' on
+    // StringV(abc)` there. So refusing the value where it would ESCAPE moves both cases toward the
+    // reference and takes nothing away: `.exists("abc".contains)` still answers true.
+    //
+    // ONE arm covers every path, unlike `Stub`: `anyStr` has its own DataV rendering (which is why
+    // Stub needs two), but no ClosV arm — interpolation, `+` and `println` all fall through to
+    // `show` for a closure. The wording says "selected and never called" rather than "reached
+    // output" because `show` also builds diagnostics, where the second half would be false.
+    case c: ClosV if c.etaMethodRef != null => etaSelectionEscaped(c)
     case _: ClosV     => "<closure>"
     case ForeignV(nmo: NamedMethodObj) =>
       // A NamedMethodObj may expose a `_show` field (optics: `Lens(_.x)`, `Prism[?, Circle]`); use it
