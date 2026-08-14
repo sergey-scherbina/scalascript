@@ -1,3 +1,65 @@
+## f-at-bind-pattern-emits-unbound-underscore — and the SECOND resolver answered `<closure>`
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     fixed-in: 56155766b
+     gate: tests/e2e/f-at-bind-pattern-gate.sh -->
+
+F had no rule for `case q @ Ctor(…)` in EITHER of its two match resolvers, and the two failed
+differently — which is the whole reason this entry is worth reading.
+
+```
+ctor-first match     ssc: unbound global: (global _)
+ordered match        <closure>                          -- runs, no diagnostic, wrong value
+```
+
+**Neither message names the construct.** On the ctor path the arm fell through to `parseConsArm`,
+which reads `h :: t` positionally, so the pattern's `_`s ended up in EXPRESSION position — `_` became
+a global the user never wrote, reported against whichever file the import chain surfaced it in. On
+the ordered path it fell through to `parseGenVar`, which read `q` as a catch-all VAR arm and took
+`Ctor(…) => body` as that arm's BODY, so the match evaluated to a lambda.
+
+**THE SECOND RESOLVER IS THE LESSON, and the source file predicted it.** Forty lines below the code
+I edited first, `specs/v2.2-p6.5-fsub.ssc` says: *"Which resolver a match uses is decided by its
+FIRST pattern … fixing only one leaves the other silently wrong — which is exactly what the first
+version of this change did, with a green gate, because every test in it matched on a String and never
+reached the code being edited."* I then wrote an eleven-row gate, watched it go from six red to all
+green, and had touched only one resolver — because every row matched on a sealed trait, and a
+ctor-first match never enters `parseGenArm`. Three rows exist now for no other purpose than to reach
+it, and each was red until the second half landed.
+
+**What made the miss visible was not the gate.** It was running the two files this was supposed to
+unblock and finding F alone against the reference AND the v1 interpreter: `dsl-sql-recovery.ssc`
+printed `0` and died on `match: no arm for PParseAll/1` where both other lanes print the parse. Had
+the first half been pushed on the strength of a green gate, it would have turned an honest decline —
+F falls back and the program runs correctly — into a silent wrong answer, and breached
+`f-output-agreement-gate`'s ceiling.
+
+**The bind is scoped to the arm BODY in both paths.** `bindScrut` renames the synthetic `__m`
+scrutinee slot, and both `parseArmBody` and `parseGenCtorPlain2` hand the same menv to the arms that
+FOLLOW. Threading a renamed env down would leave later arms with no `__m` at all: a later
+`case other =>` would silently stop binding, and `genScrut`'s `lookup("__m", menv)` would emit
+`(local -1)`. Guarded and nested @-binds route to the ordinary paths without the bind — structurally
+right, `q` unbound, F declines honestly rather than answering wrongly.
+
+**The `@` is not a token.** `opCode` maps unknown punctuation to 0 and `lexOp1` drops it, so
+`q @ P(a, b)` reaches the parser as `q P ( a , b )` — an ident directly followed by a ctor, a
+sequence no legal arm can otherwise produce. Keying on that is deliberate rather than lazy: adding
+`@` to the lexer would materialise a token in the 49 corpus files carrying `@main` / `@model` /
+`@key` annotations, all of which currently rely on it vanishing.
+
+**F twin of `v2/BUGS.md v21-native-sql-recovery-parser-sentinel`**, fixed on the other front in
+`1bf9c7c06` on 2026-07-11 — the same three `case ok @ ParseOk(_, _, _)` lines of
+`std/parsing/recovery.ssc`, five weeks and one front apart.
+
+**Together with `88c5741f6` this completes the parsing family**: `std/parsing/{core,combinators,
+layout,recovery}` and `examples/dsl-{calc-parser,json-parser,yaml-like,sql-recovery}` all compile
+under F and all agree with the reference front.
+
 ## ci-smoke-red-streak-nobody-stopped — the gate worked; nobody read it
 
 <!-- status: open
