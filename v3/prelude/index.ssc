@@ -22,38 +22,48 @@ parameters was the shape the workaround had to take.
 
 **Sixteen was a CAP, not a comfortable margin, and it was reachable.** `Dataset.of` with seventeen
 elements was refused by a number that came from an implementation detail of the workaround. SSC3-14b
-(2026-08-14) added varargs and this is the first thing they buy: `Any*` has no cap, and the sentinel,
+(2026-08-14) added varargs and this is the first thing they buy: `T*` has no cap, and the sentinel,
 its `DsAbsent` case class and the sixteen `if`s all go with it — the sentinel existed only to mark a
 parameter nobody filled.
+
+**`Dataset` carries its ELEMENT TYPE, and at Tier 0 that is documentation rather than enforcement.**
+`def of[T](items: T*): Dataset[T]` is the owner's spelling, and it only reads as true if the class
+takes the parameter too, so it does: `case class Dataset[T](items: List[T])`, with the members
+written in terms of `T` — `first(): Option[T]`, `filter(p: T => Boolean): Dataset[T]`,
+`map[U](f: T => U): Dataset[U]`. Every one of those annotations is DISCARDED by the front (invariant
+I-2 — Tier 0 carries no enforced notion of types), so this changes no behaviour and was measured to
+confirm it rather than assumed. It is written correctly now so that the type checker owed by SSC3-15
+inherits a prelude that already says what it means; the alternative — leaving `Any` everywhere and
+fixing it later — is how a signature ends up describing something nobody re-derived.
 
 ```scalascript
 case class RuntimeException(message: String):
   def getMessage: String = message
 
-case class Dataset(items: List[Any]):
-  def collect(): List[Any] = items
+case class Dataset[T](items: List[T]):
+  def collect(): List[T] = items
   def count(): Int = items.length
   def isEmpty(): Boolean = items.isEmpty
-  def first(): Option[Any] = if items.isEmpty then None else Some(items.head)
-  def take(n: Int): Dataset = Dataset(items.take(n))
-  def map(f: Any => Any): Dataset = Dataset(items.map(x => f(x)))
-  def filter(p: Any => Boolean): Dataset = Dataset(items.filter(x => p(x)))
+  def first(): Option[T] = if items.isEmpty then None else Some(items.head)
+  def take(n: Int): Dataset[T] = Dataset(items.take(n))
+  def map[U](f: T => U): Dataset[U] = Dataset(items.map(x => f(x)))
+  def filter(p: T => Boolean): Dataset[T] = Dataset(items.filter(x => p(x)))
   def mkString(sep: String): String = items.mkString(sep)
-  def reduce(f: (Any, Any) => Any): Any = items.reduce((a, b) => f(a, b))
+  def reduce(f: (T, T) => T): T = items.reduce((a, b) => f(a, b))
   def sum(): Any = items.sum
   def avg(): Any = items.sum.toDouble / items.length.toDouble
-  def min(): Any =
+  def min(): T =
     if items.isEmpty then throw RuntimeException("Dataset.min: empty dataset") else items.min
-  def max(): Any =
+  def max(): T =
     if items.isEmpty then throw RuntimeException("Dataset.max: empty dataset") else items.max
-  def sorted(): Dataset = Dataset(items.sorted)
-  def sortBy(f: Any => Any): Dataset = Dataset(items.sortBy(x => f(x)))
-  def distinct(): Dataset = Dataset(items.distinct)
-  def takeOrdered(n: Int): Dataset = Dataset(items.sorted.take(n))
-  def top(n: Int): Dataset = Dataset(items.sorted.reverse.take(n))
-  def zip(other: Dataset): Dataset = Dataset(items.zip(other.items))
-  def flatMap(f: Any => List[Any]): Dataset = Dataset(items.flatMap(x => f(x)))
-  def foreach(f: Any => Any): Unit = items.foreach(x => f(x))
+  def sorted(): Dataset[T] = Dataset(items.sorted)
+  def sortBy(f: T => Any): Dataset[T] = Dataset(items.sortBy(x => f(x)))
+  def distinct(): Dataset[T] = Dataset(items.distinct)
+  def takeOrdered(n: Int): Dataset[T] = Dataset(items.sorted.take(n))
+  def top(n: Int): Dataset[T] = Dataset(items.sorted.reverse.take(n))
+  def zip[U](other: Dataset[U]): Dataset[Any] = Dataset(items.zip(other.items))
+  def flatMap[U](f: T => List[U]): Dataset[U] = Dataset(items.flatMap(x => f(x)))
+  def foreach(f: T => Any): Unit = items.foreach(x => f(x))
   // IT RETURNS `(key, reduced)` PAIRS, keeping the key beside the value, and that is not a design
   // choice — the corpus reads it. `dataset-groupBy.ssc` destructures `case (k, v)` and then prints
   // `v._2`, so `v` is itself the reduced ELEMENT, a `(word, count)` pair. Returning just the reduced
@@ -64,28 +74,28 @@ case class Dataset(items: List[Any]):
   // the whole call reproduced by hand. Only reading the test's LAST TWO LINES explained it. The
   // shape of a returned value is part of the contract, and a probe that stops at "it runs" cannot
   // see it.
-  def reduceByKey(key: Any => Any)(f: (Any, Any) => Any): Dataset =
+  def reduceByKey(key: T => Any)(f: (T, T) => T): Dataset[Any] =
     Dataset(items.map(x => key(x)).distinct
                  .map(k => (k, items.filter(x => key(x) == k).reduce((p, q) => f(p, q)))))
-  def zipWithIndex: Dataset = Dataset(items.zipWithIndex)
-  def drop(n: Int): Dataset = Dataset(items.drop(n))
-  def fold(z: Any)(f: (Any, Any) => Any): Any = items.foldLeft(z)((a, b) => f(a, b))
-  def union(other: Dataset): Dataset = Dataset(items ++ other.items)
-  def intersect(other: Dataset): Dataset =
+  def zipWithIndex: Dataset[Any] = Dataset(items.zipWithIndex)
+  def drop(n: Int): Dataset[T] = Dataset(items.drop(n))
+  def fold(z: Any)(f: (Any, T) => Any): Any = items.foldLeft(z)((a, b) => f(a, b))
+  def union(other: Dataset[T]): Dataset[T] = Dataset(items ++ other.items)
+  def intersect(other: Dataset[T]): Dataset[T] =
     Dataset(items.filter(x => other.items.contains(x)).distinct)
-  def groupBy(f: Any => Any): Dataset =
+  def groupBy(f: T => Any): Dataset[Any] =
     Dataset(items.map(x => f(x)).distinct.map(k => (k, items.filter(x => f(x) == k))))
   // A CLOSURE, not a Map, and the corpus decides that rather than taste: it only ever APPLIES the
   // result — `freq(k)` — and Tier 0 can neither build a Map from a list (`toMap` is absent) nor add
   // to one (`Map + (k -> v)` is refused). A user-defined `apply` is not callable either. A function
   // value satisfies every use the corpus makes and needs nothing the language does not have.
-  def countByValue(): Any => Any = (k: Any) => items.filter(x => x == k).length
-  def runLocal(): Dataset = Dataset(items)
-  def runParallel(): Dataset = Dataset(items)
+  def countByValue(): Any => Any = (k: T) => items.filter(x => x == k).length
+  def runLocal(): Dataset[T] = Dataset(items)
+  def runParallel(): Dataset[T] = Dataset(items)
 
 object Dataset:
-  def fromList(xs: List[Any]): Dataset = Dataset(xs)
-  def of(items: Any*): Dataset = Dataset(items)
+  def fromList[T](xs: List[T]): Dataset[T] = Dataset(xs)
+  def of[T](items: T*): Dataset[T] = Dataset(items)
 ```
 
 ## The `List` companion
