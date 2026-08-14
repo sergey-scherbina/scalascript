@@ -244,7 +244,11 @@ object Cli:
     // first and the proof would be attached to an instruction that no longer exists.
     // `--no-optimize` is the OFF arm of its measurement, the same shape as `--no-specialize`.
     val specialized = if args.contains("--no-specialize") then m else Specialize.module(m)
-    if args.contains("--no-optimize") then specialized else Optimize.module(specialized)
+    // SSC3-J4a adds `--no-hoist`: copy propagation still runs, only the loop-invariant `Const` lift
+    // is off. `--no-optimize` turns off BOTH, so measuring the lift against it would charge one pass
+    // for the other's effect — which is what the OFF arm of an A/B exists to prevent.
+    if args.contains("--no-optimize") then specialized
+    else Optimize.module(specialized, !args.contains("--no-hoist"))
 
   def run(args: List[String]): Int =
     try

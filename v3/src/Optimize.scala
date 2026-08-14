@@ -26,8 +26,89 @@ object Optimize:
 
   /** Every pass, in order. Runs AFTER `Verify` and its result is verified again — invariant I-4
     * applies to a pass as much as to a program. */
-  def module(m: Module): Module =
-    m.copy(funcs = m.funcs.map(f => f.copy(body = copyProp(f))))
+  def module(m: Module): Module = module(m, true)
+
+  /** `hoistConsts = false` is the OFF arm of this pass's own measurement (`ssc3 exec --no-hoist`),
+    * the same shape `--no-specialize` and `--no-optimize` already have. A pass whose effect cannot
+    * be switched off in ONE binary has to be measured across two builds, and this repository has
+    * paid for that: two class directories of the same tree is how J1c was measured, and its control
+    * could not see the load that moved between them. */
+  def module(m: Module, hoistConsts: Boolean): Module =
+    m.copy(funcs = m.funcs.map { f =>
+      val lifted = if hoistConsts then f.copy(body = hoist(f, f.body, writeCounts(f))) else f
+      lifted.copy(body = copyProp(lifted))
+    })
+
+  // ── loop-invariant constants ───────────────────────────────────────────────────────────────────
+  //
+  // SSC3-J4a. `arith-loop`'s inner loop reloads two literals on EVERY iteration:
+  //
+  //     (loop (const 4 1000000) (bin lt 5 1 4) … (const 8 1) (bin add 9 1 8) (br 0))
+  //
+  // A `Const` is pure and its value cannot depend on anything, so the only question a hoist raises
+  // is whether the register it writes can hold something else at any point the loop can observe.
+  // The condition here is the strongest available and the cheapest to check: the register is written
+  // EXACTLY ONCE IN THE WHOLE FUNCTION, counted over the flattened body, and it is not a parameter.
+  // Nothing else can assign it, so every read anywhere sees this constant whether the write happens
+  // once before the loop or once per iteration.
+  //
+  // TWO THINGS THIS DELIBERATELY DOES NOT DO, because both are only correct under a rule the
+  // verifier would have to state and does not:
+  //
+  //   * it lifts only from the loop's TOP-LEVEL list, never out of an `If` arm inside it — lifting a
+  //     conditional write would make it unconditional, and "nobody reads it on the other path" is an
+  //     argument about a program the verifier does not check;
+  //   * it lifts a `Const` and nothing else. `Move`, `Bin` and the rest read registers, so their
+  //     invariance is a dataflow claim rather than a syntactic one, and this pass makes no dataflow
+  //     claims.
+  //
+  // A loop that runs zero times now executes the `Const` it would have skipped. That is a pure
+  // write to a register only this instruction can write, so no program can observe it.
+  //
+  // Nested loops fall out of the recursion order: the inner `Loop` is rewritten FIRST, so a constant
+  // lifted out of it becomes a top-level instruction of the outer loop's body and is lifted again on
+  // the same walk. `nested-loop` moves five constants out of two levels for that reason.
+
+  private def writeCounts(f: Func): Array[Int] =
+    val writes = new Array[Int](f.nregs)
+    var all = Instr.flatten(f.body)
+    while all.nonEmpty do
+      val d = dstOf(all.head)
+      if d >= 0 && d < f.nregs then writes(d) = writes(d) + 1
+      all = all.tail
+    writes
+
+  private def hoist(f: Func, body: List[Instr], writes: Array[Int]): List[Instr] =
+    var out: List[Instr] = Nil
+    var rest = body
+    while rest.nonEmpty do
+      rest.head match
+        case Instr.Loop(b) =>
+          val inner = hoist(f, b, writes)
+          val lifted = inner.filter(i => liftable(f, i, writes))
+          val kept   = inner.filter(i => !liftable(f, i, writes))
+          out = Instr.Loop(kept) :: (lifted.reverse ::: out)
+        case other =>
+          out = descendHoist(f, other, writes) :: out
+      rest = rest.tail
+    out.reverse
+
+  private def liftable(f: Func, i: Instr, writes: Array[Int]): Boolean = i match
+    case Instr.Const(d, _) => d >= f.nparams && d < f.nregs && writes(d) == 1
+    case _                 => false
+
+  /** Regions other than `Loop` are walked so a loop nested inside one is still reached. */
+  private def descendHoist(f: Func, i: Instr, writes: Array[Int]): Instr = i match
+    case Instr.Block(b)    => Instr.Block(hoist(f, b, writes))
+    case Instr.Loop(b)     => Instr.Loop(hoist(f, b, writes))
+    case Instr.If(c, t, e) => Instr.If(c, hoist(f, t, writes), hoist(f, e, writes))
+    case Instr.Switch(s, arms, df) =>
+      Instr.Switch(s, arms.map(a => SwitchArm(a.tag, hoist(f, a.body, writes))), hoist(f, df, writes))
+    case Instr.Try(d, b, exn, h)   => Instr.Try(d, hoist(f, b, writes), exn, hoist(f, h, writes))
+    case Instr.Handle(d, b, arms)  =>
+      Instr.Handle(d, hoist(f, b, writes),
+                   arms.map(a => HandlerArm(a.op, a.params, a.k, hoist(f, a.body, writes))))
+    case other => other
 
   // ── copy propagation ───────────────────────────────────────────────────────────────────────────
   //
