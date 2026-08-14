@@ -3563,11 +3563,12 @@ deleted sandbox (`orphaned-e2e-gates-52`, batch 4, the "fails without saying why
 
 ## a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator — measured over 75 checks
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
      confirmed: yes
+     fixed-in: a833f9b77
      gate: tests/e2e/smoke-guard-headroom.sh -->
 
 **The successor to `smoke-check-guards-sized-by-local-time`, which is FIXED and whose fix was not
