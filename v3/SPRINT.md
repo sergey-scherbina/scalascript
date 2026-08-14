@@ -2432,7 +2432,10 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       *Gate:* `v3/jit-gate.sh --specialize`, four fixtures each failing for a DIFFERENT wrong
       analysis, plus a three-rule `--self-test` that plants each failure and requires RED.
 
-- [x] **SSC3-J1b — `Exec.step` dispatches on `kind`, and it bought NOTHING. Measured.**
+- [x] **SSC3-J1b — `Exec.step` dispatches on `kind`. It buys ~13 % on `arith-loop`, and the run that
+      said it bought NOTHING was measuring a loaded host.** Re-measured 2026-08-14 at load 3.75;
+      the correction and its numbers are the sub-item directly below, and the paragraphs after it are
+      the ORIGINAL verdict, left standing because the way it went wrong is the reusable part.
       `ssc3-cps-split` released `Exec.scala`, so this was no longer blocked.
       **10 alternating A/B pairs, same binary, `--no-specialize` as the OFF arm, load 45→54:**
       on median 138.0 ms, off 122.4 — **"on" faster in 5 of 10 pairs**, a 15.5 ms median difference
@@ -2448,6 +2451,49 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       and because J0 and J2 need this seam. `--no-specialize` is now the OFF arm of every later
       measurement — and `ssc3 exec` took its path positionally, so that flag was unusable in that
       argument order until `--identity` caught it.
+
+      **RE-MEASURED 2026-08-14 ON A QUIET HOST (load 3.75), AND THE VERDICT ABOVE IS WRONG.**
+      20 pairs per workload, one binary, `--no-specialize` as the OFF arm, control (ON vs ON)
+      interleaved inside every pair, order rotated — `v3/bench-ab.sh`, `PAIRS=20`:
+
+      | workload | med ON | med OFF | ratio | control | experiment | p(exp) |
+      |---|---|---|---|---|---|---|
+      | `arith-loop` | 29.20 ms | 33.02 | **1.131** | 12 of 20 ✓ | **20 of 20** | **9.5e-7** |
+      | `nested-loop` | 36.58 | 37.61 | 1.028 | **5 of 20 ✗** | 14 of 20 | *unusable* |
+      | `list-fold` | 9.14 | 9.05 | 0.990 | 8 of 20 ✓ | 11 of 20 | 0.41 |
+      | `recursion-fib` | 161.03 | 164.31 | 1.020 | 11 of 20 ✓ | 14 of 20 | 0.058 |
+
+      **`arith-loop` is 20 of 20 with a control at 12 of 20** — the specializer is worth ~11.6 % of
+      that workload's run time, and the sign test's p is 9.5e-7. Answers unchanged: all four
+      workloads print an identical `BENCH_SINK` on both arms, which is what makes a time comparison
+      admissible at all, and `--identity` already covers it over 78 programs.
+
+      **THE SAME 1.13 RATIO APPEARS IN BOTH RUNS, POINTING OPPOSITE WAYS.** Above, at load 45→54:
+      ratio 1.13 with ON *slower*, correctly declined as noise rather than called a regression.
+      Here, at load 3.75: ratio 1.131 with ON *faster*, 20 of 20. That is not a loaded run getting
+      the magnitude right — it is a noise floor at least as large as the effect **inverting its
+      sign**, which is the concrete reason a ratio from a busy host may not be reported in either
+      direction, not even as "no effect".
+
+      ~~*The reason needs no benchmark*~~ — **struck, and it is the most expensive line in this
+      item.** The bytecode-size argument two paragraphs up is sound about inlining and still
+      predicted the wrong answer: `binI64` at 895 bytecodes is indeed never inlined into `step`, and
+      the fast path still wins 20 of 20. Avoiding a megamorphic tuple match is worth ~13 % even when
+      the callee it jumps to stays out of line. A mechanism argument that predicts a NULL is still a
+      prediction, and this board had it standing for four days as a reason not to measure.
+
+      **`nested-loop` is OWED and must not be read off this run.** Its control came back 5 of 20 —
+      two-sided p 0.041 against the 10 a steady host gives — so by `bench-ab.sh`'s own first rule its
+      14-of-20 experiment column means nothing however good it looks. It is also the row that most
+      needs an answer: it is an integer loop, so the mechanism predicts it moves with `arith-loop`,
+      and it is the only workload whose prediction is untested. Re-run it in a quiet window.
+
+      **The two clean nulls are the two the mechanism predicts cannot move, and that is the control
+      that makes `arith-loop` credible.** `list-fold` is `invoke`-bound — established as J2's control
+      for exactly this reason — and `recursion-fib` is dominated by the per-call frame; neither is
+      `Bin`-dispatch-bound, so specializing `kind` has nothing to bite on. `recursion-fib`'s 14 of 20
+      at p 0.058 is not significant and its load was already climbing (22.7 at that workload's start,
+      18.5 at the end of the run), so it is recorded as leaning, not as a result.
 
 - [x] **The `--identity` gate exists now, and it is no longer green by construction.** 65 programs
       run with and without the pass, output compared byte for byte, plus `wrong-kind.ssir` — two
@@ -2598,6 +2644,31 @@ So the standing recommendation changes shape: not "stop optimising this executor
 measure it while the machine is busy, and read `v3/bench-ab.sh`'s control column before its
 experiment column." **J1b and J1c are still owed** — both need two class directories rather than one
 binary with a flag, which is why J1d was the one re-run first.
+
+**AMENDED AGAIN 2026-08-14 — J1B IS DONE AND IT IS A WIN, AND THE SENTENCE ABOVE IS WHY IT WAITED A
+DAY.** "Both need two class directories rather than one binary with a flag" is **false for J1b**:
+`--no-specialize` is a flag on one binary, it is how the original J1b measurement was taken three
+paragraphs up, and it is how the re-run was taken. J1b was the CHEAPEST of the three owed rows and
+this board filed it as one of the two expensive ones, so the quiet window that arrived went to a
+different task first. When a board says a measurement is expensive, check the OFF arm it already has
+before believing it. Only **J1c** genuinely needs two class directories, because its lane was
+reverted out of `Exec.scala` and there is no flag left to turn it on.
+
+**The score is now six attempts, TWO clear wins, and the two wins have the same shape.** J0a/b/c made
+the existing dispatch cheaper and moved the clock 7 of 8; **J1b makes the existing dispatch cheaper —
+one `kind` test instead of a megamorphic tuple match — and moves it 20 of 20 at ~13 %.** Every loss
+either replaced the dispatch (J2, closures, 1 of 8) or changed the data representation (J1c, the long
+bank, 3 of 8), and J1d — fewer dispatches of the same kind — leans in with 12 of 15 against a control
+of 8. So the through-line below is not merely intact, it is now carried by two independent wins, and
+it sharpens into a rule for what to try next: **cheapen or remove dispatches; do not replace the
+dispatch mechanism and do not re-represent the values.** Superinstructions are the remaining item on
+the good side of that line, and they now have two wins behind them rather than one.
+
+**And the recommendation "stop optimising this executor on this host" is fully retired.** It rested on
+four consecutive nulls; one of those four was this win, invisible at load 45–54. The replacement is
+the one already stated — measure only on a quiet host, read the control column first — plus: **a null
+taken under load is not evidence and must not be written down as a mechanism verdict.** J1b's null
+came with a bytecode-size argument that made it look explained, which is what let it stand.
 
 **FRAME POOLING IS REFUTED — do not build it.** It was the obvious next move: `recursion-fib` is the
 slowest row, nothing has moved it, and `callFunc` allocates a frame per call. The assumption was
