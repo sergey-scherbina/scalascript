@@ -348,6 +348,62 @@ if [[ $rc8 -ne 0 || $out8 == *"Generic("* ]]; then
   failed=1
 fi
 
+# -- A field typed `List[UserEnum]`, and `throw` of a case class without `new` -
+#
+# Two defects that only ever showed together, in a module no gate could reach. Both are GENERAL --
+# neither is about the module that exposed them.
+#
+#   1. `List[Colour]` emitted `Vec<i64>`. Scala-3 `enum` declarations were missing from the set of
+#      known user types while being rendered a few lines away, so mapType fell through to its
+#      `i64` default -- the one meant for a generic type PARAMETER. rustc then said
+#      "expected i64, found Colour" about a field the author had declared correctly.
+#
+#   2. `throw Err("msg")` demanded a Display no generated type has. The lowering already lifts the
+#      message out of `throw new Err("msg")` -- an exception on this target IS its message -- but
+#      only from the `new` spelling. Scala 3 writes it without `new`, which is what every .ssc
+#      actually contains.
+#
+# Neither moves the survey: it measures 81/51 with and without both, because every std module
+# writing either form is REFUSED earlier for an unrelated reason and never reaches cargo. That is
+# precisely why they are checked here.
+if command -v cargo >/dev/null 2>&1; then
+  cat > "$tmp/usertypes.ssc" <<'SSC'
+---
+name: usertypes
+version: 1.0.0
+description: a List of a user enum keeps its element type; throw lifts its message
+---
+
+```scalascript
+enum Colour:
+  case Named(n: String)
+
+case class Box(items: List[Colour])
+case class Err(message: String)
+
+def count(b: Box): Int =
+  if b.items.isEmpty then throw Err("empty") else b.items.length
+
+@main def run(): Unit =
+  println(count(Box(List(Colour.Named("red")))))
+```
+SSC
+  set +e
+  u_out=$("$SSC" build-rust "$tmp/usertypes.ssc" -o "$tmp/usertypesbin" 2>&1); urc=$?
+  u_ran=$("$tmp/usertypesbin" 2>&1)
+  set -e
+  if [[ $urc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED -- a List of a user enum, or a throw without new" >&2
+    echo "  'expected i64, found Colour' means the enum is missing from the known-type set;" >&2
+    echo "  'doesnt implement Display' means the throw payload was not lifted." >&2
+    echo "--- output: $u_out" >&2
+    failed=1
+  elif [[ $u_ran != "1" ]]; then
+    echo "build-rust-refuses-loudly: FAILED -- user-types binary printed '$u_ran', want '1'" >&2
+    failed=1
+  fi
+fi
+
 # -- A QUALIFIED enum constructor must be `Enum::Ctor`, not `Enum.Ctor` -------
 #
 # `Shape.Box(2, 3)` emitted as `Shape.Box(2, 3)` -- rustc: E0423 expected value, found enum. The

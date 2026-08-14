@@ -105,7 +105,15 @@ object RustCodeWalk:
     // field types that reference another user type map to it, not the i64 default.
     val userTypeNames: Set[String] =
       standaloneCases.map(_.name.value).toSet ++
-      traitEnums.map { case SealedTraitEnum(t, _) => t.name.value }.toSet
+      traitEnums.map { case SealedTraitEnum(t, _) => t.name.value }.toSet ++
+      // Scala-3 `enum` declarations. They were MISSING here while being rendered a few lines
+      // below, so `mapType` did not recognise them as user types and fell through to its `i64`
+      // default — the one meant for a generic type PARAMETER. `case class ToolResult(content:
+      // List[Content])` emitted `Vec<i64>` and rustc said "expected i64, found Content" about a
+      // field the author declared correctly. Silent and general: every `List[SomeEnum]` in any
+      // module was wrong the same way, and nothing showed it because the modules that write one
+      // were refused earlier for unrelated reasons.
+      enums.map(_.name.value).toSet
     // The built-in `Either` is a FALLBACK — for a module that uses `Either[L, R]` without defining
     // it. `std/either.ssc` defines its own, and emitting both produced `error[E0428]: the name
     // Either is defined multiple times`, in the one module whose whole subject is that type (and in
@@ -900,6 +908,22 @@ object RustCodeWalk:
     val traitCaseNames = traitEnums.flatMap(_.caseClasses.map(_.name.value)).toSet
     module.sections.flatMap(sectionClasses)
       .filter(c => isCaseClass(c) && !traitCaseNames.contains(c.name.value))
+
+  /** The value a `throw` actually carries: an exception on this target IS its message.
+   *
+   *  Lifted out of `renderTerm` rather than inlined, because that method is one of the frozen
+   *  over-limit entries in `tests/e2e/v1-jit-size.sh` — inline, these two cases grew it by 301
+   *  bytecodes for no reason, and it is already far past the JIT limit.
+   *
+   *  BOTH constructor spellings, and the second is the one that mattered: `throw new Err("msg")`
+   *  was lifted and `throw Err("msg")` was not, so the struct itself reached `panic!("{}", …)`
+   *  and rustc demanded a `Display` no generated type has. Scala 3 writes the `new`-less form,
+   *  which is what every `.ssc` in the corpus contains. */
+  private def throwPayload(e: m.Term, ctx: Ctx): m.Term = e match
+    case m.Term.New(m.Init.After_4_6_0(_, _, List(m.Term.ArgClause(List(arg), _)))) => arg
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), m.Term.ArgClause(List(arg), _))
+        if ctx.ctorMap.contains(n) => arg
+    case other => other
 
   private def renderStruct(
       c: m.Defn.Class, typeNames: Set[String]
@@ -3771,10 +3795,7 @@ object RustCodeWalk:
     // `throw new SomeException("msg")` is the spelling the corpus uses, so the message is lifted out
     // of the constructor: the class name has no meaning on a target with no class to name.
     case m.Term.Throw(e) =>
-      val payload = e match
-        case m.Term.New(m.Init.After_4_6_0(_, _, List(m.Term.ArgClause(List(arg), _)))) => arg
-        case other                                     => other
-      renderTerm(payload, ctx).map(p => s"""panic!("{}", $p)""")
+      renderTerm(throwPayload(e, ctx), ctx).map(p => s"""panic!("{}", $p)""")
 
     // `try b catch case e => h` → `catch_unwind`, with the payload downcast back to a `String`.
     //
