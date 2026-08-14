@@ -42,12 +42,51 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
-## v3-math-pow-fractional-needs-a-v2-prim — a fractional exponent has no answer on the bridge, and no v3-only fix can match
+## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagree at exactly `.5`
 
 <!-- status: open
      lane: multi
+     area: codegen
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**FOUND BY READING, NOT BY RUNNING, and that is stated up front because it changes what the entry
+is worth.** Noticed while adding `f.pow` beside `f.sqrt` in every backend. The four implementations
+of `f.round` do not agree:
+
+    v2/src/Runtime.scala:1437                 math.rint(flt(a, 0))                half to EVEN
+    v2/backend/jvm/JvmBackend.scala:446       math.rint(_asDouble(a0))            half to EVEN
+    v2/backend/swift/…/SwiftRuntime.scala     .rounded(.toNearestOrEven)          half to EVEN
+    v2/backend/js/JsBackend.scala:329         Math.round(a0)                      half UP
+    v2/backend/rust/RustBackend.scala:1248    as_float(a0).round()                half AWAY FROM ZERO
+
+Three different rules. They agree on every value that is not exactly `.5`, which is why nothing has
+caught it: `round(2.5)` is **2** on the VM, jvm and swift, **3** on js, and **3** on rust;
+`round(-2.5)` is `-2`, `-2` and `-3`.
+
+**WHY IT MATTERS HERE.** v3's `math.round` goes through this prim, and v3 shipped parity probes
+pinning `round(2.5) = 2` and `round(3.5) = 4` on its two lanes — both of which run the VM. The same
+program compiled to JS by v2 answers differently. Core IR is meant to be one language whatever
+executes it.
+
+**NOT FIXED, and not by me in the same breath as finding it:** which rule is CORRECT is a decision
+about the Core IR's contract, not a typo to patch. `10-core-ir.md` says `f.round` and nothing about
+its tie-breaking. Whoever owns that spec picks one — `rint` is what three of five already do and
+what Scala's `math.rint` and IEEE-754 "round half to even" mean — and then the two odd backends
+follow, with a conformance row at `.5` so it cannot drift again.
+
+**Confirm before fixing.** This is a code reading; run one program per backend at `2.5`, `3.5`,
+`-2.5` before acting on it. `f.pow` was reported to the owner as "one line" on exactly this kind of
+evidence and turned out to be six sites.
+
+## v3-math-pow-fractional-needs-a-v2-prim — a fractional exponent had no answer on the bridge, and no v3-only fix could match
+
+<!-- status: fixed
+     lane: multi
      area: runtime
-     gate: v3/tests/parity/math-pow.ssc (integer exponents only)
+     fixed-in: 58f866033
+     gate: v3/tests/parity/math-pow-frac.ssc, math-pow-irrational.ssc, math-pow-int-args.ssc
      found-by: claude-code
      found-at: 2026-08-14 -->
 
@@ -81,9 +120,22 @@ then v3 wires it exactly as it wired `f.sqrt`: a `hostPrims` entry, an `Exec` ca
 `def pow(b: Double, e: Double) = __mathPow(b.toDouble, e.toDouble)`. Additive — nothing currently
 emits that name.
 
-**NOT TAKEN, because `v2/src/Runtime.scala` is held by the `rust-toint-lane-parity` claim.** Asked
-for in the room. This is the second item today blocked on that one file; see the
-`v2-bytecode-map-ops` release note, which stopped for the same reason.
+**FIXED 2026-08-15.** The owner chose the kernel when the question was put to him, and the change
+was SIX sites rather than the one line this entry first claimed: the VM, the js, jvm, rust and swift
+backends, and swift's allowed-prim LIST. `v2/specs/10-core-ir.md` said "(transcendentals such as
+`sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the kernel)" and was NARROWED in the same
+commit rather than left to contradict the code — `f.sqrt` was already kernel and is exactly
+`pow(x, ½)`, `pow` is not in that list, and no `f.exp`/`f.log`/`f.pow` existed anywhere, so the
+prelude named there was an intention and not an implementation.
+
+All three lanes now agree bit for bit, including the row that fails first if anyone ever swaps in an
+approximation:
+
+    1.4142135623730951  1.0717734625362931  31.622776601683793  256  0.125  1  8
+
+N held at 216/369 with DIFF 3 and CRASH 9, which is the expected answer: no corpus case uses a
+fractional exponent. Ten v3 gates green; the four non-VM backends are COMPILED and not executed —
+`v2/backend/rust` through scala-cli, which is what builds it, since no sbt project references it.
 
 ## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wraps on native, refuses on the v2 VM, and v3 must pick one
 
