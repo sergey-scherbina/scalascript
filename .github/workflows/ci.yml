@@ -362,6 +362,16 @@ jobs:
       - name: a numeric conversion answers the same on both lanes
         run: tests/e2e/rust-toint-parity-gate.sh
 
+      # Two more rozum reports, both `impact: blocks`, both about the HTTP lane and both asserted
+      # over a real socket rather than by "it compiles": a handler declared `Request => Response`
+      # was lowered with a `-> String` callback, so the crate did not build and a handler could only
+      # ever answer 200; and a query value arrived raw — `%3A` stayed `%3A`, `+` stayed `+` — while
+      # `run` decoded both, so a route keyed on the value silently matched nothing. The rows compare
+      # the two lanes' answers to the SAME request, so a change that moves both together still
+      # fails. ~25 s: two cargo builds, four server starts, ports picked per run.
+      - name: a route handler answers the same on both lanes
+        run: tests/e2e/rust-http-lane-parity-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

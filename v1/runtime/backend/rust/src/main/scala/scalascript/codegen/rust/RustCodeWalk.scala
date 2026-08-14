@@ -4093,6 +4093,34 @@ object RustCodeWalk:
    *    route("GET", p, handler)             — a bare def reference
    *  Anything else is `false`, which keeps the String surface — the safe direction, since a
    *  wrong `true` would hand a `Value` to code expecting a `String`. */
+  /** Does the handler ANSWER a `Response`? Read from the declaration, the same three shapes as
+   *  `handlerDeclaresRequest` reads the parameter from. `false` keeps the String shape, which is
+   *  the safe direction: a wrong `true` would take `.status` off a String. */
+  private def handlerReturnsResponse(argTerms: List[m.Term]): Boolean =
+    def defReturnsResponse(n: String): Boolean =
+      _defBodies.get(n).flatMap(_.decltpe).exists {
+        case m.Type.Name("Response") => true
+        case _                       => false
+      }
+    val handlerArg = if argTerms.size == 3 then argTerms.lastOption else None
+    // ONLY the shapes that actually REACH this code. A handler written as an inline lambda whose
+    // body constructs a `Response` never gets here at all: `handlerDeclaresRequest` cannot see a
+    // Request parameter in a bare lambda, so the call is emitted against `_http_route` — the plain
+    // string entry — and the return type is never consulted. I extended this function to recognise
+    // `Response(…)`, its factories and its builders, then emitted the crate and found the branch
+    // unreachable for them; the extension was removed rather than shipped as a comment claiming a
+    // coverage it does not have. That gap is filed as `rust-inline-route-handler-is-typed-as-a-
+    // string-handler`, with the three distinct rustc errors the three inline spellings produce.
+    handlerArg.exists {
+      case f: m.Term.Function =>
+        f.body match
+          case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) => defReturnsResponse(n)
+          case m.Term.Block(List(m.Term.Apply.After_4_6_0(m.Term.Name(n), _))) => defReturnsResponse(n)
+          case _                                                              => false
+      case m.Term.Name(n) => defReturnsResponse(n)
+      case _              => false
+    }
+
   private def handlerDeclaresRequest(argTerms: List[m.Term]): Boolean =
     def firstParamIsRequest(defName: String): Boolean =
       _defBodies.get(defName).exists { d =>
@@ -4329,12 +4357,27 @@ object RustCodeWalk:
           if target == "crate::runtime::http::_http_route_req" && renderedArgs.length == 3 then
             val inner = renderedArgs(2)
             val empty = "std::collections::HashMap::new()"
+            // `std/http.ssc` declares `handler: Request => Response`, and a Response carries a
+            // status this lane could not express — everything went out 200, so a route whose job is
+            // REFUSING could not refuse. A handler that still answers a String keeps the old shape;
+            // the wrapper below is what turns either into the runtime's ResponseParts, and it is
+            // emitted HERE because `Response` is a case class the runtime cannot name.
+            val returnsResponse = handlerReturnsResponse(argTerms)
+            val retTy = if returnsResponse then "Response" else "String"
+            val wrapOpen =
+              if returnsResponse then "{ let __r = "
+              else "crate::runtime::http::ResponseParts { status: 200, headers: Vec::new(), body: "
+            val wrapClose =
+              if returnsResponse then
+                "; crate::runtime::http::ResponseParts { status: __r.status as u16, " +
+                "headers: __r.headers.into_iter().collect(), body: __r.body } }"
+              else " }"
             val adapter = List(
               // The Box carries the parameter type: Rust does not infer a closure literal's
               // parameter from a direct call, so `(inner)(Request{…})` is E0282. The
               // ascription also states the Send + Sync the runtime entry requires.
-              s"{ let __h: Box<dyn Fn(Request) -> String + Send + Sync> = Box::new($inner);",
-              "  move |__rp: crate::runtime::http::RequestParts| __h(Request {",
+              s"{ let __h: Box<dyn Fn(Request) -> $retTy + Send + Sync> = Box::new($inner);",
+              "  move |__rp: crate::runtime::http::RequestParts| " + wrapOpen + "__h(Request {",
               "  method: __rp.method, path: __rp.path, body: __rp.body,",
               "  headers: __rp.headers, cookies: __rp.cookies, query: __rp.query, form: __rp.form,",
               "  // Not producible on this lane, and empty rather than absent so a handler reading",
@@ -4342,7 +4385,7 @@ object RustCodeWalk:
               "  // parsed here), session (no signed-session support), params (this router matches",
               "  // an exact path then a `/` prefix and has no `:name` patterns to bind).",
               s"  files: $empty, session: $empty, params: $empty, json: None,",
-              "}) }"
+              "})" + wrapClose + " }"
             ).mkString("\n")
             renderedArgs.take(2) :+ adapter
           else renderedArgs
