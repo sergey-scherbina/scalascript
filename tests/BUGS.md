@@ -113,6 +113,19 @@ cannot parse at all plus 5 with broken import paths in the example itself. So F'
 **553** files and handles **496 — 89.7%**. Quoted against the raw 771 it reads 64%, and the earlier
 140-file sample read 76%.
 
+**RE-MEASURED after `6eb863449` (the `h` bucket's fix), same 771 subjects:**
+
+```
+before   F 496   BOTH-UNBOUND 198   GAP 57   ERROR 20      F decides 553, handles 496 — 89.7%
+after    F 505   BOTH-UNBOUND 198   GAP 48   ERROR 20      F decides 553, handles 505 — 91.3%
+```
+
+The `h` bucket went to zero and **nothing moved to a different reason** — the nine files went
+straight to `F`, so there was no second cause queued behind that one. Worth stating because the
+opposite is what happened earlier the same day: fixing `(global Parser)` sent six files to `F` and
+two to `(global _)`. Every other bucket is byte-identical, which is also the check that the fix
+touched nothing else.
+
 ### The GAP bucket, 57 files, ranked by mechanism
 
 The reason string embeds the offending NAME, so the raw strings scatter; grouped by name they are
