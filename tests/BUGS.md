@@ -3568,7 +3568,7 @@ deleted sandbox (`orphaned-e2e-gates-52`, batch 4, the "fails without saying why
      area: build
      kind: apparatus
      confirmed: yes
-     gate: tests/e2e/smoke-guard-headroom.sh (to be written — the ratio is computable without running the suite) -->
+     gate: tests/e2e/smoke-guard-headroom.sh -->
 
 **The successor to `smoke-check-guards-sized-by-local-time`, which is FIXED and whose fix was not
 enough.** That entry raised `run-lane-flags-are-flags` from a 60 s guard to 180 s because 60 s sat at
@@ -3632,6 +3632,51 @@ Found while trying to get a clean pre-push verdict for `orphaned-e2e-gates-52` b
 suite runs and ~90 minutes to establish that none of the reds were mine, and that cost is the point:
 a suite that fails at random teaches agents to push past red, which is exactly what
 `tests/BUGS.md` records as having happened on eight consecutive commits the same morning.
+
+### FIXED the same day — six ceilings raised, a gate added, and NO frozen list
+
+**The threshold was chosen by the gap, not by taste.** Sorted by guard ÷ baseline the checks are six
+between 2.7x and 3.4x, then **nothing until 5.3x**. Any threshold from 3.5x to 5x selects exactly the
+same six, so the line goes at **4x** — inside an empty band, with no check near it in either
+direction. Putting it at 5x would have made `cli-errors-are-messages` (5.3x) the new marginal case,
+one baseline refresh away from a red on a check nobody touched.
+
+| check | costs | was | now | now at |
+|---|---|---|---|---|
+| `stub-does-not-serialise` | 22.6 s | 60 s | 180 s | 8.0x |
+| `mixed-numeric-comparison` | 59.5 s | 180 s | 420 s | 7.1x |
+| `import-alias` | 39.4 s | 120 s | 240 s | 6.1x |
+| `run-lane-flags-are-flags` | 56.5 s | 180 s | 420 s | 7.4x |
+| `entry-auto-invoke-once` | 36.6 s | 120 s | 240 s | 6.6x |
+| `v2-indent-layout` | 17.8 s | 60 s | 120 s | 6.7x |
+
+Raised in the same commit that added the gate, so the frozen list is **empty** and there is no debt
+to rot into a permanent exemption. The budget is untouched — `smoke-budget-derivation` sums
+BASELINES, not ceilings, and `timeoutMs` is a ceiling rather than a cost.
+
+**`tests/e2e/smoke-guard-headroom.sh`**, wired into `scripts/smoke-ci` next to
+`smoke-budget-derivation` — the other half of this suite's own arithmetic. It runs nothing: pure
+arithmetic over the CheckList and `tests/smoke-baseline.tsv`, in milliseconds. When it fails it
+prints the ratio and **the number to raise the guard to**.
+
+**Three ways it got its own population wrong before it worked, and all three are now self-tests:**
+
+| parser | saw | what it lost |
+|---|---|---|
+| whole-file lazy regex | 100 of 101 | `corpus-lane-breadth`, swallowed into a neighbour's match |
+| per-line regex | 93 of 101 | every `Check` written across two lines |
+| comments not stripped | 103 of 102 | counted the literal quoted in **its own wiring comment** |
+
+The third is `no-orphan-gates`' "a mention is not a caller" in a new place, and it is the one that
+would have been easiest to make go away by loosening the count. Instead the count is **asserted**:
+every `Check("` literal must parse, and a mismatch FAILS the gate rather than shrinking its survey.
+The 26 checks with no `tests/smoke-baseline.tsv` row yet are printed BY NAME as "not judged", for
+the same reason — a survey that quietly drops its unmeasurable rows reads as complete.
+
+**Verified in every direction** (`--self-test`, 7 cases): a 3.0x guard fails and the message names it
+and the number to use; raising it to 6.0x passes; an unparseable guard (a named constant instead of a
+literal) fails on the count; a `Check("` inside a comment is not counted; a `//` inside a string
+literal is not treated as a comment; a check with no baseline row is named rather than swallowed.
 
 ## launcher-digest-gate-is-225s-of-a-500s-budget — two processes per line, 7272 lines
 

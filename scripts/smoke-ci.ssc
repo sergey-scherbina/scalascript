@@ -294,7 +294,7 @@ val suite = List(
   // Three that went GREEN on siblings' work (bundle layout, ImportResolver) while I was measuring
   // them as orphans — re-measured on a fresh build 2026-08-04, 4s/14s/4s.
   Check("tests", "bundle-roundtrip", "tests/e2e/bundle-smoke.sh", List(), 120000),
-  Check("tests", "import-alias", "tests/e2e/import-alias-smoke.sh", List(), 120000),
+  Check("tests", "import-alias", "tests/e2e/import-alias-smoke.sh", List(), 240000),  // ceiling raised 2026-08-14: costs 39.4s, was under 4x it (smoke-guard-headroom)
   Check("tests", "url-import", "tests/e2e/url-import-smoke.sh", List(), 120000),
   // Green since cb620c16a (a sibling's triple-quote fix). Was in the orphan pile with a
   // diagnosis that turned out to be a stale measurement, not a live defect.
@@ -350,7 +350,7 @@ val suite = List(
   // missing method became fatal. Three lanes, seven rows, ~30 s.
   Check("v2", "list-concat-chain", "tests/e2e/list-concat-chain-gate.sh", List(), 300000),
   Check("v2", "v2-dsl-yaml-like", "tests/e2e/dsl-yaml-like-v2-smoke.sh", List(), 60000),
-  Check("v2", "v2-indent-layout", "tests/e2e/indent-layout-v2-smoke.sh", List(), 60000),
+  Check("v2", "v2-indent-layout", "tests/e2e/indent-layout-v2-smoke.sh", List(), 120000),  // ceiling raised 2026-08-14: costs 17.8s, was under 4x it (smoke-guard-headroom)
   // Beside the layout smoke above because it IS a layout property: a single-line
   // `extension (r) def m` never opened its member block, so the receiver stayed live and every
   // following `def` was silently absorbed as a member — the reference front then ran nothing and
@@ -418,12 +418,12 @@ val suite = List(
   // A runaway guard has to sit well clear of the working range or it is a flake generator, not a
   // guard. 180000 is what the other multi-spawn checks here use, and it still catches a hang.
   // Raising it costs the BUDGET nothing: timeoutMs is a ceiling, not a cost.
-  Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 180000),
+  Check("tests", "run-lane-flags-are-flags", "tests/e2e/run-lane-flags-are-flags.sh", List(), 420000),  // ceiling raised 2026-08-14: costs 56.5s, was under 4x it (smoke-guard-headroom)
   // Sub-second, and it guards against a class of failure that reaches END USERS as data. `Stub` is
   // the runtime's soft landing for an unknown method; rendering it as the text "Stub" meant a typo
   // serialised — rozum had {"cell":{Stub}} in an HTTP body with a 200 and no log line. Both halves
   // are asserted: a missing method is fatal AND names itself, and ordinary values still render.
-  Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 60000),
+  Check("tests", "stub-does-not-serialise", "tests/e2e/stub-does-not-serialise.sh", List(), 180000),  // ceiling raised 2026-08-14: costs 22.6s, was under 4x it (smoke-guard-headroom)
   // Sub-second, reads what is staged and builds nothing — and it guards a class CI STRUCTURALLY
   // cannot see. The toolchain cache lives in `$HOME/.cache/ssc-toolchain`; a runner's is always
   // empty, so CI always misses and always builds. The failure needs a WARM cache and a FRESH
@@ -438,10 +438,28 @@ val suite = List(
   // green. One `--budget` invocation answering for five tables, no suite run — the toolchain boot
   // dominates, so it is ~10 s rather than the ~50 s five separate invocations cost.
   Check("tests", "smoke-budget-derivation", "tests/e2e/smoke-budget-gate.sh", List(), 120000),
+  // The OTHER half of this suite's own arithmetic, and the one nothing checked. The budget above is
+  // a sum with a documented "over budget LOCALLY — reported, not failed" escape; the per-check
+  // `timeoutMs` values have no such treatment — they are absolute milliseconds compared against a
+  // wall clock that a neighbouring agent's build stretches 2-4x.
+  //
+  // Measured 2026-08-14 (tests/BUGS.md a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator):
+  // four full runs on one host, four DIFFERENT failing sets, one of them on a pristine origin/main,
+  // and every failure but one was a TIMEOUT. Standalone the same checks took a QUARTER of their
+  // guard. Sorted by guard/baseline the data has an EMPTY BAND between 3.4x and 5.3x: six checks
+  // below it, three of which timed out; none of the 69 above it timed out once. So the threshold is
+  // 4x — inside the gap, with nothing near it — and the six were raised in the same commit, which is
+  // why this gate carries NO frozen list and no debt.
+  //
+  // Pure arithmetic over `scripts/smoke-ci.ssc` and `tests/smoke-baseline.tsv`: it runs nothing and
+  // costs milliseconds. It asserts its own POPULATION too — every `Check("` literal must parse, and
+  // a mismatch fails the gate instead of quietly measuring a subset, which is the error it caught in
+  // itself twice while being written (100 of 101, then 93 of 101).
+  Check("tests", "smoke-guard-headroom", "tests/e2e/smoke-guard-headroom.sh", List(), 60000),
   // The entry-point rule, frozen on all three lanes: 0/1/2 explicit `main()` calls mean 1/1/2 runs.
   // Cheap (six short runs) and it guards a divergence that was invisible for two days because the
   // doubled block looked like the user's own file.
-  Check("tests", "entry-auto-invoke-once", "tests/e2e/entry-auto-invoke-once.sh", List(), 120000),
+  Check("tests", "entry-auto-invoke-once", "tests/e2e/entry-auto-invoke-once.sh", List(), 240000),  // ceiling raised 2026-08-14: costs 36.6s, was under 4x it (smoke-guard-headroom)
   // Under a second, and it covers the failure shape that cost a user a binary they could not
   // rebuild: the Rust backend emitting a crate MISSING an imported def, leaving rustc to blame
   // their own call site. Both directions -- both import forms must REACH the crate, and what the
@@ -713,7 +731,7 @@ val suite = List(
   // Row 8 is a literal pattern (`case 1 =>` against `1.0`): on interp the comparison and the
   // pattern have separate code, and fixing only the first looks complete.
   // (lanes-disagree-on-mixed-numeric-comparison.)
-  Check(".", "mixed-numeric-comparison", "tests/e2e/mixed-numeric-comparison-gate.sh", List(), 180000),
+  Check(".", "mixed-numeric-comparison", "tests/e2e/mixed-numeric-comparison-gate.sh", List(), 420000),  // ceiling raised 2026-08-14: costs 59.5s, was under 4x it (smoke-guard-headroom)
   // Network: one `git fetch --depth 1` per gitlink against the submodule's remote. Generous timeout
   // because a slow or flaky network must read as "this run could not tell", not as a repo defect.
   Check("scripts", "submodule-gitlinks-resolve", "tests/e2e/submodule-gitlink-resolves.sh", List(), 120000),
