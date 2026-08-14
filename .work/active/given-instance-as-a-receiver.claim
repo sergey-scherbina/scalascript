@@ -3,9 +3,38 @@ branch: feature/given-instance-as-a-receiver
 agent: claude-code
 started: 2026-08-14T23:48:27Z
 heartbeat: 2026-08-14T23:48:27Z
-status: claimed-before-planning
+status: working
 items: given-instance-as-a-receiver
 paths: file:v3/src/Lower.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `intSum.combine(a, b)` is refused, and it should not be: the receiver IS the given instance and
+  `combine` is its own member. Next target after 32ac55842 took that refusal bucket from 8 to 6.
+
+  ALL THREE I HAVE READ ARE ONE SHAPE, checked before claiming rather than assumed from the shared
+  message:
+
+      std-monaderror:21        optionUnitError.raise[Int](())
+      std-semigroup-monoid:21  intSum.combine(intSum.empty, 42)
+      tagless-multi-file:39    listLogged.pure(42)
+
+  `given intSum: Monoid[Int] with { def empty; def combine(a, b) }` — so `intSum` is an object and
+  `intSum.combine` is an ordinary qualified call, which the object flattening already resolves.
+
+  THE REFUSAL IS OVER-EAGER, not wrong in principle. `case None if instanceOnly.contains(m) &&
+  !hasGiven` fires because `receiverType` cannot type the name `intSum` and `combine` is declared
+  only by given instances. Both halves are true and the conclusion still does not follow: the
+  receiver is not a VALUE whose type must be found, it is the instance itself.
+
+  THE DISTINCTION THE FIX ENCODES, and it is why this is not a widening of the type search:
+    extension       `xs.foldMap(f)` -> `listFoldable.foldMap(xs, f)`   receiver PREPENDED, it is
+                                                                       the value operated on
+    instance member `intSum.combine(a, b)` -> `intSum.combine(a, b)`   receiver NOT prepended, it
+                                                                       is the owner
+  `instanceDefs` already holds `object.member` for every given instance, so the test is
+  `instanceDefs.contains(n + "." + m)` on an `Expr.Name` receiver — no new table, no new source of
+  types, and it goes BEFORE the refusal.
+
+  MEASUREMENT: N with floors DIFF 3 / CRASH 9, the three cases read INDIVIDUALLY against their
+  expectations, and the refusal-histogram line re-read — it is the instrument that named this bucket
+  and it says how many of the 6 remain.
+next: add the instance-member arm before the refusal, then measure
