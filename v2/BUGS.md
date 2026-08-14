@@ -10,6 +10,59 @@ Newest first.
 
 
 
+## jvm-generator-big-plus-big-concatenates-the-digits — silently, exit 0; `*` throws
+<!-- status: fixed
+     lane: v2-jvm
+     area: codegen
+     kind: bug
+     gate: v2/conformance/bigint-dynamic-arith.coreir
+     fixed-in: 71add5ff588eb37e39ec0844076a82bf40c60d5c -->
+
+**Found 2026-08-14 by putting `js-long-arith-no-64bit-wrap`'s question to every backend at once
+instead of to the lane the entry named.** That entry is about JS. Writing the same shape as a CoreIR
+fixture and running the parity harness said all FOUR generators fail it, and the JVM one fails worse
+than the lane that was filed.
+
+`_arith` (`v2/backend/jvm/JvmBackend.scala`, inside the emitted runtime preamble) had arms for
+Long×Long, Double×Double, the two mixed pairs and String×String, then a fallthrough:
+
+```scala
+case _ =>
+  val opS = op.asInstanceOf[String]
+  if opS == "++" || opS == "+" then _show(l) + _show(r)
+  else throw new RuntimeException(s"__arith__ $opS: unsupported types …")
+```
+
+BigInt matched neither arm, so the operator decided the failure mode:
+
+| spelling | before | after |
+|---|---|---|
+| `x * y` | throws `__arith__ *: unsupported types BigInt×BigInt` | `100000000000000000000` |
+| `x + y` | **`92233720368547758079223372036854775807`, exit 0** | `18446744073709551614` |
+
+The `+` row is the one worth remembering. `9223372036854775807 + 9223372036854775807` did not
+overflow and did not throw — it fell into `_show(l) + _show(r)` and returned the two operands'
+DIGITS CONCATENATED, which is a plausible-looking 38-digit number. A defect that throws is found by
+the first program that hits it; this one had to be looked for.
+
+**Why nothing hit it.** A `BigInt` only reaches `__arith__` when the front cannot see its type at the
+operator — `isBigCode` (`specs/v2.2-p6.5-fsub.ssc:434`) matches `(prim big.…` and `(prim i->big …)`
+in the operand's own emitted text and nothing else, so a value that passed through a `val`, a `var`
+or a parameter arrives untyped. The existing fixture `bigint-from-string.coreir` spells its
+arithmetic with the typed `big.mul` prim, which has its own arm, so the whole harness was green
+across a hole this wide.
+
+**The fix is three arms mirroring the VM**, `Runtime.scala`'s `bigArith`, operand for operand —
+Big×Big, Big×Long, Long×Big — placed BELOW the Long arm so Long×Long keeps wrapping. Mirroring
+rather than re-deriving is the point: a second opinion about the same operands is how the two ends
+of a parity harness stop agreeing.
+
+**Verified against the VM, both directions.** `bigint-dynamic-arith.coreir` is byte-identical to
+`run-ir` on all four rows after the fix and on none of the arithmetic rows before it. Row 4 is the
+ANTI-ROW: the identical `__arith__ "*"` on `(lit (int …))` operands must still wrap to
+`7766279631452241920`, so a "fix" that simply widened everything to BigInt fails there. Full harness
+after the change: see the commit.
+
 ## f-parenthesised-alternative-pattern-drops-all-but-the-first — only the first arm was ever built
 
 <!-- status: fixed
@@ -11830,7 +11883,7 @@ the typed and untyped paths cannot disagree; the Rust equivalent is whatever `v_
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: v2/conformance/bigint-from-string.coreir (skipped for rust/wasm; unskip when this closes)
+     gate: v2/conformance/bigint-from-string.coreir + v2/conformance/bigint-dynamic-arith.coreir (both skipped for rust/wasm; unskip when this closes)
      fixed-in: - -->
 
 **Found 2026-08-13** by the fixture written for

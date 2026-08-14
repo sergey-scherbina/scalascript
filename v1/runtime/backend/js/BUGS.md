@@ -686,9 +686,9 @@ may reach the chunk through HtmlDsl; that is worth checking in the same pass.
 ## js-long-arith-no-64bit-wrap — `Long` arithmetic never wrapped: wrong answers, and an unbounded accumulator
 <!-- status: open
      lane: js
-     area: runtime
+     area: codegen
      kind: bug
-     gate: tests/conformance/long-overflow-wrap.ssc -->
+     gate: v2/conformance/bigint-dynamic-arith.coreir (skipped for js; unskip when this closes) -->
 
 > **REOPENED 2026-08-01 — fixed on ONE of the two emitters.** `6567328660` closed the v1 JS lane
 > (`PASS [JS ]`) and the entry went to `fixed`, but its own declared gate still fails on **`JS/v2`**:
@@ -704,6 +704,57 @@ may reach the chunk through HtmlDsl; that is worth checking in the same pass.
 > Reopened rather than declared done: an entry saying `fixed` while its gate is red is how the next
 > reader concludes the lane is covered. Measured 2026-08-01 on `--no-memo`.
 > The v1 half stays fixed — do not undo it. See `known-red: js-v2` on the case.
+
+---
+
+> **MECHANISM CORRECTED 2026-08-14, measured on the emitted bundle.** The paragraph above says the
+> v2 front "has its own emitter and never got the `isLongExpr` discriminator". That reading sends the
+> next reader to a front, and it cannot be right: **v1's discriminator cannot port, because v1 had
+> front-end types and CoreIR has none.** What CoreIR does have is the constant's own tag, and the JS
+> generator throws it away:
+>
+> ```scala
+> case Lit(CInt(n))   => if numberInts then n.toString else s"${n}n"   // JsBackend.scala:128
+> case Lit(CBig(n))   => s"${n}n"                                      // JsBackend.scala:129
+> ```
+>
+> Two different CoreIR constants, one host type. `Const.CBig` is distinct in the IR
+> (`v2/src/CoreIR.scala:12`) and the VM keeps it distinct (`Runtime.scala:1245` → `Value.BigV`), so
+> the VM's dynamic operator can dispatch on the tag and `$arith` cannot. Captured from the running
+> program rather than reasoned about — `BigInt(1000000000)` reaches node as the literal
+> `1000000000n`, and `p = p * b` as:
+>
+> ```js
+> $d_p__cell[0] = $arith("*", $d_p__cell[0], $d_b__cell[0])
+> // $arith, bigint×bigint: case '*': return BigInt.asIntN(64, l*r)
+> ```
+>
+> The mask is correct for `Long` and truncates `BigInt`, and the JS runtime has no way to tell which
+> it is holding. **`$arith`'s mask is load-bearing** — lines 1-11 of the case are Long overflow and
+> they PASS through that same mask — so "just stop masking" breaks the half that works. That is the
+> same trap the v1 half already fell into once, from the other side.
+>
+> **NOT a JS-only defect.** The shape written as a CoreIR fixture
+> (`v2/conformance/bigint-dynamic-arith.coreir`, added the same day) is refused by all FOUR source
+> generators, with the VM as oracle:
+>
+> | generator | rows 1-4 |
+> |---|---|
+> | jvm | row 1 only, then threw — `+` silently concatenated the digits. FIXED, `v2/BUGS.md` → `jvm-generator-big-plus-big-concatenates-the-digits` |
+> | js | rows 2-3 truncated to the 64-bit answer; row 1 and the Int anti-row pass |
+> | rust · wasm | rows 1-3 wrong — cannot HOLD the value (`rust-bigint-is-an-i64-…`) |
+>
+> The contrast between the two bignum fixtures is the diagnosis: `bigint-from-string.coreir` spells
+> its arithmetic with the typed `big.mul` prim and js PASSES it. js loses the value only at the
+> untyped operator — the tag, not the bignum.
+>
+> **What is left here, sized before anyone starts.** JS needs a REPRESENTATION that survives to
+> runtime, which is what `BigV` is for the VM and what a `scala.math.BigInt` is for the JVM
+> generator. Boxing Big is 21 `typeof …==='bigint'` sites and 40 `BigInt(` uses in
+> `v2/backend/js/JsBackend.scala`, and it reaches `$show`, `$eq`, `$cmp` and `$hash` — i.e. map keys
+> and equality, where a silent break looks like a data bug, not a numeric one. Not attempted in the
+> pass that measured it; the fixture is skipped for js with the reason printed
+> (`JS_BIG_IS_A_LONG_SKIP` in `v2/backend/check.sh`) so unskipping it is the proof when someone does.
 
 **Found 2026-07-31 by running `bench.sh`** — the `tuple-monoid` js cell had been burning 100 % of a
 core for 16 minutes and looked like a hang. It was not hung.
