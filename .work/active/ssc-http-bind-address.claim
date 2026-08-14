@@ -1,0 +1,11 @@
+slug: ssc-http-bind-address
+branch: feature/ssc-http-bind-address
+agent: claude-code
+started: 2026-08-14T21:39:49Z
+heartbeat: 2026-08-14T21:39:49Z
+status: claimed-before-planning
+items: serve-binds-all-interfaces
+paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:INBOX.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
