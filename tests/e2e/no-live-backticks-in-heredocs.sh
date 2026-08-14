@@ -212,6 +212,13 @@ mapfile -t candidates < <(
       done
 )
 echo "  · scanning ${#candidates[@]} tracked shell files"
+# A vacuous green is the failure this repository has most often: `scan.py` with no arguments exits 0,
+# so an empty population reads exactly like "nothing wrong". 348 today; the floor is deliberately far
+# below that, because its job is to catch a population that COLLAPSED, not to freeze a count.
+if [[ ${#candidates[@]} -lt 100 ]]; then
+  echo "  ✗ only ${#candidates[@]} files in the scan set — the population collapsed; a green here would be vacuous"
+  fails=$((fails + 1))
+fi
 case " ${candidates[*]} " in
   *" tests/e2e/no-live-backticks-in-heredocs.sh "*) echo "  ✓ this file is in its own scan set" ;;
   *) echo "  ✗ this file is NOT in its own scan set — the rule cannot police its own quoting"
