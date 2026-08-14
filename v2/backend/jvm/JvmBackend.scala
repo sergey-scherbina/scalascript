@@ -592,10 +592,36 @@ object R:
       case "++" | "+" => x + y
       case "==" => x == y; case "!=" => x != y; case "<" => x < y; case "<=" => x <= y; case ">" => x > y; case ">=" => x >= y
       case s => throw new RuntimeException(s"__arith__ Str×Str unknown op: $s")
+    // BigInt — arbitrary precision, and it must NOT wrap. Reached whenever the front cannot SEE the
+    // type at the operator, which is every spelling that puts the value in a `val`, a `var` or a
+    // parameter first; the typed `big.*` prims cover only the case where the operand's own emitted
+    // text says `big`. Below the Long arm on purpose, so Long×Long keeps wrapping.
+    //
+    // Without these three arms the fallthrough answered, and that is why it went unnoticed:
+    // `*` threw `unsupported types BigInt×BigInt` — loud — while `+` matched `opS == "+"` and
+    // returned `_show(l) + _show(r)`, i.e. the two operands' DIGITS CONCATENATED. Measured
+    // 2026-08-14: 9223372036854775807 + 9223372036854775807 printed
+    // 92233720368547758079223372036854775807 instead of 18446744073709551614, exit 0.
+    //
+    // Mirrors the VM's `bigArith` (`v2/src/Runtime.scala`) operand for operand, including the
+    // Big×Long and Long×Big widening arms and `++` as digit concatenation — a second opinion about
+    // the same operands is how the two ends of a parity harness stop agreeing.
+    case (x: BigInt, y: BigInt) => _bigArith(op, x, y)
+    case (x: BigInt, y: Long)   => _bigArith(op, x, BigInt(y))
+    case (x: Long, y: BigInt)   => _bigArith(op, BigInt(x), y)
     case _ =>
       val opS = op.asInstanceOf[String]
       if opS == "++" || opS == "+" then _show(l) + _show(r)
       else throw new RuntimeException(s"__arith__ $opS: unsupported types ${l.getClass.getSimpleName}×${r.getClass.getSimpleName}")
+
+  private def _bigArith(op: V, x: BigInt, y: BigInt): V = (op: @unchecked) match
+    case "+"  => x + y;  case "-"  => x - y;  case "*"  => x * y
+    case "/"  => if y == 0 then throw new RuntimeException("bigint: division by zero") else x / y
+    case "%"  => if y == 0 then throw new RuntimeException("bigint: division by zero") else x % y
+    case "==" => x == y; case "!=" => x != y
+    case "<"  => x < y;  case "<=" => x <= y; case ">"  => x > y;  case ">=" => x >= y
+    case "++" => x.toString + y.toString
+    case s    => throw new RuntimeException(s"__arith__: op $s not valid for BigInt")
 
   def prim3(op: String, a0: V, a1: V, a2: V): V = op match
     case "__arith__" => _arith(a0, a1, a2)

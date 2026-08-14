@@ -110,7 +110,24 @@ WASM_DEEP_RECURSION_SKIP=" tco mutual-tco "
 # hide the defect it exists for. The Rust gap is filed as
 # `rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist` (v2/BUGS.md); when that closes,
 # delete the fixture name from here and the row turns real.
-RUST_NO_BIGNUM_SKIP=" bigint-from-string "
+RUST_NO_BIGNUM_SKIP=" bigint-from-string bigint-dynamic-arith "
+
+# The JS generator has the type and throws it away: `Lit(CBig(n))` renders as `${n}n`
+# (`v2/backend/js/JsBackend.scala:129`) — BYTE-IDENTICAL to what line 128 renders for `Lit(CInt)`.
+# ssc `Long` and ssc `BigInt` therefore share one host type, a JS `bigint`, and `$arith` has to pick
+# one meaning for `*` on it. It picks the 64-bit one, `BigInt.asIntN(64,…)`, which is right for
+# Long and truncates BigInt.
+#
+# This is NOT the same shape as the Rust gap above, and the difference is the whole reason it needs
+# its own list: Rust cannot HOLD the value, so `bigint-dynamic-arith` row 1 (a literal past Long
+# range) already fails there. JS holds it fine — row 1 and the Int anti-row both pass — and loses it
+# only at the operator, where the tag would have been needed.
+#
+# Filed as `js-long-arith-no-64bit-wrap` (v1/runtime/backend/js/BUGS.md). Its `bigint-from-string`
+# sibling stays UNSKIPPED for js on purpose: that fixture spells the arithmetic with the typed
+# `big.mul` prim, js passes it, and the contrast between the two fixtures is what says the defect is
+# the missing TAG and not the missing bignum.
+JS_BIG_IS_A_LONG_SKIP=" bigint-dynamic-arith "
 
 BACKENDS="jvm js rust"
 if rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1; then
@@ -133,6 +150,10 @@ for ir in "${IRS[@]}"; do
     fi
     if { [ "$be" = rust ] || [ "$be" = wasm ]; } && [[ "$RUST_NO_BIGNUM_SKIP" == *" $name "* ]]; then
       printf "skip %-20s %s (Rust generator has no bignum: CBig emits V::Int(i64); BUGS rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist)\n" "$name" "$be"
+      continue
+    fi
+    if [ "$be" = js ] && [[ "$JS_BIG_IS_A_LONG_SKIP" == *" $name "* ]]; then
+      printf "skip %-20s %s (JS renders CBig and CInt to the SAME host type, so \$arith masks Big to 64 bits; BUGS js-long-arith-no-64bit-wrap)\n" "$name" "$be"
       continue
     fi
     if "run_$be" "$ir" "$TMP/out-$be.txt" && diff -q "$TMP/expected.txt" "$TMP/out-$be.txt" >/dev/null 2>&1; then

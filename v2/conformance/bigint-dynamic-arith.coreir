@@ -1,0 +1,44 @@
+; A `BigInt` reaching arithmetic through the DYNAMIC operator, which is how every real program
+; spells it.
+;
+; `bigint-from-string.coreir` already covers `big.mul` — the TYPED prim. Neither front emits that
+; prim unless it can SEE the type in the operand's own emitted text (`isBigCode` in
+; `specs/v2.2-p6.5-fsub.ssc:434` matches `(prim big.…` and `(prim i->big …)` and nothing else), so
+; the moment a Big value passes through a `val`, a `var` or a parameter it arrives at the operator
+; as an untyped name and the front emits `(prim __arith__ "*" …)` instead. That is the path this
+; fixture takes, and it is the path `tests/conformance/long-overflow-wrap.ssc` takes.
+;
+; The tag is NOT lost in the IR: CoreIR has `Const.CBig` (`v2/src/CoreIR.scala:12`) distinct from
+; `CInt`, and the VM keeps it (`Runtime.scala:1245` → `Value.BigV`). A backend that renders both
+; constants into ONE host type has to guess at the operator, and the only guess that is safe for the
+; type they share is the 64-bit one — which is right for Long and truncates Big.
+;
+; WHAT IT FOUND, first run, all four generators against the VM (2026-08-14):
+;
+;   jvm    row 1 only — `*` threw `unsupported types BigInt×BigInt`, and `+` fell through to
+;          `_show(l) + _show(r)`, CONCATENATING the operands' digits with exit 0. Fixed the same day.
+;   js     rows 2 and 3 truncated to the 64-bit answer; row 1 and row 4 pass, which is the shape of
+;          "holds the value, loses the tag at the operator".
+;   rust   rows 1-3 wrong — cannot HOLD the value at all (`V::Int(i64) /*big*/`).
+;   wasm   same as rust; it reuses that generator.
+;
+; ROW 2 IS THE ONE THAT CANNOT BE FAKED: both operands FIT in 64 bits and the product does not, so a
+; backend answers it only by knowing the operands are Big — the values themselves carry no hint.
+; Row 1 pins the literal, which a backend storing Big in a machine int fails earlier and for a
+; different reason. Row 3 is `+`, kept separate from `*` because the two failed DIFFERENTLY on the
+; jvm generator: one threw, one lied.
+;
+; ROW 4 IS THE ANTI-ROW, and it is what makes this file safe to fix against: the identical
+; `__arith__ "*"` on `(lit (int …))` operands MUST still wrap modulo 2^64. Widening everything to
+; BigInt to make rows 2-3 pass fails here — which is exactly the mistake made once already on the v1
+; JS lane, from the other side (`js-long-arith-no-64bit-wrap`: the first attempt masked inside the
+; SHARED helper and truncated a real BigInt from 1e36 to -5527149226598858752).
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq (prim __autoOutput__ (lit (big 123456789012345678901234567890)))
+     (seq (prim __autoOutput__ (prim __arith__ (lit (str "*")) (lit (big 10000000000)) (lit (big 10000000000))))
+     (seq (prim __autoOutput__ (prim __arith__ (lit (str "+")) (lit (big 9223372036854775807)) (lit (big 9223372036854775807))))
+     (prim __autoOutput__ (prim __arith__ (lit (str "*")) (lit (int 10000000000)) (lit (int 10000000000))))))))))
+ (entry (app (global main))))
