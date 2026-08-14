@@ -366,6 +366,91 @@ so v2's `serve` works in general — the difference is this fixture's view/front
      confirmed: yes
      gate: tests/e2e/no-leaked-servers.sh --self-test -->
 
+### CLOSED 2026-08-14 — both items of the revised acceptance test now exist, and the ratchet found its own author out
+
+The revised acceptance test in the correction below has two items. Item 1, *a gate must not leave a
+listener behind*, landed on 2026-08-13. **Item 2, the port-uniqueness check, landed today** — as a
+second half of `no-leaked-servers.sh` rather than a new file, because that gate is already wired into
+`ci.yml` with `if: always()`, so the ratchet needs no new wiring and creates no orphan.
+
+**`ports_of` was already sitting in that file, defined and called by nothing** — the last remnant of
+the retracted first design, which tried to find *leaks* by reading ports out of gate sources. Reading
+sources was the wrong instrument for leaks and the right one for collisions: a collision is a
+property of the sources, true whether or not either gate is running. So the dead function is finally
+called, for the one question it can answer.
+
+**THE COUNT IN THIS ENTRY IS CORRECT AND I CONFIRMED IT BY GETTING IT WRONG THREE TIMES.** Widening
+the pattern to any bare `[89][0-9]{3}` reports six collisions. Three of the six are fiction:
+
+| number | looks like | actually is |
+|---|---|---|
+| `8000` ×2 | `v1-jit-size.sh`, `v2-jit-size.sh` | HotSpot's `HugeMethodLimit` — not a port at all |
+| `8080` ×6 | six `v21-*` gates | a line inside a YAML fixture's **expected output** |
+| `9999` ×2 | `bundle-smoke.sh`, `nested-build-smoke.sh` | `serve(9999)` in a heredoc of source those gates `bundle`/`render`/`build` and **never run** |
+
+And narrowing it too far loses a real one: `request-validation-family-gate.sh` writes
+`PORT="${SSC_REQUEST_VALIDATION_PORT:-8797}"`, which a plain `PORT=NNNN` pattern misses. The
+surviving predicate — the number must appear in a syntax that BINDS — reproduces this entry's
+original three exactly. **Widen it only with a counterexample in hand.**
+
+**THE CHECK'S FIRST WORKING RUN REPORTED ITSELF.** The self-test plants needed the strings
+`PORT=8769` and `PORT=8797`, those are real code lines rather than comments, and `ports_of` scans
+`tests/e2e/*.sh` — which contains the scanner. So the ratchet named `no-leaked-servers.sh` as
+colliding with the two gates on each port. **That is a mention counted as a use, committed by the
+checker written to enforce the distinction** — the fourth instance of the shape this entry already
+records three times. Fixed twice over: the file skips itself, *and* both plants are now assembled
+(`printf 'PORT=%s' "$dup"`) so no binding-syntax port literal exists in it at all. The exclusion is
+deliberately no longer load-bearing, because a check that is correct only while one filename stays
+spelled the same way is one rename from lying.
+
+**AND THEN IT BROKE A NEIGHBOUR THE SAME WAY, which is the instance worth keeping.** The frozen list
+first named its gates as `render-smoke.sh`, `std-ui-forms-smoke.sh` and so on. `no-orphan-gates.sh`
+decides whether a gate is wired by searching `.github`, `scripts` and `tests` for its basename and
+keeping the matches that survive having the comment tail stripped — so a filename in a **string
+literal** is indistinguishable from a call. That gate went red with *"frozen orphan is now invoked —
+DELETE it from FROZEN: render-smoke.sh"*, and it was right to: by its rule, `render-smoke.sh` had
+just acquired a caller.
+
+Its header already warns twice about this shape — *it matches itself*, and *a comment is not a caller
+either*. **A DATA STRING IS THE THIRD VARIANT AND THE ONE IT CANNOT DEFEND AGAINST**, because a
+comment can be stripped and a data string has nothing about it to strip. Fixed by storing stems
+without the `.sh`, which breaks the match and costs nothing in readability; a `.md` file is the other
+safe home, since `callers_of` excludes those. Verified by running that gate's own `callers_of`
+predicate against the change: `render-smoke.sh` matches only comment lines, whose stripped code is
+empty, so it stays the orphan it is.
+
+**THE THREE FROZEN COLLISIONS ARE NOT AN ACTIVE HAZARD, which is why this is a ratchet and not a
+fix.** Two gates can only talk to each other's server on one machine. Measured 2026-08-14:
+
+| port | gates | wired? |
+|---|---|---|
+| 8768 | `components-smoke.sh`, `render-smoke.sh`, `v21-native-entry-smoke.sh` | only the first; the other two are orphans |
+| 8769 | `health-defaults-smoke.sh`, `std-ui-forms-smoke.sh` | both — but `ci.yml` vs `smoke-ci.ssc`, different runners |
+| 8797 | `route-params-v2-smoke.sh`, `request-validation-family-gate.sh` | both — again different suites |
+
+**No two colliding gates share a suite.** The residual risk is a dev box running both suites at once,
+and the day someone wires a second gate onto one of these ports into the suite that already has one —
+which is the day this check goes red first. They are frozen rather than renamed because a port is
+pinned by number in workflows and renaming one is a different blast radius than this task owns.
+
+**Proven to discriminate rather than asserted.** Two deliberate breaks on a copy: neutering
+`check_collisions` to always return 0 fails with *"a planted third gate on port 8769 was NOT reported
+— the ratchet is blind"*, and removing only the went-away direction fails with *"a frozen collision
+was fixed and the list still passed — one-way ratchet"*. Each break trips the rule meant for it and
+not the other one.
+
+**Why this closes, and exactly how far.** The acceptance test that governs is the REVISED one in the
+correction below, which superseded the original when the cause was retracted; both of its items now
+exist and both are wired. What closes is this entry's claim, not the whole subject: the standing
+question further down — *does any gate in this suite leak a listener* — is still answered only by
+"nothing measured says yes", and the wired check will name the first real instance itself, with its
+age and cwd.
+
+The original acceptance test's item 2 — *a gate that starts a server must prove the server answering
+is the one it started* — was dropped by that revision and is not a debt of this entry. It is a real
+improvement and a separable one, so it is filed on its own rather than left implied here:
+`a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own`.
+
 **Wired gates hard-code TCP ports and several share one.** Counted 2026-08-13 across `tests/e2e`:
 
 | port | wired gates using it |
@@ -509,6 +594,51 @@ this checkout fails the local run as before.
 does any gate in this suite leak a listener? Nothing measured says yes. The check is wired in CI
 with `if: always()`, so the first real instance will name itself, with its age and its cwd.
 
+
+## a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: no -->
+
+Split out of `wired-gates-share-hard-coded-tcp-ports` when that entry closed, so a real improvement
+its revision had dropped does not vanish with it.
+
+**A gate that starts a server on a fixed port and then curls that port cannot tell its own server
+from anybody else's.** It polls `http://localhost:$PORT` until something answers and treats an answer
+as proof its launcher worked. Anything already listening satisfies that — a leaked process, a
+sibling agent's run, a second gate on the same number. The failure is silent and it is
+green-coloured, which is the worst pairing: a gate whose launcher is completely broken still reports
+success. This project has recorded the shape before as *a probe measures the PORT, not the lane*.
+
+**Not confirmed, and the honest state is that nobody has caught it happening.** Its parent entry
+first blamed exactly this for a verdict that moved between runs, then withdrew the explanation on a
+tighter measurement, and the three port collisions that remain are each either orphan-involving or
+split across two suites that never share a runner — see the table in that entry. So the mechanism is
+real and the instance is hypothetical. `confirmed: no` says which of those two this is.
+
+**Acceptance test, since without one this is a note and not a task.** A gate must identify its own
+server, not merely find one. Either is enough and the second is strictly better:
+
+1. **A nonce.** The launcher passes a value the gate generated; a health route echoes it; the gate
+   requires the echo to match. Somebody else's server answers with the wrong nonce and the gate
+   fails, which is the correct outcome and currently an impossible one.
+2. **An allocated port instead of a chosen one.** Bind port 0, read back what the OS gave, hand that
+   to the client half. There is then nothing to collide with and nothing to freeze — and it retires
+   the `FROZEN_COLLISIONS` list in `no-leaked-servers.sh` rather than adding to it.
+
+Start with the two gates whose ports are shared and both wired — 8769 (`health-defaults-smoke.sh`,
+`std-ui-forms-smoke.sh`) and 8797 (`route-params-v2-smoke.sh`,
+`request-validation-family-gate.sh`) — because those are the pairs a single dev box running both
+suites can actually cross.
+
+**The check that proves it is done must plant the failure, not observe the success:** start a
+foreign listener on the gate's port, run the gate with its own launcher deliberately broken, and
+require RED. A gate that passes that plant today is the evidence this entry is missing.
 
 ## f-parser-gap-needs-the-package-field
 

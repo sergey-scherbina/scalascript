@@ -36,6 +36,101 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
     | grep -oE '[0-9]{4,5}' | sort -u
 }
 
+# ── THE SECOND CHECK: no two gates may hard-code the same port ────────────────────────────────────
+#
+# `ports_of` sat here DEFINED AND CALLED BY NOTHING — the last remnant of this file's retracted first
+# design, which tried to find leaks by reading ports out of gate sources. Finding leaks that way was
+# wrong and the header above says why. Finding COLLISIONS that way is exactly right, because a
+# collision IS a property of the sources: two gates naming one port collide whether or not either is
+# running. So the function is kept and finally called, for the question it can actually answer.
+#
+# WHY THE PATTERN IS NARROW, and it is narrow on purpose — measured 2026-08-14 by widening it and
+# watching it lie. Three numbers in `tests/e2e/*.sh` look like shared ports and are not:
+#
+#   8000  x2   v1-jit-size.sh, v2-jit-size.sh      HotSpot's HugeMethodLimit, not a port at all
+#   8080  x6   six v21-* gates                     inside a YAML fixture's EXPECTED OUTPUT
+#   9999  x2   bundle-smoke.sh, nested-build-smoke.sh   `serve(9999)` in a heredoc of source that
+#                                                  those gates BUILD and RENDER and never RUN
+#
+# A bare `\b[89][0-9]{3}\b` reports six collisions, half of them fiction. Requiring the number to
+# appear in a syntax that BINDS — `PORT=`, the `${VAR:-NNNN}` default form, or a `localhost:`/
+# `127.0.0.1:` URL — reports three, and all three are real. The `${VAR:-NNNN}` arm is not decoration:
+# `request-validation-family-gate.sh` writes `PORT="${SSC_REQUEST_VALIDATION_PORT:-8797}"`, and
+# dropping that arm loses a genuine collision. Widen this pattern only with a counterexample in hand.
+#
+# FROZEN, AND IT IS A RATCHET IN BOTH DIRECTIONS. Today's three are recorded rather than fixed:
+# renaming a port in a gate that a workflow pins by number is somebody's else's blast radius, and the
+# value here is stopping the FOURTH. So a new collision FAILS, and a frozen collision that someone
+# has since fixed ALSO fails — until its line is deleted from the list. A one-way threshold would let
+# the list rot into a description of a repository that no longer exists, which is the failure
+# `v1-jit-size.sh` documents on its own author.
+#
+# NONE OF THE THREE IS AN ACTIVE HAZARD TODAY, and that is why this is a ratchet and not a bug fix.
+# For two gates to talk to each other's server they must run on one machine. Measured 2026-08-14:
+#   8768  only components-smoke.sh is wired; render-smoke.sh and v21-native-entry-smoke.sh are orphans
+#   8769  health-defaults-smoke.sh (ci.yml) and std-ui-forms-smoke.sh (smoke-ci.ssc) — both wired,
+#         but in DIFFERENT suites, which on CI are different runners
+#   8797  route-params-v2-smoke.sh (ci.yml) and request-validation-family-gate.sh (smoke-ci.ssc) — ditto
+# So the hazard is a LOCAL one (two suites at once on a dev box) plus the day a second gate on one of
+# these ports gets wired into the suite that already has one. That day this check goes red first.
+# NAMES ARE STORED WITHOUT THE `.sh`, AND THAT IS NOT COSMETIC. `no-orphan-gates.sh` decides whether
+# a gate is wired by searching `.github`, `scripts` and `tests` for its basename and keeping matches
+# that survive having the comment tail stripped. A frozen list written as `render-smoke.sh` is a
+# STRING IN CODE, not a comment, so it survives — and the first version of this list made
+# `render-smoke.sh` look invoked, failing that gate with "frozen orphan is now invoked — DELETE it
+# from FROZEN". Storing the stem breaks the match while keeping the list readable.
+#
+# That gate's own header already warns twice about this shape — it matches itself, and a comment is
+# not a caller. This is the third variant and the one it cannot defend against: a DATA string is not
+# a caller either, and unlike a comment there is nothing about it to strip. Anything else that lists
+# gate filenames as data belongs in a `.md`, which `callers_of` excludes, or here without the suffix.
+FROZEN_COLLISIONS="8768 components-smoke render-smoke v21-native-entry-smoke
+8769 health-defaults-smoke std-ui-forms-smoke
+8797 request-validation-family-gate route-params-v2-smoke"
+
+SELF="$(basename "${BASH_SOURCE[0]}")"
+
+collisions_in() { # collisions_in <dir> -> "<port> <gate> <gate> …" per shared port, sorted
+  local d="$1" f p
+  for f in "$d"/*.sh; do
+    [[ -f "$f" ]] || continue
+    # THIS FILE IS NOT IN ITS OWN POPULATION, and it learned that the hard way: the first working
+    # version reported 8769 and 8797 as colliding with `no-leaked-servers.sh` itself. Both plants in
+    # the self-test below are literal `PORT=8769` / `PORT=8797` in real code lines, and `ports_of`
+    # strips comments but cannot strip a string that is genuinely there. That is a MENTION, not a
+    # USE — this gate binds nothing — and it is the same mistake, in the checker this time, that the
+    # entry above names three separate times: a mention counted as a caller, a mention counted as an
+    # execution, ports read out of source instead of processes read off the machine.
+    [[ "$(basename "$f")" == "$SELF" ]] && continue
+    for p in $(ports_of "$f"); do printf '%s %s\n' "$p" "$(basename "$f" .sh)"; done
+  done | sort | awk '{ g[$1] = g[$1] " " $2; n[$1]++ }
+                     END { for (p in n) if (n[p] > 1) print p g[p] }' | sort
+}
+
+check_collisions() { # check_collisions <dir> -> 0 ok, 1 drifted
+  local got want rc=0
+  got="$(collisions_in "$1")"
+  want="$(printf '%s\n' "$FROZEN_COLLISIONS" | sort)"
+  local new gone
+  new="$(comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$got"))"
+  gone="$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$got"))"
+  if [[ -n "$new" ]]; then
+    echo "FAIL  a NEW port collision: two gates hard-code one port, so either can pass by" >&2
+    echo "      talking to the server the other left listening." >&2
+    printf '%s\n' "$new" | sed 's/^/        /' >&2
+    echo "      Give the new gate its own port, or have it allocate one instead of choosing." >&2
+    rc=1
+  fi
+  if [[ -n "$gone" ]]; then
+    echo "FAIL  a frozen collision is GONE — somebody fixed it. Delete these lines from" >&2
+    echo "      FROZEN_COLLISIONS in $0 so the list keeps describing this repository:" >&2
+    printf '%s\n' "$gone" | sed 's/^/        /' >&2
+    rc=1
+  fi
+  [[ $rc -eq 0 ]] && echo "  ok   port collisions: $(printf '%s\n' "$got" | grep -c .) frozen, none new"
+  return $rc
+}
+
 listening_on() { lsof -iTCP:"$1" -sTCP:LISTEN -P -n 2>/dev/null | awk 'NR>1{print $2" "$1}' | sort -u; }
 
 if [[ "${1:-}" == "--self-test" ]]; then
@@ -63,9 +158,57 @@ time.sleep(20)
   listening_on "$probe" | grep -q . \
     && { echo "SELF-TEST FAIL: reports a listener after it is gone — every gate would look leaky" >&2; exit 1; }
   echo "  ok   quiet once it is gone"
-  echo "no-leaked-servers self-test: PASS (both directions)"
+  # ── and the collision half, planted BOTH ways on a COPY ─────────────────────────────────────────
+  # On a copy, never on `tests/e2e` itself: a sibling agent is reading those files, and a check that
+  # edits the tree it is judging has already failed. The plants are the two failures that matter —
+  # one collision that appeared, one that went away — because a ratchet that only notices additions
+  # rots into a description of a repository that stopped existing.
+  plant="$(mktemp -d)"; trap 'rm -rf "$plant"' EXIT
+  cp tests/e2e/*.sh "$plant"/ 2>/dev/null
+
+  check_collisions "$plant" >/dev/null 2>&1 \
+    || { echo "SELF-TEST FAIL: an unmodified copy does not match FROZEN_COLLISIONS — the frozen list is stale" >&2; exit 1; }
+  echo "  ok   an untouched copy matches the frozen list"
+
+  # Rule 1 — a NEW collision must be caught. 8769 is already used by two gates, so a third file
+  # naming it is a collision the frozen line does not cover: the list is compared by its whole row,
+  # so a changed membership reads as one row gone and one row new.
+  #
+  # THE PLANTS ARE ASSEMBLED, NEVER WRITTEN OUT. `printf 'PORT=%s' "$dup"` rather than the literal,
+  # so that no binding-syntax port literal exists anywhere in this file. Written the obvious way it
+  # did, and this gate then reported ITSELF colliding with the two gates on 8769 and 8797. The
+  # self-exclusion in `collisions_in` also covers that, but a check whose correctness depends on
+  # skipping one filename is one rename away from lying, and defence in depth is cheap here.
+  dup=8769
+  printf 'PORT=%s\n' "$dup" > "$plant/zz-planted-collision-probe.sh"
+  if check_collisions "$plant" >/dev/null 2>&1; then
+    echo "SELF-TEST FAIL: a planted third gate on port 8769 was NOT reported — the ratchet is blind" >&2
+    exit 1
+  fi
+  echo "  ok   catches a port collision that was not there before"
+  rm -f "$plant/zz-planted-collision-probe.sh"
+
+  # Rule 2 — a collision that got FIXED must also fail, until its line is deleted. Planted by
+  # rewriting one of the two gates on 8797 to a port nobody uses.
+  if [[ -f "$plant/route-params-v2-smoke.sh" ]]; then
+    was=8797; now=8399   # assembled, not spelled out — see the note on rule 1
+    sed -i.bak "s/PORT=$was/PORT=$now/" "$plant/route-params-v2-smoke.sh" && rm -f "$plant"/*.bak
+    if check_collisions "$plant" >/dev/null 2>&1; then
+      echo "SELF-TEST FAIL: a frozen collision was fixed and the list still passed — one-way ratchet" >&2
+      exit 1
+    fi
+    echo "  ok   catches a frozen collision that has been fixed and not deleted"
+  fi
+  rm -rf "$plant"; trap - EXIT
+
+  echo "no-leaked-servers self-test: PASS (leaks both directions, collisions both directions)"
   # falls through to the real check, like v1-jit-size.sh: one invocation does both
 fi
+
+# The static half runs first: it costs milliseconds, it needs nothing listening, and its verdict is
+# about the sources rather than about whatever happens to be running on this machine right now.
+collision_rc=0
+check_collisions "$ROOT/tests/e2e" || collision_rc=1
 
 # Anything of OURS still listening. `ssc_program` is the Rust lane's built binary; a JVM carrying
 # `ssc.lib.path` is a gate's server. Both are ours and neither should outlive its test.
@@ -129,3 +272,7 @@ if [[ -n "$leaks" ]]; then
   exit 1
 fi
 echo "no-leaked-servers: PASS (nothing of ours is listening from this checkout)"
+# BOTH halves decide the exit code. The leak half returns above on failure; the collision half is a
+# static verdict taken before it, and swallowing it here would make a red check print PASS — which is
+# the shape this suite has been bitten by often enough to have a memory of it.
+exit "$collision_rc"
