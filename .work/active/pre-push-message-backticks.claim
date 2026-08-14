@@ -2,10 +2,10 @@ slug: pre-push-message-backticks
 branch: feature/pre-push-message-backticks
 agent: claude-code
 started: 2026-08-14T07:19:11Z
-heartbeat: 2026-08-14T08:11:44Z
+heartbeat: 2026-08-14T08:14:29Z
 status: working
 items: pre-push-refusal-message-executes-its-own-backticks
-paths: file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
+paths: file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv file:v2/BUGS.md
 scope: |
   `.githooks/pre-push:413` opens its claim-overlap refusal with an UNQUOTED heredoc, so the six
   backticked identifiers in that prose are command substitutions: `scripts/coord-claim` is EXECUTED
