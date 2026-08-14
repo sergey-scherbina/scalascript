@@ -1,0 +1,11 @@
+slug: js-big-dynamic-arith
+branch: feature/js-big-dynamic-arith
+agent: claude-code
+started: 2026-08-14T07:26:19Z
+heartbeat: 2026-08-14T07:26:19Z
+status: claimed-before-planning
+items: js-long-arith-no-64bit-wrap
+paths: file:v2/backend/check.sh file:v2/conformance/bigint-dynamic-arith.coreir
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
