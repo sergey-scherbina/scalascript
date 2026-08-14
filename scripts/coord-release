@@ -201,6 +201,38 @@ else
   fi
 fi
 
+# ── EVERYTHING FROM HERE TO THE COMMIT IS STAGED, so it must be undone if we do not get there ────
+#
+# OBSERVED 2026-08-14 (scripts/BUGS.md
+# `coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit`): a
+# release printed nothing, did not release, and left
+#
+#     M  .work/active/LEDGER.tsv
+#     D  .work/active/pre-push-message-backticks.claim
+#
+# staged in the checkout FIVE OTHER AGENTS SHARE. `coord-release` and `coord-claim` both refuse to
+# start on a dirty tree, so one interrupted release blocks every agent's next claim and release —
+# with a message naming neither the owner nor the files. What killed that run is still unknown and
+# it did not reproduce; the damage does not depend on the cause.
+#
+# This is the SAME lesson the `pre_release_sha` rollback below already learned, applied one line too
+# late: that one keeps a refused PUSH from parking a commit on shared main, this one keeps a failed
+# anything from parking an INDEX.
+#
+# TARGETED, never `git reset`. In this checkout `reset` means "undo whatever the last agent did"
+# (BUGS `shared-main-is-one-working-tree-for-every-agent`), and the two paths below are exactly what
+# this script stages — restoring them is lossless for everybody else. The tree was verified clean at
+# the top, so there is nothing of anyone else's here to lose.
+_staged_ok=0
+_restore_staging() {
+  [ "$_staged_ok" = 1 ] && return 0
+  git restore --staged --worktree -- "$claim" .work/active/LEDGER.tsv 2>/dev/null \
+    || git checkout -q HEAD -- "$claim" .work/active/LEDGER.tsv 2>/dev/null || true
+  echo "coord-release: the release did not complete — staging rolled back, the claim still stands." >&2
+  return 0
+}
+trap _restore_staging EXIT HUP INT TERM
+
 git rm -q "$claim"
 
 # Only `.work/` is touched, and that is now sufficient: removing the claim removes it from the
@@ -278,6 +310,11 @@ fi
 # three such landmines in one day, all of this kind.
 pre_release_sha="$(git rev-parse HEAD)"
 git commit -q -m "${msg} [skip ci]"
+# The index is now the commit's, so the staging trap has nothing left to undo — and from here the
+# `pre_release_sha` rollback below owns the failure path. Set immediately after the commit, not at
+# the end: everything between here and the push is already covered by that rollback, and a trap
+# firing on top of it would be a second opinion about a tree the rollback has already put right.
+_staged_ok=1
 push_log="$(mktemp "${TMPDIR:-/tmp}/coord-release-push.XXXXXX")"
 if git push origin main >"$push_log" 2>&1; then
   rm -f "$push_log"

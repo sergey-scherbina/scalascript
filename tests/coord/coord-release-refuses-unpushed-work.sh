@@ -192,5 +192,39 @@ case "$out" in
 esac
 rm -f .git/hooks/pre-push
 
+# ── 7. a release that dies BETWEEN staging and committing must leave no staging ─
+#
+# OBSERVED 2026-08-14 in the shared checkout: a release printed nothing, did not release, and left
+# `M .work/active/LEDGER.tsv` and `D .work/active/<slug>.claim` STAGED. Both coord tools refuse to
+# start on a dirty tree, so one interrupted release blocked every agent's next claim and release.
+# (scripts/BUGS.md coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit.)
+#
+# The commit is forced to fail with a `pre-commit` hook — the script does not pass `--no-verify`, so
+# this lands the failure exactly in the window between `git rm` and `git commit`, which is where the
+# real one landed. What killed the real run is still unknown; this reproduces the WINDOW, not the
+# cause, and the window is what the fix closes.
+seed_claim staging-trap
+printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit; chmod +x .git/hooks/pre-commit
+out=$(bash "$TOOL" staging-trap --level 3 --note "the commit will be refused" 2>&1) && rc=0 || rc=$?
+rm -f .git/hooks/pre-commit
+
+check "a refused commit does not report success" 1 "$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+# THE ASSERTION THE ENTRY ASKS FOR: nothing staged, nothing modified, for anyone.
+porcelain="$(git status --porcelain)"
+check "the checkout is left CLEAN for every other agent" "" "$porcelain"
+[ -z "$porcelain" ] || printf '        ─ left behind ─\n%s\n' "$porcelain" | sed 's/^/        /'
+# …and the claim must still stand, because nothing was released.
+check "the claim file survives" yes "$([ -f .work/active/staging-trap.claim ] && echo yes || echo no)"
+check "the ledger row survives" 1 "$(grep -c '^staging-trap	' .work/active/LEDGER.tsv || true)"
+contains "and it says the release did not complete" "staging rolled back" "$out"
+
+# THE CONTROL FOR THE CONTROL: with the hook gone the same claim releases normally. Without this the
+# case above would pass against a script that simply refused everything.
+out=$(bash "$TOOL" staging-trap --level 3 --note "now it works" 2>&1) && rc=0 || rc=$?
+check "the same claim releases once the commit can succeed" 0 "$rc"
+[ "$rc" -eq 0 ] || printf '        ─ output ─\n%s\n' "$out" | sed 's/^/        /'
+check "the claim is gone after the successful release" \
+      no "$([ -f .work/active/staging-trap.claim ] && echo yes || echo no)"
+
 if [ "$fail" -ne 0 ]; then echo "coord-release-refuses-unpushed-work: FAIL"; exit 1; fi
 echo "coord-release-refuses-unpushed-work: OK"
