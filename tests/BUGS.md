@@ -357,13 +357,14 @@ so v2's `serve` works in general — the difference is this fixture's view/front
 
 ## wired-gates-share-hard-coded-tcp-ports — CAUSE RETRACTED; the measured defect is a LEAKED SERVER — a gate can pass against a NEIGHBOUR's server
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-13
      confirmed: yes
+     fixed-in: eb314c99c
      gate: tests/e2e/no-leaked-servers.sh --self-test -->
 
 ### CLOSED 2026-08-14 — both items of the revised acceptance test now exist, and the ratchet found its own author out
