@@ -3,9 +3,28 @@ branch: feature/ssc3-dataset-generic
 agent: claude-code
 started: 2026-08-14T10:55:40Z
 heartbeat: 2026-08-14T10:55:40Z
-status: claimed-before-planning
+status: working
 items: SSC3-13d
 paths: file:v3/prelude/index.ssc
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  SSC3-13d — the owner's spelling for the prelude's Dataset: `def of[T](items: T*): Dataset[T]`,
+  asked for 2026-08-14 right after SSC3-13c made `of` a vararg. (`v3/SPRINT.md` is claimed by
+  `bench-b4-three-version-table`, so the plan is here — in git, before the edit.)
+
+  THE SIGNATURE ONLY READS AS TRUE IF THE CLASS TAKES THE PARAMETER TOO, so the change is
+  `case class Dataset[T](items: List[T])` with the members written in terms of `T` —
+  `first(): Option[T]`, `filter(p: T => Boolean): Dataset[T]`, `map[U](f: T => U): Dataset[U]`.
+  Giving `of` a `Dataset[T]` return over a non-generic class would be a signature describing
+  something that is not there.
+
+  AT TIER 0 THIS IS DOCUMENTATION, NOT ENFORCEMENT — invariant I-2 — so it MUST be behaviour-free,
+  and that is a claim to measure rather than assume. `Param.tpe` text is not inert: `Lower` reads it
+  for instance resolution (`resolveGivenArgs` unifies type TEXT), so swapping `Any` for `T` across
+  thirty signatures in the file every program loads is worth N.
+
+  PROBED BEFORE THE PRELUDE DEPENDED ON IT: a generic case class with a generic vararg companion
+  (`case class Box[T]` + `def of[T](xs: T*): Box[T]`) runs on both fronts.
+
+  MEASUREMENT: N with floors DIFF 3 and CRASH 9, plus the dataset corpus cases read INDIVIDUALLY —
+  a bucket count can hide one case moving PASS -> DIFF while another moves back.
+next: measure, gate, push
