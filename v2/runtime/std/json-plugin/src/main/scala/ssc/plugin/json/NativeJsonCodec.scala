@@ -112,6 +112,19 @@ private[plugin] object NativeJsonCodec:
         case (key, item) => key.toString -> stringCore(item.toString)
       }.toList.sortBy(_._1)
       objectCore(entries)
+    // A method that does not exist must not become a JSON STRING either, and this is the path
+    // where it matters most. `recv.name` on a builtin receiver has no nullary dispatch, so it
+    // becomes the eta-expansion function value (Runtime's `__method__` fallback), and a name that
+    // exists nowhere serialised here as `"<function>"`. Measured before the fix, with the
+    // rendering half already in:
+    //
+    //     println(jsonStringify(Map("cell" -> "a".nosuch)))   ->   {"cell":"<function>"}
+    //
+    // which is the rozum incident shape — `{"cell":{Stub}}` in an HTTP 200 body, a typo arriving
+    // at an end user as plausible data. Only the ETA MARKER is refused: a genuine closure still
+    // serialises as "<function>", because putting a function in a payload is a different mistake
+    // and one this codec is entitled to render.
+    case c: Value.ClosV if c.etaMethodRef != null => ssc.Show.etaSelectionEscaped(c)
     case _: Value.ClosV => stringCore("<function>")
     case Value.ForeignV(other) => stringCore(other.toString)
     case cell: Value.LongCellV => numberCore(cell.v.toString)

@@ -57,6 +57,10 @@ refuses_out() { # $1 out, $2 rc, $3 marker → "" when it is a proper refusal, e
   local out=$1 rc=$2 marker=${3:-$MARKER}
   if printf '%s\n' "$out" | grep -Fqx 'm: <closure>'; then
     printf 'printed the closure as output'
+  # The serialised spelling of the same wrong answer. Listed separately because it is a different
+  # renderer (the json codec, not `show`) and a reader should not have to infer that.
+  elif printf '%s\n' "$out" | grep -Fq '"<function>"'; then
+    printf 'serialised the closure into the payload'
   elif ! printf '%s\n' "$out" | grep -Fq "$marker"; then
     printf 'no refusal message (looked for "%s")' "$marker"
   elif [[ "$rc" -eq 0 ]]; then
@@ -82,15 +86,25 @@ refuses() { # $1 name, $2 marker, $3 source — must be refused on BOTH fronts
   [[ "$bad" -eq 0 ]] && echo "  ✓ $name: refused on both fronts" || fails=$((fails + 1))
 }
 
-answers() { # $1 name, $2 expected first line, $3 source — on BOTH fronts
-  local name=$1 want=$2 src=$3 r f
+# The rows that must ANSWER share one program, because each `ssc run` is a JVM boot and this check
+# is charged to a suite with a budget: four such rows on two fronts is eight boots, and one labelled
+# program on two fronts is two. Attribution survives — every line carries its own label, and a
+# mismatch prints both sides — which a single blob assertion would have thrown away.
+answers_block() { # $1 name, $2 expected output (all lines), $3 source — on BOTH fronts
+  local name=$1 want=$2 src=$3 r f bad=0
   printf '%s\n' "$src" > "$sandbox/$name.ssc"
-  r=$(run_front legacy "$sandbox/$name.ssc" | head -1)
-  f=$(run_front F "$sandbox/$name.ssc" | head -1)
-  if [[ "$r" == "$want" && "$f" == "$want" ]]; then
-    echo "  ✓ $name: $want"
+  r=$(run_front legacy "$sandbox/$name.ssc")
+  f=$(run_front F "$sandbox/$name.ssc")
+  for front in legacy:"$r" F:"$f"; do
+    if [[ "${front#*:}" != "$want" ]]; then
+      echo "  ✗ $name on ${front%%:*}: output differs"
+      diff <(printf '%s\n' "$want") <(printf '%s\n' "${front#*:}") | sed 's/^/        /'
+      bad=1
+    fi
+  done
+  if [[ "$bad" -eq 0 ]]; then
+    printf '%s\n' "$want" | sed 's/^/  ✓ /'
   else
-    echo "  ✗ $name: reference='$r' F='$f', wanted '$want' from both"
     fails=$((fails + 1))
   fi
 }
@@ -141,23 +155,30 @@ refuses unknown-member-on-an-int   "$MARKER" 'def main(): Unit = println("m: " +
 refuses unknown-member-applied 'no dispatch for .nosuch' \
   'def main(): Unit = println("m: " + "a".nosuch())'
 
-echo "── the eta-expansion still works when the value is CALLED"
+# 4. SERIALISATION IS A SECOND ESCAPE, and the one the incident this fix mirrors actually took.
+#    `NativeJsonCodec` renders every closure as the JSON string "<function>", so with only the
+#    rendering half in place `{"cell":"<function>"}` still reached a payload — measured, not
+#    supposed. Its control lives in the block below: a genuine closure must still serialise.
+refuses unknown-member-in-json "$MARKER" \
+  'def main(): Unit = println(jsonStringify(Map("cell" -> "a".nosuch)))'
 
-# 4. THE ANTI-ROW. Deleting the eta fallback would make rows 1-3 pass and break this.
-answers eta-passed-to-a-hof true \
-  'def main(): Unit = println(List("b", "z").exists("abc".contains))'
+echo "── what must NOT change: the fallback is load-bearing"
 
-# 5. The same value through a local binding — the shape the runtime comment cites as the reason the
-#    fallback exists (`list.exists(lc.contains)`), written the way a user actually hits it.
-answers eta-bound-then-called true \
+# THE ANTI-ROWS. Deleting the eta fallback — the tempting "just make the selection refuse, like the
+# interpreter" — would satisfy every row above and break `hof` and `bound`. `len` keeps a real
+# nullary member answering with its VALUE rather than a function, and `json` keeps the codec's
+# ordinary behaviour for a genuine closure.
+answers_block eta-and-controls 'hof: true
+bound: true
+len: 3
+json: {"cell":"<function>"}' \
   'def main(): Unit =
+  println("hof: " + List("b", "z").exists("abc".contains))
   val f = "abc".contains
-  println(List("b", "z").exists(f))'
-
-# 6. A real nullary member still answers with its VALUE rather than a function — the dispatch this
-#    fix must not have shadowed.
-answers nullary-member-still-answers 'm: 3' \
-  'def main(): Unit = println("m: " + "abc".length)'
+  println("bound: " + List("b", "z").exists(f))
+  println("len: " + "abc".length)
+  val g = (x: Int) => x + 1
+  println("json: " + jsonStringify(Map("cell" -> g)))'
 
 echo
 if [[ "$fails" -ne 0 ]]; then
