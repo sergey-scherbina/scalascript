@@ -1,0 +1,11 @@
+slug: install-redundant-build
+branch: feature/install-redundant-build
+agent: claude-code
+started: 2026-08-14T15:36:52Z
+heartbeat: 2026-08-14T15:36:52Z
+status: claimed-before-planning
+items: install-sh-rebuilds-a-digest-another-agent-just-cached
+paths: file:install.sh file:scripts/build-slot
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
