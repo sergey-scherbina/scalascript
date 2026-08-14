@@ -295,6 +295,48 @@ one this migration has spent the day avoiding.
 path works and their Rust and Scala legs cover shipping. Filed so the asymmetry is known rather
 than rediscovered, which is the right reason to file.
 
+**MEASURED 2026-08-14, AND IT FALSIFIES THE PLAN ABOVE — the nine intrinsic entries do NOT lower
+the eight methods, and adding them is worse than doing nothing.**
+
+The sentence above says "member-style intrinsic keys already exist (`Console.println`,
+`Bench.opaque`), so `McpClient.listTools` maps the same way". They do not map the same way, and the
+difference is the whole feature. `Console.println` is an OBJECT-QUALIFIED name; `c.listTools()` is a
+method on a runtime VALUE. Four entries were added experimentally — `mcpConnect`, `listTools`,
+`callTool`, `close` — pointing at `crate::runtime::mcp_client::_*`, and the emitted `main` is:
+
+    let c = crate::runtime::mcp_client::_mcp_connect(Transport.stdio("echo", vec![…]));
+    let ts = c.listTools();
+    c.close();
+
+The FREE function lowered. Both RECEIVER methods came out VERBATIM. The intrinsic map is consulted
+for free names only.
+
+**AND THE FAILURE IS SILENT-SHAPED, which is why this is recorded loudly.** The unimplemented-extern
+refusal keys on the BARE name — `intrinsics.contains(QualifiedName(n))` at
+`RustCodeWalk.scala:259` — so adding the entry SATISFIES THE CHECK while lowering nothing. It
+converts an honest `no implementation for it` into rustc complaining about `no method named
+listTools` in code the user never wrote. That is exactly the trade this entry's own last paragraph
+refuses to make for the capability line, and it applies to the intrinsic entries for the same reason.
+
+**The other mechanism does not cover it either.** `@rust("expr")` renders an extern def as a free
+`pub fn`; an `extern class` member carrying the same annotation emits NOTHING AT ALL — measured with
+a two-line probe, `extern class Handle: @rust("1i64") def num(): Int` produced no function and no
+`impl`. So the lane has NO lowering for extern-class members by either route.
+
+**What the work actually needs, restated:** receiver-method lowering for extern-class members —
+either an inherent `impl` per extern class, or a rewrite of `recv.m(args)` to `m(recv, args)` when
+`m` is an extern member. That lives in `RustCodeWalk.scala`. The runtime, the `Feature.McpClient`
+line and the `RustGen` wiring are still right and still bounded; they are simply not sufficient, and
+none of them can be verified until a call site lowers.
+
+`Transport.stdio(…)` in the same emitted line is the object-member flattening defect
+(`rust-object-member-call-emits-invalid-rust`), so that blocker stands here too and is now confirmed
+by emission rather than inferred.
+
+**Not landed, deliberately: the experiment was reverted.** No capability line, no intrinsic entries.
+The refusal this entry describes is still the honest one, and it is better than the alternative
+measured above.
+
 ## mcp-2026-07-28 — speak the stateless MCP revision, dual-era
 
 Spec: [`specs/mcp-2026-07-28.md`](specs/mcp-2026-07-28.md). Cross-module by construction —
