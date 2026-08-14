@@ -84,7 +84,7 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       findings the answer to "who fixes them" is me, in batches; the detectors exist to make the
       work finite and to stop it growing back.
 
-- [~] `pre-push-message-backticks` — the overlap guard's refusal message is written into an
+- [x] `pre-push-message-backticks` — the overlap guard's refusal message is written into an
       **unquoted** `<<EOF` (`.githooks/pre-push:413`), so the six backticked identifiers in its prose
       are command substitutions the shell runs while printing a refusal. Met as a reader on
       2026-08-14, not by reading the code: a correctly-refused claim printed
@@ -117,6 +117,28 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       were an agent's own typing — `git commit -m`, `coord-release --note` — and were answered by
       `--note-file` (`7bcfab999`) and by a memory rule. This is the first one that is CHECKED-IN
       CODE, where no habit of mine can reach it and every agent meets it at the same bad moment.
+
+      **DONE 2026-08-14, and the task grew twice on the way — each widening claimed BEFORE the
+      edit, one file at a time.** Beyond the fix and the ratchet:
+
+      - **`origin/main` was RED for everyone** on `freeze-consistency-gate`: `41ae217cd` removed the
+        `known-red:` from `extension-call-in-a-def-body.ssc` and left its `KNOWN-RED` row in
+        `corpus-baseline.tsv`, with that claim already released, so nobody owned the repair. Since
+        smoke is the pre-push suite it blocked every push. Verified on origin/main itself, not only
+        locally, and at 3.6 s it was not a load timeout. The deletion forces the paired
+        `baseline-sha256=` to be recomputed — the current digest was RECONSTRUCTED from the unedited
+        file first, and `roster-sha256` measured to cover the roster body only, so it cannot cascade.
+      - **`build-ram-guard --self-test` measured the machine, not itself** — a machine-wide process
+        count across two tiers it runs under `DRY=1`, which cannot kill. 1 failure in 20 at load 45;
+        the correct assertion already existed in its own gate ten lines away. Fixed, because it was
+        the only red in a 96/97 smoke and an intermittent red teaches people to stop reading the
+        suite — the `lint-markdown` failure mode arriving from the other direction.
+      - **Filed, not fixed:** `v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing`
+        — `"a".nosuch` prints `<closure>` on both v2 fronts where `int` refuses. Found while checking
+        the known-red removal was honest; the first reading (that the extension fix caused it) was
+        killed by one probe.
+
+      **Final: 97/97 smoke green, 887.9 s of a 1027 s budget** — under budget, on the tree pushed.
 
 - [x] `ci-status-guard-owns-its-repo` — `tests/e2e/ci-status-guard.sh` built its claim fixture with
       `git -C "$ROOT" worktree add`, i.e. it MUTATED the shared main repo from inside the pre-push
