@@ -1,4 +1,4 @@
-# generation: 2055
+# generation: 2056
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 gate-server-identity	claude-code	2026-08-14T09:08:42Z	a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own	file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/serve-view-frontend-v2-smoke.sh
@@ -6,4 +6,4 @@ rust-toint-lane-parity	claude-code	2026-08-14T11:02:33Z	toint-on-a-char-and-toli
 v3-const-hoist	claude-code	2026-08-14T15:35:44Z	SSC3-J4a-loop-invariant-const-hoist	file:v3/src/Optimize.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
 ssc3-math	claude-code	2026-08-14T15:38:31Z	SSC3-14	file:v3/prelude/index.ssc file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity file:v3/BUGS.md
 rust-nested-typed-pattern-guard	claude-code	2026-08-14T15:47:18Z	rust-nested-typed-pattern-is-dropped	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/ValueRs file:tests/e2e/build-rust-refuses-loudly.sh file:BUGS.md file:tests/rust-std-survey-baseline.tsv
-jvm-stack-trace-names-the-users-file	claude-code	2026-08-14T15:56:43Z	jvm-artifact-stack-trace-never-names-the-users-own-file	file:tests/BUGS.md file:tests/e2e/v21-build-jvm-smoke.sh file:v2/backend-jvm-bytecode/JvmSourceDebug.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala
+jvm-stack-trace-names-the-users-file	claude-code	2026-08-14T15:56:43Z	jvm-artifact-stack-trace-never-names-the-users-own-file	file:tests/BUGS.md file:tests/e2e/v21-build-jvm-smoke.sh file:v2/backend-jvm-bytecode/JvmSourceDebug.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmSourceMap.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeSourceClosure.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala

@@ -2,10 +2,18 @@ slug: jvm-stack-trace-names-the-users-file
 branch: feature/jvm-stack-trace-names-the-users-file
 agent: claude-code
 started: 2026-08-14T15:56:43Z
-heartbeat: 2026-08-14T15:56:43Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T15:59:16Z
+status: in-progress
 items: jvm-artifact-stack-trace-never-names-the-users-own-file
-paths: file:tests/BUGS.md file:tests/e2e/v21-build-jvm-smoke.sh file:v2/backend-jvm-bytecode/JvmSourceDebug.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala
+paths: file:tests/BUGS.md file:tests/e2e/v21-build-jvm-smoke.sh file:v2/backend-jvm-bytecode/JvmSourceDebug.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmSourceMap.scala file:v1/tools/cli/src/main/scala/scalascript/cli/NativeSourceClosure.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  ROOT CAUSE FOUND before any edit. `ssc build-jvm` advertises SourceFile: "json.ssc" for a
+  two-line user program, so all 29 stack frames name the std library and none name the file the
+  user wrote. Cause: RunNativeV2 injects the AMBIENT PRELUDE as LEADING root files
+  (ambientPrelude ++ dottedStdImportPrelude ++ userFiles), and NativeJvmSourceMap.build takes
+  file 1 = first explicit root. A prelude is an explicit root, so the user's program becomes
+  file 2. Proven by writing the import out by hand: with [jsonParse](std/json.ssc) present the
+  prelude does not fire and SourceFile becomes the user's file, 21 frames naming it.
+  Fix is in the DEBUG METADATA, not in the prelude order: the prelude must stay leading for
+  scope reasons, so the source map must anchor on the first USER file instead.
+next: mark user roots, order the source map on them, watch the gate go green
