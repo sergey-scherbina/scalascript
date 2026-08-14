@@ -1,5 +1,4 @@
-# generation: 2082
+# generation: 2083
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
-rust-toint-lane-parity	claude-code	2026-08-14T11:02:33Z	toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges build-rust-indexof-on-string build-rust-concat-list-element-with-toplevel-val	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:tests/e2e/v2-jit-size.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenCodeWalkTest.scala file:v1/runtime/backend/rust/src/test/scala/scalascript/codegen/rust/RustGenR23Test.scala file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/BUGS.md
 release-refuses-red-main	claude-code	2026-08-14T16:35:47Z	ci-smoke-red-streak-nobody-stopped	file:scripts/coord-release file:tests/coord/coord-release-evidence-level.sh
