@@ -1,0 +1,11 @@
+slug: tolong-on-a-string
+branch: feature/tolong-on-a-string
+agent: claude-code
+started: 2026-08-14T22:31:53Z
+heartbeat: 2026-08-14T22:31:53Z
+status: claimed-before-planning
+items: tolong-on-a-string-answers-four-different-things
+paths: file:v2/src/Runtime.scala file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/conformance/tolong-on-a-string.coreir file:tests/e2e/rust-toint-parity-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
