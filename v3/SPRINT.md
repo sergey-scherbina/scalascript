@@ -3479,9 +3479,27 @@ refusals actually move. Not predicted here; the census after A decides what is n
 **C — reconcile the two `Dataset`s.** Only with A and B measured, and it is a decision to put to the
 owner rather than take.
 
-## SSC3-14 — `math`, and the one member neither lane can do
+## SSC3-14 — `math`, and the one member neither lane can do — DONE 2026-08-14 (a6a274571)
 
-Measured 2026-08-13 and NOT started. `math` is 4 of the corpus's `unknown name` refusals —
+**Landed. N 212 -> 216**, all four cases matching their checked-in expectations, DIFF 3 and CRASH 9
+held. The +4 was PREDICTED before any code existed, by pasting a hand-written `math` object into a
+copy of each of the four cases and seeing all four run — so `math` was the LAST blocker in each and
+not merely the first. The split below held exactly as planned: `sqrt`/`floor`/`ceil`/`round` through
+v2's prims, `Pi`/`abs`/`max`/`min` and an integer `pow` in ScalaScript.
+
+**`round` is `rint`, not Scala's `math.round`** — v2 chose banker's rounding returning a Double, the
+two agree on every corpus value and disagree at exactly `.5`, and the parity probes pin it.
+
+**`pow` REMAINS PARTIAL and that is now filed, not deferred.** A fractional exponent raises. The
+reference lane is libm-exact (`pow(2.0, 0.1)` = 1.0717734625362931), which rules out a ScalaScript
+series and the repeated-sqrt expansion alike — both differ in the last bits — and v3 cannot fix it
+on one lane, since the bridge emits a prim and v2 has no `f.pow`/`f.exp`/`f.log`. The fix is ONE
+LINE in `v2/src/Runtime.scala` beside `f.sqrt`; that file has been held by another claim all day.
+See `v3/BUGS.md` `v3-math-pow-fractional-needs-a-v2-prim`, which carries the exact line.
+
+The original measurement, kept because the split it decided is still the record:
+
+Measured 2026-08-13. `math` is 4 of the corpus's `unknown name` refusals —
 `arithmetic`, `case-classes`, `js-scala-fenced-block`, `sealed-traits` — asking for
 `math.pow` (3), `math.sqrt` (2), `math.round` (2), `math.Pi` (2), `math.abs` (1).
 
@@ -3539,9 +3557,10 @@ decision about the language and belongs to the owner, not to a parser change.
 are answered, so reconciling it with the prelude's `case class Dataset` is still blocked — on a
 different thing than when C was written, and now on a named one.
 
-### SSC3-14b — varargs: STARTED, REVERTED, and the diagnosis is the deliverable
+### SSC3-14b — varargs: DONE 2026-08-14 (7bc7e2a1b), and the recorded diagnosis was WRONG
 
-Attempted 2026-08-13 and backed out. What is settled, and what is not:
+Attempted 2026-08-13 and backed out; finished 2026-08-14. What was settled, and what the entry got
+wrong badly enough to send the next reader into the wrong subsystem:
 
 **The SEMANTICS are settled and were read off the tree, not chosen.**
 `std/ui/data.ssc:43` is `def tableRow(cells: TkNode*): List[TkNode] = cells.toList` — the body
@@ -3554,14 +3573,40 @@ is called 35 times in the corpus and `std/mapreduce/dataset.ssc` cannot load wit
 `passes 3 argument(s), it takes 1` and is right to until they have been made into one. It never
 fires, because of the parser half below, so it was reverted with the rest rather than left inert.
 
-**WHERE IT STOPPED, and this is the thing to diagnose FIRST rather than code around.** After
-`skipType` returns, the next token is NOT the `*` — `isOp(…, "*")` and `isPunct(…, "*")` are both
-false there — and yet `def total(xs: Int*)` PARSES, and `Param.tpe` comes out as `Int`, without the
-star. Something consumes it, and `grep '"\*"' v3/src/Parser.scala` finds exactly ONE line, the one
-I added. So the star is being eaten below the parser — in the lexer or in `alphabet/src/Alphabet.scala`,
-which `Lexer.scala` delegates its symbol table to.
+**~~WHERE IT STOPPED~~ — THE DIAGNOSIS RECORDED HERE ON 2026-08-13 WAS WRONG, AND IT NAMED THE
+WRONG FILE WITH THE CONFIDENCE OF A MEASUREMENT.** It read: *"the star is being eaten below the
+parser — in the lexer or in `alphabet/src/Alphabet.scala`"*, and *"the next step is a token dump,
+not another parser edit."* The token dump was taken, against the built kernel classes, and it says
+the opposite:
 
-**The next step is a token dump, not another parser edit.** Two attempts were made from the parser
-side — consuming the star inside `skipType`, then reading it at the parameter — and both produced a
-build that parses and still carries `tpe = Int`: a fix that looks like it works and does nothing.
-Establish what the lexer emits for `Int*` before touching either side again.
+```text
+def total(xs: Int*): Int = 0
+   TId [def] 1:1   TId [total] 1:5   TPunct [(] 1:10   TId [xs] 1:11
+   TPunct [:] 1:13   TId [Int] 1:15   TOp [*] 1:18   TPunct [)] 1:19   …
+```
+
+The star is a live `TOp` at 1:18. The lexer never touches it and `alphabet/` has nothing to do with
+it. Left struck through rather than deleted, because the wrong turn is the reusable part.
+
+**WHAT WAS ACTUALLY WRONG: I EDITED THE FRONT THAT DOES NOT COMPILE THE FILE, TWICE.**
+`SSC3_FRONT=v3` refuses at exactly 1:18 (`expected ')', found *`) while the DEFAULT front takes the
+file — `Front.default` is UNIML whenever `v3/.jars/uniml.cp` exists. So both parser attempts were
+correct-ish edits measured through the other front, which is why a build could "parse" and still
+carry `tpe = Int`. uniml discards the star at `ScalaSpike.skipTypeTail` (`ScalaSpike.scala:708`),
+deliberately, with a comment saying so — right for its other callers, since a return type or a
+pattern has nobody to tell.
+
+**FIXED 2026-08-14 in `7bc7e2a1b`, as a two-front pair.** uniml captures the star one level up, in
+the param loop, as a roled leaf (`def.vararg`, the precedent `def.byname` sets in that file);
+`SpikeTyped.slots` appends it to the type TEXT; v3's own `skipType` stops refusing it and
+`typeTextOf` reassembles it for free. THE MARKER RIDES IN THE TYPE TEXT, so no AST gained a field
+and `UniFront` needed no edit at all. Collection lives in `Lower.resolveArgs`, the one place holding
+both the arguments and the resolved signature, which puts it before `checkArity` where it belongs.
+
+**N DID NOT MOVE — 212/369 with and without — and the claim above over-promised.** `Dataset.of` was
+already served by a sixteen-defaulted-parameter workaround in the prelude, and `std/mapreduce`'s
+imports name a JVM backend package with no `.ssc` module, so the parse fix only exchanged one honest
+refusal for another. What it DID buy was four rows in `front-capability-gate` that stopped diverging
+(`std-os`, `std-os-doc-import`, `std-os-readline`, `cluster-connect`). The workaround was then spent
+in SSC3-13c, which is where varargs actually paid: `Dataset.of` is `def of[T](items: T*)` and the
+sixteen-element CAP is gone.
