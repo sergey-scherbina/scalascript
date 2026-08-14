@@ -250,6 +250,16 @@ val suite = List(
   // ── tests — the apparatus. A sharding scheme that drops cases fails GREEN, so it is checked
   //    here, where `run.sc --list` enumerates the corpus without needing a built launcher.
   Check("tests", "conformance-shards-partition", "tests/e2e/build-conformance-shard-gate.sh", List("4"), 180000),
+  // A gate that is INTERRUPTED must not leave state in the shared checkout. `policy-single-source`
+  // staged its fixture into this checkout's index and unstaged it three lines later; a run killed
+  // between the two — which is how a suite timeout ends a check — left an intent-to-add entry for a
+  // deleted file, and `git rebase` then refuses to start for whoever owns that checkout. Reported
+  // by an agent it blocked (2026-08-14). This kills a REAL run at a known point with SIGTERM and
+  // with SIGKILL, in a throwaway repository, and asserts the reported symptom itself: rebase must
+  // still start. Its own self-test reruns both interruptions against the script with the fix
+  // removed, so a green here cannot mean "the checker does not look". ~9 s, five lab repos.
+  Check("tests", "policy-selftest-residue", "tests/e2e/policy-selftest-residue-gate.sh",
+        List("--self-test"), 120000),
   // The same property for the sbt test phase, and for the same reason: a shard scheme that drops a
   // suite fails GREEN — every shard passes and the union covers less than the whole. Runs on a
   // SYNTHETIC listing (`--from`), so it costs milliseconds instead of the five-minute test compile

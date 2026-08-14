@@ -96,3 +96,10 @@ conf-results*.txt
 
 # Generated docs site (produced by v1/tools/docs-site/generate.ssc in the Pages workflow)
 site/docs/
+
+# A gate's self-test writes this fixture into the checkout and removes it again. A run KILLED
+# between those two points runs no trap, so the file can survive — ignored here to make that
+# leftover inert: it cannot be swept into a sibling's `git add -A` and it does not make anyone's
+# `git status` dirty. The index entry that used to survive with it is a separate fix, in
+# tests/e2e/policy-single-source.sh; tests/e2e/policy-selftest-residue-gate.sh holds both.
+specs/_policy-single-source-selftest.md

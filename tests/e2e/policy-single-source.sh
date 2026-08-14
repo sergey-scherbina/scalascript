@@ -93,15 +93,53 @@ for f in AGENTS.md README.md specs/claim-mutex.md specs/work-tracking-layout.md 
             "$f" >&2; fail=1; fi
 done
 
+# THE FIXTURE IS NEVER PUT IN THE SHARED INDEX. It has to be VISIBLE to `git ls-files`, because
+# that is how docs() builds the list — a file merely sitting on disk is invisible to the check it
+# exists to trip. It used to get there with `git add -N` into the checkout's own index, unstaged
+# three lines later. Between those two lines the state lives in the one place every agent in this
+# checkout shares, and a run that does not reach the third line leaves an intent-to-add entry for a
+# file that is no longer on disk: `git status` shows ` D specs/_policy-single-source-selftest.md`
+# and `git rebase` REFUSES TO START — "cannot rebase: You have unstaged changes" — about a path its
+# owner has never heard of. Reported 2026-08-14 by an agent whose smoke died on an unrelated check
+# under host load; entry `policy-selftest-stages-into-the-shared-index` in tests/BUGS.md.
+#
+# A trap alone would not have fixed it. The interruption that actually happens here is a suite
+# timeout or a killed process group, and a SIGKILL runs no trap. So the shared index is not written
+# at all: GIT_INDEX_FILE points this function, and the child run it drives, at a COPY. Whatever
+# signal arrives, the index the next `git rebase` reads is the one it started with.
+#
+# The trap is still worth having for the file on disk, and `.gitignore` carries the same path so a
+# leftover from a SIGKILL is inert — invisible to `git status`, unsweepable by a sibling's
+# `git add -A`. tests/e2e/policy-selftest-residue-gate.sh interrupts a real run at a known point,
+# with both signals, and asserts all three.
+_st_tmp="specs/_policy-single-source-selftest.md"
+_st_idx=""
+_st_cleanup() {
+  rm -f "$_st_tmp"
+  [ -n "$_st_idx" ] && rm -f "$_st_idx"
+  return 0
+}
+
 self_test() {
   echo "── self-test: a duplicated rule must make this RED ──"
-  local tmp="specs/_policy-single-source-selftest.md"
-  printf '# scratch\n\nA gate about a TOOL must RUN that tool.\n' > "$tmp"
-  git add -N "$tmp" >/dev/null 2>&1 || true
+  _st_idx="$(mktemp "${TMPDIR:-/tmp}/policy-single-source-index.XXXXXX")"
+  trap _st_cleanup EXIT INT TERM HUP
+  cp "$(git rev-parse --git-path index)" "$_st_idx"
+  printf '# scratch\n\nA gate about a TOOL must RUN that tool.\n' > "$_st_tmp"
+  # Not `|| true`: if the fixture never reaches the index copy the child sees ONE copy of the
+  # phrase, exits 0, and the failure below reads "the duplicate did not turn this gate red" — a
+  # true statement about a run that never had a duplicate in it. `-f` because .gitignore covers
+  # this path on purpose.
+  if ! GIT_INDEX_FILE="$_st_idx" git add -f -N "$_st_tmp" >/dev/null 2>&1; then
+    echo "✗ SELF-TEST FAILED: could not stage the fixture into the private index copy." >&2
+    _st_cleanup
+    trap - EXIT INT TERM HUP
+    return 1
+  fi
   local rc=0
-  "$0" >/dev/null 2>&1 || rc=$?
-  git rm -q --cached "$tmp" >/dev/null 2>&1 || true
-  rm -f "$tmp"
+  GIT_INDEX_FILE="$_st_idx" "$0" >/dev/null 2>&1 || rc=$?
+  _st_cleanup
+  trap - EXIT INT TERM HUP
   if [ "$rc" -eq 0 ]; then
     echo "✗ SELF-TEST FAILED: a verbatim second copy of P-6.2 did not turn this gate red." >&2
     return 1
