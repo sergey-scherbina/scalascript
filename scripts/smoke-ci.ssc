@@ -705,6 +705,14 @@ val suite = List(
   // --self-test falls through to the census, so this runs the detector's self-check too.
   // (v1-interpreter-hot-path-never-jits.)
   Check(".", "v1-jit-size", "tests/e2e/v1-jit-size.sh", List("--self-test"), 180000),
+  // THE TWIN, wired 2026-08-14, and the comment above is why it took this long: it says the v2
+  // gate "sits in ci.yml's `sbt` job, which is workflow_dispatch only" — noticed, written down,
+  // and left there. What that cost, measured today: `ssc.Prims.methodDispatch8` was 8406
+  // bytecodes, over HotSpot's 8000 limit, so the dispatch chain every method call on the v2 lane
+  // walks was NEVER JIT-compiled. It surfaced only because I dispatched ci.yml by hand for an
+  // unrelated reason. v2 is the lane `ssc run` uses today; its guard belongs where v1's is.
+  // ~5 s: it censuses three built modules, no compilation of its own.
+  Check(".", "v2-jit-size", "tests/e2e/v2-jit-size.sh", List("--self-test"), 180000),
   // A NEW gate in tests/e2e must be invoked by something. A gate nobody runs reports GREEN by not
   // existing: v1-jit-size.sh sat unwired from 2026-07-30 and in that silence four frozen methods
   // grew, two new offenders appeared, and the largest method in the tree was never censused.

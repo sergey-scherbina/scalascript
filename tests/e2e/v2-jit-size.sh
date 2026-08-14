@@ -74,26 +74,43 @@ fi
 # jars that `sbt installBin` writes. Never pass without having measured something.
 # Glob the Scala version rather than pinning it: a bumped scalaVersion would otherwise
 # leave this finding nothing and exiting 2 in CI — loud, but for the wrong reason.
-TARGETS=()
-for m in src backend-jvm-bytecode jvm-runtime; do
-  for d in "$ROOT/v2/$m"/target/scala-*/classes; do
-    [[ -d "$d" ]] && TARGETS+=("$d")
+# PER MODULE, and that word is the fix. The fallback to the staged jars used to fire only when
+# ALL THREE class directories were missing, so the ordinary post-`install.sh` state — where
+# `v2/src/target/.../classes` is absent and the two small modules' are present — produced a
+# NON-EMPTY target list that did not contain `ssc.Prims`. The gate then measured two minor modules,
+# found nothing over the limit, and printed PASS. That is the exact shape it exists to prevent, one
+# level up: not "no measurement", but a measurement of the wrong thing wearing a green.
+#
+# Measured 2026-08-14: `rm -rf v2/src/target/scala-*/classes && ./install.sh --dev` then this gate
+# reported `PASS` while `ssc.Prims.methodDispatch8` was 8406 bytecodes — the very defect that made
+# the split below necessary, invisible to the check that owns it.
+#
+# So each module resolves independently: its class directory, else its staged jar, else the gate
+# REFUSES and names the module. `bytecode-size-census` reads a jar as readily as a directory.
+declare -a TARGETS=()
+missing=()
+resolve_module() { # $1 module dir under v2/, $2 staged jar prefix
+  local d j
+  for d in "$ROOT/v2/$1"/target/scala-*/classes; do
+    if [[ -d "$d" ]]; then TARGETS+=("$d"); return 0; fi
   done
-done
-if [[ ${#TARGETS[@]} -eq 0 ]]; then
-  while IFS= read -r j; do TARGETS+=("$j"); done \
-    < <(find "$ROOT/bin/lib/jars" -name 'scalascript-v2-*.jar' 2>/dev/null | sort)
-fi
+  j="$(find "$ROOT/bin/lib/jars" -name "$2*.jar" 2>/dev/null | sort | head -1)"
+  if [[ -n "$j" ]]; then TARGETS+=("$j"); return 0; fi
+  missing+=("v2/$1 (no target/scala-*/classes, no $2*.jar)")
+}
+resolve_module src                  scalascript-v2-core
+resolve_module backend-jvm-bytecode scalascript-v2-jvm-bytecode
+resolve_module jvm-runtime          scalascript-v2-jvm-runtime
 
-if [[ ${#TARGETS[@]} -eq 0 ]]; then
+if [[ ${#missing[@]} -gt 0 ]]; then
   cat >&2 <<EOF
-v2-jit-size: found no built v2 artifacts to measure.
+v2-jit-size: cannot measure $( printf '%s ' "${missing[@]}" )
 
-  Looked for: v2/{src,backend-jvm-bytecode,jvm-runtime}/target/scala-3.8.3/classes
-              then bin/lib/jars/scalascript-v2-*.jar
+  Each v2 module is looked for as target/scala-*/classes first, then as its staged jar in
+  bin/lib/jars. A module reachable as NEITHER is not measured, and a gate that skips the
+  module carrying \`ssc.Prims\` while reporting on its neighbours is worse than no gate.
 
-  Build first (\`sbt v2Core/compile\` or \`sbt installBin\`). Refusing to report green on
-  an empty measurement — that is the failure mode this whole gate exists to prevent.
+  Build first: \`./install.sh --dev\` (stages the jars) or \`sbt v2Core/compile\`.
 EOF
   exit 2
 fi
