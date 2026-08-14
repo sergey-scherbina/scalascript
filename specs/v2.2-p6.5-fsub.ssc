@@ -2406,7 +2406,21 @@ def givenObjArg1(gname, m, cx) = m match { case (kind, nt) => if kind == "var" t
 def collectGivenReg(ts) = if fst(hd(tl(ts))) == 1 then collectGivenReg1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectObjReg(tl(ts))
 def collectGivenReg1(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectGivenReg2(gname, skipTypeRef(tl(t2)), ts) else collectObjReg(tl(ts))
 def collectGivenReg2(gname, t3, ts) = if isWord(hd(t3), "with") then collectGivenObj(gname, objBodyToks(t3)) else collectObjReg(tl(ts))
-def collectGivenObj(gname, bodyTs) = if isTok(hd(bodyTs), 2, 28) then Cons((gname, memberNamesOf(collectObjMembers(tl(bodyTs)))), collectObjReg(skipBrace(tl(bodyTs), 1))) else collectObjReg(tl(bodyTs))
+// A `given … with` body registers into the SAME objReg as a plain `object`, so it must carry the
+// SAME payload — and it did not. collectOR3 emits `(name, (memberNames, varMemberNames))`; this
+// emitted `(gname, memberNames)`, a bare list, because the payload was widened to a pair for `var`
+// members and this second registrar was never updated with it.
+//
+// The reader is objMemsOf, `fst(snd(h))`. On an object entry that takes the first half of a pair; on
+// a given entry it applied `fst` to a LIST, and a Cons hitting a Tuple2-only match is precisely
+// `match: no arm for Cons/2` — F's COMPILER dying, not F declining. It fired only when the given was
+// looked up BY NAME (isObjMember/isObjVarMember on a selection), which is why binding the same value
+// to a local first always worked and why the defect looked like it was about `summon`.
+//
+// Five corpus files, all calling a given by name: examples/typeclass.ssc and the std-index /
+// std-monaderror / std-semigroup-monoid / tagless-multi-file conformance cases.
+def collectGivenObj(gname, bodyTs) = if isTok(hd(bodyTs), 2, 28) then collectGO1(gname, collectObjMembers(tl(bodyTs)), bodyTs) else collectObjReg(tl(bodyTs))
+def collectGO1(gname, ms, bodyTs) = Cons((gname, (memberNamesOf(ms), objVarMemberNames(ms))), collectObjReg(skipBrace(tl(bodyTs), 1)))
 // G3: given TABLE = [((tc, typeName), gname)] built from every `given n: TC[T] ...` (obj or val). Used by
 // summon[TC[T]] to resolve the given (findGivenF, mirrors ssc1-lower findGiven :813). Type string comes
 // from the tokens (parseTCType), consistent between table build and summon lookup — the exact format need

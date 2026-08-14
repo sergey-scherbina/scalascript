@@ -396,6 +396,13 @@ val suite = List(
   // nine tests/conformance/scljet-* files. Eleven rows; eight reach the ordered resolver because
   // their `Nil` tail is what routes them there, three reach the ctor path as controls.
   Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 300000),
+  // Fifth of the family, and the only one where F's COMPILER died rather than F declining:
+  // `given … with` registered into objReg with the OLD payload shape (a bare member list) after that
+  // payload was widened to a (members, vars) pair for plain objects, so the reader's `fst` hit a
+  // Cons and F crashed with `match: no arm for Cons/2` on any member call to a given BY NAME. Nine
+  // rows; four are the crash, and `object-var-member` / `given-def-is-not-a-var` guard the two
+  // halves of the widened pair the fix now makes givens carry.
+  Check("v2", "f-cons2-no-arm", "tests/e2e/f-cons2-no-arm-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
