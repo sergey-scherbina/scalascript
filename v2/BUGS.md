@@ -117,12 +117,12 @@ defect, so it is recorded here and not papered over with a worse message.
 
 
 ## v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity — and the plugins carry dead code proving otherwise
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
-     gate: none — the probe is three lines, below
-     fixed-in: - -->
+     gate: tests/e2e/v2-extern-default-args-gate.sh
+     fixed-in: b3bfe60d3 -->
 
 **Found 2026-08-14 while registering `contentToolkitBlock` on the v2 content plugin.** With the
 registration in place the example moved one step and stopped again:
@@ -173,6 +173,45 @@ uses the one-arg `contentToolkitBlock("team-controls")` and serves 200 on `--v1`
 already says so in its own comment on the ContentToolkitOptions field-scramble workaround — "the
 real fix is the native-frontend named-arg default-fill". Registering a second arity per name would
 be a workaround in the wrong layer and would have to be repeated for every plugin.
+
+**FIXED 2026-08-14 in `b3bfe60d3`, in BOTH fronts — and the entry's "where the fix goes" was right.**
+The reference front skipped an `extern` declaration whole (it is a signature with no body), so its
+parameter list was never parsed and its defaults never reached `funcDefaultsCell`, which is what the
+call site fills from. `registerExternDflts` now reads them on the way past; F gets the same through
+`externDfltEntry`.
+
+**ONLY the defaults, and that boundary is the interesting part.** `specs/v2.2-p6.5-fsub.ssc` excludes
+externs from that registry on purpose, and its comment carries the measurements: clause flattening
+is what made `examples/_bug1b.ssc` silently drop a block, and the vararg collapse turned `va(1, 2)`
+into a Cons list. Both rewrite HOW the native is called, which the native owns. A default is
+different in kind — the missing argument's VALUE is an expression written in ssc source, so nobody
+but a front can produce it, and the native's own registered arity says it wants that argument. Both
+fronts therefore refuse to register a CURRIED extern (the flat call shape is exactly the _bug1b
+defect) or a vararg-only one.
+
+**Gate: `tests/e2e/v2-extern-default-args-gate.sh`, wired into smoke, five rows over two lanes**, and
+it was watched failing with both fronts reverted and the toolchain REBUILT — one row red with the
+literal symptom, every anti-row green:
+
+```text
+✗ extern-default-filled: got 'ssc: arity: 2 expected, 1 given|', wanted 'ok|'
+✓ extern-default-filled (--v1): ok|
+✓ extern-default-full-arity: ok|
+✓ extern-curried-still-nested: inside-block|after|
+✓ ctl-plain-default: hi bob|
+```
+
+**One correction to this entry, measured rather than argued.** It says "v1 fills them". What is
+measured is that the interpreter ACCEPTS the short call and reaches the native; whether it
+synthesises the declared default or the v1 intrinsic has its own one-argument arm was not
+established, and the two are not the same claim. The divergence the fix removes is the one that
+matters either way: the same source ran on `--v1` and was refused on v2.
+
+**Still true, and now the only thing left of this entry:** the plugins' unreachable one-argument arms
+are still there. They are harmless — the front now passes the declared default, so the two-argument
+arm is the one that runs — but they encode a second, different convention for the same call. Left
+alone deliberately: removing them is a plugin-by-plugin sweep with no behaviour change, and it
+belongs to whoever next touches each plugin.
 
 ## jvm-generator-big-plus-big-concatenates-the-digits — silently, exit 0; `*` throws
 <!-- status: fixed
