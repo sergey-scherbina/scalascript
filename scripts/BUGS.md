@@ -7,6 +7,68 @@ grepping for status.
 
 Newest first.
 
+## install-sh-rebuilds-a-digest-another-agent-just-cached — and publishLocal ran even when nothing was built
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: perf
+     gate: none — the plant is in the commit message; see "verified in both directions"
+     fixed-in: 5ff55fa1aef002dc693a4297085d06f63534c627 -->
+
+**Found 2026-08-14 by being asked why an install in a worktree is expensive**, and the answer was two
+independent things, both in `install.sh`.
+
+**1. The toolchain cache was consulted once, BEFORE queueing.** Order of operations was: compute
+digest (line ~129) → decide HIT/MISS (~142) → take a `scripts/build-slot` slot (~177). A slot wait
+is minutes. Agents rebase onto the same new `main`, compute the same new digest and miss together,
+so the second one waited ~8 minutes and then rebuilt what the first had published to the shared
+cache *while it waited*. Two slots bounded CONCURRENCY without stopping both from building the SAME
+SOURCES — which is exactly what `build-slot`'s own header names as the problem it was written for
+("N full Scala builds of the same sources were").
+
+Fixed by re-checking the cache after the slot is acquired. The step runs as an exported function so
+the restore is the same code as the hit path, and it leaves a marker file: the `.build-stamp`
+witness asserts a build RAN, and a restore is not a build, so without the marker the run dies with
+"sbt reported success but cli/installBin did not run".
+
+**2. `publishLocal` for the sbt interop plugin ran unconditionally, and outside the cache branch.**
+So an install that HIT the cache — and therefore built nothing — still started a whole second sbt
+JVM for a separate build. It was also the only build step NOT holding a slot: the one thing
+guaranteed to run was the one thing not queued. Its output lands in `~/.ivy2/local`, which is
+host-wide, so 92 worktrees on this machine were publishing identical bytes to a single shared path.
+
+Now skipped when the artefact for the version this build produces is present and `find -newer` sees
+no change under the plugin, with `SSC_SKIP_SBT_PLUGIN=1` as an explicit opt-out, and routed through
+the slot when it does run. **Deliberately not deleted:** `ssc new` scaffolds five of six templates
+with `addSbtPlugin(... sbt-scalascript-interop ...)`, and without the artefact a generated project
+cannot load its build (`tests/BUGS.md` → `scaffolded-projects-cannot-load-their-build`). Only one
+gate genuinely needs it — `scaffold-loads-its-build.sh`, which is CI-only — and the one plugin-related
+gate in the per-push suite, `emitted-coordinate-is-published.sh`, is a pure text comparison of
+version strings that touches no artefact at all.
+
+**Also measured, and it corrected an assumption rather than confirming one:** the restore `cp -R` was
+suspected of being slow. It is not — 176 MB copies in 0.37 s here, and `cp -Rc` (APFS clone) in
+0.06 s. The clone went in for DISK (92 private copies of the same bytes), not speed, and it must
+stay a COPY: `bin/lib/*/native-front/tower/` is read at runtime and editing a staged copy is normal
+practice here, so a shared symlink would let one agent's experiment change what every other agent
+runs.
+
+**`scripts/build-slot` now prints the wait on every acquisition, `after 0s` included.** The cost of
+this queue had only ever been argued from two constants in that file; nothing recorded what an agent
+actually waits. Computed at acquisition rather than at the foot of the poll loop — read from there it
+is one interval stale, and the first version printed 5 s for a 15 s wait.
+
+**Verified in both directions for every branch**, since a cache that never builds is a worse defect
+than one that builds twice:
+
+| plant | expected | result |
+|---|---|---|
+| cache filled by a "sibling" while install waits for a slot | restore, no build | `another agent published this digest while we waited`, rc 0 |
+| real miss, cache left empty | sbt actually runs | `[success] 44 s` (warm), entry published, rc 0 |
+| cache hit | restore, skip build | as before |
+| plugin source touched | publish runs | `Publishing…`, under a slot |
+| `SSC_SKIP_SBT_PLUGIN=1` | skip | skipped, and it prints the scaffold consequence |
+
 ## coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit
 
 <!-- status: open
