@@ -42,6 +42,76 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
+## v3-stmt-val-discards-a-type-the-author-wrote — `val t: (Int, String) = …` keeps the value and throws the type away
+
+<!-- status: open
+     lane: v3
+     area: front
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`Stmt.Val` is `Val(name, value, mutable, pos)` — there is nowhere to put a declared type**, so
+`val t: (Int, String) = (10, "ok")` and `val t = (10, "ok")` reach the lowering as the same thing.
+`rewriteGivenExtensionCalls` then has no type for `t` and refuses `t.bimap(…)`
+(`tests/conformance/std-bifunctor.ssc:19`).
+
+**THIS IS NOT THE INFERENCE HALF OF THE DEBT, and separating the two is the point of this entry.**
+`v3/specs/20-core-language.md` §4a1's first bullet says *"`Stmt.Val` records NO declared type.
+`val xs = List(1, 2, 3)` gives the lowering nothing … Inferring `List[Int]` from the initialiser is
+type INFERENCE and is not being built."* That sentence covers two different situations and prices
+them as one:
+
+- `val xs = List(1, 2, 3)` — nothing was written; recovering `List[Int]` needs INFERENCE, and that
+  is the type-checker project, correctly deferred.
+- `val t: (Int, String) = …` — the author WROTE the type and the front discarded it. Keeping what
+  the source says is not inference and needs no checker. It is the same fact `Param.tpe` already
+  carries for a parameter, on the other binder.
+
+**The second is small and is what `std-bifunctor` needs:** `tpe: Option[String]` on `Stmt.Val`,
+populated by both fronts, read where the parameter map is built in `rewriteGivenExtensionCalls`.
+
+**MEASURED, so the yield is not overstated:** on v3's own front, with the tuple head fixed, a
+PARAMETER declared `(Int, String)` resolves `bimap` and a `val` with the identical declared type
+does not. That is the whole difference. Fixing this alone still does not make `std-bifunctor` pass
+on the DEFAULT front — see `v3-uniml-drops-a-parenthesised-parameter-type`, which masks it there.
+
+## v3-uniml-drops-a-parenthesised-parameter-type — `def go(t: (Int, String))` loses its type on the default front
+
+<!-- status: open
+     lane: v3
+     area: front
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**A two-front pair, and the default front is the one that loses.** uniml's parameter loop reads
+
+    if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+    else expectType(c, …).foreach(kids += _)
+
+— so a parenthesised parameter type is CONSUMED AND NOT CAPTURED, and `Param.tpe` arrives as
+`None`. v3's own parser keeps it: `skipType` consumes the balanced parens and `typeTextOf`
+reassembles the text.
+
+**Measured on one probe, both fronts, after the tuple-head fix landed:**
+
+    def go(t: (Int, String)) = t.bimap(…)
+      SSC3_FRONT=v3     (11, ok!)
+      uniml (default)   'bimap' is provided by a `given` instance, and the type of the receiver
+                        is not known here
+
+One language, two answers, decided by whether `v3/.jars/uniml.cp` exists — invariant I-3.
+
+**It hides the other defect.** `v3-stmt-val-discards-a-type-the-author-wrote` is what stops
+`std-bifunctor` on v3's own front; this one stops the same program on the default front for a
+different reason, so fixing either alone changes nothing that the corpus can see. Fix both, then
+measure.
+
+**The fix is where `def.byname` and `def.vararg` already are:** capture the balanced-paren span as
+the parameter's type text instead of skipping it. Both of those roles were added the same way, so
+the shape is established rather than novel.
+
 ## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagree at exactly `.5`
 
 <!-- status: open
