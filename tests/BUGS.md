@@ -1,12 +1,39 @@
 ## f-compiler-crashes-with-no-arm-for-cons2 — a member call on a `given … with` object
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 29eb7dec4
+     gate: tests/e2e/f-cons2-no-arm-gate.sh -->
+
+### FIXED 2026-08-15 — two registrars, one reader, and one was never widened
+
+`objReg` maps an object name to its members, and its payload used to be a bare list of names. It
+became a PAIR — `(memberNames, varMemberNames)` — because a `var` member lowers to `O_v__cell` and
+the selection site has to know that from outside the object. `collectObjReg` was updated;
+**`collectGivenObj`, which registers `given … with` bodies into the SAME table, kept emitting the
+bare list.**
+
+`objMemsOf` reads it as `fst(snd(h))`. On an object entry that is the first half of a pair; on a
+given entry it applied `fst` to a LIST — and a `Cons` arriving at a Tuple2-only match is exactly
+`match: no arm for Cons/2`. The suspect this entry named (the given TABLE, `findGivenF1`) was the
+wrong table: it is the objReg, one lookup further along.
+
+**The ruled-out table above is what solved it.** `summon[M]` alone fine, `val x = summon[M]` then
+`x.empty` fine, `summon[M].empty` crash, `intM.empty` with no `summon` in the file crash — the
+receiver being the given's own global NAME is the whole condition, and `summon` was incidental
+because it resolves *to* that name.
+
+**Where the five files went.** Three now lower under F and agree with the reference —
+`examples/typeclass.ssc`, `tests/conformance/std-monaderror.ssc`, `tagless-multi-file.ssc`. The
+other two, `std-index.ssc` and `std-semigroup-monoid.ssc`, ADVANCE to a different cause,
+`unbound global: (global summon)` — the context-bound bucket. That is the census's short-circuit
+warning behaving exactly as it says: every count in it is a lower bound.
+
+`f-output-agreement-gate` over 639 files after the fix: F-wrong 0, agree 283, measured 318.
 
 **F's COMPILER crashes**, rather than F declining a construct. Five lines:
 
