@@ -3,9 +3,49 @@ branch: feature/ssc3-math
 agent: claude-code
 started: 2026-08-14T15:38:31Z
 heartbeat: 2026-08-14T15:38:31Z
-status: claimed-before-planning
+status: working
 items: SSC3-14
 paths: file:v3/prelude/index.ssc file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  SSC3-14 — `math`, planned in `v3/SPRINT.md` on 2026-08-13 and not started. (That file is claimed
+  by `bench-b4-three-version-table`, so this claim carries the plan, as SSC3-14b/c/13c/13d did.)
+
+  THE DATED MEASUREMENT WAS RE-TAKEN BEFORE CLAIMING, because a verdict is dated evidence. All four
+  cases still refuse with `unknown name 'math'`: `arithmetic` (17:9), `case-classes` (14:30),
+  `js-scala-fenced-block` (15:38), `sealed-traits` (20:27). v2 still has `f.sqrt`, `f.floor`,
+  `f.ceil`, `f.round`, `f.trunc` and still has NO `f.pow`.
+
+  THIS ONE SHOULD ACTUALLY MOVE N, AND THAT IS MEASURED RATHER THAN HOPED — the lesson of the three
+  N-neutral changes before it. I pasted a hand-written `object math` into a copy of each of the four
+  cases and ran them: ALL FOUR run to completion, so `math` is the LAST blocker in each, not merely
+  the first. Expect N 212 -> 216 if the output matches.
+
+  THE OUTPUT IS THE HARD PART, not the arithmetic. `tests/conformance/expected/arithmetic.txt` wants
+  `4`, `7`, `256` for `math.sqrt(16.0)`, `math.abs(-7)`, `math.pow(2.0, 8.0)` — a whole Double
+  renders without `.0` here — so "it runs" is not the bar and a hand-rolled Newton sqrt is not
+  acceptable.
+
+  THE SPLIT IS DECIDED BY WHAT v2 HAS, exactly as `hostPrims` was, because a v3-only prim breaks I-3:
+    sqrt, round, floor, ceil   -> v2 prims, reached through an `extern` in the prelude
+    Pi, abs                    -> pure ScalaScript, no prim
+    pow                        -> NO v2 prim; an INTEGER exponent is a loop and needs nothing
+
+  MATCH v2 EXACTLY, NOT SCALA. `v2/src/Runtime.scala:1437` implements `f.round` as `math.rint` —
+  banker's rounding returning a Double — NOT Scala's `math.round`, which is half-up and returns a
+  Long. They agree on the corpus's values and disagree at `.5`, so v3's executor must use `rint` or
+  the two lanes diverge on a case nobody has written yet. Same for the other three.
+
+  BOTH LANES, and that is where the work is: the bridge passes a prim through to v2, which already
+  has these, while `Exec` implements prims by name and has only the `io.*` family — so `Exec` gains
+  four cases or `ssc3 run` refuses what `ssc3 run --bridge` computes. That is the exact shape of the
+  divergence closed this morning in `v3-flatmap-nonlist-lane-divergence`, so it gets parity probes
+  in the same commit rather than a promise.
+
+  `pow` IS DELIBERATELY PARTIAL: an integer exponent is a multiply loop; a FRACTIONAL one needs
+  `exp`/`log`, which neither lane has, and must REFUSE by name rather than silently return a wrong
+  number. Measured: no corpus case uses a fractional exponent — `arithmetic` writes `pow(2.0, 8.0)`
+  and `js-scala-fenced-block` writes `pow(x - o.x, 2)`, both whole.
+
+  MEASUREMENT: N with floors DIFF 3 and CRASH 9, the four cases read INDIVIDUALLY against their
+  checked-in expectations, and lane agreement probed for every new prim.
+next: prelude object + hostPrims + Exec prims, then parity probes, then measure
