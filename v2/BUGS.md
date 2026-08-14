@@ -2131,27 +2131,47 @@ println(A.render("x"))                       ->  x/info      (native run, same f
 [M](./m.ssc); println(M.render("x"))         ->  x/info      (native run, imported module)
 ```
 
-**WHAT DISCRIMINATES THE TWO IS NOT YET MEASURED, and the first version of this entry asserted it.**
-It said "the failing path is the SERVE path specifically", on the strength of `(backend=fast)` in the
-server log. That is an inference. What is measured is narrower and is stated as such:
+**THE DISCRIMINATOR IS THE TIER, AND IT IS NOW MEASURED.** The first version of this entry asserted
+"the SERVE path specifically" on the strength of `(backend=fast)` in the log; that was an inference
+and was retracted. The pair it rested on differed in TWO ways at once — serve vs render AND native
+tier vs tools tier — so one more cell was needed. It costs one run:
 
-| invocation | result |
-|---|---|
-| `bin/ssc <file>` — native tier, serves, `backend=fast` | `arity: 3 expected, 2 given` |
-| `bin/ssc-tools render <file>` — tools tier, headless | 4076 bytes of correct HTML |
+| | over HTTP, `backend=fast` | without HTTP |
+|---|---|---|
+| **interpreter** (`ssc-tools run --v1`) | **4076 bytes, the correct page** | headless `render` also correct |
+| **native** (`bin/ssc`) | **54 bytes, `arity: 3 expected, 2 given`** | a defaulted method called short WORKS (synthetic controls) |
 
-Those two differ in **two** ways at once — serve vs render, and native tier vs tools tier — so the
-pair cannot separate them. Three controls were run and none closed it: `bin/ssc run <file>` on this
-example also serves (it is a server program, so `run` and serve are the same path here);
-`ssc-tools serve --port N <file>` misparses, serving on 8080 with `N` taken as the ROOT directory;
-and `ssc info --front-report` answers `BOTH-UNBOUND` for both the demo and the component, because
-`css` and `scope` are plugin names a static pre-check cannot bind — the limitation
-`tests/BUGS.md both-unbound-is-mostly-plugin-intrinsics-not-user-error` already records.
+**The interpreter serves the same file, on the same port, through the same `backend=fast` engine,
+and answers correctly.** So the HTTP engine is exonerated and the failing variable is the TIER.
+`ssc-tools render` is the interpreter too — `RenderCmd` constructs
+`scalascript.interpreter.Interpreter(headless = true)` — which is why the headless half never
+showed this: both of the working rows above are the interpreter.
 
-**The next measurement**, therefore, is a program that holds one of the two variables fixed: the same
-defaulted call reached through the tools tier's HTTP path, or through the native tier's non-HTTP
-path. Whoever takes this should get that before touching code — the fix site differs completely
-depending on the answer.
+**What is still open, stated precisely so the next person does not re-derive it.** Native + non-HTTP
+works on SYNTHETIC programs — an object with a defaulted method, called short, in the same file and
+from an imported module. So it is not "the native tier cannot do defaults". Something about THIS
+program's shape is required, and the two candidates the evidence allows are: the call happening
+inside a route handler invoked as a closure by the host, or the defining modules also using the
+plugin names `scope`/`css` (which is what makes `front-report` answer `BOTH-UNBOUND` for them and
+why that instrument cannot help here).
+
+**That measurement was made, and it ELIMINATES one of the two candidates.** A native, non-HTTP
+program calling a defaulted method on an object that uses `scope(...)` and `s.css(...)`, defined in
+an imported module — the exact shape of `Alert` — prints `root__Zz|t|info`. **`scope`/`css` is not
+the trigger.** So the surviving candidate is the remaining one: the call happens inside a route
+handler that the host invokes as a closure.
+
+**AND A METHOD CORRECTION, because two attempts at the obvious next step failed the same way.**
+Building a minimal server UP from scratch — front-matter `routes:`, a `home` handler, one defaulted
+call — produced a program that starts silently and binds nothing. That is not a native-tier finding:
+run through `ssc-tools run --v1`, **the interpreter does exactly the same**, so the hand-written file
+is simply malformed rather than reproducing anything. An artifact that fails for an unknown reason
+is not evidence.
+
+**So reduce by CUTTING `examples/components-demo.ssc` DOWN, not by building a server up** — by
+declaration, keeping the file legal at every step, and re-checking that it still reproduces. That is
+the discipline `tests/BUGS.md a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration`
+already records, and this entry is another instance of paying for skipping it.
 
 **This entry exists because a THIRD WITNESS was stale for nine days.**
 `tests/e2e/render-smoke.sh` carried a documented known gap pointing at
