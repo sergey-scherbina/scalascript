@@ -5,7 +5,7 @@ started: 2026-08-14T18:55:05Z
 heartbeat: 2026-08-14T18:55:05Z
 status: in-progress
 items: v2-map-updated-copies-the-whole-map
-paths: file:v2/src/Runtime.scala file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:v2/runtime/std/json-plugin/src/main/scala/ssc/plugin/json/NativeJsonCodec.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:v2/BUGS.md file:bench/history.tsv file:TASK/v2-perfomance.md file:tests/e2e/v2-map-updated-shape-gate.sh file:scripts/smoke-ci.ssc
+paths: file:v2/src/Runtime.scala file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:v2/runtime/std/json-plugin/src/main/scala/ssc/plugin/json/NativeJsonCodec.scala file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/NativeUiPortable.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:v2/BUGS.md file:bench/history.tsv file:TASK/v2-perfomance.md file:tests/e2e/v2-map-updated-shape-gate.sh file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
