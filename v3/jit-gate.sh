@@ -311,7 +311,19 @@ check_identity() {
     # room to change what a program prints, and it gets its own comparison rather than riding on
     # the specializer's.
     noopt="$(v3/ssc3 exec --no-optimize "$f" 2>&1)"
-    if [ "$on" != "$noopt" ]; then
+    # SSC3-J4a: a FIFTH arm, and the fourth does not cover it. `--no-optimize` turns off copy
+    # propagation AND the loop-invariant const lift together, so one pass changing a program's
+    # output could be masked by the other changing it back — unlikely, but "unlikely" is the word a
+    # differential exists to replace. The lift also MOVES an instruction across a loop boundary,
+    # which is the only rewrite in this file that changes WHEN something executes rather than what
+    # it computes, so it gets its own arm.
+    nohoist="$(v3/ssc3 exec --no-hoist "$f" 2>&1)"
+    if [ "$on" != "$nohoist" ]; then
+      echo "  FAIL $name — HOISTING loop-invariant constants changed the output:"
+      diff <(printf '%s\n' "$nohoist") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-hoist, right = default."
+      fail=1
+    elif [ "$on" != "$noopt" ]; then
       echo "  FAIL $name — OPTIMIZING changed the output:"
       diff <(printf '%s\n' "$noopt") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-optimize, right = default."

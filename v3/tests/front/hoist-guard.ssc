@@ -1,0 +1,24 @@
+// hoist-guard — SSC3-J4a's guard, and the only program that exercises it.
+//
+// `k` is assigned a literal at the TOP LEVEL of the loop body and reassigned, also at top level,
+// before the next iteration — so the register holding it is written more than once and the first
+// write is exactly the shape `Optimize.hoist` looks for. Lifting it would leave 99 standing for
+// every iteration after the first: 10 + 10 + 10 = 30 would become 10 + 99 + 99 = 208. The
+// `writes(d) == 1` condition is what refuses the lift.
+//
+// Measured 2026-08-14: of 127 programs across bench/corpus, v3/tests/front and v3/tests/jit, only
+// two had a loop-level `Const` on a multiply-written register and BOTH were corpus files, which no
+// gate runs for output — so weakening the guard to `writes(d) >= 1` left every gate GREEN. This
+// fixture is that hole closed, and it was itself checked by planting the weakened guard.
+def workload(): Int =
+  var acc = 0
+  var k = 0
+  var i = 0
+  while i < 3 do
+    k = 10
+    acc = acc + k
+    k = 99
+    i = i + 1
+  acc
+
+println(workload())

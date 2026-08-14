@@ -33,10 +33,19 @@ object Optimize:
     * be switched off in ONE binary has to be measured across two builds, and this repository has
     * paid for that: two class directories of the same tree is how J1c was measured, and its control
     * could not see the load that moved between them. */
+  // COPY PROPAGATION RUNS FIRST, and the order is a measurement rather than a preference. The front
+  // lowers `k = 10` inside a loop as `Const -> rTmp` then `Move(rK, rTmp)`, so on the RAW body the
+  // constant's own register is written once and looks liftable — and lifting it separates the pair
+  // copy propagation would have collapsed into a single `Const -> rK`, trading a fused instruction
+  // for a hoisted one and gaining nothing. Folded first, the same code reads `Const -> rK` with `rK`
+  // written twice, which the guard below correctly refuses. Same two passes, opposite outcome, and
+  // `v3/tests/front/hoist-guard.ssc` is the program that tells them apart: it prints 30 in this
+  // order and 297 in the other.
   def module(m: Module, hoistConsts: Boolean): Module =
     m.copy(funcs = m.funcs.map { f =>
-      val lifted = if hoistConsts then f.copy(body = hoist(f, f.body, writeCounts(f))) else f
-      lifted.copy(body = copyProp(lifted))
+      val folded = f.copy(body = copyProp(f))
+      if hoistConsts then folded.copy(body = hoist(folded, folded.body, writeCounts(folded)))
+      else folded
     })
 
   // ── loop-invariant constants ───────────────────────────────────────────────────────────────────
