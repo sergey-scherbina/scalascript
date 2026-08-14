@@ -3,9 +3,14 @@ branch: feature/ssc3-j1c-quiet
 agent: claude-code
 started: 2026-08-14T13:10:59Z
 heartbeat: 2026-08-14T13:10:59Z
-status: claimed-before-planning
-items: SSC3-J1c
+status: in-progress
+items: SSC3-J1c SSC3-J2
 paths: file:v3/src/Exec.scala file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md file:v3/bench-ab.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  specs/ssc3-jit.md §10.1 asks whoever gets a quiet machine to re-run J1b, J1c and J1d. J1d was
+  re-run (4584fe61d), J1b came back a WIN and overturned the board (7fe1b7525). This slice takes
+  the remaining two, and it starts with J2 rather than J1c on purpose: J2's lane is LIVE behind
+  `ssc3 exec --closures`, so it is one binary and no port, while J1c's executor lane was reverted
+  out of a file that has since gained 373 lines. J2's verdict is also the least trustworthy in the
+  ladder -- it was taken at host load 69-96, the loudest run in the whole history.
+next: record the J2 quiet re-measurement, then state the J1c position with its port cost
