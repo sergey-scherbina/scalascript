@@ -1,3 +1,69 @@
+## f-compiler-crashes-with-no-arm-for-cons2 — a member call on a `given … with` object
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none — open defect -->
+
+**F's COMPILER crashes**, rather than F declining a construct. Five lines:
+
+```scalascript
+trait M:
+  def empty: Int
+given intM: M with
+  def empty: Int = 7
+def main(): Unit = println(intM.empty)
+```
+
+```
+F     ssc: match: no arm for Cons/2
+ref   7
+```
+
+`intM.f(4)` — a member WITH arguments — fails identically, so it is not about the parameterless
+form. There is no `summon` anywhere in the reproducer.
+
+**Third in the census's GAP ranking**, and all five files report this exact string:
+`examples/typeclass.ssc`, `tests/conformance/std-index.ssc`, `std-monaderror.ssc`,
+`std-semigroup-monoid.ssc`, `tagless-multi-file.ssc`. Every one of them calls a given by NAME —
+`intShow.show(42)`, `intSum.combine(…)` — which is the shape above.
+
+**NOT a regression from 2026-08-14's four F fixes.** Reproduced on the toolchain built from
+`348579049`, which predates all of them: same message, same two shapes.
+
+### What is ruled out, measured rather than assumed
+
+| shape | F |
+| --- | --- |
+| `intM.empty` — given by name | **crash** |
+| `intM.f(4)` — given by name, with args | **crash** |
+| `summon[M].empty` | **crash** |
+| `summon[M]` with no member | fine (`<foreign>`, same as the reference) |
+| `val x = summon[M]` then `x.empty` | **fine** — 0, agrees |
+| `def z[A](xs: List[A])(using m: M[A]) = m.empty` | fine — the receiver is a local |
+| `z[Int].toString` — a parameterless generic def | fine |
+| `mk[Int](3).length` — type application then member | fine |
+
+So it is neither `summon` nor type application: **the receiver being the given's own global name is
+what breaks it.** Bind the same value to a local first and the member call compiles.
+
+### Where to start looking, and what the message means
+
+`no arm for Cons/2` is F's runtime rejecting a `Cons` value at a match whose arms are `Pair`/`Tuple2`
+— `genPairArm` emits `(arm Pair 2 …) (arm Tuple2 2 …)` for a 2-tuple pattern and no `Cons` arm. So
+some list is reaching a site that destructures a PAIR. The given-table lookups are built out of
+nested pairs and matched that way — `findGivenF1` does `h match { case (gtype, gname) => gtype match
+{ case (gtc, gt) => … } }` — and one of those entries is arriving as a list.
+
+**Not verified.** The obvious suspect has been wrong twice in this area on consecutive days
+(`parseConsArm1` yesterday, `(global Parser)` the day before), so this names a place to instrument,
+not a cause. The cheap next step is to print the table shape from a driver rather than to read
+further: the crash is inside F's own execution, so an F0 IR dump of `collectGivenReg`/`givenTabOf`
+output on this five-line file answers it directly.
+
 ## f-cons-pattern-with-a-nil-tail-loses-the-head-binder — `case h :: Nil` declines, `case h :: t` does not
 
 <!-- status: fixed
