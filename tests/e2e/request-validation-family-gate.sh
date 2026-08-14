@@ -26,6 +26,15 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 PORT="${SSC_REQUEST_VALIDATION_PORT:-8797}"
+
+# A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
+# and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
+# below treat as "the port is foreign". Measured here: one gate where the source line was forgotten
+# reported `:8769 is held by a process this gate did not start` on two lanes that were healthy.
+# shellcheck source=lib/own-server.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
+  echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
+  echo "  than report a healthy server as foreign." >&2; exit 2; }
 export SSC_NO_BUILD_CHECK=1
 echo "── request validation family (native lane)"
 
@@ -66,12 +75,19 @@ lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
 # 25.4s while PASSING standalone in 5s. A boot timeout that prints "never listened" reads as a
 # product failure, which is the same fault I diagnosed in six other gates: a deadline sized on an
 # idle host, reported as if it were the defect being hunted.
-( timeout 120 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
+# The pid is RECORDED rather than the launch restructured. `( cmd & )` detaches on purpose so the
+# script never waits on it, and `$!` inside the subshell is the `timeout` wrapper — its child is the
+# server, which `assert_own_listener` handles because it compares process TREES. Without a pid the
+# ownership question is simply unanswerable here, and this gate shares 8797 with
+# `route-params-v2-smoke.sh`. (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
+( timeout 120 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & echo $! > "$WORK/server.pid" )
 deadline=$(( $(date +%s) + 60 ))
 until [ -n "$(curl -sS -m 3 "http://localhost:$PORT/req?s=a&i=1&d=2.5&b=yes" 2>/dev/null)" ]; do
   [ "$(date +%s)" -ge "$deadline" ] && { echo "✗ the server never listened"; sed 's/^/    /' "$WORK/server.log" | head -6; exit 1; }
   sleep 1
 done
+assert_own_listener "$PORT" "$(cat "$WORK/server.pid" 2>/dev/null || echo 0)" "native" || {
+  echo "✗ :$PORT is answering, but not from the server this gate started"; exit 1; }
 
 fail=0
 check() {  # $1 label | $2 query | $3 substring that must be present | $4 substring that must be ABSENT
@@ -122,14 +138,17 @@ check_status "native: absent required field is a client error" "$PORT" "req" 400
 V1_PORT=$(( PORT + 1 ))
 sed "s/serve($PORT)/serve($V1_PORT)/" "$WORK/app.ssc" > "$WORK/app-v1.ssc"
 lsof -ti :"$V1_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
-( timeout 120 "$BIN/ssc-tools" run --v1 "$WORK/app-v1.ssc" > "$WORK/server-v1.log" 2>&1 & )
+( timeout 120 "$BIN/ssc-tools" run --v1 "$WORK/app-v1.ssc" > "$WORK/server-v1.log" 2>&1 & echo $! > "$WORK/server-v1.pid" )
 v1_deadline=$(( $(date +%s) + 60 ))
 v1_up=0
 while [ "$(date +%s)" -lt "$v1_deadline" ]; do
   if [ -n "$(curl -sS -m 3 "http://localhost:$V1_PORT/req?s=a&i=1&d=2.5&b=yes" 2>/dev/null)" ]; then v1_up=1; break; fi
   sleep 1
 done
-if [ "$v1_up" = "1" ]; then
+if [ "$v1_up" = "1" ] && ! assert_own_listener "$V1_PORT" "$(cat "$WORK/server-v1.pid" 2>/dev/null || echo 0)" "v1"; then
+  echo "  ✗ :$V1_PORT is answering, but not from the v1 server this gate started"
+  fail=1
+elif [ "$v1_up" = "1" ]; then
   check_status "v1: absent required field is a client error" "$V1_PORT" "req" 400 "missing field: s"
 else
   echo "  ✗ v1 lane never listened — the parity half of this gate did not run"

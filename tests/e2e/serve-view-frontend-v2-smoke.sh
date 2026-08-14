@@ -17,6 +17,26 @@ EX="$ROOT/../examples/content-introspection.ssc"
 # (orphaned-e2e-gates-52.)
 BIN="$ROOT/../bin/ssc-tools"
 PORT=8099
+
+# THIS GATE IS THE ONE WHERE OWNERSHIP IS DECISIVE, not defence in depth, and it was measured rather
+# than argued. Its whole verdict is `http=200` plus a `frontend=` string scraped from its OWN LOG —
+# neither of which comes from the response body — so ANY foreign 200 satisfies it. Planted
+# 2026-08-14 with the launcher replaced by a script that prints the frontend line and sleeps, and a
+# python server holding :8099:
+#
+#     --v2: http=200 frontend=react swiftui-crash=0      ← the exact string this gate calls a PASS
+#
+# Nothing of ours had bound. That is the instance
+# `a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own` was filed without.
+# A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
+# and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
+# below treat as "the port is foreign". Measured here: one gate where the source line was forgotten
+# reported `:8769 is held by a process this gate did not start` on two lanes that were healthy.
+# shellcheck source=lib/own-server.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
+  echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
+  echo "  than report a healthy server as foreign." >&2; exit 2; }
+
 trap 'lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
 run_lane() {
     local lane="$1"
@@ -28,6 +48,11 @@ run_lane() {
         curl -sS -o /dev/null -m 1 "http://localhost:$PORT/" 2>/dev/null && break
         sleep 0.5
     done
+    if ! assert_own_listener "$PORT" "$pid" "$lane"; then
+        kill "$pid" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
+        echo "$lane: http=FOREIGN-SERVER"
+        return
+    fi
     local code; code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://localhost:$PORT/")
     local fe;   fe=$(grep -oE "frontend=[a-z]+" "/tmp/serve-view-$lane.log" | head -1)
     # `grep -c` PRINTS 0 and EXITS 1 when there are no matches, so `|| echo 0` appended a SECOND

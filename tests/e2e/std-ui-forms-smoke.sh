@@ -28,6 +28,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/demo.ssc"
 PORT=8769
+
+# A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
+# and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
+# below treat as "the port is foreign". Measured here: one gate where the source line was forgotten
+# reported `:8769 is held by a process this gate did not start` on two lanes that were healthy.
+# shellcheck source=lib/own-server.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
+  echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
+  echo "  than report a healthy server as foreign." >&2; exit 2; }
 INT_ERR="${TMPDIR:-/tmp}/std-ui-forms-int.err"
 
 trap 'pkill -9 -f "examples/std-ui/demo\.ssc" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
@@ -118,6 +127,17 @@ run_serve_backend() {
         kill -9 $pid 2>/dev/null
         echo "  [skip] $label: server did not start within 90s"
         return 0
+    fi
+    # `wait_for_server` polls the PORT, and this gate shares 8769 with `health-defaults-smoke.sh`
+    # (a frozen pair in `no-leaked-servers.sh`), so what answered may be a neighbour's server or a
+    # leak from one. A foreign server is a FAILURE here and not a `[skip]`: the two skips above are
+    # environmental — a launcher that could not compile — while this one means the port is not ours
+    # and the marker assertions below would be reading somebody else's page.
+    # (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
+    if ! assert_own_listener "$PORT" "$pid" "$label"; then
+        kill -9 $pid 2>/dev/null
+        echo "  [FAIL] $label: :$PORT is held by a process this gate did not start"
+        return 1
     fi
     local body
     body=$(curl -sS "http://localhost:$PORT/")

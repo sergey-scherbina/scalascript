@@ -15,6 +15,15 @@ EXAMPLE="$ROOT/examples/health-defaults.ssc"
 BIN="$ROOT/bin"
 PORT=8769
 
+# A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
+# and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
+# below treat as "the port is foreign". Measured here: one gate where the source line was forgotten
+# reported `:8769 is held by a process this gate did not start` on two lanes that were healthy.
+# shellcheck source=lib/own-server.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
+  echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
+  echo "  than report a healthy server as foreign." >&2; exit 2; }
+
 trap 'pkill -9 -f "examples/health-defaults\.ssc" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
 
 kill_port() {
@@ -93,6 +102,18 @@ run_backend() {
             echo "[FAIL] $label: server did not start before the deadline"
         fi
         echo "       log: /tmp/health-smoke-$label.log"
+        return 1
+    fi
+
+    # Something answered — but whose? This port is shared with `std-ui-forms-smoke.sh` (one of the
+    # three pairs frozen in `no-leaked-servers.sh`), so a neighbour's run, or a leak from one, would
+    # satisfy the poll above. Here it is defence in depth rather than the whole verdict — the body
+    # assertions below would also reject a foreign server, by its wrong answer — but "would also"
+    # is not "does", and the failure it prints names the holder instead of blaming the body.
+    # (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
+    if ! assert_own_listener "$PORT" "$pid" "$label"; then
+        kill -9 $pid 2>/dev/null
+        echo "[FAIL] $label: :$PORT is held by a process this gate did not start"
         return 1
     fi
 

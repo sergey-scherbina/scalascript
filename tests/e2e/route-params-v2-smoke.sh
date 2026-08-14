@@ -28,8 +28,14 @@ FIXTURE="$ROOT/e2e/fixtures/route-params-smoke.ssc"
 BIN="$ROOT/../bin/ssc-tools"
 PORT=8797
 
+# A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
+# and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
+# below treat as "the port is foreign". Measured here: one gate where the source line was forgotten
+# reported `:8769 is held by a process this gate did not start` on two lanes that were healthy.
 # shellcheck source=lib/own-server.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
+  echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
+  echo "  than report a healthy server as foreign." >&2; exit 2; }
 
 trap 'lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
 

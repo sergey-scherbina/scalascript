@@ -57,10 +57,14 @@ assert_own_listener() {
   local pids p
   pids="$(listener_pids "$port")"
 
+  # EVERYTHING THIS FUNCTION PRINTS GOES TO STDERR, and that is not tidiness. Gates call their
+  # lane function inside a command substitution — `V1=$(run_lane --v1)` — so anything written to
+  # stdout is CAPTURED INTO THE RESULT STRING instead of shown. Measured on the first wiring: the
+  # foreign-server diagnostic ended up embedded in the gate's own verdict line and printed twice.
   if [[ -z "$pids" ]]; then
     # Nothing is listening. Either lsof cannot see sockets here, or the caller asked before the
     # server bound — both are the caller's problem to report, and neither is a foreign server.
-    echo "  · $label: no listener visible on :$port — ownership NOT checked (lsof saw nothing)"
+    echo "  · $label: no listener visible on :$port — ownership NOT checked (lsof saw nothing)" >&2
     return 0
   fi
 
@@ -70,10 +74,10 @@ assert_own_listener() {
     fi
   done
 
-  echo "  [FAIL] $label: :$port is answering, but NOT from the process this gate started (pid $pid)."
-  echo "         Whatever replied would have made this gate GREEN with its launcher broken."
+  echo "  [FAIL] $label: :$port is answering, but NOT from the process this gate started (pid $pid)." >&2
+  echo "         Whatever replied would have made this gate GREEN with its launcher broken." >&2
   for p in $pids; do
-    echo "         holder pid=$p  age=$(ps -o etime= -p "$p" 2>/dev/null | tr -d ' ')  cmd=$(ps -o command= -p "$p" 2>/dev/null | cut -c1-90)"
+    echo "         holder pid=$p  age=$(ps -o etime= -p "$p" 2>/dev/null | tr -d ' ')  cmd=$(ps -o command= -p "$p" 2>/dev/null | cut -c1-90)" >&2
   done
   return 1
 }
