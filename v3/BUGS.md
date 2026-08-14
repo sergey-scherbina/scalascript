@@ -6,6 +6,85 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-extern-member-in-an-object-has-no-meaning — one front refuses it, the other silently makes it an unpositioned crash
+
+<!-- status: open
+     lane: v3
+     area: front
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-14 -->
+
+**`object math: extern def sqrt(x: Double): Double` is not expressible, and the two fronts fail
+differently — which is the part that matters.**
+
+    SSC3_FRONT=v3   ssc3: …:2:3: only `def` members are supported in a object at Tier 0, found extern
+    uniml (default) (def "sqrt" (params (p "x")) (prim "__throw__" (str "an implementation is missing (`???`)")))
+
+v3's own parser REFUSES, with a position, which is honest. uniml DROPS THE KEYWORD and gives the
+member the body it gives any bodyless member — proved by a control: a member written without
+`extern` at all projects to the identical `???`. So on the default front the declaration is accepted
+and the program dies at run time with **no position and no name**, which `corpus-report.sh`
+classifies CRASH rather than UNSUPPORTED.
+
+**Found while wiring `math` (SSC3-14).** Worked around by declaring the four host hooks at TOP
+LEVEL — `__mathSqrt`, `__mathFloor`, `__mathCeil`, `__mathRound` — with `object math` delegating.
+The `__` prefix is not decoration: the prelude loads for every program, so a bare `sqrt` there would
+shadow a program's own.
+
+**A `Lower` change for this was written and REVERTED rather than shipped.** Resolving `hostPrims`
+over object members is correct and unreachable — no front produces an abstract object member for it
+to act on — and dead code that looks like support is worse than none. The comment at the
+`objectDefs` site records this so the next reader does not re-derive it. When a front learns the
+keyword, that is the line to add back.
+
+**The fix is a FRONT pair**: v3's parser accepts `extern` as an object member and marks the def
+abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
+shape.
+
+## v3-math-pow-fractional-needs-a-v2-prim — a fractional exponent has no answer on the bridge, and no v3-only fix can match
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: v3/tests/parity/math-pow.ssc (integer exponents only)
+     found-by: claude-code
+     found-at: 2026-08-14 -->
+
+**`math.pow` (SSC3-14) is partial: an integer exponent is a multiply loop, a fractional one raises
+with a message naming the reason.** The owner asked for that to be fixed. It can be, in one line —
+but not in v3.
+
+**WHAT A FIX HAS TO MATCH, measured before choosing one:**
+
+    reference lane   pow(2.0, 0.5) = 1.4142135623730951
+                     pow(2.0, 0.1) = 1.0717734625362931
+                     pow(10.0,1.5) = 31.622776601683793
+
+libm-exact, bit for bit what JVM `Math.pow` gives. **That rules out every approximation.** A
+ScalaScript series, or the repeated-sqrt expansion — which is the tempting one, since `b^f` follows
+from the binary expansion of `f` and BOTH lanes already have `f.sqrt` — lands within about 1e-12 and
+differs in the last bits, so v3 would disagree with the reference on every fractional pow. Replacing
+an honest refusal with a plausible wrong number is the defect this repository keeps paying for.
+
+**AND IT CANNOT BE DONE ON ONE LANE.** v3's executor could call `Math.pow` in a line; the bridge
+emits `(prim …)` to v2, and v2 has no `f.pow`, no `f.exp` and no `f.log` — checked name by name
+against `v2/src/Runtime.scala`. A v3-only prim runs on the executor and is refused by the bridge,
+which is invariant I-3 and exactly the defect closed this morning in
+`v3-flatmap-nonlist-lane-divergence`.
+
+**THE FIX**, beside the existing `f.sqrt` at `v2/src/Runtime.scala:1434`:
+
+    case "f.pow" => a => FloatV(math.pow(flt(a, 0), flt(a, 1)))
+
+then v3 wires it exactly as it wired `f.sqrt`: a `hostPrims` entry, an `Exec` case, and a prelude
+`def pow(b: Double, e: Double) = __mathPow(b.toDouble, e.toDouble)`. Additive — nothing currently
+emits that name.
+
+**NOT TAKEN, because `v2/src/Runtime.scala` is held by the `rust-toint-lane-parity` claim.** Asked
+for in the room. This is the second item today blocked on that one file; see the
+`v2-bytecode-map-ops` release note, which stopped for the same reason.
+
 ## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wraps on native, refuses on the v2 VM, and v3 must pick one
 
 <!-- status: open
