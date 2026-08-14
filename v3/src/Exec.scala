@@ -1901,6 +1901,11 @@ object Exec:
     // where one line in ScalaScript serves both lanes and `math.sqrt(16)` works on each. That is
     // the same rule the IO entries follow: when the lanes must agree, put the adaptation ABOVE the
     // prim, never inside one lane's copy of it.
+    // BINARY, so it reads both arguments — and it is `Math.pow`, matching v2's `math.pow` and the
+    // reference lane bit for bit. `pow(2.0, 0.1)` is 1.0717734625362931 on every lane; a series or
+    // a repeated-sqrt expansion would land ~1e-12 out, which is why this waited for a v2 prim
+    // instead of being approximated in the prelude.
+    case "f.pow"   => Value.VFloat(Math.pow(dbl(args.head, "f.pow"), dbl(args(1), "f.pow")))
     case "f.sqrt"  => Value.VFloat(Math.sqrt(dbl(args.head, "f.sqrt")))
     case "f.floor" => Value.VFloat(Math.floor(dbl(args.head, "f.floor")))
     case "f.ceil"  => Value.VFloat(Math.ceil(dbl(args.head, "f.ceil")))

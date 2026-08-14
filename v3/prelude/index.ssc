@@ -174,10 +174,13 @@ prim for it would run on the executor and be refused by the bridge — the diver
 exists to forbid — and `pow` is written in ScalaScript here instead, where one implementation
 serves both lanes.
 
-**`pow` is deliberately PARTIAL and says so out loud.** An integer exponent is a multiply loop and
-needs nothing; a fractional one needs `exp` and `log`, which NEITHER lane has. So a fractional
-exponent raises rather than returning a plausible wrong number — the corpus writes `pow(2.0, 8.0)`
-and `pow(x - o.x, 2)`, both whole, so nothing that works is refused by this.
+**`pow` was PARTIAL for a day and is not any more.** It raised on a fractional exponent, because
+v2 had no `f.pow` and no `f.exp`/`f.log` either, and every v3-only workaround was ruled out by
+measurement: the reference lane is libm-exact (`pow(2.0, 0.1)` = 1.0717734625362931), so a
+ScalaScript series or the repeated-sqrt expansion — tempting, since both lanes already had
+`f.sqrt` — differs in the last bits. The owner's decision of 2026-08-14 put `f.pow` in v2's kernel
+beside `f.sqrt`, across all five backends and the Core IR spec, so this is now one libm call on
+every lane.
 
 **`round` follows v2 to the letter and that is not pedantry.** v2 implements `f.round` as `rint` —
 half-to-EVEN, returning a Double — and not as Scala's `math.round`, which is half-up and returns a
@@ -192,6 +195,7 @@ body it gives any bodyless one. So they are declared beside `object math`, which
 for EVERY program. Filed as `v3-extern-member-in-an-object-has-no-meaning`.
 
 ```scalascript
+extern def __mathPow(b: Double, e: Double): Double
 extern def __mathSqrt(x: Double): Double
 extern def __mathFloor(x: Double): Double
 extern def __mathCeil(x: Double): Double
@@ -218,19 +222,9 @@ object math:
   def max(a: Any, b: Any): Any = if a > b then a else b
   def min(a: Any, b: Any): Any = if a < b then a else b
 
-  // A MULTIPLY LOOP, and the refusal above it is the point: without `exp`/`log` on either lane a
-  // fractional exponent has no answer here, and returning `b` multiplied a truncated number of
-  // times would be a silently wrong one.
-  def pow(b: Double, e: Double): Double =
-    if e != e.toInt.toDouble then
-      throw RuntimeException("math.pow: a fractional exponent needs exp/log, which no lane has")
-    else
-      var n = e.toInt
-      var neg = n < 0
-      if neg then n = -n
-      var r = 1.0
-      while n > 0 do
-        r = r * b
-        n = n - 1
-      if neg then 1.0 / r else r
+  // ONE libm call on every lane, since `f.pow` became a kernel prim (2026-08-14). It used to be a
+  // multiply loop that RAISED on a fractional exponent, because v2 had no prim and an
+  // approximation would have disagreed with the reference lane in the last bits — the loop and its
+  // refusal are gone with the reason for them.
+  def pow(b: Double, e: Double): Double = __mathPow(b.toDouble, e.toDouble)
 ```

@@ -2542,6 +2542,7 @@ object Lower:
     // `v2/src/Runtime.scala:1434-1437`, and `f.pow` is NOT. A v3-only prim would run on the
     // executor and be refused by the bridge, which is the divergence this table exists to prevent
     // — so `pow` is written in ScalaScript in the prelude, where one implementation serves both.
+    "__mathPow"   -> (as => p => Expr.Prim("f.pow", as, p)),
     "__mathSqrt"  -> (as => p => Expr.Prim("f.sqrt", as, p)),
     "__mathFloor" -> (as => p => Expr.Prim("f.floor", as, p)),
     "__mathCeil"  -> (as => p => Expr.Prim("f.ceil", as, p)),
