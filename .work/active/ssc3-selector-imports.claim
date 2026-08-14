@@ -5,7 +5,7 @@ started: 2026-08-14T09:10:59Z
 heartbeat: 2026-08-14T09:10:59Z
 status: working
 items: SSC3-14c
-paths: file:v3/src/Source.scala file:v3/loader-gate.sh
+paths: file:v3/src/Source.scala file:v3/loader-gate.sh file:v3/src/Loader.scala file:v3/src/Parser.scala
 scope: |
   SSC3-14c — `import a.b.{X, Y}`, the owner's decision of 2026-08-14: "списки имен в импортах
   должны работать". Today both fronts refuse it inside a fence and only v3's refuses it in a bare
@@ -55,4 +55,9 @@ scope: |
   MEASUREMENT: N with floors DIFF 3 and CRASH 9 against the same tree minus exactly this change, and
   the bare-file divergence probed on BOTH fronts before and after. Gates green is not evidence about
   N — v3's gates do not cover the corpus.
-next: widen `scalaImportPath`, prove both fronts agree on a bare file, then measure
+  WIDENED 2026-08-14 to `v3/src/Loader.scala` and `v3/src/Parser.scala`, BEFORE the edit, for the
+  DIAGNOSTIC and nothing else. Both carry a copy of the refusal text, and it now says selector lists
+  "have no meaning here" — false the moment this lands. `Parser.scala:1814` warns about exactly this
+  in its own comment: a stale message is the dangerous kind, because a reader deletes a line that
+  works. The decision logic stays in `Source.scalaImportPath`; these two edits are the wording.
+next: correct both copies of the refusal text, then measure N
