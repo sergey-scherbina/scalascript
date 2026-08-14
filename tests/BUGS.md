@@ -1,4 +1,4 @@
-## ci-smoke-was-red-for-eight-commits-and-nobody-stopped — the gate worked; nobody read it
+## ci-smoke-red-streak-nobody-stopped — the gate worked; nobody read it
 
 <!-- status: open
      lane: apparatus
@@ -9,10 +9,11 @@
      confirmed: yes
      gate: none -->
 
-**Measured from the CI run list on 2026-08-14, not inferred.** Eight consecutive `smoke.yml` runs
+**Measured from the CI run list on 2026-08-14, not inferred.** Nine consecutive `smoke.yml` runs
 failed, and every one of them failed on `freeze-consistency` **and nothing else**:
 
 ```text
+835c3cc44 07:41  success                             ← the last green before it
 4e93b86b9 07:47  failure   freeze-consistency        ← first red
 1a850406b 07:48  failure   freeze-consistency
 4129a265f 07:51  failure   freeze-consistency
@@ -20,21 +21,26 @@ bd7df2895 08:00  failure   freeze-consistency
 9654de5fc 08:12  failure   freeze-consistency
 88c5741f6 08:14  failure   freeze-consistency
 68f86d89c 08:15  failure   freeze-consistency
-330afc23c 08:55  failure   freeze-consistency        ← still red 68 minutes later
-835c3cc44 07:41  success                             ← the last green before it
+b4aa57ec9 08:53  failure   freeze-consistency
+330afc23c 08:55  failure   freeze-consistency        ← still red 68 minutes after the first
 ```
 
-Each run reported `95/96 green`. Different agents, eight pushes, sixty-eight minutes.
+Each run reported `95/96 green`. Different agents, nine pushes, sixty-eight minutes.
+
+**The count was EIGHT when first written, an hour earlier, and that is worth keeping.** `b4aa57ec9`
+was still `in_progress` at the time, so it was absent from the list I counted — a census taken over a
+queue is a lower bound until the queue drains, and nine more runs were still in flight when this was
+corrected. The same caution applies to anyone re-reading this entry: re-measure before quoting it.
 
 **The gate did its job.** `41ae217cd` removed the `known-red:` from a conformance case's front-matter
 and left the matching `KNOWN-RED` row in `corpus-baseline.tsv`; `freeze-consistency-gate` exists to
 refuse exactly that and did, immediately, with a message that names both halves and says *"removing a
 known-red means removing BOTH halves"*. Nothing about the detection failed.
 
-**What failed is that eight agents pushed on top of a red CI without looking.** This is the same
+**What failed is that nine agents pushed on top of a red CI without looking.** This is the same
 shape as `lint-markdown-standing-red`, closed the same morning, but strictly worse: that one was
 invisible to `scripts/ci-status` because it asks about `smoke.yml`. **This one WAS `smoke.yml`** — the
-one workflow every agent's own tooling reads — and it still went unnoticed for eight commits.
+one workflow every agent's own tooling reads — and it still went unnoticed for nine commits.
 
 **Two mechanisms, and they are separable:**
 
@@ -43,12 +49,12 @@ one workflow every agent's own tooling reads — and it still went unnoticed for
    level-3 release passed over the one gate that mattered. The full `scripts/smoke-ci` would have
    caught it, which is the argument for level 1 rather than for a longer level-3 checklist.
 2. **Nobody ran `scripts/ci-status` after pushing.** It is one command, it is what POLICY P-6.7 calls
-   the gold standard, and eight consecutive agents did not run it — myself included until I hit the
+   the gold standard, and nine consecutive agents did not run it — myself included until I hit the
    red locally and went looking for its history.
 
 **Not filed as "add a check".** A check already existed and was already red. The actionable part is
 the second mechanism, and it is a habit rather than a script: *after a push, read the CI you just
-triggered.* Recorded here so the next person who finds an eight-commit red has the census rather
+triggered.* Recorded here so the next person who finds a nine-commit red has the census rather
 than the impression.
 
 **Fixed for this instance** by removing the orphaned row and recomputing the paired digest; CI is
