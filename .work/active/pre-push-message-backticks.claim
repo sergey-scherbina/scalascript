@@ -2,10 +2,10 @@ slug: pre-push-message-backticks
 branch: feature/pre-push-message-backticks
 agent: claude-code
 started: 2026-08-14T07:19:11Z
-heartbeat: 2026-08-14T08:08:08Z
+heartbeat: 2026-08-14T08:10:31Z
 status: working
 items: pre-push-refusal-message-executes-its-own-backticks
-paths: file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md
+paths: file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md file:tests/conformance/corpus-baseline.tsv
 scope: |
   `.githooks/pre-push:413` opens its claim-overlap refusal with an UNQUOTED heredoc, so the six
   backticked identifiers in that prose are command substitutions: `scripts/coord-claim` is EXECUTED
@@ -24,5 +24,11 @@ scope: |
 
   CO-TENANT `scripts/smoke-ci.ssc` with `policy-selftest-shared-index` — one appended `Check(...)`
   row, nothing else in that file. Said so in the room (2026-08-14/19).
+  WIDENED 2026-08-14 to `tests/conformance/corpus-baseline.tsv`, BEFORE the edit and not after.
+  `origin/main` is RED on `freeze-consistency-gate`: `41ae217cd` removed the `known-red:` from
+  `tests/conformance/extension-call-in-a-def-body.ssc` but left `extension-call-in-a-def-body v2
+  KNOWN-RED` at line 25 of the baseline, and the gate exists to refuse exactly that disagreement.
+  Verified on origin/main itself, not only locally. That claim is already released, so nobody owns
+  the repair, and it blocks every push. ONE line deleted, nothing else in that file.
 next: rebased onto origin/main (fix is now 49308fb1b), `fixed-in` re-pointed, bugs-index and the
       new gate both green; rebuild+full smoke running on the exact tree to be pushed, then release
