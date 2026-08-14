@@ -1146,13 +1146,41 @@ Found by sweeping `tests/conformance` with the output-agreement comparison, whic
 for runtime (`f-worse-than-the-reference-on-five-conformance-files`). One of the five is now closed.
 ## f-worse-than-the-reference-on-five-conformance-files
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-11
      confirmed: yes
-     gate: none -->
+     fixed-in: 41ae217cd
+     gate: tests/e2e/f-output-agreement-gate.sh -->
+
+### CLOSED 2026-08-14 — both of this entry's claims, and only one of them was about F
+
+The entry makes two claims and they were repaired separately, so both are stated separately here.
+
+**The damage: all five rows agree now, and only ONE of them was F's fault.** Re-measured on the
+current build, F against the reference on each file:
+
+```
+char-literal-escapes          1|1|1                       AGREE   F was wrong   7dd1c17a7
+set-ops-infix                 Set(1,2,3,4)|Set(1,3)|Set(2) AGREE   reference     050fb98d2
+tkv2-hstack-wrap              8:2:false|default-built|…    AGREE   reference     85d305116
+multiblock-auto-output        2|20|explicit               AGREE   reference     374f6ce01
+extension-call-in-a-def-body  body-a                      AGREE   BOTH fronts   0428861ff + 41ae217cd
+```
+
+Four of the five rows were counted against F by an instrument that treats the reference front as an
+oracle; three of those were reference-front defects with F in the right, and the fifth was both
+fronts failing the same way for the same reason. The title's "F worse on five" was true of one file.
+
+**The cause: the exclusion this entry was written to protest is gone.** "The gate is NOT widened
+here" below was overtaken the very next day — `tests/conformance` has been in the subject list since
+2026-08-12 (`f-output-agreement-gate.sh:69`), which is how the last of the five rows was charged to
+F at all: the file only became a ceiling row once the corpus included it AND the reference lane
+became right about it. The 45s cap and `-P 8` are what made widening affordable; the timeouts the
+paragraph below feared are real and are absorbed by the TIMEOUT bucket, which can only remove rows
+from the ceiling.
 
 `tests/e2e/f-output-agreement-gate.sh` deliberately excludes `tests/conformance/` — 398 files —
 for runtime. This is the check on that decision, and it says the exclusion was hiding things: the
@@ -1189,7 +1217,7 @@ shows **5**.
 Three of the five are silent wrong answers rather than declines: the program runs and the answer
 differs. That is the class every worthwhile F fix this week came from.
 
-**The gate is NOT widened here.** 73 of 398 timed out at `-P 4` on a contended host, so folding
+~~**The gate is NOT widened here.**~~ (Overtaken 2026-08-12 — see the closing note above.) 73 of 398 timed out at `-P 4` on a contended host, so folding
 conformance in at the current cap would triple the runtime and add a load-dependent bucket to a gate
 whose thresholds are frozen. Widening it needs the timeout question answered first — a higher cap,
 more parallelism, or a curated subset — and that is a separate decision from recording what the
