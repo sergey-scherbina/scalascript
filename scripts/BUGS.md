@@ -16,7 +16,7 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none -->
+     gate: tests/coord/coord-release-refuses-unpushed-work.sh -->
 
 **Observed 2026-08-14, releasing a claim.** The first invocation printed **nothing at all** and did
 not release. The second, identical, refused:
@@ -63,6 +63,15 @@ fail, then require `git status --porcelain` to be empty and the claim file to be
 negative control is the pre-fix script, which must leave both leftovers — otherwise the check cannot
 fail. Same remedy as `clean-up-in-a-trap-because-the-leftover-blocks-the-next-agent`, and the third
 tool in this repo to need it.
+
+**Where the test goes, named 2026-08-14 so this entry is claimable.**
+`tests/coord/coord-release-refuses-unpushed-work.sh` — the lab that already forces `coord-release`
+down its failure branches, wired into `scripts/smoke-ci` as `coord-release-refuses-unpushed`. The
+case to add is a new one there, not a new file: force the COMMIT to fail rather than the push, then
+require `git status --porcelain` empty and the claim file present. It carries its own anti-constant
+cases already, which is the shape the negative control above needs.
+
+**Done when** that case passes against the fixed script and FAILS against the pre-fix one.
 
 ## build-ram-guard-selftest-measures-the-machine-not-itself — an intermittent red in the pre-push suite
 
@@ -122,7 +131,7 @@ kept `lint-markdown` red for seven commits, arriving from the other direction.
      lane: apparatus
      area: build
      kind: perf
-     gate: none -->
+     gate: tests/e2e/launcher-digest-gate.sh -->
 
 **Found 2026-08-13**, paid twice in one session. `scripts/launcher-input-digest` includes
 `scripts/` in the launcher input set — 62 files — and that set includes things the launcher does
@@ -166,13 +175,23 @@ of `scripts/` may genuinely reach the launcher. So the work is:
    refusal to still fire. An exclusion that also silences a true positive is the failure mode above.
 4. Count the saving honestly: how many pushes in a week touch only excluded files.
 
+**Where the test goes, named 2026-08-14 so this entry is claimable.**
+`tests/e2e/launcher-digest-gate.sh` already asserts both directions of exactly this property — *"a
+change under an INCLUDED path MUST change the digest"* and *"a change under an EXCLUDED path MUST
+NOT"* — in a throwaway worktree, and it is wired into `ci.yml`. Every step above lands as rows
+there: the new exclusions as EXCLUDED rows, and step 3's A/B as the INCLUDED row that must still
+fire. No new gate file, and the guard that matters keeps its existing coverage.
+
+**Done when** editing `scripts/coord-release` leaves the digest unchanged, a `v1/` edit still moves
+it, and both are rows in that gate.
+
 ## hand-made-claim-updates-have-no-tool-and-so-no-rollback — the landmine class that is left
 
 <!-- status: open
      lane: apparatus
      area: other
      kind: bug
-     gate: none -->
+     gate: tests/coord/coord-update-rolls-back.sh -->
 
 **Found 2026-08-13** while fixing the sibling defect in `scripts/coord-release`, which now rolls its
 commit back when the push is refused (`coord-claim` has done so since 2026-08-07). That leaves
@@ -212,6 +231,14 @@ refused for a stranger, and it blocks EVERY agent's next claim until somebody fi
 **Not built with the release fix on purpose:** that claim was one script's push branch, and a new
 command is new surface with its own gate. Filed with its acceptance test so the next agent can take
 it without re-deriving any of this.
+
+**Gate named 2026-08-14: `tests/coord/coord-update-rolls-back.sh`, which does not exist yet** — the
+four numbered requirements above are its cases, and case 4 is the anti-constant one. It belongs
+beside its siblings in `tests/coord/`, and the file to copy is
+`coord-release-refuses-unpushed-work.sh` cases 6 and 7.
+
+**Done when** `scripts/coord-update` exists and that gate passes, with case 4 failing against a
+version whose rollback is removed.
 
 ## coord-status-activity-lookup-reads-the-callers-cwd — a live claim reads as stale depending on where you stood
 
@@ -569,7 +596,7 @@ happened to be working.
      lane: apparatus
      area: build
      kind: apparatus
-     gate: none
+     gate: tests/e2e/bugs-index-gate.sh
      fixed-in: - -->
 
 Two findings, one cause: `POLICY.md` §P-3.3 describes a routing contract that no code implements.
@@ -603,6 +630,17 @@ red on 69 pre-existing entries the moment it landed — the "arrived red" shape 
 decide first whether those 69 are misfiled or whether the rule is wrong about them, and that is a
 judgement, not a sweep. The cheap half is 2: adding the six missing lanes costs a row each and
 makes the other two answerable.
+
+**Gate named 2026-08-14: `tests/e2e/bugs-index-gate.sh`** — the gate `POLICY.md` §P-3.3 already
+claims catches this and does not. It reads every entry's header on every push, so the comparison
+belongs there and nowhere else; what it lacks is `tests/fixtures/modules.tsv` and a lane-vs-file
+check.
+
+**Done when** that gate compares `lane:` against `modules.tsv` and passes — which requires first
+deciding the 69 disagreements, since a gate that arrives red on 69 pre-existing entries is the shape
+this entry itself warns about. **The cheap half is separable and can land alone:** six missing lanes
+in `modules.tsv` and in the `specs/bugs-index.md` enum, asserted by the enum check that gate already
+performs.
 
 
 ## v3-ci-workflow-red-on-every-run-since-it-was-added — two causes, and the message named neither
@@ -1720,7 +1758,7 @@ fix is a fresh claim per case, and the failure count went 10 → 14.
 <!-- status: open
      lane: apparatus
      area: build
-     gate: none -->
+     gate: tests/coord/board-generated.sh -->
 
 **Found 2026-07-30**, in the same session that automated the second artefact.
 
@@ -1795,11 +1833,20 @@ way, and the audit is a one-off. Option 2 — deriving the module sprint from th
 board already is — is the one this project's evidence supports, and it would make both the writing
 and the clearing impossible to forget rather than merely easier to remember.
 
+**Gate named 2026-08-14: `tests/coord/board-generated.sh`** — the gate that already proves the ROOT
+board is derived rather than hand-written, and option 2 makes the module sprints the same kind of
+artefact. Extending it is the whole point: two derived boards checked by one gate, rather than a
+second gate over the same population, which this repo has paid for as a second decision site.
+
+**Done when** a module `SPRINT.md` marker is derived from `.work/active/` and that gate fails on a
+hand-written one. The audit above is explicitly NOT the fix — it is a one-off, and a tenth marker
+can go stale the same way tomorrow.
+
 ## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
 <!-- status: open
      lane: apparatus
      area: build
-     gate: none -->
+     gate: tests/coord/claim-scope-hierarchy.sh -->
 
 **Found 2026-07-30** by hitting it twice in a row, in a session that produced fourteen entries.
 
@@ -1828,6 +1875,17 @@ A related shape, worth deciding together: `SPRINT.md` is exempt as SHARED, yet t
 guard refuses anything outside `.work/`, so `coord-claim`'s own "claim and board row in ONE commit" contract
 was unimplementable from the main checkout. That was found the same day (`bfbc42fe6`, backed out in
 `0c8237e60`) and is the same disagreement between two guards about what counts as bookkeeping.
+
+**Gate named 2026-08-14: `tests/coord/claim-scope-hierarchy.sh`** — the scope guard's own lab, wired
+into `scripts/smoke-ci` as `claim-scope-hierarchy`. Option 1 is a basename match in the guard, so
+the case is one row there: staging `v1/runtime/backend/js/BUGS.md` under an unrelated claim must be
+ALLOWED, while staging a non-bookkeeping file under that claim must still be refused — both
+directions, because an exemption that swallows the refusal is worse than the round-trip it removes.
+
+**Done when** that pair of cases passes, or — if option 2 is chosen instead — when
+`specs/work-tracking-layout.md` says bug filing is claimed work and the guard's own message stops
+claiming otherwise. Either is a close; leaving the guard's printed intent contradicting its
+behaviour is not.
 
 ## coord-claim-second-positional-overwrites-slug — an unquoted `--items A B` claimed under a name the caller never typed
 <!-- status: fixed
