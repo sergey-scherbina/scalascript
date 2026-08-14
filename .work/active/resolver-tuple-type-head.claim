@@ -1,0 +1,11 @@
+slug: resolver-tuple-type-head
+branch: feature/resolver-tuple-type-head
+agent: claude-code
+started: 2026-08-14T22:34:06Z
+heartbeat: 2026-08-14T22:34:06Z
+status: claimed-before-planning
+items: resolver-tuple-type-head
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
