@@ -1,0 +1,11 @@
+slug: rust-object-owner-depth
+branch: feature/rust-object-owner-depth
+agent: claude-code
+started: 2026-08-14T08:35:55Z
+heartbeat: 2026-08-14T08:35:55Z
+status: claimed-before-planning
+items: rust-object-member-call-emits-invalid
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-object-member-call.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
