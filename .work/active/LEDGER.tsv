@@ -1,5 +1,4 @@
-# generation: 2097
+# generation: 2098
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 release-refuses-red-main	claude-code	2026-08-14T16:35:47Z	ci-smoke-red-streak-nobody-stopped	file:scripts/coord-release file:tests/coord/coord-release-evidence-level.sh
-v2-map-updated-persistent	claude-code	2026-08-14T18:55:05Z	v2-map-updated-copies-the-whole-map	file:v2/src/Runtime.scala file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:v2/runtime/std/json-plugin/src/main/scala/ssc/plugin/json/NativeJsonCodec.scala file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/NativeUiPortable.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/runtime/std/ui-plugin/src/test/scala/ssc/plugin/ui/UiNativePluginTest.scala file:v2/BUGS.md file:bench/history.tsv file:TASK/v2-perfomance.md file:tests/e2e/v2-map-updated-shape-gate.sh file:scripts/smoke-ci.ssc
