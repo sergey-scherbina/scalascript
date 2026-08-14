@@ -1,0 +1,11 @@
+slug: gateless-tests-batch
+branch: feature/gateless-tests-batch
+agent: claude-code
+started: 2026-08-14T15:40:45Z
+heartbeat: 2026-08-14T15:40:45Z
+status: claimed-before-planning
+items: ci-smoke-red-streak-nobody-stopped coord-labs-inherit-the-dev-boxs-git-config-so-a-runner-gap-cannot-be-seen-here a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration f-placeholder-u0-reduced-but-not-solved error-bucket-holds-no-F-gaps both-unbound-is-mostly-plugin-intrinsics-not-user-error shared-main-is-one-working-tree-for-every-agent ci-sbt-job-is-28x-the-code-push-interval scljet-sql-numeric-literal-grammar-gaps
+paths: file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
