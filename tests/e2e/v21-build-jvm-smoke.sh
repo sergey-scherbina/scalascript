@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+#
+# v21 build-jvm smoke — `ssc build-jvm` must produce a self-contained jar with honest metadata:
+# the declared plugins and source shas, debug info that maps back to the USER's `.ssc`, no absolute
+# checkout path baked in, and an import graph the artifact records.
+#
+# ── 2026-08-14: TWENTY BARE `grep … >/dev/null` UNDER `set -e`, SO A FAILURE SAID NOTHING ─────────
+#
+# Found by the orphan drain (tests/BUGS.md `orphaned-e2e-gates-52`): this gate is invoked by
+# nothing, and when run it printed three "JVM artifact written" lines and exited 1 — no message, no
+# failing assertion, no evidence, and the sandbox deleted on the way out. Learning WHICH line failed
+# needed a re-run under `bash -x`.
+#
+# It was right. The assertion that fires is the SOURCE MAP one, and the defect under it is
+# user-facing: a jar built from `source-map-failure.ssc` throws, and **not one of the 29 stack
+# frames names that file**. Every `.ssc` attribution points into the std library
+# (`json.ssc:65`, `:135`, …), so a user debugging their own program is shown line numbers in code
+# they did not write. Filed as `jvm-artifact-stack-trace-never-names-the-users-own-file`.
+#
+# The fix here is only that the gate SAYS so: an ERR trap names the line and the command for all
+# twenty at once, and the source-map assertion prints the trace it rejected.
 set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -6,6 +26,10 @@ ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 FIXTURES="$ROOT/tests/fixtures/v21-native"
 sandbox=$(mktemp -d "${TMPDIR:-/tmp}/v21-build-jvm.XXXXXX")
 trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
+# Every assertion below is a bare command under `set -e`. This is what turns "exit 1" into a
+# location — one trap covering all of them, rather than twenty hand-written messages that would
+# drift from the assertions they describe.
+trap 'rc=$?; printf "FAIL v21-build-jvm-smoke: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
 mkdir -p "$sandbox/toolbin"
 ln -s "$(command -v java)" "$sandbox/toolbin/java"
 ln -s "$(command -v dirname)" "$sandbox/toolbin/dirname"
@@ -68,14 +92,29 @@ fi
 
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$FIXTURES/source-map-failure.ssc" -o "$sandbox/source-map-failure.jar"
+# `set +e` alone is NOT enough once an ERR trap exists: the trap fires on ANY non-zero command,
+# independently of `-e`, so it turned this DELIBERATE failure into a gate failure the first time it
+# ran. Disarm and re-arm around the block that expects a non-zero exit.
 set +e
+trap - ERR
 PATH="$clean_path" java -jar "$sandbox/source-map-failure.jar" \
   >"$sandbox/source-map-failure.out" 2>"$sandbox/source-map-failure.err"
 source_map_rc=$?
 set -e
+trap 'rc=$?; printf "FAIL v21-build-jvm-smoke: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
 [[ $source_map_rc -ne 0 ]]
-grep -E 'ssc[.]gen[.]Entry[.].*\(source-map-failure[.]ssc:4\)' \
-  "$sandbox/source-map-failure.err" >/dev/null
+# THE POINT OF THE JAR'S DEBUG INFO: a throw from the user's line 4 must be attributable to the
+# user's line 4. Print the trace when it is not — the frames are the whole diagnosis, and hiding
+# them behind `>/dev/null` is what kept this defect unread.
+if ! grep -E 'ssc[.]gen[.]Entry[.].*\(source-map-failure[.]ssc:4\)' \
+       "$sandbox/source-map-failure.err" >/dev/null; then
+  echo 'FAIL v21-build-jvm-smoke: no stack frame maps back to source-map-failure.ssc:4' >&2
+  printf '       the fixture is two lines — `def explode() = jsonParse("{")` at 4, `explode()` at 5\n' >&2
+  printf '       .ssc files the %d frames DO name:\n' "$(grep -c '^	at ' "$sandbox/source-map-failure.err")" >&2
+  grep -oE '\([A-Za-z0-9_./-]+\.ssc:[0-9]+\)' "$sandbox/source-map-failure.err" \
+    | sort | uniq -c | sort -rn | sed 's/^/       | /' >&2
+  exit 1
+fi
 
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$FIXTURES/relative-main.ssc" -o "$sandbox/import.jar"

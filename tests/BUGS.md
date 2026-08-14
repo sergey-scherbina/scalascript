@@ -3473,6 +3473,94 @@ Note this is NOT the same defect as `smoke-suite-over-its-own-budget`, though bo
 over budget (627.6 s and 629.1 s of 600 s). That one is about total wall time with every check
 green; this is two checks going red for being sized against the wrong host.
 
+## f-front-cannot-lower-a-typeclass-dictionary-and-says-so-only-on-stderr
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/v21-typeclass-dictionary-smoke.sh -->
+
+**Measured 2026-08-14.** The F front declines both typeclass-dictionary programs and the reference
+front compiles them instead:
+
+```
+$ ssc info --front-report tests/fixtures/v21-native/typeclass-dictionary.ssc
+… /tests/fixtures/v21-native/typeclass-dictionary.ssc   GAP   match: no arm for Cons/2
+```
+
+Same gap on `examples/typeclass.ssc`. Both run correctly and exit 0 — the fallback is the design,
+and it announces itself on stderr exactly as `f-front-silent-delegation-hides-coverage-gaps`
+arranged. Nothing is silently wrong; what is wrong is that **nobody was reading that stderr**, for
+two compounding reasons:
+
+1. The only gate that asserts on it, `tests/e2e/v21-typeclass-dictionary-smoke.sh`, is invoked by
+   nothing (`orphaned-e2e-gates-52`) — and until today it failed while printing nothing at all.
+2. **The existing F-gap census could not see these files.** `f-front-silent-delegation-hides-coverage-gaps`
+   measured 26 of 329 delegating cases, and its reproduce command is
+   `for f in tests/conformance/*.ssc`. Neither `tests/fixtures/v21-native/` nor `examples/` is in
+   that population, so "26 of 329" is a true statement about the conformance corpus and not about
+   the repo. A census answers only its own question.
+
+**Done when** `bin/ssc info --front-report` reports F rather than `GAP` for both files and
+`tests/e2e/v21-typeclass-dictionary-smoke.sh` is green with a silent stderr — the gate asserts
+exactly that, and it now prints the stderr it rejected, so the next reader gets the message instead
+of a bare exit code.
+
+**Next measurement for whoever takes this**: re-run the census over `examples/` and
+`tests/fixtures/` as well as `tests/conformance/`, because `no arm for Cons/2` is a lowering gap in
+a pattern arm and is unlikely to be reachable from only two files.
+
+## jvm-artifact-stack-trace-never-names-the-users-own-file
+
+<!-- status: open
+     lane: v2-jvm
+     area: codegen
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/v21-build-jvm-smoke.sh -->
+
+**Measured 2026-08-14.** A jar built by `ssc build-jvm` from a two-line program throws, and **not one
+of its 29 stack frames names the file the user wrote.**
+
+The fixture is the whole reproduction:
+
+```
+tests/fixtures/v21-native/source-map-failure.ssc
+  4:  def explode() = jsonParse("{")
+  5:  explode()
+```
+
+```
+$ ssc build-jvm tests/fixtures/v21-native/source-map-failure.ssc -o smf.jar
+$ java -jar smf.jar
+Exception in thread "main" java.lang.RuntimeException: invalid JSON at 1: unterminated object
+        at ssc.plugin.json.NativeJsonCodec$.unwrapStrict(NativeJsonCodec.scala:122)
+        …
+        at ssc.gen.Entry.lam$303(json.ssc:65)
+        at ssc.gen.Entry.lam$302(json.ssc:65)
+```
+
+Every `.ssc` attribution in the trace points into the standard library — `json.ssc` at lines 38, 49,
+52, 64, 65, 68, 72, 76, 88, 90, 93, 95, 100, 135, 136 — and `source-map-failure.ssc` appears
+**zero** times. The `ssc.gen.Entry` frames are there, so the source map is being emitted; it is
+attributing the user's frames to the callee's file.
+
+This is user-facing in the way that matters: the debug metadata exists precisely so a crash points
+at the line somebody can fix, and a user of a built artifact is shown line numbers in code they have
+never seen. The rest of the artifact's metadata is right — `javap` confirms
+`SourceFile: "argv.ssc"`, a `SourceDebugExtension`, a `LineNumberTable`, and no absolute checkout
+path — so this is one wrong attribution, not missing debug info.
+
+**Done when** the trace carries a frame matching `ssc.gen.Entry.*(source-map-failure.ssc:4)`. That
+is the assertion `tests/e2e/v21-build-jvm-smoke.sh` has always made, at the line that has been
+failing; it now prints the frames it rejected and a histogram of the files they do name.
+
+**Why nobody knew:** the gate is invoked by nothing, and it consisted of twenty bare
+`grep … >/dev/null` under `set -e`, so its failure was an exit code with no stdout, no stderr and a
+deleted sandbox (`orphaned-e2e-gates-52`, batch 4, the "fails without saying why" group).
+
 ## a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator — measured over 75 checks
 
 <!-- status: open
@@ -4885,6 +4973,53 @@ them wired while red:
 | no verdict — a duration to measure | 1 |
 | real product differences, one each | 5 |
 | **frozen orphans after this batch** | **12** |
+
+### batch 4, part 2 — the two SILENT gates now speak, and both were RIGHT
+
+Neither needed a product fix to become useful; they needed to say what they saw. Both were
+diagnosed by re-running under `bash -x`, which is the cost a mute gate imposes on every reader.
+
+**`v21-typeclass-dictionary-smoke`** died at `[[ ! -s "$tmp/focused.vm.err" ]]` — stderr was not
+empty. What was in it:
+
+    ssc: F did not lower this file; compiled with the default front instead — … [match: no arm for Cons/2]
+
+Both programs it runs (the fixture AND `examples/typeclass.ssc`) are declined by F and compiled by
+the reference front; `ssc info --front-report` says `GAP  match: no arm for Cons/2`. The assertion
+was correct and the finding is real. Filed as
+`f-front-cannot-lower-a-typeclass-dictionary-and-says-so-only-on-stderr` — **and note what it says
+about the existing census**: `f-front-silent-delegation-hides-coverage-gaps` measured 26 of 329 by
+looping over `tests/conformance/*.ssc`, a population that contains neither `examples/` nor
+`tests/fixtures/`. Its number is true about the conformance corpus and was read as true about the
+repo.
+
+**`v21-build-jvm-smoke`** died at the source-map assertion, and the defect under it is user-facing:
+a jar built from a two-line program throws, and **not one of the 29 frames names that program**.
+Every `.ssc` attribution points into `json.ssc` (15 distinct lines of it). The `ssc.gen.Entry`
+frames are present, so the map is emitted — it attributes the user's frames to the callee's file.
+Filed as `jvm-artifact-stack-trace-never-names-the-users-own-file`.
+
+**What changed in the two gates**, and one trap worth copying:
+
+* an `ERR` trap in each, naming the line and the command — one line covering twenty bare assertions,
+  instead of twenty hand-written messages that would drift from what they assert;
+* the stderr assertions PRINT the stderr they reject; the source-map assertion prints the frames and
+  a histogram of the files they name;
+* **`set +e` is not enough once an ERR trap exists.** `v21-build-jvm-smoke` runs a jar it EXPECTS to
+  exit non-zero, inside a `set +e` block. An `ERR` trap fires on any non-zero command independently
+  of `-e`, so adding the trap turned a deliberate failure into a gate failure on its first run. The
+  trap is disarmed and re-armed around that block, and the comment says why.
+
+Neither gate is wired: both are red on a real defect, and a gate red on arrival is how a suite
+becomes noise. They are the acceptance tests of the two entries filed above, which is the state that
+makes them claimable.
+
+| after part 2 | |
+|---|---|
+| silent gates that now report | 2 |
+| product defects they were hiding, filed with a gate | 2 |
+| wired | 0 — both red on a real defect |
+| frozen orphans | 12 |
 
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
