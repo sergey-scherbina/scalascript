@@ -1,0 +1,170 @@
+//! MCP client runtime (R.6) — JSON-RPC 2.0 over a spawned server's stdio.
+      |//! Emitted verbatim by RustGen when mcp-client intrinsics are reached.
+      |//!
+      |//! THE HANDLE IS AN i64 ON PURPOSE. `extern class McpClient` has no Rust type of its own —
+      |//! `mapType` sends an unknown type name to `i64` — so a client is an index into a table
+      |//! owned here. That is what lets every entry point below have a signature this file can
+      |//! actually write: the alternative, naming `ToolResult` or `Transport`, is impossible from a
+      |//! runtime because those types exist only once a program reaches them.
+      |
+      |use std::io::{BufRead, BufReader, Write};
+      |use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+      |use std::sync::{Arc, Mutex};
+      |
+      |pub struct McpClientConn {
+      |    child:   Child,
+      |    stdin:   ChildStdin,
+      |    stdout:  BufReader<ChildStdout>,
+      |    next_id: i64,
+      |    open:    bool,
+      |}
+      |
+      |static MCP_CLIENTS: std::sync::OnceLock<Arc<Mutex<Vec<Option<McpClientConn>>>>> =
+      |    std::sync::OnceLock::new();
+      |
+      |fn mcp_clients() -> &'static Arc<Mutex<Vec<Option<McpClientConn>>>> {
+      |    MCP_CLIENTS.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |/// One request/response round trip. `None` when the handle is unknown, closed, or the server
+      |/// died mid-call — every caller below turns that into an empty answer rather than a panic,
+      |/// because a server that exits is an ordinary condition for a client.
+      |fn rpc(handle: i64, method: &str, params: serde_json::Value) -> Option<serde_json::Value> {
+      |    let table = mcp_clients();
+      |    let mut guard = table.lock().unwrap();
+      |    let slot = guard.get_mut(handle as usize)?;
+      |    let conn = slot.as_mut()?;
+      |    if !conn.open { return None; }
+      |    conn.next_id += 1;
+      |    let id = conn.next_id;
+      |    let req = serde_json::json!({
+      |        "jsonrpc": "2.0", "id": id, "method": method, "params": params
+      |    });
+      |    if writeln!(conn.stdin, "{}", req).is_err() { return None; }
+      |    if conn.stdin.flush().is_err() { return None; }
+      |    // Read until the reply carrying OUR id: a server may interleave notifications, which have
+      |    // no id at all, and treating the first line as the answer would return one of those.
+      |    loop {
+      |        let mut line = String::new();
+      |        match conn.stdout.read_line(&mut line) {
+      |            Ok(0) | Err(_) => return None,
+      |            Ok(_) => {}
+      |        }
+      |        if line.trim().is_empty() { continue; }
+      |        let v: serde_json::Value = match serde_json::from_str(&line) {
+      |            Ok(v) => v,
+      |            Err(_) => continue,
+      |        };
+      |        if v.get("id").and_then(|i| i.as_i64()) == Some(id) {
+      |            return v.get("result").cloned().or(Some(serde_json::Value::Null));
+      |        }
+      |    }
+      |}
+      |
+      |/// `mcpConnectSpawn(command, args)` — spawn a server and complete the handshake.
+      |/// Returns the handle, or -1 if the process could not be started.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_connect_spawn(command: String, args: Vec<String>) -> i64 {
+      |    let mut child = match Command::new(&command)
+      |        .args(&args)
+      |        .stdin(Stdio::piped())
+      |        .stdout(Stdio::piped())
+      |        .stderr(Stdio::inherit())
+      |        .spawn()
+      |    {
+      |        Ok(c)  => c,
+      |        Err(_) => return -1,
+      |    };
+      |    let stdin  = match child.stdin.take()  { Some(s) => s, None => return -1 };
+      |    let stdout = match child.stdout.take() { Some(s) => s, None => return -1 };
+      |    let conn = McpClientConn {
+      |        child, stdin, stdout: BufReader::new(stdout), next_id: 0, open: true,
+      |    };
+      |    let handle = {
+      |        let table = mcp_clients();
+      |        let mut guard = table.lock().unwrap();
+      |        guard.push(Some(conn));
+      |        (guard.len() - 1) as i64
+      |    };
+      |    // The handshake is part of connecting, not an extra call the user has to remember.
+      |    let _ = rpc(handle, "initialize", serde_json::json!({
+      |        "protocolVersion": "2024-11-05",
+      |        "capabilities":    {},
+      |        "clientInfo":      { "name": "ssc-mcp-client", "version": "1.0.0" }
+      |    }));
+      |    handle
+      |}
+      |
+      |/// `client.listToolNames()` — the `name` of every tool the server advertises.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_list_tool_names(handle: i64) -> Vec<String> {
+      |    match rpc(handle, "tools/list", serde_json::json!({})) {
+      |        Some(r) => r.get("tools").and_then(|t| t.as_array()).map(|arr| {
+      |            arr.iter()
+      |               .filter_map(|t| t.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+      |               .collect()
+      |        }).unwrap_or_default(),
+      |        None => Vec::new(),
+      |    }
+      |}
+      |
+      |/// `client.callToolText(name, argsJson)` — call a tool and return its TEXT content, joined.
+      |/// `argsJson` is a JSON object; anything unparseable is sent as `{}` rather than refused,
+      |/// because the server is the authority on what its own arguments mean.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_call_tool_text(handle: i64, name: String, args_json: String) -> String {
+      |    let args: serde_json::Value =
+      |        serde_json::from_str(&args_json).unwrap_or_else(|_| serde_json::json!({}));
+      |    let result = rpc(handle, "tools/call", serde_json::json!({
+      |        "name": name, "arguments": args
+      |    }));
+      |    join_text(result)
+      |}
+      |
+      |/// `client.readResourceText(uri)` — the text of a resource, joined the same way.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_read_resource_text(handle: i64, uri: String) -> String {
+      |    let result = rpc(handle, "resources/read", serde_json::json!({ "uri": uri }));
+      |    join_text(result)
+      |}
+      |
+      |/// `content` and `contents` are both spelled in the wild — tools/call uses the first,
+      |/// resources/read the second — so this reads either rather than making the caller care.
+      |fn join_text(result: Option<serde_json::Value>) -> String {
+      |    let r = match result { Some(r) => r, None => return String::new() };
+      |    let items = r.get("content").or_else(|| r.get("contents"));
+      |    match items.and_then(|c| c.as_array()) {
+      |        Some(arr) => arr.iter()
+      |            .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
+      |            .collect::<Vec<_>>()
+      |            .join(""),
+      |        None => String::new(),
+      |    }
+      |}
+      |
+      |/// `client.isOpen()` — false once closed, and false for a handle that never connected.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_is_open(handle: i64) -> bool {
+      |    let table = mcp_clients();
+      |    let guard = table.lock().unwrap();
+      |    guard.get(handle as usize)
+      |         .and_then(|s| s.as_ref())
+      |         .map(|c| c.open)
+      |         .unwrap_or(false)
+      |}
+      |
+      |/// `client.close()` — drop the pipe, then WAIT. Without the wait the child is left a zombie
+      |/// and a test that spawns servers in a loop runs out of processes; dropping stdin is what
+      |/// tells a stdio server to exit, so the two belong together.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_close(handle: i64) {
+      |    let table = mcp_clients();
+      |    let mut guard = table.lock().unwrap();
+      |    if let Some(slot) = guard.get_mut(handle as usize) {
+      |        if let Some(mut conn) = slot.take() {
+      |            conn.open = false;
+      |            drop(conn.stdin);
+      |            let _ = conn.child.wait();
+      |        }
+      |    }
+      |}

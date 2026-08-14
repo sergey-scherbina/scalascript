@@ -1,5 +1,5 @@
 std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	31	7
-std/agent-mcp.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
+std/agent-mcp.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	6	3
 std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	18	6
 std/auth.ssc	COMPILES	
 std/bench.ssc	COMPILES	
@@ -52,8 +52,8 @@ std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` extracts `_` which is not a kn
 std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	24	6
 std/markdown-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	3	1
 std/markdown-html.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	4	1
-std/mcp/client.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
-std/mcp/index.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
+std/mcp/client.ssc	COMPILES	
+std/mcp/index.ssc	COMPILES	
 std/mcp/server.ssc	COMPILES	
 std/mcp/types.ssc	COMPILES	
 std/middleware.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	3	1

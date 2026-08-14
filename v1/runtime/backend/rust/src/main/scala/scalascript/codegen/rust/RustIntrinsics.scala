@@ -91,6 +91,16 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   // Only serde_json dep added (already present when JSON intrinsics are used).
   QualifiedName("mcpRegisterTool")  -> RuntimeCall("crate::runtime::mcp::_mcp_register_tool"),
   QualifiedName("mcpServe")         -> RuntimeCall("crate::runtime::mcp::_mcp_serve"),
+  // R.6 — MCP CLIENT. The factory is a free function; the four members are keyed `Class.member`
+  // and lower with the RECEIVER AS THE FIRST ARGUMENT — an extern class has no Rust type here
+  // (`mapType` sends an unknown name to `i64`), so a client is an opaque integer handle and its
+  // members are free functions over it.
+  QualifiedName("mcpConnectSpawn")        -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_connect_spawn"),
+  QualifiedName("McpClient.listToolNames")    -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_list_tool_names"),
+  QualifiedName("McpClient.callToolText")     -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_call_tool_text"),
+  QualifiedName("McpClient.readResourceText") -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_read_resource_text"),
+  QualifiedName("McpClient.isOpen")           -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_is_open"),
+  QualifiedName("McpClient.close")            -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_close"),
   // std/ui — server-side View tree primitives (SSR).  Pull in
   // `src/runtime/ui.rs` only when an element/textNode/fragment is reached.
   QualifiedName("element")          -> RuntimeCall("crate::runtime::ui::_ui_element"),

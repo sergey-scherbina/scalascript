@@ -117,6 +117,12 @@ object RustRuntimeTemplates:
   val McpRs: String =
     RustRuntimeResource.load("McpRs")
 
+  /** R.6 — `src/runtime/mcp_client.rs`: JSON-RPC 2.0 over a spawned server's stdio. Same framing
+   *  and the same single `serde_json` dep as the server half; the client is an i64 handle into a
+   *  table this module owns. */
+  val McpClientRs: String =
+    RustRuntimeResource.load("McpClientRs")
+
   /** R.4.2 — Generate `src/runtime/effects.rs` with tagless-final traits.
    *
    *  One trait per named effect (e.g. `LoggerEffect`), each with default

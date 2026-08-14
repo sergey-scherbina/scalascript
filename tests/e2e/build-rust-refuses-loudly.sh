@@ -522,6 +522,63 @@ SSC
     failed=1
   fi
 
+  # AN MCP CLIENT DRIVING AN MCP SERVER, both built from .ssc by this lane.
+  #
+  # THIS IS THE ONLY CASE HERE THAT PROVES A FEATURE RATHER THAN A LOWERING, and it is end to end on
+  # purpose: the client SPAWNS the server binary, completes the JSON-RPC handshake, lists its tools
+  # and calls one. Nothing short of running both halves can show that — an emission check would pass
+  # on a client that connects and then hangs, and the survey cannot see any of it because
+  # std/mcp/client.ssc is a declaration module whose members are only reached by a program.
+  #
+  # It also exercises the extern-class member rule: `c.listToolNames()` lowers to a free call with
+  # the RECEIVER AS THE FIRST ARGUMENT, because an extern class has no Rust type of its own here.
+  # Getting that wrong is a compile error, so this case is the rule's only real gate.
+  #
+  # Two binaries and two cargo builds, which is why it is inside the `command -v cargo` block.
+  cat > "$tmp/mcpsrv.ssc" <<'SSC'
+def main(): Unit =
+  mcpRegisterTool("greet", "Greet someone", args => "hello from ssc")
+  mcpServe()
+SSC
+  # The real module, copied BESIDE the program rather than imported by an absolute path: an
+  # absolute path in a Markdown-link import silently inlines NOTHING
+  # (rust-absolute-import-path-inlines-nothing), and the program still builds because the factory
+  # intrinsic is keyed globally — so the case would have passed while testing nothing. `types.ssc`
+  # comes too because `client.ssc` imports it as a sibling.
+  cp "$ROOT/std/mcp/client.ssc" "$ROOT/std/mcp/types.ssc" "$tmp/"
+  cat > "$tmp/mcpcli.ssc" <<SSC
+[McpClient, mcpConnectSpawn](client.ssc)
+
+def main(): Unit =
+  val c = mcpConnectSpawn("$tmp/mcpsrvbin", [])
+  println("open=" + c.isOpen())
+  val names = c.listToolNames()
+  println("tools=" + names.length + ":" + names.mkString(","))
+  println("call=" + c.callToolText("greet", "{}"))
+  c.close()
+SSC
+  set +e
+  msb=$("$SSC" build-rust "$tmp/mcpsrv.ssc" -o "$tmp/mcpsrvbin" 2>&1); msrc=$?
+  mcb=$("$SSC" build-rust "$tmp/mcpcli.ssc" -o "$tmp/mcpclibin" 2>&1); mcrc=$?
+  mc_out=$("$tmp/mcpclibin" 2>&1)
+  set -e
+  if [[ $msrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — the MCP server half does not build" >&2
+    echo "--- output: $(printf '%s' "$msb" | tail -6)" >&2
+    failed=1
+  elif [[ $mcrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — the MCP client half does not build" >&2
+    echo "--- output: $(printf '%s' "$mcb" | tail -8)" >&2
+    failed=1
+  elif [[ "$mc_out" != "open=true
+tools=1:greet
+call=hello from ssc" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — the MCP client did not drive the server" >&2
+    echo "--- got: $(printf '%s' "$mc_out" | tr '\n' '|')" >&2
+    echo "    wanted: open=true|tools=1:greet|call=hello from ssc|" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather

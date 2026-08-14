@@ -823,6 +823,40 @@ And the qualification is NOT written: it lived only in a worktree that was remov
 committed, and it is on no branch and in no commit. It has to be redone. Recorded plainly because
 the previous sentence would otherwise have someone plan around code that does not exist.
 
+## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
+
+<!-- status: open
+     lane: v2-rust
+     area: front
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-14
+     ssc-version: dc3cfeeef
+     repro: the two-form comparison in the body
+     confirmed: yes -->
+
+**Found while building a gate, and the gate is how it was found** — a case written with an absolute
+import path passed its build and tested nothing.
+
+The SAME program, differing only in the form of the import path:
+
+    [McpClient, mcpConnectSpawn](/Users/…/std/mcp/client.ssc)   →  10 generated lines
+    [McpClient, mcpConnectSpawn](../../Users/…/std/mcp/client.ssc) → 163 generated lines
+
+The absolute form contributes NO declarations — no case classes, no `extern class`, nothing. The
+relative form inlines the module.
+
+**WHY IT IS WORSE THAN A BROKEN IMPORT.** The program still compiles. `mcpConnectSpawn(…)` lowers
+because the intrinsic table is keyed by BARE NAME and does not care whether the declaration arrived;
+only things that need the declarations — an `extern class` member call, a case class constructor —
+go wrong, and they go wrong as a rustc error in generated code rather than as "import not found".
+An import that resolves to nothing should say so.
+
+Measured on `dc3cfeeef`. Not investigated further: the resolver is outside the Rust backend and
+outside the claim this was found under. The gate that found it now uses a sibling copy instead
+(`tests/e2e/build-rust-refuses-loudly.sh`, the MCP end-to-end case), with the reason recorded there.
+
 ## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
 
 <!-- status: open

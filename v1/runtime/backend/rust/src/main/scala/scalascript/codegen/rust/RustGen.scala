@@ -53,6 +53,7 @@ object RustGen:
     val authUsage   = scanAuthUsage(astModule)
     val wsUsage     = scanWsUsage(astModule)
     val mcpUsage    = scanMcpUsage(astModule)
+    val mcpClientUsage = scanMcpClientUsage(astModule)
     // Outbound HTTP client — independent of the http SERVER scan above, so a
     // pure-client program pulls only `ureq` (not hyper/tokio).
     val httpClientUsage = scanHttpClientUsage(astModule)
@@ -64,7 +65,7 @@ object RustGen:
     // program may use no bare View primitive the scan recognises — so the tui target
     // always emits the `ui` module.
     val uiUsage     = scanUiUsage(astModule) || tuiTarget
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget, httpClientUsage)
+    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
 
     val importedDefs =
       opts.extra.get("importedDefs").map(_.split(",").filter(_.nonEmpty).toSet).getOrElse(Set.empty)
@@ -79,7 +80,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage, uiUsage, tuiTarget, httpClientUsage)
+          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -116,6 +117,9 @@ object RustGen:
           if mcpUsage.nonEmpty then
             sb.append("\n// ── R.6 — MCP server runtime ──\n")
             sb.append("pub mod mcp;\n")
+          if mcpClientUsage.nonEmpty then
+            sb.append("\n// ── R.6 — MCP client runtime ──\n")
+            sb.append("pub mod mcp_client;\n")
           if uiUsage then
             sb.append("\n// ── std/ui — SSR View runtime ──\n")
             sb.append("pub mod ui;\n")
@@ -179,6 +183,13 @@ object RustGen:
             RustRuntimeTemplates.WsRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
+        val mcpClientAsset =
+          if mcpClientUsage.isEmpty then Nil
+          else List(Segment.Asset(
+            "src/runtime/mcp_client.rs",
+            RustRuntimeTemplates.McpClientRs.getBytes("UTF-8"),
+            "text/x-rust"
+          ))
         val mcpAsset =
           if mcpUsage.isEmpty then Nil
           else List(Segment.Asset(
@@ -207,7 +218,7 @@ object RustGen:
             RustRuntimeTemplates.TuiRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ httpClientAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ uiAsset ++ tuiAsset)
+        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ httpClientAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ mcpClientAsset ++ uiAsset ++ tuiAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -255,6 +266,18 @@ object RustGen:
 
   /** R.6 — scan for MCP intrinsic calls (mcpRegisterTool, mcpServe).
    *  Returns the set of names actually reached; non-empty triggers serde_json dep. */
+  /** R.6 — scan for MCP CLIENT calls. Separate from `scanMcpUsage` for the same reason
+   *  `scanHttpClientUsage` is separate from the server's: a program that only CONSUMES MCP should
+   *  not carry the server loop. The member names are scanned unqualified because that is how they
+   *  appear at a call site (`c.listToolNames()`); the false positive costs one unused module in a
+   *  program that happens to define its own `listToolNames`, and the emitted file is
+   *  `#[allow(dead_code)]` throughout. */
+  private[rust] def scanMcpClientUsage(astModule: scalascript.ast.Module): Set[String] =
+    val names = Set("mcpConnectSpawn", "listToolNames", "callToolText", "readResourceText", "isOpen")
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, names, found))
+    found.toSet
+
   private[rust] def scanMcpUsage(astModule: scalascript.ast.Module): Set[String] =
     val names = Set("mcpRegisterTool", "mcpServe")
     val found = scala.collection.mutable.Set.empty[String]

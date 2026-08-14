@@ -57,10 +57,32 @@ extern class McpClient:
   def close(): Unit
   def isClosed: Boolean
 
+  // ── Primitive surface ──────────────────────────────────────────────────────
+  //
+  // The same operations in types a RUNTIME can name. The members above traffic in
+  // `ToolDescriptor`, `ToolResult` and `Transport`, which are GENERATED types — they exist only
+  // once a program reaches them, so a backend runtime cannot declare a signature mentioning one.
+  // That is the same boundary `route` hit on the HTTP lane, where the `Request` literal has to be
+  // built in generated code.
+  //
+  // These take and return strings, lists of strings and booleans only, so a backend can implement
+  // them directly. `callToolText` returns the concatenated text content, which is what an agent
+  // driving a tool actually consumes; a caller needing the full structured `ToolResult` uses
+  // `callTool` above on a lane that has an SDK behind it.
+  def listToolNames(): List[String]
+  def callToolText(name: String, argsJson: String): String
+  def readResourceText(uri: String): String
+  def isOpen(): Boolean
+
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 // Connect to an MCP server on the given transport.
 // Blocks until the handshake completes; throws McpError on failure.
 extern def mcpConnect(transport: Transport): McpClient
 extern def mcpConnect(transport: Transport, timeoutMs: Long): McpClient
+
+// Spawn a server process and speak JSON-RPC over its stdio. The primitive counterpart of
+// `mcpConnect(Transport.Spawn(...))`: same transport, but the arguments are a command and its
+// argv rather than a generated enum, so a backend runtime can implement it.
+extern def mcpConnectSpawn(command: String, args: List[String]): McpClient
 ```

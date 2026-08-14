@@ -56,6 +56,11 @@ val RustCapabilities: Capabilities = Capabilities(
     Feature.WebSockets,
     // R.6 — MCP server over stdio (JSON-RPC 2.0, hand-rolled; only serde_json dep).
     Feature.McpServer,
+    // R.6 — MCP CLIENT over a spawned server's stdio, same framing, same single dep. Declared only
+    // now that the primitive surface exists: the SDK-shaped members traffic in generated types
+    // (`Transport`, `ToolResult`) that no runtime can name, and declaring support for those would
+    // turn an honest `Unsupported(McpClient,rust)` into rustc errors at every call site.
+    Feature.McpClient,
     // R.6 — synchronous stream pipeline: Source.range/fromList + .map/.filter/.foldLeft/.toList.
     // Lowers to Rust iterator chains; no async/tokio needed for these patterns.
     Feature.Streams,

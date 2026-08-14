@@ -57,6 +57,10 @@ object RustCodeWalk:
     // INTRINSIC ENTRIES, which is how `Console.println` has always been lowered. That matters
     // beyond tidiness — `renderTerm` is one of the five known over-limit methods and the jit-size
     // gate forbids it growing, so a new match arm there was not available either.
+    val (externClasses, externMemberOwner) = collectExternClasses(module)
+    _externClasses        = externClasses
+    _externMemberOwner    = externMemberOwner
+    _externFactories      = collectExternFactories(module, _externClasses.keySet)
     val (objectMembers, defOwners) = collectObjectOwnership(module)
     _defOwners            = defOwners
     _objectMembers        = objectMembers
@@ -291,8 +295,12 @@ object RustCodeWalk:
     // rustc do the talking. Refuse, and name the def — an unreferenced extern still costs nothing.
     val unimplementedExterns: Set[String] =
       defsToRender.filter(d => isExternBody(d.body) && extractRustAnnotArg(d.mods, "rust").isEmpty)
+        .filterNot(d => intrinsics.contains(QualifiedName(d.name.value)))
+        // An extern-CLASS member is keyed `Class.member`, because a bare `close` says nothing about
+        // whose it is. Without this the refusal fires on a member that lowers perfectly well.
+        .filterNot(d => _externMemberOwner.get(d.pos.start)
+                          .exists(cls => intrinsics.contains(QualifiedName(s"$cls.${d.name.value}"))))
         .map(_.name.value)
-        .filterNot(n => intrinsics.contains(QualifiedName(n)))
         .toSet
     val externErrs: List[Diagnostic] =
       if unimplementedExterns.isEmpty then Nil
@@ -641,6 +649,95 @@ object RustCodeWalk:
    *  Only `def` members are collected. A `val` in an object keeps today's behaviour — unchanged,
    *  not fixed — so `Tool.SOME_VAL` still emits verbatim and is still wrong; that is a separate
    *  defect and is not smuggled in here. */
+  /** `extern class McpClient: def listTools(): …` — the class and the members it declares.
+   *
+   *  WHY THIS EXISTS. The definition side ALREADY works: a called extern member with `@rust(…)`
+   *  renders as a plain `pub fn` (measured). What has never lowered is the CALL: `c.listTools()`
+   *  emitted VERBATIM, because the passthrough arm cannot tell a method on an extern-class value
+   *  from a method on a Vec. Eight of the MCP client's nine members are exactly that shape, and so
+   *  are `WatchHandle.cancel` in std/geo.ssc and `SseStream.close` in std/http.ssc.
+   *
+   *  `extern class C:` is preprocessed to a plain `class C:` whose members have `__extern__` as a
+   *  body, so the marker is what identifies them — the shape is an ordinary class. */
+  private def collectExternClasses(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
+    val out    = scala.collection.mutable.LinkedHashMap.empty[String, Set[String]]
+    // def POSITION → owning class. Needed by the unimplemented-extern refusal, which keys on the
+    // BARE name and so cannot tell `SqliteCursor.close` from `McpClient.close`. Answering that by
+    // name would mask a genuinely unimplemented member the moment two classes share one.
+    val byPos  = scala.collection.mutable.LinkedHashMap.empty[Int, String]
+    def scan(t: m.Tree): Unit =
+      t match
+        case c: m.Defn.Class =>
+          val ds = c.templ.body.stats.collect { case dd: m.Defn.Def if isExternBody(dd.body) => dd }
+          if ds.nonEmpty then
+            out(c.name.value) = ds.map(_.name.value).toSet
+            ds.foreach(dd => byPos(dd.pos.start) = c.name.value)
+        case tr: m.Defn.Trait =>
+          val ds = tr.templ.body.stats.collect { case dd: m.Defn.Def if isExternBody(dd.body) => dd }
+          if ds.nonEmpty then
+            out(tr.name.value) = ds.map(_.name.value).toSet
+            ds.foreach(dd => byPos(dd.pos.start) = tr.name.value)
+        case _ => ()
+      t.children.foreach(scan)
+    def content(c: ast.Content): Unit = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) => scan(node.tree)
+      case _ => ()
+    def section(sec: ast.Section): Unit =
+      sec.content.foreach(content); sec.subsections.foreach(section)
+    module.sections.foreach(section)
+    (out.toMap, byPos.toMap)
+
+  /** def name → the extern class it RETURNS, read off the declared return type.
+   *
+   *  `val c = mcpConnect(transport)` carries no annotation, and that is the spelling every user
+   *  writes, so a receiver map built only from annotated locals would miss the only real case. The
+   *  declaration is on the FACTORY, and this reads it there. */
+  private def collectExternFactories(module: ast.Module, externClasses: Set[String]): Map[String, String] =
+    collectDefs(module).flatMap { d =>
+      d.decltpe.collect { case m.Type.Name(n) if externClasses.contains(n) => d.name.value -> n }
+    }.toMap
+
+  /** In ONE def: which names hold an extern-class value, and of which class. Params and annotated
+   *  locals by their DECLARED type, unannotated locals by the factory they call — the same
+   *  declaration-reading discipline as `localMaps` and `localSeqs`, one type over. */
+  private def externLocalsIn(d: m.Defn.Def): Map[String, String] =
+    val out = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pp =>
+      pp.decltpe.foreach { case m.Type.Name(n) if _externClasses.contains(n) => out(pp.name.value) = n; case _ => () }
+    }
+    def scan(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val =>
+          v.pats match
+            case List(m.Pat.Var(m.Term.Name(nm))) =>
+              v.decltpe match
+                case Some(m.Type.Name(cn)) if _externClasses.contains(cn) => out(nm) = cn
+                case _ => v.rhs match
+                  case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) => _externFactories.get(f).foreach(out(nm) = _)
+                  case m.Term.Name(f)                              => _externFactories.get(f).foreach(out(nm) = _)
+                  case _ => ()
+            case _ => ()
+        case _ => ()
+      t.children.foreach(scan)
+    scan(d.body)
+    out.toMap
+
+  /** The runtime target for `recv.meth(args)` when `recv` holds an extern-class value and the lane
+   *  has an intrinsic for `Class.meth`. The RECEIVER BECOMES THE FIRST ARGUMENT, which is the whole
+   *  rule: an extern class has no Rust type of its own here, so its members cannot be inherent
+   *  methods — they are free functions over an opaque handle, exactly like the MCP server's
+   *  `_mcp_register_tool`. Returns None for anything else, so every method call that lowers today
+   *  keeps lowering the same way. */
+  private def externMemberTarget(qual: m.Term, meth: String, ctx: Ctx): Option[String] =
+    qual match
+      case m.Term.Name(recv) =>
+        for
+          cls    <- _externLocals.get(recv)
+          if _externClasses.get(cls).exists(_.contains(meth))
+          target <- ctx.intrinsics.get(QualifiedName(s"$cls.$meth")).collect { case RuntimeCall(t) => t }
+        yield target
+      case _ => None
+
   private def collectObjectOwnership(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
     val skip     = module.manifest.flatMap(_.pkg).map(_.size).getOrElse(0)
     val members  = scala.collection.mutable.LinkedHashMap.empty[String, Set[String]]
@@ -857,6 +954,12 @@ object RustCodeWalk:
   /** Effectful `def` bodies by name — for inlining a `handle(prog(args))` subject (spec §11.2). */
   /** def source position → owning object. Keyed by POSITION because two owners sharing a member
    *  NAME is the defect this exists for, so the name cannot be the key. */
+  private var _externClasses: Map[String, Set[String]] = Map.empty
+  private var _externMemberOwner: Map[Int, String] = Map.empty
+  private var _externFactories: Map[String, String] = Map.empty
+  /** Set per def in `renderDef` rather than carried in `Ctx`: a Ctx field costs bytecode at every
+   *  `.copy()` site and `renderTerm` is already 2.5x the JIT limit. */
+  private var _externLocals: Map[String, String] = Map.empty
   private var _defOwners: Map[Int, String] = Map.empty
   /** owner → its def members; the sibling-call entries in `renderDef` are built from this. */
   private var _objectMembers: Map[String, Set[String]] = Map.empty
@@ -1596,6 +1699,7 @@ object RustCodeWalk:
     // makes the overloading refusal go away: that check groups on `GeneratedDef.name`, so two
     // owners no longer collide there either. One rename, two symptoms.
     val name    = qualifiedDefName(d)
+    _externLocals = externLocalsIn(d)
     // SITE 3 — the SIBLING call. Inside `object Tool`, a bare `text(x)` must reach `Tool_text`, and
     // it works today only because both ends are flat. Scoped to THIS def's own owner, which is why
     // it is built per def rather than globally: with two objects owning a `text`, a module-wide
@@ -4579,8 +4683,12 @@ object RustCodeWalk:
               if ctx.ctorMap.get(ctorName).exists(_.enumName == enumName) =>
             renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), ctx)
           case m.Term.Select(qual, m.Term.Name(meth)) =>
-            renderTerm(qual, ctx).map(q =>
-              if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)")
+            renderTerm(qual, ctx).map { q =>
+              externMemberTarget(qual, meth, ctx) match
+                // An extern-class member: a free call over an opaque handle, receiver first.
+                case Some(target) => if joined.isEmpty then s"$target($q)" else s"$target($q, $joined)"
+                case None         => if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)"
+            }
           case _ =>
             val plainName = fn match
               case m.Term.Name(n) => Some(n)
