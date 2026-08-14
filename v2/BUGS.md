@@ -95,6 +95,24 @@ The five probes above went into `tests/e2e/v2-unknown-member-refuses-gate.sh` as
 argument for filing a defect with its probe table rather than its prose: it arrived claimable and was
 taken by somebody else the same hour.
 
+**THE ESCAPE HAD A SECOND PATH, closed in `ded2527e4`.** Rendering was half of it. `NativeJsonCodec`
+turns every closure into the JSON string `"<function>"`, so with the rendering fix already compiled
+in the same typo still reached a payload:
+
+```text
+println(jsonStringify(Map("cell" -> "a".nosuch)))   ->   {"cell":"<function>"}   exit 0
+```
+
+That is the `{"cell":{Stub}}` shape that reached an HTTP 200 body — the incident this whole class of
+guard exists for — one sentinel over. Both arms refuse only the eta MARKER: a genuine closure still
+renders as `<closure>` and still serialises as `"<function>"`, and the gate carries a row pinning
+that so the next reader does not have to rediscover which half is deliberate.
+
+**What is still NOT named is the POSITION.** The refusal names the receiver and the member
+(`` `"a".nosuch` ``), not `[line 1, col 36]`, because it fires at the rendering boundary, which has
+no source map. That is a general property of v2 runtime errors rather than anything about this
+defect, so it is recorded here and not papered over with a worse message.
+
 
 
 
