@@ -1,0 +1,11 @@
+slug: v2-extern-default-args
+branch: feature/v2-extern-default-args
+agent: claude-code
+started: 2026-08-14T10:08:47Z
+heartbeat: 2026-08-14T10:08:47Z
+status: claimed-before-planning
+items: v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity
+paths: file:v2/lib/ssc1-lower.ssc0 file:v2/lib/ssc1-front.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-extern-default-args-gate.sh file:scripts/smoke-ci.ssc file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
