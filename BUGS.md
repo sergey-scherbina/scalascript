@@ -23,6 +23,125 @@ Newest first.
 
 
 
+## serve-binds-all-interfaces — a service could not be kept off the LAN, on any lane
+
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: tests/e2e/http-bind-address-gate.sh
+     fixed-in: e5311346f
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 61eaefc57
+     repro: none
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-14. Everything in the reporter's section below is theirs, in their
+words; the measurement of the OTHER lanes and the decision about defaults are mine and are marked.
+
+`serve(port)` binds `0.0.0.0` and there is no way to say otherwise, so every ScalaScript HTTP
+service is reachable from the LAN whether or not it was meant to be.
+
+EVIDENCE, from the machine this was found on — every listening socket, split by who built it:
+
+```
+rozum-gateway  127.0.0.1:8089   127.0.0.1:8401   127.0.0.1:8411   127.0.0.1:8779   (Rust)
+rozum-meeting  *:8405   *:8406                                                     (.ssc)
+ssc_program    *:8493   *:8497                                                     (.ssc)
+```
+
+Four live services listening on every interface. Not one of them chose that: `_http_serve` in the
+Rust runtime template does `SocketAddr::from(([0, 0, 0, 0], port as u16))` and `serve` takes a port
+and nothing else, so the program cannot express the narrower choice.
+
+WHERE IT BIT: a rozum console route is moving from an in-process Rust handler to a .ssc program.
+The Rust one binds loopback. The .ssc one cannot, so the move would widen exposure as a side effect
+of a refactor that is supposed to be behaviour-preserving. That is the whole reason this is a report
+and not a preference.
+
+A BRANCH IS PUSHED: `feature/ssc-http-bind-address` (21e9ad9ba). It reads `SSC_HTTP_BIND` when set
+and keeps `0.0.0.0` otherwise, so nothing that serves the network today stops doing so, and a value
+that does not parse fails loudly at startup rather than silently binding wider than asked:
+
+```
+serve(8499): SSC_HTTP_BIND="не-адрес" is not an address: invalid socket address syntax
+```
+
+Measured with a four-line server built by that toolchain (`.build-digest` equals the tree digest,
+STALE banner silent): unset → `*:8499`; `SSC_HTTP_BIND=127.0.0.1` → `127.0.0.1:8499` with the LAN
+address refused; a bad value → the panic above.
+
+An environment variable rather than a `serve(host, port)` overload on purpose — smallest change that
+makes an existing deployment confinable, no typer or lowering change. The second arity is the better
+API; take it instead if you prefer, the branch does not block it. Either way the default should stay
+`0.0.0.0` so nobody's running service goes dark on upgrade.
+
+**FIXED, and on more lanes than the branch touched.** The reporter's `feature/ssc-http-bind-address`
+changed the Rust runtime; their commit is preserved here with their authorship. Taking only that
+would have added a fourth behaviour, because the lanes already disagreed — measured with `lsof`, one
+four-line server, one port:
+
+| lane | before | with `SSC_HTTP_BIND=127.0.0.1` |
+|---|---|---|
+| `run` (v2 native) | `127.0.0.1` | `127.0.0.1` |
+| `--v1` (interpreter) | `*` | `127.0.0.1` |
+| `build-rust` | `*` | `127.0.0.1` |
+
+So the variable is now read by `JdkServerBackend`, `FastServerBackend` and the native lane's host as
+well, **including their TLS branches** — `createServerSocket(port)` is the wildcard overload, and a
+program confined in plaintext while world-facing over HTTPS would be the worse half to get wrong.
+An address the host cannot resolve stops the server rather than silently binding wider than asked.
+
+**The defaults are unchanged and that is deliberate**, filed as
+`http-lanes-disagree-on-the-default-bind-address`: which default is right is a product decision with
+availability on one side and exposure on the other, not something to settle inside a bug fix.
+
+**The second arity the reporter offered (`serve(host, port)`) was not taken here.** It is the better
+API and the branch does not block it; it needs a `std/http.ssc` declaration plus a lowering on every
+lane, and every lane that did not implement it would silently ignore the argument — the exact class
+of divergence this entry is about.
+
+## http-lanes-disagree-on-the-default-bind-address — `run` binds loopback where `--v1` and `build-rust` bind every interface
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: tests/e2e/http-bind-address-gate.sh
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes -->
+
+Found while fixing `serve-binds-all-interfaces`, and it is the part that report did not contain.
+The same four-line server, one port, read from the OS with `lsof` rather than from any log line:
+
+| lane | listening |
+|---|---|
+| `run` (v2 native) | `127.0.0.1` |
+| `--v1` (interpreter) | `*` |
+| `build-rust` | `*` |
+
+**Nothing decided this.** `FastHttpServer` declares `host: String = "127.0.0.1"` and the native
+host lets the engine bind, so that default applies there; `FastServerBackend` and `JdkServerBackend`
+build their own `ServerSocket` with `InetSocketAddress(port)` — the WILDCARD constructor — and never
+reach it. The difference falls out of which caller makes the socket. `git log -S` finds no commit
+that argues for either.
+
+**A program can now SAY where it binds on every lane** (`SSC_HTTP_BIND`, honoured by all three
+including their TLS paths, unresolvable value fails at startup). What is still open is which default
+is right, and that is a product decision with a security dimension on one side and an availability
+one on the other:
+
+- making everything loopback takes deployed services dark on upgrade — the reporter asked
+  explicitly that this not happen;
+- making everything wildcard puts `ssc run`, the dev-loop command, on the LAN of whatever café its
+  user is sitting in.
+
+Left as-is deliberately rather than decided in a bug fix. The gate asserts the KNOB on all three
+lanes and each lane's CURRENT default, so whichever way this goes, the change will be visible as a
+row that has to be edited on purpose.
+
 ## route-handler-lowered-to-string — a handler declared `Request => Response` was lowered with a `-> String` callback, so no handler could answer anything but 200
 
 <!-- status: fixed
@@ -146,6 +265,18 @@ Three spellings, three distinct rustc errors, all on current main with both fixe
 
 The second one names the real cause: `req` is typed `String`, so the parameter side is wrong before
 the return side is ever reached.
+
+**AND THE BLOCK FORM IS THE SAME DEFECT, which makes this worse than a spelling preference.** Found
+2026-08-14 while measuring something else: `route("GET", p) { req => handler(req) }` — a lambda by
+another name — fails here with `expected Request, found String`, and that is **the only spelling the
+`--v1` interpreter accepts**: it refuses the three-argument form outright with
+`route(method, path) { handler }`. So there is currently NO way to write a route that builds on the
+Rust lane and runs on the interpreter:
+
+| spelling | run (v2) | --v1 | build-rust |
+|---|---|---|---|
+| `route(m, p, handler)` — what `std/http.ssc` DECLARES | works | refuses | works |
+| `route(m, p) { handler }` | works | works | E0308 |
 
 **An attempt is recorded so the next person does not repeat it.** I extended `handlerReturnsResponse`
 to recognise `Response(…)`, its factories and its builders — then emitted the crate and found the
