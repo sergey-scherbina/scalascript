@@ -23,6 +23,84 @@ Newest first.
 
 
 
+## string-length-counts-bytes-not-characters — `length` answered BYTES on the Rust lane while `substring` indexed code units, so the pair panicked on any non-ASCII string
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-string-length-gate.sh
+     fixed-in: 808b8fd0e
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-14
+     ssc-version: a8dc2120c
+     repro: repro/string-length-counts-bytes-not-characters.ssc
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-15. The reporter's section below is theirs, in their words.
+
+`String.length` answers BYTES on `build-rust` while `substring` and `indexOf` count CHARACTERS, so
+the two cannot be combined — and the lanes do not agree on `length` either. One file, four lines:
+
+```
+val s: String = "aé·b"          // 4 characters, 6 UTF-8 bytes
+
+                     run    build-rust
+s.length              4         6
+s.indexOf("b")        3         3
+s.substring(0, 1)    "a"       "a"
+s.substring(1, s.length)  "é·b"   PANIC: substring(1, 6): out of range for a string of 4 code units
+```
+
+Repro: `repro/string-length-counts-bytes-not-characters.ssc`. Measured on a toolchain staged from
+`a8dc2120c` whose `bin/lib/.build-digest` equals `scripts/launcher-input-digest`, in a detached
+worktree.
+
+WHAT IT COSTS, and why this one is filed ahead of the other things found in the same hour. It is not
+a compile error and not a wrong value: it is a PANIC on the request path. Found by porting a route
+that patches a token into an HTML page — `html.substring(at, html.length)`, the obvious way to write
+"from here to the end". `view.html` is 27,449 bytes of 26,332 characters, so the first real request
+killed the tokio worker, and every request after it answered `PoisonError` — one non-ASCII character
+anywhere in the served page takes the whole server down, permanently, with no bad input from the
+caller. An ASCII test page hides it completely.
+
+`indexOf` agreeing across the lanes while `length` disagrees is the part that makes it hard to
+notice by reading: the index is right, the bound is wrong, and the two look symmetrical in the
+source.
+
+Two things ruled out before filing. Not the receiver: a literal, a parameter and a local all behave
+the same. Not `substring` — it is self-consistent in characters; the disagreement is `length`.
+
+No fix branch this time. Which unit `length` should answer is a language decision, not a patch: the
+`run` lane says characters and every string method on both lanes indexes in characters, which is an
+argument for characters — but `length` may have callers that mean bytes, and I cannot see them from
+outside. Whichever way it goes, the two lanes agreeing matters more than which one moves.
+
+**Reproduced on current main before anything changed**, byte for byte with the report: `6`, then a
+panic — `substring(1, 6): out of range for a string of 4 code units`, exit 101.
+
+**THE UNIT WAS MEASURED, NOT CHOSEN, and this is the part the reporter left open.** They wrote that
+"which unit `length` should answer is a language decision" and that the `run` lane's characters
+argue for characters. The measurement says something more specific: `"a😀b".length` is **4** on both
+reference lanes, not 3 — a surrogate pair counts as two, so the answer is UTF-16 CODE UNITS, which is
+exactly the basis `_str_char_at` and `_str_substring` on this lane already index in. So there was no
+language decision left to make: the unit was already chosen and written down in the runtime, and
+`length` was the one member of the family not connected to it. `chars().count()` — the intuitive
+repair — would have agreed on the reported string and diverged on the astral one.
+
+**Fixed as `_str_length` beside the other `_str_*` helpers**, not inline at the emission site: a
+second copy of "what a code unit is" is how `length` and `substring` drifted apart in the first
+place. The walker redirects only a receiver it can SEE is a String; anything else keeps `.len()`,
+which is correct for a Vec — and the gate carries `List(10,20,30).length` as the row that fails if
+someone widens that.
+
+**The gate was watched failing** with the fix reverted and the toolchain rebuilt: `run` and `--v1`
+unchanged, the Rust row red with the literal symptom.
+
+```text
+✗ rust: got '6|3||thread 'main' panicked … substring(1, 6): out of range for a string of 4 code units'
+```
+
 ## tolong-on-a-string-answers-four-different-things — on a method the spec calls a synonym
 <!-- status: fixed
      lane: multi
