@@ -1,3 +1,156 @@
+## f-cons-pattern-with-a-nil-tail-loses-the-head-binder — `case h :: Nil` declines, `case h :: t` does not
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: none — open defect -->
+
+Found by ranking F's refusals rather than by anyone hitting it: it is the second-largest bucket in
+`f-gap-census-refresh`, **9 files, all `tests/conformance/scljet-*`**, every one of them reporting
+`unbound global: (global h)` — a name that is right there in the pattern.
+
+Two lines, and the control is the line beside it:
+
+```scalascript
+def show(xs: List[Int]): String = xs match { case h :: Nil => "one:" + h  case h :: t => "many:" + h  case _ => "empty" }
+def main(): Unit = println(show(List(5)))
+```
+
+```
+F     ssc: unbound global: (global h)
+ref   one:5
+```
+
+Delete the `case h :: Nil` arm and F answers `many:5`. So the cons pattern itself is fine; what F
+cannot do is a cons pattern whose TAIL is a constructor rather than a variable.
+
+**Where to start looking, not what to fix.** `parseConsArm1` (`specs/v2.2-p6.5-fsub.ssc`) reads the
+pattern POSITIONALLY:
+
+```
+def parseConsArm(ts, menv, cx) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), menv, cx)
+def parseConsArm1(h, t, ts, menv, cx) = parseArmBody("Cons", 2, t :: h :: Nil, ts, menv, cx)
+```
+
+head token, then the token two along taken as the TAIL BINDER'S NAME, then the body. For
+`h :: Nil` the token two along is the constructor `Nil` (kind 3), so a binder literally named `Nil`
+is pushed and the arm is emitted as `(arm Cons 2 …)` — which is why the diagnostic names `h` and not
+`Nil`: whatever goes wrong, the head is not where the body looks for it. **Not verified beyond the
+reproducer** — the positional read is the obvious suspect and it should be confirmed before it is
+believed, because today `(global Parser)` pointed three imports away from its cause.
+
+**Check the OTHER resolver before believing a green gate.** `parseArm` and `parseGenArm` are two
+independent arm parsers chosen by the match's FIRST pattern, and a fix to one is invisible to rows
+that only reach the other — that is exactly how `f-at-bind-pattern-emits-unbound-underscore` nearly
+shipped half-done today. A gate here needs rows whose first arm is a scalar as well as rows whose
+first arm is the cons pattern.
+
+**Nine files, one shape.** `scljet-correlated-dml`, `scljet-sql-value-compare`, `scljet-insert-null`,
+`scljet-ipk-numeric-affinity`, `scljet-sql-correlated-join`, `scljet-large-page`,
+`scljet-update-ipk-moves-rowid`, `scljet-sql-null-semantics`, `scljet-sql-double-equals` — all carry
+`case h :: Nil` in a `showRow`/`showValue` helper.
+
+## f-gap-census-refresh — 771 files, and the largest F gap is a FEATURE, not a defect
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     fixed-in: eb88be5fc
+     gate: scripts/f-gap-census -->
+
+Measured 2026-08-14 after the day's three F fixes, over **771 files** — `examples/`,
+`examples/frontend/`, `tests/conformance/` and all of `std/`. The board's two standing census entries
+were taken on a 140-file sample in early August and both are superseded here, not contradicted.
+
+```
+771 subjects     F 496     BOTH-UNBOUND 198     GAP 57     ERROR 20
+```
+
+**F's real denominator.** 198 `BOTH-UNBOUND` and 20 `ERROR` are outside F's decision — the first is
+the reference front's static validator objecting too, the second is 12 files the reference front
+cannot parse at all plus 5 with broken import paths in the example itself. So F's lowering decides
+**553** files and handles **496 — 89.7%**. Quoted against the raw 771 it reads 64%, and the earlier
+140-file sample read 76%.
+
+### The GAP bucket, 57 files, ranked by mechanism
+
+The reason string embeds the offending NAME, so the raw strings scatter; grouped by name they are
+three real groups and a tail.
+
+```
+19  effect (9) · handler (8) · multi (2)    the algebraic-effects feature
+ 9  h                                        `case h :: Nil` — a cons pattern whose TAIL is a ctor
+ 5  —                                        native frontend exited with N
+ 5  —                                        match: no arm for T/N
+ 3  __u0                                     the known placeholder binder
+ 2  summon · 2 Foldable · 2 _                typeclass machinery, placeholder
+ 8  singletons                               row, path, of, K, grade, fixed, C, at, approxBytes
+ 1  —                                        Range out of bounds (standard-scala-multifence)
+```
+
+**The largest gap is a missing FEATURE, and that is worth saying plainly.** `effect` / `handler` /
+`multi` is algebraic effects: nine `tests/conformance/effect-*` cases, `std/agent.ssc`,
+`std/agent-mcp.ssc`, and six `examples/rozum-agent*` / `agent-mcp*` that import those two std
+modules. That is 19 of 57 — a third of everything F still refuses — and it is not a defect anyone
+can fix in an afternoon; it is a feature F does not implement.
+
+**The second group is a two-line defect holding nine files**, all `tests/conformance/scljet-*`:
+
+```
+def show(xs: List[Int]): String = xs match { case h :: Nil => "one:" + h  case h :: t => "many:" + h  case _ => "empty" }
+def main(): Unit = println(show(List(5)))
+
+F     ssc: unbound global: (global h)
+ref   one:5
+```
+
+`case h :: t` compiles; `case h :: Nil` does not. `parseConsArm1` reads the cons pattern
+POSITIONALLY — head token, then the token two along as the tail's binder NAME — so a tail that is a
+constructor rather than a variable is bound as if it were one, and the real binder falls out of the
+arm's env. Filed separately as `f-cons-pattern-with-a-nil-tail-loses-the-head-binder`.
+
+### The two standing entries, re-measured on 5.5× the sample
+
+**`both-unbound-is-mostly-plugin-intrinsics-not-user-error` — CONFIRMED and widened.** All 198 rows
+carry the reference front's own objection, and it is dominated by names the RUNTIME binds:
+
+```
+21 runActors  15 __yamlSection__  14 sqlSection  12 spark  10 self  8 scope  7 oauth  6 route
+ 5 awaitClient  4 generator  3 spawn/signal/runAsync/runAsyncParallel/htmlToPdfBase64/NamedHandler
+10+ *_derived  (JsonCodec_derived, ObjectCodec_derived, VertexCodec_derived, SparkSchemaCodec_derived)
+```
+
+83 distinct names, and the head of the distribution is plugin intrinsics and synthesised typeclass
+instances — not user error. The label still blames the program.
+
+**`error-bucket-holds-no-F-gaps` — CONFIRMED.** 17 of the 20 are not F's decision at all: 12
+`native frontend rejected incomplete parse` (the REFERENCE front), 5 `import not found` (the example
+is wrong). The remaining three are one `TYPEERR`, one `match`, one `if-then-no-else-after-while`.
+
+### How to read this table, and how not to
+
+Three ways it lies, all measured rather than supposed, and all now in `scripts/f-gap-census`'s
+header:
+
+- **a refusal SHORT-CIRCUITS**, so every count is a LOWER BOUND. Today eight files said
+  `(global Parser)`; after the fix six became F and two moved to `(global _)`. Re-run after every
+  fix — this is a ranking, not a work plan with fixed sizes.
+- **the reason is not the cause.** `(global Parser)` was reported against files three imports from
+  the bodyless `object` that caused it.
+- **transitivity inflates the count.** The 8 `handler` files are 2 std roots and 6 dependents —
+  verified: `examples/rozum-agent.ssc` and `agent-mcp-server.ssc` both carry `](std/agent.ssc)`.
+
+Shipped as a script rather than a sweep for exactly the first reason. `scripts/f-gap-census
+--self-test` asserts the bucketing collapses NAMES and keeps MECHANISMS in both directions, and the
+run refuses to report unless it got a verdict for every subject — an empty result is a broken run,
+never data, which twice today it silently was.
+
 ## v2-jit-size-measured-the-neighbours-and-called-it-green — the module carrying `ssc.Prims` was dropped from the target list whenever its class dir was absent
 
 <!-- status: fixed
@@ -2511,6 +2664,13 @@ Fixed to `./studio.ssc`. Both then move `ERROR` → `BOTH-UNBOUND` — they stil
      confirmed: yes
      gate: tests/conformance/run.sh -->
 
+**RE-MEASURED 2026-08-14 on 771 files and CONFIRMED — see `f-gap-census-refresh`.** 20 `ERROR`
+files now, and 17 of them are still not F's decision: 12 `native frontend rejected incomplete parse`
+(the REFERENCE front cannot parse the file) and 5 `import not found` (the example's own path is
+wrong). The remaining three are one `TYPEERR`, one `match`, one `if-then-no-else-after-while`. F's
+real denominator on the wider set is 553, of which F handles 496 — **89.7%**, against the 76% this
+entry computed in August and the 64% the raw count reads.
+
 A census of the five `ERROR` files in the 140-file front-report sample — the one bucket nobody had
 looked at. **None of them is an F lowering gap.**
 
@@ -3350,6 +3510,13 @@ Newest first.
      lane: apparatus
      area: front
      gate: tests/e2e/f-front-delegation-visible.sh -->
+
+**RE-MEASURED 2026-08-14 on 771 files (5.5× this sample) and CONFIRMED — see
+`f-gap-census-refresh`.** 198 `BOTH-UNBOUND` rows, all carrying the reference front's own objection,
+83 distinct names, and the head of the distribution is still plugin intrinsics and synthesised
+typeclass instances: `runActors` 21, `__yamlSection__` 15, `sqlSection` 14, `spark` 12, `self` 10,
+`scope` 8, `oauth` 7, `route` 6, `awaitClient` 5, plus 10+ `*_derived`. The reading below holds at
+scale; the label still blames the program.
 
 `ssc info --front-report` classifies a file `BOTH-UNBOUND` when the REFERENCE front also fails
 `validateNoReader`, and the surrounding comment reads that as "the file is broken whichever front
