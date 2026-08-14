@@ -894,6 +894,13 @@ multiblock-auto-output        2|20|expl  ✓   explicit     ✗   2|20|expl  ✓
 extension-call-in-a-def-body  arity err  ✗   (empty)      ✗   body-a     ✓
 ```
 
+The fourth row is the one where the interpreter stood alone, and it stayed that way for three days
+because the two front columns look like two independent defects. They were ONE: a single-line
+`extension (r) def m` never opened its member block, so the receiver was still live for every `def`
+below it. The reference lost `main` to the absorption and printed nothing; F kept `main` but gave it
+the receiver as a parameter and called it with none. Fixed on both fronts 2026-08-13/14 — the row
+now reads `body-a ✓` in all three columns.
+
 **Three of the four are REFERENCE-front defects with F in the right.** The gate counted all four
 against F. `set-ops-infix` even documents its own expected values in a table — `int`/`jvm` give
 `Set(1, 3)` and the reference's answer is named there as the *before* state of a fixed bug.
@@ -1148,6 +1155,11 @@ shows **5**.
                                     See shipped-F-and-F-bootstrapped-from-source-disagree above:
                                     F0 lowers this CORRECTLY, so the two Fs differ here.
   extension-call-in-a-def-body.ssc  F: `arity: 1 expected, 0 given`; the reference runs.
+                                    SETTLED 2026-08-14: BOTH fronts were wrong, one root cause —
+                                    a single-line `extension (r) def m` absorbed every following
+                                    `def`. "The reference runs" was measured when it printed
+                                    nothing at all and exited 0, which is the reference's own
+                                    symptom of the same bug. Both halves fixed.
   multiblock-auto-output.ssc        F prints two EXTRA lines (`2`, `20`) the reference does not —
                                     an auto-output decision, both fronts running.
                                     SETTLED 2026-08-13: F was RIGHT. The two lines are the contract
@@ -1180,6 +1192,12 @@ independent third lane, which agrees with F on all three:
 `reference-front-answers-three-conformance-files-differently-from-both-other-lanes`.
 The fifth, `extension-call-in-a-def-body`, is wrong on BOTH fronts and already carries a
 `known-red:` marker with ten probes behind it — the interpreter is the only lane that answers.
+SETTLED 2026-08-14: **both fronts were wrong for the same reason and both are fixed.** A single-line
+`extension (r) def m` opened no member block, so the receiver stayed live and absorbed every `def`
+after it — the reference lost `main` (silence, rc 0), F prepended the receiver to it (`arity: 1
+expected, 0 given`). Reference half `0428861ff`, F half `layoutCloseX`; the `known-red:` and its
+ten-probe table are gone from the case, which is green on every backend. See
+`v2/BUGS.md v2-extension-member-call-inside-a-def-body-fails-by-arity`.
 
 The count in this entry's title came from a comparison that treats the reference front as the
 oracle. It is not one; see
