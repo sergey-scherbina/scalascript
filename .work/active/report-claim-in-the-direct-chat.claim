@@ -3,9 +3,28 @@ branch: feature/report-claim-in-the-direct-chat
 agent: claude-code
 started: 2026-08-14T16:37:29Z
 heartbeat: 2026-08-14T16:37:29Z
-status: claimed-before-planning
+status: working
 items: report-claim-in-the-direct-chat
-paths: file:AGENTS.md
+paths: file:AGENTS.md file:.agents/plugins/multi-agent/commands/multi-agent.md file:.agents/plugins
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  CORRECTING `room-post-names-its-claim`, released twenty minutes ago, which answered the wrong
+  half of the owner's request.
+
+  He asked for the claim slug to be reported TO HIM IN THE DIRECT CHAT — the CLI session — and said
+  the room is fine too but secondary. I wrote the rule entirely under `## The rozum room`, so it
+  reads as a room convention and says nothing about the channel he actually asked about. He had to
+  come back and ask whether I had written it that way. I had not.
+
+  WHY IT LANDED WRONG IS WORTH RECORDING: the room is where agents talk to agents, and I generalised
+  "report who you are" into the coordination channel I had been using all session. The human's
+  channel is the DIRECT chat, he cannot see the room while working, and the claim slug is what lets
+  him tell one `claude-code` from another when several are running.
+
+  THE FIX IS A PLACEMENT FIX, not a wording one. The rule comes out from under the room heading into
+  its own block, with the direct chat named FIRST and the room named as the second channel, so
+  neither reads as the whole rule.
+
+  ALSO the `multi-agent` plugin, whose step 5 currently says "announce it in the coordination room"
+  — same one-sided shape, same fix. `.agents/plugins` is in `paths` because the pointer is a
+  DISTINCT tracked path from the files inside the submodule; the guard taught me that an hour ago.
+next: move the block, name the direct chat first, bump the plugin
