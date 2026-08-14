@@ -7,6 +7,74 @@ grepping for status.
 
 Newest first.
 
+## v2-map-updated-copies-the-whole-map — `Map.updated` is O(n), and the cost is 80 % of `map-ops`
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: perf
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: none -->
+
+**`MapV` is a mutable `LinkedHashMap`, and every immutable update COPIES IT ENTIRELY**
+(`v2/src/Runtime.scala:2801`):
+
+```scala
+case (MapV(m), "updated", List(k, v)) =>
+  val out = MapV.from(m)      // <- copies every entry
+  out.entries.update(k, v)
+  out
+```
+
+So `m.updated(k, v)` costs O(size), where the semantics it implements — an immutable map — need
+only structural sharing. `MapV.from(m)` appears at **five sites**: `updated`, `removed`, `+`, and
+two more at lines 3167 and 3246.
+
+**Measured, and the control is what makes it a defect rather than a slow row.** 500 `updated` calls
+against a growing keyspace, quiet host (load ~1.3), `--warmup-time 1500 --reps 20`, ms per call of
+`workload()`:
+
+| keyspace (final map size) | v2 | v1 interp | jvm (real Scala) |
+|---|---|---|---|
+| 10 | 0.3245 | 0.2446 | 0.0059 |
+| 100 | 0.8099 | 0.2656 | 0.0147 |
+| 1000 (500 entries) | **1.60** | **0.2737** | 0.0184 |
+
+**v2 grows 5× with the map; v1 is FLAT** (0.2446 → 0.2737, 12 %) running the same source. A lane
+that does not pay is the proof that the cost is this implementation and not the workload. Fitting
+`a + b·n` to v2 gives ~0.64 µs fixed per call and ~5.2 ns per entry copied — at 500 entries the copy
+is about 80 % of the call.
+
+**Found while asking a different question, and it corrected that question too.** `bench/corpus/map-ops`
+is the row where v2's DEFAULT lane (`v2-bytecode`) buys nothing over its own reference interpreter —
+six paired rounds on a quiet host: median 0.987, bytecode ahead in 4 of 6, against 0.008 on
+`arith-loop` (125× ahead) as the control. That is not a bytecode-generator defect: the generator
+emits the program fully (`SSC_GEN_STATS` reports `classes=1 methods=276`, no `Unsupported`), and
+splitting the row in two shows why the lane cannot matter —
+
+| probe | v2 VM | v2-bytecode | bytecode/VM |
+|---|---|---|---|
+| the same loop with the `Map` calls REMOVED | 0.0497 | 0.0237 | **0.48** |
+| `updated` only | 0.8450 | 0.8072 | 0.96 |
+| `getOrElse` only | 0.2980 | 0.2621 | 0.88 |
+
+The loop half is 0.05 ms and the `updated` half is 0.85 ms — **17× more than the entire loop** — and
+both lanes call the same runtime for it. The bytecode lane's 2.1× on the loop is diluted to nothing
+by a cost neither lane can reach. Fix the map and the lane's win becomes visible on this row.
+
+**The fix is not "use a HashMap".** Insertion order is a deliberate contract here — `Runtime.scala:136`
+and `:156` say so, and it is what makes `println(Map(...))` stable — so the replacement has to be
+persistent AND insertion-ordered. `scala.collection.immutable.VectorMap` is both. Any candidate must
+keep `MapV`'s equality and hashing behaviour, which the comment at :136 also pins.
+
+**Not fixed here, deliberately:** `v2/src/Runtime.scala` is held by claim `rust-toint-lane-parity`.
+This entry is the measurement and the diagnosis; the edit belongs to whoever holds that file next.
+A gate for it should assert the SHAPE, not a time: 500 `updated` calls over 10 keys and over 500
+keys must cost within a small factor of each other, which is a threshold a loaded host can still
+read.
+
 ## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
 
 <!-- status: fixed
