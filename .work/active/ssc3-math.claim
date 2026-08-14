@@ -5,7 +5,7 @@ started: 2026-08-14T15:38:31Z
 heartbeat: 2026-08-14T15:38:31Z
 status: working
 items: SSC3-14
-paths: file:v3/prelude/index.ssc file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity
+paths: file:v3/prelude/index.ssc file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity file:v3/BUGS.md
 scope: |
   SSC3-14 — `math`, planned in `v3/SPRINT.md` on 2026-08-13 and not started. (That file is claimed
   by `bench-b4-three-version-table`, so this claim carries the plan, as SSC3-14b/c/13c/13d did.)
@@ -48,4 +48,26 @@ scope: |
 
   MEASUREMENT: N with floors DIFF 3 and CRASH 9, the four cases read INDIVIDUALLY against their
   checked-in expectations, and lane agreement probed for every new prim.
-next: prelude object + hostPrims + Exec prims, then parity probes, then measure
+  MEASURED 2026-08-14: N 212 -> 216, DIFF 3 and CRASH 9 held, UNSUPPORTED 143 -> 139. All four
+  cases MATCH their checked-in expectations byte for byte. The prediction made before the edit was
+  +4 and the result is +4 — the first N movement in five changes, and the difference from the four
+  N-neutral ones is that the yield was measured with a pasted `math` object before any code existed.
+
+  WIDENED 2026-08-14 to `v3/BUGS.md`, BEFORE the edit, for TWO defects this work found:
+
+  (1) `v3-extern-member-in-an-object-has-no-meaning`. I wired the four host hooks as members of
+  `object math` and neither front carries `extern` into an object: v3's parser refuses it outright,
+  uniml DROPS the keyword and leaves the member with the same `???` body it gives any bodyless one
+  — an unpositioned run-time failure, which `corpus-report.sh` classifies CRASH. Worked around by
+  declaring them at top level with a `__` prefix; the `Lower` change that would have resolved
+  externs over object members is reverted rather than shipped dead.
+
+  (2) `v3-math-pow-fractional-needs-a-v2-prim`. The owner asked for the fractional case to be fixed.
+  Measured what a fix must match: the reference lane is libm-exact (`pow(2.0, 0.1)` is
+  1.0717734625362931), so a ScalaScript series or the repeated-sqrt expansion — tempting because
+  both lanes have `f.sqrt` — would differ in the last bits and make v3 disagree with the reference
+  on every fractional pow. v3 cannot do it on one lane either: the bridge emits a prim and v2 has
+  no `f.pow`, `f.exp` or `f.log`. The fix is ONE LINE in `v2/src/Runtime.scala` beside `f.sqrt`,
+  and that file is held by `rust-toint-lane-parity`, so it is asked for in the room and filed, not
+  taken. Second thing today blocked on that file — see the `v2-bytecode-map-ops` release note.
+next: file both entries, then release
