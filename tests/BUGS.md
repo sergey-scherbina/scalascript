@@ -259,14 +259,47 @@ under F and all agree with the reference front.
 
 ## ci-smoke-red-streak-nobody-stopped — the gate worked; nobody read it
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: tests/coord/coord-release-evidence-level.sh -->
+     gate: tests/coord/coord-release-evidence-level.sh
+     fixed-in: 7e62996066892438f40038bda60021cc263c8c80 -->
+
+> **CLOSED 2026-08-14 by taking the proposal below — and its premise was wrong in a way that moved
+> the fix.** The entry says "`coord-release --level 1` runs `scripts/ci-status --sha <landed-sha>`
+> and refuses on non-zero, so 'read the CI you triggered' is enforced at exactly one level and
+> nowhere else." It is enforced at NO level. `ci-status` occurs in `coord-release` exactly once, in
+> the usage text; `--level` is validated as one of `1|2|3` and written into the commit message and
+> never checked against anything. `--level 1` has always been a claim about CI that no code reads.
+> So there was no mechanism to narrow: the check had to be written, and it runs at every level.
+>
+> **`coord-release` now REFUSES (exit 3) when `origin/main`'s latest `smoke.yml` run is RED.** Red,
+> never "not green" — which is §P-6.7's own argument, not a preference: the ladder exists because
+> level 1 became unreachable under churn, and "a rule nobody can satisfy does not gate, it relocates
+> the lying". `ci-status` already separates the three answers by exit code — 0 green, 1 completed
+> red or missing a required job, 2 pending / absent / unqueryable — and only **1** refuses. No
+> `ci-status`, no network, no `gh`, a timeout: all proceed.
+>
+> **`--on-red "<why>"` releases anyway and writes the reason into the release commit** in a fixed
+> position, `[released onto RED main: …]`. A red main is usually somebody else's breakage and the
+> queue must not deadlock on it; an escape that left no trace would recreate this entry in one move.
+> The design goal is a visible act, not a hard one — `bugs-index-gate` already records why failing on
+> a judgement call "would train people to ignore it".
+>
+> **The three anti-cases are what make the four-case set worth anything.** Run against the previous
+> copy of the script, the six red-related assertions fail (including
+> `coord-release: unknown option: --on-red`) while GREEN, PENDING/unqueryable and no-ci-status pass
+> unchanged. Had the guard been written as "require a green", those three would have failed against
+> the old script too and a passing lab would have proved nothing. 31 PASS / 0 FAIL, 4 s against a
+> 120 s budget, wired at `scripts/smoke-ci.ssc:562`.
+>
+> **What is NOT claimed:** main was green while this was built (`ci-status --latest` exit 0), so the
+> refusal is demonstrated in the lab and has never fired on live main. And the habit finding stands
+> on its own — this makes the act visible and recorded; it cannot make anyone read a red.
 
 **Measured from the CI run list on 2026-08-14, not inferred, and now SETTLED — bounded by a green on
 each side.** Twelve consecutive `smoke.yml` runs failed, and every one of them failed on
