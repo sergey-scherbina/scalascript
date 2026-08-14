@@ -1,0 +1,22 @@
+#!/usr/bin/env ssc
+---
+name: route-response
+version: 0.1.0
+description: A route handler that returns a Response, as std/http.ssc declares it.
+---
+# route-response
+
+`std/http.ssc` declares `route(method, path, handler: Request => Response)` and a three-field
+`Response(status, headers, body)`. This is the smallest program that uses that declaration.
+
+```scalascript
+[route, serve, Request, Response](std/http.ssc)
+
+def handler(req: Request): Response =
+  if req.path == "/ok" then Response(200, Map("Content-Type" -> "text/plain"), "ok")
+  else Response(404, Map("Content-Type" -> "text/plain"), "missing")
+
+def main(): Unit =
+  route("GET", "/ok", req => handler(req))
+  println("registered")
+```

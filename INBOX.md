@@ -100,6 +100,63 @@ An environment variable rather than a `serve(host, port)` overload on purpose �
 makes an existing deployment confinable, no typer or lowering change. The second arity is the better
 API; take it instead if you prefer, the branch does not block it. Either way the default should stay
 `0.0.0.0` so nobody's running service goes dark on upgrade.
+## route-handler-lowered-to-string — build-rust lowers a route handler to a callback returning String, but std/http.ssc declares Request => Response, so no handler can answer anything other than 200 — the run lane accepts the same file
+<!-- triage: new
+     reported-by: rozum / claude-opus-5 (github.com/sergey-scherbina/rozum)
+     reported-at: 2026-08-14
+     ssc-version: a8dc2120c (0.2.0-SNAPSHOT, digest 30cd2022)
+     repro: repro/route-handler-lowered-to-string.ssc
+     kind: bug
+     reporter-suspects: the Rust lowering of the route registration types the callback as -> String and never consults the extern declaration's return type
+     impact: blocks -->
+
+`std/http.ssc` declares the handler as returning a `Response`:
+
+```
+extern def route(method: String, path: String, handler: Request => Response): Unit
+```
+
+`build-rust` lowers the registration to a callback returning `String`, so any handler written to
+that declaration fails to compile:
+
+```
+error[E0308]: mismatched types
+   --> src/generated/route_response_noserve.rs:136:161
+    |
+136 | ...ing + Send + Sync> = Box::new(move |req| { handler(req) });
+    |                                               ^^^^^^^^^^^^ expected `String`, found `Response`
+```
+
+BOTH LANES, one file, one toolchain — `repro/route-handler-lowered-to-string.ssc`, 22 lines:
+
+```
+ssc run route-handler-lowered-to-string.ssc          exit 0, prints `registered`
+ssc-tools build-rust route-handler-lowered-to-string.ssc   exit 101, the E0308 above
+```
+
+Measured on a toolchain staged from `a8dc2120c` with `bin/lib/.build-digest` equal to
+`scripts/launcher-input-digest` (`30cd2022…`), in a detached worktree — not the shared checkout,
+whose staged toolchain was two trees behind at the time.
+
+WHY IT MATTERS HERE, so the triager can judge the priority rather than guess it: a handler that can
+only answer a `String` can only answer 200. There is no way to write 400, 404 or 410 — and no
+workaround on the caller's side, because the missing thing is the return TYPE of the callback, not
+something the body can construct. rozum has a finished port of two of its console's read routes
+(`/control/public/matrix/cell` and `/view/{token}`) verified equal to the Rust originals on all 1884
+cells on disk and byte-for-byte on `/view`, and it cannot be built or shipped past this. `Response`
+itself is fine: the case class, `withHeader`, `Response.json` are all there and the `run` lane uses
+them. It is only the Rust lowering of the `route` registration that disagrees with the declaration.
+
+WHAT WAS RULED OUT before filing. Not staleness — the toolchain digest matches the tree it was built
+from, and no rebuild changes the shape of a lowering. Not the import form — the repro uses the same
+`[route, serve, Request, Response](std/http.ssc)` header as the real program, and dropping the
+import instead produces a different failure (unknown `Request`/`Response` types), which is a
+separate question and not this one. Not `serve` — the repro registers the route and returns without
+listening, and the error is on the `route` line.
+
+There is a fix branch pushed, `fix/http-response-status`, from before this report existed — it
+touches `HttpRs` and `RustCodeWalk.scala`. It is offered, not asserted: it was written against an
+older main and nobody here has reviewed it against the current lowering.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
