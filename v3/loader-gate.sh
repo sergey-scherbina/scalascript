@@ -42,17 +42,24 @@ fail=0
 # import work" pass, while silently shadowing 64 real modules. A gate that catches only the first
 # would have let the second through.
 if [ "${1:-}" = "--self-test" ]; then
-  LOADER="v3/src/Loader.scala"
-  cp "$LOADER" "$LOADER.selftest-bak"
-  restore() { mv -f "$LOADER.selftest-bak" "$LOADER"; }
+  # TWO FILES, because the loader's decisions are not all in `Loader.scala`. `Source.scalaImportPath`
+  # is what decides whether a line IS an import at all, and section 5's subject lives there — a
+  # `plant` that could only patch `Loader.scala` would have failed to find its anchor, and a
+  # self-test that cannot plant its defect reports on a file it did not change.
+  SELFTEST_FILES="v3/src/Loader.scala v3/src/Source.scala"
+  for f in $SELFTEST_FILES; do cp "$f" "$f.selftest-bak"; done
+  restore() { for f in $SELFTEST_FILES; do mv -f "$f.selftest-bak" "$f"; done; }
   trap restore EXIT INT TERM
   st_fail=0
   # `good` is checked for EXACTLY ONE occurrence before anything is written. A self-test that
   # patches blind reports on a file it did not change.
+  #
+  # The FILE is the first argument, and every planted defect is applied to a tree restored from the
+  # backups first, so two plants in different files cannot accumulate.
   plant() {
-    local name="$1" good="$2" bad="$3"
-    cp "$LOADER.selftest-bak" "$LOADER"
-    python3 - "$LOADER" "$good" "$bad" <<'PY' || { printf '  %-6s could not plant: %s\n' "FAIL" "$1"; exit 2; }
+    local file="$1" name="$2" good="$3" bad="$4"
+    for f in $SELFTEST_FILES; do cp "$f.selftest-bak" "$f"; done
+    python3 - "$file" "$good" "$bad" <<'PY' || { printf '  %-6s could not plant: %s\n' "FAIL" "$2"; exit 2; }
 import sys
 p, good, bad = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(p).read()
@@ -66,23 +73,37 @@ PY
     fi
   }
   echo "── v3 loader gate self-test ───────────────────────────────────────────────"
+  LOADER="v3/src/Loader.scala"
+  SOURCE="v3/src/Source.scala"
   CAND='List(stdRoot + target, target, dir + "/" + target, target.substring("std/".length))'
-  plant "the strip candidate removed (the pre-migration resolver)" "$CAND" \
+  plant "$LOADER" "the strip candidate removed (the pre-migration resolver)" "$CAND" \
         'List(stdRoot + target, target, dir + "/" + target)'
-  plant "the strip candidate tried FIRST (shadows every real std/ module)" "$CAND" \
+  plant "$LOADER" "the strip candidate tried FIRST (shadows every real std/ module)" "$CAND" \
         'List(target.substring("std/".length), stdRoot + target, target, dir + "/" + target)'
   # The rename switched off entirely — the state the tree was in before P-6 was fixed.
-  plant "the collision rename disabled (a unit calls another module's function)" \
+  plant "$LOADER" "the collision rename disabled (a unit calls another module's function)" \
         'if targets.isEmpty then units' 'if true then units'
   # THE MORE INTERESTING FAILURE, and the reason section 2's third check exists: the rename working
   # while the OWNER is chosen wrongly. Every "does my own module win" check still passes; what
   # changes is the answer a unit gets when it declares the name NOWHERE and simply calls it.
-  plant "the owner chosen as the LAST declarer instead of the first" \
+  plant "$LOADER" "the owner chosen as the LAST declarer instead of the first" \
         'else declarers(n).head' 'else declarers(n).last'
+  # SSC3-14c, and it is in the OTHER file — see `SELFTEST_FILES` above. Section 5 asserts a selector
+  # list resolves the same module as `.*`; this is the proof that it would notice if the
+  # normalisation went away, which is the state the tree was in before this landed.
+  plant "$SOURCE" "selector-list normalisation removed (a list is refused again)" \
+        'if open < 0 || !p.endsWith("}") then p else p.substring(0, open) + ".*"' \
+        'p'
+  # THE CARELESS VERSION of the same fix, which is the more interesting failure here: normalising
+  # WITHOUT requiring the list to be closed. Every "does a selector list work" check still passes;
+  # what changes is that `import std.probe.{probeName` — half a line — is accepted as a path.
+  plant "$SOURCE" "normalisation without the closing-brace guard (half a path is accepted)" \
+        'if open < 0 || !p.endsWith("}") then p else p.substring(0, open) + ".*"' \
+        'if open < 0 then p else p.substring(0, open) + ".*"'
   restore; trap - EXIT INT TERM
   "$0" >/dev/null 2>&1 || { printf '  %-6s the gate does not pass on the restored tree\n' "FAIL"; st_fail=1; }
   echo
-  [ "$st_fail" = 0 ] && echo "== v3 loader gate self-test: GREEN (4/4 caught) ==" || echo "== v3 loader gate self-test: RED =="
+  [ "$st_fail" = 0 ] && echo "== v3 loader gate self-test: GREEN (6/6 caught) ==" || echo "== v3 loader gate self-test: RED =="
   exit "$st_fail"
 fi
 
@@ -94,11 +115,29 @@ build_tree() {
   printf 'def probeName(): String = "std-copy"\n'  > "$t/std/probe.ssc"
   printf 'def probeName(): String = "root-copy"\n' > "$t/probe.ssc"
   printf '[probeName](std/probe.ssc)\n\ndef main(): Unit = println(probeName())\n' > "$t/main.ssc"
+  # THE THREE SPELLINGS OF ONE IMPORT, each in a FENCED file because `Loader.imports` only reads a
+  # Scala-style import inside a code fence — a bare `.ssc` never sets `inCode`, so its import line
+  # is blanked and never resolved, and a probe written bare would pass without resolving anything.
+  printf '# star\n\n```scalascript\nimport std.probe.*\ndef main(): Unit = println(probeName())\n```\n' \
+    > "$t/star.ssc"
+  printf '# sel\n\n```scalascript\nimport std.probe.{probeName, absentName}\ndef main(): Unit = println(probeName())\n```\n' \
+    > "$t/sel.ssc"
+  # A rename INSIDE the list. `std/mapreduce/shuffle.ssc:46` writes one, and the names are never
+  # read, so it must cost nothing.
+  printf '# selas\n\n```scalascript\nimport std.probe.{probeName, absentName as a}\ndef main(): Unit = println(probeName())\n```\n' \
+    > "$t/selas.ssc"
+  # NOT an import: the brace is unclosed. Here so a widening that accepts selector lists cannot
+  # quietly start accepting half a path — the check below asserts this one still REFUSES.
+  printf '# bad\n\n```scalascript\nimport std.probe.{probeName\ndef main(): Unit = println(probeName())\n```\n' \
+    > "$t/bad.ssc"
 }
 
 # Run from INSIDE the tree: every candidate but the first is relative to the working directory, so
 # the working directory is part of what is being tested.
 run_probe() { ( cd "$1" && "$SSC3" exec main.ssc 2>&1 | tail -1 ); }
+
+# The same, for a named file — the selector-list spellings each need their own.
+run_file() { ( cd "$1" && "$SSC3" exec "$2" 2>&1 | tail -1 ); }
 
 check() {
   local label="$1" want="$2" got="$3"
@@ -155,6 +194,31 @@ if [ -f "$canon" ]; then
 else
   say note "$canon is absent, so the corpus spelling was not checked"
 fi
+
+# 5. A SELECTOR LIST NAMES THE WHOLE MODULE, and must therefore resolve to exactly what `.*` does.
+#
+# `import a.b.{X, Y}` is what people write and what three modules under `std/mapreduce/` write; it
+# was refused, with a message arguing that a list "has no meaning here because an import brings the
+# WHOLE module either way". The semantics in that sentence are right, so the list is now normalised
+# to `.*` (`Source.selectorsToStar`) and the names are never read.
+#
+# CHECKED AS AN EQUALITY against the `.*` spelling rather than against a literal, because the point
+# is that the two spellings cannot diverge — a check that only asserted `std-copy` would still pass
+# if the list took a different resolution path that happened to land on the same file here.
+build_tree "$T"
+star="$(run_file "$T" star.ssc)"
+check "the .* spelling resolves"                  "std-copy" "$star"
+check "a selector list resolves the same module"  "$star"    "$(run_file "$T" sel.ssc)"
+check "a rename INSIDE the list costs nothing"    "$star"    "$(run_file "$T" selas.ssc)"
+
+# THE NEGATIVE HALF, and without it this section would pass on a scanner that accepts anything
+# beginning `import`. An unclosed brace is not a path and must still be refused BY NAME.
+bad="$(run_file "$T" bad.ssc)"
+case "$bad" in
+  *"an \`import\` line must be"*)
+    say ok "an unclosed selector list still refuses, by name" ;;
+  *) say FAIL "an unclosed selector list was accepted: $bad"; fail=1 ;;
+esac
 
 echo
 echo "── v3 module graph: WHICH declaration a call means ───────────────────────"

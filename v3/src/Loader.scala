@@ -59,11 +59,13 @@ object Loader:
             // place both fronts already go through.
             case None if startsImport(raw) =>
               throw ParseFail(Pos(ln, 1),
-                "an `import` line must be a dotted path and nothing else — `import std.geo.*` or " +
-                "`import actors.Overflow`, which name a module in the standard library. Renaming " +
-                "(`as`), selector lists (`{a, b}`) and a single bare name have no meaning here, " +
-                "because an import brings the WHOLE module either way; for a module beside this " +
-                "file, write a markdown link — `[name](./other.ssc)`")
+                "an `import` line must be a dotted path, optionally ending in `.*` or a selector " +
+                "list — `import std.geo.*`, `import actors.Overflow`, `import std.geo.{Point, " +
+                "Region}` — which name a module in the standard library. The names in a selector " +
+                "list are not read: an import brings the WHOLE module either way, so the list is " +
+                "accepted and ignored. Renaming the MODULE (`import a.b as c`) and a single bare " +
+                "name have no meaning here; for a module beside this file, write a markdown link " +
+                "— `[name](./other.ssc)`")
             case None => ()
       else if Source.isCodeFenceOpen(raw) then inCode = true
       out = scanLine(raw, ln, out)

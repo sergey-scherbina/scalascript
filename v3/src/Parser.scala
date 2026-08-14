@@ -1806,10 +1806,15 @@ object Parser:
       // `import …` — THE PARSER ONLY EVER SEES THE FORMS THAT ARE NOT SUPPORTED.
       //
       // A supported import — a whole line that is `import` followed by a dotted path of identifiers,
-      // optionally ending `.*` — never reaches here: `Source.blankIfImport` replaces it with an empty
-      // line, exactly as it does a markdown link, because both are DECLARATIONS read by
-      // `Loader.importsOf` rather than expressions. So what is left at this branch is `import a`,
-      // `import a.{b, c}`, `import a.b as c` — and refusing them by NAME is the point.
+      // optionally ending `.*` or a selector list — never reaches here: `Source.blankIfImport`
+      // replaces it with an empty line, exactly as it does a markdown link, because both are
+      // DECLARATIONS read by `Loader.importsOf` rather than expressions. So what is left at this
+      // branch is `import a` and `import a.b as c` — and refusing them by NAME is the point.
+      //
+      // `import a.{b, c}` USED TO BE LEFT HERE and is not any more: `Source.selectorsToStar`
+      // normalises a selector list to `.*`, so `blankIfImport` blanks it upstream and this branch
+      // stops seeing it. That is the whole of SSC3-14c on this side — widening the one decider
+      // rather than adding an arm here, which would have been a second place to disagree.
       //
       // The refusal it replaces covered every spelling, and the message it gave ("v3 has no `import`
       // keyword") is now false, which is the more dangerous kind of stale diagnostic: a reader would
@@ -1821,10 +1826,12 @@ object Parser:
       // (BUGS.md v3-has-no-scala-style-import.)
       else if isId(peek(ts), "import") && ts.tail.nonEmpty && isPlainName(peek(ts.tail)) then
         throw ParseFail(posOf(ts),
-          "an `import` line must be a dotted path and nothing else — `import std.geo.*` or " +
-          "`import actors.Overflow`, which name a module in the standard library. Renaming " +
-          "(`as`), selector lists (`{a, b}`) and a single bare name have no meaning here; for a " +
-          "module beside this file, write a markdown link — `[name](./other.ssc)`")
+          "an `import` line must be a dotted path, optionally ending in `.*` or a selector list — " +
+          "`import std.geo.*`, `import actors.Overflow`, `import std.geo.{Point, Region}` — which " +
+          "name a module in the standard library. The names in a selector list are not read: an " +
+          "import brings the WHOLE module either way, so the list is accepted and ignored. " +
+          "Renaming the MODULE (`import a.b as c`) and a single bare name have no meaning here; " +
+          "for a module beside this file, write a markdown link — `[name](./other.ssc)`")
       // `multi effect X:` — the same declaration, and the `multi` says the handler may resume more
       // than once. Since CPS landed the executor can, so this is carried rather than refused; the
       // word is dropped because nothing downstream needs it — multi-shot is not a mode, it is what

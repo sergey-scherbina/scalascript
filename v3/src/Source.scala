@@ -94,9 +94,14 @@ object Source:
     * and the standard library begin with the word `import`; three of them are prose —
     * `` import ("No method 'empty' …") ``, `import resolves; the call always takes …` — and reading
     * those as imports is the same false positive the link scanner already learned about one comment
-    * up. Requiring the whole line to be a dotted path of identifiers (optionally ending in `.*`)
-    * rejects all three, and the caller only ever asks INSIDE a code fence, which rejects the four
-    * that sit in ```` ```text ```` documentation blocks.
+    * up. Requiring the whole line to be a dotted path of identifiers (optionally ending in `.*`, or
+    * in a selector list that `selectorsToStar` has already turned into one) rejects all three, and
+    * the caller only ever asks INSIDE a code fence, which rejects the four that sit in
+    * ```` ```text ```` documentation blocks.
+    *
+    * THE STRICTNESS SURVIVED THE WIDENING, and that was probed rather than reasoned about: `import
+    * a`, `import std.x.{y` with the brace unclosed, `import std.x as m` and a prose line beginning
+    * `import (` are all still refused after selector lists were accepted.
     *
     * `import a` with no dot returns None deliberately: there is no member to drop, so no module can
     * be derived from it, and the parser refuses it BY NAME rather than this silently ignoring it. */
@@ -107,12 +112,38 @@ object Source:
       val rest = t.substring(6)
       if rest.isEmpty || !(rest.charAt(0) == ' ' || rest.charAt(0) == '\t') then None
       else
-        val p = rest.trim
+        val p = selectorsToStar(rest.trim)
         val segs = p.split("\\.", -1).toList
         val ok = segs.length >= 2 && segs.zipWithIndex.forall { (s, i) =>
           if s == "*" then i == segs.length - 1 else isIdent(s)
         }
         if ok then Some(p) else None
+
+  /** `a.b.{X, Y}` -> `a.b.*`. A SELECTOR LIST IS THE WHOLE MODULE, so it is normalised to the
+    * spelling that already means that and everything downstream is untouched.
+    *
+    * The refusal this replaces argued the point itself — "an import brings the WHOLE module either
+    * way" — and it was right about the semantics and wrong to refuse over them: `import a.b.{X, Y}`
+    * is what people write, three modules under `std/mapreduce/` write it, and the owner's decision
+    * of 2026-08-14 is that it works.
+    *
+    * NORMALISING RATHER THAN PARSING is what keeps this from becoming a second decision site.
+    * `Loader.scalaImportTarget` already derives a module by dropping the last segment, so handing it
+    * `a.b.*` reuses the path that exists instead of a new one that happens to agree with it. And
+    * because `blankIfImport` asks the same function, widening HERE also stops the leftover ever
+    * reaching `Parser.scala`'s refusal — one edit, three sites, no new place to disagree.
+    *
+    * The list's CONTENTS are not read, which is why a rename inside one costs nothing:
+    * `std/mapreduce/shuffle.ssc:46` writes `{DatasetWire, DatasetWirePartition, JsonValue as
+    * TJsonValue}` and every name in it arrives with the module regardless.
+    *
+    * SINGLE LINE ONLY, and deliberately: a list may be spread over several lines, which needs state
+    * this line-at-a-time scanner does not have. Every multi-line one in the tree is under
+    * `examples/`, which no corpus case loads, so nothing that runs depends on it — and an unclosed
+    * `{` still fails the `isIdent` check below rather than being read as half a path. */
+  private def selectorsToStar(p: String): String =
+    val open = p.indexOf(".{")
+    if open < 0 || !p.endsWith("}") then p else p.substring(0, open) + ".*"
 
   private def isIdent(s: String): Boolean =
     s.nonEmpty && (s.charAt(0).isLetter || s.charAt(0) == '_') &&
