@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+#
+# coord-update <slug> [--heartbeat] [--status …] [--next …] [--paths …] [--items …] [--scope-file …]
+#
+# The missing third of the claim lifecycle. `coord-claim` writes a claim and `coord-release` removes
+# one; everything in BETWEEN — a heartbeat, a scope widening, a rewritten `next:` — was hand-edited
+# and hand-committed, several times a day, by every agent.
+#
+# WHY THAT MATTERED MORE THAN THE TYPING (scripts/BUGS.md
+# `hand-made-claim-updates-have-no-tool-and-so-no-rollback`). The hand recipe was
+#
+#     git add .work/active/<slug>.claim .work/active/LEDGER.tsv
+#     git commit -m "claim-update: …"
+#     git push origin main          # refused? the commit stays
+#
+# and a parked commit on the SHARED checkout is not a private inconvenience: the checkout pushes all
+# of local `main`, and `.githooks/pre-push` validates every claim in `remote_tip..local_tip`, so a
+# stranger's next claim is refused for a commit they cannot see and did not make. `coord-claim`
+# learned to roll back on 2026-08-07 and `coord-release` on 2026-08-14; this was the one remaining
+# way to produce that landmine, and it was the one everybody used.
+#
+# THE OVERLAP CHECK IS NOT REIMPLEMENTED HERE, and that is deliberate. Widening `paths:` onto a
+# scope another live claim holds is exactly what `.githooks/pre-push` refuses, with a reader that
+# already handles `repo:`/`mod:`/`file:` levels, the claim-vs-ledger union, and the `verify-*`
+# exemption. A second copy of that logic here would be a second thing to keep in sync — the defect
+# `claim-ledger-claimfile-scope-drift` is what duplicated state costs in this exact area. So the
+# PUSH is the check: the hook refuses, and the rollback below makes that refusal free.
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: scripts/coord-update <slug> [edits…]
+
+  --heartbeat            set `heartbeat:` to now (UTC). The one every agent needs most.
+  --status <value>       set `status:` (in-progress, blocked, parked-mid-task, …)
+  --next <text>          set `next:`
+  --items "<id> [<id>…]" replace `items:` — widening the WORK this claim reserves
+  --paths "<p> [<p>…]"   replace `paths:` — widening the FILES it reserves
+  --scope-file <path>    replace the `scope: |` block with the contents of a file
+
+At least one edit is required: a claim-update commit that changes nothing is noise in a log
+everybody reads.
+
+Widening is pushed BEFORE the edit it justifies, not after — that is the rule this tool exists to
+make cheap, and `--paths` onto somebody else's scope is refused by the pre-push guard, at which
+point this rolls back and the claim is exactly as it was.
+USAGE
+}
+
+slug=""; hb=0; status=""; next=""; items=""; paths=""; scope_file=""; edits=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --heartbeat) hb=1; edits=$((edits + 1)); shift ;;
+    --status)     [ $# -ge 2 ] || { echo 'coord-update: --status needs a value' >&2; exit 2; }
+                  status="$2"; edits=$((edits + 1)); shift 2 ;;
+    --next)       [ $# -ge 2 ] || { echo 'coord-update: --next needs a value' >&2; exit 2; }
+                  next="$2"; edits=$((edits + 1)); shift 2 ;;
+    --items)      [ $# -ge 2 ] || { echo 'coord-update: --items needs a value' >&2; exit 2; }
+                  items="$2"; edits=$((edits + 1)); shift 2 ;;
+    --paths)      [ $# -ge 2 ] || { echo 'coord-update: --paths needs a value' >&2; exit 2; }
+                  paths="$2"; edits=$((edits + 1)); shift 2 ;;
+    # A FILE, for the same reason `coord-release` grew `--note-file`: a `scope:` block is long prose
+    # full of `identifiers in backticks`, and passed inline the shell RUNS the backticked text and
+    # substitutes its output — words vanish from the record and nobody notices until they read it
+    # back. That has happened five times in this repo.
+    --scope-file) [ $# -ge 2 ] || { echo 'coord-update: --scope-file needs a path' >&2; exit 2; }
+                  [ -r "$2" ] || { printf 'coord-update: cannot read scope file: %s\n' "$2" >&2; exit 2; }
+                  scope_file="$2"; edits=$((edits + 1)); shift 2 ;;
+    # Fail CLOSED on an unknown flag, as coord-release does: a typo'd flag must stop the update, not
+    # be silently ignored and leave the agent believing an edit landed.
+    --*) printf 'coord-update: unknown option: %s\n' "$1" >&2; usage; exit 2 ;;
+    *)   if [ -z "$slug" ]; then slug="$1"; else
+           printf 'coord-update: unexpected argument: %s\n' "$1" >&2; usage; exit 2
+         fi; shift ;;
+  esac
+done
+
+[ -n "$slug" ] || { usage; exit 2; }
+[ "$edits" -gt 0 ] || { echo 'coord-update: nothing to change — pass at least one edit flag' >&2; usage; exit 2; }
+
+root="$(git rev-parse --show-toplevel)"
+[ -d "$root/.git" ] || { echo 'coord-update: run from the SHARED checkout, not a worktree' >&2; exit 2; }
+cd "$root"
+git diff --quiet && git diff --cached --quiet || { echo 'coord-update: working tree is dirty' >&2; exit 2; }
+git fetch -q origin && git merge --ff-only -q origin/main
+
+claim=".work/active/${slug}.claim"
+[ -f "$claim" ] || { echo "coord-update: no such claim: $claim" >&2; exit 2; }
+
+# ── everything below is STAGED, so it must be undone if the commit is not reached ────────────────
+# The same trap `coord-release` carries, and for the same reason: the window between the first write
+# and the commit leaves an index behind on a tree five other agents share, and both coord tools
+# refuse to start on a dirty tree — so one interrupted update blocks everybody's next claim.
+# Targeted restore of the two paths this tool writes, never `git reset`.
+_staged_ok=0
+_restore_staging() {
+  [ "$_staged_ok" = 1 ] && return 0
+  git restore --staged --worktree -- "$claim" .work/active/LEDGER.tsv 2>/dev/null \
+    || git checkout -q HEAD -- "$claim" .work/active/LEDGER.tsv 2>/dev/null || true
+  echo "coord-update: the update did not complete — staging rolled back, the claim is unchanged." >&2
+  return 0
+}
+trap _restore_staging EXIT HUP INT TERM
+
+# ── apply the edits ──────────────────────────────────────────────────────────────────────────────
+# Field-wise, in python, because a claim is line-oriented but `scope:` is a `|` block: a `sed` that
+# rewrote `next:` would also rewrite a line reading `next:` INSIDE somebody's scope prose. Every
+# setter here either replaces the field's own line or appends the field when it is absent — an older
+# single-line claim has no `heartbeat:` at all, and `--heartbeat` on one of those must add it rather
+# than silently do nothing.
+CLAIM="$claim" HB="$hb" STATUS="$status" NEXT="$next" ITEMS="$items" PATHS="$paths" \
+SCOPE_FILE="$scope_file" TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)" python3 - <<'PY'
+import os, re, sys
+
+p = os.environ["CLAIM"]
+lines = open(p).read().split("\n")
+
+def set_field(name, value):
+    """Replace `name:`'s own line, or append the field when the claim has none."""
+    pat = re.compile(r'^' + re.escape(name) + r':')
+    for i, l in enumerate(lines):
+        # Only a TOP-LEVEL field: a line indented under `scope: |` belongs to the prose, and the
+        # first version of this rewrote a `next:` that was part of somebody's scope paragraph.
+        if pat.match(l):
+            lines[i] = f"{name}: {value}"
+            return
+    # Append BEFORE a trailing `scope:` block if there is one, so the block stays last and readable.
+    for i, l in enumerate(lines):
+        if l.startswith("scope:"):
+            lines.insert(i, f"{name}: {value}")
+            return
+    while lines and lines[-1] == "":
+        lines.pop()
+    lines.append(f"{name}: {value}")
+
+if os.environ["HB"] == "1":       set_field("heartbeat", os.environ["TS"])
+if os.environ["STATUS"]:          set_field("status", os.environ["STATUS"])
+if os.environ["NEXT"]:            set_field("next", os.environ["NEXT"])
+if os.environ["ITEMS"]:           set_field("items", os.environ["ITEMS"])
+if os.environ["PATHS"]:           set_field("paths", os.environ["PATHS"])
+
+if os.environ["SCOPE_FILE"]:
+    body = open(os.environ["SCOPE_FILE"]).read().rstrip("\n")
+    indented = ["  " + l if l else "" for l in body.split("\n")]
+    out, i, replaced = [], 0, False
+    while i < len(lines):
+        if lines[i].startswith("scope:"):
+            out.append("scope: |")
+            out.extend(indented)
+            i += 1
+            # swallow the old block: every following indented or blank line
+            while i < len(lines) and (lines[i].startswith("  ") or lines[i] == ""):
+                i += 1
+            replaced = True
+            continue
+        out.append(lines[i]); i += 1
+    if not replaced:
+        out.append("scope: |"); out.extend(indented)
+    lines = out
+
+open(p, "w").write("\n".join(lines).rstrip("\n") + "\n")
+PY
+
+# THE NO-OP IS DECIDED ON THE CLAIM, BEFORE THE LEDGER IS TOUCHED, and the order is the whole
+# subtlety. `coord-ledger --write` bumps `# generation:` on every run, so regenerating first makes
+# even an update that changed nothing produce a differing ledger — measured: the first version of
+# this staged `.work/active/LEDGER.tsv` alone and committed a bare generation bump. That counter is
+# what makes two concurrent CLAIMS collide; spending it on an update that changed nothing is noise
+# at best and a spurious collision for somebody else at worst.
+if git diff --quiet -- "$claim"; then
+  echo "coord-update: the claim already says that — nothing to commit." >&2
+  exit 0
+fi
+
+# The ledger is DERIVED — every column is a verbatim copy of a claim field — so it is regenerated
+# rather than edited in parallel. Keeping the second copy by hand is what `claim-ledger-claimfile-scope-drift`
+# is about, and `coord-ledger --write` is the one place that knows the format.
+"$root/scripts/coord-ledger" --write >/dev/null
+
+git add "$claim" .work/active/LEDGER.tsv
+# Nothing outside `.work/` — `.githooks/pre-commit` refuses that in the shared checkout, and the
+# limit is what keeps a claim-update to one reviewable shape.
+staged="$(git diff --cached --name-only | LC_ALL=C sort | tr '\n' ' ')"
+case "$staged" in
+  ".work/active/LEDGER.tsv $claim "|"$claim .work/active/LEDGER.tsv ") : ;;
+  *) echo "coord-update: refusing — staged more than the claim and its ledger row:" >&2
+     printf '  %s\n' "$staged" >&2
+     exit 2 ;;
+esac
+
+what=""
+[ "$hb" = 1 ]        && what="${what}heartbeat "
+[ -n "$status" ]     && what="${what}status "
+[ -n "$next" ]       && what="${what}next "
+[ -n "$items" ]      && what="${what}items "
+[ -n "$paths" ]      && what="${what}paths "
+[ -n "$scope_file" ] && what="${what}scope "
+msg="claim-update: ${slug} — ${what% } [skip ci]"
+
+pre_update_sha="$(git rev-parse HEAD)"
+git commit -q -m "$msg"
+# The index is the commit's now; from here the rollback below owns the failure path.
+_staged_ok=1
+
+push_log="$(mktemp "${TMPDIR:-/tmp}/coord-update-push.XXXXXX")"
+if git push origin main >"$push_log" 2>&1; then
+  rm -f "$push_log"
+  echo "✓ updated ${slug}: ${what% }"
+  exit 0
+fi
+
+cat "$push_log" >&2
+case "$(cat "$push_log")" in
+  *"claim"*|*"overlap"*)
+    echo "coord-update: the pre-push guard refused this update — most likely --paths widens onto" >&2
+    echo "  a scope another live claim holds. scripts/coord-status names the holder." >&2 ;;
+  *"non-fast-forward"*|*"fetch first"*|*"rejected"*)
+    echo "coord-update: main moved while this ran. Nothing was changed; re-run it." >&2 ;;
+  *)
+    echo "coord-update: push refused — the output above is the reason." >&2 ;;
+esac
+# ROLL THE COMMIT BACK, targeted and never `--hard`: this tree is shared, and a hard reset would
+# delete work that has nothing to do with the claim.
+if [ "$(git rev-parse HEAD)" != "$pre_update_sha" ]; then
+  git reset -q --mixed "$pre_update_sha"
+  git checkout -q -- "$claim" .work/active/LEDGER.tsv 2>/dev/null || true
+  echo "  (rolled back — the shared checkout is clean and the claim is exactly as it was)" >&2
+fi
+rm -f "$push_log"
+exit 1
