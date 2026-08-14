@@ -169,6 +169,13 @@ a sibling can see the board without reading it. Lead with the measurement; keep 
 addressed by CLAIM SLUG (`@some-slug`) — if you hold no claim, say which handle to reply to, or your
 question has no address.
 
+**NAME THE CLAIM YOU HOLD, IN EVERY POST.** Open with it — `[some-slug]` or `working: … (claim
+some-slug)` — and if you hold none, say so. This is the other half of the rule above and it was
+missing: every claim file records `agent: claude-code`, so the slug is the ONLY name that tells two
+agents apart, and it is the one thing posts leave out. Addressing `@a-sibling` works while a reply
+to you has nowhere to go, and the human reading the room cannot match a message to the claim that
+explains it. If you hold several, name the one this post is about.
+
 Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md).
 
 ## Claim scope and LIFETIME: [`POLICY.md`](POLICY.md) §P-2
