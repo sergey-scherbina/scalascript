@@ -1,3 +1,47 @@
+## v2-jit-size-measured-the-neighbours-and-called-it-green — the module carrying `ssc.Prims` was dropped from the target list whenever its class dir was absent
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: apparatus
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     fixed-in: 86eeb16f0
+     gate: tests/e2e/v2-jit-size.sh -->
+
+**Found while verifying my own fix, which is the only reason it was found at all.** `v2-jit-size.sh`
+built its target list from three module class directories and fell back to the staged jars **only if
+ALL THREE were missing**. After a plain `./install.sh --dev` the ordinary state is `v2/src/target/
+scala-*/classes` absent and the two small modules' present. The list is then NON-EMPTY and does not
+contain `ssc.Prims` — so the gate censused two minor modules, found nothing over the limit, and
+printed `PASS`.
+
+Measured, not reasoned:
+
+```text
+rm -rf v2/src/target/scala-*/classes && ./install.sh --dev && tests/e2e/v2-jit-size.sh
+  ok    v2/backend-jvm-bytecode/…/classes — no method >= 6000
+  ok    v2/jvm-runtime/…/classes          — no method >= 6000
+  v2-jit-size: PASS
+```
+
+…while `ssc.Prims.methodDispatch8` was **8406 bytecodes**, over HotSpot's 8000 limit and therefore
+never JIT-compiled — the exact defect this gate owns, invisible to it.
+
+**Not "no measurement" but a measurement of the WRONG THING wearing a green**, which its own header
+warns about one level up: *"Refusing to report green on an empty measurement — that is the failure
+mode this whole gate exists to prevent."* The list was not empty. It was incomplete.
+
+**Fixed by resolving each module independently** — its class directory, else its staged jar, else
+the gate REFUSES and names the module. `bytecode-size-census` reads a jar as readily as a directory,
+and the jar path is the one that runs after `install.sh`; proved non-vacuous by censusing that jar
+at a lower threshold, which lists 13 methods including `methodDispatch8` at 4921.
+
+**And the gate is now wired into smoke beside its v1 twin.** `scripts/smoke-ci.ssc` already said the
+v2 twin "sits in ci.yml's `sbt` job, which is workflow_dispatch only" — noticed, written down and
+left there. That is what let an 8406-byte method sit on the hot path of the lane `ssc run` uses.
+
 ## f-at-bind-pattern-emits-unbound-underscore — and the SECOND resolver answered `<closure>`
 
 <!-- status: fixed
