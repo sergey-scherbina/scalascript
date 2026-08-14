@@ -38,7 +38,6 @@ cd "$ROOT"
 # or remove one — the gate fails if a frozen entry stops being an orphan, so the list cannot rot into
 # a permanent exemption.
 read -r -d '' FROZEN <<'EOF' || true
-actors-pingpong-smoke.sh
 negtc-shard-gate.sh
 render-smoke.sh
 serve-view-frontend-v2-smoke.sh
@@ -48,7 +47,6 @@ v21-native-doc-render-smoke.sh
 v21-portable-gates-smoke.sh
 v21-typeclass-dictionary-smoke.sh
 v21-unhandled-effect-smoke.sh
-wc-card-smoke.sh
 EOF
 
 # ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────

@@ -5494,6 +5494,51 @@ makes them claimable.
 | wired | 0 — both red on a real defect |
 | frozen orphans | 12 |
 
+### batch 4, part 4 — the one SHARED mechanical cause, and it hid no product defect at all
+
+`actors-pingpong-smoke` and `wc-card-smoke` were the whole of the "outlived its runner" group, and
+they were the only two scripts in `tests/e2e` still naming a project that does not exist:
+`scala-cli run "$ROOT/compiler" --main-class scalascript.cli.ssc`, with stderr sent to `/dev/null`
+and `ROOT` one `..` short. Every assertion therefore ran against the EMPTY STRING — three backends
+"producing nothing", nine needles "missing". **One dead command reads as nine product defects.**
+
+**Pointed at `bin/ssc-tools`, both pass first try.** All nine `emit-wc` needles are present in a
+149 KB bundle; all three actor backends print identical output. There was nothing underneath.
+
+**Two expectations were corrected with evidence rather than to make a gate pass**, which is the
+distinction worth keeping:
+
+* `[exit] actor=3 reason=kill` is gone from the actors expectation. **Nothing in the tree emits
+  it** — no producer in any `.scala`, `.ssc` or `.ssc0` — and the program never links or traps
+  exits, so nothing should print on `exit(w, "kill")`. It is a v1.6-era trace that outlived its
+  emitter. What the gate now asserts instead is the observable consequence: the killed worker's
+  `receive` must NOT run, checked per lane rather than left to a diff.
+* The JS arm's private expectation is gone because the divergence it existed for is FIXED:
+  `"after timeout: " + None` printed `[object Object]` on JS and now prints `None` on all three
+  lanes. One expectation for three lanes is the stronger assertion, since agreement is what this
+  gate is for.
+
+**And a third instance of a trap this repository has now paid for three times in one day, with a new
+and nastier property.** The rewritten `wc-card` gate reported its FIRST needle missing while
+`grep -qF` on the same bytes matched. Cause: `printf '%s' "$bundle" | grep -qF …` under
+`set -o pipefail`. `grep -q` exits at the first hit and closes the pipe, `printf` takes SIGPIPE with
+147 KB still to write, and `pipefail` makes the pipeline 141 — which `if` reads as NOT FOUND.
+
+**The property that makes it dangerous is that the answer depends on WHERE the match is.** The eight
+needles further down all passed, because `printf` had finished by the time `grep` exited. An EARLY
+match is the one most likely to be reported as a miss — the worst possible schedule for noticing.
+The fix is to write the bytes to a file and grep the file; the same day's other two instances were
+an `awk '…{exit}'` closing a pipe under `printf`, and an `ERR` trap firing on a deliberate non-zero
+exit inside `set +e`.
+
+| after part 4 | |
+|---|---|
+| gates modernised and wired | 2 |
+| product defects underneath them | **0** |
+| stale expectations corrected with evidence | 2 |
+| apparatus traps found in the rewrite | 1 (SIGPIPE under pipefail, position-dependent) |
+| frozen orphans | **9** |
+
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed

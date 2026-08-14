@@ -776,6 +776,25 @@ jobs:
       - name: build-jvm artifacts carry honest debug metadata (26s, was a silent red orphan)
         run: tests/e2e/v21-build-jvm-smoke.sh
 
+      # Orphan drain, batch 4 part 4 — the ONE shared mechanical cause of that batch, and it
+      # explained both of these: they drove `scala-cli run "$ROOT/compiler" --main-class
+      # scalascript.cli.ssc`, an sbt project that no longer exists, with stderr sent to /dev/null,
+      # and `ROOT` was one `..` short as well. So every assertion ran against the EMPTY STRING:
+      # actors-pingpong reported all three backends producing nothing, wc-card missed all nine
+      # needles. One dead command reads as nine product defects.
+      #
+      # Pointed at bin/ssc-tools, both pass first try — there was no product defect underneath
+      # either of them. Two expectations were corrected with evidence rather than to make them pass:
+      # the `[exit] actor=3 reason=kill` line has no producer anywhere in the tree (the program
+      # never traps or links, so nothing should print), and the JS arm's `[object Object]`
+      # substitution is gone because that divergence is FIXED — all three lanes now print `None` and
+      # `Some(...)`, which makes one expectation for three lanes the stronger assertion.
+      # (tests/BUGS.md orphaned-e2e-gates-52.)
+      - name: actors ping-pong agrees on INT, JS and JVM (13s, was an orphan on a dead runner)
+        run: tests/e2e/actors-pingpong-smoke.sh
+      - name: emit-wc bundle has the expected shape (2s, same cause)
+        run: tests/e2e/wc-card-smoke.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 
