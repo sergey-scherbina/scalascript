@@ -1,0 +1,1 @@
+println(List(1,2).flatMap(x => List(x, x * 10)).mkString(","))

@@ -1,0 +1,1 @@
+println(List(1,2,3).flatMap(x => if x == 2 then List() else x).mkString(","))

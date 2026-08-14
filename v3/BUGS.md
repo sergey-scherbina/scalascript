@@ -6,7 +6,46 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-multishot-handler-without-a-return-clause — a multi-shot `resume` hands back an `Int` where the handler wants a `List`
+## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wraps on native, refuses on the v2 VM, and v3 must pick one
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: v3/parity-gate.sh (a probe was written and WITHDRAWN — see below)
+     found-by: claude-code
+     found-at: 2026-08-14 -->
+
+**Found by a parity probe written while fixing `v3-flatmap-nonlist-lane-divergence`, and it caught
+the fix itself over-reaching.** Three implementations, three answers, for `val n = 5; List(1,2) ++ n`:
+
+    reference native (bin/ssc run)   1,2,5                     wraps
+    v2 VM (v3/ssc3 run --bridge)     RuntimeException:         refuses, UNCAUGHT — a Java stack
+                                     expected a list, got 5    trace reaches the user
+    v3 exec                          ++ needs a List and got   refuses, with a position
+                                     the Int 5
+
+**v2 IS INTERNALLY ASYMMETRIC and that is the root of it:** its `flatMap` WRAPS a non-list (measured
+— `v3/ssc3 run --bridge` prints `List(10, 20, 30)` for `List(1,2,3).flatMap(x => x * 10)`) while its
+`++` refuses in `Prims.unlistPub`. Two operators, same question, opposite answers.
+
+**WHY v3 REFUSES RATHER THAN WRAPPING, for now.** I widened `++` alongside `flatMap` because the
+reference native lane wraps, and the new parity probe went RED in the same run: wrapping made
+`ssc3 run` disagree with `ssc3 run --bridge`, which is the exact I-3 violation that commit existed
+to remove, moved into a different operator. Invariant I-3 is about v3's OWN two lanes, and v3's
+bridge IS the v2 VM, so matching v2 is what agreement means here. The widening was reverted.
+
+**THE PROBE WAS WITHDRAWN, NOT SILENTLY DROPPED.** `v3/tests/parity/list-concat-nonlist.ssc` would
+sit RED for a divergence in the SHAPE of two refusals (v3's positioned diagnostic versus v2's
+uncaught exception) rather than in the answer, and a standing red teaches everyone to stop reading
+the gate. It goes back the day v2 picks a side. Re-create it with:
+`val n = 5` then `println((List(1,2) ++ n).mkString(","))`.
+
+**THE FIX GOES IN v2**, making `++` agree with its own `flatMap`; v3 then widens to match in the
+same commit. Filed here rather than in the repository-root `BUGS.md` — where a cross-module defect
+belongs — because that file was held by the `v3-bridge-effects` claim at the time of writing. Move
+it when that releases.
+
+## v3-flatmap-nonlist-lane-divergence — `flatMap` and `++` refused a non-list that v3's OWN BRIDGE accepted (was: v3-multishot-handler-without-a-return-clause)
 
 <!-- status: open
      lane: v3
@@ -15,46 +54,52 @@ Query: `scripts/bugs-report --module v3`.
      found-by: claude-code
      found-at: 2026-08-14 -->
 
-**`bench-corpus-gate` is RED on `effect-multishot`, and it says `STOPPED computing — it produced a
-number before`. That message describes the symptom and gets the event backwards: the row did not
-break, it stopped lying.**
+**RENAMED, BECAUSE THE TITLE I FILED THIS MORNING NAMED THE WRONG MECHANISM.** It read
+`v3-multishot-handler-without-a-return-clause` and said the fixture's handler was missing a return
+clause. Nothing about multi-shot handlers was wrong. The defect was `flatMap` on a NON-LIST result,
+and the effect fixture was merely the loudest place it showed. The wrong name came from taking the
+refusal's own advice at face value — the message said "if this is a handler, its return clause is
+what lifts the final value" — instead of measuring another lane. That advice was in the code and it
+was wrong, which is the kind of diagnostic that costs more than silence.
 
-    ssc3: bench/corpus/effect-multishot.ssc: flatMap needs a List and got the Int 13 — it
-    contributes no elements, so the result would be silently short.
+**THE FACT THAT SETTLES IT NEEDS NO OTHER IMPLEMENTATION: the two lanes of one compiler
+disagreed.** `v3/ssc3 run --bridge` printed `List(10, 20, 30)` for a program `v3/ssc3 run` refused.
+That is invariant I-3.
 
-The handler is `case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))` with NO return
-clause, so `resume(opt)` hands back the computation's own value — an `Int` — and `flatMap` is handed
-a non-list. **`7730f6039` (2026-08-12), `flatMap refuses a non-list instead of silently dropping
-it`, is what made that visible**, and it landed AFTER the gate's own baseline comment
-(`Measured 2026-08-11: 34 of the 36 rows compute`, `55ca34c86`, 2026-08-11 17:35). Before it, the
-non-list contributed nothing and the row computed a number that was **silently short** — so the
-gate was green over a wrong answer, which is the reading that matters when deciding what to do
-about it.
+    op                     reference (bin/ssc run)    v2 VM (v3 --bridge)   v3 exec, before
+    List.flatMap non-list  List(10, 20, 30)           List(10, 20, 30)      REFUSED
+    List ++ non-list       List(1, 2, 5)              —                     REFUSED
+    List.zip non-list      refuses "expected a list"  —                     refuses
 
-**WHICH SIDE IS WRONG IS NOT SETTLED HERE, deliberately, because the two readings need different
-fixes and picking one without measuring is how a bench row gets quietly rewritten to suit the
-compiler.** Either the FIXTURE is wrong and its handler needs a return clause lifting `Int` into
-`List[Int]`, or v3 is over-strict and a multi-shot `resume` should lift on its own — the refusal's
-own second sentence raises exactly that. `specs/direct-style-eval-spec.md` §10.1 and the fixture's
-prose (jvm, js and rust all run this workload) are where that gets decided.
+A non-list is ONE ELEMENT on every lane that answers. `zip` refuses everywhere, so it was already
+right and is untouched.
 
-**NOT CAUSED BY SSC3-14b, and the control says so rather than the calendar.** Found while gating the
-varargs change; the identical refusal appears at the parent commit with the uniml front REBUILT
-there (classpath stamp `ef81729f`, not the branch's `dec0f0be`) — without that rebuild the "control"
-would have carried the change under test, because `uniml.cp` is keyed on `v3/src` and `v3/uniml` and
-never on `uniml/scala/…`. On the kernel front the row fails identically with and without the change,
-and `Lower` is the only half either front shares.
+**THREE BEHAVIOURS, NOT TWO, AND COLLAPSING THEM IS WHAT WENT WRONG.** `7730f6039` (2026-08-12)
+changed this walk from SWALLOWING a non-list to REFUSING it, on the owner's instruction, and it was
+right that the swallow was a defect: a swallowed element made `xs.flatMap(f)` produce the EMPTY list
+and a `foldLeft` over that returned a number that looked like an answer. What it got wrong is one
+sentence — *"v2's runtime still swallows"*. It does not; it WRAPS, and
+`git log -S flatMap 4a93c440c..HEAD -- v2/src/` is empty, so it wrapped then too. Swallow, wrap and
+refuse are three different answers and only one of them is every other lane's.
 
-**THE OBVIOUS PROBE MEASURES NOTHING — worth writing down, because it is the one anybody reaching
-for this entry will try first.** `v3/ssc3 run bench/corpus/effect-multishot.ssc` exits 0 with ZERO
-bytes on every state, fixed or broken: the file defines `workload(seed)` and never calls or prints
-it, the harness does. Use the gate's own mechanism — `ssc3 bench --warmup 1 --reps 1` and grep for
-`BENCH_SINK` — and keep a POSITIVE control beside it (`effect-oneshot` returns 1), so a 0 means the
-row rather than the apparatus.
+**FIXED in `65a4a6d90` by a SECOND function rather than a flag on the shared one.** `listOut` serves
+`flatMap`, `zip` and `++`; relaxing it would have made `zip` agree with nobody. So `listOrOne` wraps
+a bare value and is used at the `flatMap` and `++` sites only.
 
-**NOT declared in the gate's `KNOWN_BLANK`.** That list is an admission that a row does not compute
-today, and adding this one would turn a red that is telling the truth into silence before anybody
-has decided which side is wrong.
+**THE CHECK THAT TELLS WRAP FROM SWALLOW**, and it is the one worth keeping:
+`tests/conformance/js-effect-multishot-long-fold.ssc` carries a checked-in **204**, v3 answered 0,
+and **0 is also what swallowing produces** — so removing the refusal is not evidence on its own. It
+answers 204 now, which means the element is contributing rather than merely no longer being refused.
+`bench-corpus-gate` goes 33 -> 34 of 36 rows.
+
+**N DID NOT MOVE — 212/369, DIFF 3, CRASH 9 — AND I PREDICTED THAT IT WOULD.** The prediction was
+wrong and the reason is structural rather than surprising: both affected programs are invisible to
+`corpus-report.sh` by construction. `js-effect-multishot-long-fold` declares `backends: [int, js]`,
+so it is LANE-EXCLUDED and never counts in either direction, and `effect-multishot` lives in
+`bench/corpus`, which that report does not read at all. I carried the price recorded in
+`7730f6039` (CRASH 3 -> 4) forward without re-checking that the same case is lane-excluded today.
+**The gate that covers this defect is `bench-corpus-gate`, and reading N for it was reading the
+wrong instrument.**
 
 ## v3-mixed-int-double-arith — the executor refused `1 * 2.0` while its own bridge computed it
 
