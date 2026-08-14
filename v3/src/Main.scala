@@ -239,6 +239,9 @@ object Cli:
     // answer per invocation and both switches are visible in the same three lines. `Exec` reads the
     // flag when it builds its tables, so it must be set before the module is handed over.
     Exec.useClosures(args.contains("--closures"))
+    // SSC3-J4c. The type-tag cache is on unless asked otherwise; `--no-tag-cache` restores the
+    // linear scan of the module's type table so the two can be A/B'd in one binary.
+    Exec.useTagCache(!args.contains("--no-tag-cache"))
     // SSC3-J1d. `Optimize` runs AFTER `Specialize`, because copy propagation folds a `Move` into the
     // instruction before it and that instruction's `kind` is what the specializer just proved — fold
     // first and the proof would be attached to an instruction that no longer exists.

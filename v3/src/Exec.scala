@@ -827,9 +827,56 @@ object Exec:
   // A list is `Cons(head, tail)` / `Nil` as `VData`, and the tags are looked up BY NAME in the
   // module's type table rather than assumed, because they are per-module indices.
 
+  // SSC3-J4c. `tagOf` used to run `m.types.indexWhere(_.name == name)` on EVERY call: a linear scan
+  // of the module's type table with a string comparison per entry. It is on the hottest path there
+  // is — `isList` calls it twice, and `listIn` and `listOut` twice each — so a single `xs.foreach`
+  // costs four scans before any element is touched, and `list-fold` is the corpus row that spends
+  // its life there.
+  //
+  // The cache is keyed on the MODULE BY REFERENCE. `Module` is an immutable case class, so the same
+  // reference always has the same table, and a different one misses and recomputes; that is the
+  // whole invariant. It sits beside `globals` and `compiled`, which are per-run executor state for
+  // the same reason, and it is not thread-safe for the same reason they are not: this executor runs
+  // one program on one thread.
+  //
+  // `--no-tag-cache` is the OFF arm of its measurement, the same shape `--no-specialize`,
+  // `--no-optimize` and `--no-hoist` already have. A cache is exactly the kind of change whose
+  // effect a reader will want to re-check on a quieter host a month from now, and that is only
+  // possible in ONE binary if the old path is still reachable.
+  private var tagCacheOn: Boolean = true
+  private var tagCacheOwner: Module | Null = null
+  private var tagCacheNames: Array[String] = new Array[String](0)
+  private var tagCacheTags: Array[Int] = new Array[Int](0)
+
+  private[ssc3] def useTagCache(on: Boolean): Unit =
+    tagCacheOn = on
+    tagCacheOwner = null
+
   private def tagOf(m: Module, name: String): Int =
-    val i = m.types.indexWhere(t => t.name == name)
-    if i < 0 then -1 else i
+    if !tagCacheOn then
+      val i = m.types.indexWhere(t => t.name == name)
+      return if i < 0 then -1 else i
+    if !(tagCacheOwner eq m) then
+      tagCacheOwner = m
+      tagCacheNames = new Array[String](0)
+      tagCacheTags = new Array[Int](0)
+    var i = 0
+    while i < tagCacheNames.length do
+      // Reference equality first: every caller passes a literal, so the hit is a pointer compare and
+      // the `==` behind it is the fallback for a name built at run time rather than the common path.
+      if (tagCacheNames(i) eq name) || tagCacheNames(i) == name then return tagCacheTags(i)
+      i = i + 1
+    val found = m.types.indexWhere(t => t.name == name)
+    val tag = if found < 0 then -1 else found
+    val ns = new Array[String](tagCacheNames.length + 1)
+    val ts = new Array[Int](tagCacheTags.length + 1)
+    System.arraycopy(tagCacheNames, 0, ns, 0, tagCacheNames.length)
+    System.arraycopy(tagCacheTags, 0, ts, 0, tagCacheTags.length)
+    ns(tagCacheNames.length) = name
+    ts(tagCacheTags.length) = tag
+    tagCacheNames = ns
+    tagCacheTags = ts
+    tag
 
   /** Walks a `Cons` chain into a Scala list, and REFUSES anything that is neither `Cons` nor `Nil`.
     *

@@ -318,7 +318,18 @@ check_identity() {
     # which is the only rewrite in this file that changes WHEN something executes rather than what
     # it computes, so it gets its own arm.
     nohoist="$(v3/ssc3 exec --no-hoist "$f" 2>&1)"
-    if [ "$on" != "$nohoist" ]; then
+    # SSC3-J4c: a SIXTH arm. The type-tag cache answers `tagOf` from a per-module memo instead of
+    # scanning the module's type table by name, so a stale or mis-keyed entry would hand a program
+    # the WRONG constructor tag — a `Cons` that is really a `Some`. That failure is silent and
+    # data-shaped, which is precisely the kind an output differential catches and a unit test of the
+    # cache would not.
+    notag="$(v3/ssc3 exec --no-tag-cache "$f" 2>&1)"
+    if [ "$on" != "$notag" ]; then
+      echo "  FAIL $name — the TYPE-TAG CACHE changed the output:"
+      diff <(printf '%s\n' "$notag") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-tag-cache, right = default."
+      fail=1
+    elif [ "$on" != "$nohoist" ]; then
       echo "  FAIL $name — HOISTING loop-invariant constants changed the output:"
       diff <(printf '%s\n' "$nohoist") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-hoist, right = default."

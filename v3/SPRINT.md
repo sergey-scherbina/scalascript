@@ -2699,6 +2699,24 @@ one §3 J1 item never built, and now the only one the evidence points at.
       *Still owed:* the `(bin cmp) (un not) (brif)` half, which needs `Specialize` to have proved an
       integral kind — `not (a < b)` is not `a >= b` where a NaN can reach the operands.
 
+- [x] **SSC3-J4c — the type-tag lookup was a LINEAR SCAN, and removing it is worth 20 % on the
+      Option row.** Found by reading the hot path rather than the bytecode-size proxy: `tagOf` ran
+      `m.types.indexWhere(_.name == name)` — a scan of the module's type table with a string compare
+      per entry — on every one of its 50 call sites, and `isList`, `listIn` and `listOut` each call
+      it twice, so a single `xs.foreach` paid four scans before touching an element. Now a per-module
+      memo keyed by REFERENCE (`Module` is immutable, so one reference is one table) with pointer
+      compares on the hit, `--no-tag-cache` as the OFF arm, and a sixth `jit-gate --identity` arm
+      proven to fire by planting `tag + 1` (24 fixtures red, naming the cache).
+      *Measured, 20 pairs at load 4–5 with a matched control:* `option-chain` **20 of 20, mean
+      0.801** — the row that builds a `Some` or a `None` per iteration, two scans each. `arith-loop`
+      9 of 20 (1.008) is the control and its null was predicted: nothing in its loop touches the
+      type table.
+      **MY HYPOTHESIS DID NOT SURVIVE, and that is the useful half.** I expected `list-fold` to move
+      — it is the invoke-bound row at 24483× compiled Scala — and it did not (13 of 20, 0.994), nor
+      did `hof-pipeline` (10 of 20). So the scan was real and worth removing, but on those rows the
+      dominant cost is the per-element closure application through `apply1`, not the lookup. The next
+      person aiming at `list-fold` should aim there.
+
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
       two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,
