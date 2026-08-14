@@ -51,10 +51,10 @@ refuted list, the measurement rules — is hand-written and never touched by the
 
 | entry | board | status | gate |
 |---|---|---|---|
-| `editing-a-coordination-script-forces-a-compiler-rebuild` | `scripts/BUGS.md` | open | — |
+| `editing-a-coordination-script-forces-a-compiler-rebuild` | `scripts/BUGS.md` | open | `tests/e2e/launcher-digest-gate.sh` |
 | `jsgen-genexpr-is-three-times-the-jit-limit` | `v1/runtime/backend/js/BUGS.md` | open | `tests/e2e/v1-jit-size.sh` |
 | `v2-backend-gap-matrix` | `v2/BACKLOG.md` | open | — |
-| `v2-map-updated-copies-the-whole-map` | `v2/BUGS.md` | open | — |
+| `v2-map-updated-copies-the-whole-map` | `v2/BUGS.md` | open | `bench/history.tsv` |
 | `v2-perf-array-update-unanalysed` | `v2/BACKLOG.md` | open | `bench/corpus/array-update.ssc` |
 | `v2-perf-calling-convention` | `v2/BACKLOG.md` | open | `bench/corpus/lambda-call.ssc` |
 | `v2-perf-callsite-inline-cache` | `v2/BACKLOG.md` | open | `bench/corpus/lambda-call.ssc` |
