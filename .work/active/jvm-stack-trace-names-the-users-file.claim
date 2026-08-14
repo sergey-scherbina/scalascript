@@ -1,0 +1,11 @@
+slug: jvm-stack-trace-names-the-users-file
+branch: feature/jvm-stack-trace-names-the-users-file
+agent: claude-code
+started: 2026-08-14T15:56:43Z
+heartbeat: 2026-08-14T15:56:43Z
+status: claimed-before-planning
+items: jvm-artifact-stack-trace-never-names-the-users-own-file
+paths: file:tests/BUGS.md file:tests/e2e/v21-build-jvm-smoke.sh file:v2/backend-jvm-bytecode/JvmSourceDebug.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
