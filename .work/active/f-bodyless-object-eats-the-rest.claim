@@ -3,9 +3,20 @@ branch: feature/f-bodyless-object-eats-the-rest
 agent: claude-code
 started: 2026-08-14T08:01:23Z
 heartbeat: 2026-08-14T08:01:23Z
-status: claimed-before-planning
+status: working
 items: f-package-namespace-breaks-on-an-object-with-extends f-parser-gap-needs-the-package-field
-paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bodyless-object-gate.sh file:tests/BUGS.md
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-bodyless-object-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  A top-level `object A` with NO body swallows the rest of the file on F. `objBodyToks`
+  (specs/v2.2-p6.5-fsub.ssc:2238) scans forward for the first `{` with no stop condition; the oracle's
+  `skipToBrace` (v2/lib/ssc1-front.ssc0:2714) stops at `{`, EOF **or `;`**, and that third arm is the
+  whole defect. Three symptoms, all measured: the rest of the file discarded (`main` unbound), a
+  continued def body eaten (`h` unbound), and — the one that reached the corpus — object members
+  attributed to the WRONG object by collectObjReg.
+
+  REFUTES the board's law on both counts: no `package:` in any reproducer, and no `extends` either.
+  `case object` is immune (different parser path), which the entry said made no difference.
+
+  PATHS: smoke-ci.ssc is in scope to register the new gate AND to correct the single-line-extension
+  comment there, which still describes four rows as KNOWN-RED after they were promoted today.
+next: gate red on the baseline build, then the one-arm fix, then gate green
