@@ -16,7 +16,7 @@ Newest first.
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none -->
+     gate: bench/history.tsv -->
 
 **`MapV` is a mutable `LinkedHashMap`, and every immutable update COPIES IT ENTIRELY**
 (`v2/src/Runtime.scala:2801`):
@@ -74,6 +74,21 @@ This entry is the measurement and the diagnosis; the edit belongs to whoever hol
 A gate for it should assert the SHAPE, not a time: 500 `updated` calls over 10 keys and over 500
 keys must cost within a small factor of each other, which is a threshold a loaded host can still
 read.
+
+**Gate named 2026-08-14: `bench/history.tsv`** — a perf entry is done when THE NUMBER MOVED, so the
+acceptance test is the recorded measurement, not a pass/fail script.
+
+**Done when** the `map-ops` row improves under the alternating A/B protocol — three rounds,
+install-before / install-after / compare medians, never a before-block then an after-block — and the
+run is appended to `bench/history.tsv` with its `sha` and `host_load`. The entry's own claim is that
+this copy is **80 % of `map-ops`**, so that is the prediction to write down first and to be
+disagreed with: if removing the copy does not move the row by something near that, the profile was
+naming a place rather than sizing a prize.
+
+**The anti-case for a perf fix here is correctness, not speed:** `MapV` is a mutable
+`LinkedHashMap`, and the copy is what makes `updated` immutable. Any structural sharing has to keep
+a prior `MapV` unchanged after an `updated` on a value derived from it, or the row gets faster by
+being wrong.
 
 ## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
 
@@ -1099,7 +1114,7 @@ re-run session-roundtrip with the binding enabled and see whether it clears.
      lane: native
      area: front
      fixed-in: -
-     gate: - -->
+     gate: tests/e2e/f-blames-the-malformed-module.sh -->
 
 When an imported module is MALFORMED, F declines and reports an unbound global naming a
 well-formed construct in a DIFFERENT file. Two modules and a main, measured 2026-08-07:
@@ -1133,6 +1148,17 @@ full list of predicate holes.
 
 Worth fixing on its own terms: a decline that names an innocent symbol in an innocent file sends
 whoever reads it to the wrong place, and this repo has now spent six measurement runs there.
+
+**Gate named 2026-08-14: `tests/e2e/f-blames-the-malformed-module.sh`, which does not exist yet.**
+The three-file reproduction above is the whole fixture, and it is already minimal.
+
+**Done when** F's message names `mods/broken.ssc` — the file with the unclosed `match` — rather than
+`Widget`, a well-formed construct in a different file that has nothing wrong with it.
+
+**The anti-case is the reason this needs a gate rather than a patch:** a program whose OWN
+constructor is genuinely unbound must still be blamed for it. A fix that stops naming downstream
+constructors by never naming constructors at all trades a wrong blame for no blame, and the
+reproduction above cannot tell the difference.
 
 ## fewer-braces-colon regressed on v2 and hid for five days behind an already-red gate
 
@@ -1254,7 +1280,7 @@ exactly how this one died the first time."*
      lane: native
      area: front
      kind: bug
-     gate: none -->
+     gate: tests/e2e/v2-swift-cli.sh -->
 
 **Found 2026-08-06 while triaging the `unknown` entries.** The command two entries document as
 "verified end-to-end" fails:
@@ -1322,13 +1348,24 @@ into generated-Swift strings, is precisely the shape of change that should not b
 — which is why this entry now carries the full scope and the settled design instead of a partial
 landing.
 
+**Gate named 2026-08-14: `tests/e2e/v2-swift-cli.sh`** — the gate that already drives `ssc-tools`
+down the Swift path. The same gate is named by `v1/runtime/backend/jvm/BUGS.md
+v2-swift-xcode-contract-gaps` and by `v2-swift-swiftui-native`, deliberately: all three are the same
+missing coverage — **no gate builds the Swift target** — and three gates over one hole would be
+three places to keep true.
+
+**Done when** `build --v2 --target macos` succeeds on `examples/frontend/ios-hello/ios-hello.ssc`
+there. **The anti-case is the class of defect, not this instance:** a primitive added to
+`std/ui/primitives.ssc` for the DOM lane only must FAIL that gate, or the next lane-only primitive
+repeats this silently — which is exactly how `forJsonView` went unnoticed from 2026-07-20 to 08-06.
+
 ## f-declines-every-non-top-level-def — and a bare import is enough on its own
 
 <!-- status: open
      lane: native
      area: front
      fixed-in: -
-     gate: - -->
+     gate: tests/e2e/f-bare-member-call-gate.sh -->
 
 Two F decline reasons, bounded 2026-08-06 with minimal repros and, for each, the control that shows
 what F CAN do. Both surface as `unbound global: (global X)` from `RunNativeV2.validateNoReader`,
@@ -1749,6 +1786,13 @@ the block in about a minute per variant.
 Fixing (1) is the larger win by construct count and closes the class-member half of
 `two-fronts-disagree-on-name-resolution` (v1 half fixed in f33751ace). Fixing (2) is what unblocks
 the parser corpus today. They are independent.
+
+**Gate named 2026-08-14: `tests/e2e/f-bare-member-call-gate.sh`** — the gate this entry's own text
+already names for reason (1), with 9 cases.
+
+**Done when** the remainder is in it: reason (1) is closed **except for `this`**, so a `this.member`
+call in an object and in a class body are the two rows still owed. The gate exists and has the
+fixture shape, so this is rows rather than a new file.
 
 ## native-import-link-alias-is-ignored — `[greet as g]` binds nothing, package or not
 
@@ -2363,7 +2407,7 @@ the intention. A `fixed` header written in the same commit as the fix cannot be 
      lane: native
      area: runtime
      fixed-in: -
-     gate: none -->
+     gate: tests/e2e/session-roundtrip-gate.sh -->
 
 **SIZED 2026-08-04, and it stops at a decision that is not an agent's to take.** This is a feature
 the native tier does not have, not a method that is missing.
@@ -2406,6 +2450,18 @@ on a case class.
 `.withSession` is the most-used Response transform in the tree (20 call sites in `v1/runtime/std`
 and `examples`, against 5 for `withHeader`), so the native lane not having it is the larger half of
 this gap.
+
+**Gate named 2026-08-14: `tests/e2e/session-roundtrip-gate.sh`** — wired into `scripts/smoke-ci` as
+`session-roundtrip`, so the property is already checked on one lane and this entry is the other lane
+arriving.
+
+**Done when** that gate runs its round trip on the NATIVE lane as well as the one it covers today,
+and passes. That is the honest statement of size: the entry says this is a feature the native tier
+does not have — `Set-Cookie`, HMAC-SHA256 sign/verify, SSID rotation — not a missing method, so the
+gate is what says the feature landed rather than what makes it small.
+
+**Why it is worth the size:** `.withSession` is the most-used Response transform in the tree, 20 call
+sites against 5 for `withHeader`, so the native lane not having it is the larger half of the gap.
 
 ## native-requireInt-unbound-in-a-route-handler — seven of the eleven validation names were never registered
 
@@ -2584,7 +2640,7 @@ surface syntax.
      lane: native
      area: front
      fixed-in: -
-     gate: - -->
+     gate: tests/e2e/v2-front-coverage.sh -->
 
 **DIAGNOSED 2026-08-12 — root cause found, one-line fix identified, and DELIBERATELY NOT LANDED.
 Read the last section before applying it.**
@@ -2732,6 +2788,19 @@ reasonably conclude the fix did not work. It did — the cause moved. `loop` is 
 Not diagnosed. The obvious first question is whether `loop` is a `std/parsing/combinators.ssc`
 helper F cannot bind for the same class of reason (an operator-named or otherwise
 unusually-declared member), or something structurally different.
+
+**Gate named 2026-08-14: `tests/e2e/v2-front-coverage.sh`** — the one gate that can see this at all.
+Its own header states the reason: when F declines, the fallback recompiles and the program produces
+the RIGHT OUTPUT, so **any gate that compares output is green whether or not F handled the file**.
+An output comparison cannot see which front compiled it.
+
+**Done when** the shape behind the current top name lowers under F, asserted there as a row.
+
+**And this entry's real lesson belongs in the done-when, because it has now happened twice:** THE
+CAUSE MOVES AND THE COUNT DOES NOT. `q` -> `loop` -> `Parser`, ten files each time. Anyone re-running
+the census after a fix finds 10 again and can reasonably conclude the fix failed. So a row naming
+the SHAPE is the acceptance test; the census count is a report, and on its own it cannot tell a fix
+from a no-op.
 
 ## v2-validate-accumulator-missing — `validate { … }` and the require* family had no native surface
 <!-- status: fixed
@@ -3271,7 +3340,7 @@ by claim `v2-perf-cell-widen-f`, and F emits `_sel_getOrElse` from its own prelu
      lane: native
      area: conformance
      kind: apparatus
-     gate: none -->
+     gate: tests/e2e/v2-front-coverage.sh -->
 
 **Status:** OPEN, found while measuring `v2-perf-unboxed-cell-only-for-literal-init`.
 
@@ -3318,6 +3387,19 @@ the *landed* fix shows 31/36 both times, so the landed change is neutral here.
 So `Long` cannot be added without finding every consumer of the embedded `name:Type` form. Filed
 rather than attempted: the failure mode is a silent coverage loss, not a compile error.
 
+**Gate named 2026-08-14: `tests/e2e/v2-front-coverage.sh`** — the gate whose subject is exactly the
+question this entry asks of each bench row: did F compile it, or did the fallback?
+
+**Done when** the five rows either lower under F — asserted there — or the bench table STATES the
+front per row, so a reader of the perf numbers cannot mistake a fallback measurement for an F one.
+Either closes it; what cannot stay is a table whose rows silently measure two different compilation
+paths.
+
+**Note the trap this entry already paid for, since it applies to any fix here:** `Long` cannot be
+added to `knownTyName` without finding every consumer of the embedded `name:Type` form, and the
+failure mode is a SILENT coverage loss rather than a compile error. Verified in both directions
+then, and the census read 31/36 before and after — a neutral change, which is only visible because
+it was measured on both sides.
 
 ## nfc-platform-string-differs-by-design-so-the-row-cannot-go-green — packaging was necessary, not sufficient
 <!-- status: open
@@ -3633,7 +3715,7 @@ the default front; `List`/`Map`/`Vector` unchanged; the conformance case stops d
      lane: native
      area: front
      fixed-in: -
-     gate: - -->
+     gate: tests/e2e/v2-front-coverage.sh -->
 
 **Measured 2026-07-31**, `bin/ssc info --front-report` over all 584 corpus files
 (`tests/conformance/*.ssc` + `examples/*.ssc`), deduplicated by path, no file left unrun.
@@ -3674,6 +3756,20 @@ that area.
 `bin/ssc info`. Second trap: the parallel sweep was killed mid-run and left 468 of 584 rows, and the
 rerun of the remainder APPENDED duplicates — 693 rows for 584 files. Counting without deduplicating
 would have inflated every category. Filed separately: [[ssc-tools-info-rejects-front-report-at-exit-0]].
+
+**Gate named 2026-08-14: `tests/e2e/v2-front-coverage.sh`** — a census needs a FROZEN artifact or it
+is a number somebody re-derives and mis-reads, which is precisely what
+`f-unbound-loop-is-the-new-top-gap` records happening twice.
+
+**Done when** the 42 GAP files are rows there — passing as they are fixed, and the remainder frozen
+by name so the hole can only shrink. The same ratchet shape as `no-orphan-gates` and `v1-jit-size`,
+and for the same reason: the count alone moves for reasons that are not progress.
+
+**Both measurement traps this entry recorded stay attached to it, because either silently invalidates
+a re-run:** `ssc-tools info --front-report` does NOT support the flag — it treats it as a path,
+warns, and **exits 0**, so a sweep built on it reports "F declines nothing"; use `bin/ssc info`. And
+a parallel sweep killed mid-run left 468 of 584 rows, whose rerun APPENDED duplicates for 693 rows
+over 584 files. Deduplicate by path, or every category is inflated.
 
 ## v2-context-bound-given-injected-over-an-explicit-instance — `combineAll(xs, intSum)` was 3 args wide
 <!-- status: fixed
@@ -4300,7 +4396,7 @@ multi-line block. **The first probe alone read as "fixed".**
 <!-- status: open
      lane: multi
      area: runtime
-     gate: none -->
+     gate: tests/conformance/run.sh -->
 
 **Filed 2026-07-30** by `v2-content-inlines` as the deliberate residue of its own fix, rather than left as
 silent duplication.
@@ -4325,6 +4421,15 @@ escaper.
 `markdown-html`'s frozen golden must stay BYTE-IDENTICAL — the current scanner escapes as it goes, so a
 node-then-render pass has to reproduce the same escaping at the leaves, including `Code` content and
 `mdhHref` on destinations. That constraint is also what makes the refactor verifiable.
+
+**Gate named 2026-08-14: `tests/conformance/run.sh`** — the runner that owns the `markdown-html`
+case, whose frozen golden is the hard constraint this refactor already names.
+
+**Done when** `markdownInlineHtml` is a renderer over the node scanner **and `markdown-html`'s golden
+is BYTE-IDENTICAL** — including the escaping the current scanner does as it goes, `Code` content and
+`mdhHref` on destinations. The entry is right that the constraint is what makes the refactor
+verifiable: a node-then-render pass that produces equivalent-looking HTML with different escaping has
+changed behaviour while looking like a cleanup.
 
 ## content-current-section-native-unavailable — `contentCurrentSection()` throws by design on native, and `content-introspection` is red because of it
 <!-- status: open
@@ -8903,7 +9008,8 @@ matching the README; the runner is otherwise unaffected (string only).
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
 <!-- status: open
      lane: native
-     area: codegen -->
+     area: codegen
+     gate: tests/e2e/coreir-roundtrip.sh -->
 
 **Status:** open (found 2026-07-14, Codex + `audit_coreir_control`, while validating
 CoreIR as the persisted `SavedContinuation` capsule format; observed at `638d3f5fe`).
@@ -9000,10 +9106,24 @@ non-canonical inputs, invalid symbols, malformed/untrusted depth and size, plus 
 across the seed and every loader. This design task does not opportunistically change the
 format; status remains open until that slice lands and is verified.
 
+**Gate named 2026-08-14: `tests/e2e/coreir-roundtrip.sh`, which does not exist yet** — and the entry
+already specifies it: real assembled-runtime round-trip fixtures for every value and node kind,
+signed zero, non-canonical inputs, invalid symbols, malformed and untrusted depth and size, plus
+parity across the seed and every loader.
+
+**Done when** that gate exists and passes, with the two known violations as its first cases:
+`Writer.floatStr(-0.0)` must not emit `0` and lose the sign bit, and an integral finite double must
+carry a decimal point or exponent as `12-ir-format.md` requires.
+
+**`Writer.floatStr` is SHARED, which is the constraint on any fix here:** it is not only CoreIR's,
+so a change to satisfy the wire contract has to be measured against every other consumer of that
+formatting rather than only against the capsule format.
+
 ## custom-jsemitter-signal-list-literal — `StaticJsEmitter.jsLiteral` can't encode a List-valued signal registered from an event handler
 <!-- status: open
      lane: native
-     area: front -->
+     area: front
+     gate: tests/e2e/jsliteral-encodes-a-signal-value.sh -->
 
 **Status:** open (found 2026-07-13, claude-sonnet-5, while building the
 `select-from-signal` slice, `specs/std-ui-select.md` § "Reactive options
@@ -9086,6 +9206,19 @@ underlying reason — its `contracts: Signal[List[Contract]]` referenced by a
 `List`/`Seq` (encode each element, wrap in `[...]`) and probably `InstanceV`
 (case-class values, encode fields, wrap in `{...}`) to close this — scoped
 as its own follow-up, not attempted here.
+
+**Gate named 2026-08-14: `tests/e2e/jsliteral-encodes-a-signal-value.sh`, which does not exist
+yet** — the remainder is narrow enough to be its own file rather than rows in a UI widget smoke,
+because the subject is `StaticJsEmitter.jsLiteral` and not any widget.
+
+**Done when** a `Signal[List[_]]` of case-class instances seeds a JS literal — the sequence half
+landed 2026-08-08 and an `InstanceV` is still refused, now loudly, which is the right intermediate
+state and not the end one.
+
+**The anti-case is the loud refusal itself:** whatever `jsLiteral` still cannot encode must keep
+FAILING with a message that names it. A recursive encoder that silently emits something plausible
+for an unsupported value is worse than today's refusal, and this entry exists because the original
+symptom was an encoder meeting a value it had no case for.
 
 ## native-front-nativeui-site-annotation — anonymous computedSignal/eqSignal collide on `ssc run`
 <!-- status: fixed
@@ -9945,7 +10078,8 @@ new user-facing Swift AppCore example, waiting for Sergiy confirmation before
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
 <!-- status: open
      lane: native
-     area: front -->
+     area: front
+     gate: tests/e2e/v2-swiftui-apple.sh -->
 
 **Status:** CLI/BUILD LAYER FIXED by swift-sibling work since the report; the SwiftUI
 
@@ -10083,6 +10217,17 @@ reported by Sergiy in the Codex session.
   `tkv2-raw-html`, `tkv2-textfield-reactive-label`, `tkv2-tri-state`, INT+JS)
   all still green — no regression. The v2-native Swift backend itself remains
   open, owned by the `v2-swift-swiftui-native` claim.
+
+**Gate named 2026-08-14: `tests/e2e/v2-swiftui-apple.sh`** — the SwiftUI-side gate, where this
+entry's remaining slice lives; its CLI/build half is covered by `tests/e2e/v2-swift-cli.sh`, which
+`swift-macos-build-broken-by-forJsonView` and `v1/runtime/backend/jvm/BUGS.md
+v2-swift-xcode-contract-gaps` both name.
+
+**Done when** the run/simulator/device half is asserted there rather than verified by hand. The
+verification this entry carries was real — Swift 6.3.2 / Xcode 26.5, a genuine `.app`, 118
+`frontendSwiftUI` tests plus 26 `SwiftUIBuildCliTest` cases — and it decayed anyway: the documented
+command now fails on `forJsonView`, unnoticed for two and a half weeks. **A hand-verification has a
+shelf life; that is the argument for the gate, and this entry is its evidence.**
 
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
 <!-- status: fixed
