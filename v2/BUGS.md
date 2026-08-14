@@ -2090,6 +2090,63 @@ outward — was run on one front. On the reference front the same line is unboun
 parameterful form recurses forever. The correction is a top-level indirection, and the conclusion
 "one definition, two names, no copy" survived it unchanged.
 
+## native-serve-does-not-apply-a-default-argument-so-every-short-call-fails
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/render-smoke.sh -->
+
+**Measured 2026-08-15 on a freshly built toolchain.** `bin/ssc examples/components-demo.ssc` serves
+a **54-byte** body where the same program renders 4076 bytes of correct HTML headless:
+
+```text
+native HTTP handler failed: arity: 3 expected, 2 given
+```
+
+**Nothing in the program has three parameters at that call.** `Alert.render(title, body,
+level: String = "info")` is called with two arguments and the third has a DEFAULT. The default is
+not applied, so the call is refused as under-applied.
+
+**The decisive experiment, and it is one edit:** supply the omitted argument at that first call site
+and re-serve. The error does not go away — it **MOVES**:
+
+| `examples/components-demo.ssc` | served body |
+|---|---|
+| as checked in | `arity: 3 expected, 2 given` — `Alert.render(a, b)` against `(a, b, level = "info")` |
+| first `Alert.render` given all three | `arity: 2 expected, 1 given` — the next defaulted call |
+
+So this is not one bad call site. **Every call that omits a defaulted argument fails on this lane**,
+and they surface one at a time because the first one throws.
+
+**It is NOT "defaults are broken", and the controls say so.** On `bin/ssc run` — the same native
+lane, no HTTP — a defaulted method called short works, both when the object is in the same file and
+when it is in an imported module, and both from top level and from inside a `def` body:
+
+```text
+object A: def render(a: String, level: String = "info") = a + "/" + level
+println(A.render("x"))                       ->  x/info      (native run, same file)
+[M](./m.ssc); println(M.render("x"))         ->  x/info      (native run, imported module)
+```
+
+The failing path is the SERVE path specifically — the server log says `(backend=fast)` — so the
+next measurement is whether the fast HTTP backend invokes handlers through a path that never
+consults the default registry the `run` path uses.
+
+**This entry exists because a THIRD WITNESS was stale for nine days.**
+`tests/e2e/render-smoke.sh` carried a documented known gap pointing at
+`native-lane-ignores-declarative-route-registration` — *"the served half 404s and the diff is the
+whole page against 'Not Found' (9 bytes, measured 2026-08-04)"*. That entry has been **fixed since
+2026-08-06 (`debe22715`)**, and the served half no longer 404s: it answers, and answers with this.
+The gate is an orphan, so nobody re-ran it and the comment kept explaining a cause that was gone.
+A known-gap note is a dated measurement, and this one aged into a wrong explanation of a real
+defect. (`tests/BUGS.md orphaned-e2e-gates-52`.)
+
+**Done when** `tests/e2e/render-smoke.sh` passes — headless and served byte-identical — which is
+what it has always asserted and what makes it a witness rather than a note.
+
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: fixed
      lane: native

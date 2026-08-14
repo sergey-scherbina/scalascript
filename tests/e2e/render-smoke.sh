@@ -33,13 +33,26 @@ echo "  headless: $(wc -c < /tmp/render-smoke-headless.html) bytes"
 # Served render
 lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
 sleep 1
-# KNOWN GAP, filed: the served half 404s and the diff is therefore the whole page against the string
-# "Not Found" (9 bytes, measured 2026-08-04). `examples/components-demo.ssc` declares its routes in
-# FRONT-MATTER (`routes:`) and never calls `route(...)`, and `bin/ssc` is the NATIVE lane, which
-# honours no route it did not see as an explicit call —
-# `native-lane-ignores-declarative-route-registration` in v2/BUGS.md. The headless half is fine: it
-# goes through ssc-tools and renders 4076 bytes of correct HTML. So this gate is a third witness to
-# that entry rather than a defect of its own, and it goes green when that entry is fixed.
+# KNOWN GAP, re-measured 2026-08-15 — AND THE CAUSE THIS COMMENT NAMED IS GONE. It used to read:
+# "the served half 404s and the diff is the whole page against 'Not Found' (9 bytes, measured
+# 2026-08-04)", blaming `native-lane-ignores-declarative-route-registration`. That entry has been
+# FIXED since 2026-08-06 (`debe22715`); the served half no longer 404s. Because this gate is invoked
+# by nothing, nobody re-ran it, and the note kept explaining a cause that no longer existed — a
+# known-gap comment is a DATED MEASUREMENT, and this one aged into a wrong explanation of a real
+# defect.
+#
+# What is actually there now, on a freshly built toolchain: 54 bytes of
+# `native HTTP handler failed: arity: 3 expected, 2 given`. Nothing in the program takes three
+# arguments at that call — `Alert.render(title, body, level: String = "info")` is called with two and
+# the DEFAULT IS NOT APPLIED. Supplying it by hand does not fix the page, it MOVES the error to
+# `arity: 2 expected, 1 given`, i.e. to the next defaulted call. Filed as
+# `native-serve-does-not-apply-a-default-argument-so-every-short-call-fails` in v2/BUGS.md, with the
+# controls that rule out "defaults are broken" generally: on `bin/ssc run` the same shape works, in
+# the same file and from an imported module alike.
+#
+# The headless half is fine — 4076 bytes of correct HTML through ssc-tools — so this gate remains a
+# WITNESS to a defect elsewhere rather than one of its own, and it goes green when that entry is
+# fixed. It stays unwired until then: a gate red on arrival is how a suite becomes noise.
 "$BIN/ssc" "$EXAMPLE" > /tmp/render-smoke-serve.log 2>&1 &
 SERVE_PID=$!
 for i in $(seq 1 30); do

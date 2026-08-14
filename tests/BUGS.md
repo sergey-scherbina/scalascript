@@ -5718,6 +5718,41 @@ exit inside `set +e`.
 | apparatus traps found in the rewrite | 1 (SIGPIPE under pipefail, position-dependent) |
 | frozen orphans | **9** |
 
+### batch 4, part 5 — `render-smoke`, and a known-gap note that aged into a wrong explanation
+
+**The cause this gate documented has been FIXED for nine days, and the gate kept explaining it.** Its
+comment blamed `native-lane-ignores-declarative-route-registration` — *"the served half 404s … 'Not
+Found' (9 bytes, measured 2026-08-04)"*. That entry is `status: fixed`, `debe22715`, **2026-08-06**.
+Because the gate is invoked by nothing, nobody re-ran it, and a dated measurement kept reading as a
+current diagnosis.
+
+**What is there now**, on a freshly built toolchain (the first reading was taken against a stale
+launcher and re-taken for that reason):
+
+    served: 54 bytes — native HTTP handler failed: arity: 3 expected, 2 given
+
+Nothing in the program has three parameters at that call: `Alert.render(title, body, level: String =
+"info")` is called with two and **the default is not applied**. Filed as
+`v2/BUGS.md native-serve-does-not-apply-a-default-argument-so-every-short-call-fails`.
+
+**One edit made the diagnosis decisive, and it is the kind worth copying.** Supplying the omitted
+argument at the first call site does not fix the page — the error **MOVES** to
+`arity: 2 expected, 1 given`, the next defaulted call. So it is not one bad call site; it is every
+short call on that lane, surfacing one at a time.
+
+**And the controls refute the obvious reading.** "Defaults are broken" is wrong: on `bin/ssc run` —
+same native lane, no HTTP — a defaulted method called short works, in the same file and from an
+imported module, at top level and inside a `def` body. The failing path is SERVE specifically
+(`backend=fast` in the server log), which is where the next measurement goes.
+
+**A minimal serve reproducer was attempted and is NOT recorded**, because it never started and
+printed nothing — which means it was probably malformed rather than reproducing anything. An
+artifact that fails for an unknown reason is not evidence, and the real example reproduces reliably
+in 16 s.
+
+**Not wired**, for the same reason as the two gates above it: it is red on a real defect, and it goes
+green when that entry is fixed.
+
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed
