@@ -322,7 +322,7 @@ class UiNativePluginTest extends AnyFunSuite:
     val badRow = intercept[RuntimeException](call("staticRowsSource", list(nonStringRow)))
     assert(badRow.getMessage.contains("NativeUiTableSource.rows[0] requires String keys"))
 
-    val badOption = Value.ForeignV(collection.mutable.LinkedHashMap[Value, Value](
+    val badOption = Value.ForeignV(collection.immutable.VectorMap[Value, Value](
       Value.StrV("bad") -> Value.ForeignV(new Object)))
     val badColumn = intercept[RuntimeException](call(
       "statusColumn", Value.StrV("Status"), Value.StrV("status"), Value.StrV(""), badOption))
@@ -331,7 +331,7 @@ class UiNativePluginTest extends AnyFunSuite:
   test("deep canonicalization preserves MapV cycles and reports ForeignV paths"):
     NativePluginHost.installProviders(List(UiNativePlugin()))
     val cycle = Value.MapV.empty
-    cycle.entries(Value.StrV("self")) = cycle
+    cycle.putInPlace(Value.StrV("self"), cycle)
     val source = call("staticRowsSource", list(cycle))
     assertPortable(source)
 
@@ -341,9 +341,9 @@ class UiNativePluginTest extends AnyFunSuite:
 
   test("canonicalization converts cyclic DataV host maps without mutating closures"):
     val back = Value.MapV.empty
-    val host = collection.mutable.LinkedHashMap[Value, Value](Value.StrV("answer") -> Value.IntV(42))
+    val host = collection.immutable.VectorMap[Value, Value](Value.StrV("answer") -> Value.IntV(42))
     val data = Value.DataV("Box", Vector(back, Value.ForeignV(host)))
-    back.entries(Value.StrV("owner")) = data
+    back.putInPlace(Value.StrV("owner"), data)
 
     val converted = NativeUiPortable.canonical(data, "root").asInstanceOf[Value.DataV]
     assert(!(converted eq data))
@@ -352,7 +352,7 @@ class UiNativePluginTest extends AnyFunSuite:
     assert(converted.fields(1).isInstanceOf[Value.MapV])
     assertPortable(converted)
 
-    val captured = Value.ForeignV(collection.mutable.LinkedHashMap[Value, Value](
+    val captured = Value.ForeignV(collection.immutable.VectorMap[Value, Value](
       Value.StrV("x") -> Value.IntV(1)))
     val env = Array[Value](captured)
     val fn = Value.ClosV(env, 0, _ => Done(Value.UnitV))
@@ -361,7 +361,7 @@ class UiNativePluginTest extends AnyFunSuite:
     assert(fn.env(0).asInstanceOf[AnyRef] eq captured.asInstanceOf[AnyRef])
 
     val shared = Value.MapV.empty
-    shared.entries(Value.StrV("host")) = captured
+    shared.putInPlace(Value.StrV("host"), captured)
     val aliasingClosure = Value.ClosV(Array[Value](shared), 0, _ => Done(Value.UnitV))
     val aliasingRoot = Value.DataV("Aliasing", Vector(shared, aliasingClosure))
     val aliasError = intercept[RuntimeException](NativeUiPortable.canonical(aliasingRoot, "alias"))
@@ -370,7 +370,7 @@ class UiNativePluginTest extends AnyFunSuite:
 
     val portableShared = Value.MapV.from(List(Value.StrV("value") -> Value.IntV(7)))
     val sharingClosure = Value.ClosV(Array[Value](portableShared), 0, _ => Done(Value.UnitV))
-    val unrelatedHost = Value.ForeignV(collection.mutable.LinkedHashMap[Value, Value](
+    val unrelatedHost = Value.ForeignV(collection.immutable.VectorMap[Value, Value](
       Value.StrV("converted") -> Value.BoolV(true)))
     val sharingRoot = Value.DataV("Sharing", Vector(portableShared, sharingClosure, unrelatedHost))
     val sharingCopy = NativeUiPortable.canonical(sharingRoot, "sharing").asInstanceOf[Value.DataV]
@@ -382,19 +382,19 @@ class UiNativePluginTest extends AnyFunSuite:
   test("portable equality backtracks unordered cyclic map candidates soundly"):
     def cyclicKey(): Value.MapV =
       val key = Value.MapV.empty
-      key.entries(Value.StrV("self")) = key
-      key.entries(Value.StrV("kind")) = Value.StrV("same")
+      key.putInPlace(Value.StrV("self"), key)
+      key.putInPlace(Value.StrV("kind"), Value.StrV("same"))
       key
 
     val left = Value.MapV.empty
-    left.entries(cyclicKey()) = Value.StrV("A")
-    left.entries(cyclicKey()) = Value.StrV("B")
+    left.putInPlace(cyclicKey(), Value.StrV("A"))
+    left.putInPlace(cyclicKey(), Value.StrV("B"))
     val reordered = Value.MapV.empty
-    reordered.entries(cyclicKey()) = Value.StrV("B")
-    reordered.entries(cyclicKey()) = Value.StrV("A")
+    reordered.putInPlace(cyclicKey(), Value.StrV("B"))
+    reordered.putInPlace(cyclicKey(), Value.StrV("A"))
     val negative = Value.MapV.empty
-    negative.entries(cyclicKey()) = Value.StrV("B")
-    negative.entries(cyclicKey()) = Value.StrV("C")
+    negative.putInPlace(cyclicKey(), Value.StrV("B"))
+    negative.putInPlace(cyclicKey(), Value.StrV("C"))
 
     assert(NativeUiPortable.portableEquals(left, reordered))
     assert(!NativeUiPortable.portableEquals(left, negative))
@@ -544,7 +544,7 @@ class UiNativePluginTest extends AnyFunSuite:
     assert(m.entries.size == 2)
     assert(NativeUiPortable.stringMap(list(), "test.attrs").entries.isEmpty)
     val realMap = Value.MapV.empty
-    realMap.entries(Value.StrV("k")) = Value.StrV("v")
+    realMap.putInPlace(Value.StrV("k"), Value.StrV("v"))
     assert(NativeUiPortable.stringMap(realMap, "test").entries(Value.StrV("k")) == Value.StrV("v"))
     val badKey = list(Value.DataV("Pair", Vector(Value.IntV(1), Value.StrV("v"))))
     assert(intercept[RuntimeException](NativeUiPortable.stringMap(badKey, "test.attrs"))

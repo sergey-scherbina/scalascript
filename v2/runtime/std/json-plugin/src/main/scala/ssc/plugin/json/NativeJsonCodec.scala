@@ -151,7 +151,7 @@ private[plugin] object NativeJsonCodec:
       val values = Value.MapV.empty
       unlist(fields).foreach {
         case Value.DataV("JsonCoreField", Seq(key, item)) =>
-          values.entries(Value.StrV(decodeCodeUnits(key))) = toRaw(item)
+          values.putInPlace(Value.StrV(decodeCodeUnits(key)), toRaw(item))
         case _ => ()
       }
       values

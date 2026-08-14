@@ -51,7 +51,7 @@ final class HttpFastNativePlugin extends NativePlugin:
   private def valueMap(entries: Iterable[(String, String)]): Value =
     val result = Value.MapV.empty
     entries.toList.sortBy(_._1.toLowerCase).foreach { case (key, value) =>
-      result.entries(Value.StrV(key)) = Value.StrV(value)
+      result.putInPlace(Value.StrV(key), Value.StrV(value))
     }
     result
 

@@ -133,17 +133,44 @@ object Value:
      *  metadata: never enters `env`, CoreIR, or the wire ABI. */
     private[ssc] var etaMethodRef: (String, Value) | Null = null
   final case class ForeignV(h: AnyRef)                extends Value
-  /** Target-neutral insertion-ordered mutable map. Equality and hashing remain
-   *  object identity, matching Swift's SscMap; UI semantic equality is a
-   *  separate cycle-safe operation owned by the NativeUi runtime. */
-  final class MapV private (val entries: collection.mutable.LinkedHashMap[Value, Value]) extends Value
+  /** Target-neutral insertion-ordered map. Equality and hashing remain object identity, matching
+   *  Swift's SscMap; UI semantic equality is a separate cycle-safe operation owned by the NativeUi
+   *  runtime.
+   *
+   *  PERSISTENT, and that is a performance property with a defect behind it. The store used to be a
+   *  `mutable.LinkedHashMap` and every immutable update — `updated`, `removed`, `+` — was
+   *  `MapV.from(m)`, a full copy of every entry, then one mutation. `Map.updated` was therefore
+   *  O(size) where the semantics it implements need only structural sharing. Measured 2026-08-14 on
+   *  a quiet host, 500 `updated` calls as the map grows: v2 cost 0.3245 / 0.8099 / 1.60 ms at 10 /
+   *  100 / 500 entries while the v1 interpreter, running THE SAME SOURCE, was flat at 0.2446 /
+   *  0.2656 / 0.2737 — the lane that does not pay is what made it a defect rather than a slow row.
+   *  See `v2/BUGS.md` → `v2-map-updated-copies-the-whole-map`.
+   *
+   *  `VectorMap` and not `HashMap` because insertion order is a CONTRACT here, not an accident:
+   *  it is what makes `println(Map(...))` stable, and the doc above pins it. */
+  final class MapV private (private var store: collection.immutable.VectorMap[Value, Value]) extends Value:
+    /** The store, read-only to everyone outside this file's map prims. */
+    def entries: collection.immutable.VectorMap[Value, Value] = store
+    /** IN-PLACE, for the `map.put` / `map.del` prims only. `MapV` carries BOTH semantics: the
+      * language's immutable `Map` (`updated` answers a new `MapV` sharing structure) and a mutable
+      * map behind those two prims, whose callers expect every alias to see the write. Keeping the
+      * store persistent and the WRAPPER mutable preserves both — an alias holds the same `MapV`
+      * object, so it still sees the write, while `updated` no longer copies. */
+    private[ssc] def putInPlace(k: Value, v: Value): Unit = store = store.updated(k, v)
+    private[ssc] def removeInPlace(k: Value): Unit = store = store.removed(k)
   object MapV:
-    def empty: MapV = new MapV(collection.mutable.LinkedHashMap.empty)
+    def empty: MapV = new MapV(collection.immutable.VectorMap.empty)
     def from(entries: IterableOnce[(Value, Value)]): MapV =
-      val out = collection.mutable.LinkedHashMap.empty[Value, Value]
-      out ++= entries
-      new MapV(out)
-    def unapply(value: MapV): Some[collection.mutable.LinkedHashMap[Value, Value]] =
+      new MapV(collection.immutable.VectorMap.from(entries))
+    /** One entry added or replaced, sharing everything else. The whole point of the type change.
+      *
+      * `fromStore` exists because the constructor is private to this companion: the call sites have
+      * already produced the new store with `updated`/`removed` and only need it wrapped, and a
+      * wrapper is cheaper to read at each site than repeating the pattern. */
+    def fromStore(store: collection.immutable.VectorMap[Value, Value]): MapV = new MapV(store)
+    def updated(m: MapV, k: Value, v: Value): MapV = new MapV(m.entries.updated(k, v))
+    def removed(m: MapV, k: Value): MapV = new MapV(m.entries.removed(k))
+    def unapply(value: MapV): Some[collection.immutable.VectorMap[Value, Value]] =
       Some(value.entries)
   /** An insertion-ordered Set, distinct from a Cons-list.
     *
@@ -1841,9 +1868,9 @@ object Prims:
     // Target-neutral insertion-ordered mutable MapV.
     case "map.new"  => _ => MapV.empty
     case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
-    case "map.put"  => a => asMap(a(0)).update(a(1), a(2)); UnitV
+    case "map.put"  => a => mapPut(a(0), a(1), a(2)); UnitV
     case "map.has"  => a => BoolV(asMap(a(0)).contains(a(1)))
-    case "map.del"  => a => asMap(a(0)).remove(a(1)); UnitV
+    case "map.del"  => a => mapDel(a(0), a(1)); UnitV
     case "map.keys" => a => listOf(asMap(a(0)).keys.toSeq)
     case "map.size" => a => IntV(asMap(a(0)).size.toLong)
     // Array (Foreign, growable)
@@ -1966,13 +1993,14 @@ object Prims:
     // ── FrontendBridge collection factories ────────────────────────────────────────
     // Map(k->v, ...) factory: args are Tuple2 pairs (DataV("Tuple2", [k, v]))
     case "__mk_map__" => a =>
-      val m = MapV.empty
-      a.foreach {
-        case DataV("Tuple2" | "Pair", Seq(k, v)) => m.entries(k) = v
-        case DataV("->", Seq(k, v))     => m.entries(k) = v
-        case pair => sys.error(s"Map factory: expected k->v pair, got ${Show.show(pair)}")
+      // Folded rather than mutated: the store is persistent now, and a fold keeps the insertion
+      // order the type promises without a builder that could disagree with `MapV.from`.
+      a.foldLeft(MapV.empty) { (m, pair) =>
+        pair match
+          case DataV("Tuple2" | "Pair", Seq(k, v)) => MapV.updated(m, k, v)
+          case DataV("->", Seq(k, v))              => MapV.updated(m, k, v)
+          case other => sys.error(s"Map factory: expected k->v pair, got ${Show.show(other)}")
       }
-      m
     // ── Dynamic dispatch primitives (for FrontendBridge — no static type info) ────
     // __arith__(op, lhs, rhs): type-dispatched arithmetic/comparison/string concat.
     // Keep this as a thin wrapper: the literal-op fast paths call `arithOp`
@@ -2814,18 +2842,10 @@ object Prims:
         case (MapV(m), "get", List(k)) => m.get(k).fold(none)(some)
         case (MapV(m), "getOrElse", List(k, default)) => m.getOrElse(k, default)
         case (MapV(m), "apply", List(k)) => m(k)
-        case (MapV(m), "updated", List(k, v)) =>
-          val out = MapV.from(m)
-          out.entries.update(k, v)
-          out
-        case (MapV(m), "removed", List(k)) =>
-          val out = MapV.from(m)
-          out.entries.remove(k)
-          out
+        case (MapV(m), "updated", List(k, v)) => MapV.fromStore(m.updated(k, v))
+        case (MapV(m), "removed", List(k))    => MapV.fromStore(m.removed(k))
         case (MapV(m), "+", List(DataV("Tuple2" | "Pair", Seq(k, v)))) =>
-          val out = MapV.from(m)
-          out.entries.update(k, v)
-          out
+          MapV.fromStore(m.updated(k, v))
         case (MapV(m), "contains", List(k)) => BoolV(m.contains(k))
         case _ => methodDispatch9(recv, name, margs)
 
@@ -3180,9 +3200,7 @@ object Prims:
     // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
     case (MapV(m), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
-      val out = MapV.from(m)
-      out.entries(k) = v
-      out
+      MapV.fromStore(m.updated(k, v))
     case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
@@ -3259,9 +3277,7 @@ object Prims:
     // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
     case (MapV(m), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
-      val out = MapV.from(m)
-      out.entries(k) = v
-      out
+      MapV.fromStore(m.updated(k, v))
     case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
@@ -3645,7 +3661,7 @@ object Prims:
       case _ => c.asInstanceOf[DoubleCellV].v = asFloat1(v); UnitV }
     case "map.get"  => Some { (m, k) => asMap(m).get(k).fold(none)(some) }
     case "map.has"  => Some { (m, k) => BoolV(asMap(m).contains(k)) }
-    case "map.del"  => Some { (m, k) => asMap(m).remove(k); UnitV }
+    case "map.del"  => Some { (m, k) => mapDel(m, k); UnitV }
     case "arr.get"  => Some { (a, i) => asArr(a)(asInt1(i).toInt) }
     case "arr.push" => Some { (a, v) => asArr(a) += v; UnitV }
     case "bget"     => Some { case (BytesV(b), IntV(i)) => IntV((b(i.toInt) & 0xff).toLong); case _ => sys.error("bget: bad args") }
@@ -3665,7 +3681,7 @@ object Prims:
 
   def resolve3(op: String): Option[Fn3] = op match
     case "sslice"   => Some { case (StrV(s), IntV(i), IntV(j)) => StrV(s.substring(i.toInt, j.toInt)); case _ => sys.error("sslice") }
-    case "map.put"  => Some { (m, k, v) => asMap(m).update(k, v); UnitV }
+    case "map.put"  => Some { (m, k, v) => mapPut(m, k, v); UnitV }
     case "arr.set"  => Some { (a, i, v) => asArr(a)(asInt1(i).toInt) = v; UnitV }
     case "bslice"   => Some { case (BytesV(b), IntV(i), IntV(j)) => BytesV(b.slice(i.toInt, j.toInt)); case _ => sys.error("bslice") }
     case _          => None
@@ -3839,10 +3855,27 @@ object Prims:
   private def bytes(a: List[Value], k: Int): Vector[Byte] = a(k) match { case BytesV(b) => b; case v => sys.error(s"expected Bytes, got ${Show.show(v)}") }
   private def bool(a: List[Value], k: Int): Boolean = a(k) match { case BoolV(b) => b; case v => sys.error(s"expected Bool, got ${Show.show(v)}") }
   private def asData(v: Value): (String, IndexedSeq[Value]) = v match { case DataV(t, fs) => (t, fs); case x => sys.error(s"expected Data, got ${Show.show(x)}") }
-  private def asMap(v: Value): collection.mutable.Map[Value, Value] = v match
+  /** READ-ONLY view over either map representation. `collection.Map` is the common supertype of the
+    * persistent `VectorMap` a `MapV` now holds and the `mutable.Map` a `ForeignV` may hold, so a
+    * reader needs no case analysis — and a WRITER can no longer get one by accident, which is why
+    * the two mutating prims got their own helpers below. */
+  private def asMap(v: Value): collection.Map[Value, Value] = v match
     case MapV(entries) => entries
     case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m
     case x => sys.error(s"expected Map, got ${Show.show(x)}")
+
+  /** The two prims that WRITE. They mutate whichever representation they are handed, so every alias
+    * of the same value sees the write — the semantics `map.put`/`map.del` had when the store was a
+    * `mutable.LinkedHashMap`, preserved deliberately rather than by accident. */
+  private def mapPut(v: Value, k: Value, x: Value): Unit = v match
+    case m: MapV => m.putInPlace(k, x)
+    case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m.update(k, x)
+    case other => sys.error(s"expected Map, got ${Show.show(other)}")
+
+  private def mapDel(v: Value, k: Value): Unit = v match
+    case m: MapV => m.removeInPlace(k)
+    case ForeignV(m: collection.mutable.Map[Value, Value] @unchecked) => m.remove(k)
+    case other => sys.error(s"expected Map, got ${Show.show(other)}")
   private def asArr(v: Value) = v match { case ForeignV(a: collection.mutable.ArrayBuffer[Value] @unchecked) => a; case x => sys.error(s"expected Array, got ${Show.show(x)}") }
   private def asCell(v: Value) = v match { case ForeignV(c: Array[Value] @unchecked) => c; case x => sys.error(s"expected Cell, got ${Show.show(x)}") }
 

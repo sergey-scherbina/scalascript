@@ -394,13 +394,13 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     // Sorted, like `valueMap` above: the entry order of this map is observable through iteration,
     // and two runs of the same upload must not differ.
     parts.toList.sortBy(_._1).foreach { (name, p) =>
-      result.entries(Value.StrV(name)) = Value.DataV("UploadedFile", Vector(
+      result.putInPlace(Value.StrV(name), Value.DataV("UploadedFile", Vector(
         Value.StrV(p.name),
         Value.StrV(p.filename),
         Value.StrV(p.contentType),
         Value.IntV(p.size.toLong),
         Value.StrV(p.bytes),
-        Value.StrV("")))            // path: this engine never spools to disk (see MultipartFast)
+        Value.StrV(""))))            // path: this engine never spools to disk (see MultipartFast)
     }
     result
 
@@ -455,7 +455,7 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
 
   private def valueMap(values: Map[String, String]): Value =
     val result = Value.MapV.empty
-    values.toList.sortBy(_._1).foreach { case (k, v) => result.entries(Value.StrV(k)) = Value.StrV(v) }
+    values.toList.sortBy(_._1).foreach { case (k, v) => result.putInPlace(Value.StrV(k), Value.StrV(v)) }
     result
 
   private def stringMap(value: Value): Map[String, String] = value match

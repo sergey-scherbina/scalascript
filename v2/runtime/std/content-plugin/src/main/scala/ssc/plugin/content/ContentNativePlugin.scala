@@ -25,7 +25,7 @@ final class ContentNativePlugin extends NativePlugin:
     case Value.DataV(`tag`, fields) if fields.length == arity => fields
     case other => throw new IllegalArgumentException(s"expected $tag/$arity, got ${Show.show(other)}")
 
-  private def attrs(value: Value): collection.mutable.LinkedHashMap[Value, Value] = value match
+  private def attrs(value: Value): collection.immutable.VectorMap[Value, Value] = value match
     case Value.MapV(entries) => entries
     case other => throw new IllegalArgumentException(s"expected content attrs map, got ${Show.show(other)}")
 
@@ -104,7 +104,7 @@ final class ContentNativePlugin extends NativePlugin:
     case Value.DataV("Embedded", IndexedSeq(_, _, _, Value.DataV("Some", IndexedSeq(value)), _)) => Some(value)
     case _ => None
 
-  private def contentMap(value: Value): Option[collection.mutable.LinkedHashMap[Value, Value]] = value match
+  private def contentMap(value: Value): Option[collection.immutable.VectorMap[Value, Value]] = value match
     case Value.DataV("MapV", IndexedSeq(Value.MapV(entries))) => Some(entries)
     case _ => None
 
@@ -186,7 +186,7 @@ final class ContentNativePlugin extends NativePlugin:
     case Value.DataV("NullV", _)                          => "null"
     case _                                                => quoteYaml(Show.show(value))
 
-  private def yamlMapLines(entries: collection.mutable.LinkedHashMap[Value, Value], indent: Int): List[String] =
+  private def yamlMapLines(entries: collection.immutable.VectorMap[Value, Value], indent: Int): List[String] =
     val pad = " " * indent
     entries.toList.collect { case (Value.StrV(k), v) => k -> v }.sortBy(_._1).flatMap {
       case (key, Value.DataV("MapV", IndexedSeq(Value.MapV(inner)))) =>
@@ -324,7 +324,7 @@ final class ContentNativePlugin extends NativePlugin:
     Value.DataV("FragmentNode", Vector(list(children)))
 
   // ContentValue decode: a parsed YAML value is DataV("Str"|"Num"|"Bool"|"MapV"|"ListV", …).
-  private def cvMap(cv: Value): Option[collection.mutable.LinkedHashMap[Value, Value]] = cv match
+  private def cvMap(cv: Value): Option[collection.immutable.VectorMap[Value, Value]] = cv match
     case Value.DataV("MapV", IndexedSeq(Value.MapV(entries))) => Some(entries)
     case _ => None
   private def cvList(cv: Value): List[Value] = cv match
@@ -340,13 +340,13 @@ final class ContentNativePlugin extends NativePlugin:
     case Value.DataV("Num", IndexedSeq(Value.StrV(s)))   => s.toDoubleOption.map(_.toInt)
     case Value.DataV("Str", IndexedSeq(Value.StrV(s)))   => s.toIntOption
     case _ => None
-  private def mfield(m: collection.mutable.LinkedHashMap[Value, Value], key: String): Option[Value] =
+  private def mfield(m: collection.immutable.VectorMap[Value, Value], key: String): Option[Value] =
     m.get(Value.StrV(key))
-  private def mString(m: collection.mutable.LinkedHashMap[Value, Value], key: String, default: String): String =
+  private def mString(m: collection.immutable.VectorMap[Value, Value], key: String, default: String): String =
     mfield(m, key).flatMap(cvString).getOrElse(default)
-  private def mStringFirst(m: collection.mutable.LinkedHashMap[Value, Value], keys: String*): Option[String] =
+  private def mStringFirst(m: collection.immutable.VectorMap[Value, Value], keys: String*): Option[String] =
     keys.iterator.flatMap(k => mfield(m, k).flatMap(cvString)).nextOption()
-  private def mInt(m: collection.mutable.LinkedHashMap[Value, Value], key: String, default: Int): Int =
+  private def mInt(m: collection.immutable.VectorMap[Value, Value], key: String, default: Int): Int =
     mfield(m, key).flatMap(cvInt).getOrElse(default)
 
   /** ContentToolkitOptions is DataV("ContentToolkitOptions", [11 fields…, slots]) — slots
@@ -358,7 +358,7 @@ final class ContentNativePlugin extends NativePlugin:
 
   /** Flatten a registry map to (name -> value), tolerating both the canonical
    *  `{StrV -> v}` and v2's `{pair -> pair}` form (Map(pair) doesn't destructure). */
-  private def pairMapPairs(entries: collection.mutable.LinkedHashMap[Value, Value]): List[(String, Value)] =
+  private def pairMapPairs(entries: collection.immutable.VectorMap[Value, Value]): List[(String, Value)] =
     entries.iterator.flatMap { case (k, v) =>
       List(k, v).collectFirst { case Value.DataV(t, IndexedSeq(Value.StrV(name), node)) if t.startsWith("Tuple") => name -> node }
         .orElse(k match { case Value.StrV(name) => Some(name -> v); case _ => None })
@@ -400,7 +400,7 @@ final class ContentNativePlugin extends NativePlugin:
       case Some(signalFn) => pluginCtx.invoke(signalFn, List(Value.StrV(name), initial))
       case None => Value.ForeignV(Array[Value](initial))  // fallback if the ui plugin isn't loaded
 
-  private def buildSignals(blockDataMap: collection.mutable.LinkedHashMap[Value, Value]): Map[String, Value] =
+  private def buildSignals(blockDataMap: collection.immutable.VectorMap[Value, Value]): Map[String, Value] =
     mfield(blockDataMap, "signals").flatMap(cvMap) match
       case Some(sigMap) => sigMap.iterator.collect { case (Value.StrV(name), cv) => name -> reactiveSignal(name, cv) }.toMap
       case None => Map.empty
@@ -409,7 +409,7 @@ final class ContentNativePlugin extends NativePlugin:
     signals.getOrElse(name, throw new IllegalArgumentException(
       s"contentToolkitNode: $context signal '$name' is not declared (available: ${if signals.isEmpty then "<none>" else signals.keys.toList.sorted.mkString(",")})"))
 
-  private def toolkitButton(m: collection.mutable.LinkedHashMap[Value, Value], options: Value,
+  private def toolkitButton(m: collection.immutable.VectorMap[Value, Value], options: Value,
       signals: Map[String, Value], label: String, disabled: Boolean): Value =
     mfield(m, "action").flatMap(cvString) match
       case Some(actionId) =>

@@ -104,8 +104,8 @@ private[ui] object NativeUiPortable:
             val copy = Value.MapV.empty
             converted.put(map, copy)
             map.entries.iterator.zipWithIndex.foreach { case ((key, item), index) =>
-              copy.entries(convert(key, s"$at.<key:$index>")) =
-                convert(item, childPath(at, key, index))
+              copy.putInPlace(convert(key, s"$at.<key:$index>"),
+                              convert(item, childPath(at, key, index)))
             }
             copy
         case Value.ForeignV(hostMap: collection.Map[?, ?]) =>
@@ -117,8 +117,8 @@ private[ui] object NativeUiPortable:
             converted.put(host, copy)
             hostMap.iterator.zipWithIndex.foreach { case ((key, item), index) =>
               val portableKey = key.asInstanceOf[Value]
-              copy.entries(convert(portableKey, s"$at.<key:$index>")) =
-                convert(item.asInstanceOf[Value], childPath(at, portableKey, index))
+              copy.putInPlace(convert(portableKey, s"$at.<key:$index>"),
+                              convert(item.asInstanceOf[Value], childPath(at, portableKey, index)))
             }
             copy
         case Value.ForeignV(_) | _: Value.LongCellV | _: Value.DoubleCellV =>
@@ -150,7 +150,7 @@ private[ui] object NativeUiPortable:
             head match
               case Value.DataV(tag, Seq(k, v)) if tag == "Pair" || tag == "Tuple2" =>
                 k match
-                  case _: Value.StrV => out.entries(k) = v
+                  case _: Value.StrV => out.putInPlace(k, v)
                   case _ => throw new RuntimeException(s"$path requires String keys, got ${Show.show(k)}")
               case _ => throw new RuntimeException(s"$path expected (String, Value) entries, got ${Show.show(head)}")
             cur = tail

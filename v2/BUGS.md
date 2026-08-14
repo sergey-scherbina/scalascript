@@ -9,14 +9,14 @@ Newest first.
 
 ## v2-map-updated-copies-the-whole-map — `Map.updated` is O(n), and the cost is 80 % of `map-ops`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: perf
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: bench/history.tsv -->
+     gate: tests/e2e/v2-map-updated-shape-gate.sh -->
 
 **`MapV` is a mutable `LinkedHashMap`, and every immutable update COPIES IT ENTIRELY**
 (`v2/src/Runtime.scala:2801`):
@@ -69,26 +69,38 @@ and `:156` say so, and it is what makes `println(Map(...))` stable — so the re
 persistent AND insertion-ordered. `scala.collection.immutable.VectorMap` is both. Any candidate must
 keep `MapV`'s equality and hashing behaviour, which the comment at :136 also pins.
 
-**Not fixed here, deliberately:** `v2/src/Runtime.scala` is held by claim `rust-toint-lane-parity`.
-This entry is the measurement and the diagnosis; the edit belongs to whoever holds that file next.
-A gate for it should assert the SHAPE, not a time: 500 `updated` calls over 10 keys and over 500
-keys must cost within a small factor of each other, which is a threshold a loaded host can still
-read.
+**FIXED 2026-08-14.** `MapV`'s store is `collection.immutable.VectorMap` and the copy sites are
+`updated`/`removed` on it — structural sharing instead of a copy. Workload-only ms for 500 `updated`
+calls, measured on both builds:
 
-**Gate named 2026-08-14: `bench/history.tsv`** — a perf entry is done when THE NUMBER MOVED, so the
-acceptance test is the recorded measurement, not a pass/fail script.
+| keyspace | copying store | persistent store |
+|---|---|---|
+| 10 | 0.3504 | 0.0849 |
+| 1000 | 1.71 | 0.1097 |
+| ratio | **4.9×** | **1.3×** |
 
-**Done when** the `map-ops` row improves under the alternating A/B protocol — three rounds,
-install-before / install-after / compare medians, never a before-block then an after-block — and the
-run is appended to `bench/history.tsv` with its `sha` and `host_load`. The entry's own claim is that
-this copy is **80 % of `map-ops`**, so that is the prediction to write down first and to be
-disagreed with: if removing the copy does not move the row by something near that, the profile was
-naming a place rather than sizing a prize.
+On the corpus row `map-ops`: 1.12 → 0.4257 ms on the v2 VM (2.6×) and **5.08 → 0.1638 ms on the
+bytecode lane (31×)**, while `typeclass-fold`, which touches no `Map`, is unmoved at 0.98 and 1.08 —
+the control that says this is the map and not the build. **It also confirms a prediction this entry
+made before the fix existed:** the bytecode lane bought nothing on `map-ops` (six paired rounds,
+median 0.987) because both lanes called the same copying runtime; freed of it, the lane is now 2.6×
+faster than the VM on that row.
 
-**The anti-case for a perf fix here is correctness, not speed:** `MapV` is a mutable
-`LinkedHashMap`, and the copy is what makes `updated` immutable. Any structural sharing has to keep
-a prior `MapV` unchanged after an `updated` on a value derived from it, or the row gets faster by
-being wrong.
+**`MapV` carries TWO semantics and both are preserved.** The language sees an immutable `Map`, but
+the `map.put` / `map.del` prims mutate one IN PLACE and their callers expect every alias to see the
+write. A persistent store cannot do that — so the STORE is persistent and the WRAPPER is mutable:
+`putInPlace`/`removeInPlace` swap the store, an alias holds the same `MapV` object and still sees the
+write, and `asMap` no longer hands anyone a mutable type by accident. Eight call sites across the
+plugins were routed through those two helpers, and the `ui-plugin` tests that build CYCLIC maps in
+place still do.
+
+**The gate asserts a SHAPE and it took two attempts.** The first version wrapped `bin/ssc run` in a
+wall clock and PASSED against the defect — 3528 ms vs 3560 ms — because 3.5 s of JVM startup drowned
+64 ms of workload. It had a floor on the small reading and the floor did not help: it guarded that
+the number was big enough to compare, not that the WORKLOAD was what made it big. Found by running
+the gate against the old build instead of trusting it. It now times the workload alone through
+`ssc-tools bench --machine --backend v2`, reads **4.6× (FAIL) on the old build and 1.4× (PASS) on the
+new one**, and its self-test exercises the arithmetic on both measured points.
 
 ## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
 

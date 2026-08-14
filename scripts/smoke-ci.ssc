@@ -315,6 +315,10 @@ val suite = List(
   // Five spellings of a route handler, asserted over a real socket. Four must serve and the
   // fifth -- a block whose value is not callable -- must NOT: without that row, "make the
   // block form work" reads as licence to unwrap anything.
+  // A SHAPE, not a time: 500 `Map.updated` calls over 10 keys against the same over 1000, and the
+  // ratio must stay under 2.5x. It went 4.6x while `MapV` copied the whole map per update, and
+  // 1.4x once the store became persistent — both measured, both in the gate's own self-test.
+  Check("v2", "map-updated-shape", "tests/e2e/v2-map-updated-shape-gate.sh", List(), 300000),
   Check("v2", "route-handler-shapes", "tests/e2e/route-handler-shapes-gate.sh", List(), 300000),
   // Both of these were written with their fixes and left UNWIRED, because scripts/smoke-ci.ssc was
   // held by a live sibling claim at the time and fighting over the file is worse than a short gap.
