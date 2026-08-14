@@ -1,4 +1,4 @@
-# generation: 1980
+# generation: 1981
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 bench-b4-three-version-table	claude-code	2026-08-14T07:17:03Z	B4-three-version-table B1-timing-wrapper-close	file:bench/history.tsv file:bench/BASELINE.md file:v3/SPRINT.md
@@ -9,3 +9,4 @@ v2-unknown-member-closure	claude-code	2026-08-14T08:29:38Z	v2-unknown-member-on-
 rust-object-owner-depth	claude-code	2026-08-14T08:35:55Z	rust-object-member-call-emits-invalid	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-object-member-call.sh file:BUGS.md
 port-collision-ratchet	claude-code	2026-08-14T08:38:25Z	wired-gates-share-hard-coded-tcp-ports	file:tests/e2e/no-leaked-servers.sh file:tests/BUGS.md
 f-at-bind-pattern	claude-code	2026-08-14T08:38:48Z	f-at-bind-pattern-emits-unbound-underscore	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-at-bind-pattern-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+v2-content-toolkit-block	claude-code	2026-08-14T08:40:12Z	v2-lane-does-not-serve-the-content-introspection-view	file:v2/runtime/std/content-plugin/src/main/scala/ssc/plugin/content/ContentNativePlugin.scala file:tests/e2e/serve-view-frontend-v2-smoke.sh
