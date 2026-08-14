@@ -1,0 +1,11 @@
+slug: ssc3-math
+branch: feature/ssc3-math
+agent: claude-code
+started: 2026-08-14T15:38:31Z
+heartbeat: 2026-08-14T15:38:31Z
+status: claimed-before-planning
+items: SSC3-14
+paths: file:v3/prelude/index.ssc file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
