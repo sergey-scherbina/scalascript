@@ -847,13 +847,58 @@ with `if: always()`, so the first real instance will name itself, with its age a
 
 ## a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-14
-     confirmed: no -->
+     confirmed: yes
+     gate: tests/e2e/no-leaked-servers.sh --self-test
+     fixed-in: a6c7eac8296d4ae3f40fbba8aca7f7622a8a0928 -->
+
+> **CONFIRMED AND FIXED 2026-08-14. The instance this was filed without is `serve-view-frontend-v2-smoke`.**
+> It asserts `http=200` plus a `frontend=` string scraped from its OWN LOG — neither from the
+> response body — so any foreign 200 satisfies it. Planted with the launcher replaced by a script
+> that prints the frontend line and sleeps, and a python server holding :8099:
+>
+> ```
+> --v2: http=200 frontend=react swiftui-crash=0      ← the exact string this gate calls a PASS
+> ```
+>
+> Nothing of ours had bound. `confirmed: no` was right when written and is now answered.
+>
+> **Ownership, which is the entry's option (1) done without touching the served program.** The port
+> is written in the EXAMPLE (`examples/health-defaults.ssc` ends in `serve(8769)`), so both a nonce
+> and an OS-allocated port edit `examples/` to fix a harness problem. Asking the OS which process
+> holds the socket needs nothing from the program: `tests/e2e/lib/own-server.sh` compares the
+> listener against the pid the gate started, **as a process TREE** — `bin/ssc` is a launcher script
+> and whether the JVM is the same pid or a child differs by lane, so a pid equality would have been
+> a test of `exec` versus `&`.
+>
+> Wired into all five gates that boot on a fixed port, both frozen collision pairs included. The
+> plant is asserted in `no-leaked-servers.sh --self-test`, which `ci.yml` already runs, in both
+> directions — a foreign holder must be refused AND a server started underneath the given pid must
+> be accepted (the positive case is deliberately a grandchild).
+>
+> | gate | after wiring |
+> |---|---|
+> | `health-defaults-smoke` | 4/4 PASS, unchanged from baseline — four different launchers all pass the tree comparison |
+> | `std-ui-forms-smoke` | 3/3 PASS |
+> | `request-validation-family-gate` | PASS, both boots; launched detached, so the pid is recorded to a file |
+> | `route-params-v2-smoke` | PASS |
+> | `serve-view-frontend-v2-smoke` | v1 a real pass; v2 still red on `v2-lane-does-not-serve-the-content-introspection-view`, and the check correctly stays silent — "no listener visible" |
+>
+> **Two faults found by running it, both apparatus faults that read as product faults** — the same
+> family as the defect itself. Diagnostics had to move to STDERR, because gates call their lane
+> function inside `V1=$(run_lane --v1)` and stdout is captured into the verdict string. And a
+> forgotten `source` line made every call "command not found" — non-zero — which the call sites read
+> as "foreign", so one gate accused two healthy lanes; the source is now guarded and refuses to run
+> rather than mis-report.
+>
+> **Option (2), the OS-allocated port, is NOT done and the `FROZEN_COLLISIONS` list stands.** It
+> needs the served program to report the port it got, and the ports live in `examples/`. Ownership
+> makes a collision detectable; it does not make one impossible.
 
 Split out of `wired-gates-share-hard-coded-tcp-ports` when that entry closed, so a real improvement
 its revision had dropped does not vanish with it.
