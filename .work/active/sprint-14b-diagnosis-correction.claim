@@ -3,9 +3,30 @@ branch: feature/sprint-14b-diagnosis-correction
 agent: claude-code
 started: 2026-08-14T19:13:20Z
 heartbeat: 2026-08-14T19:13:20Z
-status: claimed-before-planning
+status: working
 items: SSC3-14b-diagnosis
 paths: file:v3/SPRINT.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  RETRACTING MY OWN WRONG DIAGNOSIS, written into `v3/SPRINT.md` §SSC3-14b on 2026-08-13 and
+  outstanding all of 2026-08-14 because the path was held by three claims in succession
+  (`bench-b4-three-version-table`, then `v3-const-hoist`).
+
+  The entry's last two paragraphs tell the next reader that the vararg star "is being eaten below
+  the parser — in the lexer or in `alphabet/src/Alphabet.scala`" and that "the next step is a token
+  dump, not another parser edit". The token dump was taken: `def total(xs: Int*)` lexes as
+  `TId(Int) TOp(*) TPunct())` — the star is a live token at 1:18 and neither the lexer nor the
+  alphabet touches it. The real cause is that `Front.default` is UNIML whenever `v3/.jars/uniml.cp`
+  exists, so two attempts at `v3/src/Parser.scala` were measured through a front that does not
+  compile the file; uniml discards the star at `ScalaSpike.skipTypeTail` (`ScalaSpike.scala:708`),
+  deliberately and with a comment saying so.
+
+  WHY THIS IS WORTH A CLAIM OF ITS OWN RATHER THAN A LINE IN THE NEXT ONE: the entry does not merely
+  lack an update, it ACTIVELY MISDIRECTS — it names a file to go and read that has nothing to do
+  with the defect, and it does so with the confidence of a measurement. SSC3-14b shipped in
+  7bc7e2a1b hours ago, so a reader hitting that text now would be debugging a solved problem in the
+  wrong subsystem.
+
+  NARROW: one entry, two paragraphs replaced and the header marked done. No other SSC3 entry is
+  touched; `range-replace-eats-neighbours-silently` says to anchor on the heading and check the
+  neighbours survived, so the edit is anchored and the entry count is compared before and after.
+next: replace the two paragraphs, verify the neighbouring entries survived, push
