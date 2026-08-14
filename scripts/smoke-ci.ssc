@@ -303,6 +303,13 @@ val suite = List(
   // each turned up while someone read output that made no sense. Green on arrival by design; its
   // job is the fourth one.
   Check("tests", "no-gnu-only-shell", "tests/e2e/no-gnu-only-shell-constructs.sh", List(), 60000),
+  // Its sibling, and here for the same reason: a backtick inside an UNQUOTED heredoc is a command
+  // the shell runs. `.githooks/pre-push` printed its claim-overlap refusal that way until
+  // 2026-08-14 — five sentences lost every identifier they named and `scripts/coord-claim` was
+  // EXECUTED into the middle of the message, at the one moment the reader is already asking whether
+  // they typed the command wrong. Eighth occurrence of the class here and the first in checked-in
+  // code, where no habit of anyone's reaches it.
+  Check("tests", "no-live-backticks-in-heredocs", "tests/e2e/no-live-backticks-in-heredocs.sh", List(), 60000),
   Check("v1/runtime/backend/interpreter", "render-lane-builtins",
         "tests/e2e/render-lane-has-the-same-builtins-as-run.sh", List(), 300000),
   // Five spellings of a route handler, asserted over a real socket. Four must serve and the

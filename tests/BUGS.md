@@ -1,3 +1,86 @@
+## pre-push-refusal-message-executes-its-own-backticks — the coordination guard runs `scripts/coord-claim` while refusing you
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: tests/e2e/no-live-backticks-in-heredocs.sh
+     fixed-in: PENDING -->
+
+**Met as a reader on 2026-08-14, not found by reading code.** A claim of mine was correctly refused
+— a sibling had claimed the same two items two minutes earlier, which is exactly what the overlap
+guard is for — and the refusal came out like this:
+
+```text
+✋ claim REFUSED — it overlaps a live claim. This is NOT a race; retrying will not help.
+
+.githooks/pre-push: line 413: items:: command not found
+.githooks/pre-push: line 413: --items: command not found
+usage: scripts/coord-claim <slug> --items "<id> …" --paths "<prefix> …" [--agent <id>]
+  … twenty more lines of coord-claim's usage …
+.githooks/pre-push: line 413: slug: No such file or directory
+```
+
+**`.githooks/pre-push:413` opened its message with an unquoted `<<EOF`**, so the six backticked
+identifiers in the prose were command substitutions. `items:` and `--items` were run and reported
+missing; `` `scripts/coord-claim` `` **was executed**, and its usage went to stdout, i.e. it printed
+*before* the message rather than into it; `` `git show origin/main:.work/active/<slug>.claim` `` ran
+with `<slug>` as a redirection. The five sentences that explain *why* a claim was refused lost every
+identifier they named.
+
+**The cost is not cosmetic, and it is not the missing words.** This message is read at exactly one
+moment: when an agent has just been refused and is asking "did I get the command wrong?" Being shown
+a command-usage block is the single most misleading answer available, and it worked on me — I
+re-checked my own invocation and ran `--dry-run` before looking at the hook.
+
+**Radius, measured as a differential** of the message block with a synthetic `$problems`, old vs
+new: 16 lines of `coord-claim` usage gone, 4 lines of `command not found` gone, 5 lines restored to
+carrying their identifiers, everything else byte-identical.
+
+**Census before the fix, because "the same thing everywhere" is an assumption.** 19 backticked lines
+sit inside unquoted heredocs across `.githooks/`, `scripts/` and `tests/`; **15 are already escaped**
+`\``, in five files. `.githooks/pre-push` itself escapes correctly at lines 133 and 140. So this was
+one prose block, 421-425 — a single regression, not rot to sweep.
+
+**Fixed** by moving the only expansion the block ever needed (`$problems`) out into a `printf` and
+quoting the delimiter. Escaping the six backticks was the other option and was rejected: seven prior
+occurrences of this class in this project were all slips inside prose that was otherwise clean,
+which is what a rule applied by hand at 95% looks like.
+
+**Gate: `tests/e2e/no-live-backticks-in-heredocs.sh`**, wired into smoke, 1.8 s. An unescaped
+backtick inside an unquoted heredoc body, over 348 tracked shell files. Four controls, including the
+pre-fix spelling verbatim (P-6.1b) — and the fix cannot be verified by the fixture alone, so the
+real file is reverted and the gate is observed RED on it, naming lines 421, 422, 423 and 425, before
+the fix is trusted.
+
+**Its population was wrong first, which is the failure this project keeps having.** The scan set
+began as a path allow-list — `*.sh` plus `scripts/` plus `tests/` plus `.githooks/` — and covered
+**314 of the repository's 348 tracked shell files**. The 34 it could not see were the extensionless
+tools outside those directories: `bin/ssc`, `v2/ssc`, `v2/ssc1`, `v3/ssc3`, the
+`v1/tools/scripts/launchers/*`. **The launcher every agent runs was outside the check.** The
+population is now a property — tracked, and shell by extension or by shebang — rather than a list of
+places. Widening it found no new defect, which is the useful part of the answer: the fix really is
+one site.
+
+**The gate was wrong on its first run, in the direction its sibling warned about.** It read
+`printf '<<encode-error: %s>>'` and `echo "… (\`<<EOF\`) …"` as heredoc openers — a `<<WORD` inside a
+STRING — found no closing delimiter, ran to end-of-file and reported 18 backticked *comments* as
+findings, 16 of them in `specs/coreir-codec-vectors.sh` and 2 in itself. Same shape as
+`no-gnu-only-shell-constructs` matching the comments that explain the construct it removed, and
+arrived at the same way: by the check failing on arrival and its output making no sense. The scanner
+now masks quoted spans and comments before looking for an opener, and both spellings are kept as
+controls.
+
+**This is the eighth occurrence of the class in this project and the first in checked-in code.** The
+other seven were an agent's own typing — `git commit -m`, `coord-release --note` — and were answered
+by `--note-file` (`7bcfab999`) and by a written rule. Neither of those reaches a heredoc that has
+been sitting in a hook for weeks, which is the argument for a mechanical check over one that is
+plainly a two-character fix.
+
+
 ## policy-selftest-stages-into-the-shared-index — an interrupted gate blocks the NEXT agent's rebase
 
 <!-- status: fixed

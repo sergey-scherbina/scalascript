@@ -410,10 +410,20 @@ for new in $incoming; do
 done
 
 if [ -n "$problems" ]; then
-  cat >&2 <<EOF
-
-✋ pre-push: this claim overlaps a live claim on origin/main.
-$(printf "$problems")
+  # THE DELIMITER IS QUOTED, AND THAT IS THE WHOLE POINT. Until 2026-08-14 this was `<<EOF`, so the
+  # six backticked identifiers in the prose below were command substitutions the shell ran while
+  # printing a refusal: `items:` and `--items` reported "command not found", `scripts/coord-claim`
+  # was EXECUTED and dumped twenty lines of its usage into the middle of the message, and
+  # `git show …<slug>.claim` failed on `<slug>` as a redirection. The refused agent therefore read a
+  # broken message at the one moment they are already asking "did I get the command wrong?" — which
+  # is exactly what happened to the agent who found it.
+  #
+  # The dynamic part is printed separately BECAUSE of that: `$problems` is the only expansion this
+  # block ever needed, and keeping it here is what forced the delimiter open. Anything added below
+  # is inert no matter what it contains.
+  printf '\n✋ pre-push: this claim overlaps a live claim on origin/main.\n' >&2
+  printf '%b\n' "$problems" >&2
+  cat >&2 <<'EOF'
 
 Two agents doing the same work under different slugs is exactly what this guard exists to stop
 (specs/claim-mutex.md).

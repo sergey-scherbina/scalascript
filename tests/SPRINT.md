@@ -84,6 +84,40 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       findings the answer to "who fixes them" is me, in batches; the detectors exist to make the
       work finite and to stop it growing back.
 
+- [~] `pre-push-message-backticks` — the overlap guard's refusal message is written into an
+      **unquoted** `<<EOF` (`.githooks/pre-push:413`), so the six backticked identifiers in its prose
+      are command substitutions the shell runs while printing a refusal. Met as a reader on
+      2026-08-14, not by reading the code: a correctly-refused claim printed
+      `command not found: items:`, `command not found: --items`, `slug: No such file or directory`
+      and then twenty lines of `scripts/coord-claim` usage — because it EXECUTED
+      `scripts/coord-claim`. The reader's first suspicion is their own invocation, which is the
+      worst possible moment for this message to be corrupt.
+
+      **Census first, so the size of the claim is measured rather than assumed:** 19 backticked
+      lines sit inside unquoted heredocs across `.githooks/`, `scripts/` and `tests/`, and **15 of
+      them are already escaped** `\``. The same file escapes correctly at lines 133 and 140. So this
+      is one prose block, lines 421-425, not a rot to sweep.
+
+      1. Fix: the dynamic line (`$problems`) leaves the heredoc as a `printf`, the static prose
+         becomes `<<'EOF'`. Text preserved byte-for-byte; the class removed rather than the six
+         backticks escaped, because escaping is the thing that fails at 95%.
+      2. Ratchet: `tests/e2e/no-live-backticks-in-heredocs.sh`, wired into `scripts/smoke-ci.ssc`.
+         An UNESCAPED backtick inside an UNQUOTED heredoc body, over 348 tracked shell files, 1.8 s.
+         Four controls (P-6.1b): the pre-fix spelling must be detected, and the escaped, quoted and
+         merely-mentioned spellings must not.
+
+      **Two things went wrong in the gate before it was green, and both are the standing shapes.**
+      It first read `<<WORD` inside a STRING as an opener, ran to end-of-file and reported 18
+      backticked COMMENTS — the sibling gate's comment-stripping lesson, met the same way. And its
+      population was a path allow-list covering **314 of 348** tracked shell files, missing the
+      extensionless tools outside those directories: `bin/ssc`, `v2/ssc`, `v3/ssc3`, the launchers.
+      The launcher every agent runs was outside the check. Population is now a property, not a list.
+
+      **Why a gate for one site:** this is the eighth occurrence of the class in this project. Seven
+      were an agent's own typing — `git commit -m`, `coord-release --note` — and were answered by
+      `--note-file` (`7bcfab999`) and by a memory rule. This is the first one that is CHECKED-IN
+      CODE, where no habit of mine can reach it and every agent meets it at the same bad moment.
+
 - [x] `ci-status-guard-owns-its-repo` — `tests/e2e/ci-status-guard.sh` built its claim fixture with
       `git -C "$ROOT" worktree add`, i.e. it MUTATED the shared main repo from inside the pre-push
       suite. BUGS entry `ci-status-guard-races-the-shared-repo-index-lock` blamed "the shared index
