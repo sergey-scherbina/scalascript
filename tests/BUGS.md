@@ -2066,7 +2066,8 @@ worth running — it found a real, silent F bug that nothing else had — but fo
 pointed the wrong way.
 ## a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 2c441b1ce
      lane: apparatus
      area: other
      reported-by: claude-code
@@ -2113,6 +2114,95 @@ and would have caught both instances above.
 Deliberately not a gate over code: there is no reducer script in this repository to assert against,
 and inventing one so that there is something to test would be the tail wagging the dog. The
 measurable claim is the skill's text.
+
+### CLOSED 2026-08-15 — `2c441b1ce` (submodule `547ef08`), and the entry's own aside was the real bug
+
+Both required rules are now in the skill, in a new §3 — reduction is bisection applied to the
+INPUT, and the document previously covered bisecting COMPONENTS only, which is why there was
+nowhere for them to live. Verbatim, so this is checkable by grep rather than by reading:
+
+| # | the rule, as the entry demanded it | in the skill |
+|---|---|---|
+| 1 | pin the declaration of any identifier the predicate names | `isolate.md:75` **Pin the declaration of any identifier the predicate names.** |
+| 2 | rebuild well-formed and confirm it still reproduces | `isolate.md:84` **Rebuild the reduced artifact well-formed and confirm it still reproduces** |
+| 3 | reduce by declaration, never by line (stated above, not in *Done when*) | `isolate.md:69` **Reduce by DECLARATION, never by line.** |
+
+A fourth was added from a third incident, because it is the same failure with a different cause:
+**name the structural feature the defect depends on and check the reduction still has it.** On
+2026-08-12 a vararg defect whose real callee was *curried* was reduced to a single clause; one
+candidate repair looked correct on the reduction and produced three children on the real call,
+while the repair that actually works looked like a no-op. The reduced call was not legal Scala,
+and an illegal program has no defined right answer — so "the lanes disagree" stopped being
+evidence. Rules 3 and 4 are two ways to leave the reduction unable to answer.
+
+**But the premise of this entry was false, and that was the finding.** It says
+`isolate.md` "is the skill every reduction in this repo runs from". It was not, because nothing
+pointed at it. Measured: `isolate` appeared in **neither** skill index — not
+`.agents/plugins/AGENTS.md`, not `.agents/plugins/README.md` — while every other substantive
+skill (`bugs`, `policy`, `performance`, `scrumban`, `spec-dev`, `multi-agent`, `multi-repo`,
+`rozum`) is in both, and even the one-line `plan-mode-bypass` hook is listed. It was on disk and
+in `marketplace.json`; those are not discovery surfaces.
+
+That matters because `AGENTS.md` §"MANDATORY: required skills" does not enumerate skills **by
+design** — it sends the reader to `.agents/plugins/AGENTS.md` and states that new skills "appear
+in that index automatically — no edit here, no per-skill install". For this skill the promise was
+false, and silently: a skill missing from the index is indistinguishable from a skill that does
+not exist. So writing the two rules into an unlisted file and closing this entry would have been
+write-only — it would have passed every gate and changed nothing an agent does.
+
+It also explains this entry's own aside that "reduce by declaration, never by line" was **already
+written down in this repository, and violated**. A repo-wide grep finds that rule written nowhere
+else today, so whatever earlier copy existed, the reason it did not take is the reason found here:
+it was written where nobody is pointed. The fix therefore has two halves — the rules, and the two
+index rows that make them reachable — and only the second half explains the recurrence.
+
+Not made a gate over code, as the entry directed. The checks that were run: `markdownlint` with
+this repo's config on all three changed files (rc=0), `marketplace.json` re-parsed as JSON (10
+plugins, isolate's description updated to match the new section), the heading sequence confirmed
+1-6 after the insertion, and the three rules asserted present by grep as tabulated above.
+
+**Follow-up, deliberately not taken here** (different subject, outside this claim): four skills —
+`isolate`, `multi-repo`, `rozum`, `spec-dev` — have no `<skill>/.claude-plugin/plugin.json` while
+the other six do. Filed as `four-skills-have-no-plugin-manifest-and-nothing-notices`.
+
+## four-skills-have-no-plugin-manifest-and-nothing-notices
+
+<!-- status: open
+     lane: apparatus
+     area: other
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: no
+     gate: none -->
+
+Found while closing `a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration`,
+and deliberately left open rather than fixed blind, because I have measured an inconsistency and
+NOT that it breaks anything.
+
+In the `.agents/plugins` submodule, `.claude-plugin/marketplace.json` lists ten plugins. Six carry a
+`<skill>/.claude-plugin/plugin.json`; four do not:
+
+| has `plugin.json` | `bugs`, `multi-agent`, `performance`, `plan-mode-bypass`, `policy`, `scrumban` |
+|---|---|
+| **missing** | **`isolate`, `multi-repo`, `rozum`, `spec-dev`** |
+
+All ten are named in the marketplace with a `source` pointing at their directory. So either the
+manifest is optional and six of them are carrying a file nobody reads, or it is required and four
+marketplace entries resolve to a plugin directory without one — and *which* of those is true is
+exactly what has never been checked. Nothing in this repo asserts either way, which is why a 6/4
+split could sit there unnoticed.
+
+This does not affect the agent-independent path at all: skills are read as plain markdown via
+`.agents/plugins/AGENTS.md`, and that index is now correct for all ten. The manifest only matters
+for the optional Claude Code marketplace layer.
+
+**Acceptance test.** Install the marketplace and ask it to resolve each of the ten plugins by name.
+If the four without a manifest fail to resolve or are silently skipped, add the four manifests and
+freeze the count with a gate that fails when `marketplace.json` names a plugin whose directory has
+no `plugin.json`. If all ten resolve, the manifest is decorative — then delete the six or record in
+the submodule's README that it is optional, and still freeze whichever rule was chosen. Either way
+the outcome is a stated rule plus something that notices when it is broken; "add four files so the
+column looks even" without running that probe would be a guess.
 
 ## f-parser-gap-reduced-but-not-solved
 
