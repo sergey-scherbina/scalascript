@@ -324,6 +324,58 @@
       |// declared `Any` can be emitted the same way regardless of what it is given.
       |impl<T: Into<Value>> SscVal for T { fn ssc_val(self) -> Value { self.into() } }
       |
+      |// A TYPE TEST, total the same way the coercions above are.
+      |//
+      |// `case Some(s: String)` has to become a Rust match GUARD — a Rust pattern has nowhere to put
+      |// a type test — and a guard may name the bindings its own pattern introduced. What kept that
+      |// unfixed is that `matches!(s, Value::Str(_))` compiles only when the binder really IS a
+      |// `Value`: for `Map[String, Any]` it is, for `List[String]` the binder is a `String` and the
+      |// identical guard is a type error. Telling the two apart needs an element type the emitter
+      |// does not track, and emitting the guard anyway would turn valid source into invalid Rust.
+      |//
+      |// One trait per tested type, implemented for `Value` (a real variant test) AND for the
+      |// concrete type (statically true — a `String` binder IS a String), REMOVES the question
+      |// rather than answering it: the same emitted guard is correct either way. That is exactly the
+      |// property `SscStr`/`SscInt` above already rely on, applied to the test instead of to the
+      |// coercion. `&self` so a binder that arrived as `&Value` — which is what `map.get(k)` hands
+      |// back — resolves by autoderef.
+      |//
+      |// The tests are STRICT where the coercions are lenient, and that difference is deliberate:
+      |// `ssc_bool` accepts `Value::Str("true")` because a signal's store is String-valued, but a
+      |// TEST that did the same would make `case Some(s: String)` and `case Some(b: Boolean)` both
+      |// match one value and leave arm ORDER to decide silently. A coercion is told what the value
+      |// should be; a test is asking.
+      |#[allow(dead_code)]
+      |pub trait SscIsStr  { fn ssc_is_str(&self)  -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscIsInt  { fn ssc_is_int(&self)  -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscIsF64  { fn ssc_is_f64(&self)  -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscIsBool { fn ssc_is_bool(&self) -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscIsList { fn ssc_is_list(&self) -> bool; }
+      |#[allow(dead_code)]
+      |pub trait SscIsMap  { fn ssc_is_map(&self)  -> bool; }
+      |
+      |impl SscIsStr for Value  { fn ssc_is_str(&self) -> bool { matches!(self, Value::Str(_)) } }
+      |impl SscIsStr for String { fn ssc_is_str(&self) -> bool { true } }
+      |impl SscIsStr for &str   { fn ssc_is_str(&self) -> bool { true } }
+      |impl SscIsInt for Value  { fn ssc_is_int(&self) -> bool { matches!(self, Value::Int(_)) } }
+      |impl SscIsInt for i64    { fn ssc_is_int(&self) -> bool { true } }
+      |// `Int` and `Double` are separate ARMS in the extractors this exists for — `requireDouble`
+      |// reads `case Some(n: Double)` then `case Some(n: Int) => n.toDouble` — so the Double test
+      |// must not accept an Int, even though `ssc_f64` widens one. Accepting it would make the
+      |// first arm win and the second unreachable.
+      |impl SscIsF64 for Value  { fn ssc_is_f64(&self) -> bool { matches!(self, Value::Double(_)) } }
+      |impl SscIsF64 for f64    { fn ssc_is_f64(&self) -> bool { true } }
+      |impl SscIsBool for Value { fn ssc_is_bool(&self) -> bool { matches!(self, Value::Bool(_)) } }
+      |impl SscIsBool for bool  { fn ssc_is_bool(&self) -> bool { true } }
+      |impl SscIsList for Value { fn ssc_is_list(&self) -> bool { matches!(self, Value::List(_)) } }
+      |impl<T> SscIsList for Vec<T> { fn ssc_is_list(&self) -> bool { true } }
+      |impl SscIsMap for Value  { fn ssc_is_map(&self) -> bool { matches!(self, Value::Map(_)) } }
+      |impl<K, V> SscIsMap for std::collections::HashMap<K, V> { fn ssc_is_map(&self) -> bool { true } }
+      |
       |// A `List[T]` crossing the boundary: `Vec<Value>` out of a `Value::List`, then elementwise.
       |#[allow(dead_code)]
       |pub fn ssc_vec(v: Value) -> Vec<Value> {

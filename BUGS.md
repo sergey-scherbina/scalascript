@@ -305,7 +305,7 @@ was reported; changing it here would have been an unrequested semantic change to
      found-at: 2026-08-14
      ssc-version: 79461dcfa
      repro: std/mcp/types.ssc requireString / requireInt
-     confirmed: no -->
+     confirmed: yes -->
 
 **The last blocker under `std/mcp/types.ssc`, whose error count is now 6 and all six are this.**
 
@@ -331,7 +331,7 @@ bindings its pattern introduced, so `Some(s) if matches!(s, Value::Str(_))` is l
 each nested `Pat.Typed`, and the arm builder at `RustCodeWalk.scala:~5175` — where `c.cond`
 becomes the Rust guard — can AND them in. `renderPattern`'s 9 call sites stay untouched.
 
-**THE RISK THAT STOPPED ME, and it is the reason this is a map rather than a patch.**
+**THE RISK THAT STOPPED ME, and it is the reason this was a map before it was a patch.**
 `matches!(s, Value::Str(_))` only compiles when the binder really IS a `Value`. For
 `Map[String, Any]` it is; for `List[String]` the binder is a `String` and the same guard is a type
 error. Telling those apart needs the element type, which the emitter does not track at this point.
@@ -340,12 +340,87 @@ failure this lane has been burned by three times this week, and the one its own 
 warning about. So the guard must be conditional on the binder being dynamic, and establishing that
 is the actual work.
 
-**What it unblocks, in order:** these six errors, then `std/mcp/types.ssc` COMPILES, then the
-object-member qualification can land (it is written and verified — see the entry below — and is
-held only because removing the collision refusal while types.ssc cannot compile trades a refusal
-for bad code), then `std/mcp/client.ssc`, then the Rust MCP client itself:
+**FIXED — AND THE PLAN ABOVE IS WRONG ABOUT WHAT THE WORK WAS.** It concluded the emitter must
+learn to tell a dynamic binder from a static one. It does not, and the way out was already written
+down in this file's own comments. `coerceFromValue` documents the property that "removes the need
+for type inference in the walker": `SscStr` is implemented for `Value` AND for `String`, so
+`(x).ssc_str()` is correct whichever it gets. Applying that shape to the TEST rather than to the
+coercion dissolves the question instead of answering it — six `ssc_is_*` traits, each with an impl
+for `Value` (a real variant test) and one for the concrete type (statically true) — so the SAME
+emitted guard is right either way and no discriminator is needed. **I had spent the previous
+session looking for a way to establish a fact that did not need establishing.**
+
+Both halves are emitted, and either alone is still broken: the GUARD (without it the first arm is
+irrefutable) and the REBIND `let s = (s).ssc_str();` (without it the arm returns a `Value` where
+the signature says `String`). Scope is nested ascriptions only — `nestedTypedBinders` starts at
+depth 1 — so the top level keeps `renderPattern`'s drop and `renderAnyMatch`'s test untouched, and
+an ascription with no total test keeps exactly today's emission rather than guessing.
+
+Measured on both lanes from one tree, `pick(Map("k" -> …))` over String/Int/Double/Boolean:
+identical, `hello 7 2 2.9 7 true`. **The discriminating row is the Double fed to the `Int`
+extractor**: `2.9` must return `2` through the SECOND arm, which is what a dropped ascription gets
+wrong — and it is wrong differently depending on which half is missing, silently with no rebind and
+as a runtime panic with one. A probe that fed a String to the String arm would have passed in every
+one of those states. Negative control: with the guards suppressed, the gate's own case fails.
+
+**What it unblocks, in order:** these six errors, then the object-member qualification, then
+`std/mcp/types.ssc` COMPILES, then `std/mcp/client.ssc`, then the Rust MCP client itself:
 `Feature.McpClient`, nine intrinsic entries and a runtime mirroring `McpRs` over a spawned child's
 stdio, with no new crate.
+
+**THE ORDER ABOVE IS CORRECTED, and the correction matters more than the ordering.** An earlier
+revision of this entry put types.ssc before the qualification and called the qualification "written
+and verified, held". Measured today on the fixed build, `emit-rust std/mcp/types.ssc` still refuses
+at `def text emits 2 times (overloading)` — the FLATTENING refusal, which fires before codegen. So
+this fix is invisible to `tests/rust-std-survey-baseline.tsv`, whose row for types.ssc is unchanged
+and correct at `REFUSED`; the gate case is the evidence here, not the survey. That is the
+short-circuit property this file keeps re-learning: a refusal abandons the def at its first
+unlowerable thing, so a fix behind one cannot be seen from outside.
+
+And the qualification is NOT written: it lived only in a worktree that was removed without being
+committed, and it is on no branch and in no commit. It has to be redone. Recorded plainly because
+the previous sentence would otherwise have someone plan around code that does not exist.
+
+## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-14
+     ssc-version: a1aea822a
+     repro: val m: Map[String, Any] = Map("k" -> "x")
+     confirmed: yes -->
+
+**Found while building a probe for something else, and it is recorded separately for exactly that
+reason** — routing that probe through this defect would have made its red ambiguous between two
+causes.
+
+    val m: Map[String, Any] = Map("k" -> "hello")
+
+emits the annotation and the value independently:
+
+    let m: std::collections::HashMap<String, crate::value::Value> =
+      { let mut __m = HashMap::new(); __m.insert("k".to_string(), "hello".to_string()); __m };
+
+→ `E0308: expected HashMap<_, Value>, found HashMap<_, String>`. A HETEROGENEOUS literal fails
+twice and more confusingly: `Map("a" -> "x", "b" -> 1)` reports `expected String, found i64` at the
+SECOND insert, because the first one fixed the element type — the message names the wrong element
+and says nothing about `Any`.
+
+**It is one hop from a site that already works.** The same literal written straight at a
+`Map[String, Any]` PARAMETER is lifted correctly — `needsAnyCoercion` covers containers of `Any` at
+a call boundary, and `coerceFromValue` already has the `HashMap<String, Value>` arm that does it.
+So the machinery exists and the local-declaration site simply does not ask for it.
+
+**Where it hooks:** `renderLetBinding` (`RustCodeWalk.scala:5572-5584`) computes `tyAnn` from
+`decltpe` via `mapType`, renders the RHS separately, and puts the two next to each other — the
+declared type is PRINTED, never APPLIED. The narrow fix is to coerce the RHS to the annotated type
+when they can differ; the reason this is filed rather than done is that `renderLetBinding` is on
+the path of every local in the repository, so the change needs the survey and the goldens to
+measure it, not a one-line edit at the end of another claim.
 
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 

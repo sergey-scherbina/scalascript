@@ -354,9 +354,17 @@ object RustCodeWalk:
         if Seq(".ssc_int(", ".ssc_f64(", ".ssc_bool(", ".ssc_str(", ".ssc_val(").exists(body.contains)
         then "#[allow(unused_imports)]\nuse crate::value::{SscInt, SscF64, SscBool, SscStr, SscVal};\n\n"
         else ""
+      // The nested-typed-pattern GUARDS are trait methods too, and they need their own import: a
+      // crate can use `.ssc_str(` without ever testing a variant. Keyed on the emitted body for the
+      // same reason as above — the one substring `.ssc_is_` covers all six, and it cannot collide
+      // with `.ssc_str(`/`.ssc_int(`, which do not contain it.
+      val anyTestImport =
+        if body.contains(".ssc_is_")
+        then "#[allow(unused_imports)]\nuse crate::value::{SscIsStr, SscIsInt, SscIsF64, SscIsBool, SscIsList, SscIsMap};\n\n"
+        else ""
       val generatedText =
         if body.isEmpty then headerComment
-        else headerComment + "\n" + effectsImport + anyImport + body.dropWhile(_ == '\n')
+        else headerComment + "\n" + effectsImport + anyImport + anyTestImport + body.dropWhile(_ == '\n')
       Right(WalkResult(
         generated       = generatedText,
         defNames        = ok.map(_.name),
@@ -5096,6 +5104,45 @@ object RustCodeWalk:
       Some(s"""crate::value::ssc_is(&$subj, "$n")""")
     case _ => None
 
+  /** A TOTAL runtime test for a NESTED `case Some(s: String)`.
+   *
+   *  Differs from `anyVariantTest` above in exactly one way, and it is the way that matters: this
+   *  one compiles whatever the binder turns out to be. `anyVariantTest` emits
+   *  `matches!(x, Value::Str(_))`, a type error unless `x` really is a `Value` — true for
+   *  `Map[String, Any]`, false for `List[String]`, and telling them apart needs an element type the
+   *  walker does not track. The `ssc_is_*` traits are implemented for `Value` AND for the concrete
+   *  type, so the same guard is right either way and the question does not have to be answered. The
+   *  runtime block defining them carries the full argument.
+   *
+   *  `None` means "no total test": the caller then leaves the arm exactly as it emits today rather
+   *  than guessing. */
+  private def totalVariantTest(tpe: m.Type, binder: String): Option[String] = tpe match
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Seq" | "Vector" | "Array" | "IndexedSeq"), _) =>
+      Some(s"$binder.ssc_is_list()")
+    case m.Type.Apply.After_4_6_0(m.Type.Name("Map"), _) => Some(s"$binder.ssc_is_map()")
+    case m.Type.Name("String")           => Some(s"$binder.ssc_is_str()")
+    case m.Type.Name("Int" | "Long")     => Some(s"$binder.ssc_is_int()")
+    case m.Type.Name("Double" | "Float") => Some(s"$binder.ssc_is_f64()")
+    case m.Type.Name("Boolean")          => Some(s"$binder.ssc_is_bool()")
+    case _ => None
+
+  /** Binders carrying a type ascription BELOW the top of a pattern — `Some(s: String)`, not
+   *  `s: String`.
+   *
+   *  The top level is excluded deliberately. There the ascription normally restates the subject's
+   *  own type and carries no information, which is why `renderPattern` drops it; and where it does
+   *  discriminate — an `Any` subject — `renderAnyMatch` already tests it. One level down neither
+   *  applies, and dropping it makes the arm IRREFUTABLE: `requireInt` took its `Int` arm for a
+   *  `Double` argument and returned it unconverted. */
+  private def nestedTypedBinders(p: m.Pat): List[(String, m.Type)] =
+    def go(q: m.Pat, depth: Int): List[(String, m.Type)] = q match
+      case m.Pat.Typed(m.Pat.Var(m.Term.Name(n)), t) if depth > 0 => List(n -> t)
+      case m.Pat.Typed(inner, _)                                  => go(inner, depth)
+      case m.Pat.Extract.After_4_6_0(_, ac) => ac.values.flatMap(go(_, depth + 1))
+      case m.Pat.Tuple(args)                => args.flatMap(go(_, depth + 1))
+      case _                                => Nil
+    go(p, 0)
+
   /** `match` where the SUBJECT is an `Any`.
    *
    * The value is a `Value::Obj(name, fields)`, so Rust patterns cannot see it — `case
@@ -5242,12 +5289,31 @@ object RustCodeWalk:
       val strRebind = (if hasStringPat then c.pat match
         case m.Pat.Var(m.Term.Name(n)) => s"let $n = $n.to_string(); "
         case _                         => "" else "")
-      val prefix = boxedFieldDerefs(c.pat, ctx) + strRebind + listRebinds(c.pat)
+      // A nested `case Some(s: String)` needs BOTH halves, and either one alone is still broken: a
+      // GUARD, because a Rust pattern has nowhere to hold a type test and without it the arm is
+      // irrefutable; and a REBIND, because the body was written against the narrowed type while the
+      // binder arrives as a `Value` — `requireString` returned one where its signature says
+      // `String`. Emitted only for ascriptions with a TOTAL test, so every other pattern in the
+      // repository keeps byte-for-byte what it emits today.
+      val typedBinders = nestedTypedBinders(c.pat).flatMap { case (n, t) =>
+        totalVariantTest(t, n).map(test => (n, t, test))
+      }
+      val typedRebinds = typedBinders.map { case (n, t, _) =>
+        val rt = mapType(t, ctx.defName, ctx.enumNames).getOrElse("crate::value::Value")
+        s"let $n = ${coerceFromValue(n, rt)}; "
+      }.mkString
+      val prefix = boxedFieldDerefs(c.pat, ctx) + strRebind + listRebinds(c.pat) + typedRebinds
       for
         pat   <- renderPattern(c.pat, ctx)
-        guard <- c.cond match
-                   case Some(g) => renderTerm(g, ctx).map(gr => s" if $gr")
-                   case None    => Right("")
+        // Type tests FIRST, so `&&` short-circuits before a user guard that assumes the narrowed
+        // type ever runs — `case Some(s: String) if s.length > 2` reads the guard on a `Value`.
+        guard <- (c.cond match
+                    case Some(g) => renderTerm(g, ctx).map(gr => List(s"($gr)"))
+                    case None    => Right(Nil)
+                 ).map { userGuards =>
+                   val all = typedBinders.map(_._3) ++ userGuards
+                   if all.isEmpty then "" else s" if ${all.mkString(" && ")}"
+                 }
         bod   <- renderTerm(c.body, ctx)
       yield
         val bodW = wrapArm(bod)

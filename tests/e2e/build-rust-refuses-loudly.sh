@@ -522,6 +522,55 @@ SSC
     failed=1
   fi
 
+  # A NESTED typed pattern — `case Some(s: String)` — against the default lane.
+  #
+  # TWO halves have to be right and each fails differently, so both are exercised here. The GUARD:
+  # without it the ascription is dropped, the FIRST arm is irrefutable, and every value answers from
+  # it. The REBIND: without it the arm hands back a `Value` where the signature says `String`, which
+  # is a cargo error rather than a wrong answer.
+  #
+  # THE DOUBLE FED TO THE `Int` ARM IS THE DISCRIMINATING ROW, and it is why this is a differential
+  # and not a compile check: `2.9` must come back as `dbl:2`, taking the SECOND arm. An emitter that
+  # drops the ascription reaches the first arm instead — with the rebind in place that is a runtime
+  # panic, without it a silently wrong answer, and a probe that only fed a String to a String arm
+  # would pass in every one of those states.
+  #
+  # `Map(…)` is passed straight at the parameter rather than through a typed local on purpose: a
+  # `val m: Map[String, Any] = Map("k" -> "x")` does not lift its values today
+  # (rust-any-valued-map-literal-not-lifted), and routing this probe through that defect would make
+  # a red here ambiguous between two causes.
+  cat > "$tmp/nestpat.ssc" <<'SSC'
+def pick(args: Map[String, Any], key: String): String =
+  args.get(key) match
+    case Some(s: String)  => "str:" + s
+    case Some(n: Int)     => "int:" + n
+    case Some(n: Double)  => "dbl:" + n.toInt
+    case Some(b: Boolean) => "bool:" + b
+    case Some(v)          => "other:" + v
+    case None             => "missing"
+
+def main(): Unit =
+  println(pick(Map("k" -> "x"), "k"))
+  println(pick(Map("k" -> 7), "k"))
+  println(pick(Map("k" -> 2.9), "k"))
+  println(pick(Map("k" -> true), "k"))
+  println(pick(Map("k" -> "x"), "absent"))
+SSC
+  set +e
+  npb=$("$SSC" build-rust "$tmp/nestpat.ssc" -o "$tmp/nestpatbin" 2>&1); nprc=$?
+  np_rust=$("$tmp/nestpatbin" 2>&1)
+  np_ref=$("$ROOT/bin/ssc" run "$tmp/nestpat.ssc" 2>/dev/null)
+  set -e
+  if [[ $nprc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — cargo rejected the nested typed patterns" >&2
+    echo "--- output: $(printf '%s' "$npb" | tail -8)" >&2
+    failed=1
+  elif [[ "$np_rust" != "$np_ref" || -z "$np_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on nested typed patterns" >&2
+    echo "--- rust: $(printf '%s' "$np_rust" | tr '\n' '|')   ssc: $(printf '%s' "$np_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # `++` must not CONSUME its operands (rust-list-concat-moves-its-operands). The emission was
   # `[a, b].concat()`, which builds an array and MOVES both operands into it, so using either one
   # again is E0382 and the program does not build AT ALL — while in ssc a list is immutable and
