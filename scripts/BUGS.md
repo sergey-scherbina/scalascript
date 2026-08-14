@@ -7,6 +7,58 @@ grepping for status.
 
 Newest first.
 
+## build-ram-guard-selftest-measures-the-machine-not-itself — an intermittent red in the pre-push suite
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: tests/e2e/build-ram-guard-gate.sh
+     fixed-in: PENDING -->
+
+**`build-ram-guard --self-test` asserted "killed nothing" by comparing a MACHINE-WIDE build-process
+count before and after** — a global quantity, used to test a local property:
+
+```sh
+before="$(build_pids | wc -l)"
+DRY=1 tier1_orphans >/dev/null; DRY=1 tier3_heaviest >/dev/null
+after="$(build_pids | wc -l)"
+[ "$after" -ge "$before" ] || bad "self-test KILLED something: before=$before after=$after"
+```
+
+**Both tiers run under `DRY=1`, so they cannot kill by construction** — `kill_pid` takes the
+would-kill branch and returns. The count was therefore never measuring this script at all: it was
+measuring whether any *other* agent's JVM happened to exit in those few hundred milliseconds. On a
+box where several agents build, one does.
+
+**Measured before touching it**, at load 45: **1 failure in 20** standalone runs, the failing line
+being `✗ self-test KILLED something: before=10 after=9` — a count that dropped by exactly one — and
+**2 reds across 11 smoke runs** the same day. Standalone it also passed 6/6 in one block, which is
+why "it only fails inside smoke" was the first and wrong hypothesis; the 20-run loop is what
+separated a suite property from a host property.
+
+**The correct assertion already existed ONE LEVEL UP.** `tests/e2e/build-ram-guard-gate.sh` checks
+the pids the dry run NAMED are still alive, and prints a NOTE rather than a pass when nothing was
+named. The self-test's census was a flakier duplicate of a check done properly a few lines away, so
+the fix is to do the same thing here, over the log lines this run appended.
+
+**Verified by an INTERLEAVED A/B, not two blocks** — old and new alternating so both see the same
+host: **old 3 failures / 20, new 0 / 20**. Run as separate blocks the new version scored 0/30, but
+the load had fallen from 45 to 23 by then and that number proves nothing on its own.
+
+**And the new assertion was shown able to FAIL on the real script**, not on a fixture: injecting a
+`would-kill pid=<already-reaped pid>` line makes it report
+`✗ self-test KILLED a process it only claimed it WOULD kill: 98666` and exit 1. Without that the
+green would be worthless — on this host the check is often vacuous, and it now says so out loud
+(`note: the dry tiers named no would-kill target`) instead of passing silently.
+
+**Why it was fixed rather than filed:** it was the only red in an otherwise 96/97 smoke, and an
+intermittent red in the PRE-PUSH suite is how a suite stops being read — the same mechanism that
+kept `lint-markdown` red for seven commits, arriving from the other direction.
+
 ## editing-a-coordination-script-forces-a-compiler-rebuild — `scripts/` is a digest input wholesale
 
 <!-- status: open

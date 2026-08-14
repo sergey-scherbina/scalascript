@@ -256,11 +256,35 @@ if [ "$SELFTEST" = 1 ]; then
     case "$BUILD_RE" in *"$pat"*) ok "killable set covers $pat" ;;
       *) bad "killable set does NOT cover $pat" ;; esac
   done
-  before="$(build_pids | wc -l | tr -d ' ')"
+  # ASSERT ON THE PIDS THIS RUN NAMED, not on the machine's build-process count.
+  #
+  # Until 2026-08-14 this compared `build_pids | wc -l` before and after — a MACHINE-WIDE quantity,
+  # to test a LOCAL property. Both tiers below run under DRY=1 and so cannot kill by construction
+  # (`kill_pid` takes the would-kill branch), which means the count was never measuring this script:
+  # it was measuring whether any sibling agent's JVM happened to exit in those few hundred
+  # milliseconds. On a shared dev box it does. MEASURED at load 45: 1 failure in 20 standalone runs,
+  # reporting `self-test KILLED something: before=10 after=9`, and 2 reds in 11 smoke runs the same
+  # day — an intermittent red in the PRE-PUSH suite, which is how a suite stops being read.
+  #
+  # The correct assertion already existed one level up, in `tests/e2e/build-ram-guard-gate.sh`: the
+  # pids the dry run NAMED must still be alive. This is that check, done here too, on the log lines
+  # this run appended rather than on the whole file.
+  marker=0; [ -f "$LOG" ] && marker="$(wc -l <"$LOG" | tr -d ' ')"
   DRY=1 tier1_orphans >/dev/null; DRY=1 tier3_heaviest >/dev/null
-  after="$(build_pids | wc -l | tr -d ' ')"
-  [ "$after" -ge "$before" ] && ok "self-test killed nothing (build procs before=$before after=$after)" \
-    || bad "self-test KILLED something: before=$before after=$after"
+  targets=""
+  [ -f "$LOG" ] && targets="$(tail -n "+$((marker + 1))" "$LOG" \
+    | grep -oE 'would-kill pid=[0-9]+' | grep -oE '[0-9]+$' | sort -u)"
+  if [ -z "$targets" ]; then
+    # Vacuous rather than green: with no named target there is nothing to verify, and saying so
+    # beats a pass that looks like evidence.
+    printf '  note: the dry tiers named no would-kill target — this check had nothing to verify\n'
+  else
+    dead=""
+    for pid in $targets; do kill -0 "$pid" 2>/dev/null || dead="$dead $pid"; done
+    [ -z "$dead" ] \
+      && ok "self-test killed none of the $(printf '%s\n' "$targets" | wc -l | tr -d ' ') process(es) it named" \
+      || bad "self-test KILLED a process it only claimed it WOULD kill:$dead"
+  fi
   echo
   [ "$fail" -eq 0 ] && { echo "✓ build-ram-guard self-test PASSED"; exit 0; }
   echo "✗ build-ram-guard self-test FAILED"; exit 1
