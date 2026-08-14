@@ -5,7 +5,26 @@ started: 2026-08-14T22:31:53Z
 heartbeat: 2026-08-14T22:31:53Z
 status: claimed-before-planning
 items: tolong-on-a-string-answers-four-different-things
-paths: file:v2/src/Runtime.scala file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/conformance/tolong-on-a-string.coreir file:tests/e2e/rust-toint-parity-gate.sh
+paths: file:v2/src/Runtime.scala file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/conformance/tolong-on-a-string.coreir file:tests/e2e/rust-toint-parity-gate.sh file:v2/backend/jvm/JvmBackend.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `"8".toLong` answers FOUR different things, on a method `specs/numeric-widths.md` §2.1 declares a
+  synonym of `toInt` ("Int and Long are the same runtime type, not merely the same width"):
+
+    run-ir  refuses, "a method that does not exist survived as <closure>"
+    jvm     8
+    js      throws "no dispatch for .toLong"
+    rust    0, silently
+
+  The root is the VM: there is no `(StrV, "toLong")` arm, and the `<closure>` refusal is the
+  downstream symptom rather than a decision. Its message is loud but misleading — it says the method
+  does not exist, when what did not exist was the arm.
+
+  WIDENED to `v2/backend/jvm/JvmBackend.scala` BEFORE the edit, on a measurement rather than a
+  hunch: asking the same question of junk input found the JVM generator answers `"abc".toInt` = **0**
+  and keeps running, where the VM aborts. Same silent zero as the Rust one fixed yesterday, third
+  generator with it, and not in any entry. JS was measured too and needs nothing there — it throws.
+
+  NARROW otherwise: the String arms only. The Option forms go to the VM and JS because that is where
+  `toIntOption` already lives; adding them to the two generators that have never had it would be a
+  different task.
+next: VM arm + js synonym + rust arm + jvm junk behaviour, then a conformance fixture and the gate
