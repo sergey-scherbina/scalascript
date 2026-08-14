@@ -1,12 +1,47 @@
 ## f-cons-pattern-with-a-nil-tail-loses-the-head-binder — `case h :: Nil` declines, `case h :: t` does not
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 6eb863449
+     gate: tests/e2e/f-cons-nil-tail-gate.sh -->
+
+### FIXED 2026-08-14 — and the suspect this entry named was WRONG
+
+`parseConsArm1`'s positional read is innocent. It is never reached for this shape: `parseMatchArms`
+sends a match to the ORDERED resolver when any of its arms is nested, and a `Nil` tail counts as
+nested — so `case h :: Nil` leaves the ctor path entirely and lands in `parseGenArm`, **which had no
+cons rule at all**. It fell through to `parseGenVar`, which reads `h` as a catch-all VAR arm bound to
+the whole scrutinee and takes `:: Nil => …` as the body.
+
+That makes the real defect worse than this entry described. It is not only a mis-bound name:
+
+```
+xs match { case h :: Nil => "one:" + h  case _ => "other" }
+
+  f(List(5))     F: one:List(5)      ref: one:5
+  f(List(4, 5))  F: one:List(4, 5)   ref: other      <- the WRONG ARM
+```
+
+A catch-all tests nothing, so every list took the one-element branch. The nine scljet files
+declined rather than answering wrongly only because their helpers are recursive and the bad arm
+desynchronised the parse; a non-recursive one answers, silently.
+
+**Fix:** route unguarded cons arms in the ordered resolver through `parseNestedArm`, which already
+binds fields, collects the obligations refined fields impose, discharges them against a fail-scope
+and makes the remaining arms the default. `parsePatF` already reads `h :: Nil` as
+`("cpat", ("Cons", [h, Nil]))`, so this is routing, not new machinery — and it covers
+`a :: b :: Nil` without a second case.
+
+**Left undone deliberately:** a GUARDED cons arm (`case h :: t if g`) still declines.
+`parseNestedArm` assumes the token after the pattern is `=>` and would swallow the guard as the
+body, turning an honest decline into a wrong answer, so `isConsArmHead` requires the `=>`.
+
+**The warning in this entry was the useful part.** It said to check the other resolver before
+believing a green gate — and the other resolver turned out to be where the whole defect lived.
 
 Found by ranking F's refusals rather than by anyone hitting it: it is the second-largest bucket in
 `f-gap-census-refresh`, **9 files, all `tests/conformance/scljet-*`**, every one of them reporting
