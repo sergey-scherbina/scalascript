@@ -2131,9 +2131,27 @@ println(A.render("x"))                       ->  x/info      (native run, same f
 [M](./m.ssc); println(M.render("x"))         ->  x/info      (native run, imported module)
 ```
 
-The failing path is the SERVE path specifically — the server log says `(backend=fast)` — so the
-next measurement is whether the fast HTTP backend invokes handlers through a path that never
-consults the default registry the `run` path uses.
+**WHAT DISCRIMINATES THE TWO IS NOT YET MEASURED, and the first version of this entry asserted it.**
+It said "the failing path is the SERVE path specifically", on the strength of `(backend=fast)` in the
+server log. That is an inference. What is measured is narrower and is stated as such:
+
+| invocation | result |
+|---|---|
+| `bin/ssc <file>` — native tier, serves, `backend=fast` | `arity: 3 expected, 2 given` |
+| `bin/ssc-tools render <file>` — tools tier, headless | 4076 bytes of correct HTML |
+
+Those two differ in **two** ways at once — serve vs render, and native tier vs tools tier — so the
+pair cannot separate them. Three controls were run and none closed it: `bin/ssc run <file>` on this
+example also serves (it is a server program, so `run` and serve are the same path here);
+`ssc-tools serve --port N <file>` misparses, serving on 8080 with `N` taken as the ROOT directory;
+and `ssc info --front-report` answers `BOTH-UNBOUND` for both the demo and the component, because
+`css` and `scope` are plugin names a static pre-check cannot bind — the limitation
+`tests/BUGS.md both-unbound-is-mostly-plugin-intrinsics-not-user-error` already records.
+
+**The next measurement**, therefore, is a program that holds one of the two variables fixed: the same
+defaulted call reached through the tools tier's HTTP path, or through the native tier's non-HTTP
+path. Whoever takes this should get that before touching code — the fix site differs completely
+depending on the answer.
 
 **This entry exists because a THIRD WITNESS was stale for nine days.**
 `tests/e2e/render-smoke.sh` carried a documented known gap pointing at
