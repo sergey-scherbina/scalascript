@@ -4283,6 +4283,20 @@ object RustCodeWalk:
               s"def `${ctx.defName}` calls `$meth` on a $what and the rust backend has no lowering " +
               s"for it — the name would be emitted as a Rust method that does not exist"
             )))
+          // A QUALIFIED enum constructor: `Content.Text(s)` must be `Content::Text(s)`. The
+          // unqualified form already emitted correctly, so only the qualified spelling was wrong —
+          // and nothing showed it, because every module that writes it was REFUSED earlier for an
+          // unrelated reason. Removing the collision refusal below is what exposed it, in
+          // std/mcp/types.ssc: REFUSED -> BADRUST on the survey. A second defect the first was
+          // hiding, fixed here because a refusal is better than bad Rust and this entry must not
+          // trade one for the other.
+          // Rewritten to the BARE spelling and re-rendered, rather than formatted here: the
+          // unqualified path already knows whether a variant is a tuple or a struct, fills
+          // defaulted fields, and boxes recursive ones. Duplicating that produced
+          // `Content::Text(s)` for a STRUCT variant — E0533 — which is why this delegates.
+          case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
+              if ctx.ctorMap.get(ctorName).exists(_.enumName == enumName) =>
+            renderTerm(m.Term.Apply.After_4_6_0(m.Term.Name(ctorName), m.Term.ArgClause(argTerms)), ctx)
           case m.Term.Select(qual, m.Term.Name(meth)) =>
             renderTerm(qual, ctx).map(q =>
               if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)")

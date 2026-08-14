@@ -348,6 +348,50 @@ if [[ $rc8 -ne 0 || $out8 == *"Generic("* ]]; then
   failed=1
 fi
 
+# -- A QUALIFIED enum constructor must be `Enum::Ctor`, not `Enum.Ctor` -------
+#
+# `Shape.Box(2, 3)` emitted as `Shape.Box(2, 3)` -- rustc: E0423 expected value, found enum. The
+# UNQUALIFIED spelling was always right, so only this one was wrong, and nothing showed it: every
+# std module writing a qualified constructor is REFUSED earlier for an unrelated reason and never
+# reaches cargo. The survey is silent about this fix -- it measures 81/51 with and without it --
+# which is exactly why the case lives here instead of there.
+#
+# The named-field variant is the one that catches a lazy fix: formatting `Enum::Ctor($args)` by
+# hand compiles for a tuple variant and gives E0533 for a named-field one, so the lowering
+# delegates to the unqualified path rather than reformatting it.
+if command -v cargo >/dev/null 2>&1; then
+  cat > "$tmp/qctor.ssc" <<'SSC'
+---
+name: qctor
+version: 1.0.0
+description: a qualified enum constructor must lower to Enum::Ctor
+---
+
+```scalascript
+enum Shape:
+  case Box(w: Int, h: Int)
+
+@main def run(): Unit =
+  val b = Shape.Box(2, 3)
+  println("qctor-ok")
+```
+SSC
+  set +e
+  q_out=$("$SSC" build-rust "$tmp/qctor.ssc" -o "$tmp/qctorbin" 2>&1); qrc=$?
+  q_ran=$("$tmp/qctorbin" 2>&1)
+  set -e
+  if [[ $qrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED -- a qualified enum constructor did not build" >&2
+    echo "  E0423 here means it emitted Enum.Ctor; E0533 means it emitted the tuple form" >&2
+    echo "  for a named-field variant." >&2
+    echo "--- output: $q_out" >&2
+    failed=1
+  elif [[ $q_ran != "qctor-ok" ]]; then
+    echo "build-rust-refuses-loudly: FAILED -- qualified-ctor binary printed '$q_ran'" >&2
+    failed=1
+  fi
+fi
+
 # Does it MEAN the right thing? Emission proves only that nothing was refused, and a wrong slice
 # pattern emits happily. Needs cargo, so it is conditional — and says so when it skips, because a
 # check that silently becomes a no-op is worse than one that is absent.
