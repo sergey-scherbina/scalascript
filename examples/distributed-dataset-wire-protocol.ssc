@@ -9,11 +9,11 @@ backend: jvm
 
 ## Imports
 
-[Cluster, Node](../runtime/std/mapreduce/cluster.ssc)
+[Cluster, Node](../std/mapreduce/cluster.ssc)
 
-[HandlerRegistry, NamedHandler](../runtime/std/mapreduce/handlers.ssc)
+[HandlerRegistry, NamedHandler](../std/mapreduce/handlers.ssc)
 
-[DistributedResult, MapOp, Stage, WorkerProtocol, runDistributedWire](../runtime/std/mapreduce/distributed.ssc)
+[DistributedResult, MapOp, Stage, WorkerProtocol, runDistributedWire](../std/mapreduce/distributed.ssc)
 
 ```scalascript
 import scalascript.typeddata.{DatasetCodec, DatasetWirePartition, JsonCodec, JsonValue as TJsonValue}

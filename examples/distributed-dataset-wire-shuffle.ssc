@@ -9,13 +9,13 @@ backend: jvm
 
 ## Imports
 
-[Cluster, Node](../runtime/std/mapreduce/cluster.ssc)
+[Cluster, Node](../std/mapreduce/cluster.ssc)
 
-[HandlerRegistry, NamedHandler](../runtime/std/mapreduce/handlers.ssc)
+[HandlerRegistry, NamedHandler](../std/mapreduce/handlers.ssc)
 
-[DistributedResult, Stage](../runtime/std/mapreduce/distributed.ssc)
+[DistributedResult, Stage](../std/mapreduce/distributed.ssc)
 
-[ShuffleProtocol, ShuffleStage, runDistributedShuffleWire](../runtime/std/mapreduce/shuffle.ssc)
+[ShuffleProtocol, ShuffleStage, runDistributedShuffleWire](../std/mapreduce/shuffle.ssc)
 
 ```scalascript
 import scalascript.typeddata.{DatasetCodec, DatasetWirePartition, JsonCodec, JsonValue as TJsonValue}

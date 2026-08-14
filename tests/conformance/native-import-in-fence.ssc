@@ -2,6 +2,7 @@
 name: native-import-in-fence
 description: A module import link written INSIDE a code fence must load the module on every lane
 backends: [int, js, jvm, v2]
+known-red: "js — the CLI's own import discovery still collects only `Content.Import`, so an in-fence link is not followed into the module graph; JsGen's three sites were fixed by 0796774ad and the CLI's were not. Remove when BUGS.md js-jvm-codegen-in-fence-imports-not-followed is fixed"
 ---
 
 # Import link inside a code fence

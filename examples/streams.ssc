@@ -2,8 +2,8 @@
 ---
 description: Streams with backpressure — Source/Sink/Flow examples (v1.51)
 imports:
-  - ../../runtime/std/streams.ssc
-  - ../../runtime/std/ui/primitives.ssc
+  - ../../std/streams.ssc
+  - ../../std/ui/primitives.ssc
 ---
 
 # Streams with Backpressure

@@ -6,7 +6,7 @@ description: Cluster capability snapshot, static seed discovery, and code identi
 
 # Cluster Capability
 
-[ClusterCapability, SeedResolver, codeIdentity, clusterOf, assertCodeIdentity](../runtime/std/cluster/index.ssc)
+[ClusterCapability, SeedResolver, codeIdentity, clusterOf, assertCodeIdentity](../std/cluster/index.ssc)
 
 ```scala
 runActors {

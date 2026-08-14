@@ -5647,7 +5647,7 @@ side may not be — that matters only if someone re-reads the int column, not fo
 
 ## corpus-contract-declared-backend-skips-red-on-all-four-shards — the nightly's red row has no entry, again
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: conformance
      kind: regression
@@ -5655,7 +5655,50 @@ side may not be — that matters only if someone re-reads the int column, not fo
      reported-at: 2026-08-14
      confirmed: yes
      gate: .github/workflows/corpus-contract.yml
-     fixed-in: - -->
+     fixed-in: PENDING -->
+
+### FIXED 2026-08-14 — and BOTH claims in the title were wrong. The census below is the correction.
+
+**It is not "declared backend skips", and it is not one failure.** A per-night census of the eight
+red nightlies — every regression row from every shard, read out of the run logs — shows FOUR
+different failure sets, not a streak of one:
+
+```text
+08-07  ui-remote-table v2 FAIL
+08-08  ui-remote-table v2 FAIL
+08-09  scljet-{crud,full,jdbc,write-table} v2 FAIL
+08-10  scljet-{crud,full,jdbc} v2 FAIL  +  the five current rows
+08-11  the five current rows
+08-12  the five current rows
+08-13  the five current rows
+08-14  the five current rows
+```
+
+**The five current rows appeared on 08-10 — three days BEFORE `57cd14ce9`, the commit this entry
+blamed.** That attribution came from reading the two ends of the streak and assuming one cause; the
+per-night census is what refutes it. (Guarding my own instrument: the first pass used `grep -A6` and
+could have truncated a shard's row list, so it was redone with `-A20` and gave the same answer.)
+
+**ROOT CAUSE, measured: `531a0e451` (08-09 17:43) — "the 108 shared `.ssc` std modules move to the
+repo-root `std/`".** SEVEN examples still import them by the pre-move relative path
+`../runtime/std/…`, so the interpreter answers `Import not found`, the case is SKIPped on every lane
+for `int-nonzero`, and a skipped case cannot produce the verdicts its baseline froze. All ten
+distinct import targets exist under `std/`. The declared-`backend: jvm` condition is a WARNING in
+the same output and never fails the run — it was standing next to the corpse, not holding the knife.
+
+**`0796774ad` explains the fifth row and nothing else**: it removed `native-import-in-fence js
+KNOWN-RED` from BOTH halves while the js defect persisted. Its Parser change is 19 lines added and 0
+removed, so it cannot have moved the interpreter — which is what ruled it out for the other four.
+
+**Fixed** by correcting the seven import paths and restoring the js declaration. `contract.sc` over
+all seven affected cases: **GREEN**, 6/9 PASS cells, the two baselined skips unchanged.
+`tests/e2e/freeze-consistency-gate.sh` PASS.
+
+**Unmasked by the repair, and recorded rather than swallowed** — three examples whose import error
+was hiding a second defect: `remote-registry-rpc` (`remote handler not found: demo.echo`), `streams`
+(`emit called outside a stream body`), `distributed-streams` (`No method 'toIntOption'`). The first
+two stay SKIPped exactly as their baseline froze, so nothing regresses; they are simply now failing
+for their own reason instead of a stale path.
 
 Successor to `corpus-contract-ui-remote-table-v2-unrecorded`, filed when that one closed. A census
 that day found it was the **only** open entry gated on this workflow, so closing it alone would have

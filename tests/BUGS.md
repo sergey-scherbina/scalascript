@@ -6080,6 +6080,45 @@ fixed — they stopped being measured. Worth stating in the layout spec either w
 **Decide, do not patch:** either put `jvm` in the default lanes now that the lane runs, or say plainly that
 `backend: jvm` means int-only today so nobody reads those green rows as backend coverage.
 
+### CORRECTION 2026-08-14 — the premise this was closed on is FALSE, and its own output said so
+
+This entry closed on *"no case anywhere still uses the singular `backend:` declaration"* and
+concluded the path was **"now completely unexercised"**. Measured today:
+
+```text
+tests/conformance/*.ssc declaring `backend:`   0
+examples/*.ssc         declaring `backend:`   33
+```
+
+**Thirty-three occupants, in the directory the census did not look in.** `examples/` cases are
+rostered — `distributed-dataset-wire-shuffle` has been in `contract-roster.tsv` since 2026-07-27 —
+so they are corpus cases in every sense that matters here.
+
+**The report this entry added has been firing on every nightly since, unread**, which is the part
+worth keeping: the evidence against the closing premise was in the output of the very runs it was
+closed against.
+
+```text
+⚠ 2 case(s) DECLARE a backend no lane in this run measured:
+    distributed-dataset-codec  declares jvm  — measured lanes: int,js,v2
+    graph-codecs               declares jvm  — measured lanes: int,js,v2
+```
+
+So the "HONEST LIMIT" above — *"no standing gate … unexercised until someone writes such a
+declaration"* — was wrong in both halves: the declarations existed, and the report was exercised
+nightly.
+
+**Status left `fixed`, deliberately.** The mechanism this entry added — say it rather than swallow
+it — works, and is doing its job. What was wrong is the closing claim about coverage, and rewriting
+that claim is the fix; reopening would suggest the report is broken, and it is not.
+
+**The generalisable part, and it is the second instance this week.** A census answers only the
+question it asked, and both misses were the same shape: this one counted `tests/conformance/` and
+missed `examples/`; `js-jvm-codegen-in-fence-imports-not-followed` counted GENERATORS and missed the
+CLI's own import discovery, so its fix passed locally and failed the corpus. Before closing an entry
+on "no occupant remains", state the population that was searched — in the entry — so the next reader
+can see what it excluded.
+
 ## ci-status-guard-selftest-two-stacked-defects — `Validate ScalaScript` is red on the guard's OWN self-test, twice over
 <!-- status: fixed
      lane: apparatus

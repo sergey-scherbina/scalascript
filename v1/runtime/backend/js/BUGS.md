@@ -1797,11 +1797,12 @@ drove an `if`. A gate keying on exit status sees success.
 
 
 ## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
-<!-- status: fixed
+<!-- status: open
      lane: js
      area: front
-     gate: tests/conformance/native-import-in-fence.ssc
-     fixed-in: 0796774ad -->
+     kind: bug
+     confirmed: yes
+     gate: tests/conformance/native-import-in-fence.ssc -->
 
 **FIXED — all four lanes now load an in-fence import.** `tests/conformance/native-import-in-fence.ssc`
 prints `25 / 27 / 720` on int, js and jvm, so its `known-red: js,jvm` is gone along with the
@@ -1861,6 +1862,53 @@ skip-to-closing-fence shape the native scanner had. The native fix is the refere
 standalone link lines inside `scalascript`/`scala` fences, keep every other fence opaque, and use
 the same code/doc predicate the source collector uses so the two walks cannot disagree. Not taken
 by `v2-native-import-graph`: that claim's paths are `v2/bin/`, and this lives in the v1 tree.
+
+
+### REOPENED 2026-08-14 — js still fails, and the five-site census counted the wrong population
+
+**The fix above is real and incomplete.** `native-import-in-fence` is `js FAIL` on the Corpus
+Contract, and has been on every nightly since 08-10. Reproduced directly:
+
+```text
+_call(square, 5);
+      ^
+ReferenceError: square is not defined
+```
+
+**A control locates it, rather than a re-read of the diff.** The *identical* import written OUTSIDE
+the fence works on js; inside it does not; `int` does both:
+
+| import position | js | int |
+| --- | --- | --- |
+| above the fence | `25` | `25` |
+| inside the fence | `ReferenceError: square is not defined` | `25` |
+
+**JsGen is not the miss.** All three of its sites do call `Parser.sectionImports` — verified in the
+current tree. The miss is UPSTREAM, in the CLI's own import discovery, which still collects only
+`Content.Import` and so never sees the in-fence surface:
+
+```text
+v1/tools/cli/src/main/scala/scalascript/cli/AutoResolve.scala:211
+v1/tools/cli/src/main/scala/scalascript/cli/Main.scala:1557, 3636, 3931
+v1/tools/cli/src/main/scala/scalascript/cli/BundleCommand.scala:117, 163
+v1/tools/cli/src/main/scala/scalascript/cli/LockCommands.scala:22, 269
+```
+
+**"FIVE call sites" was a census of GENERATORS, and the module graph is built before either
+generator runs.** That is why the fix passed its own case locally and failed the corpus: a census
+answers only the question it asked. The same shape closed
+`backend-jvm-cases-have-no-verdict-on-any-backend-they-name` on a false premise the same week — that
+one counted `tests/conformance/` and missed 33 declarations in `examples/`.
+
+**Declaration restored, both halves**, because the gap is old and tracked and that is what
+`known-red:` is for: `known-red: "js — …"` on the case and `native-import-in-fence js KNOWN-RED` in
+the baseline, with the roster digest recomputed. `tests/e2e/freeze-consistency-gate.sh` refused the
+declaration while this entry still said `fixed` — *"An entry that says `fixed` while the lane it
+names is still failing hides the bug twice"* — which is precisely why the header above is `open`
+again.
+
+**Acceptance test:** the two-file control in the table, on js. Route the CLI sites through
+`Parser.sectionImports` as the generators already do, then delete the declaration from both halves.
 
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
 <!-- status: open
