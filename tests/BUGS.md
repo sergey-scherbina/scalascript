@@ -9,8 +9,9 @@
      confirmed: yes
      gate: none -->
 
-**Measured from the CI run list on 2026-08-14, not inferred.** Nine consecutive `smoke.yml` runs
-failed, and every one of them failed on `freeze-consistency` **and nothing else**:
+**Measured from the CI run list on 2026-08-14, not inferred, and now SETTLED — bounded by a green on
+each side.** Twelve consecutive `smoke.yml` runs failed, and every one of them failed on
+`freeze-consistency` **and nothing else** (each checked individually, not assumed from the first):
 
 ```text
 835c3cc44 07:41  success                             ← the last green before it
@@ -22,25 +23,31 @@ bd7df2895 08:00  failure   freeze-consistency
 88c5741f6 08:14  failure   freeze-consistency
 68f86d89c 08:15  failure   freeze-consistency
 b4aa57ec9 08:53  failure   freeze-consistency
-330afc23c 08:55  failure   freeze-consistency        ← still red 68 minutes after the first
+330afc23c 08:55  failure   freeze-consistency
+02dc57a8b 08:55  failure   freeze-consistency
+eb314c99c 08:57  failure   freeze-consistency
+45a67cfaa 08:58  failure   freeze-consistency        ← still red 71 minutes after the first
+55d4e5554 09:00  success   ok freeze-consistency 1.6s ← the repair; 97/97 green, 873.6s of 980s
 ```
 
-Each run reported `95/96 green`. Different agents, nine pushes, sixty-eight minutes.
+Each red run reported `95/96 green`. Different agents, twelve pushes, seventy-one minutes.
 
-**The count was EIGHT when first written, an hour earlier, and that is worth keeping.** `b4aa57ec9`
-was still `in_progress` at the time, so it was absent from the list I counted — a census taken over a
-queue is a lower bound until the queue drains, and nine more runs were still in flight when this was
-corrected. The same caution applies to anyone re-reading this entry: re-measure before quoting it.
+**THE COUNT WAS EIGHT WHEN FIRST WRITTEN, THEN NINE, AND IS TWELVE — and that history is the most
+useful thing here.** Each time, the runs I had not yet seen were still `in_progress`, so they were
+simply absent from the list being counted. **A census taken over a QUEUE is a lower bound until the
+queue drains.** It only became a number worth quoting once there was a success on BOTH sides of the
+streak. The entry's slug deliberately carries no count, because the first two versions of it did and
+both went stale within the hour — and renaming a slug breaks every reference to it.
 
 **The gate did its job.** `41ae217cd` removed the `known-red:` from a conformance case's front-matter
 and left the matching `KNOWN-RED` row in `corpus-baseline.tsv`; `freeze-consistency-gate` exists to
 refuse exactly that and did, immediately, with a message that names both halves and says *"removing a
 known-red means removing BOTH halves"*. Nothing about the detection failed.
 
-**What failed is that nine agents pushed on top of a red CI without looking.** This is the same
+**What failed is that twelve agents pushed on top of a red CI without looking.** This is the same
 shape as `lint-markdown-standing-red`, closed the same morning, but strictly worse: that one was
 invisible to `scripts/ci-status` because it asks about `smoke.yml`. **This one WAS `smoke.yml`** — the
-one workflow every agent's own tooling reads — and it still went unnoticed for nine commits.
+one workflow every agent's own tooling reads — and it still went unnoticed for twelve commits.
 
 **Two mechanisms, and they are separable:**
 
@@ -49,17 +56,24 @@ one workflow every agent's own tooling reads — and it still went unnoticed for
    level-3 release passed over the one gate that mattered. The full `scripts/smoke-ci` would have
    caught it, which is the argument for level 1 rather than for a longer level-3 checklist.
 2. **Nobody ran `scripts/ci-status` after pushing.** It is one command, it is what POLICY P-6.7 calls
-   the gold standard, and nine consecutive agents did not run it — myself included until I hit the
+   the gold standard, and twelve consecutive agents did not run it — myself included until I hit the
    red locally and went looking for its history.
 
 **Not filed as "add a check".** A check already existed and was already red. The actionable part is
 the second mechanism, and it is a habit rather than a script: *after a push, read the CI you just
-triggered.* Recorded here so the next person who finds a nine-commit red has the census rather
+triggered.* Recorded here so the next person who finds a twelve-commit red has the census rather
 than the impression.
 
-**Fixed for this instance** by removing the orphaned row and recomputing the paired digest; CI is
-expected to return to green from that commit onward, which is the observation that would close this
-entry — a green `smoke.yml` immediately after, on a sha nobody else had to repair.
+**The instance is closed, and the prediction it was closed on was written down BEFORE the evidence
+arrived.** This paragraph previously read "CI is *expected* to return to green from that commit
+onward … a green `smoke.yml` immediately after, on a sha nobody else had to repair." That is exactly
+what happened: `55d4e5554`, `scripts/ci-status` exit 0, `ok freeze-consistency 1.6s`, **97/97 green,
+873.6 s of a 980 s budget on the runner**. Twelve reds, then the first green is the repair.
+
+**The ENTRY stays open, because the instance was never its subject.** What is unfixed is the second
+mechanism — twelve agents pushing onto a red `smoke.yml` without reading it — and no commit here
+changes that. Closing on the strength of the freeze repair would be closing a habit finding because
+its example went away.
 
 ## pre-push-refusal-message-executes-its-own-backticks — the coordination guard runs `scripts/coord-claim` while refusing you
 
