@@ -1,0 +1,1 @@
+println(math.max(3, 7))

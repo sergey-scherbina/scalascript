@@ -356,6 +356,17 @@ object Exec:
     case Value.VInt(n) => n.toInt
     case other         => throw ExecError(what + " expects an integer, got " + show(other))
 
+  /** A Double argument, REFUSING an Int exactly as v2's `flt` does (`Runtime.scala:3712`,
+    * `expected Float, got 16`).
+    *
+    * Strictness here is lane agreement, not pedantry, and the first version of this helper had it
+    * backwards: it widened, on the unmeasured assumption that v2 does. It does not. A program
+    * reaching this prim with an Int must fail on both lanes or neither, and the place to make
+    * `math.sqrt(16)` work is the prelude's `.toDouble`, above the prim and shared by both. */
+  private def dbl(v: Value, what: String): Double = v match
+    case Value.VFloat(d) => d
+    case other           => throw ExecError(what + " expects a Double, got " + show(other))
+
   /** `distinct` by VALUE equality, not by reference — `eq` is the same comparison `==` uses, so a
     * list of equal data values collapses the way a reader expects. */
   private def dedup(xs: List[Value]): List[Value] =
@@ -1797,6 +1808,31 @@ object Exec:
     // language through `Prim` and the plugin SPI, so routing a clock through it is the boundary
     // WORKING, not the boundary moving — the note in SSC3-3d that implied otherwise was wrong.
     case "io.nanoTime" => Value.VInt(System.nanoTime())
+    // FLOATING-POINT MATH, and the names and the SEMANTICS are both v2's — `v2/src/Runtime.scala`
+    // lines 1434-1437 — for the reason the clock's name is: the bridge emits `(prim <name> …)`
+    // verbatim, so a prim this lane implements differently is a program that answers twice.
+    //
+    // `f.round` IS `rint`, NOT Scala's `math.round`. That is the whole reason this comment exists.
+    // `math.round` is half-up and returns a Long; `rint` is half-to-EVEN and returns a Double, and
+    // v2 chose `rint`. They agree on every value the corpus contains and disagree at exactly `.5`
+    // — `rint(2.5)` is 2.0, `round(2.5)` is 3 — so writing the obvious one here would have left a
+    // divergence that no fixture in the tree can see, waiting for the first program to round a
+    // half. Reading v2 rather than reaching for the familiar name is the whole of it.
+    //
+    // STRICT ABOUT THE ARGUMENT, and I wrote the opposite here first. The comment said "v2's `flt`
+    // accepts either" and coerced an Int — plausible, and NOT MEASURED. A probe written in the same
+    // commit put `math.sqrt(16)` through both lanes: the executor answered 4 and the bridge died
+    // with `expected Float, got 16` out of `Prims.flt`. v2 does not widen, so widening here is a
+    // divergence, not a kindness.
+    //
+    // The WIDENING LIVES IN THE PRELUDE instead — `def sqrt(x: Double) = __mathSqrt(x.toDouble)` —
+    // where one line in ScalaScript serves both lanes and `math.sqrt(16)` works on each. That is
+    // the same rule the IO entries follow: when the lanes must agree, put the adaptation ABOVE the
+    // prim, never inside one lane's copy of it.
+    case "f.sqrt"  => Value.VFloat(Math.sqrt(dbl(args.head, "f.sqrt")))
+    case "f.floor" => Value.VFloat(Math.floor(dbl(args.head, "f.floor")))
+    case "f.ceil"  => Value.VFloat(Math.ceil(dbl(args.head, "f.ceil")))
+    case "f.round" => Value.VFloat(Math.rint(dbl(args.head, "f.round")))
     // FILE IO, and the name is v2's for the same reason the clock's is: the bridge emits
     // `(prim <name> …)` verbatim, so the only host functions v3 may perform are ones the v2 VM
     // performs identically. That intersection IS invariant I-3 — a host function on one lane and

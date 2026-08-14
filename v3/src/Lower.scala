@@ -2497,6 +2497,27 @@ object Lower:
     *
     * The extern's own PARAMETERS become the prim's arguments, in order, so the signature the user
     * wrote is what is passed — no separate argument list to drift out of step with the declaration. */
+  /** An `extern def` given the body this lane performs it with — or a positioned refusal.
+    *
+    * ONE function because there are TWO callers and there always were: a top-level `extern def`,
+    * and an `extern def` that is a member of an `object`. The second went unresolved until `math`
+    * needed it, so it kept the `__abstract__` placeholder and failed at run time with
+    * `an implementation is missing (???)` — unpositioned, which `corpus-report.sh` classifies CRASH.
+    * Two call sites and one body is the point; a second copy here is how the two would drift.
+    *
+    * The refusal CARRIES ITS POSITION, which is the whole reason the first attempt at host
+    * functions was rejected: an unpositioned run-time failure is a CRASH and rightly so. */
+  private def resolveExtern(d: Def): Def =
+    hostPrims.get(d.name) match
+      case Some(build) =>
+        Def(d.name, d.params, build(d.params.map(q => Expr.Name(q.name, d.pos)))(d.pos),
+            d.pos, d.tparams, d.givenParams)
+      case None =>
+        val at = d.pos.line.toString + ":" + d.pos.col.toString
+        d.copy(body = Expr.Prim("__throw__",
+          List(Expr.StrLit(at + ": the host function '" + d.name +
+                           "' is not implemented on this lane", d.pos)), d.pos))
+
   private val hostPrims: Map[String, List[Expr] => Pos => Expr] = Map(
     "exists"    -> (as => p => Expr.Prim("io.exists", as, p)),
     // NOT a rename: v2 reads a file to BYTES and `std/fs.ssc` declares a String, so the body is a
@@ -2508,7 +2529,23 @@ object Lower:
                                          List(as.head, Expr.Prim("str->utf8", as.tail, p)), p)),
     "readBytes"  -> (as => p => bytesToList(Expr.Prim("io.readFile", as, p), p)),
     "writeBytes" -> (as => p => Expr.Prim("io.writeFile",
-                                          List(as.head, listToBytes(as.tail.head, p)), p)))
+                                          List(as.head, listToBytes(as.tail.head, p)), p)),
+    // `math`. TOP-LEVEL NAMES, and the `__` prefix is not decoration: neither front carries
+    // `extern` into an `object` (v3's parser refuses it, uniml drops the keyword and leaves the
+    // member with a `???` body), so the prelude cannot declare `object math: extern def sqrt(…)`
+    // and writes these four beside it, with `object math` delegating. The prefix keeps four host
+    // hooks out of the way of a program that defines its own `sqrt` — the prelude loads for
+    // EVERY program, so a bare `sqrt` here would shadow one.
+    //
+    // FOUR, AND NOT `pow`. The split is decided by what v2's VM already has, exactly as the IO
+    // entries above were: `f.sqrt`, `f.floor`, `f.ceil` and `f.round` are in
+    // `v2/src/Runtime.scala:1434-1437`, and `f.pow` is NOT. A v3-only prim would run on the
+    // executor and be refused by the bridge, which is the divergence this table exists to prevent
+    // — so `pow` is written in ScalaScript in the prelude, where one implementation serves both.
+    "__mathSqrt"  -> (as => p => Expr.Prim("f.sqrt", as, p)),
+    "__mathFloor" -> (as => p => Expr.Prim("f.floor", as, p)),
+    "__mathCeil"  -> (as => p => Expr.Prim("f.ceil", as, p)),
+    "__mathRound" -> (as => p => Expr.Prim("f.round", as, p)))
 
   /** `Bytes -> List[Int]`, SYNTHESISED AS A LOOP rather than asked of a prim.
     *
@@ -2774,6 +2811,13 @@ object Lower:
     // object's own `n`. The members are stored as dotted globals, so the body is rewritten to name
     // them that way; without it the method reported `unknown name 'n'` while the global sat beside
     // it under another name.
+    // AN OBJECT'S MEMBER IS NEVER AN `extern` HERE, and that is a FRONT limitation rather than a
+    // decision this pass gets to make. Probed 2026-08-14 while wiring `math`: neither front carries
+    // the keyword into an object. v3's own parser REFUSES (`only \`def\` members are supported in a
+    // object at Tier 0, found extern`), and uniml silently gives the member the same `???` body it
+    // gives ANY bodyless member — the keyword changes nothing there. So resolving externs over this
+    // list would be code no front can reach, and the prelude declares its host functions at top
+    // level instead. Filed as `v3-extern-member-in-an-object-has-no-meaning`.
     val objectDefs = p.objects.flatMap { o =>
       val own = o.vals.map(_.name)
       o.defs.map(d => d.copy(name = o.name + "." + d.name, body = qualifyMembers(d.body, o.name, own)))
@@ -2841,17 +2885,7 @@ object Lower:
     // The message CARRIES ITS POSITION so the failure stays actionable — see `Diag.at`. That was
     // the whole reason the first attempt at this was rejected: an unpositioned run-time failure is
     // classified CRASH, and rightly.
-    val externDefs = p.defs.filter(isAbstract).map { d =>
-      hostPrims.get(d.name) match
-        case Some(build) =>
-          Def(d.name, d.params, build(d.params.map(q => Expr.Name(q.name, d.pos)))(d.pos),
-              d.pos, d.tparams, d.givenParams)
-        case None =>
-          val at = d.pos.line.toString + ":" + d.pos.col.toString
-          d.copy(body = Expr.Prim("__throw__",
-            List(Expr.StrLit(at + ": the host function '" + d.name +
-                             "' is not implemented on this lane", d.pos)), d.pos))
-    }
+    val externDefs = p.defs.filter(isAbstract).map(resolveExtern)
     val allDefs0 = (p.defs.filterNot(isAbstract) ++ externDefs ++ objectDefs ++ methodDefs) :+ entryDef
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
     // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`

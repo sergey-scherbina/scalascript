@@ -159,3 +159,78 @@ object List:
       n = n - 1
     acc
 ```
+
+## `math`
+
+`math.sqrt`, `math.round`, `math.abs`, `math.Pi`, `math.pow` — 4 of the corpus's `unknown name`
+refusals ask for them: `arithmetic`, `case-classes`, `js-scala-fenced-block`, `sealed-traits`.
+Measured before writing, and measured again the day it was written, because a verdict about what
+is missing is dated evidence.
+
+**The split is decided by what v2's VM already has, not by what is convenient**, exactly as the
+host IO table was. `f.sqrt`, `f.floor`, `f.ceil` and `f.round` are prims v2 implements, so they are
+reached through an `extern` and both lanes get v2's own answer. `f.pow` does NOT exist in v2, so a
+prim for it would run on the executor and be refused by the bridge — the divergence invariant I-3
+exists to forbid — and `pow` is written in ScalaScript here instead, where one implementation
+serves both lanes.
+
+**`pow` is deliberately PARTIAL and says so out loud.** An integer exponent is a multiply loop and
+needs nothing; a fractional one needs `exp` and `log`, which NEITHER lane has. So a fractional
+exponent raises rather than returning a plausible wrong number — the corpus writes `pow(2.0, 8.0)`
+and `pow(x - o.x, 2)`, both whole, so nothing that works is refused by this.
+
+**`round` follows v2 to the letter and that is not pedantry.** v2 implements `f.round` as `rint` —
+half-to-EVEN, returning a Double — and not as Scala's `math.round`, which is half-up and returns a
+Long. The two agree on every value in the corpus and disagree at exactly `.5`, so taking the
+familiar name would have left a divergence no fixture here can see.
+
+**The four host hooks are declared at TOP LEVEL, not inside the object, and that is a front
+limitation rather than a preference.** Neither front carries `extern` into an `object`: v3's own
+parser refuses it outright, and uniml drops the keyword and leaves the member with the same `???`
+body it gives any bodyless one. So they are declared beside `object math`, which delegates, and the
+`__` prefix keeps them out of the way of a program that defines its own `sqrt` — this file loads
+for EVERY program. Filed as `v3-extern-member-in-an-object-has-no-meaning`.
+
+```scalascript
+extern def __mathSqrt(x: Double): Double
+extern def __mathFloor(x: Double): Double
+extern def __mathCeil(x: Double): Double
+extern def __mathRound(x: Double): Double
+
+object math:
+  val Pi: Double = 3.141592653589793
+  val E: Double = 2.718281828459045
+
+  // `.toDouble` IS LOAD-BEARING and was added after a probe, not before. v2's `flt` REFUSES an
+  // Int — `math.sqrt(16)` died on the bridge with `expected Float, got 16` while the executor
+  // answered 4 — so the widening has to happen ABOVE the prim, in one line both lanes run, rather
+  // than inside either lane's copy of it.
+  def sqrt(x: Double): Double = __mathSqrt(x.toDouble)
+  def floor(x: Double): Double = __mathFloor(x.toDouble)
+  def ceil(x: Double): Double = __mathCeil(x.toDouble)
+  def round(x: Double): Double = __mathRound(x.toDouble)
+
+  // `abs` is written over `Any` because Tier 0 has no overloading — two `def`s of one name leave
+  // the first winning — and the corpus calls it on an Int (`math.abs(-7)` is 7, an Int, not 7.0).
+  // Comparing and negating are both defined for either, so one body serves both.
+  def abs(x: Any): Any = if x < 0 then -x else x
+
+  def max(a: Any, b: Any): Any = if a > b then a else b
+  def min(a: Any, b: Any): Any = if a < b then a else b
+
+  // A MULTIPLY LOOP, and the refusal above it is the point: without `exp`/`log` on either lane a
+  // fractional exponent has no answer here, and returning `b` multiplied a truncated number of
+  // times would be a silently wrong one.
+  def pow(b: Double, e: Double): Double =
+    if e != e.toInt.toDouble then
+      throw RuntimeException("math.pow: a fractional exponent needs exp/log, which no lane has")
+    else
+      var n = e.toInt
+      var neg = n < 0
+      if neg then n = -n
+      var r = 1.0
+      while n > 0 do
+        r = r * b
+        n = n - 1
+      if neg then 1.0 / r else r
+```
