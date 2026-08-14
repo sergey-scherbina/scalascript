@@ -42,14 +42,32 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
-## v3-stmt-val-discards-a-type-the-author-wrote — `val t: (Int, String) = …` keeps the value and throws the type away
+## v3-stmt-val-discards-a-type-the-author-wrote — WORKED AROUND, not fixed: the resolver follows the initialiser instead
 
-<!-- status: open
+<!-- status: wontfix
      lane: v3
      area: front
-     gate: none
+     gate: v3/tests/conformance/std-bifunctor.ssc (via the corpus report)
      found-by: claude-code
      found-at: 2026-08-15 -->
+
+**CLOSED AS `wontfix` IN 32ac55842, and the reason is a count rather than a shrug.** The receiver problem
+this entry was filed for is solved by a different route: `rewriteGivenExtensionCalls` now follows a
+`val` ONE STEP to its initialiser's constructor, which is source 1 of §4a1 applied one binding away
+— no unification, no type variable, no propagation through a function. `std-bifunctor` and
+`tagless-sealed-dispatch` both pass; N 216 -> 218.
+
+**Why not the route this entry proposed.** Carrying the author's written type on `Stmt.Val` means
+39 use sites over six files, 21 of them PATTERNS on four positional fields that a fifth breaks, and
+BOTH fronts populating it — which the default front cannot do, because it drops a parenthesised
+parameter type entirely (`v3-uniml-drops-a-parenthesised-parameter-type`). The route taken is one
+file and covers STRICTLY MORE: `val xs = List(1, 2, 3)` has no written type at all and resolves.
+
+**What the proposal would still buy, so this is a wontfix and not a never:** a declared type is the
+only source when the initialiser's constructor does not name the type — `val f: Foo = makeFoo()`.
+Nothing in the corpus needs it today. Reopen with a case, not with a preference.
+
+The original report follows, unchanged.
 
 **`Stmt.Val` is `Val(name, value, mutable, pos)` — there is nowhere to put a declared type**, so
 `val t: (Int, String) = (10, "ok")` and `val t = (10, "ok")` reach the lowering as the same thing.
