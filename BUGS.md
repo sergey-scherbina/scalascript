@@ -23,6 +23,64 @@ Newest first.
 
 
 
+## tolong-on-a-string-answers-four-different-things — on a method the spec calls a synonym
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     kind: divergence
+     gate: v2/conformance/tolong-on-a-string.coreir + tests/e2e/rust-toint-parity-gate.sh
+     reported-by: sergiy
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: 0d9f601f9edeabd8ead185232d55c504d29aab51 -->
+
+**Asked for directly after `v2-rust-backend-carries-the-same-silent-zero` closed with `toLong` left
+alone.** That entry's note said there was no oracle to move toward, because `run-ir` answered
+`<closure>`. Following the instruction to fix it found the reason: the VM had no
+`(StrV, "toLong")` arm at all, so the `<closure>` was the DOWNSTREAM SYMPTOM of the missing arm and
+not a decision anyone had taken. Leaving it had been the wrong call.
+
+`specs/numeric-widths.md` §2.1 is explicit — *"Int and Long are the same runtime type, not merely the
+same width"* — there is one `IntV`. So `"8".toInt` and `"8".toLong` are the same question. They were
+not the same answer:
+
+| lane | `"8".toLong` | `" 8 ".toLong` | `"abc".toInt` |
+|---|---|---|---|
+| `run-ir` (VM) | **refused** — "a method that does not exist survived as `<closure>`" | — | aborts |
+| jvm generator | 8 | **0** — `toLongOption` with no `.trim` | **0**, and the program continues |
+| js generator | **threw** `no dispatch for .toLong` | — | throws (correct) |
+| rust generator | **0**, silently | **0** | fixed the day before |
+
+Four lanes, four answers. The VM's refusal was the loudest and still misleading: it says the method
+does not exist, when what did not exist was the arm.
+
+**Two defects found by asking the same question of the siblings rather than only of the row that was
+reported** — the same method that found three defects behind one in the Rust generator:
+
+* the **JVM generator answers 0 for junk and keeps going** (`getOrElse(0L)`), where `run` aborts.
+  Third generator carrying that shape, and in no entry.
+* the **JVM generator had no `.trim`**, so `" 8 ".toLong` was 0 there while the VM answers 8.
+
+**Semantics are copied, not chosen.** `toInt`'s arm is the model, including its deliberate divergence
+from real Scala: `" 8 ".toLong` throws in Scala 3 (measured) and answers 8 here, because `toInt`
+already did and the two spellings must not disagree with EACH OTHER. Which of the two is right
+against Scala is a separate question and is not settled here. `toLongOption` ships with the throwing
+form for the same reason `toIntOption` does — a throwing conversion with no total sibling is a gap
+the fix would have created.
+
+**Verified in both directions.**
+
+* `v2/conformance/tolong-on-a-string.coreir` — ALL GREEN, 4 backends, with `run-ir` as oracle.
+  Control: with the VM fixed and the three generators reverted, **all four columns fail** — jvm on
+  the `" 8 "` row, js on all three (it produced no output at all), rust and wasm on rows 1-2.
+* `tests/e2e/rust-toint-parity-gate.sh` — the junk rows, which the conformance harness cannot carry:
+  it compares stdout and treats a VM abort as "run-ir failed", so "must abort" is inexpressible
+  there. Two programs, because an abort ends the program and `toInt`/`toLong` were not the same code.
+* Whole harness after the shared-VM change: 15 fixtures × 4 backends, ALL GREEN.
+
+**Row `" 8 "` is the one that cannot be faked.** A backend that aliased `toLong` onto a raw parse
+passes `"8"` and fails this — which is exactly what jvm did.
+
 ## serve-binds-all-interfaces — a service could not be kept off the LAN, on any lane
 
 <!-- status: fixed
@@ -450,10 +508,12 @@ now emit `format!`, and the two that were broken are rows 2 and 3.
 > the fix introducing a panic on `" 8 "`. The control showed `" 8 ".toInt` was already 0, so it fixes
 > an existing divergence rather than avoiding a new one. The comment in the file now says that.
 >
-> **`toLong` deliberately untouched.** `"8".toLong` answers `<closure>` on `run-ir` —
-> `v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing`, held by a live
-> claim — so there is no oracle to move toward and picking one here would settle another agent's
-> decision. Measured, not assumed.
+> **`toLong` was left untouched here, and that was WRONG — corrected 2026-08-15.** The note said
+> `"8".toLong` answers `<closure>` on `run-ir`, so there was no oracle to move toward. The right
+> question was not what the VM answers but why: it had no `(StrV, "toLong")` arm at all, so the
+> `<closure>` was the symptom of a missing arm rather than a decision to defer to. Fixed in
+> `tolong-on-a-string-answers-four-different-things`, which also found two more defects in the JVM
+> generator by asking the same question of junk input.
 >
 > Semantics taken from the v1 twin's recorded decision (`run` is the oracle, the quiet lane moves,
 > `toIntOption` is the total form); the panic message mirrors the v1 runtime's `ssc_parse_int`.
