@@ -281,14 +281,52 @@ now emit `format!`, and the two that were broken are rows 2 and 3.
 
 ## v2-rust-backend-carries-the-same-silent-zero-and-nothing-runs-it — the twin of toint-on-a-non-integer-diverges, in a backend no suite exercises
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — see below, that is half the entry
+     gate: tests/e2e/rust-toint-parity-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-14
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 5b0b9a9bb1b864ed18cdf4e07a963a4bbd707d03 -->
+
+> **FIXED 2026-08-15, and BOTH halves of this entry needed correcting.**
+>
+> **"Nothing runs this backend" is half wrong, and the half matters.** `v2/backend/check.sh` drives
+> `v2/backend/rust/` on every fixture with the VM as oracle, through `run_rust` AND `run_wasm`. What
+> is invoked by nothing is `check.sh` ITSELF (`orphaned-e2e-gates-52`). So the backend was not
+> unexercised — but that harness compares STDOUT and treats a VM abort as "run-ir failed", so it
+> **structurally cannot express "must abort"** and would never have caught this row however often it
+> ran. That is why the check went to `tests/e2e/rust-toint-parity-gate.sh` instead: it reads the
+> binary's exit code, already drives the v1 twin, and is wired in `ci.yml`. "Wiring this backend to
+> something that runs" was therefore not the first task; asking the right harness was.
+>
+> **One defect was reported; three were there.** Asking the sibling methods the same question:
+>
+> | row | old v2 rust | run-ir |
+> |---|---|---|
+> | `"abc".toInt` | **0**, exit 0 | aborts — the reported one |
+> | `"8".toDouble` | **0** | 8 — no String arm existed at all |
+> | `" 8 ".toInt` | **0** | 8 — parsed without `.trim()`, the VM parses `s.trim` |
+> | `"8".toFloat` · `7.toInt` | 8 · 7 | 8 · 7 — anti-rows, untouched |
+>
+> The two extra ones are worse than the reported defect: the input is VALID and the answer is
+> silently wrong. The control prints all three at once — against the reverted generator the gate
+> reads `got '8|0|0|8|7|0|' exit=0` against a wanted `8|8|8|8|7|` and a non-zero exit.
+>
+> **A correction I had to make to my own comment:** the first version said `.trim()` existed to stop
+> the fix introducing a panic on `" 8 "`. The control showed `" 8 ".toInt` was already 0, so it fixes
+> an existing divergence rather than avoiding a new one. The comment in the file now says that.
+>
+> **`toLong` deliberately untouched.** `"8".toLong` answers `<closure>` on `run-ir` —
+> `v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing`, held by a live
+> claim — so there is no oracle to move toward and picking one here would settle another agent's
+> decision. Measured, not assumed.
+>
+> Semantics taken from the v1 twin's recorded decision (`run` is the oracle, the quiet lane moves,
+> `toIntOption` is the total form); the panic message mirrors the v1 runtime's `ssc_parse_int`.
+> `v2/backend/check.sh` after the change: ALL GREEN, 14 fixtures x 4 backends.
 
 Found while fixing `toint-on-a-non-integer-diverges` in the v1 Rust backend, by grepping for the
 defect's shape rather than for its file. `v2/backend/rust/RustBackend.scala` — the CoreIR → Rust
