@@ -2491,9 +2491,40 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       **The two clean nulls are the two the mechanism predicts cannot move, and that is the control
       that makes `arith-loop` credible.** `list-fold` is `invoke`-bound — established as J2's control
       for exactly this reason — and `recursion-fib` is dominated by the per-call frame; neither is
-      `Bin`-dispatch-bound, so specializing `kind` has nothing to bite on. `recursion-fib`'s 14 of 20
-      at p 0.058 is not significant and its load was already climbing (22.7 at that workload's start,
-      18.5 at the end of the run), so it is recorded as leaning, not as a result.
+      `Bin`-dispatch-bound, so specializing `kind` has nothing to bite on.
+
+      **AND THE MECHANISM IS NOW MEASURED, LOAD-INDEPENDENTLY, WHICH IS THE PART THAT DOES NOT NEED A
+      QUIET HOST.** `ssc3.SpecializeMain` against `ssc3 ir` counts how much of each workload the pass
+      actually touches — a static census, the same kind of evidence J1d's instruction counts are:
+
+      | workload | arith instrs | proved | `dyn` | IR lines changed | clock |
+      |---|---|---|---|---|---|
+      | `arith-loop` | 4 | 3 | 1 | 3 | **20 of 20** |
+      | `nested-loop` | 8 | 6 | 2 | 6 | control failed — **owed** |
+      | `list-fold` | 4 | 2 | 2 | 2 | 11 of 20, null |
+      | `recursion-fib` | 4 | **0** | 4 | **0** | 14 of 20 |
+
+      The "IR lines changed" column equals the "proved" column on every row, which is the internal
+      check that the census is counting the right thing.
+
+      **`recursion-fib` IS A NULL BY CONSTRUCTION, AND IT IS THE MOST USEFUL ROW IN THE RUN.** Zero of
+      its arithmetic instructions specialize, and its specialized module is **byte-identical** to its
+      unspecialized one — verified by diffing the two dumps, not inferred. So its ON and OFF arms
+      executed *the same module*: that row is a same-code A/A that happened to be wearing an A/B's
+      clothes. **It returned 14 of 20** — while its own interleaved control returned a healthy 11 of
+      20 in the same pairs.
+
+      **So 14 of 20 is this host's demonstrated false-positive rate, and that is the number to
+      calibrate against.** It is why `nested-loop`'s 14 of 20 is refused above on principle *and*
+      refuted in fact, and it is worth more than the p-value: 0.058 says "unlikely under the null",
+      the identical-module row says "the null actually produced exactly this". Whoever next reads
+      `v3/bench-ab.sh`'s control column should carry this line into its header — a sign count at or
+      below 14 of 20 on this machine is noise, and only `arith-loop`'s 20 of 20 clears it.
+
+      **The prediction for the owed `nested-loop` re-run, registered here BEFORE it is measured:**
+      it is 75 % proved, exactly like `arith-loop`, and it changes 6 IR lines — twice `arith-loop`'s
+      3. If the mechanism story is right it must come back a clear win. If it comes back null on a
+      *steady* control, the story is wrong and the `arith-loop` win needs a different explanation.
 
 - [x] **The `--identity` gate exists now, and it is no longer green by construction.** 65 programs
       run with and without the pass, output compared byte for byte, plus `wrong-kind.ssir` — two
