@@ -1,0 +1,11 @@
+slug: rust-toint-lane-parity
+branch: feature/rust-toint-lane-parity
+agent: claude-code
+started: 2026-08-14T11:02:33Z
+heartbeat: 2026-08-14T11:02:33Z
+status: claimed-before-planning
+items: toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges
+paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:scripts/smoke-ci.ssc file:INBOX.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
