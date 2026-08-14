@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# f-gap-census — what is F still refusing, and WHY, ranked by how many files each mechanism holds.
+#
+# WHY THIS IS AN INSTRUMENT AND NOT A TEST. When F cannot lower a file it falls back to the reference
+# front SILENTLY: the program runs, the exit code is 0, and every output gate stays green. The only
+# thing lost is F's coverage, so the only way to see the hole is to ask — `ssc info --front-report`
+# prints `<path>\t<F|GAP|BOTH-UNBOUND|ERROR>\t<reason>` per file, performing the front decision and
+# stopping before execution.
+#
+# WHY BUCKET BY REASON. The reason names a MECHANISM, and one mechanism usually holds many files.
+# Measured 2026-08-14: one missing `;` arm in `objBodyToks` held six modules; one missing @-bind rule
+# held two more. Ranking the buckets ranks the available fixes by what they would unblock — which is
+# a different and better order than the board's, which records what somebody happened to notice.
+#
+# THREE WAYS THIS INSTRUMENT LIES, all of them measured rather than imagined:
+#
+#   1. A REFUSAL SHORT-CIRCUITS. F reports the FIRST unbound name it meets, so every count is a
+#      LOWER BOUND and fixing the top bucket can reveal a second cause in the same files. On
+#      2026-08-14 eight files said `(global Parser)`; after the fix six became F and two moved to
+#      `(global _)`. Re-run after every fix — this is not a work plan with fixed sizes.
+#   2. THE REASON IS NOT THE CAUSE. `(global Parser)` was reported against files three imports away
+#      from the actual defect, a bodyless `object` in a module they all import. A bucket says where
+#      to start looking.
+#   3. TRANSITIVITY INFLATES THE COUNT. A module refuses and every file importing it refuses too, so
+#      "N files" can be one cause and N-1 casualties. The `std modules:` split per bucket is the
+#      cheap tell: a bucket that is mostly examples with one std module in it is usually that one
+#      std module plus its dependents.
+#
+# AN EMPTY RESULT IS A BROKEN RUN, NEVER DATA. Twice on one day: a worktree whose `bin/ssc` had never
+# been built printed no TSV line at all, and BSD `xargs` rejected the GNU-only `-a` flag. Both read
+# as "no gaps" to anything that only counts rows. This refuses to report unless it got a verdict for
+# every subject.
+set -uo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+ssc="${SSC:-$ROOT/bin/ssc}"
+JOBS="${JOBS:-6}"
+BATCH="${BATCH:-30}"
+out="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/f-gap-census.XXXXXX")}"
+mkdir -p "$out"
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  # The bucketing must collapse the VARIABLE part of a diagnostic and keep the mechanism, or every
+  # file lands in its own bucket and the ranking this exists to produce says nothing.
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/census-selftest.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
+  printf 'a.ssc\tGAP\tunbound global: (global Parser) is neither a top-level def nor an @-cell\n' >  "$tmp/in.tsv"
+  printf 'b.ssc\tGAP\tunbound global: (global _) is neither a top-level def nor an @-cell\n'      >> "$tmp/in.tsv"
+  printf 'c.ssc\tGAP\tmatch: no arm for PParseAll/1\n'                                            >> "$tmp/in.tsv"
+  printf 'd.ssc\tF\t\n'                                                                           >> "$tmp/in.tsv"
+  got=$(python3 "$SCRIPT_DIR/f-gap-census-bucket.py" "$tmp/in.tsv" | grep -c '^ *2  unbound global')
+  if [[ "$got" != "1" ]]; then
+    echo "✗ self-test: two differently-NAMED unbound globals did not collapse into one bucket" >&2
+    python3 "$SCRIPT_DIR/f-gap-census-bucket.py" "$tmp/in.tsv" >&2
+    exit 1
+  fi
+  # …and it must NOT collapse two different mechanisms together.
+  if [[ $(python3 "$SCRIPT_DIR/f-gap-census-bucket.py" "$tmp/in.tsv" | grep -c '^ *1  match: no arm') != "1" ]]; then
+    echo "✗ self-test: a distinct mechanism was merged into the unbound-global bucket" >&2
+    exit 1
+  fi
+  echo "✓ f-gap-census --self-test: buckets collapse names, keep mechanisms"
+  exit 0
+fi
+
+if [[ ! -x "$ssc" ]]; then
+  echo "✗ f-gap-census: no toolchain at $ssc — run ./install.sh --dev first." >&2
+  echo "  An unbuilt bin/ssc prints NO tsv line, which reads as 'no gaps'." >&2
+  exit 1
+fi
+
+{ ls "$ROOT"/examples/*.ssc "$ROOT"/examples/frontend/*/*.ssc "$ROOT"/tests/conformance/*.ssc 2>/dev/null
+  find "$ROOT/std" -name '*.ssc' 2>/dev/null
+} | sed "s#^$ROOT/##" | sort -u > "$out/subjects.txt"
+n=$(grep -c . "$out/subjects.txt" || true)
+if [[ "${n:-0}" -lt 100 ]]; then
+  echo "✗ f-gap-census: only ${n:-0} subjects found — the list is broken, not the corpus." >&2
+  exit 1
+fi
+echo "── asking F about $n files (jobs=$JOBS batch=$BATCH)"
+
+( cd "$ROOT" && SSC_NO_BUILD_CHECK=1 xargs -P "$JOBS" -n "$BATCH" "$ssc" info --front-report ) \
+  < "$out/subjects.txt" > "$out/raw.tsv" 2> "$out/err.log"
+
+got=$(grep -c . "$out/raw.tsv" || true)
+if [[ "${got:-0}" -ne "$n" ]]; then
+  echo "✗ f-gap-census: $n subjects but ${got:-0} verdicts — a MISSING verdict is a broken run," >&2
+  echo "  never a file with no gap. First stderr lines:" >&2
+  head -5 "$out/err.log" >&2
+  exit 1
+fi
+
+python3 "$SCRIPT_DIR/f-gap-census-bucket.py" "$out/raw.tsv" | tee "$out/report.txt"
+echo
+echo "raw: $out/raw.tsv"
