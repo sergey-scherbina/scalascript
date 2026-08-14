@@ -2,10 +2,10 @@ slug: orphan-render-smoke
 branch: feature/orphan-render-smoke
 agent: claude-code
 started: 2026-08-14T22:32:44Z
-heartbeat: 2026-08-14T22:32:44Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T22:44:49Z
+status: in-progress
 items: orphaned-e2e-gates-52
-paths: file:tests/e2e/render-smoke.sh file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md file:.github/workflows/ci.yml
+paths: file:tests/e2e/render-smoke.sh file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md file:.github/workflows/ci.yml file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: file the arity defect in v2/BUGS.md, re-point the gate's stale known-gap comment
