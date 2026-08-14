@@ -6,6 +6,56 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-multishot-handler-without-a-return-clause — a multi-shot `resume` hands back an `Int` where the handler wants a `List`
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     gate: v3/bench-corpus-gate.sh (row effect-multishot)
+     found-by: claude-code
+     found-at: 2026-08-14 -->
+
+**`bench-corpus-gate` is RED on `effect-multishot`, and it says `STOPPED computing — it produced a
+number before`. That message describes the symptom and gets the event backwards: the row did not
+break, it stopped lying.**
+
+    ssc3: bench/corpus/effect-multishot.ssc: flatMap needs a List and got the Int 13 — it
+    contributes no elements, so the result would be silently short.
+
+The handler is `case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))` with NO return
+clause, so `resume(opt)` hands back the computation's own value — an `Int` — and `flatMap` is handed
+a non-list. **`7730f6039` (2026-08-12), `flatMap refuses a non-list instead of silently dropping
+it`, is what made that visible**, and it landed AFTER the gate's own baseline comment
+(`Measured 2026-08-11: 34 of the 36 rows compute`, `55ca34c86`, 2026-08-11 17:35). Before it, the
+non-list contributed nothing and the row computed a number that was **silently short** — so the
+gate was green over a wrong answer, which is the reading that matters when deciding what to do
+about it.
+
+**WHICH SIDE IS WRONG IS NOT SETTLED HERE, deliberately, because the two readings need different
+fixes and picking one without measuring is how a bench row gets quietly rewritten to suit the
+compiler.** Either the FIXTURE is wrong and its handler needs a return clause lifting `Int` into
+`List[Int]`, or v3 is over-strict and a multi-shot `resume` should lift on its own — the refusal's
+own second sentence raises exactly that. `specs/direct-style-eval-spec.md` §10.1 and the fixture's
+prose (jvm, js and rust all run this workload) are where that gets decided.
+
+**NOT CAUSED BY SSC3-14b, and the control says so rather than the calendar.** Found while gating the
+varargs change; the identical refusal appears at the parent commit with the uniml front REBUILT
+there (classpath stamp `ef81729f`, not the branch's `dec0f0be`) — without that rebuild the "control"
+would have carried the change under test, because `uniml.cp` is keyed on `v3/src` and `v3/uniml` and
+never on `uniml/scala/…`. On the kernel front the row fails identically with and without the change,
+and `Lower` is the only half either front shares.
+
+**THE OBVIOUS PROBE MEASURES NOTHING — worth writing down, because it is the one anybody reaching
+for this entry will try first.** `v3/ssc3 run bench/corpus/effect-multishot.ssc` exits 0 with ZERO
+bytes on every state, fixed or broken: the file defines `workload(seed)` and never calls or prints
+it, the harness does. Use the gate's own mechanism — `ssc3 bench --warmup 1 --reps 1` and grep for
+`BENCH_SINK` — and keep a POSITIVE control beside it (`effect-oneshot` returns 1), so a 0 means the
+row rather than the apparatus.
+
+**NOT declared in the gate's `KNOWN_BLANK`.** That list is an admission that a row does not compute
+today, and adding this one would turn a red that is telling the truth into silence before anybody
+has decided which side is wrong.
+
 ## v3-mixed-int-double-arith — the executor refused `1 * 2.0` while its own bridge computed it
 
 <!-- status: fixed
