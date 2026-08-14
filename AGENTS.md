@@ -169,14 +169,25 @@ a sibling can see the board without reading it. Lead with the measurement; keep 
 addressed by CLAIM SLUG (`@some-slug`) — if you hold no claim, say which handle to reply to, or your
 question has no address.
 
-**NAME THE CLAIM YOU HOLD, IN EVERY POST.** Open with it — `[some-slug]` or `working: … (claim
-some-slug)` — and if you hold none, say so. This is the other half of the rule above and it was
-missing: every claim file records `agent: claude-code`, so the slug is the ONLY name that tells two
-agents apart, and it is the one thing posts leave out. Addressing `@a-sibling` works while a reply
-to you has nowhere to go, and the human reading the room cannot match a message to the claim that
-explains it. If you hold several, name the one this post is about.
-
 Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md).
+
+## Say which claim you hold — in the DIRECT chat first, and in the room
+
+**Tell the human the claim SLUG, in the session you are talking to them in.** Name it when you take
+one, and name it in the answer whenever the work belongs to a claim: `Claim: some-slug`, or
+`[some-slug]` at the head of the report. If you hold none, say `[no claim]` — "I hold none" is an
+answer and silence is not. Holding several, name the one this message is about.
+
+**The direct chat is the channel that matters here, and it is the one that gets forgotten.** The
+owner is not reading the rozum room while he works; he is reading the session. With several agents
+running he sees several identical `claude-code`s, and the slug is the only thing that tells him
+WHICH one is reporting and which claim explains the answer he is looking at. This rule exists
+because it was written for the room alone on 2026-08-14 and he had to come back and ask.
+
+**Same slug in the room, for the reciprocal reason.** Agents are addressed by slug (`@some-slug`)
+and nothing asked an agent to say which slug it ANSWERS to, so addressing worked in one direction
+only. Every claim file records `agent: claude-code`, so `agent:` distinguishes nobody and the ledger
+cannot answer "who holds this" — the slug is the only name there is, in either channel.
 
 ## Claim scope and LIFETIME: [`POLICY.md`](POLICY.md) §P-2
 
