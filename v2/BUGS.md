@@ -5239,12 +5239,59 @@ unrecorded — filed as `corpus-contract-ui-remote-table-v2-unrecorded` below.
 
 ## corpus-contract-ui-remote-table-v2-unrecorded — the nightly's actual red row has no entry
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: regression
      gate: .github/workflows/corpus-contract.yml
-     fixed-in: - -->
+     fixed-in: 70f43be7b -->
+
+### CLOSED 2026-08-14 — the row passes; the nightly is still red, for something newer
+
+**The row this entry is about is green.** The fix landed 2026-08-08 as `70f43be7b`, *fix(v2/ui):
+accept the credential parameter on the native lane, and refuse a real one*, and the entry's own
+stated confirmation was the nightly rather than the unit tests — so it is read here, six nights
+later, rather than declared.
+
+**Read from run `31772902381` (2026-08-14), and the counting is the evidence.** The four shards
+processed 141 + 142 + 142 + 142 = **567 cases**, and `tests/conformance/contract-roster.tsv` holds
+**567** rostered rows with `ui-remote-table` at line 522. So the case RAN — it was not quietly
+dropped from the roster, which is the way a green here could have been fake — and it is absent from
+every shard's regression list. `ui-remote-table v2 FAIL` does not appear anywhere in the run.
+
+**THE WORKFLOW IS STILL RED, AND ON ALL FOUR SHARDS NOW RATHER THAN ONE.** That is not this entry's
+row and it must not be read as one, so it is written down here with the same care:
+
+    shard 0   cluster-capability                  *   SKIP
+    shard 1   distributed-dataset-typed-helpers   *   SKIP
+    shard 2   distributed-dataset-wire-protocol   *   SKIP
+    shard 3   distributed-dataset-wire-shuffle    *   SKIP
+    shard 3   native-import-in-fence              js  FAIL
+
+**The four SKIPs became visible on 2026-08-13 and are a REPORTING change, not a new breakage.**
+`57cd14ce9`, *conformance: a declared backend that no lane measured is now SAID, not swallowed*,
+landed that morning; the message on each row — *"either add the lane (--lanes) or drop the
+declaration"* — is that new report. Dates settle the direction: the red streak starts **2026-08-07**,
+six days BEFORE that commit, which is why this entry saw shard 1 red and shards 0, 2 and 3 passing.
+Those three shards went red only once the swallowed rows started being said.
+
+**Their diagnosis already exists and is exact** —
+`backend-jvm-cases-have-no-verdict-on-any-backend-they-name` in `tests/BUGS.md`:
+`parseTargetBackend("jvm")` yields `{int, jvm}`, the contract's default lanes are `int,js,v2`, the
+intersection is `{int}`, and it names `distributed-dataset-{codec,typed-helpers,wire-protocol,`
+`wire-shuffle}` among the eight cases affected. Three of today's four SKIPs are on that list.
+
+**But that entry is `status: fixed` with `gate: none`, while its subject is red every night.** Its
+own text anticipated exactly this — *"this report has no standing gate … until someone writes such a
+declaration; if a case ever declares one, that case becomes the gate"* — and four cases are now
+declaring one, nightly, in CI. Not corrected here because `tests/BUGS.md` is outside this claim; it
+is raised in the room and tracked by the successor entry below.
+
+**So this entry closes and the workflow stays tracked**, which matters because a census taken today
+found that the ONLY open entry gated on `.github/workflows/corpus-contract.yml` was this one.
+Closing it alone would have left a workflow red on seven of its last eight nights with nothing
+pointing at it — which is the exact condition this entry's own title describes. See
+`corpus-contract-declared-backend-skips-red-on-all-four-shards`.
 
 **Found 2026-08-08 while re-measuring `corpus-contract-scljet-jdbc-v2-timeout`**, which turned out
 to name a row that now passes. The Corpus Contract nightly is red, and this is why:
@@ -5354,6 +5401,67 @@ that reported the defect in the first place.
 **Toolchain caveat, checked not assumed:** measured with a build from `7eecad50a`. `v2/src` has not
 changed since, so the v2 side is current; `v1/runtime/backend/interpreter` HAS changed, so the int
 side may not be — that matters only if someone re-reads the int column, not for the v2 failure.
+
+## corpus-contract-declared-backend-skips-red-on-all-four-shards — the nightly's red row has no entry, again
+
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     kind: regression
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes
+     gate: .github/workflows/corpus-contract.yml
+     fixed-in: - -->
+
+Successor to `corpus-contract-ui-remote-table-v2-unrecorded`, filed when that one closed. A census
+that day found it was the **only** open entry gated on this workflow, so closing it alone would have
+left the Corpus Contract nightly — red on seven of its last eight nights — with nothing pointing at
+it. That is the same condition its title describes, which is why this exists rather than a note.
+
+**Measured from run `31772902381`, 2026-08-14, all four shards failing:**
+
+    shard 0   cluster-capability                  *   SKIP
+    shard 1   distributed-dataset-typed-helpers   *   SKIP
+    shard 2   distributed-dataset-wire-protocol   *   SKIP
+    shard 3   distributed-dataset-wire-shuffle    *   SKIP
+    shard 3   native-import-in-fence              js  FAIL
+
+Each SKIP carries *"either add the lane (--lanes) or drop the declaration"*.
+
+**This is a REPORTING change surfacing an old condition, not a new breakage, and the dates prove the
+direction.** `57cd14ce9` — *conformance: a declared backend that no lane measured is now SAID, not
+swallowed* — landed 2026-08-13 10:02 and produced that message. The red streak starts **2026-08-07**,
+six days earlier, when only shard 1 was red (on the `ui-remote-table` row that has since been fixed).
+Shards 0, 2 and 3 went red only once the previously swallowed rows began to be said. **Nothing got
+worse on 08-13; the suite stopped lying on 08-13.**
+
+**The diagnosis is already written and is exact** — `backend-jvm-cases-have-no-verdict-on-any-`
+`backend-they-name` in `tests/BUGS.md`. `parseTargetBackend("jvm")` returns `{int, jvm}`, the
+contract's default lanes are `int,js,v2`, the intersection is `{int}`, so a case declaring
+`backend: jvm` has no verdict on the backend it names. It lists eight such cases including
+`distributed-dataset-{codec,typed-helpers,wire-protocol,wire-shuffle}` — three of today's four SKIPs.
+
+**THE PART THAT NEEDS A DECISION, and that entry already framed it: decide, do not patch.** Either
+put `jvm` into the default lanes now that the lane runs, or say plainly that `backend: jvm` means
+int-only today. Widening the lanes and widening the roster are different answers with different
+costs, and picking one is the work here — silencing the SKIP is not, because the swallow is what
+`57cd14ce9` deliberately removed.
+
+**AND THAT ENTRY IS MARKED `status: fixed` WITH `gate: none` WHILE ITS SUBJECT IS RED NIGHTLY.** Its
+own text predicted the trap: *"with no case declaring a backend today this report has no standing
+gate … it is unexercised until someone writes such a declaration — if a case ever declares one, that
+case becomes the gate."* Four cases are declaring one now, every night, in CI. So the standing gate
+it was waiting for exists, and the entry that would have been told is closed. Left uncorrected here
+because `tests/BUGS.md` was outside the claim that produced this entry; whoever takes this should fix
+that front-matter in the same change.
+
+**`native-import-in-fence js FAIL` is a separate row** and is NOT covered by any of the above. It has
+entries in `v1/runtime/backend/js/BUGS.md` and `v2/BUGS.md`; whether either describes *this* failure
+was not checked, and naming it here is not a claim that it is tracked.
+
+**Not reproduced locally.** Everything above is read off the nightly's logs and the roster file; no
+local run of `tests/conformance` was made, so the shard-to-case mapping is as CI reported it.
 
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
 <!-- status: fixed
