@@ -456,6 +456,26 @@ rows whose hot path is a called function body rather than an explicit loop — `
 per `workload()` call, and the same two fusions apply there. The loop-body column is the
 conservative half of the estimate, not the whole of it.
 
+**The fork that decides the cost, and it is a design question rather than a coding one.** A fused
+operation has to be *represented* somewhere, and there are two places:
+
+1. **New opcodes in the portable IR.** Cheapest to write in the executor, widest blast radius
+   everywhere else: `Ir.scala` and its verifier rules, the canonical text form in both directions
+   (the round-trip property is a gate), `Specialize`'s kind analysis, the closure lane, and
+   `BridgeV2`, which by I-1 must at minimum REFUSE the new opcode by name. It also makes the IR
+   carry an optimisation of one executor, which §1's charter deliberately avoids.
+2. **An executor-private fused form, built at load time.** The IR, the verifier, the text form, the
+   bridge and the differential lane are all untouched — `Exec` lowers `List[Instr]` into its own
+   representation once per function and dispatches over that. This is what "fusing … at load time"
+   in the recommendation means, and it is the option that keeps the fusion out of the portable
+   contract.
+
+**Option 2 has a trap with a name in this file: it is how J2 was built, and J2 lost.** The private
+form must NOT be an array of closures or of objects with a virtual `run` — that is the megamorphic
+call site J0c's inlined 236-byte `step` beats. It has to stay one tableswitch over a flat encoding,
+which is the classic bytecode-VM shape and is more work than it sounds. Whoever takes J4 should
+settle that representation first, and write down which of the two options they chose and why.
+
 **Still owed: J1c**, and it is the expensive one. Its executor lane was reverted out (`ee63d02a6`,
 −241 lines) of a file that has since gained +373, so re-running it is a PORT into a changed design
 rather than a flag, and a mis-ported lane would be measured as if it were the idea. Two things bear
