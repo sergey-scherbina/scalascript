@@ -77,6 +77,46 @@ consistently: an object member emits as `Qual_member` at its definition and at e
 Qualifying only the colliding pairs — what that entry originally recommended — would leave THIS
 defect in place for every non-colliding object. The recommendation there is superseded.
 
+**ATTEMPTED 2026-08-14 AND REVERTED — the three-site plan below is NOT sufficient, and the reason
+is one level above the emitter.** Recorded in full because the attempt bought the answer.
+
+The change qualified every object member — `Owner_member` at the definition, at a qualified call
+from outside, and at an unqualified sibling call — held in walker state rather than in `Ctx`, so
+`renderTerm` did not grow and the JIT freeze was untouched. A purpose-written gate went from red
+(`E0425` twice) to green, and `backendRust/test` stayed 278/278.
+
+**The survey caught what the gate could not**, which is the whole reason its diff is the acceptance
+instrument here:
+
+    std/ui/i18n.ssc:  COMPILES -> BADRUST
+    std/ui/state.ssc: COMPILES -> BADRUST
+    error[E0425]: cannot find function `showWhen` in this scope
+
+**The cause: a synthetic namespace object is indistinguishable from a real one.** `def showWhen`
+in `std/ui/reactive.ssc` is declared at TOP LEVEL, with no object around it — yet it was qualified.
+Normalize wraps every library module's statements in synthetic namespace objects (`object std {
+object ui { object theme { … } } }`), and `RustCodeWalk` says so itself, six hundred lines above
+where this change was made: its `descend` helper exists precisely to walk through them. So
+"qualify object members" qualified every top-level library def, while their call sites stayed bare
+— `[showWhen, signalText_](reactive.ssc)` imports a name and calls it unqualified.
+
+**That also explains the original defect completely.** Definitions are flattened BECAUSE every
+top-level object is treated as a namespace wrapper to descend through; the call site keeps its
+qualifier because it is only syntax. The two sides disagree for one reason, not two.
+
+**So the first piece of work is upstream:** the emitter needs to tell a synthetic wrapper from a
+user-declared `object`. No marker was found on the tree; the wrapper names mirror the module path,
+so the distinction has to come from Normalize marking them, or from comparing against the module's
+declared package. Until that exists, BOTH shapes fail — qualify-always breaks bare-name callers of
+top-level library defs, and qualify-on-collision cannot even identify which defs are members.
+
+**The gate is written and is not landed**, because a gate that fails on main is not acceptable and
+an unwired one trips `no-orphan-gates`. Its shape, for whoever resumes: build a program with
+`object Tool` whose member is called BOTH from outside (`Tool.mk("out")`) and from a sibling
+(`def viaSibling() = mk("sib")`), run the binary, require `out\nsib`; require cargo and exit 2
+saying so if absent, rather than skipping quietly. It failed red on the unfixed tree with exactly
+the E0425 above, so it discriminates.
+
 **WHAT THE FIX HAS TO DO — three sites, and the third is the one that bites.** Measured, not
 listed from memory: a sibling call inside an object emits as a BARE name today and works precisely
 because both ends are flattened.
