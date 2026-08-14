@@ -1,0 +1,11 @@
+slug: given-instance-as-a-receiver
+branch: feature/given-instance-as-a-receiver
+agent: claude-code
+started: 2026-08-14T23:48:27Z
+heartbeat: 2026-08-14T23:48:27Z
+status: claimed-before-planning
+items: given-instance-as-a-receiver
+paths: file:v3/src/Lower.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
