@@ -1,0 +1,11 @@
+slug: gateless-small-files-batch
+branch: feature/gateless-small-files-batch
+agent: claude-code
+started: 2026-08-14T15:46:35Z
+heartbeat: 2026-08-14T15:46:35Z
+status: claimed-before-planning
+items: v3-handle-has-no-return-clause selfhost-front-accepts-a-parameterised-anonymous-given-the-language-rejects v2-curried-def-partial-application-unsupported a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too update-baseline-under-load-freezes-a-skip uniml-yaml-official-conformance-gap uniml-yaml-property-lexical-boundaries v2-swift-xcode-contract-gaps
+paths: file:BUGS.md file:tests/conformance/BUGS.md file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/jvm/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
