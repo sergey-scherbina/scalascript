@@ -2,10 +2,19 @@ slug: bench-b4-three-version-table
 branch: feature/bench-b4-three-version-table
 agent: claude-code
 started: 2026-08-14T07:17:03Z
-heartbeat: 2026-08-14T07:17:03Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T07:30:00Z
+status: in-progress
 items: B4-three-version-table B1-timing-wrapper-close
 paths: file:bench/history.tsv file:bench/BASELINE.md file:v3/SPRINT.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  §55 B4 — the three-version table (v1 / v2 / v3), every column measured by the shared wrapper
+  since B1 landed, recorded in bench/history.tsv and published in bench/BASELINE.md. B1 itself is
+  closed on the board in the same branch: it still read `[ ]` with "the remaining change is ONE
+  line", which stopped being true on 2026-08-13 (17fbdf00e).
+  Toolchain: bin/lib restored at digest 7bcfe0324, which MATCHES the current tree, and probed
+  functionally (today's `BigInt(<String>)` fix answers correctly) rather than trusted.
+  Host: load has been 14-34 all morning from sibling builds; B4 asks for below 5. Absolute ms are
+  not publishable at that load, so the plan is repeated rounds analysed as WITHIN-ROW ratios (the
+  harness measures all seven columns of a row back-to-back), plus an absolute snapshot if a quiet
+  window opens.
+next: accumulate ratio rounds; take the full-corpus absolute snapshot the moment load drops below 5
