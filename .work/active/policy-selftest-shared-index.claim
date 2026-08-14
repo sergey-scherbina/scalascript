@@ -1,0 +1,11 @@
+slug: policy-selftest-shared-index
+branch: feature/policy-selftest-shared-index
+agent: claude-code
+started: 2026-08-14T07:19:04Z
+heartbeat: 2026-08-14T07:19:04Z
+status: claimed-before-planning
+items: policy-selftest-stages-into-the-shared-index
+paths: file:tests/e2e/policy-single-source.sh file:tests/e2e/policy-selftest-residue-gate.sh file:scripts/smoke-ci.ssc file:.gitignore file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

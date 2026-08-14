@@ -1,4 +1,4 @@
-# generation: 1954
+# generation: 1955
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 v3-extension-in-trait	claude-code	2026-08-13T11:30:00Z	v3-extension-in-trait	file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/src/Lower.scala file:v3/src/Source.scala
@@ -6,3 +6,4 @@ rust-object-member-call-gate	claude-code	2026-08-14T07:14:50Z	rust-object-member
 bench-b4-three-version-table	claude-code	2026-08-14T07:17:03Z	B4-three-version-table B1-timing-wrapper-close	file:bench/history.tsv file:bench/BASELINE.md file:v3/SPRINT.md
 f-single-line-ext-absorbs	claude-code	2026-08-14T07:17:14Z	v2-extension-member-call-inside-a-def-body-fails-by-arity f-extension-call-in-a-def-body-refuses-with-a-wrong-arity	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/single-line-extension-gate.sh file:v2/BUGS.md file:tests/BUGS.md
 ssc3-j1b-quiet	claude-code	2026-08-14T07:18:37Z	SSC3-J1b	file:v3/SPRINT.md file:bench/history.tsv
+policy-selftest-shared-index	claude-code	2026-08-14T07:19:04Z	policy-selftest-stages-into-the-shared-index	file:tests/e2e/policy-single-source.sh file:tests/e2e/policy-selftest-residue-gate.sh file:scripts/smoke-ci.ssc file:.gitignore file:tests/BUGS.md
