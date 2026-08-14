@@ -1,0 +1,17 @@
+#!/usr/bin/env ssc
+---
+name: len-vs-substring
+version: 0.1.0
+description: does String.length count the same units substring indexes?
+---
+# len-vs-substring
+
+```scalascript
+def main(): Unit =
+  val s: String = "aé·b"
+  println("length=" + s.length.toString)
+  println("indexOf(b)=" + s.indexOf("b").toString)
+  println("substring(0,1)=[" + s.substring(0, 1) + "]")
+  val tail: String = s.substring(1, s.length)
+  println("substring(1,length)=[" + tail + "]")
+```
