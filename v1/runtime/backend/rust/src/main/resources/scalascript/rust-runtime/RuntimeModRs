@@ -214,6 +214,19 @@
       |}
       |impl crate::value::SscInt for SscChar { fn ssc_int(self) -> i64 { self.0 } }
       |
+      |// `s.length` — UTF-16 CODE UNITS, the same basis `_str_char_at` and `_str_substring` below
+      |// index in, and the same number both reference lanes answer. Rust's own `String::len()` is
+      |// BYTES, and that is what this lane emitted for every receiver: `"aé·b".length` was 6 here and
+      |// 4 on `run`, so the obvious `s.substring(i, s.length)` panicked on any non-ASCII string —
+      |// reported from rozum, where one accented character in a served page killed the tokio worker
+      |// and every later request answered `PoisonError`. An ASCII test page hides it completely.
+      |//
+      |// Code units rather than characters, measured rather than assumed: `"a😀b".length` is 4 on
+      |// both reference lanes, not 3. `chars().count()` is the intuitive fix and would have put this
+      |// lane wrong again on exactly the inputs nobody tests.
+      |#[allow(dead_code)]
+      |pub fn _str_length(s: &str) -> i64 { s.encode_utf16().count() as i64 }
+      |
       |#[allow(dead_code)]
       |pub fn _str_char_at(s: &str, i: i64) -> SscChar { SscChar(_str_code_at(s, i)) }
       |

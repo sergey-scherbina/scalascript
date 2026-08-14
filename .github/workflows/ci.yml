@@ -382,6 +382,16 @@ jobs:
       - name: a server binds where it was told, on every lane
         run: tests/e2e/http-bind-address-gate.sh
 
+      # `String.length` answered BYTES on this lane while `substring`/`charAt` index UTF-16 code
+      # units, so `s.substring(i, s.length)` PANICKED on any non-ASCII string — reported from rozum,
+      # where one accented character in a served page killed the tokio worker and every request
+      # after it answered `PoisonError`. The probe carries two discriminating numbers: `"aé·b"`
+      # separates bytes from code units, `"a😀b"` separates code units from characters — the second
+      # is what makes the intuitive `chars().count()` repair fail here rather than in production.
+      # The last row keeps a Vec's `.length` as its element count. ~30 s, one cargo build.
+      - name: String.length is the same unit on every lane
+        run: tests/e2e/rust-string-length-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

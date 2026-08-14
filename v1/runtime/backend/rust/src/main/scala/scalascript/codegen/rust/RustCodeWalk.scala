@@ -2695,6 +2695,23 @@ object RustCodeWalk:
     case m.Term.Select(qual, m.Term.Name(mth)) if _extensionOf.contains(mth) =>
       renderTerm(qual, ctx).map(q => s"${rustIdent(mth)}($q)")
 
+    // A STRING'S length is not `String::len()`. That method answers BYTES; Scala answers UTF-16
+    // code units, which is also the basis `charAt`/`substring` already index in on this lane — so
+    // the arm below, which took every receiver, made `s.substring(i, s.length)` panic on any
+    // non-ASCII string while `indexOf` on the same line was right. Reported from rozum
+    // (`string-length-counts-bytes-not-characters`): one accented character in a served page killed
+    // the tokio worker and every later request answered `PoisonError`.
+    //
+    // The count lives in `_str_length` beside the other `_str_*` helpers rather than inline here,
+    // because a second copy of "what a code unit is" is how `length` and `substring` drifted apart
+    // in the first place. A receiver whose type the walker cannot see keeps `.len()`: for a Vec
+    // that is correct, and guessing the other way would break every list in the corpus.
+    case m.Term.Select(qual, m.Term.Name("size" | "length" | "len"))
+        if isStringExpr(qual) || (qual match
+          case m.Term.Name(n) => ctx.localStrings.contains(n)
+          case _              => false) =>
+      renderTerm(qual, ctx).map(q => s"crate::runtime::_str_length(&$q)")
+
     // `xs.size` / `xs.length` / `xs.len` — every shape reads as
     // `xs.len() as i64` (Vec::len returns `usize`).
     case m.Term.Select(qual, m.Term.Name("size" | "length" | "len")) =>
