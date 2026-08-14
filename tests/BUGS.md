@@ -4877,6 +4877,54 @@ fix was being made). Filed with an acceptance test as
 `hand-made-claim-updates-have-no-tool-and-so-no-rollback` in `scripts/BUGS.md`, so it is claimable
 instead of buried in this entry's prose.
 
+### 2026-08-14 — the hand-made update's SECOND hazard, and it is worse than a lost edit
+
+The entry above says a hand-made claim update has no rollback. It has a sharper failure than that,
+met today. A hand-written `git add && git commit && git push origin main` from the shared checkout
+was rejected:
+
+```text
+! [remote rejected]  main -> main (cannot lock ref 'refs/heads/main':
+                     is at 30f2da842 but expected 9a4f4d5a3)
+error: failed to push some refs
+```
+
+**The obvious recovery — `git reset --mixed HEAD~1`, undo my commit, fast-forward, redo it — undid
+a SIBLING's commit instead.** The reflog is the whole story, and it is a reflog of one checkout that
+five agents commit into:
+
+```text
+09:30:05  30f2da842  commit: claim-update: js-big-dynamic-arith            (another agent)
+09:30:06  b1a999a4d  commit: claim-update: pre-push-message-backticks      (mine)
+09:30:09  027545331  commit: claim-update: bench-b4-three-version-table    (another agent)
+09:30:35  b1a999a4d  reset: moving to HEAD~1                               (mine — ate 027545331)
+```
+
+`HEAD~1` was not my commit. Three seconds after mine, a sibling had committed on top of it, so
+`HEAD~1` was **theirs**, and the file that then showed as ` M` in `git status` was not "a sibling's
+uncommitted edit" — it was the content of the commit I had just destroyed. I read it as the former
+and said so, which is the wrong diagnosis with the right conclusion: leave it alone.
+
+**No damage, and only because they had already pushed.** `git diff origin/main -- <file>` was empty,
+so `git checkout origin/main -- <file>` restored it byte-for-byte and the fast-forward carried the
+commit back. Had that sibling not pushed in those 29 seconds, their work would have been gone with
+no trace outside the reflog.
+
+**Two things follow, and the second is the one worth keeping.**
+
+- **Never `git reset` in the shared checkout.** Not `--mixed`, not `--soft`. `HEAD~1` there means
+  "whatever the last agent did", not "what I did". The recovery from a rejected push is
+  `git fetch && git merge --ff-only`, and nothing else.
+- **A rejected push does not mean the commit did not land.** Mine is on `origin/main` as
+  `b1a999a4d` — carried there by the SIBLING's push, because in a shared checkout their commit was
+  built on mine. So "my push failed" and "my commit landed" are both true at once, and the
+  recovery that assumes otherwise is what causes the damage. Check with
+  `git merge-base --is-ancestor <sha> origin/main` BEFORE undoing anything.
+
+This is the same root as the entry's title — one working tree, many agents — but it is a distinct
+mechanism from the two already recorded, and the only one of the three that can destroy work rather
+than lose a bookkeeping edit.
+
 ## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
 <!-- status: fixed
      lane: apparatus
