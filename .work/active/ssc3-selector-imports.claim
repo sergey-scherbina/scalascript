@@ -1,0 +1,11 @@
+slug: ssc3-selector-imports
+branch: feature/ssc3-selector-imports
+agent: claude-code
+started: 2026-08-14T09:10:59Z
+heartbeat: 2026-08-14T09:10:59Z
+status: claimed-before-planning
+items: SSC3-14c
+paths: file:v3/src/Source.scala file:v3/loader-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
