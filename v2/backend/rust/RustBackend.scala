@@ -1652,11 +1652,15 @@ fn v_method(name: V, recv: V, args: Vec<V>) -> V {
                                           V::Str(s) => s.trim().parse::<i64>()
                                               .unwrap_or_else(|_| panic!("String.toInt: invalid integer: {:?}", s)),
                                           _ => 0 }),
-        // `toLong` on a String is DELIBERATELY left as it was. The VM answers `<closure>` for it —
-        // `v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing`, held by
-        // another claim — so there is no oracle to move toward yet, and inventing one here would
-        // pre-empt that decision. Measured, not assumed: `"8".toLong` is `<closure>` on run-ir.
-        "toLong"   => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, _ => 0 }),
+        // `toLong` IS `toInt` — `specs/numeric-widths.md` §2.1, "Int and Long are the same runtime
+        // type". This arm previously answered 0 for every String, and the note that used to stand
+        // here said the VM had no oracle to move toward because `run-ir` answered `<closure>`. That
+        // was true of the VM and is no longer: the missing arm was the VM's, it is now written, and
+        // the `<closure>` was the downstream symptom of it rather than a decision anybody had made.
+        "toLong"   => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64,
+                                          V::Str(s) => s.trim().parse::<i64>()
+                                              .unwrap_or_else(|_| panic!("String.toLong: invalid integer: {:?}", s)),
+                                          _ => 0 }),
         "toFloat"  => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64,
                                             V::Str(s) => s.trim().parse::<f64>()
                                                 .unwrap_or_else(|_| panic!("String.toFloat: invalid number: {:?}", s)),

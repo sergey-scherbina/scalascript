@@ -1,0 +1,35 @@
+; `toLong` on a String — a SYNONYM of `toInt`, and four lanes answered four different things.
+;
+; `specs/numeric-widths.md` §2.1 is explicit: "Int and Long are the same runtime type, not merely
+; the same width". There is one `IntV`. So `"8".toInt` and `"8".toLong` are the same question, and
+; on 2026-08-15 they were not the same answer:
+;
+;   run-ir  refused — "`\"8\".toLong` was selected but never called … a method that does not exist
+;                     survived as <closure>"      ← the VM had no (StrV, "toLong") arm at all
+;   jvm     8                                     ← the only one that was right
+;   js      threw "__method__: no dispatch for .toLong"
+;   rust    0                                     ← silently, the same shape as the toInt zero
+;
+; The VM's refusal was the loudest and still misleading: it said the method does not exist, when
+; what did not exist was the arm. Fixing the VM is what gives the other three an oracle.
+;
+; ROW 2 IS THE ONE THAT CANNOT BE FAKED BY A SYNONYM ALIAS: `" 8 "` has spaces, and the VM's `toInt`
+; parses `s.trim`. A backend that mapped `toLong` onto a raw parse would answer this row wrong while
+; row 1 passed. It also pins the project's DELIBERATE divergence from Scala here — real Scala throws
+; on `" 8 ".toLong`, this answers 8, because `toInt` already did and the two spellings must not
+; disagree with each other.
+;
+; ROW 3 IS THE ANTI-ROW: `toInt` itself, which already worked on every lane. If a change makes row 1
+; pass by breaking the spelling that was fine, this is what says so.
+;
+; Junk input (`"abc".toLong` must ABORT, not answer 0) is NOT here and cannot be: this harness
+; compares stdout and treats a VM abort as "run-ir failed". That row lives in
+; `tests/e2e/rust-toint-parity-gate.sh`, which reads the binary's exit code.
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq (prim __autoOutput__ (prim __method__ (lit (str "toLong")) (lit (str "8"))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toLong")) (lit (str " 8 "))))
+      (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str "8")))))))))
+ (entry (app (global main))))

@@ -391,15 +391,31 @@ object R:
 
   private def _method(name: String, recv: V, args: Array[V]): V = name match
     case "nanoTime" if args.isEmpty && _isSystem(recv) => System.nanoTime()
+    // A STRING THAT IS NOT A NUMBER ABORTS; it does not become 0. `getOrElse(0.0d)` /
+    // `getOrElse(0L)` fabricated an answer and the program carried on: measured 2026-08-15, this
+    // generator printed `0` then `STILL RUNNING` for `"abc".toInt`, where `run` aborts with
+    // `String.toInt: invalid integer`. Same silent zero as the Rust generator's
+    // `parse().unwrap_or(0)` (BUGS `v2-rust-backend-carries-the-same-silent-zero-and-nothing-runs-it`),
+    // third generator to carry it, and found by asking the same question of junk input rather than
+    // only of the row that was filed. `run` is the oracle and the quiet lane moves — the decision
+    // recorded on `toint-on-a-non-integer-diverges`; `toIntOption` is the total form.
+    //
+    // Message and `.trim` copied from the VM's own arm so the two agree verbatim, including the
+    // VM's deliberate divergence from Scala on `" 8 "` (Scala throws, this answers 8).
     case "toDouble" if args.isEmpty => recv match
       case d: Double => d
       case n: Long   => n.toDouble
-      case s: String => s.toDoubleOption.getOrElse(0.0d)
+      case s: String => s.trim.toDoubleOption.getOrElse(
+                          throw new RuntimeException(s"String.toDouble: invalid number"))
       case _         => 0.0d
+    // `toLong` and `toInt` were already one arm here, which is what `specs/numeric-widths.md` §2.1
+    // requires — Int and Long are the same runtime type. This generator was the only one of the
+    // four that had it right for `"8".toLong`; the VM, JS and Rust each answered differently.
     case "toLong" | "toInt" if args.isEmpty => recv match
       case n: Long   => n
       case d: Double => d.toLong
-      case s: String => s.toLongOption.getOrElse(0L)
+      case s: String => s.trim.toLongOption.getOrElse(
+                          throw new RuntimeException(s"String.toInt: invalid integer"))
       case _         => 0L
     case "toString" if args.isEmpty => _show(recv)
     case "foreach" if args.length == 1 => _foreach(recv, args(0)); ()

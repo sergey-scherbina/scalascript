@@ -785,8 +785,13 @@ function $method(name,recv){
     switch(name){
       case 'length': case 'size': return BigInt(recv.length);
       case 'isEmpty': return recv.length===0; case 'nonEmpty': return recv.length!==0;
-      case 'toString': return recv; case 'toInt': return BigInt(recv.trim());
-      case 'toIntOption': try{return {t:'Some',f:[BigInt(recv.trim())]};}catch(e){return {t:'None',f:[]};}
+      // `toLong` is a SYNONYM of `toInt`, not a second conversion: `specs/numeric-widths.md` §2.1
+      // says Int and Long are the same runtime type. The two spellings sat one line apart here and
+      // only one of them was written, so `"8".toLong` threw `no dispatch for .toLong` on this lane
+      // while the JVM generator answered 8 and the Rust one answered 0 — four lanes, four answers.
+      // (BUGS `tolong-on-a-string-answers-four-different-things`.)
+      case 'toString': return recv; case 'toInt': case 'toLong': return BigInt(recv.trim());
+      case 'toIntOption': case 'toLongOption': try{return {t:'Some',f:[BigInt(recv.trim())]};}catch(e){return {t:'None',f:[]};}
       case 'toDouble': return Number(recv.trim());
       case 'trim': return recv.trim(); case 'toUpperCase': return recv.toUpperCase(); case 'toLowerCase': return recv.toLowerCase();
       case 'contains': return recv.indexOf(args[0])>=0; case 'startsWith': return recv.startsWith(args[0]); case 'endsWith': return recv.endsWith(args[0]);

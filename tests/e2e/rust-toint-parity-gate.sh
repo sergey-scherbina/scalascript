@@ -162,21 +162,52 @@ echo "── and the SECOND Rust generator, which carried the same silent zero"
 # THE ENTRY SAID "NOTHING RUNS THIS BACKEND". That is half wrong and the half matters:
 # `v2/backend/check.sh` drives it on every fixture with the VM as oracle — it is `check.sh` ITSELF
 # that is invoked by nothing. But that harness compares STDOUT and treats a VM abort as "run-ir
-# failed", so it structurally cannot express "must abort" and would never have seen this row. This
+# failed", so it structurally cannot express "must abort" and would never have seen these rows. This
 # gate can, because it reads the binary's exit code, and it is wired (ci.yml).
 #
-# ONE program for every row, not one per row: each row costs a scala-cli start plus a rustc, and the
-# aborting call goes LAST so the rows before it are still observable in stdout.
+# TWO programs, not seven: each costs a scala-cli start plus a rustc, so the passing rows are
+# batched into one and the aborting call goes LAST. It takes two because an abort ends the program —
+# `toInt` and `toLong` each need their own, and they need their own precisely BECAUSE the two
+# spellings were not the same code on every lane.
 #
 # The wanted values are `run-ir`'s, re-derivable with:
-#     java -jar <v2 jar> run-ir <the .coreir below>
+#     java -jar <v2 jar> run-ir <the .coreir written below>
 if ! command -v rustc >/dev/null 2>&1; then
   echo "  [skip] rustc is not on PATH — the v2 generator half cannot run."
 elif ! command -v scala-cli >/dev/null 2>&1; then
   echo "  [skip] scala-cli is not on PATH — the v2 generator half cannot run."
 else
-  cat > "$sandbox/v2conv.coreir" <<'IR'
-(program
+  v2_says() { # $1 name, $2 expected stdout (newlines as |), $3 1 if it must abort, $4 CoreIR
+    local name=$1 want=$2 mustabort=$3 ir=$4 out rc
+    printf '%s\n' "$ir" > "$sandbox/$name.coreir"
+    if ! scala-cli run "$ROOT/v2/backend/rust" -q --server=false \
+          < "$sandbox/$name.coreir" > "$sandbox/$name.rs" 2>"$sandbox/$name.genlog"; then
+      echo "  ✗ v2 $name: the generator could not emit Rust"
+      tail -3 "$sandbox/$name.genlog" | sed 's/^/        /'; fails=$((fails + 1)); return
+    fi
+    if ! rustc -O "$sandbox/$name.rs" -o "$sandbox/$name-bin" 2>"$sandbox/$name.rustc"; then
+      echo "  ✗ v2 $name: rustc refused the emitted source"
+      tail -3 "$sandbox/$name.rustc" | sed 's/^/        /'; fails=$((fails + 1)); return
+    fi
+    out=$("$sandbox/$name-bin" 2>/dev/null | head -12 | tr '\n' '|')
+    "$sandbox/$name-bin" >/dev/null 2>&1; rc=$?
+    if [[ "$out" == "$want" ]] && { [[ "$mustabort" == 1 && "$rc" -ne 0 ]] || [[ "$mustabort" != 1 && "$rc" -eq 0 ]]; }; then
+      echo "  ✓ v2 $name: '$out' exit=$rc"
+    else
+      echo "  ✗ v2 $name: got '$out' exit=$rc, wanted '$want' with abort=$mustabort"
+      fails=$((fails + 1))
+    fi
+  }
+
+  # THREE of these six rows were wrong before the conversions were fixed, and only one of them was
+  # the reported defect — the control run against the old generator reads
+  #
+  #     got '8|0|0|8|7|0|' exit=0
+  #
+  # i.e. `" 8 ".toInt` was 0 (no `.trim()`, while the VM parses `s.trim`), `"8".toDouble` was 0 (no
+  # String arm at all), and `"abc".toInt` was 0 instead of aborting. Two silent wrong answers on
+  # VALID input, found only because the row list asked the siblings the same question.
+  v2_says conv-toint '8|8|8|8|7|' 1 '(program
  (defs
   (def main
    (lam 0
@@ -185,36 +216,21 @@ else
      (seq (prim __autoOutput__ (prim __method__ (lit (str "toDouble")) (lit (str "8"))))
      (seq (prim __autoOutput__ (prim __method__ (lit (str "toFloat")) (lit (str "8"))))
      (seq (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (int 7))))
-      (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str "abc")))))))))))) 
- (entry (app (global main))))
-IR
-  if ! scala-cli run "$ROOT/v2/backend/rust" -q --server=false \
-        < "$sandbox/v2conv.coreir" > "$sandbox/v2conv.rs" 2>"$sandbox/v2conv.genlog"; then
-    echo "  ✗ v2 generator: could not emit Rust"
-    tail -3 "$sandbox/v2conv.genlog" | sed 's/^/        /'
-    fails=$((fails + 1))
-  elif ! rustc -O "$sandbox/v2conv.rs" -o "$sandbox/v2conv-bin" 2>"$sandbox/v2conv.rustc"; then
-    echo "  ✗ v2 generator: rustc refused the emitted source"
-    tail -3 "$sandbox/v2conv.rustc" | sed 's/^/        /'
-    fails=$((fails + 1))
-  else
-    v2out=$("$sandbox/v2conv-bin" 2>/dev/null | head -12 | tr '\n' '|')
-    "$sandbox/v2conv-bin" >/dev/null 2>&1; v2rc=$?
-    # `8|8|8|8|7|` then a panic. THREE of these six rows were wrong before, and only one of them was
-    # the reported defect — the control run against the old generator reads
-    #
-    #     got '8|0|0|8|7|0|' exit=0
-    #
-    # i.e. `" 8 ".toInt` was 0 (no `.trim()`, while the VM parses `s.trim`), `"8".toDouble` was 0
-    # (no String arm at all), and `"abc".toInt` was 0 instead of aborting. Two silent wrong answers
-    # on VALID input, found only because the row list asked the siblings the same question.
-    if [[ "$v2out" == "8|8|8|8|7|" && "$v2rc" -ne 0 ]]; then
-      echo "  ✓ v2 generator: '$v2out' then exit=$v2rc (aborts on junk, like run)"
-    else
-      echo "  ✗ v2 generator: got '$v2out' exit=$v2rc, wanted '8|8|8|8|7|' and a non-zero exit"
-      fails=$((fails + 1))
-    fi
-  fi
+      (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str "abc"))))))))))))
+ (entry (app (global main))))'
+
+  # `toLong` IS `toInt` — `specs/numeric-widths.md` §2.1, one runtime type — and it needs its OWN
+  # rows because it was not the same code: this generator answered 0 for every String `toLong` while
+  # the VM refused, the JVM generator answered 8 and the JS one threw. Four lanes, four answers, on
+  # a synonym. (BUGS `tolong-on-a-string-answers-four-different-things`.)
+  v2_says conv-tolong '8|8|' 1 '(program
+ (defs
+  (def main
+   (lam 0
+    (seq (prim __autoOutput__ (prim __method__ (lit (str "toLong")) (lit (str "8"))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toLong")) (lit (str " 8 "))))
+      (prim __autoOutput__ (prim __method__ (lit (str "toLong")) (lit (str "abc")))))))))
+ (entry (app (global main))))'
 fi
 
 echo

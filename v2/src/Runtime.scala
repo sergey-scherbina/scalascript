@@ -2179,6 +2179,32 @@ object Prims:
           catch case _: NumberFormatException =>
             throw new RecoverableError("String.toInt: invalid integer")
         case (StrV(s), "toIntOption", Nil)   => s.toLongOption.fold(none)(n => some(IntV(n)))
+        // `toLong` IS `toInt` here, and that is the language's own rule rather than a convenience:
+        // `specs/numeric-widths.md` §2.1 — "Int and Long are the same runtime type, not merely the
+        // same width". There is one `IntV`. So a String receiver must answer the same for both
+        // spellings, and until now it answered for neither the same nor even consistently:
+        //
+        //   run-ir   refused — "a method that does not exist survived as <closure>"
+        //   jvm      8
+        //   js       threw   — "__method__: no dispatch for .toLong"
+        //   rust     0       — silently
+        //
+        // Four lanes, four answers, on a method the spec says is a synonym. The `<closure>` refusal
+        // was the loudest of them and still misleading: it says the method does not exist, when what
+        // did not exist was this arm. (BUGS `tolong-on-a-string-answers-four-different-things`.)
+        //
+        // `.trim` and the throwing shape are copied from `toInt` above, deliberately including its
+        // divergence from Scala — Scala's `" 8 ".toLong` throws and this answers 8. Whichever of
+        // those is right, the two spellings must not disagree with EACH OTHER, and `toInt`'s
+        // behaviour is the one already frozen in gates and expected files.
+        case (StrV(s), "toLong", Nil)        =>
+          try IntV(s.trim.toLong)
+          catch case _: NumberFormatException =>
+            throw new RecoverableError("String.toLong: invalid integer")
+        // The total form has to arrive WITH the throwing one. `toInt` ships with `toIntOption` as
+        // its documented escape hatch, so adding a throwing `toLong` without this would hand callers
+        // a conversion they cannot ask about safely — a gap created by the fix rather than found.
+        case (StrV(s), "toLongOption", Nil)  => s.toLongOption.fold(none)(n => some(IntV(n)))
         // v1 semantics: .toDouble is the RAW conversion (throws on junk) —
         // the Option-returning variant is .toDoubleOption, mirroring .toInt.
         case (StrV(s), "toDouble", Nil)       => FloatV(s.trim.toDouble)
