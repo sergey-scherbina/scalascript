@@ -1,0 +1,11 @@
+slug: decimal-eq-double
+branch: feature/decimal-eq-double
+agent: claude-code
+started: 2026-08-14T23:57:49Z
+heartbeat: 2026-08-14T23:57:49Z
+status: claimed-before-planning
+items: bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken
+paths: file:v2/src/Runtime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
