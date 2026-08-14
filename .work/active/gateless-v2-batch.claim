@@ -1,0 +1,11 @@
+slug: gateless-v2-batch
+branch: feature/gateless-v2-batch
+agent: claude-code
+started: 2026-08-14T15:50:58Z
+heartbeat: 2026-08-14T15:50:58Z
+status: claimed-before-planning
+items: v2-map-updated-copies-the-whole-map f-malformed-import-blamed-on-downstream-constructor swift-macos-build-broken-by-forJsonView f-declines-every-non-top-level-def native-Response-session-transforms-missing f-unbound-loop-is-the-new-top-gap bench-corpus-five-rows-measure-the-FALLBACK-front-not-F f-front-coverage-census-0731 markdown-inline-scanner-duplicated coreir-canonical-codec-contract custom-jsemitter-signal-list-literal v2-swift-swiftui-native
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
