@@ -728,6 +728,22 @@ jobs:
       - name: selfhost-front (289s — never broken, only ever cut off at a 180s cap)
         run: tests/e2e/selfhost-front-gate.sh
 
+      # ── batch 4, and the finding is about the gate, not the product ─────────────────────────────
+      #
+      # install-sh-reports-failure-gate guards scripts/BUGS.md
+      # `install-sh-exits-0-when-sbt-project-load-fails` — install.sh must not report success for a
+      # build that produced nothing. The witness is intact. What had broken is that the gate could
+      # no longer REACH it: the toolchain cache landed in install.sh on 2026-08-09, three days after
+      # the gate, and on a digest HIT it restores bin/lib and skips `sbt cli/installBin` entirely.
+      # Row 2 then read the cache's exit 0 as "the defect is back" (false red) and row 1 passed
+      # because a LATER `sbt-plugin publishLocal` failed instead (false green, right answer, wrong
+      # command). Both rows now run with the cache off, assert they reached the build path before
+      # returning any verdict, and assert the MECHANISM string rather than the sign of the exit
+      # code. Proven by deleting the witness from install.sh: row 2 goes red, row 1 stays green.
+      # (orphaned-e2e-gates-52.)
+      - name: install-sh refuses to report success for a build that produced nothing (2s)
+        run: tests/e2e/install-sh-reports-failure-gate.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

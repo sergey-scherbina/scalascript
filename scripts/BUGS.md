@@ -1903,9 +1903,56 @@ superseded by `scripts/launcher-input-digest` for the "is this stale" question; 
 reopened here.) `stat` is read through a helper because BSD spells it `-f %m` and GNU `-c %Y`, and
 CI is Linux while this host is macOS.
 
-**Gate:** `tests/e2e/install-sh-reports-failure-gate.sh`, both rows, 0.7 s — it uses the stub rather
+**Gate:** `tests/e2e/install-sh-reports-failure-gate.sh`, both rows, 2 s — it uses the stub rather
 than a real build. The second row is the regression guard proper: it holds even when sbt lies,
 because that is exactly what sbt used to do.
+
+### 2026-08-14 — THE GATE STOPPED REACHING THIS ENTRY THREE DAYS AFTER IT WAS WRITTEN
+
+**The fix is intact. The gate that guards it was measuring a path install.sh no longer takes**, and
+that is the finding. Turned up by the orphan drain (`tests/BUGS.md orphaned-e2e-gates-52`): this
+gate is invoked by nothing, so five days passed with nobody looking at it.
+
+The toolchain cache landed in `install.sh` on **2026-08-09**, three days after the gate. On a
+`scripts/launcher-input-digest` HIT it restores `bin/lib` and **skips `sbt cli/installBin`
+entirely** — and the witness this entry is about lives on the build path. Measured today in a
+throwaway clone, three arms, one variable:
+
+| arm | what install.sh did | exit | what the gate concluded |
+|---|---|---|---|
+| cache ON, stub sbt exits **0** | cache HIT, sbt never called | **0** | "the defect is BACK" — false |
+| cache ON, stub sbt exits **1** | cache HIT, sbt never called, then died at the LATER `sbt-plugin publishLocal`, which the stub also intercepts | 1 | "row 1 holds" — true by accident, about a different command |
+| cache OFF, stub sbt exits **0** | built, **witness fired**: `cli/installBin did not run` | 1 | the subject, intact |
+
+So one row was a false RED and the other a false GREEN, from **one** cause, and neither row had
+anything to say about the witness. The exit code alone cannot separate the two situations; the
+mechanism string can, which is the general lesson and is now enforced.
+
+**Three changes in the gate, and the second is the one worth copying.**
+
+1. `SSC_TOOLCHAIN_CACHE_OFF=1` on both rows — the build path IS the subject.
+2. **Reachability is asserted, not assumed.** Each row first requires the run to have printed
+   `Staging ssc …` and not `cache HIT`; otherwise it reports *"never reached the build path — this
+   gate measured nothing"* and fails. A gate that cannot reach its subject must say so rather than
+   hand back whatever exit code it happened to get.
+3. Each row asserts the MECHANISM, not the sign of the exit code: row 2 requires the witness's own
+   words, so "exited 1 for some other reason" is now a failure. That is precisely what row 1 was
+   doing under the cache.
+
+**And the gate was destructive in the shared checkout, which nothing declared.** The HIT path does
+`rm -rf bin/lib` followed by a 176 MB restore — twice per run, in whichever tree the gate is invoked
+from. With the cache off install.sh touches neither, and the gate now asserts it at the end: the
+`.build-stamp` mtime must be unchanged, i.e. *the toolchain this gate ran against is the toolchain
+it left behind*. Re-running the pre-fix form makes that check fire, which is how it was confirmed.
+
+**Both directions verified, on the real install.sh rather than a fixture:**
+
+- fixed gate, real tree → both rows PASS in 2 s, each naming the mechanism it went through;
+- the cache-off flag removed → both rows refuse (`never reached the build path`) **and** the
+  toolchain-unchanged check fires;
+- the witness deleted from `install.sh` (`if [ -z "$_stamp_after" ] …` → `if false`) → row 2 goes
+  RED with the original defect's exact signature, row 1 still passes. The gate covers the defect,
+  not merely the environment.
 
 ### Original report (superseded 2026-08-06)
 
