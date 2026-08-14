@@ -2,10 +2,18 @@ slug: v2-unknown-member-closure
 branch: feature/v2-unknown-member-closure
 agent: claude-code
 started: 2026-08-14T08:29:38Z
-heartbeat: 2026-08-14T08:29:38Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T10:55:00Z
+status: in-progress
 items: v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing
-paths: file:v2/src/Runtime.scala file:tests/e2e/v2-unknown-member-refuses-gate.sh file:scripts/smoke-ci.ssc
+paths: file:v2/src/Runtime.scala file:tests/e2e/v2-unknown-member-refuses-gate.sh file:scripts/smoke-ci.ssc file:v2/runtime/std/json-plugin/src/main/scala/ssc/plugin/json/NativeJsonCodec.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  A bare `recv.name` on a builtin receiver has no nullary dispatch and becomes the eta-expansion
+  closure, so a name that exists nowhere printed `<closure>` and exited 0. Stopped where the value
+  would ESCAPE (rendering), not at dispatch, because the fallback is load-bearing — measured: the
+  reference refuses the bare selection even for a method that EXISTS, while v2 answers `true` for
+  `List("b","z").exists("abc".contains)`. Runtime half landed in 2e7ad72dc.
+  WIDENED to the json codec BEFORE editing it: NativeJsonCodec renders every ClosV as the JSON
+  string "<function>", so the same typo can still reach an HTTP body — the rozum `{"cell":{Stub}}`
+  shape one sentinel over. Same one-arm fix, plus a row in the gate.
+next: json codec arm + gate row, rebuild, smoke, land; then file the entry in v2/BUGS.md once its
+  current holder releases it
