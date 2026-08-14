@@ -23,6 +23,140 @@ Newest first.
 
 
 
+## route-handler-lowered-to-string — a handler declared `Request => Response` was lowered with a `-> String` callback, so no handler could answer anything but 200
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-http-lane-parity-gate.sh
+     fixed-in: b34f10931
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-14
+     ssc-version: a8dc2120c
+     repro: repro/route-handler-lowered-to-string.ssc
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-14. The reporter's section is theirs, in their words.
+
+`std/http.ssc` declares `extern def route(method: String, path: String, handler: Request => Response)`.
+`build-rust` lowered the registration to a callback returning `String`, so any handler written to
+that declaration failed to compile:
+
+```text
+error[E0308]: mismatched types
+136 | ...ing + Send + Sync> = Box::new(move |req| { handler(req) });
+    |                                               ^^^^^^^^^^^^ expected `String`, found `Response`
+```
+
+Reporter: "a handler that can only answer a `String` can only answer 200. There is no way to write
+400, 404 or 410 — and no workaround on the caller's side, because the missing thing is the return
+TYPE of the callback, not something the body can construct." A finished port of two rozum console
+routes could not be built past it.
+
+**Reproduced on current main before anything was changed**, and fixed from the branch the reporter
+had pushed (`fix/http-response-status`), reviewed rather than merged on trust: it reads the handler
+def's declared return type — the same three shapes the neighbouring `handlerDeclaresRequest` reads a
+parameter from — and emits a wrapper that turns a `Response` into the runtime's `ResponseParts`,
+keeping the String surface when it cannot prove otherwise, which is the safe direction.
+
+**Verified ON THE WIRE, because "it compiles" was only half the report:**
+
+```text
+run   /ok=200 /gone=404 body=missing
+rust  /ok=200 /gone=404 body=missing      (before: the crate did not build)
+```
+
+**What the fix does NOT cover, measured and filed separately:** a handler written as an INLINE
+lambda (`route("GET", p, req => Response(404, …))`). See
+`rust-inline-route-handler-is-typed-as-a-string-handler`.
+
+## query-not-percent-decoded-on-build-rust — a query value reached the handler raw, so a route keyed on it matched nothing
+
+<!-- status: fixed
+     lane: v2-rust
+     area: runtime
+     kind: bug
+     gate: tests/e2e/rust-http-lane-parity-gate.sh
+     fixed-in: b34f10931
+     reported-by: rozum / claude-opus-5
+     reported-at: 2026-08-14
+     ssc-version: a8dc2120c
+     repro: repro/query-not-percent-decoded-on-build-rust.ssc
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-14. The reporter's section is theirs.
+
+```text
+GET /q?m=mlx-community%3AQwen3.5-4B-MLX-4bit&q=a+b%20c
+
+ssc run                m=[mlx-community:Qwen3.5-4B-MLX-4bit]    q=[a b c]
+ssc-tools build-rust   m=[mlx-community%3AQwen3.5-4B-MLX-4bit]  q=[a+b%20c]
+```
+
+Reporter: "Nothing fails. The handler is handed a string that looks like a value, and a route keyed
+on it simply matches nothing. In rozum the key is a model spec, which a browser sends as
+`mlx-community%3A…`, so the ported route answered 'no such cell' for every cell, while the Rust
+server it replaces answered with the row. Wrong data, no error, no log line."
+
+**The comment in the code argued FOR the old behaviour**, which is why the reporter quoted it rather
+than just patching: `urlencoded_pairs` said decoding was "deliberately NOT done here… decoding
+exactly one of them would be the only place a value silently changed shape". The premise is what
+fails — the `run` lane on the same declaration DOES decode, so the lanes already disagreed and the
+Rust one was alone; and the same function serves form bodies, where `+`-for-space is not optional.
+
+**Fixed from the reporter's branch (`fix/query-percent-decoding`), reviewed rather than trusted.**
+The decoder accumulates BYTES and converts once at the end, which is what makes a multi-byte `%D0%9F`
+survive; a malformed escape is kept verbatim (`100%` is a user's text); the KEY is decoded too. The
+branch also carried an unrelated 251-line `pm.ssc`, which was not taken.
+
+**Verified on the wire:** both lanes now answer
+`m=[mlx-community:Qwen3.5-4B-MLX-4bit] q=[a b c]`.
+
+## rust-inline-route-handler-is-typed-as-a-string-handler — a bare lambda handler never reaches the Request/Response path at all
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — the three spellings are below
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes -->
+
+Found while fixing `route-handler-lowered-to-string`: that fix covers a handler written as a `def`
+(or a lambda that CALLS one), and an inline lambda is a different defect one level earlier.
+
+`handlerDeclaresRequest` cannot see a `Request` parameter in a bare lambda, so the call is emitted
+against `_http_route` — the plain-string runtime entry — and the handler's return type is never
+consulted at all. Read off the emitted crate rather than the source:
+
+```rust
+crate::runtime::http::_http_route("GET".to_string(), "/x".to_string(),
+    move |req| { Response { status: 404i64, … } });
+```
+
+Three spellings, three distinct rustc errors, all on current main with both fixes in:
+
+| handler | rustc |
+|---|---|
+| `req => Response(404, …)` | `error[E0308]: mismatched types` |
+| `req => if … then Response(…) else Response(…)` | `error[E0609]: no field 'path' on type 'String'` |
+| `req => Response(…).withHeader(…)` | `error[E0425]: cannot find value 'status' in this scope` |
+
+The second one names the real cause: `req` is typed `String`, so the parameter side is wrong before
+the return side is ever reached.
+
+**An attempt is recorded so the next person does not repeat it.** I extended `handlerReturnsResponse`
+to recognise `Response(…)`, its factories and its builders — then emitted the crate and found the
+branch UNREACHABLE for those shapes, because the routing decision happens earlier. The extension was
+removed rather than shipped with a comment claiming a coverage it does not have.
+
+**Where the fix goes:** the parameter side. `route`'s own declaration in `std/http.ssc` says
+`handler: Request => Response`; reading an extern's parameter types at the call site would settle
+both halves for every spelling, and is the same shape as the extern-default work
+(`v2-extern-default-argument-is-never-filled…`) — a declaration that exists and is not read.
+
 ## build-rust-indexof-on-string — indexOf on a String took the LIST lowering, and String has no `iter`
 
 <!-- status: fixed
