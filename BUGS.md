@@ -296,13 +296,14 @@ was reported; changing it here would have been an unrequested semantic change to
 
 ## rust-nested-typed-pattern-is-dropped — `case Some(s: String)` binds a raw Value, and the arm returns it where a String is declared
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-14
+     fixed-in: 7dcb3ba5e
      ssc-version: 79461dcfa
      repro: std/mcp/types.ssc requireString / requireInt
      confirmed: yes -->
