@@ -1,0 +1,11 @@
+slug: int-bignum-double
+branch: feature/int-bignum-double
+agent: claude-code
+started: 2026-08-14T07:08:45Z
+heartbeat: 2026-08-14T07:08:45Z
+status: claimed-before-planning
+items: bigint-and-bigdecimal-do-not-widen-against-a-double
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/mixed-numeric-comparison-gate.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
