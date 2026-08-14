@@ -2235,7 +2235,24 @@ def typeItem(ts) = (("", ""), skipStmt(ts))
 // Nested-type members (case class/enum) are still a FOLLOW-UP. collectObjMembers returns
 // [(kind, (name, toks))] in SOURCE order (reuses skipStmt for advancement, same as collectMethodDefs).
 def isObjectHead(ts) = isWord(hd(ts), "object")
-def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then ts else objBodyToks(tl(ts)))
+// Advance from an object/given header to its body `{`. THE `;` ARM IS LOAD-BEARING and was missing:
+// this scanned for a `{` with nothing to stop it, so a BODYLESS `object A` ran on to whatever brace
+// came next ANYWHERE in the file — the layout's `{` for a later continued def body, a later object's
+// block, or nothing at all, in which case the whole rest of the file was consumed and every
+// declaration after the object silently vanished (`unbound global: (global main)`).
+//
+// The oracle has always had the arm: ssc1-front `skipToBrace` :2714 stops at `{`, EOF **or `;`**.
+// A bodyless header is followed by the layout's virtual `;` (2,52), and a header WITH a body is not
+// — `object A:` / `object A extends T:` / `given g: T with` all make the NL a layout opener, which
+// emits `{` and no separator — so the two cases separate cleanly on this one token.
+//
+// Six callers share this and all six were wrong together: objectItem (dropped the rest of the file),
+// collectObjReg / collectObjDflts / collectObjVarargs (attributed the NEXT object's members, defaults
+// and varargs to THIS object's name — the symptom that reached the corpus as `unhandled runtime
+// effect: B.g`), and the two `given … with` collectors. Fixing the shared scan is the only place the
+// stop belongs: each caller already treats "head is not `{`" as "no body", which is now true.
+def objBodyEnd(t) = if isTok(t, 2, 28) then true else isTok(t, 2, 52)
+def objBodyToks(ts) = if isEmpty(ts) then ts else (if objBodyEnd(hd(ts)) then ts else objBodyToks(tl(ts)))
 def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
 // The member bodies are lowered under a cx that names THIS object and its `var` members, so a bare
 // `n` inside them resolves to `O_n__cell` instead of the top-level `n__cell` (OBJ-SCOPE, see

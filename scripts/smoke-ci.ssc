@@ -347,9 +347,17 @@ val suite = List(
   // Beside the layout smoke above because it IS a layout property: a single-line
   // `extension (r) def m` never opened its member block, so the receiver stayed live and every
   // following `def` was silently absorbed as a member — the reference front then ran nothing and
-  // exited 0. Seven rows, both fronts; four are KNOWN-RED on F and FAIL if F starts passing, so the
-  // unfixed half cannot be closed without this saying so.
+  // exited 0. Seven rows, both fronts. Four were KNOWN-RED on F, and that is how F's half got
+  // fixed: the rows failed the moment F started passing, which is what sent the fix back here to
+  // promote them. All seven are asserted on both fronts since 2026-08-14.
   Check("v2", "single-line-extension", "tests/e2e/single-line-extension-gate.sh", List(), 300000),
+  // Its sibling, and the same class of defect one declaration over: a top-level `object A` with NO
+  // body scanned forward for a `{` with nothing to stop it, so it ate to the next brace anywhere in
+  // the file — or the whole file when there was none, taking `main` with it. Ten rows, both fronts;
+  // five reproduce the three symptoms (rest discarded, continued def body eaten, members attributed
+  // to the WRONG object) and five are the shapes that must not move, including the `given … with`
+  // body that reaches the same shared scan.
+  Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 300000),
   Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
   Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
