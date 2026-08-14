@@ -320,6 +320,37 @@ invoked by nothing, so it had never once been read. Fixing the launcher is what 
 **Acceptance test:** `tests/e2e/serve-view-frontend-v2-smoke.sh` — it already asserts the comparison
 and is green on the v1 side. It goes green when `--v2` answers 200 with the same `frontend=react`.
 
+> **MECHANISM CORRECTED 2026-08-14 — it never reaches `serve`, and there are THREE blockers, not
+> one.** "Where to start" below is wrong and is kept so the correction has something to point at.
+> Running the lane instead of reading the gate:
+>
+> ```
+> $ bin/ssc-tools --v2 examples/content-introspection.ssc
+> ssc: unbound global: contentToolkitBlock          rc 1
+> ```
+>
+> The program does not start, so `http=000` is not "serve failed to listen" — nothing got that far.
+> The gate only grepped its own log for `frontend=` and a swiftui string, so the one line naming the
+> cause sat in `/tmp/serve-view---v2.log` unread on every run. The gate now prints that log's tail on
+> failure (`864eaefd8`).
+>
+> **A refusal short-circuits, so the first blocker is never the count.** Each of these was probed on
+> its own, not inferred from the one after it:
+>
+> | # | blocker | state |
+> |---|---|---|
+> | 1 | `contentToolkitBlock` was never registered on the v2 content plugin, though `toolkitBlockNode` was already there | **FIXED** `864eaefd8` |
+> | 2 | an `extern`'s declared default argument is not filled on v2, so the one-arg `contentToolkitBlock("team-controls")` the example uses dies with `arity: 2 expected, 1 given` | open — `v2/BUGS.md` → `v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity` |
+> | 3 | `contentCurrentSection()`, which the example calls twice, is a deliberate throw on native ("unavailable on native 2.1 without source-aware call identity") | open — `v2/BUGS.md` → `content-current-section-native-unavailable` |
+>
+> Blocker 2 is NOT this fix's doing: the untouched twin `contentToolkitSection("team")` fails
+> identically on the shared toolchain, and an ordinary `def` with a default is filled correctly on
+> the same lane. Blocker 3 needs source-aware call identity, i.e. a design decision.
+>
+> **So this entry stays OPEN and its gate stays red**, with the reason changed from "unknown" to a
+> chain of three, two of which have their own entries. Fixing blocker 1 alone would have let someone
+> read the still-red gate as "the fix did not work".
+
 **Where to start:** the v2 lane's `serve` path for a view-bearing program. The two sibling gates
 fixed in the same batch (`route-params-v2-smoke`, `req-type-collision-v2-smoke`) DO serve on `--v2`,
 so v2's `serve` works in general — the difference is this fixture's view/frontend content.

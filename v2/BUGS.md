@@ -10,6 +10,64 @@ Newest first.
 
 
 
+## v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity — and the plugins carry dead code proving otherwise
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     gate: none — the probe is three lines, below
+     fixed-in: - -->
+
+**Found 2026-08-14 while registering `contentToolkitBlock` on the v2 content plugin.** With the
+registration in place the example moved one step and stopped again:
+
+    ssc: arity: 2 expected, 1 given
+
+`std/ui/content.ssc` declares the default:
+
+```
+extern def contentToolkitBlock(id: String,
+                               options: ContentToolkitOptions = ContentToolkitOptions()): TkNode
+```
+
+**Not caused by that registration, and the control is a function nobody touched.** Its twin
+`contentToolkitSection` has had the same declaration and the same default for as long as it has
+existed, and on the SHARED toolchain, with no change of mine:
+
+    contentToolkitSection("team")       ssc: arity: 2 expected, 1 given
+    contentToolkitSection("team", opts) works
+
+**And it is specific to `extern`.** An ordinary `def` with a default is filled correctly on the same
+lane, so this is not "v2 has no default arguments":
+
+    def greet(name: String, greeting: String = "hi") = greeting ++ " " ++ name
+    greet("bob")        ->  hi bob      on --v2 AND --v1
+
+So the gap is that an `extern`'s declared defaults never reach the call site on the v2/native path:
+the arity check sees the short call, and the plugin's registered global has the full arity.
+
+**The plugins already contain dead code that expected this to work**, which is the part worth
+keeping. `ContentNativePlugin.install` registers both shapes:
+
+```scala
+case Value.StrV(id) :: options :: Nil => toolkitSectionById(rootDocument, id, options)
+case Value.StrV(id) :: Nil            => toolkitSectionById(rootDocument, id, Value.UnitV)
+```
+
+The second arm cannot be reached — the arity check refuses first — so its author wrote it for a call
+that the front never delivers. That pattern is repeated for every optional-arg native, and each one
+is a small piece of evidence that the short spelling was meant to work.
+
+**Blast radius, stated rather than guessed:** every `extern def` in `std/` with a default parameter
+is callable on v2 only at full arity, and a program written against the documented signature dies at
+run time with an arity error that names no function. v1 fills them — `examples/content-introspection.ssc`
+uses the one-arg `contentToolkitBlock("team-controls")` and serves 200 on `--v1`.
+
+**Where the fix goes:** the native front's extern lowering, not the plugin. `ContentNativePlugin`
+already says so in its own comment on the ContentToolkitOptions field-scramble workaround — "the
+real fix is the native-frontend named-arg default-fill". Registering a second arity per name would
+be a workaround in the wrong layer and would have to be repeated for every plugin.
+
 ## jvm-generator-big-plus-big-concatenates-the-digits — silently, exit 0; `*` throws
 <!-- status: fixed
      lane: v2-jvm
