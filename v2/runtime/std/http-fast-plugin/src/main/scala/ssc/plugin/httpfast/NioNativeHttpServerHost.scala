@@ -116,7 +116,20 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       case Some(cb) => (req, status, ns) =>
         context.invoke(cb, List(Value.StrV(req.method), Value.StrV(req.path),
           Value.IntV(status.toLong), Value.IntV(ns / 1_000_000L)))
-    val srv = new FastHttpServer(dispatch, limits = limits, idleTimeoutMs = idleTimeoutMs,
+    // WHERE IT BINDS, and this lane is the one that already answered differently. `FastHttpServer`
+    // defaults `host` to 127.0.0.1 and this host lets it bind, so `ssc run` listened on loopback
+    // while the same program on `--v1` and on `build-rust` listened on `*` — measured with lsof,
+    // one four-line server, one port. Nothing recorded that difference; it fell out of which caller
+    // built the socket.
+    //
+    // `SSC_HTTP_BIND` is read here too, so the knob means the same thing on every lane. The DEFAULT
+    // is deliberately left as each lane had it, because changing one is a product decision rather
+    // than a bug fix: this lane stays loopback (a dev-loop command that becomes LAN-visible on
+    // upgrade is the wrong surprise) and the deployed lanes stay wildcard (a running service that
+    // goes dark on upgrade is the other wrong surprise). The divergence itself is filed, with this
+    // measurement, for whoever owns that call.
+    val bindHost = sys.env.get("SSC_HTTP_BIND").map(_.trim).filter(_.nonEmpty).getOrElse("127.0.0.1")
+    val srv = new FastHttpServer(dispatch, host = bindHost, limits = limits, idleTimeoutMs = idleTimeoutMs,
       maxConnections = maxConnections, streamWriteTimeoutMs = streamWriteMs, onExchange = onExchange,
       webSocket = if wsRouter.isEmpty then None else Some(this))
     srv.start(port)

@@ -372,6 +372,16 @@ jobs:
       - name: a route handler answers the same on both lanes
         run: tests/e2e/rust-http-lane-parity-gate.sh
 
+      # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
+      # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
+      # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:
+      # measured before the change, `run` bound 127.0.0.1 while `--v1` and `build-rust` bound `*`.
+      # SSC_HTTP_BIND is now read by all three, TLS paths included, and an unresolvable value stops
+      # the server instead of binding wider than asked. Each lane keeps its default; that divergence
+      # is a product decision and is filed, not decided here. ~60 s, one cargo build.
+      - name: a server binds where it was told, on every lane
+        run: tests/e2e/http-bind-address-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

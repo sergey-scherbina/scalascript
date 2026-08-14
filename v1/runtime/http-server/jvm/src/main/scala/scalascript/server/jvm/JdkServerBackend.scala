@@ -75,17 +75,44 @@ class JdkServerBackend extends HttpServerSpi:
     val internalPort = internal.getAddress.getPort
 
     // ── Public server socket (HTTP or HTTPS) ───────────────────────────
+    // WHERE IT BINDS is now sayable. `InetSocketAddress(port)` is the WILDCARD constructor, so
+    // every service on this lane was reachable from the LAN whether or not it was meant to be —
+    // reported from rozum, where four live .ssc services listened on `*` beside Rust services that
+    // bound loopback, and a console route moving from Rust to .ssc would have widened its exposure
+    // as a side effect of a refactor meant to preserve behaviour. `serve` takes a port and nothing
+    // else, so the program could not say otherwise.
+    //
+    // The DEFAULT IS UNCHANGED on this lane (wildcard): a running service must not go dark on an
+    // upgrade. `SSC_HTTP_BIND` narrows it, and a value that does not resolve fails at startup
+    // rather than silently binding wider than asked — the failure mode that matters here is the
+    // quiet one. The same variable is read by the Rust runtime and by the native lane's host, so
+    // one program answers the same way wherever it runs.
+    val bindHost: Option[String] = sys.env.get("SSC_HTTP_BIND").map(_.trim).filter(_.nonEmpty)
+    def bindAddr(p: Int): InetSocketAddress =
+      bindHost match
+        case None    => InetSocketAddress(p)
+        case Some(h) =>
+          val a = InetSocketAddress(h, p)
+          if a.isUnresolved then
+            throw new IllegalArgumentException(
+              s"serve($p): SSC_HTTP_BIND=\"$h\" is not an address this host can resolve")
+          a
     val pubSocket: ServerSocket = tls match
       case None      =>
         val s = ServerSocket()
         s.setReuseAddress(true)
-        s.bind(InetSocketAddress(port))
+        s.bind(bindAddr(port))
         s
       case Some(cfg) =>
         val ctx = TlsContextBuilder.build(cfg.certPemPath, cfg.keyPemPath)
-        val ss  = ctx.getServerSocketFactory.createServerSocket(port)
-          .asInstanceOf[SSLServerSocket]
-        ss
+        // The TLS branch binds through the same address: `createServerSocket(port)` is the wildcard
+        // overload, so without this half a program could be confined in plaintext and world-facing
+        // over HTTPS — the worse direction, and invisible without asking the OS.
+        val ss  = bindHost match
+          case None    => ctx.getServerSocketFactory.createServerSocket(port)
+          case Some(_) => ctx.getServerSocketFactory
+                             .createServerSocket(port, 0, bindAddr(port).getAddress)
+        ss.asInstanceOf[SSLServerSocket]
     _serverSocket = pubSocket
     _localPort    = pubSocket.getLocalPort
 
