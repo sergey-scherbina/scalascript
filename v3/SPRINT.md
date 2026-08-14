@@ -2717,6 +2717,18 @@ one §3 J1 item never built, and now the only one the evidence points at.
       dominant cost is the per-element closure application through `apply1`, not the lookup. The next
       person aiming at `list-fold` should aim there.
 
+- [x] **SSC3-J4d — `prepare` walked three `List`s on EVERY call.** It runs at the top of every
+      `callFunc` — once per function call, once per closure application — and its guard read
+      `m.consts.length`, `m.funcs.length` and `m.prims.length`, all `List`, all O(n): 32 cons cells
+      per call on `hof-pipeline`, 17 on `list-fold`, 7 on `recursion-fib`, 6 on `arith-loop`. Keyed
+      on the module's identity now, `--no-prepare-cache` as the OFF arm, seventh `--identity` arm
+      proven by planting (79 fixtures red).
+      *Measured, 20 pairs at load 8–15, and THE RESULT TRACKS THE WALK LENGTH:* `hof-pipeline`
+      **19 of 20 at 0.643**, `list-fold` **20 of 20 at 0.907**, `recursion-fib` **20 of 20 at
+      0.909**, and `arith-loop` — six cells and almost no calls — is 9 of 20 at 1.010, the control.
+      *It also closed a latent HOLE:* the length guard rebuilt only when a length differed, so two
+      different modules matching in all three counts would have shared the first one's tables.
+
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
       two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,

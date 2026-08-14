@@ -403,6 +403,8 @@ is what this file said when the ladder was built; the `quiet` column is what a r
 | J2 | closure compilation | yes | **worse**, 1 of 8 | **confirmed worse — 0 of 25 on all four rows** |
 | J1c | unboxed long bank | yes — 10.5× less allocated | **worse**, 3 of 8 | **still owed** — see below |
 | J1d | copy propagation | yes — 20 % fewer instructions | unmeasurable here | leans to the change, 12/15 and 13/15 (`4584fe61d`) |
+| J4c | type-tag memo (`tagOf` was a linear scan) | yes | — | **WIN — 20/20 on `option-chain` at 0.801; `arith-loop` control unmoved** |
+| J4d | `prepare` keyed on module identity | yes — 6–32 cons cells per call removed | — | **WIN — 19/20, 20/20, 20/20; `arith-loop` control unmoved** |
 | J4a | loop-invariant const hoist | yes — 25–36 % fewer dispatches per iteration | — | **WIN — 20/20, 20/20, 18/20 on the three rows it can help; the two it cannot did not move** |
 
 **The one thing that worked was making the existing dispatch cheaper to run, not replacing it and
@@ -519,6 +521,24 @@ form must NOT be an array of closures or of objects with a virtual `run` — tha
 call site J0c's inlined 236-byte `step` beats. It has to stay one tableswitch over a flat encoding,
 which is the classic bytecode-VM shape and is more work than it sounds. Whoever takes J4 should
 settle that representation first, and write down which of the two options they chose and why.
+
+#### The pattern the J4 series found, and it is not the one the ladder predicted — 2026-08-15
+
+Three of the four J4 wins are the same defect wearing different clothes: **the executor was walking
+an immutable `List` on a path that runs per call or per instruction.**
+
+| where | what it walked | how often | measured win |
+|---|---|---|---|
+| `tagOf` (J4c) | `m.types.indexWhere(_.name == name)` | 4× per `xs.foreach` | `option-chain` 20/20 at 0.801 |
+| `prepare` (J4d) | `m.consts.length`, `m.funcs.length`, `m.prims.length` | once per CALL | `hof-pipeline` 19/20 at 0.643 |
+| loop bodies (J4a) | a `Const` re-executed per iteration | per iteration | `var-expr-init` 20/20 at 0.772 |
+
+None of them is a JIT idea. All three are the same question — *what is this doing again that it
+already knows?* — and all three were found by reading the hot path after the ladder's clock-level
+attempts had run out, not by profiling. The bytecode-size proxy that opened §1 pointed at
+`Exec.invoke` and would have kept pointing there: `invoke` is 6912 bytes, well under the 8000 that
+matters, and its 63 arms cost a list receiver 63 cheap type tests — while the four `tagOf` scans
+underneath cost more. **A size number names a method; it does not name a cost.**
 
 **Still owed: J1c**, and it is the expensive one. Its executor lane was reverted out (`ee63d02a6`,
 −241 lines) of a file that has since gained +373, so re-running it is a PORT into a changed design
