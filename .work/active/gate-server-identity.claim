@@ -5,7 +5,22 @@ started: 2026-08-14T09:08:42Z
 heartbeat: 2026-08-14T09:08:42Z
 status: claimed-before-planning
 items: a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
-paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh
+paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/serve-view-frontend-v2-smoke.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own` is `confirmed: no` — the
+  mechanism is real, the instance hypothetical. It asks for identity, and for a PLANT as the proof:
+  a foreign listener on the gate's port + the gate's own launcher broken must read RED.
+
+  Ownership, not a nonce and not an allocated port, and the reason is measured: the port is written
+  in the EXAMPLE (`examples/health-defaults.ssc` ends in `serve(8769)`), so both of the entry's
+  suggestions edit `examples/` to fix a harness problem. Asking the OS which process holds the
+  socket needs nothing from the served program. Compared as a process TREE rather than a pid,
+  because `bin/ssc` is a launcher script and whether the JVM is the same pid or a child differs by
+  lane — a pid comparison would be testing `exec` versus `&`.
+
+  WIDENED to `serve-view-frontend-v2-smoke.sh` before wiring it: that is the gate where the check is
+  DECISIVE rather than defence-in-depth. It asserts `http=200` plus a `frontend=` string scraped from
+  its own LOG, so a foreign server returning any 200 makes it pass. The gates with body assertions
+  (`route-params`, `health-defaults`) would catch a foreign server by its wrong answer; this one
+  cannot. Wiring it is what turns the entry's `confirmed: no` into a demonstrated instance.
+next: wire the four named gates + serve-view, plant against each, record which were verified
