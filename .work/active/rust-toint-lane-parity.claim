@@ -4,8 +4,8 @@ agent: claude-code
 started: 2026-08-14T11:02:33Z
 heartbeat: 2026-08-14T11:02:33Z
 status: in-progress
-items: toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges
-paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md
+items: toint-on-a-char-and-tolist-on-a-string toint-on-a-non-integer-diverges build-rust-indexof-on-string build-rust-concat-list-element-with-toplevel-val
+paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-toint-parity-gate.sh file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:INBOX.md file:BUGS.md file:v2/src/Runtime.scala file:v1/runtime/backend/interpreter/BUGS.md
 scope: |
   Two INBOX reports from rozum. (1) `toint-on-a-char…` part A is ALREADY on main as 2315f2ecf (the
   reporter's branch content, landed under another sha) — the entry only needs routing; part B,
@@ -16,4 +16,4 @@ scope: |
   (2) `toint-on-a-non-integer-diverges`: the Rust arm is `parse::<i64>().unwrap_or(0)` while run
   throws, so `"abc".toInt` is 0 on one lane and fatal on the other. run is the oracle; the Rust arm
   changes. WIDENED to v2/src/Runtime.scala before editing it.
-next: gate wired in ci.yml (the heavy rust gates live there, not smoke), route the INBOX entries out
+next: the three RustCodeWalk halves — inline parses, indexOf on a String, `parts(0) + SEP` — now that the file is free
