@@ -153,6 +153,70 @@ main()'
   rust_says bad-todouble '' 101 "$BAD_DBL"
 fi
 
+echo "── and the SECOND Rust generator, which carried the same silent zero"
+#
+# `v2/backend/rust/` is the CoreIR → Rust generator, a different file from the `build-rust` walker
+# above, and it had the identical `parse::<i64>().unwrap_or(0)` arm
+# (BUGS `v2-rust-backend-carries-the-same-silent-zero-and-nothing-runs-it`).
+#
+# THE ENTRY SAID "NOTHING RUNS THIS BACKEND". That is half wrong and the half matters:
+# `v2/backend/check.sh` drives it on every fixture with the VM as oracle — it is `check.sh` ITSELF
+# that is invoked by nothing. But that harness compares STDOUT and treats a VM abort as "run-ir
+# failed", so it structurally cannot express "must abort" and would never have seen this row. This
+# gate can, because it reads the binary's exit code, and it is wired (ci.yml).
+#
+# ONE program for every row, not one per row: each row costs a scala-cli start plus a rustc, and the
+# aborting call goes LAST so the rows before it are still observable in stdout.
+#
+# The wanted values are `run-ir`'s, re-derivable with:
+#     java -jar <v2 jar> run-ir <the .coreir below>
+if ! command -v rustc >/dev/null 2>&1; then
+  echo "  [skip] rustc is not on PATH — the v2 generator half cannot run."
+elif ! command -v scala-cli >/dev/null 2>&1; then
+  echo "  [skip] scala-cli is not on PATH — the v2 generator half cannot run."
+else
+  cat > "$sandbox/v2conv.coreir" <<'IR'
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str "8"))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str " 8 "))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toDouble")) (lit (str "8"))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toFloat")) (lit (str "8"))))
+     (seq (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (int 7))))
+      (prim __autoOutput__ (prim __method__ (lit (str "toInt")) (lit (str "abc")))))))))))) 
+ (entry (app (global main))))
+IR
+  if ! scala-cli run "$ROOT/v2/backend/rust" -q --server=false \
+        < "$sandbox/v2conv.coreir" > "$sandbox/v2conv.rs" 2>"$sandbox/v2conv.genlog"; then
+    echo "  ✗ v2 generator: could not emit Rust"
+    tail -3 "$sandbox/v2conv.genlog" | sed 's/^/        /'
+    fails=$((fails + 1))
+  elif ! rustc -O "$sandbox/v2conv.rs" -o "$sandbox/v2conv-bin" 2>"$sandbox/v2conv.rustc"; then
+    echo "  ✗ v2 generator: rustc refused the emitted source"
+    tail -3 "$sandbox/v2conv.rustc" | sed 's/^/        /'
+    fails=$((fails + 1))
+  else
+    v2out=$("$sandbox/v2conv-bin" 2>/dev/null | head -12 | tr '\n' '|')
+    "$sandbox/v2conv-bin" >/dev/null 2>&1; v2rc=$?
+    # `8|8|8|8|7|` then a panic. THREE of these six rows were wrong before, and only one of them was
+    # the reported defect — the control run against the old generator reads
+    #
+    #     got '8|0|0|8|7|0|' exit=0
+    #
+    # i.e. `" 8 ".toInt` was 0 (no `.trim()`, while the VM parses `s.trim`), `"8".toDouble` was 0
+    # (no String arm at all), and `"abc".toInt` was 0 instead of aborting. Two silent wrong answers
+    # on VALID input, found only because the row list asked the siblings the same question.
+    if [[ "$v2out" == "8|8|8|8|7|" && "$v2rc" -ne 0 ]]; then
+      echo "  ✓ v2 generator: '$v2out' then exit=$v2rc (aborts on junk, like run)"
+    else
+      echo "  ✗ v2 generator: got '$v2out' exit=$v2rc, wanted '8|8|8|8|7|' and a non-zero exit"
+      fails=$((fails + 1))
+    fi
+  fi
+fi
+
 echo
 if [[ "$fails" -ne 0 ]]; then
   echo "rust-toint-parity-gate: FAIL ($fails row(s))" >&2

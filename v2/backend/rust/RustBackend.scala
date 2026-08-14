@@ -1632,10 +1632,39 @@ fn v_method(name: V, recv: V, args: Vec<V>) -> V {
             },
             other => panic!("v_method.nanoTime: expected System, got {:?}", other),
         },
-        "toInt"    => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, V::Str(s) => s.parse::<i64>().unwrap_or(0), _ => 0 }),
+        // STRING CONVERSIONS ABORT ON JUNK, they do not fabricate a zero. `run` is the oracle and
+        // the quiet lane moves — decided on the v1 twin (`toint-on-a-non-integer-diverges`), where
+        // `"abc".toInt` was 0 here and fatal on `run`, so a round-trip check `s.toInt.toString == s`
+        // WORKED on Rust and killed the program on `run`. `toIntOption` is the total form.
+        // Message mirrors the v1 Rust runtime's `ssc_parse_int` so the two Rust lanes read alike.
+        //
+        // `.trim()` FIXES A THIRD DIVERGENCE rather than avoiding one. I first wrote that it merely
+        // stopped the fix introducing a new panic on " 8 "; the control run says otherwise — with
+        // the old arm the gate reads `8|0|0|8|7|0|`, so " 8 ".toInt was already **0** here while the
+        // VM (which parses `s.trim`) answers 8. Silently wrong on a VALID input, and nothing had
+        // asked.
+        //
+        // toDouble had NO String arm at all, so every string fell to `_ => 0.0`: `"8".toDouble` was
+        // **0** on this lane while the VM answers 8. That is a wrong answer for a VALID input, which
+        // is worse than the reported defect and was found by asking the three siblings the same
+        // question rather than only the one that was filed.
+        "toInt"    => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64,
+                                          V::Str(s) => s.trim().parse::<i64>()
+                                              .unwrap_or_else(|_| panic!("String.toInt: invalid integer: {:?}", s)),
+                                          _ => 0 }),
+        // `toLong` on a String is DELIBERATELY left as it was. The VM answers `<closure>` for it —
+        // `v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing`, held by
+        // another claim — so there is no oracle to move toward yet, and inventing one here would
+        // pre-empt that decision. Measured, not assumed: `"8".toLong` is `<closure>` on run-ir.
         "toLong"   => V::Int(match recv { V::Int(n) => n, V::Float(f) => f as i64, _ => 0 }),
-        "toFloat"  => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64, V::Str(s) => s.parse::<f64>().unwrap_or(0.0), _ => 0.0 }),
-        "toDouble" => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64, _ => 0.0 }),
+        "toFloat"  => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64,
+                                            V::Str(s) => s.trim().parse::<f64>()
+                                                .unwrap_or_else(|_| panic!("String.toFloat: invalid number: {:?}", s)),
+                                            _ => 0.0 }),
+        "toDouble" => V::Float(match recv { V::Float(f) => f, V::Int(n) => n as f64,
+                                            V::Str(s) => s.trim().parse::<f64>()
+                                                .unwrap_or_else(|_| panic!("String.toDouble: invalid number: {:?}", s)),
+                                            _ => 0.0 }),
         "toChar"   => V::Str(match recv { V::Int(n) => char::from_u32(n as u32).map(|c| c.to_string()).unwrap_or_default(), _ => String::new() }),
         "toString" => V::Str(show(&recv)),
         "length"   => V::Int(match &recv { V::Str(s) => s.len() as i64, _ => 0 }),
