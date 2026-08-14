@@ -2,10 +2,10 @@ slug: coord-update-tool
 branch: feature/coord-update-tool
 agent: claude-code
 started: 2026-08-14T23:43:31Z
-heartbeat: 2026-08-14T23:43:31Z
+heartbeat: 2026-08-14T23:50:15Z
 status: claimed-before-planning
 items: hand-made-claim-updates-have-no-tool-and-so-no-rollback
 paths: file:scripts/coord-update file:tests/coord/coord-update-rolls-back.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: release
