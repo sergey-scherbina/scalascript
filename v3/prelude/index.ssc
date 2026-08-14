@@ -13,19 +13,20 @@ lists, so BOTH v3 lanes get one implementation and v3 grows no host surface. Opt
 twice, in `Exec.scala` and the shared `v2/src` kernel) and 2 (give `run-ir` a plugin path) were
 declined.
 
-**`of` takes sixteen defaulted parameters and a sentinel, and that is not a style choice.** Tier 0
-has no varargs — `def of(xs: Any*)` parses as ONE parameter and `Dataset.of(1, 2, 3)` is refused
-with "passes 3 argument(s), it takes 1" — and no arity overloading either: two `def`s of one name
-leave the first winning. Both were measured before this was written. Sixteen covers the corpus,
-whose widest call is ten.
+**`of` is a vararg, and it took a compiler change to be allowed to write it that way.** It used to
+take SIXTEEN defaulted parameters and a `DsAbsent()` sentinel, with sixteen `if x != DsAbsent()`
+lines to rebuild the list — because Tier 0 had no varargs, so `def of(items: Any*)` parsed as ONE
+parameter and `Dataset.of(1, 2, 3)` was refused with "passes 3 argument(s), it takes 1". There is
+still no arity overloading (two `def`s of one name leave the first winning), which is why sixteen
+parameters was the shape the workaround had to take.
 
-The sentinel is a distinguished value rather than `0` or an empty string, because the corpus writes
-`Dataset.of(1, 2, 0, 3)` and `Dataset.of("", "a")` — a sentinel a caller can pass by accident is a
-silently truncated dataset.
+**Sixteen was a CAP, not a comfortable margin, and it was reachable.** `Dataset.of` with seventeen
+elements was refused by a number that came from an implementation detail of the workaround. SSC3-14b
+(2026-08-14) added varargs and this is the first thing they buy: `Any*` has no cap, and the sentinel,
+its `DsAbsent` case class and the sixteen `if`s all go with it — the sentinel existed only to mark a
+parameter nobody filled.
 
 ```scalascript
-case class DsAbsent()
-
 case class RuntimeException(message: String):
   def getMessage: String = message
 
@@ -84,28 +85,7 @@ case class Dataset(items: List[Any]):
 
 object Dataset:
   def fromList(xs: List[Any]): Dataset = Dataset(xs)
-  def of(a: Any = DsAbsent(), b: Any = DsAbsent(), c: Any = DsAbsent(), d: Any = DsAbsent(),
-         e: Any = DsAbsent(), f: Any = DsAbsent(), g: Any = DsAbsent(), h: Any = DsAbsent(),
-         i: Any = DsAbsent(), j: Any = DsAbsent(), k: Any = DsAbsent(), l: Any = DsAbsent(),
-         m: Any = DsAbsent(), n: Any = DsAbsent(), o: Any = DsAbsent(), p: Any = DsAbsent()): Dataset =
-    var xs: List[Any] = List()
-    if a != DsAbsent() then xs = xs :+ a
-    if b != DsAbsent() then xs = xs :+ b
-    if c != DsAbsent() then xs = xs :+ c
-    if d != DsAbsent() then xs = xs :+ d
-    if e != DsAbsent() then xs = xs :+ e
-    if f != DsAbsent() then xs = xs :+ f
-    if g != DsAbsent() then xs = xs :+ g
-    if h != DsAbsent() then xs = xs :+ h
-    if i != DsAbsent() then xs = xs :+ i
-    if j != DsAbsent() then xs = xs :+ j
-    if k != DsAbsent() then xs = xs :+ k
-    if l != DsAbsent() then xs = xs :+ l
-    if m != DsAbsent() then xs = xs :+ m
-    if n != DsAbsent() then xs = xs :+ n
-    if o != DsAbsent() then xs = xs :+ o
-    if p != DsAbsent() then xs = xs :+ p
-    Dataset(xs)
+  def of(items: Any*): Dataset = Dataset(items)
 ```
 
 ## The `List` companion
