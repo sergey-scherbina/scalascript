@@ -3684,6 +3684,65 @@ failing; it now prints the frames it rejected and a histogram of the files they 
 `grep … >/dev/null` under `set -e`, so its failure was an exit code with no stdout, no stderr and a
 deleted sandbox (`orphaned-e2e-gates-52`, batch 4, the "fails without saying why" group).
 
+### FIXED 2026-08-14 — the prelude was sitting in the user's seat
+
+**Root cause, found before any edit was made.** `RunNativeV2` builds its root list as
+
+    ambientPrelude(userFiles, stdRoot) ++ dottedStdImportPrelude(userFiles, stdRoot) ++ userFiles
+
+— the AMBIENT PRELUDE first, by design: a program that calls `jsonParse` without importing json gets
+`std/json.ssc` injected as a leading source so the runner's single program scope matches INT and JS.
+`NativeJvmSourceMap.build` then took file 1 = *the first explicit root*, and a prelude IS an explicit
+root. So the program being compiled became file 2, and since the JVM stores ONE `SourceFile` per
+class and prints it on every frame, every frame named `json.ssc`.
+
+**Proven by experiment rather than by reading, and the experiment is one line:** write the import out
+by hand — `[jsonParse](std/json.ssc)` — and the prelude does not fire, `SourceFile` becomes the
+user's file, and 21 frames name it. Same compiler, same fixture, one line of difference.
+
+**The fix is in the debug metadata, not in the prelude order.** The prelude must stay leading — that
+is a scope requirement with its own entry (`v2-native-ambient-prelude`) — so what changes is that
+`NativeSourceUnit` stops conflating two different things:
+
+| field | means |
+|---|---|
+| `explicitRoot` | named as a root of the source closure — includes compiler-injected preludes |
+| `userRoot` | named by the USER on the command line |
+
+`NativeSourceClosure.resolve` takes the user's paths and marks them; `NativeJvmSourceMap.build`
+orders user roots, then prelude roots, then imports. Three files, 35 lines.
+
+**Measured, on the same fixture:**
+
+| | before | after |
+|---|---|---|
+| `SourceFile` | `json.ssc` | `source-map-failure.ssc` |
+| SMAP file 1 | `json.ssc` | `source-map-failure.ssc` |
+| frames naming the user's file | **0 of 29** | all `.ssc` frames |
+| frame at the call site | none | `source-map-failure.ssc:5` — `explode()` |
+
+**The gate's old assertion asked for `:4` and could not get it, and that is stated rather than
+quietly relaxed.** Line 4 is `def explode() = jsonParse("{")`, and it IS in the LineNumberTable —
+`javap -l -p` puts it in `lam$181`, the def's body. That method is not a JVM frame when the throw
+happens: the body is a single call, the runtime trampolines into the json plugin, and what unwinds
+is the call site and the lambdas around it. `:4` is therefore a claim about LOWERING, not about
+debug metadata, and asserting it kept the gate red while telling nobody which of the two problems it
+had. It is replaced by two assertions that are checkable and that both fail on the original defect:
+the SMAP's file 1 must be the program being compiled, and at least one frame must name that file at
+a line the file actually has (a six-line fixture reporting `:53` is a number, not an attribution).
+
+**Negative control run, because a gate that has only been seen green is a gate nobody has watched
+work:** reverting `orderedUnits` to the old expression and rebuilding makes it fail with
+*"the SMAP's file 1 is 'json.ssc', not the program being compiled"*. Restored, rebuilt, green again.
+
+**Two apparatus faults found while doing it**, both in the reporting added to this gate earlier
+today, and both the same shape as the defect itself — a check failing on its own plumbing:
+`awk '…{exit}'` closed the pipe while `printf` was still writing, and the SIGPIPE (141) tripped the
+ERR trap; and a SECOND `set +e` block expecting a non-zero exit needed the trap disarmed, exactly
+like the first. Both sites are now marked; a third would be worth a helper.
+
+**Wired into `conformance-extras` at 26 s, and off the frozen orphan list: 12 -> 11.**
+
 ## a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator — measured over 75 checks
 
 <!-- status: fixed

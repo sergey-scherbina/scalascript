@@ -754,6 +754,18 @@ jobs:
       - name: install-sh refuses to report success for a build that produced nothing (2s)
         run: tests/e2e/install-sh-reports-failure-gate.sh
 
+      # Orphan drain, batch 4 part 3: this one was RED and SILENT — twenty bare `grep … >/dev/null`
+      # under `set -e`, so its failure was an exit code with no output and a deleted sandbox. Made to
+      # speak, it named a real defect: a jar built from a SIX-LINE program advertised
+      # `SourceFile: "json.ssc"` and all 29 of its stack frames named the std library, none the file
+      # its author wrote. The JVM stores one SourceFile per class and prints it on every frame, so
+      # file 1 of the SMAP decides what every crash report says. `RunNativeV2` injects the ambient
+      # prelude as LEADING roots and the source map took file 1 = first explicit root, which is the
+      # prelude. Fixed by separating `userRoot` from `explicitRoot`.
+      # (tests/BUGS.md jvm-artifact-stack-trace-never-names-the-users-own-file.)
+      - name: build-jvm artifacts carry honest debug metadata (26s, was a silent red orphan)
+        run: tests/e2e/v21-build-jvm-smoke.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

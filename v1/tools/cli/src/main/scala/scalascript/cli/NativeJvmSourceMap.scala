@@ -26,7 +26,16 @@ private[cli] object NativeJvmSourceMap:
 
   def build(program: Program, sourceUnits: List[NativeSourceUnit]): JvmSourceDebug =
     require(sourceUnits.nonEmpty, "native JVM source mapping requires at least one root")
-    val orderedUnits = sourceUnits.filter(_.explicitRoot) ++ sourceUnits.filterNot(_.explicitRoot)
+    // FILE 1 IS WHAT EVERY STACK FRAME OF THE GENERATED CLASS WILL NAME. The JVM stores ONE
+    // `SourceFile` per class and prints it for every frame, so this order is not cosmetic: it
+    // decides whether a crash points at the user's program or at a std module. `explicitRoot`
+    // alone put a PRELUDE first — `RunNativeV2` injects ambient std modules as leading roots —
+    // so a two-line program that calls `jsonParse` produced 29 frames all naming `json.ssc` and
+    // none naming the file its author wrote. (BUGS
+    // jvm-artifact-stack-trace-never-names-the-users-own-file.)
+    val userRoots = sourceUnits.filter(_.userRoot)
+    val preludeRoots = sourceUnits.filter(unit => unit.explicitRoot && !unit.userRoot)
+    val orderedUnits = userRoots ++ preludeRoots ++ sourceUnits.filterNot(_.explicitRoot)
     val files = orderedUnits.map { unit =>
       JvmSourceFile(unit.file.getName, unit.displayPath)
     }.toVector

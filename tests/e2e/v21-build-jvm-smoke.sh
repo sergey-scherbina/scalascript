@@ -103,15 +103,45 @@ source_map_rc=$?
 set -e
 trap 'rc=$?; printf "FAIL v21-build-jvm-smoke: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
 [[ $source_map_rc -ne 0 ]]
-# THE POINT OF THE JAR'S DEBUG INFO: a throw from the user's line 4 must be attributable to the
-# user's line 4. Print the trace when it is not — the frames are the whole diagnosis, and hiding
-# them behind `>/dev/null` is what kept this defect unread.
-if ! grep -E 'ssc[.]gen[.]Entry[.].*\(source-map-failure[.]ssc:4\)' \
-       "$sandbox/source-map-failure.err" >/dev/null; then
-  echo 'FAIL v21-build-jvm-smoke: no stack frame maps back to source-map-failure.ssc:4' >&2
-  printf '       the fixture is two lines — `def explode() = jsonParse("{")` at 4, `explode()` at 5\n' >&2
-  printf '       .ssc files the %d frames DO name:\n' "$(grep -c '^	at ' "$sandbox/source-map-failure.err")" >&2
-  grep -oE '\([A-Za-z0-9_./-]+\.ssc:[0-9]+\)' "$sandbox/source-map-failure.err" \
+# THE POINT OF THE JAR'S DEBUG INFO: a crash in a built artifact must point at the program its
+# author wrote. Two assertions, and the FIRST is the one that caught the defect.
+#
+# 1. THE SMAP FILE TABLE'S FILE 1 IS THE USER'S PROGRAM. The JVM stores ONE `SourceFile` per class
+#    and prints it for every frame, so file 1 decides what a reader sees on every line of every
+#    trace. `ssc build-jvm` used to put an AMBIENT PRELUDE there — `RunNativeV2` injects std modules
+#    the program uses but does not import, as LEADING roots — so all 29 frames of this fixture named
+#    `json.ssc` and none named `source-map-failure.ssc`. (BUGS
+#    jvm-artifact-stack-trace-never-names-the-users-own-file.)
+#
+# 2. AT LEAST ONE FRAME NAMES THE USER'S FILE AT A LINE THAT EXISTS IN IT. The fixture is six lines
+#    long, so a frame at `:53` is not an attribution, it is a number.
+#
+# WHY NOT `:4`, WHICH THIS GATE ASKED FOR BEFORE AND NEVER GOT. Line 4 is `def explode() =
+# jsonParse("{")`, and it IS in the LineNumberTable — `javap -l -p` puts it in `lam$181`, the def's
+# body. That method is not a JVM frame when the throw happens: the body is a single call, the
+# runtime trampolines into the json plugin, and the frames that unwind are the call site (line 5)
+# and the lambdas around it. So `:4` asks for a frame the lowering does not produce, which is a
+# statement about lowering rather than about debug metadata. Asserting it kept this gate red while
+# telling nobody which of the two problems it had. If a future lowering does produce that frame,
+# tighten this back — the evidence for why it does not today is above.
+smap="$(javap -classpath "$sandbox/source-map-failure.jar" -v ssc.gen.Entry 2>/dev/null || true)"
+# No `exit` in the awk: it closes the pipe while printf is still writing, and the SIGPIPE (141)
+# trips the ERR trap — a gate failing on its own plumbing, which is the shape this file is about.
+primary="$(printf '%s' "$smap" | awk '/^ *\+ 1 /{if (p == "") p = $3} END {print p}')"
+if [ "$primary" != "source-map-failure.ssc" ]; then
+  echo "FAIL v21-build-jvm-smoke: the SMAP's file 1 is '$primary', not the program being compiled" >&2
+  echo "       every stack frame of ssc.gen.Entry will name that file, whatever the line says" >&2
+  printf '%s' "$smap" | sed -n '/^ *\*F$/,/^ *\*L$/p' | sed 's/^/       | /' >&2
+  exit 1
+fi
+
+fixture_lines=$(wc -l < "$FIXTURES/source-map-failure.ssc" | tr -d ' ')
+if ! grep -oE 'source-map-failure[.]ssc:[0-9]+' "$sandbox/source-map-failure.err" \
+     | cut -d: -f2 | awk -v n="$fixture_lines" '$1 >= 1 && $1 <= n {found=1} END{exit !found}'; then
+  echo "FAIL v21-build-jvm-smoke: no frame names source-map-failure.ssc at a line it actually has" >&2
+  printf '       the fixture is %s lines: `def explode() = jsonParse("{")` at 4, `explode()` at 5\n' "$fixture_lines" >&2
+  printf '       .ssc coordinates the %s frames DO name:\n' "$(grep -c '^	at ' "$sandbox/source-map-failure.err")" >&2
+  grep -oE '\([A-Za-z0-9_./-]+\.ssc(:[0-9]+)?\)' "$sandbox/source-map-failure.err" \
     | sort | uniq -c | sort -rn | sed 's/^/       | /' >&2
   exit 1
 fi
@@ -180,12 +210,16 @@ if printf '%s\n' "$deps" | grep -E \
   exit 1
 fi
 
+# Second block that EXPECTS a non-zero exit, so the ERR trap is disarmed here too — `set +e` alone
+# does not stop it. Both sites are marked; a third would be worth a helper.
 set +e
+trap - ERR
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$FIXTURES/checker-invalid-numeric.ssc" -o "$sandbox/invalid.jar" \
   >"$sandbox/invalid.out" 2>"$sandbox/invalid.err"
 invalid_rc=$?
 set -e
+trap 'rc=$?; printf "FAIL v21-build-jvm-smoke: line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2; exit $rc' ERR
 [[ $invalid_rc -ne 0 ]]
 grep -F 'TYPEERR:' "$sandbox/invalid.err" >/dev/null
 [[ ! -e "$sandbox/invalid.jar" ]]

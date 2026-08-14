@@ -6,11 +6,18 @@ import java.nio.file.Files
 import scala.collection.mutable
 
 /** One source contributing declarations or entry statements to the linked
- * native Program. `displayPath` is stable across checkout locations. */
+ * native Program. `displayPath` is stable across checkout locations.
+ *
+ * `explicitRoot` means "named as a root of the closure"; `userRoot` means "named
+ * by the USER on the command line". They are not the same thing and conflating
+ * them is what BUGS `jvm-artifact-stack-trace-never-names-the-users-own-file`
+ * was: `RunNativeV2` injects the ambient prelude as LEADING roots, so a std
+ * module is an explicit root and sorts ahead of the program being compiled. */
 private[cli] final case class NativeSourceUnit(
     file: File,
     displayPath: String,
-    explicitRoot: Boolean)
+    explicitRoot: Boolean,
+    userRoot: Boolean)
 
 /** JDK-only mirror of the self-hosted native loader's standalone Markdown-link
  * DFS. Imported modules are post-ordered before their importer, exactly like
@@ -70,7 +77,14 @@ private[cli] object NativeSourceClosure:
       case -1 => false
       case n  => declared.contains(mod.substring(0, n)))
 
-  def resolve(roots: List[File], stdRoot: File, libRoot: File): List[NativeSourceUnit] =
+  /** `userRoots` are the canonical paths the user named on the command line. Every
+   * other root is a prelude this compiler injected, and debug metadata must not
+   * present one as the file the user wrote. */
+  def resolve(
+      roots: List[File],
+      stdRoot: File,
+      libRoot: File,
+      userRoots: Set[String] = Set.empty): List[NativeSourceUnit] =
     val seen = mutable.HashSet.empty[String]
     val result = mutable.ListBuffer.empty[NativeSourceUnit]
     val rootPrefix = roots.lengthCompare(1) > 0
@@ -83,7 +97,7 @@ private[cli] object NativeSourceClosure:
           val (target, childDisplay) = resolveImport(canonical, displayPath, relative, stdRoot, libRoot)
           visitImported(target, childDisplay)
         }
-        result += NativeSourceUnit(canonical, normalizeDisplay(displayPath), explicitRoot = false)
+        result += NativeSourceUnit(canonical, normalizeDisplay(displayPath), explicitRoot = false, userRoot = false)
 
     roots.zipWithIndex.foreach { case (root0, index) =>
       val root = root0.getCanonicalFile
@@ -96,7 +110,8 @@ private[cli] object NativeSourceClosure:
         val (target, childDisplay) = resolveImport(root, display, relative, stdRoot, libRoot)
         visitImported(target, childDisplay)
       }
-      result += NativeSourceUnit(root, normalizeDisplay(display), explicitRoot = true)
+      result += NativeSourceUnit(root, normalizeDisplay(display), explicitRoot = true,
+        userRoot = userRoots.isEmpty || userRoots.contains(root.getPath))
     }
     val units = result.toList
     // ONCE, over the finished closure, and only if some file actually uses the keyword form —

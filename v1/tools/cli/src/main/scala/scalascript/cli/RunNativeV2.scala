@@ -172,7 +172,11 @@ object RunNativeV2:
         dottedStdImportPrelude(userFiles, layout.stdRoot) ++
         userFiles
     val sourceFiles = canonicalFiles.map(portablePath)
-    val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot, layout.installRoot)
+    // The prelude above is LEADING by design — the runner combines all sources into one scope —
+    // but it must not be mistaken for the program the user compiled. Debug metadata anchors on
+    // these paths. (BUGS jvm-artifact-stack-trace-never-names-the-users-own-file.)
+    val sourceUnits = NativeSourceClosure.resolve(
+      canonicalFiles, layout.stdRoot, layout.installRoot, userFiles.map(_.getPath).toSet)
 
     val previousArgv = _root_.ssc.Runtime.argv
     try
