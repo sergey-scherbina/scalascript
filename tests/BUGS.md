@@ -1110,6 +1110,47 @@ does any gate in this suite leak a listener? Nothing measured says yes. The chec
 with `if: always()`, so the first real instance will name itself, with its age and its cwd.
 
 
+
+### 2026-08-14 — the collision is REAL and OBSERVED, in an ordinary smoke run
+
+The entry closed on the port-uniqueness ratchet (`eb314c99c`). A full `scripts/smoke-ci` the same
+evening produced the thing the original entry predicted and the correction had downgraded to
+hygiene:
+
+```text
+  FAIL std-ui-forms                      50.4s
+      [PASS] INT
+      [FAIL] JVM: :8769 is held by a process this gate did not start
+      [PASS] JS
+      [FAIL] JVM: :8769 is answering, but NOT from the process this gate started (pid 43041).
+```
+
+**This is not contention and not a leak.** `std-ui-forms-smoke.sh` passes 3/3 standalone at the SAME
+load (43) that it failed under in the suite, and nothing holds 8769 afterwards — so the holder was a
+sibling gate inside the same run. The gate did not guess: its own identity check ("answering, but NOT
+from the process this gate started") named the mechanism, which is why three passing runs are
+corroboration here rather than the inference-from-absence that would normally be worthless.
+
+**SEVEN files hard-code 8769**, five of them gates that actually start a server:
+
+```text
+health-defaults-smoke.sh   request-validation-family-gate.sh   serve-view-frontend-v2-smoke.sh
+std-ui-forms-smoke.sh      route-params-v2-smoke.sh
+(no-orphan-gates.sh and no-leaked-servers.sh mention the number as data, not as a port they bind)
+```
+
+The 2026-08-13 correction measured "collisions among WIRED gates: 0" and concluded the shared-port
+explanation could not be what happened. That measurement was true when taken and is now stale: the
+wired set has grown since — six coordination gates on 08-14 and several more the same day — and
+growth in the wired set is exactly what converts an orphan-only collision into a live one. **A
+"0 collisions" measurement over a population that is actively growing is dated evidence, not a
+property.**
+
+**So item 2 of the revised acceptance test — port uniqueness — was the load-bearing one after all,**
+and the ratchet that closed it must be checked against the population it now governs: if five wired
+gates still share 8769, either the ratchet does not cover concurrently-wired gates or these were
+wired past it. Not diagnosed here; observed, dated, and handed over with the run that shows it.
+
 ## a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
 
 <!-- status: fixed
