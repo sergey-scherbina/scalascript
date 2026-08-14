@@ -145,6 +145,40 @@ its RIGHT operand. Both fixes are still right — each reads a declaration that 
 but the claim about which rows they cover was reasoning where measuring was available. All five rows
 now emit `format!`, and the two that were broken are rows 2 and 3.
 
+## v2-rust-backend-carries-the-same-silent-zero-and-nothing-runs-it — the twin of toint-on-a-non-integer-diverges, in a backend no suite exercises
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — see below, that is half the entry
+     reported-by: claude-code
+     reported-at: 2026-08-14
+     confirmed: yes -->
+
+Found while fixing `toint-on-a-non-integer-diverges` in the v1 Rust backend, by grepping for the
+defect's shape rather than for its file. `v2/backend/rust/RustBackend.scala` — the CoreIR → Rust
+generator — emits its own runtime with the identical arms:
+
+```
+:1634   "toInt"   => V::Int(match recv { … V::Str(s) => s.parse::<i64>().unwrap_or(0), _ => 0 }),
+:1636   "toFloat" => V::Float(match recv { … V::Str(s) => s.parse::<f64>().unwrap_or(0.0), _ => 0.0 }),
+```
+
+Same silent zero, same divergence from `run`, and the `_ => 0` arm answers 0 for a receiver of any
+other type as well.
+
+**NOTHING RUNS THIS BACKEND, and that is the more interesting half.** `grep` across
+`scripts/smoke-ci.ssc`, `.github/workflows/ci.yml` and `tests/e2e/*.sh` finds no invocation; its own
+header documents the usage as `scala-cli run v2/backend/rust/ -- <file>`. So no gate would have seen
+this arm change behaviour, and none will see it if someone fixes it.
+
+**Not fixed here on purpose.** A one-line change to an unexercised generator is unverifiable: there
+is no lane to run the before/after on, and "it compiles" is not the property in question — the v1
+twin was fixed against `run` as the oracle, with a gate that builds a binary and reads its exit
+code. Wiring this backend to something that runs is the actual first task, and it is larger than the
+arm.
+
 ## toint-on-a-non-integer-diverges — toInt on a non-integer aborts on run and silently yielded 0 on build-rust
 
 <!-- status: fixed
