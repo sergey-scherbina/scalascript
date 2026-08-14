@@ -3907,6 +3907,19 @@ still a proxy for it.
      kind: apparatus
      gate: tests/e2e/no-orphan-gates.sh -->
 
+> **THE DETECTOR'S OWN BLIND SPOT, found 2026-08-14 while landing a fixture into one of these.**
+> `no-orphan-gates.sh` scans `tests/e2e/` and nothing else — its first line says so. `v2/backend/check.sh`
+> is a gate by every definition the entry uses (it runs every `v2/conformance/*.coreir` fixture through
+> the VM and diffs four generators against it, and it exits non-zero on a mismatch), it is invoked by
+> NO workflow, NO suite and NO other script, and the detector cannot see it because of where it lives.
+> So the count above is a floor for `tests/e2e/`, not a census of the repository's gates.
+>
+> Not fixed here, and the reason is a real cost rather than a shrug: the harness compiles a Rust crate
+> and a wasm module per fixture and takes minutes, so wiring it into `scripts/smoke-ci.ssc` spends the
+> smoke budget this project already treats as a cap. It wants either its own scheduled workflow or a
+> `--fast` subset — a decision, not an oversight. Recorded so the next person counting orphans knows
+> the number is scoped to one directory.
+
 **Measured 2026-08-02.** `tests/e2e` holds 126 scripts. 52 of them are referenced by no workflow, no
 suite, and no other script — only, at most, by prose in a `.md`. Running all 52 with a built
 launcher, 180 s timeout each, 1604 s total:
