@@ -1,0 +1,11 @@
+slug: v2-rust-conversions
+branch: feature/v2-rust-conversions
+agent: claude-code
+started: 2026-08-14T21:54:15Z
+heartbeat: 2026-08-14T21:54:15Z
+status: claimed-before-planning
+items: v2-rust-backend-carries-the-same-silent-zero-and-nothing-runs-it
+paths: file:v2/backend/rust/RustBackend.scala file:tests/e2e/rust-toint-parity-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
