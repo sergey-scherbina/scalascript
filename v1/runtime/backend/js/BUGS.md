@@ -604,11 +604,45 @@ down the entire `js` benchmark column because the bench wrapper itself used `+=`
 
 
 ## js-tls-intrinsic-missing-from-the-wsserver-capability-trigger — `tls(...)` alone emits a call to nothing
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: tests/conformance/tls-smoke.ssc (JS lane) -->
+     gate: tests/e2e/js-capability-triggers-gate.sh
+     fixed-in: 5cb4d19caf27e7ce53144a832ccb6c52ab8a8b13 -->
+
+> **CLOSED 2026-08-14 — fixed on 2026-08-02, and it sat `open` for twelve days after its own fix
+> landed.** Nothing new was needed. `5cb4d19ca` ("thirteen WsServer intrinsics emitted a call with no
+> definition, not one") added `tls(` — and twelve siblings — to `hasWsServer`, which is the one-line
+> fix this entry asked for. The follow-up question the entry raised in its last paragraph was
+> answered in the same pass: the list is no longer hand-audited, `tests/e2e/js-capability-triggers-gate.sh`
+> derives the expected set from the intrinsic table and from `JsGen.scala` itself, and it is WIRED —
+> `scripts/smoke-ci.ssc:594` runs it. `serve(`, the other name this entry flagged as suspicious, is
+> in the list too.
+>
+> **Verified against the absent state, not just read off a diff.** The chain a stale entry needs:
+>
+> | probe | result |
+> |---|---|
+> | `bin/ssc-tools run-js tests/conformance/tls-smoke.ssc` | `created` / `done` — byte-identical to `expected/tls-smoke.txt` |
+> | derived gate, list as it stands | exit **0** |
+> | derived gate, `tls(` deleted from `hasWsServer` (control) | exit **1**, naming `tls -> tls (in ws-server.mjs, gated by WsServer)` |
+>
+> The control is what makes the green mean something: it proves the gate covers *this* defect rather
+> than a neighbour, so its passing is caused by the trigger being present.
+>
+> **The stale-build banner was checked, not ignored.** The installed toolchain is built from
+> `348579049` while the tree is at `5bbb92f42`, and `ssc` says so on every run — "anything you measure
+> with it is the old code". For this question the old code IS the current code: `git diff` reports
+> `JsGen.scala` and `js-runtime/ws-server.mjs` **identical** between those two shas. A banner that
+> applies to the tree does not automatically apply to the two files a measurement depends on, and the
+> way to know is to diff them.
+>
+> **Why it stayed open, which is the part worth keeping.** The fixer landed the trigger and
+> immediately hit the defect underneath it — the eager `fs.readFileSync` in `tls()` — filed *that* as
+> its own entry (above, now closed), and the new entry absorbed the attention that should have closed
+> this one. `unblocking a dead code path reveals every defect in it`: the revealed defect gets the
+> write-up, the original gets forgotten *because* it stopped being interesting the moment it worked.
 
 **Found 2026-08-01 while surveying CI stability — NOT MINE, and `JsGen.scala` is held by the live
 `ssc3-core` claim, so this is diagnosed and handed over rather than fixed.** The fix is one entry in
