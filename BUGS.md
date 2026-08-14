@@ -23,6 +23,118 @@ Newest first.
 
 
 
+## toint-on-a-non-integer-diverges — toInt on a non-integer aborts on run and silently yields 0 on build-rust; HALF FIXED
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-toint-parity-gate.sh
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 04b2f12fc
+     repro: none
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-14. Everything in the reporter's section below is theirs, in their
+words; the diagnosis and the split are mine and are marked as such.
+
+`toInt` on a string that is not an integer does two different things, and the quiet one is the Rust
+lane.
+
+```scala
+def isInt(s: String): Boolean =
+  s.toInt.toString == s
+def main(): Unit =
+  println(isInt("8"))
+  println(isInt("8.0"))
+  println(isInt("abc"))
+main()
+```
+
+- `ssc run` → `true`, then ABORTS: `ssc: String.toInt: invalid integer`
+- `ssc-tools build-rust` → `true false false`
+
+The Rust arm is `self.trim().parse::<i64>().unwrap_or(0)`, so a non-integer silently becomes 0.
+Scala throws, and `run` matches Scala; the two lanes disagree on every non-integer input. Neither is
+obviously the bug — that is your call — but the shapes are not equivalent and the difference is
+invisible until the program moves lanes: a round-trip check (`s.toInt.toString == s`) is the natural
+way to ask "is this an integer", and it WORKS on build-rust while it kills the program on run.
+Reported because this is exactly the class that survives a test suite: same source, same inputs,
+different answers, no diagnostic.
+
+**Decided: `run` is the oracle and the quiet lane moves.** Scala throws, both run lanes throw, and a
+fabricated 0 is a wrong answer that reaches production. `toIntOption` already exists on the run lane
+as the total form.
+
+**HALF FIXED, and the half that is open is the common spelling.** The silent zero has TWO emission
+paths, which the new gate found by going red on the first attempt at this fix:
+
+| how the receiver reaches the walker | emitted | state |
+|---|---|---|
+| type not statically known (a `def` parameter) | `_to_int(x)` → the runtime template | FIXED |
+| walker knows it is a String (a literal, a typed local) | `("abc".to_string().parse::<i64>().unwrap_or(0))` INLINE | OPEN |
+
+So `def f(s: String) = s.toInt` now stops on both lanes, and `"abc".toInt` written straight into the
+call still answers 0 on the Rust lane. The inline sites are `RustCodeWalk.scala:2559` (i64), `:2568`
+(f64), `:2978` (`unwrap_or($fb)`) and `:4372-4373` (`unwrap_or_default()`); the fix is mechanical —
+call the same `ssc_parse_int` / `ssc_parse_double` the template now carries, which panic naming the
+operation AND the input (`String.toInt: invalid integer: "abc"`). Left open because that file was
+under another agent's claim; the gate asserts only what is actually fixed.
+
+**The twin nobody reported is fixed with it:** `toDouble` sat one line below with the identical
+`unwrap_or(0.0)`, and both run lanes throw for it too. Fixing the reported arm alone would have left
+its neighbour.
+
+## tolist-on-a-string-was-a-closure-on-the-run-lane — String had no `toList` arm, so the selection eta-expanded
+
+<!-- status: fixed
+     lane: native
+     area: runtime
+     kind: bug
+     gate: tests/e2e/rust-toint-parity-gate.sh
+     fixed-in: 82124f0a8
+     reported-by: rozum
+     reported-at: 2026-08-13
+     ssc-version: 04b2f12fc
+     repro: none
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-14, where it was part B of
+`toint-on-a-char-and-tolist-on-a-string`. Part A — no `SscToInt` arm for a character on the Rust
+lane — was fixed by the reporter themselves and is already on main as `2315f2ecf`; this is the half
+they explicitly did not attempt ("I did not want to guess at interpreter internals").
+
+The reporter's words:
+
+```scala
+def main(): Unit = println("ab".toList.length)
+```
+
+- `ssc run` → `<closure>`
+- `ssc-tools build-rust` → `2`
+
+Everything downstream then fails with `__method__: no dispatch for .map on <closure>`, which reads
+like a user error in the lambda and is not one. Together with part A these made a program
+unbuildable on BOTH lanes, and it is a program that is deployed: rozum's meeting PWA has not been
+rebuildable from source since 2026-08-08.
+
+**The cause is a missing arm, not the closure.** The v2 dispatcher has `toList` for a list, an
+Option, a Set, a Map, a LazyList and an ArrayBuffer — and none for a String. With nothing matching,
+`"ab".toList` fell into the `__method__` eta-expansion fallback and became the function value the
+reporter saw. That fallback stopped being SILENT on 2026-08-14 (`2e7ad72dc`): the same program now
+refuses loudly instead of printing `<closure>`. This entry is the missing feature behind that
+refusal.
+
+**Elements are `CharV`, not one-char strings, and the oracle is why.** `--v1` answers `List(a, b)`
+and `"ab".toList.map(c => c.toInt).sum` = 195 = `'a' + 'b'`; `CharV extends IntV(c.toLong)`, so an
+element renders as the character and converts to its code point, which is also what the Rust lane's
+`SscToInt for char` arm answers. All three lanes now agree.
+
+**Noticed and NOT changed:** the neighbouring `toCharArray` yields one-char STRINGS, whose `.toInt`
+would throw rather than give a code point. That divergence is older than this fix and is not what
+was reported; changing it here would have been an unrequested semantic change to a second method.
+
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 
 <!-- status: open
