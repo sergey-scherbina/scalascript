@@ -2,10 +2,16 @@ slug: policy-selftest-shared-index
 branch: feature/policy-selftest-shared-index
 agent: claude-code
 started: 2026-08-14T07:19:04Z
-heartbeat: 2026-08-14T07:19:04Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T09:55:00Z
+status: in-progress
 items: policy-selftest-stages-into-the-shared-index
 paths: file:tests/e2e/policy-single-source.sh file:tests/e2e/policy-selftest-residue-gate.sh file:scripts/smoke-ci.ssc file:.gitignore file:tests/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `policy-single-source.sh --self-test` stages its fixture into the SHARED index; a killed run
+  leaves an intent-to-add entry for a deleted file and `git rebase` then refuses to start for
+  whoever owns that checkout (reported in the room 2026-08-14). Fix: the self-test drives a COPY
+  of the index through GIT_INDEX_FILE, so no signal can leave anything there; trap for the file
+  on disk; .gitignore so a SIGKILL leftover is inert. New gate interrupts a real run at a known
+  point with SIGTERM and SIGKILL and asserts `git rebase` still starts, with its own control on
+  the unfixed script.
+next: smoke-ci in the worktree, then rebase, repoint fixed-in, push
