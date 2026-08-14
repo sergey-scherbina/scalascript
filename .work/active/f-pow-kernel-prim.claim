@@ -1,0 +1,11 @@
+slug: f-pow-kernel-prim
+branch: feature/f-pow-kernel-prim
+agent: claude-code
+started: 2026-08-14T21:35:55Z
+heartbeat: 2026-08-14T21:35:55Z
+status: claimed-before-planning
+items: f-pow-kernel-prim v3-math-pow-fractional-needs-a-v2-prim
+paths: file:v2/src/Runtime.scala file:v2/backend/js/JsBackend.scala file:v2/backend/jvm/JvmBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala file:v2/specs/10-core-ir.md file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/prelude/index.ssc file:v3/tests/parity file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
