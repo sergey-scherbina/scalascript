@@ -3,9 +3,48 @@ branch: feature/ssc3-flatmap-lane-split
 agent: claude-code
 started: 2026-08-14T11:03:21Z
 heartbeat: 2026-08-14T11:03:21Z
-status: claimed-before-planning
+status: working
 items: v3-flatmap-nonlist-lane-divergence
 paths: file:v3/src/Exec.scala file:v3/BUGS.md file:v3/parity-gate.sh file:v3/tests/parity
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The owner asked (2026-08-14) for `v3-multishot-handler-without-a-return-clause` to be fixed. THE
+  ENTRY I FILED THIS MORNING NAMES THE WRONG MECHANISM and this claim corrects it as well as the
+  code: nothing about multi-shot handlers is wrong. The defect is `flatMap` (and `++`) on a NON-LIST
+  result, and the effect fixture is merely the loudest place it shows.
+
+  MEASURED, NOT REASONED, and the table is the whole case:
+
+      op                     reference (bin/ssc run)   v2 VM (v3 --bridge)   v3 exec
+      List.flatMap non-list  List(10, 20, 30)          List(10, 20, 30)      REFUSES
+      List ++ non-list       List(1, 2, 5)             -                     REFUSES
+      List.zip non-list      refuses "expected a list" -                     refuses
+
+  A non-list is ONE ELEMENT on every lane that answers. `zip` already agrees, so it stays as it is.
+
+  THIS IS A LIVE I-3 VIOLATION AND THAT IS THE STRONGEST FACT HERE: `v3/ssc3 run --bridge` prints
+  `List(10, 20, 30)` for a program `v3/ssc3 run` REFUSES. The two lanes of one compiler disagree,
+  which invariant I-3 exists to forbid — not a v3-vs-reference argument I could be talked out of.
+
+  IT REVERSES PART OF AN OWNER-DIRECTED DECISION, so the reason has to be better than a preference.
+  `7730f6039` (2026-08-12) changed `listOut` from SWALLOWING a non-list to REFUSING it, on the
+  owner's instruction and with a real measurement behind it, and it was right that the swallow was
+  wrong: a swallowed element made `xs.flatMap(f)` produce the empty list and a `foldLeft` over that
+  returned a number that looked like an answer. What that commit got wrong is one sentence — "v2's
+  runtime still swallows". IT DOES NOT: v2 WRAPS, measured today on v3's own bridge lane, and
+  `git log -S flatMap 4a93c440c..HEAD -- v2/src/` is empty, so it wrapped then too. Swallow, wrap
+  and refuse are THREE behaviours and the commit collapsed two of them. The corpus agrees with wrap
+  independently: `js-effect-multishot-long-fold` has a checked-in expectation of 204, which is what
+  a wrapping lane produces and what v3 answered 0 against.
+
+  THE FIX IS NOT IN THE SHARED HELPER. `listOut` serves `flatMap`, `zip` and `++`, and the three do
+  not want the same answer — `zip` refuses on every lane. So a wrapping variant is used at the
+  `flatMap` and `++` sites (Exec.scala:1339 and :1412) and `zip` (:1354) keeps `listOut`. Putting it
+  in `listOut` would silently change `zip` to agree with nobody.
+
+  MEASUREMENT: N with floors DIFF 3 and CRASH 9 — and this one is EXPECTED to move, unlike the last
+  four changes: `7730f6039` recorded its own price as CRASH 3 -> 4 and LANE-EXCL 2 -> 1, so undoing
+  the refusal in favour of the correct answer should give some of that back. `bench-corpus-gate`
+  must go from 33 to 34 of 36 rows, and `js-effect-multishot-long-fold` must answer its checked-in
+  204 rather than 0 — that last one is the check that distinguishes WRAP from the old SWALLOW, since
+  swallowing also removes the refusal while still answering 0.
+next: wrap at the two sites, prove 204, re-run bench-corpus-gate, then rewrite the BUGS entry
