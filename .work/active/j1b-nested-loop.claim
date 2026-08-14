@@ -1,0 +1,11 @@
+slug: j1b-nested-loop
+branch: feature/j1b-nested-loop
+agent: claude-code
+started: 2026-08-14T15:43:18Z
+heartbeat: 2026-08-14T15:43:18Z
+status: claimed-before-planning
+items: SSC3-J1b
+paths: file:v3/SPRINT.md file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
