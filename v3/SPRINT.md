@@ -2488,6 +2488,43 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       needs an answer: it is an integer loop, so the mechanism predicts it moves with `arith-loop`,
       and it is the only workload whose prediction is untested. Re-run it in a quiet window.
 
+      **PAID 2026-08-14, load 2.7, AND THE PREDICTION REGISTERED ABOVE IS CONFIRMED.** The quiet
+      window arrived that evening; `sha 147074018`, 20 pairs, same harness, with `arith-loop` re-run
+      beside it as a known-positive and `recursion-fib` as the null-by-construction:
+
+      | workload | med ON | med OFF | ratio | control | ctl p | experiment | p |
+      |---|---|---|---|---|---|---|---|
+      | `nested-loop` | 34.78 ms | 37.31 | 1.073 | 7 of 20 | 0.26 ✓ | **16 of 20** | **0.0059** |
+      | `arith-loop` | 29.44 | 33.12 | 1.125 | **10 of 20** | 1.00 ✓ | **19 of 20** | **2.0e-5** |
+      | `recursion-fib` | 153.66 | 153.36 | 0.998 | 9 of 20 | 0.82 ✓ | 8 of 20 | 0.87 |
+
+      **The prediction was registered before the measurement and it named the right row.** It read:
+      *"`nested-loop` is 75 % proved, exactly like `arith-loop`, and it changes 6 IR lines — twice
+      `arith-loop`'s 3. If the mechanism story is right it must come back a clear win. If it comes
+      back null on a steady control, the story is wrong."* It came back 16 of 20 on a control of 7,
+      which is the outcome that could have refuted the `arith-loop` win and instead corroborates it.
+
+      **`arith-loop` REPLICATES on a rebuilt executor**, which is worth as much as the new row. The
+      class directory is `ssc3-c30f03ce8317b78c` against `ssc3-cf60d8047a769f47` in the morning run —
+      `v3/src` moved underneath (`Lower`, `Parser`, `Source`, `Loader`) — and the census was re-taken
+      first and is byte-for-byte the same, 4/3, 8/6, 4/2, 4/0. So the two runs measure the same
+      programs through a recompiled compiler, and the effect survived: 20 of 20 then, 19 of 20 now.
+
+      **AND THE FALSE-POSITIVE CALIBRATION IS NOW TWO READINGS, WHICH CHANGES HOW IT SHOULD BE
+      QUOTED.** `recursion-fib` runs a byte-identical module on both arms, so every reading from it is
+      the null distribution being sampled: it gave **14 of 20** in the morning and **8 of 20** now.
+      The morning entry called 14 of 20 "this host's demonstrated false-positive rate"; two samples
+      say it is better described as a RANGE that reaches 14, not a level. That is the same conclusion
+      operationally — a 14-of-20 column is not evidence — but it is the honest form of it, and it is
+      why `nested-loop`'s morning 14 of 20 was right to refuse and its evening 16 of 20 on a sound
+      control is not.
+
+      *A counting note, because two counts of one dataset disagreed:* `bench-ab.sh`'s own tally is
+      authoritative and a reparse of its printed output is not. `arith-loop` pair 9 printed
+      `28.30/28.30` — a tie only at two decimals — so re-deriving the control from the log gave 9 of
+      20 where the harness, comparing full precision, counted 10. Exactly one pair in the run is
+      affected and no experiment column has one, so only that cell moved. Read the harness's numbers.
+
       **The two clean nulls are the two the mechanism predicts cannot move, and that is the control
       that makes `arith-loop` credible.** `list-fold` is `invoke`-bound — established as J2's control
       for exactly this reason — and `recursion-fib` is dominated by the per-call frame; neither is
@@ -2525,6 +2562,10 @@ same shape at 49 384 bytecodes and splitting it was worth 2.4–10.8×; what did
       it is 75 % proved, exactly like `arith-loop`, and it changes 6 IR lines — twice `arith-loop`'s
       3. If the mechanism story is right it must come back a clear win. If it comes back null on a
       *steady* control, the story is wrong and the `arith-loop` win needs a different explanation.
+
+      **PAID the same day: 16 of 20 on a control of 7 of 20 (p 0.0059).** Left worded as it was
+      written, because a prediction is only worth anything in the tense it was made in. The numbers
+      are in the item above.
 
 - [x] **The `--identity` gate exists now, and it is no longer green by construction.** 65 programs
       run with and without the pass, output compared byte for byte, plus `wrong-kind.ssir` — two
