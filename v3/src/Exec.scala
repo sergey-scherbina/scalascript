@@ -822,29 +822,62 @@ object Exec:
 
   /** Walks a `Cons` chain into a Scala list, and REFUSES anything that is neither `Cons` nor `Nil`.
     *
-    *  It used to stop silently. `Nil` ends the walk correctly — it IS the terminator — but so did an
-    *  Int, and then the element contributed NOTHING: `xs.flatMap(f)` where `f` returns a number gave
-    *  the EMPTY list, and a `foldLeft` over that produced a number that looked like an answer.
+    *  It used to stop SILENTLY, which is a third behaviour and the wrong one: `Nil` ends the walk
+    *  correctly — it IS the terminator — but so did an Int, and that element then contributed
+    *  NOTHING. `xs.flatMap(f)` where `f` returned a number gave the EMPTY list, and a `foldLeft`
+    *  over that produced a number that looked like an answer. `7730f6039` stopped the swallow, on
+    *  the owner's instruction and rightly.
     *
-    *  MEASURED BEFORE TIGHTENING, over both corpora, because a refusal is only safe if nothing
-    *  working depends on the swallow: 12 occurrences across `tests/conformance` (369 programs) and
-    *  600 across `bench/corpus` — all at `flatMap`, none at `zip`, `++` or rendering, and between
-    *  them exactly TWO programs. Both are already wrong:
-    *  `js-effect-multishot-long-fold` answers 0 against a checked-in 204, and `effect-multishot`
-    *  answers 0. Nine other `flatMap` users in conformance and 33 other bench programs never reach
-    *  here. So this changes no correct program; it turns one silent wrong answer into a loud one.
+    *  WHERE THAT LANDED IS NOW SPLIT, because the callers do not want one answer. This walk is for
+    *  the operands that MUST be lists, and today that is `zip` — which refuses a non-list on every
+    *  lane, so v3 refusing agrees with all of them. `flatMap` and `++` take `listOrOne` instead:
+    *  measured 2026-08-14, both the reference lane and v3's OWN BRIDGE treat a non-list there as one
+    *  element, so refusing made `ssc3 run` disagree with `ssc3 run --bridge` — an I-3 violation
+    *  inside one compiler. See `listOrOne` for the table and for why "v2's runtime still swallows",
+    *  written here on 2026-08-12, was wrong about which of the three behaviours v2 has.
     *
-    *  NO NEW LANE DIVERGENCE, and that was checked rather than assumed: I-3 is about a program that
-    *  agrees across lanes starting to disagree. The only two programs affected already disagree —
-    *  v3 says 0 where the other lanes say 204 — so refusing changes the SHAPE of an existing
-    *  divergence, from silent to diagnosable, and creates none. v2's runtime still swallows; that is
-    *  filed with this measurement behind it rather than guessed at.
-    *
-    *  The message names the SITE because the same walk serves `flatMap`, `zip` and `++`, and the
-    *  three have different fixes: for `flatMap` it is almost always a handler whose return clause is
-    *  missing, so `resume` hands back the computation's raw value instead of the handled type.
+    *  The message still names the SITE, because a caller that reaches this walk has genuinely been
+    *  handed the wrong shape and the site is what tells the reader which operand to look at.
     */
   private def listOut(m: Module, v: Value): List[Value] = listOut(m, v, "a list operation")
+
+  /** A list operand that MAY be a bare value, in which case it is ONE ELEMENT.
+    *
+    * `xs.flatMap(f)` where `f` returns a number, and `xs ++ y` where `y` is not a list. Every other
+    * lane answers, and they all answer the same thing — measured 2026-08-14 rather than reasoned
+    * about, because the previous answer here was reasoned about:
+    *
+    *     op                     reference (bin/ssc run)    v2 VM (v3 --bridge)   v3 exec, before
+    *     List.flatMap non-list  List(10, 20, 30)           List(10, 20, 30)      REFUSED
+    *     List ++ non-list       List(1, 2, 5)              —                     REFUSED
+    *     List.zip non-list      refuses "expected a list"  —                     refuses
+    *
+    * SO THIS IS NOT `listOut` WITH A FLAG, AND THAT IS THE WHOLE REASON IT IS A SECOND FUNCTION.
+    * `listOut` serves `flatMap`, `zip` and `++`, and `zip` REFUSES on every lane. Relaxing the
+    * shared walker would have made `zip` agree with nobody — the shape this repository keeps paying
+    * for, where one helper is asked to answer for two representations.
+    *
+    * THREE BEHAVIOURS, NOT TWO, and collapsing them is what went wrong before. `7730f6039` changed
+    * this walk from SWALLOWING a non-list to REFUSING it, on the owner's instruction, and it was
+    * right that the swallow was a defect: a swallowed element made `xs.flatMap(f)` produce the
+    * EMPTY list and a `foldLeft` over that returned a number that looked like an answer. What it got
+    * wrong is one sentence — "v2's runtime still swallows". It does not; it WRAPS, which is this,
+    * and `git log -S flatMap 4a93c440c..HEAD -- v2/src/` is empty, so it wrapped then too. Swallow,
+    * wrap and refuse are three different answers and only one of them is every other lane's.
+    *
+    * THE REFUSAL WAS A LIVE I-3 VIOLATION, which is the fact that settles it without appeal to any
+    * other implementation: `v3/ssc3 run --bridge` printed `List(10, 20, 30)` for a program
+    * `v3/ssc3 run` refused. Two lanes of ONE compiler disagreeing is what I-3 exists to forbid.
+    *
+    * The corpus agrees independently: `js-effect-multishot-long-fold` carries a checked-in
+    * expectation of 204, which is what a WRAPPING lane produces and what v3 answered 0 against —
+    * and 0 is also what swallowing produces, so that case is the check that tells the two apart. */
+  private def listOrOne(m: Module, v: Value): List[Value] =
+    val consT = tagOf(m, "Cons")
+    val nilT  = tagOf(m, "Nil")
+    v match
+      case Value.VData(t, f) if (t == consT && f.length == 2) || t == nilT => listOut(m, v)
+      case other                                                          => List(other)
 
   private def listOut(m: Module, v: Value, site: String): List[Value] =
     val consT = tagOf(m, "Cons")
@@ -858,13 +891,11 @@ object Exec:
           out = f(0) :: out
           cur = f(1)
         case Value.VData(t, _) if t == nilT => go = false
+        // The `flatMap` arm that used to hang off this message is GONE with the caller: `flatMap`
+        // and `++` take `listOrOne` now, so nothing reaching here is a handler-return-clause
+        // problem, and advice naming one would send the reader to a construct they did not write.
         case other =>
-          throw ExecError(site + " needs a List and got " + shapeOf(other) +
-            " — it contributes no elements, so the result would be silently short." +
-            (if site == "flatMap" then
-               " If this is a handler, its return clause is what lifts the final value into the" +
-               " handled type; without one `resume` hands back the computation's own value."
-             else ""))
+          throw ExecError(site + " needs a List and got " + shapeOf(other))
     out.reverse
 
   /** A cheap description of what terminated the walk — the CONSTRUCTOR or primitive kind, never the
@@ -1336,7 +1367,7 @@ object Exec:
           Value.VInt(acc)
         case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
         case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
-        case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x), "flatMap")))
+        case "flatMap" => listIn(m, xs.flatMap(x => listOrOne(m, apply1(m, args.head, x))))
         // Every one of these ran on the BRIDGE and refused here. Found by probing the two
         // lanes with one program per method rather than by reading either implementation:
         // 23 of 32 probes were bridge-only, which no amount of code reading had suggested.
@@ -1409,6 +1440,13 @@ object Exec:
         case "foreach" =>
           xs.foreach(x => apply1(m, args.head, x))
           Value.VUnit
+        // `++` KEEPS `listOut`, and that is a MEASUREMENT rather than an oversight. The reference
+        // native lane wraps here — `List(1,2) ++ 5` is `List(1, 2, 5)` — so widening looked right,
+        // and I did widen it. The parity probe added in the same commit immediately said no: the v2
+        // VM REFUSES (`expected a list, got 5`, `Prims.unlistPub`), so wrapping made `ssc3 run`
+        // disagree with `ssc3 run --bridge` — it CREATED the I-3 violation this commit exists to
+        // remove, in the other operator. v2 wraps for `flatMap` and refuses for `++`; the asymmetry
+        // is v2's, and v3's two lanes agreeing is what I-3 asks. Filed rather than papered over.
         case "++"      => listIn(m, xs ++ listOut(m, args.head, "++"))
         case ":+"      => listIn(m, xs :+ args.head)
         case "+:"      => listIn(m, args.head :: xs)
