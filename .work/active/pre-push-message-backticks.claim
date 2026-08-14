@@ -2,10 +2,27 @@ slug: pre-push-message-backticks
 branch: feature/pre-push-message-backticks
 agent: claude-code
 started: 2026-08-14T07:19:11Z
-heartbeat: 2026-08-14T07:19:11Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T07:38:00Z
+status: working
 items: pre-push-refusal-message-executes-its-own-backticks
 paths: file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `.githooks/pre-push:413` opens its claim-overlap refusal with an UNQUOTED heredoc, so the six
+  backticked identifiers in that prose are command substitutions: `scripts/coord-claim` is EXECUTED
+  and dumps its usage before the message, `<slug>` becomes a redirection, and five sentences lose
+  every identifier they name. Met as a reader when my own claim was correctly refused.
+
+  CENSUS BEFORE THE EDIT, so the scope is measured: 19 backticked lines sit inside unquoted heredocs
+  across `.githooks/`, `scripts/` and `tests/`, and 15 are already escaped, in five files. This file
+  escapes correctly at lines 133 and 140. One prose block, 421-425 — not rot to sweep.
+
+  NARROW: the dynamic part (`$problems`) moves out into a `printf`, the delimiter is quoted, text
+  preserved byte-for-byte (differential: 16 lines of coord-claim usage and 4 "command not found"
+  lines gone, 5 restored, rest identical). Plus a ratchet,
+  `tests/e2e/no-live-backticks-in-heredocs.sh`, wired into smoke — the eighth occurrence of this
+  class here and the first in checked-in code, where no habit of anyone's reaches it.
+
+  CO-TENANT `scripts/smoke-ci.ssc` with `policy-selftest-shared-index` — one appended `Check(...)`
+  row, nothing else in that file. Said so in the room (2026-08-14/19).
+next: fix + gate committed (ae13cf2c8, gate verified RED on the reverted file); smoke running; then
+      re-point `fixed-in:` at the landed sha and release
