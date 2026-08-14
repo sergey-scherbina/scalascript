@@ -1,0 +1,11 @@
+slug: smoke-guard-headroom
+branch: feature/smoke-guard-headroom
+agent: claude-code
+started: 2026-08-14T10:55:18Z
+heartbeat: 2026-08-14T10:55:18Z
+status: claimed-before-planning
+items: a-smoke-guard-under-3-5x-its-own-baseline-is-a-flake-generator
+paths: file:tests/e2e/smoke-guard-headroom.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
