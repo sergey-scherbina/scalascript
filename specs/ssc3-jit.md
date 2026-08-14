@@ -403,6 +403,7 @@ is what this file said when the ladder was built; the `quiet` column is what a r
 | J2 | closure compilation | yes | **worse**, 1 of 8 | **confirmed worse — 0 of 25 on all four rows** |
 | J1c | unboxed long bank | yes — 10.5× less allocated | **worse**, 3 of 8 | **still owed** — see below |
 | J1d | copy propagation | yes — 20 % fewer instructions | unmeasurable here | leans to the change, 12/15 and 13/15 (`4584fe61d`) |
+| J4a | loop-invariant const hoist | yes — 25–36 % fewer dispatches per iteration | — | **WIN — 20/20, 20/20, 18/20 on the three rows it can help; the two it cannot did not move** |
 
 **The one thing that worked was making the existing dispatch cheaper to run, not replacing it and
 not feeding it less** — and the quiet re-runs did not disturb that reading, they sharpened it. J1b,
@@ -455,6 +456,49 @@ rows whose hot path is a called function body rather than an explicit loop — `
 `array-update` and `vector-index` carry 62, 65 and 66 straight-line instructions each, executed once
 per `workload()` call, and the same two fusions apply there. The loop-body column is the
 conservative half of the estimate, not the whole of it.
+
+#### J4a LANDED, and the fork below was not needed for it — 2026-08-14
+
+**Both shapes turn out to be expressible as IR→IR rewrites over the EXISTING instruction set**, so
+the first half shipped without touching the portable contract at all:
+
+- a `(const c k)` inside a loop body is loop-INVARIANT and re-dispatched every iteration. **Lifting
+  it out removes exactly the dispatch a `const`+`bin` superinstruction would have removed**, and it
+  is an ordinary pass in `Optimize.scala`. The IR, the verifier, the text form, `BridgeV2` and the
+  closure lane are untouched.
+- the `(bin cmp) (un not) (brif)` triple can lose its `not` by INVERTING the comparison — the second
+  half, and it is gated on `Specialize` having proved an integral kind, because `not (a < b)` is not
+  `a >= b` when a NaN can reach the operands.
+
+Measured, dispatches per iteration (post-copy-propagation baseline): `var-expr-init` 14→9,
+`instance-field` 18→12, `map-ops` 16→11, `nested-loop` 19→14, `arith-loop` 8→6 — twenty-odd corpus
+rows in a 25–36 % band, which is the const half of §10.2's census exactly.
+
+Wall clock, 20 alternating pairs per row at load 5–9, one binary with `--no-hoist` as the OFF arm,
+matched control inside every pair:
+
+| workload | dispatch cut | control | experiment | mean ON/OFF |
+|---|---|---|---|---|
+| `var-expr-init` | 14→9 | 11 of 20 | **20 of 20** | **0.772** |
+| `arith-loop` | 8→6 | 9 of 20 | **20 of 20** | **0.862** |
+| `nested-loop` | 19→14 | 11 of 20 | **18 of 20** | 0.896 |
+| `list-fold` | 10→8 | 10 of 20 | 7 of 20 | 1.008 (0.955–1.082) |
+| `recursion-fib` | none | 7 of 20 | 8 of 20 | 1.002 (0.975–1.029) |
+
+**The two nulls were predicted before the run and are the reason the three wins mean something.**
+`recursion-fib` has no loop body to lift from. `list-fold` has a 20 % cut and still does not move,
+because it is `invoke`-bound — the same property that made it J2's control — so two cheap `Const`
+dispatches removed from a body whose cost is a function call change nothing. A pass that moved
+those two rows would be measuring something other than itself.
+
+**And the guard nearly shipped untested.** Weakening `writes(d) == 1` to `>= 1` left every gate
+green: a census over the 127 programs in `bench/corpus`, `v3/tests/front` and `v3/tests/jit` found
+only two with a loop-level `Const` on a multiply-written register, and both were corpus files, which
+no gate runs for output. `v3/tests/front/hoist-guard.ssc` closes it — 30 with the guard, 297
+without — and `jit-gate.sh --identity` gained a fifth arm (`--no-hoist`) proven to fire by planting.
+The fixture also showed that **copy propagation must run FIRST**: on the raw body the front's
+`Const → rTmp; Move(rK, rTmp)` makes the constant look liftable, and lifting it merely separates a
+pair copy propagation would have collapsed.
 
 **The fork that decides the cost, and it is a design question rather than a coding one.** A fused
 operation has to be *represented* somewhere, and there are two places:

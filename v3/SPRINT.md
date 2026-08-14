@@ -2684,6 +2684,21 @@ is dispatch-bound and its dispatch is already good.** The next thing to try is t
 cheaper dispatch but FEWER of them: superinstructions, fusing `Bin(Lt); BrIf` and `Const; Bin` at
 load time, which keep the exact loop J0c tuned and push fewer instructions through it. That is the
 one §3 J1 item never built, and now the only one the evidence points at.
+- [x] **SSC3-J4a — the const half LANDED 2026-08-14, and it needed neither new opcodes nor an
+      executor change.** `Optimize.hoist` lifts a loop-invariant `Const` out of the loop body: same
+      instruction set, so the IR, the verifier, the text form, `BridgeV2` and the closure lane are
+      untouched. Dispatches per iteration, post-copy-propagation: `var-expr-init` 14→9,
+      `instance-field` 18→12, `map-ops` 16→11, `nested-loop` 19→14, `arith-loop` 8→6 — twenty-odd
+      rows in a 25–36 % band. Clock, 20 alternating pairs at load 5–9 with a matched control:
+      **`var-expr-init` 20 of 20 (0.772), `arith-loop` 20 of 20 (0.862), `nested-loop` 18 of 20
+      (0.896)** — and the two rows the mechanism cannot help did NOT move, both predicted before the
+      run: `recursion-fib` has no loop body (8 of 20, 1.002) and `list-fold` is invoke-bound (7 of
+      20, 1.008). Guard, gate and pass ORDER all came out of one fixture — see
+      [`specs/ssc3-jit.md`](../specs/ssc3-jit.md) §10.2, and `v3/tests/front/hoist-guard.ssc`, which
+      prints 30 with the guard and 297 without.
+      *Still owed:* the `(bin cmp) (un not) (brif)` half, which needs `Specialize` to have proved an
+      integral kind — `not (a < b)` is not `a >= b` where a NaN can reach the operands.
+
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
       two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,
