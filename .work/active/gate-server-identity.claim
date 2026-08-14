@@ -2,8 +2,8 @@ slug: gate-server-identity
 branch: feature/gate-server-identity
 agent: claude-code
 started: 2026-08-14T09:08:42Z
-heartbeat: 2026-08-14T09:08:42Z
-status: claimed-before-planning
+heartbeat: 2026-08-14T15:52:00Z
+status: parked-mid-task
 items: a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
 paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/serve-view-frontend-v2-smoke.sh
 scope: |
@@ -23,4 +23,25 @@ scope: |
   its own LOG, so a foreign server returning any 200 makes it pass. The gates with body assertions
   (`route-params`, `health-defaults`) would catch a foreign server by its wrong answer; this one
   cannot. Wiring it is what turns the entry's `confirmed: no` into a demonstrated instance.
-next: wire the four named gates + serve-view, plant against each, record which were verified
+next: wire serve-view (the DECISIVE one), then health-defaults / std-ui-forms / request-validation
+
+parked: |
+  2026-08-14 — the helper, the both-directions self-test and one wired gate are LANDED
+  (`route-params-v2-smoke`). Parked at the owner's request to take `install-redundant-build` first;
+  the claim is held because the remaining four gates are the same edit and the same verification
+  loop, and handing them to somebody else mid-shape would cost more than it saves.
+
+  Landed: `tests/e2e/lib/own-server.sh`, the ownership plant in `no-leaked-servers.sh --self-test`
+  (already run by ci.yml), `route-params-v2-smoke.sh`.
+  Remaining: `serve-view-frontend-v2-smoke.sh` FIRST — it is the only one where the check is
+  decisive rather than defence-in-depth, because it asserts `http=200` plus a string scraped from
+  its own log — then `health-defaults-smoke.sh`, `std-ui-forms-smoke.sh`,
+  `request-validation-family-gate.sh`.
+
+  Two things measured on the way that the next session should not re-derive:
+  - these gates reach for `$ROOT/../bin/ssc-tools`, which a worktree does NOT have (only `bin/ssc`
+    is tracked), and none of the five uses `ssc_usable_or_skip` — so instead of a SKIP naming
+    `./install.sh --dev` they report "--v1 baseline broke", blaming the product. 20 other gates in
+    the directory already source that helper.
+  - `route-params-v2-smoke` FLAPS under load: a 30 s deadline while the v2 lane compiles. Same
+    failure `health-defaults-smoke` documented when it raised its own 60 → 180.
