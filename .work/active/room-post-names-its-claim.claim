@@ -1,0 +1,11 @@
+slug: room-post-names-its-claim
+branch: feature/room-post-names-its-claim
+agent: claude-code
+started: 2026-08-14T16:27:53Z
+heartbeat: 2026-08-14T16:27:53Z
+status: claimed-before-planning
+items: room-post-names-its-claim
+paths: file:AGENTS.md file:.agents/plugins/rozum/commands/rozum.md file:.agents/plugins/multi-agent/commands/multi-agent.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
