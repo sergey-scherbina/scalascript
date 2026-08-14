@@ -350,7 +350,27 @@ def suppressSepOf(rest, prevCanEnd) = if prevCanEnd then suppressSep2(rest) else
 def suppressSep2(rest) = if canStartLine(rest) then isCont(rest) else true
 def layoutNLsep(v, rest, stack, prevCanEnd, declHead) = layoutNLsep2(v, rest, stack, declHead, suppressSepOf(rest, prevCanEnd))
 def layoutNLsep2(v, rest, stack, declHead, suppressSep) = nlStep(v, stack, suppressSep) match { case (emitted, ns) => appEnv(emitted, layoutGo(rest, ns, false, false, if suppressSep then declHead else false, false)) }
-def layoutCloseP(t, rest, stack, declHead) = if topStackIs("X", stack) then closeToDelim("X", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, true, true, declHead, false))) } else closeToDelim("P", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead, false))) }
+def layoutCloseP(t, rest, stack, declHead) = if topStackIs("X", stack) then closeToDelim("X", stack) match { case (cs, ns) => layoutCloseX(t, rest, cs, ns, declHead) } else closeToDelim("P", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead, false))) }
+// SINGLE-LINE `extension (r) def m …`: the member sits on THIS line, so no NL follows the receiver
+// `)` and the `prevOpener` arm of layoutNL never runs. No L block is opened, extOpenBrace is a no-op,
+// and extMembers falls back to its contiguous-`def` scan — which cannot tell the one real member from
+// the top-level `def`s after it. Every one of them is emitted receiver-prepended, so a plain call
+// `main()` hits arity N+1: `arity: 1 expected, 0 given`. Same root cause as the reference front's
+// silent variant, fixed there in 0428861ff.
+//
+//   extension (s: String) def boxed: String = s
+//   def tagged(): String = "T"        -- ABSORBED: gains the receiver
+//   def main(): Unit = …              -- ABSORBED too, so the entry point takes an argument
+//
+// Give that form the block the multi-line form already gets, so parser and lowerer see ONE shape.
+// The sentinel indent closes the frame at the NEXT NL whatever its column — the body IS this line.
+// A body continued after a layout opener (`=` ⏎, `= e match` ⏎ arms) is unaffected: that NL takes
+// the prevOpener arm, pushing its own frame ABOVE this one, and the dedent closes both.
+//
+// Guarded on `def` so only the member form fires, and reachable ONLY from a top-level `extension`:
+// isExtIdentTop requires an empty stack, so the X frame — and therefore this arm — never exists for
+// the nine single-line members inside `trait` / `given … with` bodies, whose `(` pushes a plain P.
+def layoutCloseX(t, rest, cs, ns, declHead) = if isTok(hd(rest), 2, 1) then appEnv(cs, Cons(t, Cons((2, 28), layoutGo(rest, Cons(("L", 1000000), ns), false, false, declHead, false)))) else appEnv(cs, Cons(t, layoutGo(rest, ns, true, true, declHead, false)))
 def layoutCloseS(t, rest, stack, declHead, eh) = closeToDelim("S", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead, eh))) }
 def layoutCloseB(t, rest, stack) = closeToBrace(stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, false, false))) }
 def layoutDefault(t, rest, stack, declHead, eh) = layoutDefault2(t, rest, stack, inDeclHeadOf(t, declHead), inParenLikeOf(stack), (if isExtIdentTop(t, stack) then true else eh))
@@ -2357,9 +2377,12 @@ def isExtensionHead(ts) = isWord(hd(ts), "extension")
 def extensionItem(ts, cx) = extHeader(skipGen(tl(ts)), cx)
 // The layout wraps the members in a virtual `{ … }` (top-level extension L-block). extOpenBrace steps
 // past that leading `{`; extMembers STOPS at (and consumes) the matching `}`, so a dedented top-level
-// `def` after the block is NOT parsed as a receiver-bearing member. A single-line `extension (r) def m …`
-// has no NL after `)`, so no brace is emitted — extOpenBrace is a no-op and the old contiguous-def scan
-// (stop at a non-def) still applies.
+// `def` after the block is NOT parsed as a receiver-bearing member. The single-line form gets that
+// brace too, from layoutCloseX (:353) — it used not to, and the contiguous-def fallback it fell back
+// on could not tell the one real member from every top-level `def` after it, which is the whole of
+// v2-extension-member-call-inside-a-def-body-fails-by-arity. Both forms now reach here as one shape,
+// so the fallback below is unreachable for a TOP-LEVEL extension and survives only for a receiver
+// clause that never opened an X frame at all.
 def extOpenBrace(r) = if isTok(hd(r), 2, 28) then tl(r) else r
 def extHeader(ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => extMembers(renv, skipSemisF(extOpenBrace(r)), cx, "") } else (("", ""), ts)
 def extMembers(renv, ts, cx, acc) = if isTok(hd(ts), 2, 29) then ((acc, ""), tl(ts)) else (if isTok(hd(ts), 2, 1) then extMember(renv, extMemberName(hd(tl(ts))), skipGen(tl(tl(ts))), cx, acc) else ((acc, ""), ts))

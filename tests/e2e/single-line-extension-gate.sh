@@ -28,10 +28,12 @@
 # `typeclass-extension` below is that check: abstract member, implemented member, and a member whose
 # body continues on following lines after `= … match`.
 #
-# F IS ASSERTED AS KNOWN-RED, deliberately. Its half of the defect is unfixed and its front file is
-# held by another claim; a row that merely prints the failure would let it be fixed with nobody
-# noticing this gate. Instead the known-red rows FAIL when F starts passing, so whoever fixes F is
-# told to promote them.
+# BOTH FRONTS ARE NOW ASSERTED. F's half landed on 2026-08-14 (`layoutCloseX` in
+# `specs/v2.2-p6.5-fsub.ssc`): the receiver `)` followed by `def` on the same line opens a virtual
+# block with a sentinel indent, which the next NL closes — the same shape the multi-line form gets,
+# so `extMembers` stops after the one real member instead of scanning on through the file. Until
+# then these four rows were asserted on the reference front only, with F pinned KNOWN-RED so that
+# fixing it would FAIL this gate rather than pass it silently; that is how the promotion got made.
 set -uo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -91,43 +93,30 @@ both() {
   fi
 }
 
-# $1 name, $2 expected first line, $3 source — the reference front must answer it; F is KNOWN-RED
-# and the row fails if F starts answering correctly, so the state cannot drift unnoticed.
-ref_only() {
-  local name=$1 want=$2 src=$3 f r
-  printf '%s\n' "$src" > "$sandbox/$name.ssc"
-  r=$(run_front legacy "$sandbox/$name.ssc")
-  f=$(run_front F "$sandbox/$name.ssc")
-  if [[ "$r" != "$want" ]]; then
-    echo "  ✗ $name: reference='$r', wanted '$want'"
-    fails=$((fails + 1))
-  elif [[ "$f" == "$want" ]]; then
-    echo "  ✗ $name: F is GREEN now — promote this row to both() and close the F half of"
-    echo "      v2-extension-member-call-inside-a-def-body-fails-by-arity"
-    fails=$((fails + 1))
-  else
-    echo "  ✓ $name: $want   (F still red: '$f')"
-  fi
-}
-
+# The four rows below were `ref_only` until 2026-08-14: the reference front had to answer them and F
+# was asserted KNOWN-RED, so that whoever fixed F was told by a FAILING row to come back here. That
+# is exactly what happened — F's half landed, all four rows reported "F is GREEN now", and they were
+# promoted to both(). The helper is gone with them; resurrect it from `0428861ff` if a future defect
+# needs the same one-front-at-a-time treatment.
+#
 # THE ROW THAT PINS THE ABSORPTION, independently of what either front does with `main`.
-ref_only following-def-is-callable T 'extension (s: String) def boxed: String = s
+both following-def-is-callable T 'extension (s: String) def boxed: String = s
 def tagged(): String = "T"
 def main(): Unit = println(tagged())'
 
 # The shape the conformance case carries: the member is used from inside a def body, with no
 # top-level statement above that def. Both conditions are required to reproduce.
-ref_only member-from-a-def-body body-a 'case class Box(v: String)
+both member-from-a-def-body body-a 'case class Box(v: String)
 extension (s: String) def boxed: Box = Box(s)
 def inBody(): Unit = println("body-" + "a".boxed.v)
 def main(): Unit = inBody()'
 
-ref_only member-from-top-level top-a 'case class Box(v: String)
+both member-from-top-level top-a 'case class Box(v: String)
 extension (s: String) def boxed: Box = Box(s)
 def main(): Unit = println("top-" + "a".boxed.v)'
 
 # Nothing in the file uses the extension at all: the declaration alone was enough to break the file.
-ref_only untouched-extension after-extension 'extension (s: String) def boxed: String = s
+both untouched-extension after-extension 'extension (s: String) def boxed: String = s
 def main(): Unit = println("after-extension")'
 
 echo "── the shapes already in this repo, and the two forms that were never broken"
