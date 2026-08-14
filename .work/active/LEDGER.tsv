@@ -1,8 +1,7 @@
-# generation: 1966
+# generation: 1967
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 bench-b4-three-version-table	claude-code	2026-08-14T07:17:03Z	B4-three-version-table B1-timing-wrapper-close	file:bench/history.tsv file:bench/BASELINE.md file:v3/SPRINT.md
-f-single-line-ext-absorbs	claude-code	2026-08-14T07:17:14Z	v2-extension-member-call-inside-a-def-body-fails-by-arity f-extension-call-in-a-def-body-refuses-with-a-wrong-arity	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/single-line-extension-gate.sh file:tests/conformance/extension-call-in-a-def-body.ssc file:v2/BUGS.md file:tests/BUGS.md
 policy-selftest-shared-index	claude-code	2026-08-14T07:19:04Z	policy-selftest-stages-into-the-shared-index	file:tests/e2e/policy-single-source.sh file:tests/e2e/policy-selftest-residue-gate.sh file:scripts/smoke-ci.ssc file:.gitignore file:tests/BUGS.md
 pre-push-message-backticks	claude-code	2026-08-14T07:19:11Z	pre-push-refusal-message-executes-its-own-backticks	file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md
 ssc3-varargs	claude-code	2026-08-14T07:21:05Z	SSC3-14b	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala
