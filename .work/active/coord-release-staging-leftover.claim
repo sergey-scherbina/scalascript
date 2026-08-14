@@ -1,0 +1,11 @@
+slug: coord-release-staging-leftover
+branch: feature/coord-release-staging-leftover
+agent: claude-code
+started: 2026-08-14T09:25:33Z
+heartbeat: 2026-08-14T09:25:33Z
+status: claimed-before-planning
+items: coord-release-leaves-the-shared-checkout-dirty-when-it-dies-between-staging-and-commit
+paths: file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
