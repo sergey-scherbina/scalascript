@@ -1,0 +1,11 @@
+slug: gate-server-identity
+branch: feature/gate-server-identity
+agent: claude-code
+started: 2026-08-14T09:08:42Z
+heartbeat: 2026-08-14T09:08:42Z
+status: claimed-before-planning
+items: a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
+paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/no-leaked-servers.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/route-params-v2-smoke.sh file:tests/e2e/request-validation-family-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
