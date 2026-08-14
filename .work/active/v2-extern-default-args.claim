@@ -3,9 +3,17 @@ branch: feature/v2-extern-default-args
 agent: claude-code
 started: 2026-08-14T10:08:47Z
 heartbeat: 2026-08-14T10:08:47Z
-status: claimed-before-planning
+status: in-progress
 items: v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity
-paths: file:v2/lib/ssc1-lower.ssc0 file:v2/lib/ssc1-front.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-extern-default-args-gate.sh file:scripts/smoke-ci.ssc file:v2/BUGS.md
+paths: file:v2/lib/ssc1-lower.ssc0 file:v2/lib/ssc1-front.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-extern-default-args-gate.sh file:scripts/smoke-ci.ssc file:v2/BUGS.md file:tests/e2e/f-trailing-block-gate.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  An `extern def`'s declared defaults never reach the call site: the front SKIPS an extern whole,
+  so its params are never parsed and `funcDefaultsCell` never learns them — `f(x)` on
+  `extern def f(a, b = d)` dies `arity: 2 expected, 1 given` while the interpreter runs it.
+  Registering the defaults in BOTH fronts, and ONLY the defaults: clause flattening and the vararg
+  collapse rewrite how the native is CALLED (the native owns that, and _bug1b is what happens when
+  a front decides otherwise), while a default's value is an ssc expression only a front can
+  evaluate. WIDENED to f-trailing-block-gate.sh, whose header states "no default synthesis" as the
+  oracle's behaviour — a claim this change falsifies; the comment is corrected, its rows are not
+  touched.
+next: gate + smoke, then land
