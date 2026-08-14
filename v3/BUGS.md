@@ -47,9 +47,10 @@ it when that releases.
 
 ## v3-flatmap-nonlist-lane-divergence — `flatMap` and `++` refused a non-list that v3's OWN BRIDGE accepted (was: v3-multishot-handler-without-a-return-clause)
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
+     fixed-in: 54eccf31f
      gate: v3/bench-corpus-gate.sh (row effect-multishot)
      found-by: claude-code
      found-at: 2026-08-14 -->
