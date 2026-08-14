@@ -9,14 +9,15 @@ Newest first.
 
 ## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes
-     gate: none — open defect -->
+     gate: tests/e2e/v2-unknown-member-refuses-gate.sh
+     fixed-in: 2e7ad72dc -->
 
 **A member that exists NOWHERE, on a String or an Int receiver, is not refused: it evaluates to a
 closure and the program prints it.** Two lines:
@@ -64,6 +65,35 @@ receiver simply has no such member, and the lane still produces a value.
 
 **Acceptance test:** the two-line program above must be refused on the v2 lane, with the position
 and the receiver named as `int` already does. A conformance case would carry it once it refuses.
+
+### FIXED 2026-08-14 in `2e7ad72dc`, by a sibling, within the hour — and MY ACCEPTANCE TEST ABOVE IS WRONG
+
+Kept as written rather than quietly corrected, because the error in it is the interesting part.
+"Refused on the v2 lane, as `int` already does" would have broken working code: **`int` refuses a
+bare selection even for a method that EXISTS**, and v2 deliberately does more, which the corpus uses.
+Verified here on the fixed toolchain rather than taken on trust:
+
+| probe | v2 before | v2 after | int |
+| --- | --- | --- | --- |
+| `"a".nosuch` | `<closure>` | `` ssc: `"a".nosuch` was selected … `` | refuses |
+| `42.nosuch` | `<closure>` | refuses | refuses |
+| `Box("x").nosuch` | refuses | refuses | refuses |
+| `List(1,2).nosuch` | refuses | refuses | refuses |
+| `List("b","z").exists("abc".contains)` | `true` | **`true`** | **refuses** |
+
+That last row is the one my acceptance test would have destroyed: `"abc".contains` as a bare
+selection is an eta-expansion v2 supports and the reference interpreter does not, and `Runtime.scala`
+depends on it. So the correct rule is not "match `int`" — it is **refuse the selection only when the
+member does not exist**, which is what the fix does and what its gate pins.
+
+**The lesson is about writing acceptance tests from a differential.** Every row I measured pointed at
+`int` as the oracle, and on those rows it was. Naming it as the target smuggled in a claim about rows
+I had NOT probed — the ones where v2 is deliberately more permissive. An acceptance test should state
+the property (unknown member ⇒ refusal), not the lane to imitate.
+
+The five probes above went into `tests/e2e/v2-unknown-member-refuses-gate.sh` as-is, which is the
+argument for filing a defect with its probe table rather than its prose: it arrived claimable and was
+taken by somebody else the same hour.
 
 
 
