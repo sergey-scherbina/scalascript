@@ -48,14 +48,14 @@ std/mapreduce/distributed.ssc	REFUSED	Generic(def `_` uses unsupported infix ope
 std/mapreduce/failure.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	1	1
 std/mapreduce/handlers.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (h.fn(x.asInstanceOf[A]).asInstanceOf[Any])	3	3
 std/mapreduce/index.ssc	COMPILES	
-std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` extracts `_` which is not a known enum constructor	30	7
-std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	23	6
+std/mapreduce/shuffle.ssc	REFUSED	Generic(def `_` extracts `_` which is not a known enum constructor	32	8
+std/mapreduce/typed.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	24	6
 std/markdown-core.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	3	1
 std/markdown-html.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	4	1
 std/mcp/client.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
 std/mcp/index.ssc	REFUSED	Unsupported(McpClient,rust)	1	1
 std/mcp/server.ssc	COMPILES	
-std/mcp/types.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	1	1
+std/mcp/types.ssc	COMPILES	
 std/middleware.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	3	1
 std/mime.ssc	COMPILES	
 std/monad-control.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0	4	1
@@ -76,7 +76,7 @@ std/pdf-gen.ssc	COMPILES
 std/process.ssc	COMPILES	
 std/pwa.ssc	COMPILES	
 std/remote.ssc	REFUSED	Generic(def `_` calls `_` which has no resolvable name	21	2
-std/scljet/address.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	518	23
+std/scljet/address.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	517	23
 std/scljet/btree.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	113	14
 std/scljet/bytes.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	17	3
 std/scljet/freelist.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	26	3
@@ -94,7 +94,7 @@ std/scljet/record.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_
 std/scljet/schema.ssc	REFUSED	Generic(def `_` uses unsupported infix operator `_`	126	18
 std/scljet/sql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	605	23
 std/scljet/text.ssc	COMPILES	
-std/scljet/typedsql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	556	23
+std/scljet/typedsql.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	555	23
 std/scljet/values.ssc	COMPILES	
 std/scljet/vfs.ssc	COMPILES	
 std/scljet/wal.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	25	3

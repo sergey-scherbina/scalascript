@@ -522,6 +522,54 @@ SSC
     failed=1
   fi
 
+  # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
+  #
+  # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather
+  # than left to the survey. BADRUST reads 0 for this defect today only because every module that
+  # exercises it is REFUSED earlier, so the survey cannot see a fix OR a regression in it; a probe
+  # that only defined the objects and never called across would compile in both states.
+  #
+  # THREE SITES, and each is a separate way to be wrong, so each is exercised:
+  #   `Tool.text("x")`      the QUALIFIED call from outside — the reported defect, emitted verbatim
+  #                         as `Tool.text(...)`, which is not Rust;
+  #   `Resource.text(…)`    the same member name on a DIFFERENT owner — this is what made the lane
+  #                         call it overloading and refuse the whole module;
+  #   `Tool.wrap("y")`      whose body calls its sibling `text(s)` UNQUALIFIED. That one works today
+  #                         precisely because both ends are flattened, so it is the site a fix can
+  #                         silently break — and a probe without it would pass while it did.
+  #
+  # Answers are compared against the default lane rather than asserted here: `tool:x`, `res:y`,
+  # `tool:wrapped-y`. Getting the OWNER wrong is not a compile error — it is a call to the other
+  # object's function with a matching signature, which is exactly the failure a differential
+  # catches and a build check does not.
+  cat > "$tmp/objmem.ssc" <<'SSC'
+object Tool:
+  def text(s: String): String = "tool:" + s
+  def wrap(s: String): String = text("wrapped-" + s)
+
+object Resource:
+  def text(s: String): String = "res:" + s
+
+def main(): Unit =
+  println(Tool.text("x"))
+  println(Resource.text("y"))
+  println(Tool.wrap("y"))
+SSC
+  set +e
+  omb=$("$SSC" build-rust "$tmp/objmem.ssc" -o "$tmp/objmembin" 2>&1); omrc=$?
+  om_rust=$("$tmp/objmembin" 2>&1)
+  om_ref=$("$ROOT/bin/ssc" run "$tmp/objmem.ssc" 2>/dev/null)
+  set -e
+  if [[ $omrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — object members do not build" >&2
+    echo "--- output: $(printf '%s' "$omb" | tail -8)" >&2
+    failed=1
+  elif [[ "$om_rust" != "$om_ref" || -z "$om_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on object members" >&2
+    echo "--- rust: $(printf '%s' "$om_rust" | tr '\n' '|')   ssc: $(printf '%s' "$om_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # A NESTED typed pattern — `case Some(s: String)` — against the default lane.
   #
   # TWO halves have to be right and each fails differently, so both are exercised here. The GUARD:

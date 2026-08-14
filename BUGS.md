@@ -563,12 +563,12 @@ measure it, not a one-line edit at the end of another claim.
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: tests/e2e/rust-std-survey-gate.sh
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-13
      ssc-version: 2315f2ecf
      repro: the five-line program in the body
-     confirmed: no -->
+     confirmed: yes -->
 
 **More fundamental than the collision defect below, and it absorbs it.** The definition side drops
 the qualifier and the call side keeps it, so the two disagree. Five lines reproduce it:
@@ -685,6 +685,60 @@ since the latter is a deep `collect` that lifts members out with no record of or
 the modules that exercise it are refused first, so the fix needs a case that calls an object
 member from outside and reaches cargo — the same shape added to `v21-standard-mcp-smoke.sh` for
 the MCP surface.
+
+**FIXED, and the plan above was wrong in TWO places — both retired by measurement, both worth
+keeping because each was a reasonable-sounding estimate.**
+
+*First: "six REFUSED rows flip".* Only ONE does. A census of the eleven rows refusing on
+`overloading`, taken BEFORE the change, says the owner kinds differ: five are `trait` members
+(`SqliteCursor.close` against `SqliteStatement.close`, reaching five `std/scljet/*` modules through
+`index.ssc`), five are `given … with` typeclass instances (`eqv`, `hash`, `compare`, `show`,
+`combine`), and exactly one — `std/mcp/types.ssc`, `text` on `object Tool` versus `object
+Resource` — is OBJECT-member flattening. The prediction was restated as "one row moves, BADRUST
+stays 0, nothing else changes status" before any code was touched, and that is exactly what
+happened: `std/mcp/types.ssc` REFUSED → COMPILES, REFUSED 81 → 80, COMPILES 51 → 52.
+
+*Second: "qualify on collision only" had been retired earlier as insufficient.* It is not merely
+sufficient, it is REQUIRED — and the thing that proves it is a defect this fix introduced. Renaming
+every object member broke `std/json.ssc`: it declares `package: std.json` while the
+`std/json-core.ssc` it imports declares `package: std.json.core`, so the INLINED blocks carry one
+synthetic wrapper level more than the merged manifest describes, and `core` read as a user object.
+Its defs emitted as `core_jsonCore…` while bare calls from the importing module's own blocks did
+not move — E0425, waiting for the first module of that shape to get far enough to compile.
+
+**AND THE SURVEY WAS BLIND TO IT.** `json.ssc` refuses earlier for an unrelated reason, so every
+status stayed put and the gate stayed green. The only tell was the `sites` count moving 6 → 10. My
+first explanation — "qualification splits names, so the counts got more accurate" — was FALSE, and
+checking it is what found the defect: `std/json.ssc` contains no objects at all. The AST carries no
+per-block provenance, so the wrapper depth cannot be repaired directly; it does not need to be,
+because a member name that one owner owns and nothing else shares needs no qualification. Only a
+CONTESTED name is renamed — two owners, or a collision with a top-level def.
+
+**The three sites, and how each is closed without a new match arm.** The definition emits its
+qualified name from `renderDef`, which also dissolves the overloading refusal for free: that check
+groups on `GeneratedDef.name`. The QUALIFIED call and the SIBLING call both become INTRINSIC MAP
+ENTRIES — the mechanism that has always lowered `Console.println` — the first module-wide, the
+second built per def from its own owner, because with two objects owning a `text` a module-wide
+entry could not say which one a bare call means. That routing was not only tidier: `renderTerm` is
+one of the five known over-limit methods and `v1-jit-size` forbids it growing, so a new arm there
+was not available at all. A real intrinsic still wins on a key clash — `intrinsics0` sits on the
+right of `++` — so a user object named `Console` cannot shadow the real one.
+
+**A rewrite of the source tree was the first design and it is impossible here:** scalameta 4.17 on
+Scala 3 offers `traverse` and `collect` but no `transform`. The owner map is therefore keyed by def
+POSITION, not by name — two owners sharing a member NAME is the defect itself, so the name cannot
+identify which def belongs to whom.
+
+**Counts moved on four other rows and it is the good direction.** `std/mapreduce/shuffle.ssc` goes
+30 → 32 sites: it calls `ShuffleProtocol.handleMessages`, which used to emit VERBATIM — invalid
+Rust and no refusal — and now lowers, so the walk reaches past it and finds genuine refusals that
+were behind it. Silent garbage replaced by either correct code or an honest refusal.
+
+Gate: `tests/e2e/build-rust-refuses-loudly.sh` — two objects sharing a member name, called from
+outside AND from inside, compared against the default lane. The SIBLING call is in the case
+deliberately: it works today precisely BECAUSE both ends are flattened, so it is the site a fix can
+silently break. Negative control: with the qualified-call lowering suppressed the gate fails on
+that case with `object members do not build` and cargo exit 101.
 
 ## rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member — `SqliteCursor.close` and `SqliteStatement.close` are reported as overloading and refuse the whole module
 

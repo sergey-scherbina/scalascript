@@ -41,14 +41,48 @@ object RustCodeWalk:
   )
 
   def walk(
-      module:     ast.Module,
-      intrinsics: Map[QualifiedName, IntrinsicImpl],
+      module:      ast.Module,
+      intrinsics0: Map[QualifiedName, IntrinsicImpl],
       // Names of defs that an IMPORT brought in, as opposed to ones the user wrote in this file.
       // The CLI knows this because it does the inlining; the merged module cannot tell them apart.
       // Used only for a LIB crate: a library exports what its author wrote, so those are the
       // reachability roots and an imported body nobody reaches is not lowered.
       importedDefs: Set[String] = Set.empty
   ): Either[List[Diagnostic], WalkResult] =
+    // OBJECT MEMBERS, before any collector runs. Three sites have to agree — the definition, a
+    // QUALIFIED call from outside, and an UNQUALIFIED sibling call from inside, which works today
+    // precisely BECAUSE both ends are flattened, so qualifying the definition alone would break
+    // code that compiles now. All three are routed through machinery that already exists rather
+    // than through new arms: `renderDef` emits the qualified NAME, and the two call shapes become
+    // INTRINSIC ENTRIES, which is how `Console.println` has always been lowered. That matters
+    // beyond tidiness — `renderTerm` is one of the five known over-limit methods and the jit-size
+    // gate forbids it growing, so a new match arm there was not available either.
+    val (objectMembers, defOwners) = collectObjectOwnership(module)
+    _defOwners            = defOwners
+    _objectMembers        = objectMembers
+    // RENAME ONLY WHAT MUST BE RENAMED, and the reason is a defect this very change introduced and
+    // the survey could not see. `std/json.ssc` declares `package: std.json` while the
+    // `std/json-core.ssc` it imports declares `package: std.json.core`, so the INLINED blocks carry
+    // one wrapper level more than the merged manifest describes and `core` reads as a user object.
+    // Its defs were being renamed to `core_jsonCore…` while bare calls from the importing module's
+    // own blocks were not — E0425, waiting for the first module of that shape that gets far enough
+    // to compile. json.ssc refuses earlier for an unrelated reason, so the whole survey stayed
+    // green; the only tell was the `sites` COUNT moving 6 → 10. The AST carries no per-block
+    // provenance, so the wrapper depth cannot be repaired directly — but it does not have to be:
+    // a name that ONE owner owns and nothing else shares needs no qualification at all.
+    val ownerOfMember     = objectMembers.toList.flatMap { case (o, ms) => ms.map(_ -> o) }
+    val topLevelDefNames  = collectDefs(module).filterNot(d => defOwners.contains(d.pos.start))
+                              .map(_.name.value).toSet
+    _ambiguousMembers     = ownerOfMember.groupBy(_._1).collect {
+                              case (mem, os) if os.size > 1 || topLevelDefNames.contains(mem) => mem
+                            }.toSet
+    // `Tool.text(x)` becomes `Tool_text(x)` when the name is contested and plain `text(x)` when it
+    // is not — either way it stops emitting as `Tool.text(x)`, which is the reported defect and is
+    // not Rust. A REAL intrinsic of the same key still wins: `intrinsics0` is on the right of `++`,
+    // so a user object that happens to be called `Console` cannot shadow it.
+    val intrinsics        = objectMembers.flatMap { case (o, ms) =>
+                              ms.map(mem => QualifiedName(s"$o.$mem") -> RuntimeCall(qualifiedMemberName(o, mem)))
+                            } ++ intrinsics0
     _typeLambdas          = collectTypeLambdaAliases(module)
     // Custom effect declarations: `effect Bump: def tick(): Int` is preprocessed to
     // `object Bump { def tick(): Int = __effectOp__ }`. Collect the op signatures for the
@@ -80,7 +114,9 @@ object RustCodeWalk:
     val rustFnNamesInBlocks: Set[String] =
       rustBlocks.flatMap(b => """(?m)^\s*(?:pub\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)""".r.findAllMatchIn(b).map(_.group(1))).toSet
     val givens            = collectGivens(module)
-    val userDefs          = defs.map(_.name.value).toSet
+    // QUALIFIED, because that is the name the call sites now use. Left bare, `Tool_text(x)` would
+    // not be recognised as a user def and would take the unknown-name path.
+    val userDefs          = defs.map(qualifiedDefName).toSet
     // OVERLOADING has no Rust. Two `def`s of one name — `def text(s: String): ToolResult` beside
     // `def text(s: String, mimeType: String = "text/plain"): ResourceResult` in std/mcp/types.ssc,
     // or an `extension` method declared on several receivers in std/monaderror.ssc — emitted two
@@ -577,6 +613,69 @@ object RustCodeWalk:
       } ++ s.subsections.flatMap(fromSection)
     module.sections.flatMap(fromSection)
 
+  /** `object Tool: def text` — who owns which member, and where each owned def sits.
+   *
+   *  THE DEFECT, one cause with two symptoms: `object Tool: def text` and `object Resource: def
+   *  text` both reach `collectDefs` — a DEEP collect — as a bare `text`, so the lane reports
+   *  overloading and refuses the whole module (`std/mcp/types.ssc`); and a call `Tool.text(x)`
+   *  emits VERBATIM as `Tool.text(x)`, which is not Rust.
+   *
+   *  THE SECOND MAP IS KEYED BY POSITION, NOT BY NAME, and that is forced: two owners sharing a
+   *  member name IS the defect, so the name cannot identify which def belongs to whom. A source
+   *  position can, exactly and without a tree rewrite — scalameta 4.17 on Scala 3 offers `traverse`
+   *  and `collect` but no `transform`, so rewriting the tree was not available.
+   *
+   *  THE SYNTHETIC WRAPPERS ARE NOT OWNERS, and this is the part that has already gone wrong once.
+   *  `package: std.ui` makes `Parser.wrapSectionInPackage` nest every code block in
+   *  `object std: object ui: …` — one level per segment, outermost first. Treating those as owners
+   *  qualifies every top-level def in the module; measured, it moved `std/ui/i18n.ssc` and
+   *  `std/ui/state.ssc` from COMPILES to BADRUST. The manifest's own `pkg` length says exactly how
+   *  many levels to skip, so this reads a DECLARATION instead of guessing which names look
+   *  synthetic.
+   *
+   *  EFFECT-OP OBJECTS ARE LEFT ALONE. `effect Bump: def tick(): Int` is preprocessed into
+   *  `object Bump { def tick(): Int = __effectOp__ }`, and `collectEffectOps` keys on the object
+   *  name AND the op name; renaming those would break the effect machinery. Detected by the MARKER
+   *  in the body rather than by the shape, because the shape is identical to a real object.
+   *
+   *  Only `def` members are collected. A `val` in an object keeps today's behaviour — unchanged,
+   *  not fixed — so `Tool.SOME_VAL` still emits verbatim and is still wrong; that is a separate
+   *  defect and is not smuggled in here. */
+  private def collectObjectOwnership(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
+    val skip     = module.manifest.flatMap(_.pkg).map(_.size).getOrElse(0)
+    val members  = scala.collection.mutable.LinkedHashMap.empty[String, Set[String]]
+    val byPos    = scala.collection.mutable.LinkedHashMap.empty[Int, String]
+    def scan(t: m.Tree, depth: Int): Unit = t match
+      case o: m.Defn.Object =>
+        val stats     = o.templ.body.stats
+        val hasMarker = stats.exists { case dd: m.Defn.Def => isEffectOpMarker(dd.body); case _ => false }
+        if depth >= skip && !hasMarker then
+          val defs = stats.collect { case dd: m.Defn.Def => dd }
+          if defs.nonEmpty then
+            members(o.name.value) = defs.map(_.name.value).toSet
+            defs.foreach(dd => byPos(dd.pos.start) = o.name.value)
+        stats.foreach(scan(_, depth + 1))
+      case other => other.children.foreach(scan(_, depth))
+    def content(c: ast.Content): Unit = c match
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) => scan(node.tree, 0)
+      case _ => ()
+    def section(s: ast.Section): Unit =
+      s.content.foreach(content); s.subsections.foreach(section)
+    module.sections.foreach(section)
+    (members.toMap, byPos.toMap)
+
+  /** The emitted Rust name for an object member: qualified only when the bare name is CONTESTED —
+   *  owned by two objects, or shared with a top-level def. An uncontested member keeps its own
+   *  name, which is what it already emits today and what every call site already writes. */
+  private def qualifiedMemberName(owner: String, member: String): String =
+    if _ambiguousMembers.contains(member) then s"${owner}_$member" else member
+
+  /** The emitted Rust name for a def. */
+  private def qualifiedDefName(d: m.Defn.Def): String =
+    _defOwners.get(d.pos.start) match
+      case Some(o) => qualifiedMemberName(o, d.name.value)
+      case None    => d.name.value
+
   private def collectDefs(module: ast.Module): List[m.Defn.Def] =
     module.sections.flatMap(sectionDefs)
 
@@ -756,6 +855,14 @@ object RustCodeWalk:
    *  tagless-final path — whose `resume(v)→v` substitution is unsound for multi-shot. */
   private var _multiShotEffects: Set[String] = Set.empty
   /** Effectful `def` bodies by name — for inlining a `handle(prog(args))` subject (spec §11.2). */
+  /** def source position → owning object. Keyed by POSITION because two owners sharing a member
+   *  NAME is the defect this exists for, so the name cannot be the key. */
+  private var _defOwners: Map[Int, String] = Map.empty
+  /** owner → its def members; the sibling-call entries in `renderDef` are built from this. */
+  private var _objectMembers: Map[String, Set[String]] = Map.empty
+  /** Member names that two owners share, or that a top-level def also uses. ONLY these are
+   *  renamed — see the note at the call site for the import-depth defect that forced it. */
+  private var _ambiguousMembers: Set[String] = Set.empty
   private var _defBodies: Map[String, m.Defn.Def] = Map.empty
 
   /** A `def`/op body that is the effect-op marker (`effect E: def op(...) = __effectOp__`). */
@@ -1476,7 +1583,7 @@ object RustCodeWalk:
 
   private def renderDef(
       d: m.Defn.Def,
-      intrinsics:    Map[QualifiedName, IntrinsicImpl],
+      intrinsics0:    Map[QualifiedName, IntrinsicImpl],
       userDefs:      Set[String],
       ctorMap:       Map[String, EnumCtor],
       topVals:       List[TopVal],
@@ -1485,7 +1592,19 @@ object RustCodeWalk:
       // future second caller refuse a legal call to a fence-defined `fn` without anyone noticing.
       rustFnNames:   Set[String]
   ): Either[List[Diagnostic], GeneratedDef] =
-    val name    = d.name.value
+    // SITE 1 — the definition. `object Tool: def text` emits as `fn Tool_text`, which is also what
+    // makes the overloading refusal go away: that check groups on `GeneratedDef.name`, so two
+    // owners no longer collide there either. One rename, two symptoms.
+    val name    = qualifiedDefName(d)
+    // SITE 3 — the SIBLING call. Inside `object Tool`, a bare `text(x)` must reach `Tool_text`, and
+    // it works today only because both ends are flat. Scoped to THIS def's own owner, which is why
+    // it is built per def rather than globally: with two objects owning a `text`, a module-wide
+    // entry could not say which one a bare call means. Real intrinsics still win (`++` order).
+    val intrinsics = _defOwners.get(d.pos.start) match
+      case Some(owner) =>
+        _objectMembers.getOrElse(owner, Set.empty)
+          .map(mem => QualifiedName(mem) -> RuntimeCall(qualifiedMemberName(owner, mem))).toMap ++ intrinsics0
+      case None => intrinsics0
     // backend-blocks-p6: @rust("expr") on an extern def emits the expression inline.
     // extern defs without @rust are skipped (no Rust-side implementation needed).
     if isExternBody(d.body) then
