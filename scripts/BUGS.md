@@ -17,7 +17,7 @@ Newest first.
      reported-at: 2026-08-14
      confirmed: yes
      gate: tests/e2e/build-ram-guard-gate.sh
-     fixed-in: PENDING -->
+     fixed-in: 9e338484a -->
 
 **`build-ram-guard --self-test` asserted "killed nothing" by comparing a MACHINE-WIDE build-process
 count before and after** — a global quantity, used to test a local property:
