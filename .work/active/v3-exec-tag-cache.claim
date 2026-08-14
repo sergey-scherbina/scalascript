@@ -3,9 +3,9 @@ branch: feature/v3-exec-tag-cache
 agent: claude-code
 started: 2026-08-14T16:54:54Z
 heartbeat: 2026-08-14T16:54:54Z
-status: claimed-before-planning
+status: in-progress
 items: SSC3-J4c-type-tag-lookup-is-a-linear-scan
-paths: file:v3/src/Exec.scala file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
+paths: file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
