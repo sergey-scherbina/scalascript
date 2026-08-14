@@ -5655,7 +5655,7 @@ side may not be — that matters only if someone re-reads the int column, not fo
      reported-at: 2026-08-14
      confirmed: yes
      gate: .github/workflows/corpus-contract.yml
-     fixed-in: PENDING -->
+     fixed-in: 08ca67d01 -->
 
 ### FIXED 2026-08-14 — and BOTH claims in the title were wrong. The census below is the correction.
 
