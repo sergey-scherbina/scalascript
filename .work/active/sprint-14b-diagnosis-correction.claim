@@ -29,4 +29,16 @@ scope: |
   NARROW: one entry, two paragraphs replaced and the header marked done. No other SSC3 entry is
   touched; `range-replace-eats-neighbours-silently` says to anchor on the heading and check the
   neighbours survived, so the edit is anchored and the entry count is compared before and after.
-next: replace the two paragraphs, verify the neighbouring entries survived, push
+  WIDENED IN SCOPE (not in paths) 2026-08-14 to the `## SSC3-14 — math` entry in the SAME file: its
+  first line said "Measured 2026-08-13 and NOT started" for work that landed hours ago in a6a274571.
+  That is the identical failure this claim exists to fix — a board entry stating something false
+  with the authority of a measurement — and leaving it while correcting its neighbour would have
+  been choosing which false line to care about. The original measurement is KEPT below the update,
+  because the split it decided is still the record.
+
+  VERIFIED, because `range-replace-eats-neighbours-silently` says a heading-anchored edit still has
+  to prove the neighbours survived: entry count 72 before and 72 after, `## SSC3-14`/`## SSC3-15`
+  and both earlier same-numbered entries still present, the old wrong text gone (grep count 0), all
+  16 fences balanced, and `markdownlint v3/SPRINT.md` rc=0 — read WITHOUT a pipe, since piping a
+  gate masks its exit code and the first run reported `head`'s status.
+next: commit, push, release
