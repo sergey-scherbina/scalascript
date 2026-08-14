@@ -1,4 +1,4 @@
-# generation: 1958
+# generation: 1959
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 rust-object-member-call-gate	claude-code	2026-08-14T07:14:50Z	rust-object-member-call-emits-invalid	file:tests/e2e/rust-object-member-call.sh file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/rust-std-survey-baseline.tsv
@@ -8,3 +8,4 @@ ssc3-j1b-quiet	claude-code	2026-08-14T07:18:37Z	SSC3-J1b	file:v3/SPRINT.md file:
 policy-selftest-shared-index	claude-code	2026-08-14T07:19:04Z	policy-selftest-stages-into-the-shared-index	file:tests/e2e/policy-single-source.sh file:tests/e2e/policy-selftest-residue-gate.sh file:scripts/smoke-ci.ssc file:.gitignore file:tests/BUGS.md
 pre-push-message-backticks	claude-code	2026-08-14T07:19:11Z	pre-push-refusal-message-executes-its-own-backticks	file:.githooks/pre-push file:tests/e2e/no-live-backticks-in-heredocs.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/SPRINT.md
 ssc3-varargs	claude-code	2026-08-14T07:21:05Z	SSC3-14b	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/SpikeTyped.scala file:v3/src/Parser.scala file:v3/src/Lower.scala
+install-sh-gate-unreachable-subject	claude-code	2026-08-14T07:22:34Z	install-sh-exits-0-when-sbt-project-load-fails orphaned-e2e-gates-52	file:tests/e2e/install-sh-reports-failure-gate.sh file:scripts/BUGS.md file:tests/e2e/no-orphan-gates.sh
