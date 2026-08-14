@@ -1,0 +1,11 @@
+slug: v2-bytecode-map-ops
+branch: feature/v2-bytecode-map-ops
+agent: claude-code
+started: 2026-08-14T13:43:09Z
+heartbeat: 2026-08-14T13:43:09Z
+status: claimed-before-planning
+items: v2-bytecode-slower-than-its-own-vm-on-map-ops
+paths: file:v2/BUGS.md file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
