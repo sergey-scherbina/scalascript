@@ -1597,8 +1597,46 @@ object Lower:
       val ctorType: Map[String, String] =
         Map("Cons" -> "List", "Nil" -> "List", "Some" -> "Option", "None" -> "Option",
             "Right" -> "Either", "Left" -> "Either")
+      /** `(Int, String)` -> `Tuple2`. A TUPLE TYPE HAS A HEAD and nothing here knew it.
+        *
+        * `headAndArg` splits on `[`, which is right for `List[Int]` and blind to a tuple: a
+        * parenthesised type has no bracket, so its "head" came out as the whole text
+        * `(Int,String)` and matched no instance. `Bifunctor[Tuple2]` was therefore unreachable
+        * however the receiver's type was known — measured on all three shapes before this was
+        * written, and it is what killed the obvious explanation. `std-bifunctor` refuses
+        * `t.bimap(…)` on a `val t: (Int, String)`, which reads exactly like §4a1's "`Stmt.Val`
+        * records NO declared type"; but a PARAMETER declared `(Int, String)` was refused too, and
+        * so was the literal `(10, "ok")`, while `Either[String, Int]` through the same parameter
+        * path answered. The missing val type is a real debt and was not this bug.
+        *
+        * Arity by TOP-LEVEL commas, so `(Int, (A, B))` is `Tuple2` and not `Tuple3`. Depth counts
+        * brackets as well as parens because `(Map[K, V], Int)` is two elements, and counting only
+        * parens would read the type argument's comma as a separator. */
+      def tupleHead(t: String): Option[String] =
+        val s = t.trim
+        if !(s.startsWith("(") && s.endsWith(")")) then None
+        else
+          var depth = 0
+          var n = 1
+          var i = 1
+          var ok = true
+          while i < s.length - 1 do
+            val c = s.charAt(i)
+            if c == '(' || c == '[' then depth += 1
+            else if c == ')' || c == ']' then { depth -= 1; if depth < 0 then ok = false }
+            else if c == ',' && depth == 0 then n += 1
+            i += 1
+          // `(Int)` is a parenthesised type, not a 1-tuple, and `()` is Unit — neither has a
+          // `TupleN` instance to find, so neither gets a head.
+          if ok && depth == 0 && n >= 2 then Some("Tuple" + n) else None
+
       def typeOfCtor(n: String): Option[String] =
-        ctorType.get(n).orElse(classes.find(_.name == n).map(_.name))
+        // A TUPLE CONSTRUCTOR NAMES ITS OWN TYPE, which the five-entry map above could not say.
+        // A tuple literal lowers to `Expr.Call("Tuple2", …)` — checked with `ssc3 ast`, not
+        // assumed — and `Tuple2` is neither a built-in constructor nor a declared class, so the
+        // constructor source produced nothing for the one receiver shape a Bifunctor is for.
+        if n.startsWith("Tuple") && n.drop(5).forall(_.isDigit) && n.length > 5 then Some(n)
+        else ctorType.get(n).orElse(classes.find(_.name == n).map(_.name))
 
       def receiverType(e: Expr, params: Map[String, String]): Option[String] = e match
         case Expr.Call(fn, _, _) if fn == "List" || fn == "Seq" => Some("List")
@@ -1638,7 +1676,10 @@ object Lower:
       defs.map { d =>
         if instanceDefs.contains(d.name) then d
         else
-          val params = d.params.flatMap(q => q.tpe.map(t => (q.name, headAndArg(t).map(_._1).getOrElse(t)))).toMap
+          // `tupleHead` FIRST, because `headAndArg` would hand back the whole `(Int,String)` as a
+          // head and that is the shape this fix exists for.
+          val params = d.params.flatMap(q => q.tpe.map(t =>
+            (q.name, tupleHead(t).orElse(headAndArg(t).map(_._1)).getOrElse(t)))).toMap
           val hasGiven = d.params.exists(_.given_) || d.givenParams.nonEmpty
           d.copy(body = mapDeep(d.body, x => x match
             case Expr.MethodCall(recv, m, args, p) =>
