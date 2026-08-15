@@ -38,12 +38,23 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
       * **jvm** — no checker of its own; scalac does it, which is why that lane is the strictest.
       * **v3** — no `unify`/`Typer` under `v3/src` at all; to be established in step 1.
 
-      **1. [ ] THE CENSUS — one table, every lane, every question.**
+      **1. [x] THE CENSUS — DONE 2026-08-15, and NO TWO COLUMNS AGREE.**
          A battery of small programs, each isolating ONE typing question (declared param, declared
          return, declared `val`, use-derived conflict, arity/shape, `TyDyn` escapes), run through
          every lane and every checker entry point, with the verdict recorded verbatim. The artifact
          is the table; the finding is which cells disagree. **No fixes in this step** — a census that
          also changes things cannot be re-run against its own baseline.
+
+         **Result: `tests/BUGS.md no-two-type-checkers-in-this-repo-agree`.** Seven programs, six
+         lanes. Six of the seven are ill-typed under any reading and each is treated differently by
+         at least three lanes. The worst cell is not a rejection but TWO DIFFERENT WRONG ANSWERS:
+         `def h(a: Int) = a + 1; h("x")` gives `x1` on v1 and v3, `121` on js, and a rejection on v2
+         and jvm. **js never rejects anything** — six of six ill-typed programs print a value.
+         **And the two checkers are complementary halves of one:** v2 has inference without
+         declarations (`skipTypeAnnot` throws the annotation away), v1 has declarations without
+         inference (return and `val` types checked, parameters not, and it is not on the `run` path
+         at all). Two consequences need no contract decision: `ssc-tools check` green-lights programs
+         that crash on its own runtime, and `run --v1` type-checks nothing.
 
       **2. [ ] THE BLAST RADIUS — what does honouring annotations cost.**
          Upper bound already counted: of 399 conformance cases, 155 declare a typed parameter, 64

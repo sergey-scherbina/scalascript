@@ -73,6 +73,75 @@ it still runs. Whether the collision between the field name and the parameter na
 first thing to test, and it is a guess: the obvious suspect in this front has been wrong on three
 consecutive days.
 
+## no-two-type-checkers-in-this-repo-agree — the census, six lanes, seven programs
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/declared-type-agreement.sh -->
+
+**Measured 2026-08-15 on one freshly built toolchain.** Seven programs, each isolating ONE typing
+question, run through every lane and every checker entry point this repository has. `✗` is a
+rejection, anything else is what the program PRINTED.
+
+| program | v2 native | v1 interp | `ssc-tools check` | js | jvm | v3 |
+|---|---|---|---|---|---|---|
+| `def f(a: Int) = a; f("x")` | `x` | `x` | OK | **`120`** | ✗ scalac | `x` |
+| `def g(a: Int): String = a; g(1)` | `1` | `1` | **✗ expected String, found Int** | `1` | ✗ scalac | `1` |
+| `val x: Int = "s"` | `s` | `s` | **✗ expected Int, found String** | `s` | ✗ scalac | `s` |
+| `def h(a: Int) = a + 1; h("x")` | **✗ TYPEERR** | **`x1`** | OK | **`121`** | ✗ scalac | **`x1`** |
+| `def z(): Int = 1; z(5)` | **✗ TYPEERR** | ✗ runtime | OK | **`1`** | ✗ scalac | ✗ runtime |
+| `def two(a)(b); two(1)(2)(3)` | **✗ TYPEERR** | ✗ runtime | OK | **`3`** | ✗ scalac | ✗ runtime |
+| control: `ok(41)` → 42 | `42` | `42` | OK | `42` | `42` | `42` |
+
+**NO TWO COLUMNS AGREE ON ANY ILL-TYPED ROW.** That is the finding. Six of the seven programs are
+ill-typed under any reading, and each of them is treated differently by at least three lanes.
+
+**The single worst cell, and it is not a rejection — it is two different wrong ANSWERS.**
+`def h(a: Int): Int = a + 1; h("x")` gives:
+
+    v2 native  ✗ TYPEERR: cannot unify Int: Int vs String
+    v1 interp  x1        ← String concatenation
+    js         121       ← char code of 'x', plus 1
+    jvm        ✗ scalac
+    v3         x1
+
+Nothing warns. A program with a genuine type conflict silently produces `x1` on two lanes and `121`
+on a third.
+
+**js NEVER rejects anything.** Six of six ill-typed programs run and print, including the two wrong
+values above and `z(5)` → `1`, where an argument to a zero-parameter function is silently discarded.
+It is the only lane with no rejection in the whole table.
+
+**AND THE TWO CHECKERS THIS REPO OWNS ARE COMPLEMENTARY HALVES OF ONE CHECKER**, which is the most
+useful thing the census says:
+
+| | reads declarations | infers from use |
+|---|---|---|
+| `v2/lib/ssc1-check.ssc0` (809 lines, Algorithm W, ON the native run path) | **no** — `parseParam` calls `skipTypeAnnot` | **yes** — the only lane that rejects `h("x")`, `z(5)`, `two(1)(2)(3)` |
+| `v1/…/typer/Typer.scala` (2084 lines, only under `check`/`watch`/`compile-*`) | **partly** — return types and `val` types, NOT parameters | **no** — passes all three of those |
+
+Neither is wrong-headed and neither needs replacing. **v2 has inference without declarations; v1 has
+declarations without inference.** The union of the two is a type checker; each alone is half of one.
+
+**Two consequences that need no contract decision:**
+
+1. **`ssc-tools check` passes programs that then crash on its own lane.** `z(5)` and `two(1)(2)(3)`
+   are OK to `check` and die at runtime under `run --v1`. A check that green-lights a program its own
+   runtime refuses is worse than no check, because it is consulted instead of the runtime.
+2. **The v1 Typer is not on the `run` path at all** — `run` never type-checks on the interpreter
+   lane. Whatever the contract turns out to be, "the checker exists but nothing runs it" is not it.
+
+**What still needs Sergiy's decision** (`tests/SPRINT.md`, TYPES MUST BE RIGHT, step 3): whether a
+declared type is documentation, a coercion hint, or a constraint. The census does not decide it — it
+prices it, and it shows that the *disagreement* is a separate defect from the *choice*.
+
+**Done when** `tests/e2e/declared-type-agreement.sh` runs this battery and requires ONE verdict per
+row across every lane. Agreement is required by all three possible contracts, so the gate can be
+built before the decision and will encode it afterwards.
+
 ## f-effect-declarations-and-handlers-unsupported — FIXED, and it was a translation
 
 <!-- status: fixed
