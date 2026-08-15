@@ -1,3 +1,49 @@
+## inbox-gate-selftest-fixtures-age-out — smoke went red for everyone at a date boundary, with no commit to blame
+
+<!-- status: fixed
+     fixed-in: bab09473e
+     lane: apparatus
+     area: other
+     gate: tests/e2e/inbox-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`inbox-queue` (`tests/e2e/inbox-gate.sh --self-test`) failed on plain `origin/main`, and no change
+caused it.** The queue's age bound is 14 days; every fixture the self-test expects to be ACCEPTED
+carried the literal `reported-at: 2026-07-31`. On 2026-08-15 those fixtures turned 15 days old, the
+queue refused them as stale, and the ACCEPT half of the suite inverted:
+
+    FAIL  --self-test: a reporter diagnosis was REJECTED — the queue is refusing information again
+    FAIL  --self-test: a WELL-FORMED entry was rejected
+    FAIL  --self-test: a body heading was read as an entry — one report becomes several
+
+Three assertions about the entry PARSER, all failing for a reason that has nothing to do with
+parsing, and each with a message pointing at a defect that did not exist. Whoever read them would
+have gone looking in the heading regex.
+
+**Diagnosed by control before anything was touched:** the same suite, same tree, same commit, under
+`SSC_INBOX_MAX_AGE_DAYS=30` — `inbox-gate: OK`. One environment variable separated red from green,
+which named the mechanism without a bisect.
+
+**The asymmetry is the bug.** The "older than the limit" fixture was ALREADY relative —
+`old="$(date -u -j -v-400d …)"` — so the file's author knew a fixture must not be pinned to the
+calendar. Only the fresh ones were absolute. The fix gives `old` its missing twin, `fresh`
+(yesterday, computed the same way), and uses it for every fixture date.
+
+**The refuse cases were re-dated too, and that is not tidiness.** An `expect_red` fixture that has
+aged out is red for the WRONG reason: today, all five would have kept passing while no longer
+testing `triage: routed`, a missing `reported-by`, a missing `ssc-version`, `needs-info` without
+`waiting-on`, or a `lane:` left behind. The suite's refuse half was already coasting on age, and the
+green would have outlived the checks.
+
+**Verified across the bound rather than at it.** 13 ok / 0 FAIL at `MAX_AGE_DAYS` of 14, 30, 100 and
+365 — every refusal fires for its own reason across a 26x range — while the 400-day fixture is still
+refused, which is the one case that SHOULD depend on age.
+
+**Worth generalising:** a self-test whose fixtures carry absolute dates has a scheduled failure in
+it. Nothing was wrong with the code on 2026-08-14 and nothing was fixed on 2026-08-15; the gate was
+counting down the whole time. `git grep -n "reported-at: 20" tests/` is the cheap sweep for the rest.
+
 ## f-compiler-crashes-with-no-arm-for-cons2 — a member call on a `given … with` object
 
 <!-- status: fixed
