@@ -13,7 +13,8 @@
 # Two builds finish sooner in WALL CLOCK than eight, because eight thrash memory and the machine
 # swaps. That is the whole argument, and it is the same one `scripts/conformance` already makes.
 #
-#   scripts/build-slot ./install.sh --dev      # waits for a slot, then builds
+#   scripts/build-slot sbt <task>              # waits for a slot, then builds
+#   ./install.sh --dev                         # takes its OWN slot; do NOT wrap it in one
 #   SSC_BUILD_MAX=4 scripts/build-slot …       # widen it
 #   SSC_BUILD_NO_GUARD=1 scripts/build-slot …  # bypass (a deliberate A/B, or a one-agent host)
 #
@@ -36,6 +37,27 @@ trap release EXIT INT TERM
 
 acquire() {
   [ "${SSC_BUILD_NO_GUARD:-0}" = 1 ] && return 0
+  # RE-ENTRANT: a nested call INSIDE a held slot is the same logical build, and must not take a
+  # second one.
+  #
+  # MEASURED 2026-08-15, and the documented usage was the thing that produced it. This file's own
+  # header says `scripts/build-slot ./install.sh --dev`, and `install.sh` now wraps its `sbt
+  # cli/installBin` in a slot of its own — so that command took BOTH slots of a MAX=2 semaphore, and
+  # a single install locked every other agent out entirely. Reproduced directly:
+  #
+  #     $ scripts/build-slot scripts/build-slot bash -c 'ls $SEM_DIR'
+  #     build-slot: slot 1/2 acquired after 0s
+  #     build-slot: all 2 slots busy — waiting (load 82.04)
+  #     build-slot: slot 2/2 acquired after 76s
+  #     slot.1 slot.2                    ← one logical build, both slots
+  #
+  # Note the 76 s: the inner call did not merely double-count, it WAITED for a slot it could never
+  # need, and with the other slot held by a real build it would have waited up to WAIT_SECS before
+  # the run-anyway escape. A semaphore that blocks on itself is worse than no semaphore.
+  if [ -n "${SSC_BUILD_SLOT_HELD:-}" ]; then
+    echo "build-slot: already inside slot $SSC_BUILD_SLOT_HELD — passing through (nested call)"
+    return 0
+  fi
   mkdir -p "$SEM_DIR" 2>/dev/null
   local deadline=$(( SECONDS + WAIT_SECS )) announced=0 started=$SECONDS
   while :; do
@@ -65,6 +87,10 @@ acquire() {
         # Computed HERE and not at the bottom of the loop: read from there it is one poll interval
         # stale, so a 10 s wait printed as 5 s — a measurement that is wrong by a constant is worse
         # than none, because it looks precise.
+        # EXPORTED, so every descendant knows the slot is already held — that is what makes the
+        # re-entrancy check above work, and it is scoped correctly by construction: only this
+        # command's own process tree inherits it.
+        export SSC_BUILD_SLOT_HELD="$i/$MAX"
         echo "build-slot: slot $i/$MAX acquired after $(( SECONDS - started ))s"
         return 0
       fi
@@ -74,12 +100,64 @@ acquire() {
       announced=1
     fi
     [ "$SECONDS" -ge "$deadline" ] && {
+      # Marked held even though no slot was taken: a nested call must not then start its own wait
+      # from zero, which would make one give-up into several.
+      export SSC_BUILD_SLOT_HELD="none/${MAX}"
       echo "build-slot: no slot after ${WAIT_SECS}s — running anyway rather than failing the build" >&2
       return 0
     }
     sleep 5
   done
 }
+
+# ── --self-test ──────────────────────────────────────────────────────────────────────────────────
+#
+# BOTH DIRECTIONS, because the fix is a PASSTHROUGH and a passthrough that fires unconditionally
+# would look identical from inside a nested call: no wait, no second slot, everything green — and
+# the semaphore would have been silently switched off for everybody.
+#
+# Runs against its OWN semaphore directory. This host is shared and a self-test that reached into
+# the real one could reap or occupy a slot a live build is using, which is the class of damage this
+# file exists to prevent.
+if [ "${1:-}" = "--self-test" ]; then
+  st_dir="$(mktemp -d "${TMPDIR:-/tmp}/build-slot-selftest.XXXXXX")"
+  st_fail=0
+  st_env=(env -u SSC_BUILD_SLOT_HELD SSC_BUILD_SEMDIR="$st_dir" SSC_BUILD_MAX=2)
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
+  # 1 — an ordinary call TAKES a slot. Without this the passthrough could be unconditional.
+  held="$("${st_env[@]}" "$self" bash -c 'ls "$SSC_BUILD_SEMDIR" | tr "\n" " "')"
+  case "$held" in
+    *slot.*) echo "  ok   an ordinary call takes a slot" ;;
+    *) echo "  FAIL an ordinary call took NO slot — the guard is off, not re-entrant" >&2; st_fail=1 ;;
+  esac
+
+  # 2 — a NESTED call takes no further slot, and does not wait for one.
+  nested="$("${st_env[@]}" "$self" "$self" bash -c 'ls "$SSC_BUILD_SEMDIR" | tr "\n" " "')"
+  n_slots="$(printf '%s' "$nested" | tr " " "\n" | grep -c '^slot\.' || true)"
+  if [ "$n_slots" = 1 ]; then
+    echo "  ok   a nested call reuses the slot it is already inside"
+  else
+    echo "  FAIL a nested call held $n_slots slots — one logical build must hold one" >&2
+    st_fail=1
+  fi
+
+  # 3 — and it says so, rather than passing through silently.
+  case "$("${st_env[@]}" "$self" "$self" true 2>&1)" in
+    *"passing through (nested call)"*) echo "  ok   the passthrough announces itself" ;;
+    *) echo "  FAIL the nested call passed through without saying so" >&2; st_fail=1 ;;
+  esac
+
+  # 4 — the slot is RELEASED afterwards, so the self-test cannot be what wedges the queue.
+  left="$(ls "$st_dir" 2>/dev/null | tr '\n' ' ')"
+  if [ -z "$left" ]; then echo "  ok   every slot released"
+  else echo "  FAIL slots left behind: $left" >&2; st_fail=1; fi
+
+  rm -rf "$st_dir"
+  [ "$st_fail" -eq 0 ] || { echo "build-slot self-test: FAILED" >&2; exit 1; }
+  echo "build-slot self-test: PASS (takes one, nests without a second, releases)"
+  exit 0
+fi
 
 acquire
 "$@"
