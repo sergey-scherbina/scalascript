@@ -2765,7 +2765,20 @@ one §3 J1 item never built, and now the only one the evidence points at.
       load-10–13 rows are kept as measured: a history corrected in place cannot show that the
       instrument was the variable.
 
-- [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
+- [ ] **SSC3-J4 — superinstructions. RE-COUNTED 2026-08-15: 79 % of the payoff is already
+      banked by J4a and J4b, and the row is worth 15 %, not 36 %.** Both shapes the census
+      below sized turned out to be expressible as ordinary IR→IR passes, and both shipped:
+      the const half as J4a's loop-invariant hoist, the cmp-branch half as J4b's inversion.
+      Re-counted on the post-`Optimize` module (`ssc3.SpecializeMain --optimized`, added for
+      this — `ssc3 ir` prints the FRONT's output and a gate diffs it, so it cannot answer
+      this question): over the six rows §10.2 tabulated, baseline 86 → floor 47 → **today 55**.
+      31 of 39 instructions realised. `instance-field` is AT the floor with nothing left.
+      What remains is 8 instructions, ~15 % of today's bodies, and it is the half that needs a
+      fused operation to be REPRESENTED — the fork in `specs/ssc3-jit.md` §10.2, with the J2
+      trap on option 2. **The most expensive work in the series, bought for the smallest
+      remaining count; settle the representation before writing any of it.** The control is
+      unchanged and now measured rather than assumed: `recursion-fib` has ZERO loops.
+      *The original census, kept because it is what the two landed passes were sized against:*
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
       two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,
       `nested-loop` 18 → **9**, `var-expr-init` 14 → 7, `instance-field` 19 → 11, `list-fold` 10 → 6.

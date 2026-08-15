@@ -516,11 +516,80 @@ operation has to be *represented* somewhere, and there are two places:
    in the recommendation means, and it is the option that keeps the fusion out of the portable
    contract.
 
+**THERE IS A THIRD PLACE, and it was measured on 2026-08-15 rather than reasoned about: neither.**
+A fused operation does not have to be represented at all if the executor can RECOGNISE the pair it
+already walks. `exec` iterates a `List[Instr]` through a cursor, so the second instruction is
+`rest.tail.head` — and after J4b the pair is canonical and adjacent, `(bin ge i64 6 1 4)` followed
+by `(brif 6 1)` reading exactly the register the `bin` wrote. A peephole over that pair executes
+both in one dispatch with the IR, the verifier, the text form, its round-trip gate, `BridgeV2` and
+§1's charter all untouched — the same trick J4a and J4b used to collect their halves of §10.2
+without a new opcode.
+
+**The real constraint is the inline budget, and it has room.** Measured with this gate's own javap
+parser, on the classes `v3/ssc3` builds:
+
+| method | bytecodes | note |
+|---|---|---|
+| `Exec$.step` | **235** | budget 325 — **90 to spare** |
+| `Exec$.exec` | **101** | the walk itself |
+| `Exec$.stepRest` | 5684 | cold path, past the limit by design |
+| `Exec$.invoke` | 6912 | past `FreqInlineSize`, under `DontCompileHugeMethods` |
+
+That is why "you need a new opcode" is wrong as stated: the objection is not representational, it is
+that every way of adding a fused case grows the 325-byte dispatcher J0c bought — and today the
+dispatcher is at 235. **Two numbers in this repository say otherwise and both are stale:** the
+comment above `step` recording it at 5867 (before the split) and this gate's 2026-08-09 note that it
+"reported `Exec$.step` at exactly 325". J1b's dispatch on `kind` shrank it since. Quote the
+measurement, not either note.
+
+**So the fork below is a fallback, not the first move.** Try the peephole, and let
+`jit-gate.sh --sizes` answer whether it still inlines — that check exists and goes red immediately.
+Only if the pair-match does not fit does the choice between a portable opcode and a private flat
+encoding arise. What is NOT settled by this note: whether the peephole wins on a clock. It removes
+one dispatch of five on `arith-loop` — 20 % of that body, against J4b's 17 % cut that bought 18 % —
+and that needs a quiet host, not an argument.
+
 **Option 2 has a trap with a name in this file: it is how J2 was built, and J2 lost.** The private
 form must NOT be an array of closures or of objects with a virtual `run` — that is the megamorphic
 call site J0c's inlined 236-byte `step` beats. It has to stay one tableswitch over a flat encoding,
 which is the classic bytecode-VM shape and is more work than it sounds. Whoever takes J4 should
 settle that representation first, and write down which of the two options they chose and why.
+
+#### The residual, RE-COUNTED after J4a and J4b — 2026-08-15
+
+**79 % of §10.2's counted payoff is already banked, and the remainder is the expensive part.** The
+census above sized two fusions; both shipped as ordinary IR→IR passes instead — the const half as
+J4a's loop-invariant hoist, the cmp-branch half as J4b's inversion — so the open row's headline
+("mean cut 36 %") is now a statement about work that is mostly done.
+
+Re-counted on the module the executor actually dispatches over, which needed an instrument:
+`ssc3.SpecializeMain --optimized` prints the post-`Optimize` module (`ssc3 ir` is defined as the
+FRONT's output and a gate diffs it, so it cannot answer this). Instruction counts, load-independent:
+
+| workload | §10.2 baseline (post-J1d) | §10.2 floor | **today** | realised |
+|---|---|---|---|---|
+| `arith-loop` | 8 | 4 | **5** | 3 of 4 |
+| `nested-loop` | 18 | 9 | **13** | 5 of 9 |
+| `var-expr-init` | 14 | 7 | **8** | 6 of 7 |
+| `var-expr-init-int` | 15 | 8 | **9** | 6 of 7 |
+| `list-fold` | 10 | 6 | **7** | 3 of 4 |
+| `instance-field` | 19 | 11 | **11** | 8 of 8 — **at the floor** |
+| `literal-match` | 17 | 10 | **11** | 6 of 7 |
+
+Over the six rows §10.2 tabulated with a baseline: 86 → floor 47, today **55**. **31 of 39
+instructions realised, 79 %.** What is left is 8 instructions across those rows, about **15 % of
+today's bodies**, and `instance-field` has none of it left at all.
+
+**The residual is exactly the part a hoist and an inversion cannot reach.** `arith-loop`'s body is
+now `(bin ge)(brif)(bin add)(bin add)(br)`: the two `Const`s left the body and the `not` is gone, so
+the remaining fusion is `(bin cmp)` + `(brif)` into ONE dispatch, and a `Const` that is not
+loop-invariant fusing into its consumer. Both need a fused operation to be REPRESENTED — the fork
+above, with the J2 trap attached to option 2 — which is the most expensive work in the series
+bought for the smallest remaining count.
+
+**So the row should be judged on 15 %, not on 36 %.** Whoever takes it inherits an unchanged
+control — `recursion-fib` still has zero loops, measured, so a pass that moves it is wrong before
+its result is read — and should settle the representation first, as this section already asked.
 
 #### The pattern the J4 series found, and it is not the one the ladder predicted — 2026-08-15
 

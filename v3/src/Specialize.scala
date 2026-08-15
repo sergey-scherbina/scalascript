@@ -608,10 +608,19 @@ object SpecializeMain:
 
   def main(args: Array[String]): Unit =
     var census = false
+    // `--optimized` prints the module AFTER `Optimize`, which is what the executor actually
+    // dispatches over. Without it this main stops at `Specialize` and `--census` reports
+    // whole-module totals, so neither can answer the question SSC3-J4's row is judged on: how many
+    // instructions are left IN A LOOP BODY once the landed passes have run. Same instrument, one
+    // stage later; it is here rather than in `ssc3 ir` because `ir` is defined as the FRONT's
+    // output and a gate diffs it.
+    var optimized = false
     var path = ""
     var i = 0
     while i < args.length do
-      if args(i) == "--census" then census = true else path = args(i)
+      if args(i) == "--census" then census = true
+      else if args(i) == "--optimized" then optimized = true
+      else path = args(i)
       i = i + 1
     if path == "" then
       Console.err.println("usage: ssc3.SpecializeMain [--census] <file.ssc|file.ssir>")
@@ -644,4 +653,12 @@ object SpecializeMain:
       // how many instructions the executor has to dispatch — and unlike a wall clock it does not
       // depend on what else the host is doing.
       println("instrs: " + Optimize.instrCount(m1) + " -> " + Optimize.instrCount(Optimize.module(m1)))
+    else if optimized then
+      // Verified like every other stage (I-4): a counting instrument that reads invalid IR would
+      // report a number about something the executor would refuse to run.
+      val m2 = Optimize.module(m1)
+      Verify.module(m2) match
+        case Some(e) => Console.err.println("ssc3: THE OPTIMIZER PRODUCED INVALID IR: " + e.render); System.exit(1)
+        case None    => ()
+      print(Text.write(m2))
     else print(Text.write(m1))
