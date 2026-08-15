@@ -2965,6 +2965,23 @@ surface syntax.
      fixed-in: -
      gate: tests/e2e/v2-front-coverage.sh -->
 
+> **THE NAME IN THE TITLE IS GONE — re-measured 2026-08-15 and `loop` now accounts for ZERO GAP
+> files.** The corpus-wide `--front-report` run behind `f-front-coverage-census-0731` puts F's whole
+> hole at 30 files, and `loop` appears in none of them; the largest single reason is now `effect`
+> (9), then `handler` (6). So "`loop` replaces `q` as F's largest single decline reason" is true of
+> 2026-08-12 and of nothing since.
+>
+> **Not closed on that strength, deliberately.** A name vanishing from the GAP set means F no longer
+> DECLINES those files — it does not prove the diagnosis below was wrong or that the one-line fix
+> became unnecessary. The files may have moved to BOTH-UNBOUND for an unrelated reason, or the
+> construct may simply have left the corpus. Whoever picks this up needs one measurement, not a
+> reading: run the repro in the last section and see whether it still declines. If it does not, close
+> it and say which commit did it; if it does, the entry stands and only its TITLE was overtaken.
+>
+> Left open with the correction attached rather than closed or retitled: a slug is referenced from
+> elsewhere and renaming it breaks those references, and closing a diagnosis because its headline
+> aged would throw away the part that is still worth reading.
+
 **DIAGNOSED 2026-08-12 — root cause found, one-line fix identified, and DELIBERATELY NOT LANDED.
 Read the last section before applying it.**
 
@@ -4039,6 +4056,39 @@ the default front; `List`/`Map`/`Vector` unchanged; the conformance case stops d
      area: front
      fixed-in: -
      gate: tests/e2e/v2-front-coverage.sh -->
+
+> **RE-MEASURED 2026-08-15, same method, and every headline below is now wrong.** 55
+> `release-claim: f-*` commits landed on `main` between the two runs, so the numbers were a snapshot
+> of a front that has moved further than anything else in the repository.
+>
+> | verdict | 2026-07-31 (584 files) | 2026-08-15 (613 files) |
+> |---|---:|---:|
+> | F lowers it | 150 | **394** |
+> | BOTH-UNBOUND | 376 | 177 |
+> | **GAP — F's real hole** | 42 | **30** |
+> | ERROR | 16 | 12 |
+>
+> **"Half the hole is three names" no longer holds, and not one of the three is still there.**
+>
+> | name | then | now |
+> |---|---:|---:|
+> | `q` — the parsing-combinator parameter | 10 | **0** |
+> | `handle` | 7 | **0** (the name is now `handler`, 6) |
+> | `summon` | 3 | 3 |
+> | `effect` | 4 | **9** |
+> | `__u0` · `_` | — | 2 · 2 |
+>
+> **Half the hole is now the EFFECT SYSTEM**: `effect` 9 + `handler` 6 = 15 of the 30, and it is not
+> an unbound name to be registered — F does not parse the declaration form at all
+> (`effect Console:`, `multi effect Choose:`, and their handlers). The other GAPs are singletons.
+>
+> **The ERROR bucket is one defect, not twelve:** every row is the same
+> `structural CoreIR contains parser sentinel _err`.
+>
+> **Both halves of the run are accounted for**, which is the only reason these numbers are quotable:
+> the first pass timed out at 3000 s having done 430 of 613 files and exited 124. A truncated run's
+> counts look exactly like a census — 25 GAP against a different denominator — so the remaining 183
+> were run separately and the two merged, 613 verdicts for 613 files.
 
 **Measured 2026-07-31**, `bin/ssc info --front-report` over all 584 corpus files
 (`tests/conformance/*.ssc` + `examples/*.ssc`), deduplicated by path, no file left unrun.

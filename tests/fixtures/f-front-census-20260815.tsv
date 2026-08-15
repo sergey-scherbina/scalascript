@@ -1,0 +1,613 @@
+examples/_bug1_httpclient.ssc	F	
+examples/_bug1b.ssc	F	
+examples/_bug1c.ssc	F	
+examples/actors-pingpong.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+examples/actors-typed-remote-spawn.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+examples/agent-mcp-server.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/agent-mcp-toolsource.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/algebraic-effects.ssc	BOTH-UNBOUND	unbound global: (global effect) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runState) is neither a top-level def nor an @-cell
+examples/async-demo.ssc	BOTH-UNBOUND	unbound global: (global runAsync) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsync) is neither a top-level def nor an @-cell
+examples/async-parallel-demo.ssc	BOTH-UNBOUND	unbound global: (global runAsync) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsync) is neither a top-level def nor an @-cell
+examples/auth-demo.ssc	F	
+examples/auth-full.ssc	F	
+examples/bank-rails-ach.ssc	BOTH-UNBOUND	unbound global: (global AchConfig) is neither a top-level def nor an @-cell  ||REF: unbound global: (global AchConfig) is neither a top-level def nor an @-cell
+examples/bank-rails-fednow.ssc	BOTH-UNBOUND	unbound global: (global Rejected) is neither a top-level def nor an @-cell  ||REF: unbound global: (global db) is neither a top-level def nor an @-cell
+examples/bank-rails-pix.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/bank-rails-pix.ssc: structural CoreIR contains parser sentinel _err
+examples/bank-rails-sepa.ssc	BOTH-UNBOUND	unbound global: (global db) is neither a top-level def nor an @-cell  ||REF: unbound global: (global db) is neither a top-level def nor an @-cell
+examples/bitwise-operators.ssc	F	
+examples/bureau-demo.ssc	BOTH-UNBOUND	unbound global: (global TaxIdentifier) is neither a top-level def nor an @-cell  ||REF: unbound global: (global TaxIdentifier) is neither a top-level def nor an @-cell
+examples/cluster-capability.ssc	BOTH-UNBOUND	unbound global: (global ref) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spawn) is neither a top-level def nor an @-cell
+examples/components-demo.ssc	BOTH-UNBOUND	unbound global: (global css) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+examples/content-action-onsuccess.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-data-source.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-form-submit.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-introspection.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-linked-namespaces.ssc	F	
+examples/content-live-rows.ssc	GAP	unbound global: (global __u0) is neither a top-level def nor an @-cell
+examples/content-slot.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-tables.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-to-markdown.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content-toolkit-yaml-controls.ssc	BOTH-UNBOUND	unbound global: (global __u0) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+examples/content.ssc	BOTH-UNBOUND	unbound global: (global doc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global doc) is neither a top-level def nor an @-cell
+examples/control-center-live.ssc	F	
+examples/coroutine-demo.ssc	F	
+examples/crypto-demo.ssc	F	
+examples/crypto-encrypt-demo.ssc	F	
+examples/crypto-verify-demo.ssc	F	
+examples/custom-derives-mirror.ssc	F	
+examples/data-types.ssc	F	
+examples/dataset-parallel-sum.ssc	F	
+examples/dataset-stats.ssc	F	
+examples/dataset-typed-mapping.ssc	BOTH-UNBOUND	unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell
+examples/dataset-word-count.ssc	BOTH-UNBOUND	unbound global: (global args) is neither a top-level def nor an @-cell  ||REF: unbound global: (global args) is neither a top-level def nor an @-cell
+examples/datatable-static-spa.ssc	F	
+examples/default-params.ssc	F	
+examples/deploy.ssc	F	
+examples/derived-route-clients.ssc	BOTH-UNBOUND	unbound global: (global awaitClient) is neither a top-level def nor an @-cell  ||REF: unbound global: (global awaitClient) is neither a top-level def nor an @-cell
+examples/direct-syntax-demo.ssc	F	
+examples/distributed-dataset-codec.ssc	BOTH-UNBOUND	unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell
+examples/distributed-dataset-typed-helpers.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+examples/distributed-dataset-wire-protocol.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+examples/distributed-dataset-wire-shuffle.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+examples/distributed-join.ssc	BOTH-UNBOUND	unbound global: (global NamedHandler) is neither a top-level def nor an @-cell  ||REF: unbound global: (global NamedHandler) is neither a top-level def nor an @-cell
+examples/distributed-log-aggregation.ssc	BOTH-UNBOUND	unbound global: (global NamedHandler) is neither a top-level def nor an @-cell  ||REF: unbound global: (global NamedHandler) is neither a top-level def nor an @-cell
+examples/distributed-streams.ssc	BOTH-UNBOUND	unbound global: (global KV) is neither a top-level def nor an @-cell  ||REF: unbound global: (global KV) is neither a top-level def nor an @-cell
+examples/distributed-word-count.ssc	BOTH-UNBOUND	unbound global: (global NamedHandler) is neither a top-level def nor an @-cell  ||REF: unbound global: (global NamedHandler) is neither a top-level def nor an @-cell
+examples/dsl-ast-builder.ssc	F	
+examples/dsl-calc-parser.ssc	F	
+examples/dsl-json-parser.ssc	F	
+examples/dsl-mini-language.ssc	F	
+examples/dsl-sql-recovery.ssc	F	
+examples/dsl-yaml-like.ssc	F	
+examples/durable-save-run.ssc	GAP	unbound global: (global multi) is neither a top-level def nor an @-cell
+examples/effects.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+examples/enums.ssc	F	
+examples/extensions.ssc	GAP	unbound global: (global grade) is neither a top-level def nor an @-cell
+examples/fetch-auth.ssc	BOTH-UNBOUND	unbound global: (global signal) is neither a top-level def nor an @-cell  ||REF: unbound global: (global signal) is neither a top-level def nor an @-cell
+examples/fs-roundtrip.ssc	F	
+examples/functional.ssc	F	
+examples/generators.ssc	BOTH-UNBOUND	unbound global: (global generator) is neither a top-level def nor an @-cell  ||REF: unbound global: (global generator) is neither a top-level def nor an @-cell
+examples/graph-codecs.ssc	BOTH-UNBOUND	unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell
+examples/graph-fullstack-rdf.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/graph-fullstack-rdf.ssc: structural CoreIR contains parser sentinel _err
+examples/graph-fullstack.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/graph-fullstack.ssc: structural CoreIR contains parser sentinel _err
+examples/graph-janusgraph-gremlin.ssc	BOTH-UNBOUND	unbound global: (global VertexCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global VertexCodec_derived) is neither a top-level def nor an @-cell
+examples/graph-neo4j-storage.ssc	BOTH-UNBOUND	unbound global: (global VertexCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global VertexCodec_derived) is neither a top-level def nor an @-cell
+examples/graph-rdf4j-http-storage.ssc	F	
+examples/graph-rdf4j-storage.ssc	BOTH-UNBOUND	unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell
+examples/graph-storage-interpreter.ssc	F	
+examples/graph-storage.ssc	BOTH-UNBOUND	unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global JsonCodec_derived) is neither a top-level def nor an @-cell
+examples/graphql-client.ssc	BOTH-UNBOUND	unbound global: (global summon) is neither a top-level def nor an @-cell  ||REF: unbound global: (global graphqlQuery) is neither a top-level def nor an @-cell
+examples/graphql-hello.ssc	BOTH-UNBOUND	unbound global: (global serveGraphQL) is neither a top-level def nor an @-cell  ||REF: unbound global: (global serveGraphQL) is neither a top-level def nor an @-cell
+examples/graphql-typed-resolvers.ssc	BOTH-UNBOUND	unbound global: (global collection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global collection) is neither a top-level def nor an @-cell
+examples/health-defaults.ssc	F	
+examples/hello.ssc	F	
+examples/imports.ssc	F	
+examples/index.ssc	F	
+examples/indexeddb-drafts.ssc	BOTH-UNBOUND	unbound global: (global awaitClient) is neither a top-level def nor an @-cell  ||REF: unbound global: (global awaitClient) is neither a top-level def nor an @-cell
+examples/indexeddb-sync-client.ssc	BOTH-UNBOUND	unbound global: (global awaitClient) is neither a top-level def nor an @-cell  ||REF: unbound global: (global awaitClient) is neither a top-level def nor an @-cell
+examples/international-bank-rails.ssc	BOTH-UNBOUND	unbound global: (global SwiftProvider) is neither a top-level def nor an @-cell  ||REF: unbound global: (global SwiftProvider) is neither a top-level def nor an @-cell
+examples/invoice-email.ssc	BOTH-UNBOUND	unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell  ||REF: unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell
+examples/invoice-pdf.ssc	BOTH-UNBOUND	unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell  ||REF: unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell
+examples/js-glue-component.ssc	BOTH-UNBOUND	unbound global: (global Widget) is neither a top-level def nor an @-cell  ||REF: unbound global: (global Widget) is neither a top-level def nor an @-cell
+examples/lang-split.ssc	F	
+examples/lenses.ssc	F	
+examples/markdown-toolkit-links.ssc	GAP	unbound global: (global __u0) is neither a top-level def nor an @-cell
+examples/mcp-agent.ssc	F	
+examples/mcp-client-discover.ssc	F	
+examples/mcp-filesystem-server.ssc	F	
+examples/mcp-keyvalue-server.ssc	BOTH-UNBOUND	unbound global: (global mutable) is neither a top-level def nor an @-cell  ||REF: unbound global: (global mutable) is neither a top-level def nor an @-cell
+examples/mcp-search-server.ssc	BOTH-UNBOUND	unbound global: (global mcpServer) is neither a top-level def nor an @-cell  ||REF: unbound global: (global mcpServer) is neither a top-level def nor an @-cell
+examples/mcp-server-protected.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/mcp-server-tools.ssc	F	
+examples/middleware-demo.ssc	BOTH-UNBOUND	unbound global: (global nanoTime) is neither a top-level def nor an @-cell  ||REF: unbound global: (global nanoTime) is neither a top-level def nor an @-cell
+examples/multi-link-imports.ssc	F	
+examples/nfc-ndef.ssc	F	
+examples/node-fs-read.ssc	F	
+examples/oauth-as-standalone.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/oauth-demo.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/oauth-demo.ssc: structural CoreIR contains parser sentinel _err
+examples/oauth-mcp-full-stack.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/oauth-rs-guard.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/oauth-rsa-jwks.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/object-store-jdbc.ssc	BOTH-UNBOUND	unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell
+examples/object-store-sync-routes.ssc	BOTH-UNBOUND	unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell
+examples/oidc-idp.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/oidc-login-flow.ssc	BOTH-UNBOUND	unbound global: (global oauth) is neither a top-level def nor an @-cell  ||REF: unbound global: (global oauth) is neither a top-level def nor an @-cell
+examples/openapi-annotation.ssc	F	
+examples/os-env.ssc	F	
+examples/paginated-typed-client.ssc	F	
+examples/pdf-extract-demo.ssc	BOTH-UNBOUND	unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell  ||REF: unbound global: (global htmlToPdfBase64) is neither a top-level def nor an @-cell
+examples/pg-listen-notify.ssc	F	
+examples/quoted-macro-constfold.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/quoted-macro-constfold.ssc: structural CoreIR contains parser sentinel _err
+examples/quoted-macro-interpreter.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/quoted-macro-interpreter.ssc: structural CoreIR contains parser sentinel _err
+examples/recursion.ssc	F	
+examples/remote-registry-rpc.ssc	BOTH-UNBOUND	unbound global: (global path) is neither a top-level def nor an @-cell  ||REF: unbound global: (global remote) is neither a top-level def nor an @-cell
+examples/rest-api-fm.ssc	F	
+examples/rest-api.ssc	F	
+examples/rest-jetty.ssc	BOTH-UNBOUND	unbound global: (global setHttpServerBackend) is neither a top-level def nor an @-cell  ||REF: unbound global: (global setHttpServerBackend) is neither a top-level def nor an @-cell
+examples/rozum-agent-pool.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/rozum-agent-schema-derived.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/rozum-agent-streaming.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/rozum-agent.ssc	GAP	unbound global: (global handler) is neither a top-level def nor an @-cell
+examples/rozum-meeting.ssc	F	
+examples/scala-js-demo.ssc	GAP	unbound global: (global at) is neither a top-level def nor an @-cell
+examples/scljet-bytes.ssc	F	
+examples/scljet-crud.ssc	F	
+examples/scljet-file.ssc	F	
+examples/scljet-full.ssc	F	
+examples/scljet-hello.ssc	F	
+examples/scljet-jdbc.ssc	F	
+examples/scljet-jvm-vfs.ssc	F	
+examples/scljet-memory-vfs.ssc	F	
+examples/scljet-readonly-codecs.ssc	F	
+examples/scljet-readonly.ssc	F	
+examples/scljet-text-projection.ssc	F	
+examples/scljet-unique-index.ssc	F	
+examples/scljet-write-empty.ssc	F	
+examples/scljet-write-table.ssc	F	
+examples/script.ssc	F	
+examples/seed-signal.ssc	BOTH-UNBOUND	unbound global: (global route) is neither a top-level def nor an @-cell  ||REF: unbound global: (global route) is neither a top-level def nor an @-cell
+examples/signals-demo.ssc	BOTH-UNBOUND	unbound global: (global computed) is neither a top-level def nor an @-cell  ||REF: unbound global: (global computed) is neither a top-level def nor an @-cell
+examples/spa-demo.ssc	F	
+examples/spark-catalog-hive.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/spark-collections-demo.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-config-demo.ssc	F	
+examples/spark-delta-demo.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-encoder-demo.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-hive-demo.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/spark-lakehouse-delta.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-lakehouse-hudi.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-lakehouse-iceberg.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-mllib-model-save-load.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-mllib-pipeline.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-nested-demo.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-schema-mapping.ssc	BOTH-UNBOUND	unbound global: (global SparkSchemaCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global SparkSchemaCodec_derived) is neither a top-level def nor an @-cell
+examples/spark-shared-schema-reader.ssc	BOTH-UNBOUND	unbound global: (global SparkSchemaCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global SparkSchemaCodec_derived) is neither a top-level def nor an @-cell
+examples/spark-sql-demo.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/spark-streaming-file-parquet.ssc	BOTH-UNBOUND	unbound global: (global StructType) is neither a top-level def nor an @-cell  ||REF: unbound global: (global StructType) is neither a top-level def nor an @-cell
+examples/spark-streaming-kafka.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-streaming-rate-console.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-tuple-demo.ssc	BOTH-UNBOUND	unbound global: (global spark) is neither a top-level def nor an @-cell  ||REF: unbound global: (global spark) is neither a top-level def nor an @-cell
+examples/spark-udf-demo.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/sql-browser-duckdb.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/sql-browser-sqlite.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/sql-h2-quickstart.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/sql-sqlite-file.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/sse-typed-client.ssc	F	
+examples/ssr-page.ssc	BOTH-UNBOUND	unbound global: (global element) is neither a top-level def nor an @-cell  ||REF: unbound global: (global element) is neither a top-level def nor an @-cell
+examples/storage-demo.ssc	BOTH-UNBOUND	unbound global: (global runEphemeralStorage) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runEphemeralStorage) is neither a top-level def nor an @-cell
+examples/streams.ssc	BOTH-UNBOUND	unbound global: (global stream) is neither a top-level def nor an @-cell  ||REF: unbound global: (global stream) is neither a top-level def nor an @-cell
+examples/sync-todo.ssc	BOTH-UNBOUND	unbound global: (global awaitClient) is neither a top-level def nor an @-cell  ||REF: unbound global: (global awaitClient) is neither a top-level def nor an @-cell
+examples/totp-shamir-demo.ssc	BOTH-UNBOUND	unbound global: (global totp) is neither a top-level def nor an @-cell  ||REF: unbound global: (global totp) is neither a top-level def nor an @-cell
+examples/traditional-payments.ssc	BOTH-UNBOUND	unbound global: (global CreateIntentRequest) is neither a top-level def nor an @-cell  ||REF: unbound global: (global CreateIntentRequest) is neither a top-level def nor an @-cell
+examples/typeclass.ssc	F	
+examples/typed-data.ssc	F	
+examples/typed-object-codec.ssc	BOTH-UNBOUND	unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global ObjectCodec_derived) is neither a top-level def nor an @-cell
+examples/typed-sql-crud.ssc	BOTH-UNBOUND	unbound global: (global RowCodec_derived) is neither a top-level def nor an @-cell  ||REF: unbound global: (global RowCodec_derived) is neither a top-level def nor an @-cell
+examples/ui-fetch-json.ssc	F	
+examples/ui-remote-table.ssc	F	
+examples/ui-typed-json.ssc	F	
+examples/uploads.ssc	F	
+examples/uuid-v7.ssc	BOTH-UNBOUND	unbound global: (global uuidV7) is neither a top-level def nor an @-cell  ||REF: unbound global: (global uuidV7) is neither a top-level def nor an @-cell
+examples/v2-http-sql-demo.ssc	F	
+examples/validation-demo.ssc	BOTH-UNBOUND	unbound global: (global requireString) is neither a top-level def nor an @-cell  ||REF: unbound global: (global requireString) is neither a top-level def nor an @-cell
+examples/wallet-ledger-js.ssc	BOTH-UNBOUND	unbound global: (global HidTransport) is neither a top-level def nor an @-cell  ||REF: unbound global: (global HidTransport) is neither a top-level def nor an @-cell
+examples/wallet-mpc-fireblocks.ssc	BOTH-UNBOUND	unbound global: (global FireblocksVault) is neither a top-level def nor an @-cell  ||REF: unbound global: (global FireblocksVault) is neither a top-level def nor an @-cell
+examples/wasm-collections.ssc	F	
+examples/wasm-fibonacci.ssc	F	
+examples/wasm-http.ssc	BOTH-UNBOUND	unbound global: (global fetch) is neither a top-level def nor an @-cell  ||REF: unbound global: (global fetch) is neither a top-level def nor an @-cell
+examples/wasm-matrix.ssc	F	
+examples/wasm-primes.ssc	GAP	unbound global: (global _) is neither a top-level def nor an @-cell
+examples/wasm-scalascript.ssc	F	
+examples/wasm-sorting.ssc	F	
+examples/wc-card.ssc	F	
+examples/webauthn-demo.ssc	F	
+examples/word-count.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+examples/ws-chat.ssc	BOTH-UNBOUND	unbound global: (global onWebSocket) is neither a top-level def nor an @-cell  ||REF: unbound global: (global onWebSocket) is neither a top-level def nor an @-cell
+examples/ws-recv-demo.ssc	BOTH-UNBOUND	unbound global: (global onWebSocket) is neither a top-level def nor an @-cell  ||REF: unbound global: (global onWebSocket) is neither a top-level def nor an @-cell
+examples/ws-typed-client.ssc	F	
+examples/x402-cardano-scalus.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/x402-cardano-scalus.ssc: structural CoreIR contains parser sentinel _err
+examples/x402-cardano.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/x402-cardano.ssc: structural CoreIR contains parser sentinel _err
+examples/x402-client.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/examples/x402-client.ssc: structural CoreIR contains parser sentinel _err
+examples/x402-metamask.ssc	BOTH-UNBOUND	unbound global: (global Network) is neither a top-level def nor an @-cell  ||REF: unbound global: (global Network) is neither a top-level def nor an @-cell
+examples/x402-server.ssc	BOTH-UNBOUND	unbound global: (global sys) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sys) is neither a top-level def nor an @-cell
+examples/xslt-transform.ssc	BOTH-UNBOUND	unbound global: (global xml) is neither a top-level def nor an @-cell  ||REF: unbound global: (global xml) is neither a top-level def nor an @-cell
+examples/yaml-parse.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/actors-bounded-mailbox.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-config.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-coordinator.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-discovery.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-drain-stepdown.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-drain.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-gossip.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-isdown.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-leader.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-metrics.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-raft.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-reconnect.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-self-health.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-cluster-visibility.ssc	BOTH-UNBOUND	unbound global: (global clusterMembers) is neither a top-level def nor an @-cell  ||REF: unbound global: (global clusterMembers) is neither a top-level def nor an @-cell
+tests/conformance/actors-distributed-basic.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-global-registry.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-leader-protocol.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-phi-accrual.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-process-info.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/actors-supervision.ssc	BOTH-UNBOUND	unbound global: (global runActors) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runActors) is neither a top-level def nor an @-cell
+tests/conformance/arithmetic.ssc	F	
+tests/conformance/array-companion-statics.ssc	F	
+tests/conformance/array-indexed-store.ssc	F	
+tests/conformance/async-parallel-io.ssc	BOTH-UNBOUND	unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell
+tests/conformance/async-parallel.ssc	BOTH-UNBOUND	unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell
+tests/conformance/async-recv-from.ssc	BOTH-UNBOUND	unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsyncParallel) is neither a top-level def nor an @-cell
+tests/conformance/async.ssc	BOTH-UNBOUND	unbound global: (global runAsync) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runAsync) is neither a top-level def nor an @-cell
+tests/conformance/case-class-body-methods.ssc	F	
+tests/conformance/case-classes.ssc	F	
+tests/conformance/char-as-value.ssc	F	
+tests/conformance/char-literal-escapes.ssc	F	
+tests/conformance/cluster-connect.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/collection-join.ssc	F	
+tests/conformance/collections.ssc	F	
+tests/conformance/companion-case-class-order.ssc	F	
+tests/conformance/content-binding.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/content-introspection.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/content-linked-namespaces.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/content-tables.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/content-to-markdown.ssc	BOTH-UNBOUND	unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell  ||REF: unbound global: (global __yamlSection__) is neither a top-level def nor an @-cell
+tests/conformance/content.ssc	BOTH-UNBOUND	unbound global: (global doc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global doc) is neither a top-level def nor an @-cell
+tests/conformance/coroutine-basic.ssc	BOTH-UNBOUND	unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell  ||REF: unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell
+tests/conformance/coroutine-error.ssc	BOTH-UNBOUND	unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell  ||REF: unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell
+tests/conformance/coroutine-native-lifecycle.ssc	BOTH-UNBOUND	unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell  ||REF: unbound global: (global coroutineCreate) is neither a top-level def nor an @-cell
+tests/conformance/credential-vocabulary.ssc	F	
+tests/conformance/curried-def-clauses.ssc	F	
+tests/conformance/curried-def-three-clauses.ssc	F	
+tests/conformance/curried-extern-import.ssc	F	
+tests/conformance/dataset-agg.ssc	F	
+tests/conformance/dataset-error.ssc	F	
+tests/conformance/dataset-from-file.ssc	BOTH-UNBOUND	unbound global: (global writeFile) is neither a top-level def nor an @-cell  ||REF: unbound global: (global writeFile) is neither a top-level def nor an @-cell
+tests/conformance/dataset-from-generator.ssc	BOTH-UNBOUND	unbound global: (global generator) is neither a top-level def nor an @-cell  ||REF: unbound global: (global generator) is neither a top-level def nor an @-cell
+tests/conformance/dataset-groupBy.ssc	F	
+tests/conformance/dataset-map-filter.ssc	F	
+tests/conformance/dataset-of.ssc	F	
+tests/conformance/dataset-parallel-int.ssc	F	
+tests/conformance/dataset-parallel-jvm.ssc	F	
+tests/conformance/dataset-reduce.ssc	F	
+tests/conformance/dataset-shape.ssc	BOTH-UNBOUND	unbound global: (global deleteFile) is neither a top-level def nor an @-cell  ||REF: unbound global: (global deleteFile) is neither a top-level def nor an @-cell
+tests/conformance/dataset-sortBy.ssc	F	
+tests/conformance/dataset-top.ssc	F	
+tests/conformance/dataset-union-intersect.ssc	F	
+tests/conformance/dataset-zip.ssc	F	
+tests/conformance/deep-tail-recursion.ssc	F	
+tests/conformance/default-params.ssc	F	
+tests/conformance/dep-cps-basic.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/direct-control-flow.ssc	F	
+tests/conformance/direct-syntax.ssc	F	
+tests/conformance/distributed-callback-user-throw.ssc	F	
+tests/conformance/distributed-failure-partial.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/distributed-failure-retry.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/distributed-heterogeneous.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/distributed-map.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/distributed-shuffle.ssc	BOTH-UNBOUND	unbound global: (global self) is neither a top-level def nor an @-cell  ||REF: unbound global: (global self) is neither a top-level def nor an @-cell
+tests/conformance/dsl-multi-pass.ssc	GAP	unbound global: (global _) is neither a top-level def nor an @-cell
+tests/conformance/effect-deep-handler-state.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/effect-imported-handler.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/effect-multiarg-op.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/effect-transitive-handler.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/effects-handler.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/effects.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/enum-shared-casename.ssc	F	
+tests/conformance/extension-call-in-a-def-body.ssc	F	
+tests/conformance/f-tilde-arrow-ext.ssc	F	
+tests/conformance/f-tilde-extension-infix.ssc	F	
+tests/conformance/fence-attr-code.ssc	F	
+tests/conformance/fence-doc-block.ssc	F	
+tests/conformance/fenceless-bare-code.ssc	F	
+tests/conformance/fewer-braces-colon.ssc	F	
+tests/conformance/float-literal-suffix.ssc	F	
+tests/conformance/fn-typed-field.ssc	F	
+tests/conformance/for-comprehensions.ssc	F	
+tests/conformance/for-yield-layout.ssc	F	
+tests/conformance/fs-confined.ssc	F	
+tests/conformance/generator-callback-user-throw.ssc	BOTH-UNBOUND	unbound global: (global generator) is neither a top-level def nor an @-cell  ||REF: unbound global: (global generator) is neither a top-level def nor an @-cell
+tests/conformance/generic-ctor-and-array-alloc.ssc	F	
+tests/conformance/graph-edge-display.ssc	F	
+tests/conformance/head-field-effect-shadow.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/head-field-shadow.ssc	F	
+tests/conformance/higher-order-functions.ssc	F	
+tests/conformance/html-dsl.ssc	BOTH-UNBOUND	unbound global: (global div) is neither a top-level def nor an @-cell  ||REF: unbound global: (global div) is neither a top-level def nor an @-cell
+tests/conformance/http-client.ssc	BOTH-UNBOUND	unbound global: (global httpGet) is neither a top-level def nor an @-cell  ||REF: unbound global: (global httpGet) is neither a top-level def nor an @-cell
+tests/conformance/if-then-no-else-after-while.ssc	ERROR	/Users/sergiy/work/my/scalascript/tests/conformance/if-then-no-else-after-while.ssc:13:1: unterminated fenced block
+tests/conformance/import-dir.ssc	F	
+tests/conformance/indent-block-statements.ssc	F	
+tests/conformance/indent-config-format.ssc	F	
+tests/conformance/int-literal.ssc	F	
+tests/conformance/int-tochar-codepoint.ssc	F	
+tests/conformance/int-width.ssc	F	
+tests/conformance/js-applyunary-effect-cps.ssc	GAP	unbound global: (global effect) is neither a top-level def nor an @-cell
+tests/conformance/js-compound-assign.ssc	F	
+tests/conformance/js-cps-intrinsic-rewrite.ssc	BOTH-UNBOUND	unbound global: (global effect) is neither a top-level def nor an @-cell  ||REF: unbound global: (global nowMillis) is neither a top-level def nor an @-cell
+tests/conformance/js-crypto-extern-standalone.ssc	F	
+tests/conformance/js-derives-segmented.ssc	F	
+tests/conformance/js-effect-multishot-long-fold.ssc	GAP	unbound global: (global multi) is neither a top-level def nor an @-cell
+tests/conformance/js-generator-next-option.ssc	BOTH-UNBOUND	unbound global: (global generator) is neither a top-level def nor an @-cell  ||REF: unbound global: (global generator) is neither a top-level def nor an @-cell
+tests/conformance/js-http-client-config.ssc	F	
+tests/conformance/js-int-boundary-const-lambda.ssc	F	
+tests/conformance/js-int-division-by-zero.ssc	F	
+tests/conformance/js-long-param-arith.ssc	F	
+tests/conformance/js-parser-combinator-choice.ssc	F	
+tests/conformance/js-scala-fenced-block.ssc	F	
+tests/conformance/js-state-effect-runner.ssc	BOTH-UNBOUND	unbound global: (global runState) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runState) is neither a top-level def nor an @-cell
+tests/conformance/js-stream-complete-stops.ssc	BOTH-UNBOUND	unbound global: (global runStream) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runStream) is neither a top-level def nor an @-cell
+tests/conformance/js-symbolic-infix-operator.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/tests/conformance/js-symbolic-infix-operator.ssc: structural CoreIR contains parser sentinel _err
+tests/conformance/js-wildcard-destructure.ssc	F	
+tests/conformance/json-deep-import.ssc	F	
+tests/conformance/json-lookup.ssc	F	
+tests/conformance/json-read.ssc	F	
+tests/conformance/json-self-hosted-import.ssc	F	
+tests/conformance/json-value.ssc	F	
+tests/conformance/jvm-string-s-literal.ssc	F	
+tests/conformance/lenses.ssc	F	
+tests/conformance/list-apply-method.ssc	F	
+tests/conformance/list-combinators.ssc	F	
+tests/conformance/list-companion.ssc	F	
+tests/conformance/list-slice.ssc	F	
+tests/conformance/litdoc.ssc	F	
+tests/conformance/literal-pattern-in-case-lambda.ssc	F	
+tests/conformance/long-accum-invariant-fold.ssc	F	
+tests/conformance/long-overflow-wrap.ssc	F	
+tests/conformance/map-getorelse-expr-receiver.ssc	F	
+tests/conformance/map-ops.ssc	F	
+tests/conformance/maps.ssc	F	
+tests/conformance/markdown-html.ssc	F	
+tests/conformance/mcp-client-invoke.ssc	F	
+tests/conformance/mcp-server-resource.ssc	F	
+tests/conformance/mcp-server-tool.ssc	F	
+tests/conformance/mcp-types.ssc	F	
+tests/conformance/modules.ssc	F	
+tests/conformance/money-multisection.ssc	F	
+tests/conformance/money-portable-v2.ssc	F	
+tests/conformance/multiblock-auto-output.ssc	F	
+tests/conformance/mutual-recursion.ssc	F	
+tests/conformance/named-arg-defaults.ssc	GAP	unbound global: (global K) is neither a top-level def nor an @-cell
+tests/conformance/native-import-in-fence.ssc	F	
+tests/conformance/node-basic.ssc	F	
+tests/conformance/object-apply-two.ssc	F	
+tests/conformance/object-apply.ssc	F	
+tests/conformance/object-var-member-scope.ssc	F	
+tests/conformance/optic-polish.ssc	F	
+tests/conformance/optics-index-at.ssc	F	
+tests/conformance/option.ssc	F	
+tests/conformance/optional.ssc	F	
+tests/conformance/parameterless-def-extension.ssc	F	
+tests/conformance/parameterless-def-local.ssc	F	
+tests/conformance/parameterless-def-mention.ssc	GAP	unbound global: (global C) is neither a top-level def nor an @-cell
+tests/conformance/parenless-def-value.ssc	F	
+tests/conformance/parsing-error-node.ssc	F	
+tests/conformance/parsing-parse-all.ssc	F	
+tests/conformance/parsing-recover-until.ssc	F	
+tests/conformance/pattern-matching.ssc	F	
+tests/conformance/predef-notimplemented.ssc	F	
+tests/conformance/prisms.ssc	F	
+tests/conformance/recursion.ssc	F	
+tests/conformance/regex-subset.ssc	F	
+tests/conformance/rest-validate.ssc	BOTH-UNBOUND	unbound global: (global validate) is neither a top-level def nor an @-cell  ||REF: unbound global: (global validate) is neither a top-level def nor an @-cell
+tests/conformance/scljet-address-read.ssc	F	
+tests/conformance/scljet-address-write.ssc	F	
+tests/conformance/scljet-balance-delete-merge.ssc	F	
+tests/conformance/scljet-balance-insert.ssc	F	
+tests/conformance/scljet-byte-codec.ssc	F	
+tests/conformance/scljet-cell-inplace.ssc	F	
+tests/conformance/scljet-correlated-dml.ssc	F	
+tests/conformance/scljet-correlated-subquery-errors.ssc	F	
+tests/conformance/scljet-freelist-write-corrupt.ssc	F	
+tests/conformance/scljet-full-stack.ssc	F	
+tests/conformance/scljet-index-mutate-text.ssc	F	
+tests/conformance/scljet-index-mutate.ssc	F	
+tests/conformance/scljet-insert-null.ssc	F	
+tests/conformance/scljet-ipk-numeric-affinity.ssc	F	
+tests/conformance/scljet-jdbc-basic.ssc	F	
+tests/conformance/scljet-journal-recover.ssc	F	
+tests/conformance/scljet-journal-write.ssc	F	
+tests/conformance/scljet-large-page.ssc	F	
+tests/conformance/scljet-memory-vfs.ssc	F	
+tests/conformance/scljet-module-contract.ssc	F	
+tests/conformance/scljet-multitable-mutate.ssc	F	
+tests/conformance/scljet-mutate-crud.ssc	F	
+tests/conformance/scljet-mutate-delete.ssc	F	
+tests/conformance/scljet-mutate-insert.ssc	F	
+tests/conformance/scljet-mutate-update.ssc	F	
+tests/conformance/scljet-mutation-complete-parse.ssc	F	
+tests/conformance/scljet-overflow-traversal-corrupt.ssc	F	
+tests/conformance/scljet-page-record-codec.ssc	F	
+tests/conformance/scljet-pager-mutate.ssc	F	
+tests/conformance/scljet-portable-text.ssc	F	
+tests/conformance/scljet-readonly-btree-pure.ssc	F	
+tests/conformance/scljet-readonly-pager-btree.ssc	F	
+tests/conformance/scljet-sql-agg-distinct.ssc	F	
+tests/conformance/scljet-sql-agg-expr.ssc	F	
+tests/conformance/scljet-sql-aggregate.ssc	F	
+tests/conformance/scljet-sql-bool.ssc	F	
+tests/conformance/scljet-sql-case.ssc	F	
+tests/conformance/scljet-sql-concat.ssc	F	
+tests/conformance/scljet-sql-correlated-in.ssc	F	
+tests/conformance/scljet-sql-correlated-join.ssc	F	
+tests/conformance/scljet-sql-correlated-scalar.ssc	F	
+tests/conformance/scljet-sql-create-index.ssc	F	
+tests/conformance/scljet-sql-create-table.ssc	F	
+tests/conformance/scljet-sql-distinct.ssc	F	
+tests/conformance/scljet-sql-dml.ssc	F	
+tests/conformance/scljet-sql-double-equals.ssc	F	
+tests/conformance/scljet-sql-drop-index.ssc	F	
+tests/conformance/scljet-sql-exists.ssc	F	
+tests/conformance/scljet-sql-expr.ssc	F	
+tests/conformance/scljet-sql-func.ssc	F	
+tests/conformance/scljet-sql-group-by.ssc	F	
+tests/conformance/scljet-sql-having.ssc	F	
+tests/conformance/scljet-sql-index-descent.ssc	F	
+tests/conformance/scljet-sql-index-maintain.ssc	F	
+tests/conformance/scljet-sql-index-multi-cond.ssc	F	
+tests/conformance/scljet-sql-index-seek.ssc	F	
+tests/conformance/scljet-sql-insert-cols.ssc	F	
+tests/conformance/scljet-sql-insert-multi.ssc	F	
+tests/conformance/scljet-sql-ipk-rowid.ssc	F	
+tests/conformance/scljet-sql-join.ssc	F	
+tests/conformance/scljet-sql-join3-agg.ssc	F	
+tests/conformance/scljet-sql-join3.ssc	F	
+tests/conformance/scljet-sql-left-join3.ssc	F	
+tests/conformance/scljet-sql-limit-pushdown.ssc	F	
+tests/conformance/scljet-sql-live-reclaim.ssc	F	
+tests/conformance/scljet-sql-modulo.ssc	F	
+tests/conformance/scljet-sql-mutation-count.ssc	F	
+tests/conformance/scljet-sql-no-from.ssc	F	
+tests/conformance/scljet-sql-null-semantics.ssc	F	
+tests/conformance/scljet-sql-null.ssc	F	
+tests/conformance/scljet-sql-orderby-expr.ssc	F	
+tests/conformance/scljet-sql-orderby.ssc	F	
+tests/conformance/scljet-sql-params.ssc	F	
+tests/conformance/scljet-sql-range-descent.ssc	F	
+tests/conformance/scljet-sql-range-seek.ssc	F	
+tests/conformance/scljet-sql-real-literal.ssc	F	
+tests/conformance/scljet-sql-right-full-join.ssc	F	
+tests/conformance/scljet-sql-right-join3.ssc	F	
+tests/conformance/scljet-sql-rowid-seek-overflow.ssc	F	
+tests/conformance/scljet-sql-rowid-seek.ssc	F	
+tests/conformance/scljet-sql-select.ssc	F	
+tests/conformance/scljet-sql-strfunc.ssc	F	
+tests/conformance/scljet-sql-subquery.ssc	F	
+tests/conformance/scljet-sql-unique-index.ssc	F	
+tests/conformance/scljet-sql-update-expr.ssc	F	
+tests/conformance/scljet-sql-update.ssc	F	
+tests/conformance/scljet-sql-value-compare.ssc	F	
+tests/conformance/scljet-sql-where-bool.ssc	F	
+tests/conformance/scljet-sql-where-expr.ssc	F	
+tests/conformance/scljet-sql-where-like.ssc	F	
+tests/conformance/scljet-sql-where-set.ssc	F	
+tests/conformance/scljet-transaction.ssc	F	
+tests/conformance/scljet-typedsql-basic.ssc	F	
+tests/conformance/scljet-typedsql-decode.ssc	F	
+tests/conformance/scljet-typedsql-dml.ssc	F	
+tests/conformance/scljet-typedsql-join.ssc	F	
+tests/conformance/scljet-update-ipk-moves-rowid.ssc	F	
+tests/conformance/scljet-wal-checkpoint.ssc	F	
+tests/conformance/scljet-wal-read.ssc	F	
+tests/conformance/scljet-wal-recover.ssc	F	
+tests/conformance/scljet-wal.ssc	F	
+tests/conformance/scljet-write-btree-overflow.ssc	F	
+tests/conformance/scljet-write-btree.ssc	F	
+tests/conformance/scljet-write-database.ssc	F	
+tests/conformance/scljet-write-deep-btree.ssc	F	
+tests/conformance/scljet-write-deep-overflow.ssc	F	
+tests/conformance/scljet-write-empty.ssc	F	
+tests/conformance/scljet-write-index-composite.ssc	F	
+tests/conformance/scljet-write-index-deep.ssc	F	
+tests/conformance/scljet-write-index-multileaf.ssc	F	
+tests/conformance/scljet-write-index-text.ssc	F	
+tests/conformance/scljet-write-index.ssc	F	
+tests/conformance/scljet-write-keyed.ssc	F	
+tests/conformance/scljet-write-multitable.ssc	F	
+tests/conformance/scljet-write-overflow.ssc	F	
+tests/conformance/scljet-write-record.ssc	F	
+tests/conformance/sealed-traits.ssc	F	
+tests/conformance/set-distinct.ssc	F	
+tests/conformance/set-ops-infix.ssc	F	
+tests/conformance/signal-id-bridged.ssc	BOTH-UNBOUND	unbound global: (global signal) is neither a top-level def nor an @-cell  ||REF: unbound global: (global signal) is neither a top-level def nor an @-cell
+tests/conformance/signals.ssc	BOTH-UNBOUND	unbound global: (global computed) is neither a top-level def nor an @-cell  ||REF: unbound global: (global computed) is neither a top-level def nor an @-cell
+tests/conformance/sql-basic.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+tests/conformance/sql-browser-basic.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+tests/conformance/sql-transaction.ssc	BOTH-UNBOUND	unbound global: (global sqlSection) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sqlSection) is neither a top-level def nor an @-cell
+tests/conformance/standard-scala-fence.ssc	F	
+tests/conformance/standard-scala-mixed-runnable.ssc	F	
+tests/conformance/standard-scala-multifence.ssc	GAP	Range [3, 3) out of bounds for length 2
+tests/conformance/std-bifunctor.ssc	F	
+tests/conformance/std-foldable-traversable.ssc	GAP	unbound global: (global Foldable) is neither a top-level def nor an @-cell
+tests/conformance/std-fs-failure-raises.ssc	F	
+tests/conformance/std-fs-failure.ssc	F	
+tests/conformance/std-functor-applicative-monad.ssc	F	
+tests/conformance/std-i18n.ssc	F	
+tests/conformance/std-index.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
+tests/conformance/std-monaderror.ssc	F	
+tests/conformance/std-os-doc-import.ssc	F	
+tests/conformance/std-os-readline.ssc	F	
+tests/conformance/std-os.ssc	F	
+tests/conformance/std-process-import.ssc	F	
+tests/conformance/std-selective.ssc	F	
+tests/conformance/std-semigroup-monoid.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-aggregator.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-extended-b.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-extended-c.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-extended-d.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-extended.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-i18n.ssc	F	
+tests/conformance/std-ui-jobpanel.ssc	F	
+tests/conformance/std-ui-native-backticked-id-lib.ssc	F	
+tests/conformance/std-ui-native-backticked-id.ssc	F	
+tests/conformance/std-ui-native-css-scope-lib.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-native-css-scope.ssc	BOTH-UNBOUND	unbound global: (global sc) is neither a top-level def nor an @-cell  ||REF: unbound global: (global scope) is neither a top-level def nor an @-cell
+tests/conformance/std-ui-native-html-lambda-lib.ssc	F	
+tests/conformance/std-ui-native-html-lambda.ssc	F	
+tests/conformance/std-ui-native-pair-lib.ssc	F	
+tests/conformance/std-ui-native-pair-minimal.ssc	F	
+tests/conformance/storage.ssc	BOTH-UNBOUND	unbound global: (global runEphemeralStorage) is neither a top-level def nor an @-cell  ||REF: unbound global: (global runEphemeralStorage) is neither a top-level def nor an @-cell
+tests/conformance/string-eq-locals.ssc	F	
+tests/conformance/string-matches.ssc	F	
+tests/conformance/strings.ssc	F	
+tests/conformance/sys-env.ssc	BOTH-UNBOUND	unbound global: (global sys) is neither a top-level def nor an @-cell  ||REF: unbound global: (global sys) is neither a top-level def nor an @-cell
+tests/conformance/tagless-context-bounds.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
+tests/conformance/tagless-direct-syntax.ssc	F	
+tests/conformance/tagless-multi-file.ssc	F	
+tests/conformance/tagless-program.ssc	F	
+tests/conformance/tagless-resolution.ssc	F	
+tests/conformance/tagless-sealed-dispatch.ssc	F	
+tests/conformance/tail-recursion.ssc	F	
+tests/conformance/tkv2-busi-home.ssc	F	
+tests/conformance/tkv2-button-size.ssc	F	
+tests/conformance/tkv2-button-variant.ssc	F	
+tests/conformance/tkv2-component.ssc	F	
+tests/conformance/tkv2-forms.ssc	F	
+tests/conformance/tkv2-hstack-wrap.ssc	F	
+tests/conformance/tkv2-keyed-for.ssc	F	
+tests/conformance/tkv2-offline.ssc	F	
+tests/conformance/tkv2-pwa.ssc	BOTH-UNBOUND	unbound global: (global pwa) is neither a top-level def nor an @-cell  ||REF: unbound global: (global pwa) is neither a top-level def nor an @-cell
+tests/conformance/tkv2-raw-html.ssc	F	
+tests/conformance/tkv2-select-reactive.ssc	F	
+tests/conformance/tkv2-select.ssc	F	
+tests/conformance/tkv2-textfield-reactive-label.ssc	F	
+tests/conformance/tkv2-theme-css-vars.ssc	F	
+tests/conformance/tkv2-tri-state.ssc	F	
+tests/conformance/tkv2-typed-client-derived.ssc	BOTH-UNBOUND	unbound global: (global route) is neither a top-level def nor an @-cell  ||REF: unbound global: (global route) is neither a top-level def nor an @-cell
+tests/conformance/tkv2-webauthn.ssc	F	
+tests/conformance/tls-smoke.ssc	BOTH-UNBOUND	unbound global: (global tls) is neither a top-level def nor an @-cell  ||REF: unbound global: (global tls) is neither a top-level def nor an @-cell
+tests/conformance/traversal.ssc	F	
+tests/conformance/try-catch-exception-delivery.ssc	F	
+tests/conformance/try-catch-io-failure.ssc	F	
+tests/conformance/try-multistmt-body.ssc	F	
+tests/conformance/tuples.ssc	F	
+tests/conformance/type-ascription-list.ssc	F	
+tests/conformance/type-ascription-map.ssc	F	
+tests/conformance/type-ascription-number.ssc	F	
+tests/conformance/type-ascription-option.ssc	F	
+tests/conformance/type-ascription-set.ssc	F	
+tests/conformance/type-ascription-tuple.ssc	F	
+tests/conformance/type-ascription-unit.ssc	F	
+tests/conformance/type-ascription.ssc	ERROR	native frontend rejected incomplete parse in /Users/sergiy/work/my/scalascript/tests/conformance/type-ascription.ssc: structural CoreIR contains parser sentinel _err
+tests/conformance/typeclass-extension.ssc	F	
+tests/conformance/unit-literal-pattern.ssc	F	
+tests/conformance/user-request-shadow.ssc	F	
+tests/conformance/v2-db-url-scheme-not-jdbc.ssc	F	
+tests/conformance/v2-mirror-surface.ssc	F	
+tests/conformance/v2-multiline-list-literal.ssc	F	
+tests/conformance/v2-native-result-unregistered-field.ssc	BOTH-UNBOUND	unbound global: (global exec) is neither a top-level def nor an @-cell  ||REF: unbound global: (global exec) is neither a top-level def nor an @-cell
+tests/conformance/v2-option-exists.ssc	F	
+tests/conformance/v2-self-hosted-markdown-core.ssc	F	
+tests/conformance/v2-self-hosted-parser-fuzz.ssc	F	
+tests/conformance/v2-self-hosted-yaml-core.ssc	F	
+tests/conformance/v2-string-split-limit-overload.ssc	F	
+tests/conformance/v2-system-clock.ssc	F	
+tests/conformance/v2-type-ascription-pattern.ssc	F	
+tests/conformance/v2-user-type-shadows-function-ctor.ssc	F	
+tests/conformance/v2-user-type-shadows-plugin-type.ssc	F	
+tests/conformance/v2js-unit-pattern.ssc	F	
+tests/conformance/var-topdef-shared.ssc	F	
+tests/conformance/variables.ssc	F	
+tests/conformance/w5-scala-fence-width-parity.ssc	F	
+tests/conformance/webauthn-server-verify.ssc	F	
+tests/conformance/ws-client.ssc	BOTH-UNBOUND	unbound global: (global wsConnect) is neither a top-level def nor an @-cell  ||REF: unbound global: (global wsConnect) is neither a top-level def nor an @-cell
+tests/conformance/zero-arg-all-defaults.ssc	F	
