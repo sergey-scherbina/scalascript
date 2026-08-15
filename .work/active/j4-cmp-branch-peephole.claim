@@ -1,0 +1,11 @@
+slug: j4-cmp-branch-peephole
+branch: feature/j4-cmp-branch-peephole
+agent: claude-code
+started: 2026-08-15T16:24:33Z
+heartbeat: 2026-08-15T16:24:33Z
+status: claimed-before-planning
+items: SSC3-J4
+paths: file:v3/src/Exec.scala file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
