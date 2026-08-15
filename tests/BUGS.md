@@ -1,3 +1,51 @@
+## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .github/workflows/smoke.yml
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+**The cap has a rule written beside it, and the rule is now broken.** `.github/workflows/smoke.yml`
+sets `timeout-minutes: 30`, and the comment above that line states what it must obey:
+
+> 30 min leaves ~11 min over the worst observed case. The rule this cap should obey from now on: it
+> must stay STRICTLY LOOSER than the suite's own budget plus build time, or the guard with the
+> measurement behind it cannot speak.
+
+When that was written the successes ran a median of 16.8 min, max 20.0. They no longer do.
+
+**Census, 100 runs over 24 h** (`gh run list --workflow=smoke.yml --limit 100`, window
+2026-08-14T17:09 → 2026-08-15T17:42):
+
+| conclusion | n | min | median | max |
+|---|---|---|---|---|
+| success | 62 | 16.7 | **26.0** | 60.5 |
+| failure | 18 | 18.8 | 27.6 | 29.9 |
+| cancelled | 17 | **30.1** | 30.3 | 38.7 |
+| (empty) | 3 | 0.1 | 0.1 | 0.1 |
+
+**Every single cancelled run is at or past the cap and none is below it.** That is what makes this a
+cap rather than a race: a newer push cancelling an older run would cancel at arbitrary durations.
+The successes above 30 min are not a contradiction — the timeout applies to RUNNING time while these
+figures are `createdAt → updatedAt`, which includes queueing.
+
+**Why it costs more than the 17 runs.** `cancelled` is RED by policy P-6.7, so a push that hits the
+cap yields no evidence at all: not a pass, not a fail, and nothing to act on. It also mislabels
+working code — I hit it on `f97ff254c`, saw `CI RED`, and the run went GREEN on a rerun of the same
+sha with nothing changed. An agent who reads only the colour will hunt a defect that is not there;
+an agent who learns to shrug at RED will miss one that is.
+
+**Measured, not decided.** Raising or lowering this cap has been the project owner's call three
+times (see `smoke-suite-over-its-own-budget`, and the comment block in the workflow), so this entry
+stops at the number. What the number says: the margin the cap was sized to give — ~11 min over the
+worst case — is gone, and the suite's median has moved from 16.8 to 26.0. Either the cap moves, or
+the suite's real duration does; the inner budget cannot report on this one, because a job killed at
+30 min never reaches the line that prints it.
+
 ## f-trait-parent-list-comma — `extends A, B` left the second parent in the token stream
 
 <!-- status: fixed
