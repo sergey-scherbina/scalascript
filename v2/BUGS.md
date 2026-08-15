@@ -4087,6 +4087,34 @@ the default front; `List`/`Map`/`Vector` unchanged; the conformance case stops d
      fixed-in: -
      gate: tests/e2e/v2-front-coverage.sh -->
 
+> **AND THE RE-MEASUREMENT BELOW AGED OUT WITHIN NINETY MINUTES — corrected the same day.** The run
+> that produced "30 GAP, half of it the effect system" used the toolchain staged in `bin/` at the
+> time. A sibling landed the effect-system work and rebuilt that shared `bin/` while I was writing it
+> up, and re-running `--front-report` over exactly those 30 files says:
+>
+>     17 -> F        13 -> still GAP
+>
+> **All ten `effect`/`handler` files are among the seventeen**, and `tests/conformance/effects.ssc`
+> now runs on the native lane and matches its golden byte for byte. So "half the hole is the effect
+> system" was true for about an hour. What remains, whole corpus:
+>
+> | name | files |
+> |---|---:|
+> | `summon` | 3 |
+> | `at` · `__u0` · `_` | 2 · 2 · 2 |
+> | `K` · `grade` · `Foldable` · `C` | 1 each |
+>
+> There is no cluster left: the largest single reason is three files, and the rest are singletons.
+> Per-file rows are in `tests/fixtures/f-front-gap-recheck-20260815.tsv`.
+>
+> **The lesson is about the shared `bin/`, not about F.** This census reads the STAGED toolchain, and
+> any agent's `install.sh --dev` replaces it underneath a running measurement — the banner moved from
+> `348579049` to `3ccec7fc1` to `4b717804c` in one session. A census taken here is a reading of one
+> moment, and the moment is not under the reader's control. Record the toolchain sha with the numbers
+> or the numbers cannot be reproduced; this run was `4b717804c`.
+
+---
+
 > **RE-MEASURED 2026-08-15, same method, and every headline below is now wrong.** 55
 > `release-claim: f-*` commits landed on `main` between the two runs, so the numbers were a snapshot
 > of a front that has moved further than anything else in the repository.

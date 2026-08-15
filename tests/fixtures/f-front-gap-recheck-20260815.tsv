@@ -1,0 +1,30 @@
+examples/agent-mcp-server.ssc	F	
+examples/agent-mcp-toolsource.ssc	F	
+examples/content-live-rows.ssc	GAP	unbound global: (global __u0) is neither a top-level def nor an @-cell
+examples/durable-save-run.ssc	F	
+examples/effects.ssc	F	
+examples/extensions.ssc	GAP	unbound global: (global grade) is neither a top-level def nor an @-cell
+examples/markdown-toolkit-links.ssc	GAP	unbound global: (global __u0) is neither a top-level def nor an @-cell
+examples/rozum-agent-pool.ssc	F	
+examples/rozum-agent-schema-derived.ssc	F	
+examples/rozum-agent-streaming.ssc	F	
+examples/rozum-agent.ssc	F	
+examples/scala-js-demo.ssc	GAP	unbound global: (global at) is neither a top-level def nor an @-cell
+examples/wasm-primes.ssc	GAP	unbound global: (global _) is neither a top-level def nor an @-cell
+tests/conformance/dsl-multi-pass.ssc	GAP	unbound global: (global _) is neither a top-level def nor an @-cell
+tests/conformance/effect-deep-handler-state.ssc	F	
+tests/conformance/effect-imported-handler.ssc	F	
+tests/conformance/effect-multiarg-op.ssc	F	
+tests/conformance/effect-transitive-handler.ssc	F	
+tests/conformance/effects-handler.ssc	F	
+tests/conformance/effects.ssc	F	
+tests/conformance/head-field-effect-shadow.ssc	F	
+tests/conformance/js-applyunary-effect-cps.ssc	F	
+tests/conformance/js-effect-multishot-long-fold.ssc	F	
+tests/conformance/named-arg-defaults.ssc	GAP	unbound global: (global K) is neither a top-level def nor an @-cell
+tests/conformance/parameterless-def-mention.ssc	GAP	unbound global: (global C) is neither a top-level def nor an @-cell
+tests/conformance/standard-scala-multifence.ssc	GAP	unbound global: (global at) is neither a top-level def nor an @-cell
+tests/conformance/std-foldable-traversable.ssc	GAP	unbound global: (global Foldable) is neither a top-level def nor an @-cell
+tests/conformance/std-index.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
+tests/conformance/std-semigroup-monoid.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
+tests/conformance/tagless-context-bounds.ssc	GAP	unbound global: (global summon) is neither a top-level def nor an @-cell
