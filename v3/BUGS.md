@@ -210,7 +210,7 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
-## v3-handleError-on-a-val-bound-None-matches-no-arm — and it is what blocks the given-instance receiver fix
+## v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name — was: v3-handleError-on-a-val-bound-None-matches-no-arm
 
 <!-- status: open
      lane: v3
@@ -219,19 +219,44 @@ shape.
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**`noneInt.handleError((_: Unit) => Some(0))` dies with `match: no arm matched`**, thrown from
-`Exec.prim` with NO position — which is why the case lands in DIFF rather than in the honest
-UNSUPPORTED bucket. `std-index` prints nine correct lines and stops there; `std-monaderror` dies on
-the same call and prints nothing.
+**RENAMED, BECAUSE THE TITLE I FILED WAS THE SYMPTOM AND NOT THE MECHANISM.** It read
+`handleError-on-a-val-bound-None`, and none of those three words is load-bearing: not `val`, not
+`None`, not `handleError`.
 
-The method is the extension inside `given optionUnitError: MonadError[Option, Unit]`
-(`std/monaderror.ssc:47`):
+**A TOP-LEVEL `extension` AND A `given`-INSTANCE `extension` OF THE SAME NAME COLLIDE, and the
+top-level one wins whatever the receiver is.** `std/monaderror.ssc` declares `handleError` twice —
+once inside `given optionUnitError: MonadError[Option, Unit]` for `Option`, and once as a top-level
+`extension [A](fa: Either[String, A])` for `Either`. A call on an `Option` is rewritten to the
+EITHER body, whose `fa match { case Right(_) …; case Left(e) … }` matches no arm. The throw comes
+from `Exec.prim` with NO position, which is why the case lands in DIFF rather than UNSUPPORTED.
 
-    extension [A](fa: Option[A]) def handleError(h: Unit => Option[A]): Option[A] = fa match
-      case Some(_) => fa
-      case None    => h(())
+**Reproducer, fourteen lines, no `std` and no `val`:**
 
-and `fa` is `val noneInt: Option[Int] = None`. `case None` ought to match and does not.
+    trait ME[F[_], E]:
+      def raise[A](e: E): F[A]
+
+    given oue: ME[Option, Unit] with
+      def raise[A](e: Unit): Option[A] = None
+      extension [A](fa: Option[A]) def he(h: Unit => Option[A]): Option[A] = fa match
+        case Some(_) => fa
+        case None    => h(())
+
+    extension [A](fa: Either[String, A])
+      def he(h: String => Either[String, A]): Either[String, A] = fa match
+        case Right(_) => fa
+        case Left(e)  => h(e)
+
+    println(Some(4).he((_: Unit) => Some(0)))    // match: no arm matched
+
+**FOUR REDUCTIONS GOT HERE AND THE FIRST THREE KILLED A HYPOTHESIS EACH**, which is why the original
+title was wrong: `case Some(_)` and `case Some(v)` patterns work; the same extension body at top
+level works; the receiver shape is irrelevant (`val`-bound `None`, `val`-bound `Some`, and the bare
+constructor `Some(42)` all failed identically); a multi-param trait with TWO instances works. Only
+the name collision reproduces it.
+
+**A SEPARATE DEFECT — `v3-multi-param-typeclass-never-resolves` — was found and FIXED on the way**
+(`headAndArg` keyed the instance table on the string `Option, Unit`), and fixing it did NOT fix
+this. Two defects behind one message.
 
 **IT IS INVISIBLE TODAY, which is the only reason it has not been filed before.** Both cases are
 refused earlier by the `is provided by a given instance` diagnostic, so the line is never reached.
