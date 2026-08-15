@@ -165,6 +165,33 @@ corpus: v3 also wins `vector-index`, `lazylist-take`, `map-ops`, `range-sum` and
    (110× on `arith-loop`, 133× on `nested-loop`) and *ahead* on three (`streams-pipeline` 0.5×,
    `typeclass-monoid` 0.2×, `type-lambda-native` 0.4×).
 
+### The end-to-end re-run, and why it is NOT published as a result — 2026-08-15
+
+After the day's five optimisations landed — J4a/b/c/d in v3's executor and the persistent `MapV` in
+v2's runtime — the obvious question is what the table above looks like now. It was re-run, whole
+corpus, two rounds, same columns, at load 15–17. **The answer is that this comparison cannot see
+them, and the numbers are recorded here only so nobody repeats it believing otherwise.**
+
+| reference | median gain, v3 | median gain, v2 | per-row swing |
+|---|---|---|---|
+| against `ssc` | 1.09× | 1.04× | 0.10× … 10.2× |
+| against `jvm` | 0.95× | 0.96× | 0.12× … 6.6× |
+
+Two reasons, and both are already documented above:
+
+1. **The reference column is bimodal.** `ssc` reads 60× apart between rounds on `list-fold` and
+   4–9× on `string-concat` and `tuple-monoid`, so a v3/`ssc` ratio inherits that swing. Rows that
+   "improved 10×" or "regressed 8×" are the denominator moving, not the lane.
+2. **The two runs saw different hosts** — 4.8–8.7 then, 15–17 now — and a 10–36 % effect is far
+   below what two rounds resolve at that load. Even against `jvm`, which does not JIT-flicker, the
+   medians land within noise of 1.0.
+
+**What DOES measure these changes is what measured them at the time:** one binary, the change behind
+an OFF flag (`--no-hoist`, `--no-invert`, `--no-tag-cache`, `--no-prepare-cache`), 20–30 alternating
+pairs, and a matched control inside every pair. Those runs are in `bench/history.tsv` and each
+carries its control column. A table-to-table diff is a different instrument with about an order of
+magnitude less resolution, and using it here would report noise as a result.
+
 ### What this run does NOT say
 
 - **`rust` is not in the table.** It builds a cargo project per row, and it is a fourth product
