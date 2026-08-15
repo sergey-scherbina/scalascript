@@ -2,10 +2,10 @@ slug: v3-bridge-arr-prims
 branch: feature/v3-bridge-arr-prims
 agent: claude-code
 started: 2026-08-15T21:04:19Z
-heartbeat: 2026-08-15T23:01:27Z
+heartbeat: 2026-08-15T23:28:41Z
 status: in-progress
 items: SSC3-3c-register-access-through-arr-prims SSC3-3-effects-across-the-bridge
-paths: v3/src/BridgeV2.scala v3/src/Main.scala v3/ssc3 v3/exec-gate.sh v3/effects-gate.sh v3/bridge-gate.sh v3/tests/bridge/unsupported.ssir v3/tests/effects/nested-and-nonzero-shift.ssc v3/tests/effects/nested-and-nonzero-shift.expected specs/ssc3-jit.md v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
+paths: v3/src/BridgeV2.scala v3/src/Main.scala v3/ssc3 v3/exec-gate.sh v3/effects-gate.sh v3/bridge-gate.sh v3/tests/bridge v3/tests/effects/nested-and-nonzero-shift.ssc v3/tests/effects/nested-and-nonzero-shift.expected specs/ssc3-jit.md v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
 scope: |
     Two things, one file. (1) SSC3-3c cheap half, already landed as e7c456963 — register
     access through arr.get/arr.set — plus the follow-on: `build`/`run --bridge` now hand the
@@ -15,4 +15,4 @@ scope: |
     encodings (CPS and tail-resumptive), so all twelve v3/tests/effects fixtures run on the v2
     lane. effects-gate.sh became a differential; bridge-gate's refusal probe was re-pointed
     from `resume` to `un bnot`, the way its own comment said it would have to be.
-next: structured while + temp fold: prove the gate arms fire, then land
+next: land the endRegion elision, then release
