@@ -1,4 +1,4 @@
-# generation: 2250
+# generation: 2251
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -10,3 +10,4 @@ rust-mcp-resources-prompts	claude-code	2026-08-15T15:46:01Z	rust-mcp-server-answ
 v1-double-call-not-jitted	claude-code	2026-08-15T15:48:58Z	int-a-double-in-a-signature-falls-off-the-jit	file:v1/runtime/backend/interpreter/BUGS.md file:TASK/v2-perfomance.md
 j4-cmp-branch-peephole	claude-code	2026-08-15T16:24:33Z	SSC3-J4	file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
 f-foldable-grade	claude-code	2026-08-15T16:35:51Z	f-foldable-unbound f-grade-unbound	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-foldable-grade-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+run-js-probe-retraction	claude-code	2026-08-15T17:06:04Z	js-jvm-codegen-in-fence-imports-not-followed	file:v1/runtime/backend/js/BUGS.md
