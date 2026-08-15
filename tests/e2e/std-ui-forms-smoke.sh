@@ -27,7 +27,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/demo.ssc"
-PORT=8769
+# 8771, NOT 8769, since 2026-08-15. This gate and `health-defaults-smoke.sh` both bound 8769 — a
+# pair frozen in `no-leaked-servers.sh` rather than fixed — and a frozen collision is still a live
+# collision. Observed in an ordinary `scripts/smoke-ci` run: this gate failed with
+#     [FAIL] JVM: :8769 is answering, but NOT from the process this gate started (pid 43041)
+# while passing 3/3 standalone at the SAME load, so the holder was a sibling gate inside the same
+# run. The identity check below did its job; what it caught was a port two gates were told to share.
+PORT=8771
 
 # A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
 # and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
@@ -128,9 +134,10 @@ run_serve_backend() {
         echo "  [skip] $label: server did not start within 90s"
         return 0
     fi
-    # `wait_for_server` polls the PORT, and this gate shares 8769 with `health-defaults-smoke.sh`
-    # (a frozen pair in `no-leaked-servers.sh`), so what answered may be a neighbour's server or a
-    # leak from one. A foreign server is a FAILURE here and not a `[skip]`: the two skips above are
+    # `wait_for_server` polls the PORT, and this gate no longer shares one — it moved off 8769 on
+    # 2026-08-15 (see the PORT declaration). The check STAYS: a foreign answer can still come from a
+    # leak, and this gate is the one that proved a shared port bites in practice.
+    # A foreign server is a FAILURE here and not a `[skip]`: the two skips above are
     # environmental — a launcher that could not compile — while this one means the port is not ours
     # and the marker assertions below would be reading somebody else's page.
     # (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)

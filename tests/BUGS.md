@@ -1990,6 +1990,36 @@ and the ratchet that closed it must be checked against the population it now gov
 gates still share 8769, either the ratchet does not cover concurrently-wired gates or these were
 wired past it. Not diagnosed here; observed, dated, and handed over with the run that shows it.
 
+
+### 2026-08-15 — 8769 RETIRED, and the fix was wrong the first time in an instructive way
+
+`std-ui-forms-smoke.sh` moved to **8771**, so the frozen pair is gone: `no-leaked-servers.sh` now
+reports **2 frozen, none new** (was 3). Both gates verified concurrently from a clean port state —
+`std-ui rc=0 (0 skip, 0 fail)`, `health-defaults rc=0`, **0 foreign-server complaints**.
+
+**MY FIRST ATTEMPT PASSED WHILE TESTING NOTHING, and that is the part worth keeping.** Changing only
+`PORT=8769` → `PORT=8771` in the gate left `examples/std-ui/demo.ssc` serving on `serve(8769)` — the
+port lives in the PROGRAM as well as in the harness. The gate then polled a port nothing served,
+`wait_for_server` timed out, and the timeout path is a `[skip]` that RETURNS 0:
+
+```text
+  [PASS] INT
+  [skip] JVM: server did not start within 90s
+  [skip] JS:  server did not start within 90s        exit 0
+```
+
+I read `rc=0` three times over and called it verified. The rows say two of the three lanes had
+stopped being tested. **A gate that skips on "server did not start" cannot tell a broken launcher
+from a port its subject never binds** — its own comment calls those skips "environmental", and a
+port mismatch is not environmental. Fixed by moving the port in both places; the rows now read
+`[PASS] INT / [PASS] JVM / [PASS] JS`.
+
+**Not fixed here, and separable:** `health-defaults-smoke.sh` can trip on its own predecessor. Run
+back-to-back, the previous run's server is occasionally still dying when the next one starts, and
+the new run reports `:8769 is held by a process this gate did not start` naming a holder ~26 s old.
+From a verified-clean port it passes all four lanes with no leak, so this is a race between the EXIT
+trap's `kill -9` and the next start, not a missing cleanup.
+
 ## a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own
 
 <!-- status: fixed

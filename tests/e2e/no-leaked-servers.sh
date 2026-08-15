@@ -68,8 +68,9 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 # NONE OF THE THREE IS AN ACTIVE HAZARD TODAY, and that is why this is a ratchet and not a bug fix.
 # For two gates to talk to each other's server they must run on one machine. Measured 2026-08-14:
 #   8768  only components-smoke.sh is wired; render-smoke.sh and v21-native-entry-smoke.sh are orphans
-#   8769  health-defaults-smoke.sh (ci.yml) and std-ui-forms-smoke.sh (smoke-ci.ssc) — both wired,
-#         but in DIFFERENT suites, which on CI are different runners
+#   8769  RESOLVED 2026-08-15 — std-ui-forms-smoke.sh moved to 8771. It was the collision that
+#         actually bit: an ordinary smoke run had it answering on a neighbour's server. Kept as a
+#         line rather than deleted, so the next reader sees a frozen pair CAN be retired.
 #   8797  route-params-v2-smoke.sh (ci.yml) and request-validation-family-gate.sh (smoke-ci.ssc) — ditto
 # So the hazard is a LOCAL one (two suites at once on a dev box) plus the day a second gate on one of
 # these ports gets wired into the suite that already has one. That day this check goes red first.
@@ -85,7 +86,6 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 # a caller either, and unlike a comment there is nothing about it to strip. Anything else that lists
 # gate filenames as data belongs in a `.md`, which `callers_of` excludes, or here without the suffix.
 FROZEN_COLLISIONS="8768 components-smoke render-smoke v21-native-entry-smoke
-8769 health-defaults-smoke std-ui-forms-smoke
 8797 request-validation-family-gate route-params-v2-smoke"
 
 SELF="$(basename "${BASH_SOURCE[0]}")"
