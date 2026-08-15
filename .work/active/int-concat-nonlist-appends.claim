@@ -1,0 +1,11 @@
+slug: int-concat-nonlist-appends
+branch: feature/int-concat-nonlist-appends
+agent: claude-code
+started: 2026-08-15T23:20:18Z
+heartbeat: 2026-08-15T23:20:18Z
+status: claimed-before-planning
+items: int-concat-nonlist-builds-a-tuple
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
