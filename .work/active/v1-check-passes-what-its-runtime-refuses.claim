@@ -1,0 +1,11 @@
+slug: v1-check-passes-what-its-runtime-refuses
+branch: feature/v1-check-passes-what-its-runtime-refuses
+agent: claude-code
+started: 2026-08-15T19:01:22Z
+heartbeat: 2026-08-15T19:01:22Z
+status: claimed-before-planning
+items: v1-check-green-lights-programs-that-crash-on-run-v1
+paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/BUGS.md file:tests/e2e/declared-type-is-a-constraint.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
