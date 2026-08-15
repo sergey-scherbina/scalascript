@@ -8,7 +8,7 @@
      reported-at: 2026-08-15
      confirmed: yes
      gate: .github/workflows/ci.yml
-     fixed-in: PENDING -->
+     fixed-in: 07d770988 -->
 
 **`ci.yml`'s `validate` job is fail-fast, so the FIRST red step hides every step after it.** Measured
 over the last twelve `ci.yml` runs — the failing step is read from the job's own step list, not
