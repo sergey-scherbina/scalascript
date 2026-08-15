@@ -37,23 +37,65 @@ name: v3
 # THE COST IS REAL AND IS THE POINT: v3's gates now run on every push that touches `v2/`. That is
 # the price of the bridge lane being a bridge. The alternative is what just happened — the
 # divergence is found by whoever next touches an unrelated file under `v3/`.
+# `uniml/**` IS ALSO IN THE TRIGGER, added 2026-08-15, and it costs nothing measurable.
+#
+# uniml is half of what `v3/front-gate.sh` runs — the DEFAULT front — so a change there is a change
+# to what this workflow tests, exactly as `v2/**` is for the bridge lane. Leaving it out is the same
+# hole the `v2/**` note above describes, and the same hole cost four commits of undetected lane
+# divergence then. (v3/BUGS.md `v3-workflow-does-not-trigger-on-uniml-…`.)
+#
+# THE COST, measured before adding rather than assumed: of the last 300 commits on `main`, `uniml/`
+# is touched by ONE, and by ZERO that do not already touch `v3/` or `v2/`. So this adds no runs to
+# today's traffic; it closes the case where somebody works on uniml alone, which is precisely when
+# nobody is watching the front gate's other half.
+
 on:
   push:
     branches: [main]
     paths:
       - 'v3/**'
       - 'v2/**'
+      - 'uniml/**'
       - '.github/workflows/v3.yml'
   pull_request:
     paths:
       - 'v3/**'
       - 'v2/**'
+      - 'uniml/**'
       - '.github/workflows/v3.yml'
   workflow_dispatch:
 
+# CANCELLING COST THIS WORKFLOW 95 % OF ITS VERDICTS. Measured 2026-08-15 over its last 100 runs
+# (2026-08-13 → 2026-08-15): **cancelled 75, failure 19, success 5**. A gate that answers about one
+# commit in twenty is not protecting v3, and 75 % of its history reads RED without having tested
+# anything — which is worse than silence, because a red history is what people stop reading.
+#
+# THE ENTRY'S DIAGNOSIS WAS "main's push interval is shorter than the suite", AND THE NUMBERS SAY
+# OTHERWISE. Runs are created at **1.7 per hour** over 58 hours — one every ~35 minutes — against a
+# suite whose completed runs take a median of **26 minutes**. On average a run has time to finish.
+# What kills them is that the arrivals are BURSTY: several `v3/`/`v2/` commits land within minutes,
+# and each one evicts the last. Cancelled runs die at a median of 5.9 min, well short of the 26 they
+# need. The fix therefore is not "run less" — it is "do not kill a run that is already executing".
+#
+# `false`, and NOT the "no group at all" that `smoke.yml` carries, even though that file's header is
+# where this disease was first cured. Its position is justified there by a specific fact: smoke is
+# ONE job of ~6 minutes that skips sbt on a cache hit, so 25 runs/hour is affordable. This suite is
+# ~26 minutes and builds an sbt project before its first gate. Copying the conclusion without the
+# premise is how a cure becomes a cargo cult; `ci.yml` uses `false` for its heavy jobs for the same
+# reason, and its note says why in the same words: a run that is ALREADY EXECUTING is never killed,
+# so it reaches a verdict, and GitHub replaces the PENDING one instead.
+#
+# What that buys, arithmetically: a burst of three commits used to produce zero verdicts and now
+# produces two — the first (which finishes) and the last (which the pending slot collapses to). At
+# 1.7 runs/hour the worst-case runner cost is ~44 minutes per hour, unchanged in order of magnitude.
+#
+# WHAT TO WATCH, and what it would mean: if `cancelled` stays high after this, the cancels are no
+# longer coming from concurrency and the next suspect is the 45-minute job timeout or the account's
+# concurrent-job budget — neither of which this line can fix. The measurement to repeat is
+# `gh run list --workflow v3.yml --limit 100 --json conclusion`.
 concurrency:
   group: v3-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gates:
@@ -116,8 +158,11 @@ jobs:
       # `front report` and both jit steps reported nothing at all while `executor differential` was
       # red, and nobody could see whether they would have passed. The job is still red if any gate
       # is red; what changes is that all of them now say so. `!cancelled()` rather than `always()`
-      # so a cancelled run (this workflow has `cancel-in-progress: true`) stops promptly instead of
-      # grinding through six gates nobody is waiting for.
+      # so a cancelled run stops promptly instead of grinding through six gates nobody is waiting
+      # for. It still earns its keep with `cancel-in-progress: false` above — a run can be cancelled
+      # by hand, by the 45-minute job timeout, or by a superseded PR head — but it is no longer the
+      # common case; this parenthesis used to say "this workflow has `cancel-in-progress: true`" and
+      # was left behind by the change above.
       #
       # The driver caches a jar per SOURCE DIGEST, which is why the first gate pays for the compile
       # and the rest do not.
