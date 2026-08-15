@@ -1,0 +1,11 @@
+slug: validate-skips-everything-after-its-first-red
+branch: feature/validate-skips-everything-after-its-first-red
+agent: claude-code
+started: 2026-08-15T01:54:12Z
+heartbeat: 2026-08-15T01:54:12Z
+status: claimed-before-planning
+items: ci-validate-fails-early-and-skips-every-later-step
+paths: file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
