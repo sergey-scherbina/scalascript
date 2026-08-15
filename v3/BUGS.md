@@ -414,45 +414,57 @@ and that widening is load-bearing — v2's `flt` refuses an Int, so `math.sqrt(1
 while the executor answered 4. Moving the declaration into the object would move that one line of
 `.ssc` both lanes run into a builder in Scala. The workaround is not what this entry was about.
 
-## v3-plugin-fleet-regresses-four-cases-when-enabled — the path works, the adapter's value surface does not
+## v3-plugin-fleet-regresses-four-cases-when-enabled — it does not; the fleet now RAISES N by five
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
+     fixed-in: fbf16fb97
      gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**The plugin path landed in `f30d11f05` and the fleet is OPT-IN, because turning it on breaks the
-DIFF floor.** Measured on the same tree, the only difference being whether `v3/.jars/plugins.cp`
-exists:
+**FIXED IN fbf16fb97. Measured on the rebased tree, the only difference being whether
+`v3/.jars/plugins.cp` exists:**
 
-    without the fleet   PASS 223  DIFF 3  UNSUPPORTED 132  CRASH 9   <- identical to before
-    with the fleet      PASS 223  DIFF 7  UNSUPPORTED 126  CRASH 9
+    fleet off   PASS 223  DIFF 3  UNSUPPORTED 132  CRASH 9  EXCL 2   <- the control, identical to before
+    fleet on    PASS 228  DIFF 3  UNSUPPORTED 126  CRASH 9  EXCL 3
 
-Six cases leave the `host function … is not implemented` bucket and FOUR of them become wrong
-answers rather than passes: `std-fs-failure`, `std-fs-failure-raises`, `std-os-readline`,
-`std-process-import`. PASS does not move at all. An honest refusal traded for a silent wrong answer
-is the trade the floor exists to refuse, so the fleet is enabled by an explicit script exactly as
-the second front is — availability is a cached fact, not something the driver discovers.
+Both floors held and the three DIFFs are the SAME three the control reports, so the fleet costs
+nothing and gains five. Six cases leave the host bucket; five pass and one differs on a case that
+does not hold the v2 lane.
 
-**ONE IS DIAGNOSED AND IT IS THE ADAPTER'S VALUE SURFACE, not the architecture.**
-`std-process-import` first died with `a host function was passed VData` — v3 numbers a constructor
-and v2 names it, so the conversion needs the module in BOTH directions; that half is fixed. It now
-dies with `a host function was passed VMap`. `VSet` and `VArr` are the same shape of gap. A CLOSURE
-cannot cross this boundary at all: v3's `VClos` is a function index with captures, v2's `ClosV` is
-an env and code, so a plugin taking a callback needs a different mechanism than value conversion.
+**THE FOUR WERE THREE SEPARATE DEFECTS AND ONLY THE FIRST WAS THE ONE THIS ENTRY PREDICTED.**
 
-**THE OTHER THREE ARE NOT DIAGNOSED.** `std-fs-failure` and `std-os-readline` MATCH when run
-individually on both lanes, and the report still counts them DIFF — so the difference is in how the
-report runs them (its own harness, parallel jobs, stdin) and not in the lanes disagreeing. That has
-to be established before anything is changed for them; the obvious guess, that the plugin's failure
-shapes differ from the expectations, is a guess.
+1. *The value surface*, as filed: `VMap`, `VSet` and `VArr` cross now, both directions. Each was
+   found by a failing program rather than by reading the enum, because the refusal names the shape
+   it met — `VData` first, then `VMap`. v2 has no array case at all, so an array crosses as the
+   `ForeignV(ArrayBuffer)` handle itself.
+2. *A thrown failure is part of a host function's contract.* `listDir` on a missing directory is
+   SUPPOSED to raise; the plugin's Java exception escaped the executor and surfaced as
+   `cannot read '<the .ssc>': NoSuchFileException` — a message about the SOURCE FILE, from a handler
+   that assumes anything thrown came from reading it.
+3. *This report kept its own copy of the v2 invocation*, which is why the cases still counted DIFF
+   long after they matched by hand on both lanes. It BUILT the IR with the front — which has the
+   fleet, so lowering emits `(prim "mkdirs" …)` rather than a refusal — and RAN it on a plain
+   `ssc.cli` with no plugins. `v3/ssc3 __v2-run` prints the whole command now and the report uses it.
 
-**The architecture is proven and is not what needs work.** `mkdirs` answers `()` on the executor
-AND on the bridge and the directory appears; v2 needed no change, because `Prims.resolve` already
-falls back to `V2PluginRegistry.lookup` before throwing.
+**THE ENTRY SAID THE LAST THREE WERE "NOT DIAGNOSED" AND THAT THE DIFFERENCE WAS IN THE HARNESS.
+That was right about the domain and wrong about every guess inside it** — not the parallel jobs, not
+stdin, but the harness's own v2 entry. The guesses were named as guesses, which is the only reason
+they cost nothing.
 
+**A LATENT HARNESS DEFECT CAME OUT WITH IT, worth more than the fix.** The dispatch loop reads the
+case list on fd 0 and a background job inherits it, so once the os plugin made `std-os-readline`
+really read stdin it ATE THE REST OF THE LIST. The report still announced `running 369 case(s)` —
+that count is taken upfront — while its buckets summed to 294. Seventy-five cases were never
+dispatched, and no error was printed anywhere: it looked like an ordinary report with a lower N.
+The quantity is what named the mechanism, being exactly the tail behind the reading case.
+`< /dev/null` on the dispatch closes it for every case and every configuration.
+
+**THE FLEET IS STILL OPT-IN**, but no longer because it regresses anything — only because
+`v3/.jars/plugins.cp` needs an sbt build, and availability is a cached fact here exactly as the
+second front's is. Turning it on by default is a separate decision with a separate cost.
 ## v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name — was: v3-handleError-on-a-val-bound-None-matches-no-arm
 
 <!-- status: fixed
