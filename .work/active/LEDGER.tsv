@@ -1,4 +1,4 @@
-# generation: 2329
+# generation: 2330
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 ci-gates-that-cannot-run	claude-code	2026-08-15T15:42:01Z	ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14	file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
@@ -8,3 +8,4 @@ v3-fast-apply	claude-code	2026-08-15T19:43:26Z	SSC3-J5-apply1-builds-a-list-to-t
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims	file:v3/src/BridgeV2.scala file:v3/SPRINT.md file:bench/history.tsv
 js-char-code-coercion-at-declared-int	claude-code	2026-08-15T21:06:20Z	js-coerces-a-one-char-string-to-its-code-point-at-a-declared-int	file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
 v3-fleet-more-plugin-modules	claude-code	2026-08-15T21:27:03Z	v3-the-fleet-wires-two-plugin-modules-of-twenty-six	file:v3/plugin-classpath.sh file:v3/plugins/V2Fleet.scala file:v3/BUGS.md
+v2-concat-nonlist-wraps	claude-code	2026-08-15T21:36:29Z	v3-concat-nonlist-splits-three-ways	file:v2/src/Runtime.scala file:v2/BUGS.md file:v3/BUGS.md
