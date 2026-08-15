@@ -1,3 +1,42 @@
+## ref-front-injects-the-first-given-for-an-explicit-using-clause — the interpreter disagrees
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: none — open defect -->
+
+**The REFERENCE front is the wrong one here, and F inherits it by agreeing.**
+
+```scalascript
+given intM: M[Int] with    def empty: Int = 0
+given strM: M[String] with def empty: String = "x"
+def z[A](xs: List[A])(using m: M[A]): A = m.empty
+z(List("a", "b"))   then   z(List(1, 2))
+```
+
+```
+reference front   0 | 0     <- injects intM for BOTH calls
+F                 0 | 0     <- agrees with the reference
+v1 interpreter    x | 0     <- correct
+```
+
+The same program written with a CONTEXT BOUND — `def z[A: M](xs: List[A]): A = summon[M[A]].empty` —
+gives `x | 0` on the reference AND the interpreter. So the reference has two paths for what its own
+conformance case calls one thing (`tagless-context-bounds.ssc`: "`[A: TC]` desugars to
+`(using TC[A])`"), and they disagree with each other.
+
+**`f-output-agreement-gate` is blind to this by construction.** It compares F against the reference
+and arbitrates divergences with the interpreter — but here F and the reference AGREE, so there is no
+divergence to arbitrate and the row never reaches the interpreter. A defect that both fronts share
+is invisible to a two-front comparison; only a three-lane probe finds it.
+
+Filed against the reference front rather than F. Whoever implements context bounds on F should
+decide deliberately whether to match the reference (wrong, gate-green) or the interpreter (right, and
+scored as "reference contradicted", which the gate counts but does not fail on).
+
 ## generated-views-go-stale-and-the-next-agent-pays — and the hook's own tests ran nowhere
 
 <!-- status: fixed
@@ -1316,14 +1355,24 @@ file in this bucket, declares THREE `Monoid` instances.
 exactly ONE given for that TC is unambiguous and would fix `tagless-context-bounds.ssc`. It fixes at
 most one of the five, and adds a special case the real fix deletes.
 
-### What the real fix looks like
+### What the real fix looks like — CORRECTED 2026-08-16
 
-The reference lowers `summon[TC].m` to `(app (var <gname>_m) args)` via `lookupActiveCtx` — static —
-yet behaves dynamically, so the dispatch is happening through the value it builds for a given set:
-`summon[TC]` in VALUE position lowers to `IrGlobal("__summon_value_" ++ tc)` (`ssc1-lower.ssc0`).
-That is a runtime dispatcher over the instances, and F already has the analogous machinery for
-extension methods (`emitOneExtDispatcher`, the `extdisp` node). The work is to build the same
-dispatcher for given instances and route the abstract-`summon` case through it.
+**It is dictionary passing, not a runtime dispatcher.** The earlier text here said the latter and was
+wrong; it was inferred from `lookupActiveCtx` looking static while the behaviour was per-call, and I
+never resolved that contradiction before writing it down.
+
+The reference DESUGARS `[A: TC]` into a real parameter. `parseTypeParams` extracts the bounds and
+`mkCtxParam` prepends one param per bound, named `__tc_<TC>`; `isCtxParam` / `ctxParamTC`
+(`ssc1-lower.ssc0`) read that marker back off the name. So `combineAll[A: Monoid](xs)` is a def of
+TWO parameters, and the per-call behaviour comes from the CALL SITE injecting the right dictionary —
+which is why it can differ between `z(List("a"))` and `z(List(1))` from one definition.
+
+**F already has most of the call-site half**: `collectUsingSig` (the registry of defs with `using`
+clauses), `usingGivenFor(tab, tc, at)` — which selects by typeclass AND type, falling back to
+`findAnyGivenF` — and the injection itself. What is missing is recognising `[A: TC]` as producing a
+using-shaped parameter, so `summon[TC[A]]` in the body resolves to that local instead of to a global.
+
+That makes this a bounded slice on the scale of the effects port, not a new runtime mechanism.
 
 **Not verified**: I have not read how `__summon_value_TC` is constructed, only established from
 three lanes that the behaviour is per-call. Whoever takes this should start there, and should keep
