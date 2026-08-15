@@ -123,7 +123,8 @@ not grow to cover whatever the next file needs.
 
 ## v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout — and nothing warns you until a gate run has been spent
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 5758cdb0d
      lane: v3
      area: build
      gate: v3/exec-gate.sh
@@ -161,8 +162,35 @@ differ in who pays:
    relies on being read before the gate is run, which is exactly the order that failed three times.
 
 Shape 2 is the one worth taking: it preserves the current, correct verdict and only moves WHEN it is
-delivered. Not attempted here — this entry was written from inside a claim on a different subject,
-and both gates are shared apparatus that deserve their own claim.
+delivered.
+
+### CLOSED 2026-08-15 — `5758cdb0d`, shape 2, and both directions measured
+
+Both gates now refuse the moment they learn the front is unregistered, through the `ssc3 fronts`
+call they already make — not by testing for the file, because the driver owns that decision and a
+second copy would be a second place to be wrong.
+
+| gate | without uniml | with uniml |
+|---|---|---|
+| `exec-gate.sh` | **refuses in 35 s** (was 244 s to the same verdict) | does not fire — GREEN, 85 cases, 244 s |
+| `front-gate.sh` | **refuses in 1 s** (was 51 s) | does not fire — GREEN, 89 cases, 51 s |
+
+The 35 s is the v3 kernel compile the gate needs anyway; `front-gate` answers in one second against
+a warm cache. The saving is larger than the table suggests, because the old cost was paid TWICE —
+once to discover it and once after the fix.
+
+**The RED did not change and was never the defect.** A gate that goes green with fixtures unrun
+reports less than it claims, so an unregistered front still fails these gates deliberately. Only the
+delivery moved.
+
+**Proven in both directions rather than only the useful one:** with the classpath moved aside the
+refusal fires and the gate exits 1; with it restored the refusal does not fire at all — `grep -c`
+of its message returns 0 — and both gates complete green. A fail-fast that also fired on a healthy
+tree would have been worse than the problem it replaced.
+
+CI was unaffected by construction and that is why this survived: `.github/workflows/v3.yml`
+registers the UniML front in a step of its own before the gates, so `uniml=1` there and this path is
+unreachable. The whole cost fell on local work and never appeared in a run anybody reviews.
 
 ## v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs
 
