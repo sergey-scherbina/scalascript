@@ -121,6 +121,49 @@ advances past this blocker and stops at a DIFFERENT gap, `content.ssc:57:51: exp
 expression, found [`. That one is not filed here: it is a separate construct and this entry should
 not grow to cover whatever the next file needs.
 
+## v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout — and nothing warns you until a gate run has been spent
+
+<!-- status: open
+     lane: v3
+     area: build
+     gate: v3/exec-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`v3/exec-gate.sh` and `v3/front-gate.sh` are RED on a clean, correct tree the first time any agent
+runs them in a new worktree**, because `v3/.jars/uniml.cp` is a gitignored build artifact and every
+worktree starts without one. Two `.uniml-only` fixtures — `annotation-own-line` and
+`object-nested-class` — then cannot be read, and the gates go RED rather than skip, which is
+DELIBERATE and correct: a gate that goes green with fixtures unrun reports less than it claims.
+
+**Measured three times in one day**, in three separate worktrees (`f-placeholder-u0-fix`,
+`j4-cmp-branch-peephole`, `j4-fuse-decide-once`). Each time the fix is the same and the gate says so
+itself — run `v3/uniml-classpath.sh`, re-run — and each time it cost a full gate run to find out.
+
+**Nothing tells you beforehand.** `scripts/new-worktree` does not mention uniml; `AGENTS.md` does not
+mention `uniml-classpath.sh` at all. `.github/workflows/v3.yml` gets it right — it has a "Register
+the UniML front" step before the gates — so CI never sees this and the cost falls entirely on agents
+working locally, which is also why it has survived.
+
+**Not the same as the two entries it looks like.** `BUGS.md`'s `uniml-classpath.sh --check` entry is
+about a classpath going STALE when UniML's sources change; `v3-uniml-drops-a-parenthesised-parameter-type`
+is about the two fronts disagreeing. This one is about the artifact being ABSENT, which is the normal
+state of a worktree on its first day.
+
+**Done when** an agent cannot pay for this twice. Three shapes, any one of which closes it, and they
+differ in who pays:
+
+1. `scripts/new-worktree` runs `v3/uniml-classpath.sh` when the tree has a `v3/` — correct but
+   expensive, since it builds an sbt project for every worktree including those that never touch v3.
+2. The two gates check for `v3/.jars/uniml.cp` FIRST and refuse in seconds with the one-line remedy,
+   instead of after a full fixture sweep. Cheapest, and it keeps the RED that is deliberate.
+3. `AGENTS.md` names the step beside the worktree mechanics. Cheapest of all and the weakest — it
+   relies on being read before the gate is run, which is exactly the order that failed three times.
+
+Shape 2 is the one worth taking: it preserves the current, correct verdict and only moves WHEN it is
+delivered. Not attempted here — this entry was written from inside a claim on a different subject,
+and both gates are shared apparatus that deserve their own claim.
+
 ## v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs
 
 <!-- status: open
