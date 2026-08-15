@@ -1,3 +1,66 @@
+## ci-validate-fails-early-and-skips-every-later-step — 25 checks, 16 with no other home
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: .github/workflows/ci.yml
+     fixed-in: PENDING -->
+
+**`ci.yml`'s `validate` job is fail-fast, so the FIRST red step hides every step after it.** Measured
+over the last twelve `ci.yml` runs — the failing step is read from the job's own step list, not
+guessed from the log:
+
+```text
+date        failed at                                    steps skipped
+2026-08-05  13: benchmark wrapper seed typing            11
+2026-08-06  13: benchmark wrapper seed typing            12
+2026-08-07  13: benchmark wrapper seed typing            12
+2026-08-08  13: benchmark wrapper seed typing            12
+2026-08-09   8: BUGS.md machine-readable header          19
+2026-08-10   8: BUGS.md machine-readable header          20
+2026-08-11  10: path→area map                            18
+2026-08-12  10: path→area map                            20
+2026-08-13   9: TASK/ generated regions                  21
+2026-08-14  10: path→area map                            21
+2026-08-14  10: path→area map                            22
+2026-08-15  10: path→area map                            25
+```
+
+**Red on every run for eleven days, with a MOVING cause** — which is why it never looked like one
+bug anyone owned, and why the skipped count grew as people kept adding steps behind it.
+
+**THE JOB HEADER'S COVERAGE CLAIM IS FALSE, and that is what makes this cost something.** It states
+*"Every gate this job runs is also in the smoke suite (scripts/smoke-ci.ssc)"*, offered as the reason
+taking the job off push was *"safe rather than a coverage cut"*. Measured against
+`scripts/smoke-ci.ssc`: **13 of 29 steps are in smoke, 16 are NOT** —
+
+```text
+area-map-gate            bench-seed-type-gate        std-import-lanes-gate
+package-keyword-smoke    parameterless-def-import    legacy-front-parameterless
+build-rust-refuses-loudly  rust-toint-parity         rust-http-lane-parity
+http-bind-address-gate   rust-string-length          rust-route-handler-shapes
+bytecode-fallback-visible  launcher-digest-gate      claim-mutex ×2
+```
+
+Those sixteen have no home anywhere else. Taking `validate` off push WAS a coverage cut for them,
+and the comment arguing otherwise is the thing that made it invisible.
+
+**Found by adding a gate to this job and getting no verdict.** `http-bind-address-gate` was wired
+into `validate` on 2026-08-15 and skipped on its first CI run — step 53 behind a step-10 red.
+
+**FIXED by `if: always()` on the 33 verification steps**, leaving `Checkout` and `Setup Scala CLI`
+fail-fast because nothing can run without them.
+
+**Safe, and measured before landing rather than hoped:** all 29 single-command steps were run locally
+on this tree — **28 pass, 1 fails** (the path→area map, board-ownership drift). So this reveals no
+hidden pile; it restores 25 checks and leaves the one red that is already visible today. The
+board-ownership backlog is the current OCCUPANT of the first slot, not this defect, and is left to
+whoever owns that routing.
+
 ## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
 
 <!-- status: open

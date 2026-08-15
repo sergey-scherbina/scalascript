@@ -112,6 +112,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # WHY EVERY VERIFICATION STEP CARRIES `if: always()` (added 2026-08-15).
+    #
+    # Steps are fail-fast by default, so the FIRST red here hid every step after it. Measured over
+    # the last twelve ci.yml runs: this job failed on EVERY one since 2026-08-05, the failing step
+    # MOVED (13 bench-seed -> 8 BUGS-header -> 10 path-area-map -> 9 TASK-regions), and the number of
+    # steps skipped behind it grew from 11 to 25. A gate added to this job bought nothing.
+    #
+    # AND THE HEADER ABOVE WAS WRONG ABOUT THE COST. It says "Every gate this job runs is also in the
+    # smoke suite", offered as the reason taking this job off push was safe rather than a coverage
+    # cut. Measured: 13 of 29 steps are in scripts/smoke-ci.ssc and 16 are NOT — build-rust-refuses-
+    # loudly, launcher-digest-gate, std-import-lanes-gate, three rust parity gates,
+    # http-bind-address-gate and others. Those sixteen have no home anywhere else, so while this job
+    # is red they do not run at all.
+    #
+    # SAFE TO TURN ON, measured before landing rather than hoped: all 29 single-command steps were run
+    # locally on this tree and 28 passed. The only red is the path->area map (board-ownership drift).
+    # So this reveals no hidden pile — it restores 25 checks and leaves the one red already visible.
+    #
+    # Checkout and Setup Scala CLI are deliberately NOT always(): without them the rest cannot run,
+    # and a step that cannot run should be skipped rather than reported.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -161,9 +181,11 @@ jobs:
           jvm: temurin:21
 
       - name: Validate front-matter
+        if: always()          # see the block above this job's steps
         run: scala-cli --server=false ./v1/tools/scripts/validate-frontmatter.scala
 
       - name: Check example files exist
+        if: always()          # see the block above this job's steps
         run: |
           test -f examples/hello.ssc
           test -f examples/typed-data.ssc
@@ -171,12 +193,14 @@ jobs:
           echo "All example files present"
 
       - name: Verify exact-SHA CI status guard
+        if: always()          # see the block above this job's steps
         run: tests/e2e/ci-status-guard.sh
 
       # Seconds long, and it closes a gap that twice cost an hour: the four freezes recording
       # "expected to fail" had no invariant between them, so a half-updated pair stayed invisible
       # until either the nightly Corpus Contract or the hour-long sbt job happened to run.
       - name: Verify the freezes agree about the same case
+        if: always()          # see the block above this job's steps
         run: tests/e2e/freeze-consistency-gate.sh
 
       # Seconds long. The tracker's status used to live in prose, and hand-tidying is exactly what
@@ -184,12 +208,14 @@ jobs:
       # is enforced here rather than trusted. --self-test first: a gate nobody has seen fail is a
       # hypothesis, and this one plants three defects and requires all three to be caught.
       - name: Verify every BUGS.md entry has a valid machine-readable header
+        if: always()          # see the block above this job's steps
         run: tests/e2e/bugs-index-gate.sh --self-test
 
       # A TASK/ document is prose with a GENERATED index in it. Without this the index becomes a
       # stale second copy of the boards, which is the whole objection to per-type files. --self-test
       # because a golden diff over zero regions passes forever and proves nothing.
       - name: Verify TASK/ generated regions agree with the module boards
+        if: always()          # see the block above this job's steps
         run: tests/e2e/task-views-gate.sh --self-test
 
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
@@ -215,6 +241,7 @@ jobs:
       # stale one) and it FAILS naming that. A refreshed baseline that no longer fails is just
       # a blindfold with a green tick.
       - name: Verify the path→area map is total and each board owns its bugs' code
+        if: always()          # see the block above this job's steps
         run: tests/e2e/area-map-gate.sh
 
       # POLICY.md is the single source for the process rules; the specs keep mechanism and evidence.
@@ -222,12 +249,15 @@ jobs:
       # document, and an entry point that stopped linking here. It cannot detect a paraphrase, and
       # says so in its own header rather than implying otherwise.
       - name: Verify each process rule is stated in POLICY.md and nowhere else
+        if: always()          # see the block above this job's steps
         run: tests/e2e/policy-single-source.sh --self-test
 
       - name: Verify standalone release installer launcher
+        if: always()          # see the block above this job's steps
         run: tests/e2e/release-installer-launcher.sh
 
       - name: Verify benchmark wrapper routing
+        if: always()          # see the block above this job's steps
         run: tests/e2e/bench-wrapper-gate.sh
 
       # Moved off the smoke suite 2026-08-03: at 45.4 s it was the most expensive check there and
@@ -239,6 +269,7 @@ jobs:
       # of the type the workload DECLARES and actually measures. Three lanes x two seed types; the
       # Long fixture is the control that says the gate itself still works.
       - name: Verify benchmark wrapper seed typing
+        if: always()          # see the block above this job's steps
         run: tests/e2e/bench-seed-type-gate.sh
 
       # Both moved off the smoke suite 2026-08-03, the day they were added, when the suite went over
@@ -250,9 +281,11 @@ jobs:
       # about where the standard library is. Three cells — jvm in-tree, jvm out-of-tree, int as the
       # control. `build-smoke` checks `ssc build` produces a page byte-identical to `ssc render`.
       - name: Verify std imports resolve on every lane
+        if: always()          # see the block above this job's steps
         run: tests/e2e/std-import-lanes-gate.sh
 
       - name: Verify ssc build matches ssc render
+        if: always()          # see the block above this job's steps
         run: tests/e2e/build-smoke.sh
 
       # Orphaned and red since v1.7 Tier 2 changed the archive layout out from under it: it asserted
@@ -263,15 +296,19 @@ jobs:
       # suite has been over its budget twice this week. (BUGS.md
       # bundle-command-resolves-imports-relative-only.)
       - name: Verify ssc bundle round-trips
+        if: always()          # see the block above this job's steps
         run: tests/e2e/bundle-smoke.sh
 
       - name: Verify claim mutex (concurrent claims collide)
+        if: always()          # see the block above this job's steps
         run: tests/coord/claim-mutex-conflict.sh
 
       - name: Verify claim guards refuse overlap and out-of-scope commits
+        if: always()          # see the block above this job's steps
         run: tests/coord/claim-hooks.sh
 
       - name: Verify no test can reach an exiting CLI boundary
+        if: always()          # see the block above this job's steps
         run: tests/e2e/cli-exit-reachability-guard.sh --self-test
 
       # Guards the sharding that the Conformance Suite matrix below depends on. It lives HERE, in
@@ -280,6 +317,7 @@ jobs:
       # 3.6-minute assembly. A shard scheme that drops cases fails GREEN; this is the check that
       # makes that impossible (AGENTS.md: build the gate before the feature).
       - name: Verify conformance shards partition the corpus exactly
+        if: always()          # see the block above this job's steps
         run: tests/e2e/build-conformance-shard-gate.sh 4
 
       # The negtc equality gate does NOT go here, though it is the obvious-looking home. This job has
@@ -293,6 +331,7 @@ jobs:
       # a semaphore that admits everyone, a heap cap that loses to an inherited -Xmx, a slot that
       # leaks on failure — so they get a gate that observes real processes and real MaxHeapSize.
       - name: Verify host build-RAM guards actually guard
+        if: always()          # see the block above this job's steps
         run: tests/e2e/build-ram-budget-gate.sh
 
       # ── seven gates that ran nowhere, wired to TIER 2 on 2026-08-02 ─────────────────────────
@@ -306,17 +345,20 @@ jobs:
       # unexamined: none is provably dead, and a red gate nobody asked for is how a suite becomes
       # noise people learn to ignore.
       - name: Gates without a home — v21 native surface
+        if: always()          # see the block above this job's steps
         run: |
           tests/e2e/v21-native-dynamic-tostring-smoke.sh
           tests/e2e/v21-native-md-interpolator-smoke.sh
 
       - name: Gates without a home — v2 diagnostics and fast paths
+        if: always()          # see the block above this job's steps
         run: |
           tests/e2e/v2-error-diagnostic.sh
           tests/e2e/v2-f-nested-bytecode-fast-path.sh
           tests/e2e/v2-swift-cli.sh
 
       - name: Gates without a home — conformance flags and the scljet corpus
+        if: always()          # see the block above this job's steps
         run: |
           tests/e2e/conformance-lanes-flag.sh
           tests/e2e/scljet-m2-corpus-smoke.sh
@@ -330,6 +372,7 @@ jobs:
       # the whole file for it (`mapping values are not allowed in this context`) — a workflow that
       # does not parse runs nothing at all.
       - name: "Gates without a home — the package: keyword across four lanes"
+        if: always()          # see the block above this job's steps
         run: tests/e2e/package-keyword-smoke.sh
 
       # A parameterless def across a module import. This one cannot live in tests/conformance/: every
@@ -338,6 +381,7 @@ jobs:
       # `parameterless-def-*.ssc` stayed green through two implementations that a module import
       # still handed a closure. Two rows, ~4 s.
       - name: Gates without a home — a parameterless def across a module import
+        if: always()          # see the block above this job's steps
         run: tests/e2e/parameterless-def-import-gate.sh
 
       # The LEGACY front. `tests/conformance/parameterless-def-local.ssc` pins the same rule for the
@@ -345,11 +389,13 @@ jobs:
       # which is exactly why the legacy half stayed broken for a day after F was fixed, with the
       # corpus green and one front still printing `<closure>` and exiting 0. Three rows, ~6 s.
       - name: Gates without a home — a parameterless def on the legacy front
+        if: always()          # see the block above this job's steps
         run: tests/e2e/legacy-front-parameterless-gate.sh
 
       # MOVED OFF THE PUSH PATH, 2026-08-11, with sbt-plugin-scripted above: 62.3 s and 48.0 s of a
       # 732 s smoke suite that was hitting its own 20-minute job timeout and reporting `cancelled`.
       - name: build-rust refuses loudly
+        if: always()          # see the block above this job's steps
         run: tests/e2e/build-rust-refuses-loudly.sh
 
       # Beside the gate above because it needs the same thing — cargo — and for the same reason it
@@ -360,6 +406,7 @@ jobs:
       # `String.toList`); the inline `parse::<i64>().unwrap_or(0)` emissions in RustCodeWalk are
       # still open and named in the entry. 9 s warm; the crates pull no dependencies.
       - name: a numeric conversion answers the same on both lanes
+        if: always()          # see the block above this job's steps
         run: tests/e2e/rust-toint-parity-gate.sh
 
       # Two more rozum reports, both `impact: blocks`, both about the HTTP lane and both asserted
@@ -370,6 +417,7 @@ jobs:
       # the two lanes' answers to the SAME request, so a change that moves both together still
       # fails. ~25 s: two cargo builds, four server starts, ports picked per run.
       - name: a route handler answers the same on both lanes
+        if: always()          # see the block above this job's steps
         run: tests/e2e/rust-http-lane-parity-gate.sh
 
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
@@ -380,6 +428,7 @@ jobs:
       # the server instead of binding wider than asked. Each lane keeps its default; that divergence
       # is a product decision and is filed, not decided here. ~60 s, one cargo build.
       - name: a server binds where it was told, on every lane
+        if: always()          # see the block above this job's steps
         run: tests/e2e/http-bind-address-gate.sh
 
       # `String.length` answered BYTES on this lane while `substring`/`charAt` index UTF-16 code
@@ -390,6 +439,7 @@ jobs:
       # is what makes the intuitive `chars().count()` repair fail here rather than in production.
       # The last row keeps a Vec's `.length` as its element count. ~30 s, one cargo build.
       - name: String.length is the same unit on every lane
+        if: always()          # see the block above this job's steps
         run: tests/e2e/rust-string-length-gate.sh
 
       # `std/http.ssc` declares `handler: Request => Response` and the docs write it inline, but the
@@ -402,6 +452,7 @@ jobs:
       # entry name says which surface was chosen; one row then answers 404 on a real socket, which
       # is the reported symptom. ~90 s, four cargo builds.
       - name: a Response handler takes the Request entry however it is spelled
+        if: always()          # see the block above this job's steps
         run: tests/e2e/rust-route-handler-shapes-gate.sh
 
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
@@ -414,9 +465,11 @@ jobs:
       # `bc-parity-sweep` diff the VM against ITSELF and record `identical`. 53 s measured locally,
       # which is why it lands here and not in the smoke suite that just shed two gates of that size.
       - name: bytecode fallback stays visible
+        if: always()          # see the block above this job's steps
         run: tests/e2e/bytecode-fallback-visible.sh
 
       - name: Launcher input digest
+        if: always()          # see the block above this job's steps
         run: tests/e2e/launcher-digest-gate.sh
 
   conformance:
