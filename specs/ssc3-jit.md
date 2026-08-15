@@ -586,8 +586,26 @@ REACHABILITY, planted and confirmed in both directions: an unconditional throw i
 makes `bench/corpus/arith-loop.ssc` fail with it, and `--no-fuse-cmpbr` on the same binary runs
 clean. Keep the arm for the day the register write goes away; do not read its green as evidence now.
 
-**Owed: the clock.** Not measured at landing — the host was at load 14, and this is the size of
-effect that read 16 of 20 for J4b under load and 30 of 30 once quiet.
+**THE CLOCK CAME BACK NEGATIVE, and it refutes the paragraph above this one.** 20 alternating
+pairs per row at load 10-12, control interleaved: `arith-loop` 5 of 20 with ON faster (ON SLOWER
+in 15) against a control of 11 of 20; `recursion-fib` 5 of 20 against a control of 9;
+`nested-loop` 15 of 20 but NOT READABLE, its control at 7 of 20.
+
+**`recursion-fib` decides it.** Zero fusable pairs means ON and OFF differ there by exactly one
+thing — the pair test runs on every instruction and never fuses — and it moved. The test is
+therefore priced above what one saved dispatch per iteration returns: five tests against one
+saving on `arith-loop`.
+
+**So the fork this section calls a fallback is not one, and I had it backwards.** A runtime
+pair test costs PER INSTRUCTION. A represented fusion — a portable opcode, or the private flat
+encoding with its tableswitch — is decided ONCE, at load, which is precisely what makes it
+worth its blast radius. The saving the peephole aimed at is real and still unclaimed: `BrIf`
+lives in `stepRest`, 5684 bytecodes and never inlined, so every counted loop pays a call there
+once per iteration. Buying it needs the fusion decided before the walk, not during it.
+
+Default flipped OFF, `--fuse-cmpbr` turns it on, and the code is parked rather than deleted:
+load 10-12 is the band where J4b read 16 of 20 and was not callable against 30 of 30 quiet, so
+a quiet re-run decides delete-or-keep. Reachability is not in doubt and was proven separately.
 
 **So the fork below is a fallback, not the first move.** Try the peephole, and let
 `jit-gate.sh --sizes` answer whether it still inlines — that check exists and goes red immediately.

@@ -170,11 +170,25 @@ object Exec:
     prepareCacheOn = on
     preparedOwner = null
 
-  // SSC3-J4. The OFF arm of the compare-and-branch fusion, the same shape `--no-hoist`,
-  // `--no-invert`, `--no-tag-cache` and `--no-prepare-cache` already have: one binary, both arms,
-  // so an A/B cannot be comparing two builds. With it off `exec` walks instruction by instruction
-  // exactly as it did before the peephole, which is what makes the measurement about the peephole.
-  private var fuseCmpBrOn: Boolean = true
+  // SSC3-J4. DEFAULT OFF, and the default is the result rather than a precaution.
+  //
+  // Measured 2026-08-15, 20 alternating pairs per row with the control interleaved: on the two rows
+  // whose control behaved — `arith-loop` 11 of 20 and `recursion-fib` 9 of 20 against n/2 = 10 —
+  // the fusion was SLOWER in 15 pairs of 20. `recursion-fib` is the finding: it has ZERO fusable
+  // pairs, counted statically, so the only thing ON changes there is that every instruction pays
+  // the pair test. It moved anyway, which prices that test above what one saved dispatch per loop
+  // iteration returns.
+  //
+  // THAT IS WHY §10.2's FORK EXISTS, and the peephole was written believing it did not. A runtime
+  // pair test costs PER INSTRUCTION; a represented fusion — a portable opcode or a private flat
+  // encoding — costs once, at load. The saving is real (`BrIf` lives in the uninlined `stepRest`),
+  // but this is the wrong place to buy it.
+  //
+  // Kept rather than reverted, and behind an OFF default rather than deleted, because the mechanism
+  // and its reachability are proven and the measurement was taken at load 10-12 — the band where
+  // J4b read 16 of 20 and was not callable, against 30 of 30 once quiet. `--fuse-cmpbr` turns it on
+  // for that re-run; the row on the board says what would settle it.
+  private var fuseCmpBrOn: Boolean = false
 
   private[ssc3] def useFuseCmpBr(on: Boolean): Unit =
     fuseCmpBrOn = on

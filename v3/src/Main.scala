@@ -245,10 +245,11 @@ object Cli:
     // SSC3-J4d. `--no-prepare-cache` restores the per-call length guard, so the identity fast path
     // has an OFF arm in the same binary.
     Exec.usePrepareCache(!args.contains("--no-prepare-cache"))
-    // SSC3-J4. `--no-fuse-cmpbr` makes `exec` walk the `(bin cmp) (brif)` pair one instruction at a
-    // time again, which is the OFF arm the peephole is measured against — in the same binary, so a
-    // ratio cannot be a difference between two builds.
-    Exec.useFuseCmpBr(!args.contains("--no-fuse-cmpbr"))
+    // SSC3-J4. The compare-and-branch peephole is OFF by default because it measured SLOWER — see
+    // the comment on `fuseCmpBrOn`. `--fuse-cmpbr` turns it on, which is the arm a quiet-host
+    // re-run needs; `--no-fuse-cmpbr` is accepted and redundant so the flag reads the same way in
+    // both directions as the four beside it.
+    Exec.useFuseCmpBr(args.contains("--fuse-cmpbr") && !args.contains("--no-fuse-cmpbr"))
     // SSC3-J1d. `Optimize` runs AFTER `Specialize`, because copy propagation folds a `Move` into the
     // instruction before it and that instruction's `kind` is what the specializer just proved — fold
     // first and the proof would be attached to an instruction that no longer exists.
