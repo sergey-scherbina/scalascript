@@ -1,3 +1,65 @@
+## f-front-exit-code-replaces-the-real-diagnostic — and the defect it hid
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: d2976b1b5
+     gate: tests/e2e/f-front-exit-reason-gate.sh -->
+
+**Two halves. The first is why the second went unread, and only the second is fixed here.**
+
+### The defect (fixed)
+
+`ssc run std/index.ssc` exited 1 on F and 0 on the reference front. Five corpus files, one
+mechanism — all of them markdown whose only fences are ```` ```sh ```` / ```` ```text ````:
+`std/index.ssc`, `std/graphql.ssc`, `examples/deploy.ssc`,
+`examples/frontend/dashboard/dashboard.ssc`, `examples/frontend/busi-dashboard/busi-dashboard.ssc`.
+
+F's runner has an ordering pass the reference front **does not have at all** — `sscOrderRoot`,
+`v2/bin/ssc1-run-fsub.ssc0` — because F assembles its closure from SOURCE and therefore has to order
+the module graph first. That pass called `#io.exit(1)` when a root had no `scalascript` fences.
+`sscLoadMod`, a few lines above and IDENTICAL in both runners, does the opposite, and its comment
+states the principle the exit violated:
+
+> *"Short-circuiting to an empty program instead only trades `exit 1` for an ABI error."*
+
+Because the reference runner has no ordering pass, the exit had no counterpart to disagree with, and
+the divergence was F's alone.
+
+The stderr note is KEPT deliberately — "this file has no code" is worth saying, and it was the EXIT
+that diverged, not the message. `note-still-printed` fails if a later change silences it too.
+
+Four of the five now lower under F. The fifth, `std/index.ssc`, ADVANCES to `(global summon)` — the
+context-bound bucket — so its gate row asserts *the old failure is gone* rather than asserting `F`,
+which would be asserting somebody else's fix and would go red when nothing had regressed.
+
+### The instrument hole (NOT fixed — filed, with the reason)
+
+The census had exactly one bucket that named a **number** instead of a mechanism:
+`native frontend exited with 1`. The real diagnostic existed the whole time and went to the console;
+`RunNativeV2.lowerNative` throws the exit code alone, and that string is what `ssc info
+--front-report` records as the reason. **A bucket that names no mechanism cannot be ranked**, which
+is how five files sat at the bottom of the census list for a week.
+
+I wrote that fix and reverted it. `TowerResult.output` is the tower's captured **stdout**;
+`#io.eprint` resolves to `Console.err` (`v2/src/Runtime.scala`), and `runTower` wraps only
+`Console.withOut`. Appending `output` would have attached unrelated IR text and labelled it "the
+reason" — a worse lie than the exit code, and one that would have looked right in a gate.
+
+Doing it properly means **teeing** stderr — capture *and* pass through — or every normal run loses
+its front diagnostics. That is a larger change, and after the fix above there is no reachable
+subject left to gate it with: of F's three `#io.exit` sites the other two are usage errors
+`front-report` cannot reach. Worth doing when something else makes the tower exit non-zero; not
+worth bodging now.
+
+**The general point, since this is the third instrument defect this week:** an instrument that
+reports a status code where it could report a reason silently demotes a whole class of defects to
+unrankable. The census header already says every count is a lower bound; this says the *labels* can
+be lower bounds too.
+
 ## inbox-gate-selftest-fixtures-age-out — smoke went red for everyone at a date boundary, with no commit to blame
 
 <!-- status: fixed
