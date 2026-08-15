@@ -1,0 +1,11 @@
+slug: uniml-cp-absent-in-fresh-worktree
+branch: feature/uniml-cp-absent-in-fresh-worktree
+agent: claude-code
+started: 2026-08-15T18:23:31Z
+heartbeat: 2026-08-15T18:23:31Z
+status: claimed-before-planning
+items: v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout
+paths: file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
