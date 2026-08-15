@@ -1,0 +1,11 @@
+slug: uniml-paren-param-type
+branch: feature/uniml-paren-param-type
+agent: claude-code
+started: 2026-08-15T18:42:47Z
+heartbeat: 2026-08-15T18:42:47Z
+status: claimed-before-planning
+items: v3-uniml-drops-a-parenthesised-parameter-type
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
