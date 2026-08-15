@@ -414,6 +414,12 @@ val suite = List(
   // different prim. Five rows; `multi-effect-declares` resumes twice per pick, which is the one
   // that proves the right prim was chosen rather than the label merely parsing.
   Check("v2", "f-effects", "tests/e2e/f-effects-gate.sh", List(), 300000),
+  // A curried clause on a CONTINUATION LINE, which took THREE sites: the layout inserts a separator
+  // before the `(`, and the declaration parser, the curried-call registry and the using-injection
+  // registry each tested `hd(r)` for it independently. Fixing one at a time walked the symptom from
+  // `unbound global` to `arity: 2 expected, 1 given` twice. Eight rows; `tuple-statement-after-def`
+  // is why the fix is in the def parser and not in the layout.
+  Check("v2", "f-handler-param", "tests/e2e/f-handler-param-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

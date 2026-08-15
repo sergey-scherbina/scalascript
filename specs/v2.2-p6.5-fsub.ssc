@@ -2310,7 +2310,26 @@ def isUsingClause(ts) = if isTok(hd(ts), 2, 21) then isWord(hd(tl(ts)), "using")
 // the same function body, and the first version of this fix had two. It compiled, and produced an F
 // that emitted `_err` for EVERY file — a plain `def f(a: Int) = a + 1` stopped lowering too, so the
 // symptom pointed nowhere near curried defs.
-def emitDefU(nm, env, r, cx) = if isUsingClause(r) then emitDefUsing(nm, env, r, cx) else (if isTok(hd(r), 2, 21) then emitDefClause(nm, env, r, cx) else emitDefBody(nm, dlen(env), env, skipToEq(r), cx))
+// A curried clause may start on a CONTINUATION LINE:
+//
+//   def mk(a: Int)
+//         (b: Int): Int =
+//     a + b
+//
+// The layout inserts a separator at that newline — a line beginning with `(` passes canStartLine and
+// fails isCont, so it reads as a new statement — and this test looked at hd(r) for the next `(`,
+// found the separator, and fell through to the body. The clause was DROPPED and every use of its
+// parameters became a free global: `unbound global: (global b)`. Eight corpus files carry exactly
+// this shape, all of them writing a `handler:` parameter on its own line (std/agent.ssc,
+// std/agent-mcp.ssc and the six examples importing them).
+//
+// SKIPPING SEPARATORS IS SAFE HERE AND NOWHERE ELSE. We are mid-declaration: the def has not reached
+// its `=` yet, so nothing between the clauses can be the start of a new statement. Fixing it in the
+// LAYOUT instead — making a leading `(` a continuation — would change how every statement beginning
+// with a tuple is read, which is why the gate carries `tuple-statement-after-def`.
+def clauseSkip(r) = if isTok(hd(skipSemisF(r)), 2, 21) then skipSemisF(r) else r
+def emitDefU(nm, env, r, cx) = emitDefU1(nm, env, clauseSkip(r), cx)
+def emitDefU1(nm, env, r, cx) = if isUsingClause(r) then emitDefUsing(nm, env, r, cx) else (if isTok(hd(r), 2, 21) then emitDefClause(nm, env, r, cx) else emitDefBody(nm, dlen(env), env, skipToEq(r), cx))
 def emitDefUsing(nm, env, r, cx) = parseParams(tl(tl(r)), env) match { case (env2, r2) => emitDefU(nm, env2, r2, cx) }
 def emitDefClause(nm, env, r, cx) = parseParams(tl(r), env) match { case (env2, r2) => emitDefU(nm, env2, r2, cx) }
 // pre-pass: top-level parenless-def names (same item advancement as collectTopVals; rest is
@@ -2518,7 +2537,13 @@ def findAnyGivenF(tab, tc) = tab match { case Nil => None case h :: r => h match
 def collectUsingSig(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 1) then collectUS1(tl(ts)) else collectUsingSig(tl(ts)))
 def collectUS1(ts) = collectUS2(snd(hd(ts)), skipGen(tl(ts)))
 def collectUS2(nm, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => collectUS3(nm, dlen(env), r) } else collectUsingSig(ts)
-def collectUS3(nm, rc, r) = if isUsingClause(r) then parseParams(tl(tl(r)), Nil) match { case (uenv, r2) => Cons((nm, (usingTCsOf(tl(tl(r))), rc + dlen(uenv))), collectUsingSig(r2)) } else collectUsingSig(r)
+// THE THIRD SITE with the same test, and it decides given INJECTION at the call site. A `(using …)`
+// clause on a continuation line was invisible here for the same reason it was invisible to emitDefU
+// and curried1: the layout's separator sits in front of the `(`. Without it `z(1)` injects nothing
+// and the def, correctly lowered at arity 2, reports `arity: 2 expected, 1 given` — the same
+// message the curried call site gave, from a different registry.
+def collectUS3(nm, rc, r0) = collectUS3a(nm, rc, clauseSkip(r0))
+def collectUS3a(nm, rc, r) = if isUsingClause(r) then parseParams(tl(tl(r)), Nil) match { case (uenv, r2) => Cons((nm, (usingTCsOf(tl(tl(r))), rc + dlen(uenv))), collectUsingSig(r2)) } else collectUsingSig(r)
 def usingTCsOf(ts) = if isTok(hd(ts), 2, 22) then Nil else usingTC1(ts)
 def usingTC1(ts) = Cons(snd(hd(tl(tl(ts)))), usingTCsMore(skipTypeRef(tl(tl(ts)))))
 def usingTCsMore(ts) = if isTok(hd(ts), 2, 27) then usingTCsOf(tl(ts)) else Nil
@@ -2830,7 +2855,13 @@ def collectRetTab(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appE
 // that takes one, and the runtime discarded it silently — `after` printed, `inside-block` never.
 def collectCurried(ts) = if isEmpty(ts) then Nil else (if isExternHead(ts) then collectCurried(tl(tl(ts))) else (if isDefHead(ts) then appEnv(curriedEntry(ts), collectCurried(tl(ts))) else collectCurried(tl(ts))))
 def curriedEntry(ts) = curried1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
-def curried1(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then Cons(nm, Nil) else Nil)
+// THE SECOND DECISION SITE, and it decides the CALL. emitDefU (above) binds the clause; this
+// registry is what makes `f(a)(b)` FLATTEN to `(app (global f) a b)` instead of nesting, because
+// this runtime has no partial application. Fixing only the declaration left the def correctly
+// lowered at `(lam 2 …)` and every call site passing one argument — `arity: 2 expected, 1 given`,
+// a different message for the same missing separator skip.
+def curried1(nm, rest) = curried2(nm, clauseSkip(rest))
+def curried2(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then Cons(nm, Nil) else Nil)
 def defRetEntry(ts) = defRet1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
 def afterDefParams(ts) = if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), 1) else ts
 def skipBalP(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then (if d == 1 then tl(ts) else skipBalP(tl(ts), d - 1)) else skipBalP(tl(ts), d)))
