@@ -1,0 +1,11 @@
+slug: j4-residual-census
+branch: feature/j4-residual-census
+agent: claude-code
+started: 2026-08-15T15:33:47Z
+heartbeat: 2026-08-15T15:33:47Z
+status: claimed-before-planning
+items: SSC3-J4
+paths: file:v3/SPRINT.md file:specs/ssc3-jit.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
