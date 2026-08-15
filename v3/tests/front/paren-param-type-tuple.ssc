@@ -1,0 +1,16 @@
+// A PARENTHESISED PARAMETER TYPE MUST SURVIVE THE PARSE, and the way this fixture proves it is by
+// needing the type LATER: `bimap` is provided by a `given`, so it resolves only if the receiver's
+// type is known. uniml used to `skipBalancedParens` here and record nothing, so `Param.tpe` was
+// `None` and the same program compiled on v3's own front and was REFUSED on the default one —
+// invariant I-3, one language with two answers decided by whether `v3/.jars/uniml.cp` exists.
+//
+// It goes in THIS gate rather than the capability gate, which is the one for two-front divergence,
+// because that gate asks `ssc3 ast <file> <front>` over the CORPUS, and the corpus cannot see this:
+// 8 corpus files parse through the changed branch, and the whole report was byte-identical before
+// and after the fix — 223/369, DIFF 3, CRASH 9. Having the type is not the same as NEEDING it, and
+// no corpus case needs it. This gate runs the DEFAULT front end to end, which is where the answer
+// was wrong. (v3/BUGS.md v3-uniml-drops-a-parenthesised-parameter-type.)
+[Bifunctor, bimapTuple](std/bifunctor.ssc)
+
+def go(t: (Int, String)) = t.bimap(x => x + 1, s => s)
+def main() = println(go((11, "ok")).toString)

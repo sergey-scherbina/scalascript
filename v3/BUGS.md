@@ -493,9 +493,10 @@ this entry was filed for is solved by a different route: `rewriteGivenExtensionC
 
 **Why not the route this entry proposed.** Carrying the author's written type on `Stmt.Val` means
 39 use sites over six files, 21 of them PATTERNS on four positional fields that a fifth breaks, and
-BOTH fronts populating it — which the default front cannot do, because it drops a parenthesised
-parameter type entirely (`v3-uniml-drops-a-parenthesised-parameter-type`). The route taken is one
-file and covers STRICTLY MORE: `val xs = List(1, 2, 3)` has no written type at all and resolves.
+BOTH fronts populating it — which at the time the default front could not do, because it dropped a
+parenthesised parameter type entirely (`v3-uniml-drops-a-parenthesised-parameter-type`, since
+FIXED; the 39 use sites are what still decides this, not the front). The route taken is one file and
+covers STRICTLY MORE: `val xs = List(1, 2, 3)` has no written type at all and resolves.
 
 **What the proposal would still buy, so this is a wontfix and not a never:** a declared type is the
 only source when the initialiser's constructor does not name the type — `val f: Foo = makeFoo()`.
@@ -525,44 +526,74 @@ populated by both fronts, read where the parameter map is built in `rewriteGiven
 
 **MEASURED, so the yield is not overstated:** on v3's own front, with the tuple head fixed, a
 PARAMETER declared `(Int, String)` resolves `bimap` and a `val` with the identical declared type
-does not. That is the whole difference. Fixing this alone still does not make `std-bifunctor` pass
-on the DEFAULT front — see `v3-uniml-drops-a-parenthesised-parameter-type`, which masks it there.
+does not. That is the whole difference. When this was written, fixing it alone still would not have
+made `std-bifunctor` pass on the DEFAULT front, because
+`v3-uniml-drops-a-parenthesised-parameter-type` masked it there. That mask is GONE — the entry is
+fixed and the default front now keeps the parameter's type.
 
 ## v3-uniml-drops-a-parenthesised-parameter-type — `def go(t: (Int, String))` loses its type on the default front
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
-     gate: none
+     gate: v3/front-gate.sh (v3/tests/front/paren-param-type-tuple.ssc)
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**A two-front pair, and the default front is the one that loses.** uniml's parameter loop reads
+**A two-front pair, and the default front is the one that lost.** uniml's parameter loop read
 
     if c.peekKind == "spike.lparen" then skipBalancedParens(c)
     else expectType(c, …).foreach(kids += _)
 
-— so a parenthesised parameter type is CONSUMED AND NOT CAPTURED, and `Param.tpe` arrives as
+— so a parenthesised parameter type was CONSUMED AND NOT CAPTURED, and `Param.tpe` arrived as
 `None`. v3's own parser keeps it: `skipType` consumes the balanced parens and `typeTextOf`
 reassembles the text.
 
-**Measured on one probe, both fronts, after the tuple-head fix landed:**
+**FIXED by using the mechanism that was already there.** `captureType` opens with
+`if c.peekKind == "spike.lparen" then takeBalanced(…)` under the comment `` `(A, B)` domain `` and
+returns a `Frame` carrying the role; `SpikeTyped.text` concatenates it into a `TypeRef`, and its own
+comment says the same thing from the other side — "types are captured as token runs
+(`ScalaSpike.captureType`)". Both ends were built for this. The one call site not using it was this
+one, so the fix is `kids += captureType(c, role)` in place of the skip. It also swallows a trailing
+`=> C`, which the skip left behind for the arrow branch — that is the whole function type instead of
+half of it, and it is what the reference front records too.
+
+**Measured on the same host, one probe, both fronts, before and after:**
 
     def go(t: (Int, String)) = t.bimap(…)
-      SSC3_FRONT=v3     (11, ok!)
-      uniml (default)   'bimap' is provided by a `given` instance, and the type of the receiver
-                        is not known here
+      before   SSC3_FRONT=v3   (12, ok)     uniml (default)   'bimap' is provided by a `given`
+                                                              instance, and the type of the
+                                                              receiver is not known here
+      after    SSC3_FRONT=v3   (12, ok)     uniml (default)   (12, ok)
 
-One language, two answers, decided by whether `v3/.jars/uniml.cp` exists — invariant I-3.
+**THE CORPUS DOES NOT MOVE, AND THAT IS REPORTED RATHER THAN OMITTED.** `corpus-report.sh` was run
+on a pre-fix build and a post-fix build in the same worktree, and the two reports are identical byte
+for byte — PASS 223, DIFF 3, CRASH 9, UNSUPPORTED 132, N = 223 / 369. 8 corpus files do parse
+through the changed branch (5 with a parenthesised parameter type, 6 with a function-typed
+parameter, overlapping), so the path is exercised; none of them NEEDS the type downstream, which is
+the difference between a case that touches a defect and a case that can decide it. The one of those
+8 that is a defect after the fix — `head-field-effect-shadow` — crashes on `v2 bridge V-0 does not
+translate handle`, a bridge refusal that has nothing to do with parsing. Identical totals could in
+principle hide a swap; they cannot here, because only those 8 files can change verdict and none of
+them did.
 
-**It hides the other defect.** `v3-stmt-val-discards-a-type-the-author-wrote` is what stops
-`std-bifunctor` on v3's own front; this one stops the same program on the default front for a
-different reason, so fixing either alone changes nothing that the corpus can see. Fix both, then
-measure.
+**The regression is a front-gate fixture, and the control was run.** `paren-param-type-tuple.ssc`
+passes now (front-gate GREEN 90, exec-gate GREEN 86 with both lanes agreeing); with the fix reverted
+and uniml rebuilt, the same fixture FAILS with exactly the original diagnostic and the gate is RED.
+A fixture that is green either way would have measured nothing.
 
-**The fix is where `def.byname` and `def.vararg` already are:** capture the balanced-paren span as
-the parameter's type text instead of skipping it. Both of those roles were added the same way, so
-the shape is established rather than novel.
+**It went in front-gate rather than front-capability-gate**, which is the gate FOR two-front
+divergence, because that gate asks `ssc3 ast <file> <front>` over the corpus — and the corpus has no
+program this can decide, as the paragraph above measures. This defect is also not a refusal AT the
+front: the front accepted the program on both fronts and threw the type away, and the refusal came
+later, from the resolver. An `ast`-level accept/refuse differential is blind to information lost
+INSIDE an accepted parse.
+
+**The pairing note this entry shipped with was already stale when it was written.**
+`v3-stmt-val-discards-a-type-the-author-wrote` is `wontfix` as of `32ac55842` — the receiver problem
+it was filed for is solved by a different route, `rewriteGivenExtensionCalls` following a `val` one
+step to its initialiser — and `std-bifunctor` passes. So "fix both, then measure" was wrong twice
+over: there was nothing to fix on the other side, and this side needed no help to be measured.
 
 ## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagree at exactly `.5`
 
