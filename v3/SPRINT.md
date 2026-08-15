@@ -139,9 +139,23 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       `v3/tests/bridge/br-out-of-if.ssir` is that shape by hand: `(br 1)` from inside an `if` inside
       a `block` sets CTL to 2 and it takes BOTH decrements to reach zero. Guarded it prints 10/20;
       unconditionally elided, 10/0.
+      *AND THE CLOCK, once the operation count had been taken.* 20 alternating pairs, ONE binary
+      with `--no-structured-loops --no-fold-temps` as the OFF arm, control INSIDE every pair, the
+      program timing itself with `nanoTime` so JVM startup is outside the number:
+      **EXPERIMENT 20 of 20 with the rewrites faster, median 0.459, range 0.353–0.760 — 2.18×.**
+      CONTROL (ON vs ON) 11 of 20 against n/2 = 10, median 0.961, range 0.582–1.704 on identical
+      code at load 26–34, and 19 of the 20 experiment pairs sit below that control's own minimum.
+      The clock is 2.18× where the operation count is 2.7×; the difference is fixed VM overhead that
+      does not scale with the number of operations.
+      *WHAT IS LEFT OF THE GAP, measured the same way:* the bridge is a median **3.92×** the
+      executor (10 pairs, range 2.90–8.97, control 0.502–1.348 at load 54 — direction firm,
+      magnitude soft). Composing the two paired ratios puts the pre-rewrite gap at about 8.6× on
+      this workload. **That is NOT this entry's 32× and must not be read as it** — that figure came
+      from a different measurement on the corpus row under different conditions, and comparing the
+      two would be comparing hosts.
       *STILL OPEN — the `Let`-binding rewrite itself.* The frame is still one mutable array and
       there is still a prim call per access for everything the peephole cannot reach. SSA-with-joins
-      is the rest of this entry.
+      is the rest of this entry, and it is now the ONLY thing left in it: the control flow is done.
 
 - [x] **SSC3-3e — effects cross the bridge: `handle`, `perform` and `resume` translate.**
       DONE 2026-08-16. All twelve `v3/tests/effects/` fixtures run on the v2 lane and agree with the
