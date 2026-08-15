@@ -1186,9 +1186,53 @@ object Exec:
     case Value.VData(t, _) => t == tagOf(m, "Cons") || t == tagOf(m, "Nil")
     case _                 => false
 
+  // SSC3-J5. `cap :+ x` built a FRESH `List` on every application — `:+` copies the capture list and
+  // appends, so a closure with k captures allocated k+1 cons cells per element — and `callFunc` then
+  // walked that list straight back into the frame array. The list exists for one purpose: to be
+  // taken apart again, one instruction later.
+  //
+  // `callClos1` writes the captures and the argument into the frame directly. Same frame, same arity
+  // message, same tail-call behaviour — the list in the middle is the only thing that goes.
+  //
+  // This is the path `xs.foreach(f)`, `xs.map(f)` and every other one-argument callback take, which
+  // is once PER ELEMENT: `list-fold` applies it 100 000 times per `workload()` iteration.
+  private var fastApply: Boolean = true
+
+  private[ssc3] def useFastApply(on: Boolean): Unit = fastApply = on
+
   private def apply1(m: Module, f: Value, x: Value): Value = f match
-    case Value.VClos(g, cap) => callFunc(m, g, cap :+ x)
-    case v                   => throw ExecError("not a function: " + show(v))
+    case Value.VClos(g, cap) =>
+      if fastApply then callClos1(m, g, cap, x) else callFunc(m, g, cap :+ x)
+    case v => throw ExecError("not a function: " + show(v))
+
+  /** One argument appended to a capture list, without the list. The frame-filling loop is
+    * `callFunc`'s, kept identical on purpose — including that the arity check counts what was
+    * OFFERED rather than what fitted, so a wrong-arity program fails with the same message. */
+  private def callClos1(m: Module, f0: Int, cap: List[Value], x: Value): Value =
+    prepare(m)
+    val fn = funcTable(f0)
+    val regs = new Array[Value](fn.nregs)
+    var i = 0
+    var cs = cap
+    while cs.nonEmpty do
+      if i < fn.nregs then regs(i) = cs.head
+      cs = cs.tail
+      i = i + 1
+    if i < fn.nregs then regs(i) = x
+    i = i + 1
+    if i != fn.nparams then
+      throw ExecError(fn.name + " takes " + fn.nparams + " argument(s), given " + i)
+    while i < fn.nregs do
+      regs(i) = Value.VUnit
+      i = i + 1
+    val sig = if closureLane then Compile.run(compiled(f0), regs) else exec(m, fn.body, regs)
+    sig match
+      case Signal.Ret(v)      => v
+      case Signal.Done        => Value.VUnit
+      case Signal.Branch(d)   => throw ExecError("a branch left the function body (depth " + d + ")")
+      // A tail call out of a one-argument callback is rare and its arguments are already a list, so
+      // it rejoins `callFunc`'s loop rather than duplicating it here.
+      case Signal.Tail(g, as) => callFunc(m, g, as)
 
   private def invoke(m: Module, name: String, recv: Value, args: List[Value]): Value =
     (recv, name) match

@@ -2699,6 +2699,22 @@ one §3 J1 item never built, and now the only one the evidence points at.
       *Still owed:* the `(bin cmp) (un not) (brif)` half, which needs `Specialize` to have proved an
       integral kind — `not (a < b)` is not `a >= b` where a NaN can reach the operands.
 
+- [x] **SSC3-J5 — `apply1` built a list to take apart one instruction later.** `cap :+ x` copied the
+      capture list and appended, so a closure with k captures allocated k+1 cons cells **per
+      element**, and `callFunc` then walked that list straight back into the frame array.
+      `callClos1` writes captures and argument into the frame directly, keeping `callFunc`'s filling
+      loop, arity message and tail-call behaviour identical.
+      *Measured, 20 pairs at load 4.5–5.7 with a matched control:* **`list-fold` 20 of 20, mean
+      0.656, range 0.613–0.688 with no pair crossing 1.0** — a 34 % cut on the corpus row with the
+      largest gap to compiled Scala, and the row three earlier measurements had already localised to
+      the call (tag memo 13/20, const hoist 21/30, prepare memo 20/20 at 0.907). `hof-pipeline`
+      20 of 20 at 0.894. `option-chain` 6 of 20 (1.011) is a null — its `Option` callbacks do not
+      take this path. `arith-loop` 7 of 20 (1.005) is the control and its null was predicted: no
+      closure in its loop.
+      *Gate:* a TENTH `--identity` arm, `--no-fast-apply`, proven by planting `regs(i - 1) = x`. The
+      plant IS caught without it — as "the CLOSURE lane disagrees with the tree-walker", which names
+      the wrong file. An arm earns its place by naming the right one.
+
 - [x] **SSC3-J4c — the type-tag lookup was a LINEAR SCAN, and removing it is worth 20 % on the
       Option row.** Found by reading the hot path rather than the bytecode-size proxy: `tagOf` ran
       `m.types.indexWhere(_.name == name)` — a scan of the module's type table with a string compare

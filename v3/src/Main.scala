@@ -245,6 +245,8 @@ object Cli:
     // SSC3-J4d. `--no-prepare-cache` restores the per-call length guard, so the identity fast path
     // has an OFF arm in the same binary.
     Exec.usePrepareCache(!args.contains("--no-prepare-cache"))
+    // SSC3-J5. `--no-fast-apply` restores the `cap :+ x` list, so the A/B lives in one binary.
+    Exec.useFastApply(!args.contains("--no-fast-apply"))
     // SSC3-J4. `--no-fuse-cmpbr` restores the plain instruction-at-a-time walk, which is the OFF
     // arm the compare-and-branch fusion is measured against — in one binary, so a ratio cannot be a
     // difference between two builds. `--fuse-cmpbr` is accepted as the explicit ON arm, which the

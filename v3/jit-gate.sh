@@ -341,7 +341,19 @@ check_identity() {
     # a `brif` to run twice or not at all. That is a control-flow error, silent, and shaped exactly
     # like the output differential this loop already runs.
     nofuse="$(v3/ssc3 exec --no-fuse-cmpbr "$f" 2>&1)"
-    if [ "$on" != "$nofuse" ]; then
+    # SSC3-J5: a TENTH arm, and its failure mode is not shared with any above. `callClos1` is a
+    # SECOND frame-filling site — a copy of `callFunc`'s loop — so what it can get wrong is an
+    # argument landing in the wrong register: a wrong answer with no diagnostic. Planting exactly
+    # that (`regs(i - 1) = x`) IS caught without this arm, but by "the CLOSURE lane disagrees with
+    # the tree-walker", which sends the reader to the wrong file. An arm earns its place by naming
+    # the right one.
+    nofast="$(v3/ssc3 exec --no-fast-apply "$f" 2>&1)"
+    if [ "$on" != "$nofast" ]; then
+      echo "  FAIL $name — the FAST APPLY path changed the output:"
+      diff <(printf '%s\n' "$nofast") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-fast-apply, right = default."
+      fail=1
+    elif [ "$on" != "$nofuse" ]; then
       echo "  FAIL $name — FUSING compare-and-branch changed the output:"
       diff <(printf '%s\n' "$nofuse") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-fuse-cmpbr, right = default."
