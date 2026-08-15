@@ -1,4 +1,4 @@
-# generation: 2307
+# generation: 2308
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -8,4 +8,4 @@ v1-check-passes-what-its-runtime-refuses	claude-code	2026-08-15T19:01:22Z	v1-che
 plugin-adapter-value-surface	claude-code	2026-08-15T19:03:33Z	plugin-adapter-value-surface v3-plugin-fleet-regresses-four-cases-when-enabled	file:v3/plugins file:v3/BUGS.md file:v3/corpus-report.sh file:v3/ssc3
 rust-any-map-literal-lift	claude-code	2026-08-15T19:19:57Z	rust-any-valued-map-literal-not-lifted	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-any-map-literal-gate.sh file:.github/workflows/ci.yml file:BUGS.md
 v3-fast-apply	claude-code	2026-08-15T19:43:26Z	SSC3-J5-apply1-builds-a-list-to-take-apart	file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
-v3-extern-object-member	claude-code	2026-08-15T20:35:22Z	v3-extern-member-in-an-object-has-no-meaning	file:v3/src/Parser.scala file:v3/src/Lower.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md
+v3-extern-object-member	claude-code	2026-08-15T20:35:22Z	v3-extern-member-in-an-object-has-no-meaning	file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md file:v3/tests/front/extern-object-member.ssc
