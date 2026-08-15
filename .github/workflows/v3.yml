@@ -49,20 +49,43 @@ name: v3
 # today's traffic; it closes the case where somebody works on uniml alone, which is precisely when
 # nobody is watching the front gate's other half.
 
+# `v2/**` CAME OUT OF THE PUSH TRIGGER 2026-08-15, and the two paragraphs above are kept because
+# they are the argument AGAINST doing that. It is a deliberate trade, made with the numbers in
+# front of it rather than to make a graph look better.
+#
+# COUNTED over the last 300 commits on `main`: 48 of them trigger this workflow — 32 touch
+# `v3/`/`uniml/`, and **16 touch `v2/` and nothing under `v3/` or `uniml/`**. The intersection is
+# ZERO. So dropping `v2/**` removes one run in three, and the 16 it removes are exactly the
+# population the paragraph above is worried about: a change to the bridge's runtime with no v3 file
+# beside it.
+#
+# WHY IT IS STILL THE RIGHT TRADE HERE. Runs are ~26 minutes and arrive in bursts; a pending run in
+# a concurrency group is cancelled by the next arrival WHATEVER `cancel-in-progress` says, so a
+# third fewer arrivals is a third fewer evictions, and the runs that do start are likelier to
+# report. A suite that answers is worth more than a suite that is triggered.
+#
+# AND THE 16 ARE NOT DROPPED, THEY ARE DEFERRED: `schedule` runs the whole thing nightly, so v2
+# drift is caught within a day instead of within a push — which is still far inside the four
+# commits it went undetected for last time. `workflow_dispatch` is there for anyone who touches
+# `v2/` and wants the answer now, and that is the button to use rather than a v3 file edited to
+# provoke a run.
 on:
   push:
     branches: [main]
     paths:
       - 'v3/**'
-      - 'v2/**'
       - 'uniml/**'
       - '.github/workflows/v3.yml'
   pull_request:
     paths:
       - 'v3/**'
-      - 'v2/**'
       - 'uniml/**'
       - '.github/workflows/v3.yml'
+  schedule:
+    # 03:17 UTC — an odd minute on purpose, so this does not queue behind every other nightly in
+    # the account at the top of the hour and lose its runner to the same contention it is here to
+    # avoid.
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 # CANCELLING COST THIS WORKFLOW 95 % OF ITS VERDICTS. Measured 2026-08-15 over its last 100 runs

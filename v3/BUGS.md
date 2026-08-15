@@ -88,6 +88,25 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > survives — the TIP is always tested, intermediate commits never are — or drop the group and pay for
 > parallel runners. Whoever picks, measure again; the number to watch is unchanged.
 >
+> **THE TRADE IS TAKEN, 2026-08-15: `v2/**` IS OUT OF THE PUSH TRIGGER AND THE SUITE RUNS NIGHTLY.**
+> Owner's decision, asked because the alternatives cost different things and neither is free. The
+> number that decided the shape: of the last 300 commits on `main`, 48 trigger this workflow — 32
+> touch `v3/`/`uniml/`, 16 touch `v2/` and nothing under `v3/` or `uniml/`, and the intersection is
+> ZERO. So this removes one arrival in three, and a third fewer arrivals is a third fewer pending
+> runs for the next push to evict.
+>
+> **What it costs is named rather than hidden:** those 16 are exactly the population that once let a
+> lane divergence live for four commits — a change to the bridge's runtime with no v3 file beside
+> it. They are DEFERRED, not dropped: `schedule` at 03:17 UTC runs the whole suite nightly, so v2
+> drift surfaces within a day, and `workflow_dispatch` is the button for anyone who wants the answer
+> now. Editing a v3 file to provoke a run is the thing that button exists to replace.
+>
+> **CLOSE THIS** when `gh run list --workflow v3.yml --limit 100 --json conclusion` shows `success`
+> well above 5 in 100 — the same instrument as the original measurement, at least a day later so the
+> window is not dominated by today's bursts. If `cancelled` is still the majority with a third of
+> the arrivals gone, then arrivals were never the binding constraint and the next thing to measure
+> is how long a run sits PENDING before it starts.
+
 > **What the change DID buy, measured the same day:** the suite now reaches a conclusion often enough
 > to report, and what it reports is RED — 10 failures in the last 40 runs where previously there were
 > almost none to read. The failing job is `front-capability-gate.sh`, for a real and self-inflicted
