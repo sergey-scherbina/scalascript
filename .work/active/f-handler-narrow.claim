@@ -1,0 +1,11 @@
+slug: f-handler-narrow
+branch: feature/f-handler-narrow
+agent: claude-code
+started: 2026-08-15T13:49:03Z
+heartbeat: 2026-08-15T13:49:03Z
+status: claimed-before-planning
+items: f-curried-clause-param-lost-in-std-agent
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-handler-param-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
