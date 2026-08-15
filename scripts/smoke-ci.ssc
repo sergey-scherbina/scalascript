@@ -409,6 +409,11 @@ val suite = List(
   // hard-exited on a root with no code. Twelve rows over the five real corpus files plus a
   // synthetic one; `note-still-printed` guards the stderr note, which was correct and is kept.
   Check("v2", "f-front-exit-reason", "tests/e2e/f-front-exit-reason-gate.sh", List(), 300000),
+  // Algebraic effects on F — the census's largest single gap, and a TRANSLATION rather than a
+  // feature: the runtime owns the continuations, so `multi` costs nothing beyond choosing a
+  // different prim. Five rows; `multi-effect-declares` resumes twice per pick, which is the one
+  // that proves the right prim was chosen rather than the label merely parsing.
+  Check("v2", "f-effects", "tests/e2e/f-effects-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

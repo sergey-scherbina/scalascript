@@ -1072,7 +1072,64 @@ def newArrZero(u) = if isEmpty(u) then emitInt("0") else (if isTok(hd(u), 2, 50)
 def parseNewArrayA(zero, pa, cx) = pa match { case (args, r) => (emitMethod("fill", "(ctor Array)", args ++ " " ++ zero, dqOf(cx)), r) }
 def parseNewArray(ts, env, cx) = parseNewArrayA(newArrZero(tl(ts)), parseArgs(tl(skipGen(tl(ts))), env, cx), cx)
 def parseNew(ts, env, cx) = if isNewArrayAlloc(ts) then parseNewArray(ts, env, cx) else eraseP(parseAtom(ts, env, cx), cx)
-def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseNew(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "summon" then (if isTok(hd(rest), 2, 50) then parseSummon(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "direct" then (if isDirectHead(rest) then parseDirect(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)))))))
+// `handle(compute) { case … }` / `handle { body } { case … }` -> `(prim effect.handle c h)`.
+// The reference front special-cases the NAME too (ssc1-lower :2474-2496) rather than emitting a
+// global: there is no built-in `handle` def anywhere, so an application would leave `(global handle)`
+// unbound — which is exactly what F did until this landed, after the effect declarations already
+// worked.
+//
+// The compute is forced when it is a zero-arg thunk, mirroring forceHandleCompute (:ssc1-lower):
+// block form `handle { … }` supplies `(lam 0 …)` and the runtime forces it inside the handler
+// boundary; a parenthesised computation is already a value and is passed through.
+//
+// The handler block needs NO new parsing — `{ case … }` is already a case lambda here (parseBlock ->
+// parseCaseLambda), which argOfBlock passes straight through instead of wrapping in a thunk.
+def isHandleHead(ts) = if isTok(hd(ts), 2, 21) then true else isTok(hd(ts), 2, 28)
+def forceCompute(x) = if startsW(x, "(lam 0 ") then "(app " ++ x ++ ")" else x
+def parseHandle(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseHandleP(tl(ts), env, cx) else parseHandleB(tl(ts), env, cx)
+def parseHandleP(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => handleArm(erase(e, cx), skipSemisF(tl(r)), env, cx) }
+def parseHandleB(ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => handleArm(forceCompute(argOfBlock(b)), skipSemisF(r), env, cx) }
+// No handler block after the computation: leave the old shape alone rather than invent one, so a
+// `handle` used as an ordinary name declines honestly instead of lowering to something wrong.
+def handleArm(compute, ts, env, cx) = if isTok(hd(ts), 2, 28) then handleArm1(compute, tl(ts), env, cx) else ("(app (global handle) " ++ compute ++ ")", ts)
+// The handler is built here rather than taken from parseBlock, because it needs a FALLBACK arm the
+// ordinary case-lambda has no reason to carry. The runtime delivers the computation's final value to
+// the handler as `Return(v)`, so a handler with arms only for its own operations dies on
+// `match: no arm for Return/1` — which is exactly how far this got with the declarations working and
+// the dispatch wired. The reference appends the same arm (handlerMarkedArms, ssc1-lower :4016).
+//
+// A user-written catch-all is respected instead, mirroring the oracle's `skipFallback`: if the arms
+// already end in a default, that default IS the fallback and a second one would be dead.
+def handleArm1(compute, ts, env, cx) = parseArms(skipSemisF(ts), "__m" :: env, cx) match { case (arms, r) => (handlerLam(compute, fst(arms), snd(arms)), r) }
+// EVERY ARM BODY CARRIES THE SELECTED MARKER, and without it nothing works. A handler root is
+// identified by that marker, NOT by the lambda's shape (v2/src/CoreIR.scala HandlerDispatchShape:
+// the shape test used to be `arity 1 && Match(Local(0), …)`, which is also every ordinary
+// `x => x match { … }`, so each of those paid a ThreadLocal and two allocations per call). With no
+// marker the lambda is an ordinary lambda: the runtime never opens a dispatch, so `Return(v)` — which
+// it delivers when the computation finishes — finds no arm and the program dies with
+// `match: no arm for Return/1`. Measured in both directions: adding a miss-only default instead
+// moved the failure to `match: no matching case`, because handlerDispatchMiss raises unless an
+// exact root dispatch is pending.
+//
+// Mirrors lowerDirectHandlerMatch (ssc1-lower :4038): mark the bodies, add NO fallback default —
+// the absent default IS the Unhandled path for a recognised root.
+//
+// The marking is done on the emitted arm string rather than inside parseArmBody, because that
+// function is shared with every other match in the language and a handler is the only caller that
+// wants this. Top-level arms only: after an arm is rewritten the scan resumes past its body, so a
+// nested match inside an arm keeps its own arms unmarked.
+def armAt(s, i, n) = if i + 5 > n then false else s.substring(i, i + 5) == "(arm "
+def spAt(s, i, n) = if i >= n then i else (if s.charAt(i) == 32 then i else spAt(s, i + 1, n))
+def closeAt(s, i, n, d) = if i >= n then i else (if s.charAt(i) == 40 then closeAt(s, i + 1, n, d + 1) else (if s.charAt(i) == 41 then (if d == 1 then i else closeAt(s, i + 1, n, d - 1)) else closeAt(s, i + 1, n, d)))
+def markArms(s) = markArms0(s, 0, s.length, "")
+def markArms0(s, i, n, out) = if i >= n then out else (if armAt(s, i, n) then markOne(s, i, n, out) else markArms0(s, i + 1, n, out ++ s.substring(i, i + 1)))
+def markOne(s, i, n, out) = markOne1(s, i, n, out, spAt(s, i + 5, n))
+def markOne1(s, i, n, out, nameEnd) = markOne2(s, i, n, out, nameEnd, spAt(s, nameEnd + 1, n))
+def markOne2(s, i, n, out, nameEnd, arEnd) = markOne3(s, i, n, out, arEnd, s.substring(nameEnd + 1, arEnd), closeAt(s, i, n, 0))
+def markOne3(s, i, n, out, arEnd, ar, close) = markArms0(s, close + 1, n, out ++ s.substring(i, arEnd + 1) ++ selMark(ar) ++ s.substring(arEnd + 1, close) ++ "))")
+def selMark(ar) = "(seq (prim __handler_dispatch_selected__ (local " ++ ar ++ ")) "
+def handlerLam(compute, arms, d) = "(prim effect.handle " ++ compute ++ " (lam 1 (match (local 0) (" ++ markArms(arms) ++ ")" ++ d ++ ")))"
+def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseNew(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "summon" then (if isTok(hd(rest), 2, 50) then parseSummon(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "handle" then (if isHandleHead(rest) then parseHandle(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "direct" then (if isDirectHead(rest) then parseDirect(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))))))))
 // `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
 // :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
 // `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
@@ -2291,7 +2348,7 @@ def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
 // (case, object, name) then any `extends`/body so the walk resumes at the next top-level statement.
 def isCaseObjectHead(ts) = if isTok(hd(ts), 2, 6) then isWord(hd(tl(ts)), "object") else false
 def caseObjectItem(ts, cx) = ((eraseEnumNull(snd(hd(tl(tl(ts))))), ""), skipCCBody(skipExtends(tl(tl(tl(ts))))))
-def parseTopItem(ts, cx) = if isCaseObjectHead(ts) then caseObjectItem(ts, cx) else (if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isIndexStoreHead(ts) then indexStoreTopItem(ts, cx) else (if isAssignHead(ts, cx) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))))))
+def parseTopItem(ts, cx) = if isCaseObjectHead(ts) then caseObjectItem(ts, cx) else (if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isEffectHead(ts) then effectItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isIndexStoreHead(ts) then indexStoreTopItem(ts, cx) else (if isAssignHead(ts, cx) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))))))))))
 // DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
 // provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
 // bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
@@ -2360,7 +2417,7 @@ def objDefEmit(kind, pfx, toks, cx) = if kind == "def" then objDefE(pfx, toks, c
 def objDefE(pfx, ts, cx) = objDefE1(pfx, skipGen(ts), cx)
 def objDefE1(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ erase(fst(bodyExpr(skipToEq(ts), Nil, cx)), cx) ++ ")"
 // pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
-def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else (if isGivenHead(ts) then collectGivenReg(ts) else collectObjReg(tl(ts))))
+def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else (if isEffectHead(ts) then collectEffReg(ts) else (if isGivenHead(ts) then collectGivenReg(ts) else collectObjReg(tl(ts)))))
 def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
 // OBJ-SCOPE: the objReg payload is now `(memberNames, varMemberNames)`. The var names are needed
 // OUTSIDE the object too: a `var` member is defined as `O_v__cell`, so a bare selection `O.v` has to
@@ -2482,6 +2539,47 @@ def typeOfArg(a) = if startsW(a, "(lit (int ") then "Int" else (if startsW(a, "(
 // dispatches to `(app (global m) x a..)` (resolveField isExtensionMethod :1598). F's layout emits each
 // member as a `;`-separated top-level item after the header, so the group = the contiguous `def` members
 // immediately following (a non-def ends it). Members register in extMethods (collectExtMethods).
+// -- ARC 3: algebraic effects ---------------------------------------------------------------------
+// `effect E:` / `multi effect E:` with abstract `def` members. THE CONTINUATIONS ARE THE RUNTIME'S
+// JOB — the reference lowerer spends seventeen mentions on effects and its `multi_effect` case
+// returns Nil — so a declaration is a TRANSLATION: one ordinary def per operation whose body
+// performs a prim (ssc1-lower :4729-4762).
+//
+//   effect E:        def op(a, b)   ->  (def E_op (lam 2 (prim effect.perform.oneshot "E" "op" a b)))
+//   multi effect E:  def op(a)      ->  (def E_op (lam 1 (prim effect.perform "E.op" a)))
+//
+// `multi` therefore costs nothing beyond choosing the prim and the label shape — ONE string "E.op"
+// against two strings "E" and "op" — which is why this landed in one piece rather than split.
+//
+// Everything on the HANDLER side already existed and was measured before a line was written: F turns
+// a `{ case … }` block argument into a case lambda (parseCaseLambda), chains trailing block
+// arguments into a curried application (postBlockArg via postfix), and joins a dotted constructor
+// tag (ctorTag). `handle(body) { case E.op(a, resume) => … }` needs no new parsing at all.
+def isEffectHead(ts) = if isWord(hd(ts), "effect") then true else (if isWord(hd(ts), "multi") then isWord(hd(tl(ts)), "effect") else false)
+def effSkipMulti(ts) = if isWord(hd(ts), "multi") then tl(ts) else ts
+def effIsMulti(ts) = isWord(hd(ts), "multi")
+def effectItem(ts, cx) = effectItem1(effIsMulti(ts), effSkipMulti(ts), cx)
+def effectItem1(isMulti, ts, cx) = effectItem2(isMulti, snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
+def effectItem2(isMulti, name, ts, cx) = if isTok(hd(ts), 2, 28) then ((effDefsStr(isMulti, name, collectObjMembers(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
+def effDefsStr(isMulti, name, ms, cx) = ms match { case Nil => "" case h :: t => join2(effDef1(isMulti, name, h, cx), effDefsStr(isMulti, name, t, cx)) }
+def effDef1(isMulti, name, m, cx) = m match { case (kind, nt) => if kind == "def" then effDef2(isMulti, name, fst(nt), snd(nt), cx) else "" }
+def effDef2(isMulti, name, opName, toks, cx) = effDef3(isMulti, name, opName, effArity(skipGen(toks)), cx)
+// An op's arity is its declared parameter count; an abstract member has no body to skip past.
+def effArity(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => dlen(env) } else 0
+def effDef3(isMulti, name, opName, ar, cx) = "(def " ++ name ++ "_" ++ opName ++ " (lam " ++ ar ++ " " ++ effBody(isMulti, name, opName, ar, cx) ++ "))"
+// Params are pushed left-to-right, so source order is (local ar-1) … (local 0) — the same order
+// paramExprs feeds the oracle's lowerArgs.
+def effArgs(i) = if i < 0 then "" else " (local " ++ i ++ ")" ++ effArgs(i - 1)
+def effStr(s, cx) = "(lit (str " ++ dqOf(cx) ++ s ++ dqOf(cx) ++ "))"
+def effBody(isMulti, name, opName, ar, cx) =
+  if isMulti then "(prim effect.perform " ++ effStr(name ++ "." ++ opName, cx) ++ effArgs(ar - 1) ++ ")"
+  else "(prim effect.perform.oneshot " ++ effStr(name, cx) ++ " " ++ effStr(opName, cx) ++ effArgs(ar - 1) ++ ")"
+// An op CALL — `Console.readLine()` — must reach the global `Console_readLine`, which is exactly what
+// objReg does for object members. So an effect registers there as an object does; without this the
+// defs exist and every call site is an unbound global.
+def collectEffReg(ts) = collectEffReg1(effSkipMulti(ts))
+def collectEffReg1(ts) = collectEffReg2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
+def collectEffReg2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, (memberNamesOf(collectObjMembers(tl(ts))), Nil)), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
 def isExtensionHead(ts) = isWord(hd(ts), "extension")
 def extensionItem(ts, cx) = extHeader(skipGen(tl(ts)), cx)
 // The layout wraps the members in a virtual `{ … }` (top-level extension L-block). extOpenBrace steps
