@@ -1,0 +1,11 @@
+slug: v1-bind-loopback-default
+branch: feature/v1-bind-loopback-default
+agent: claude-code
+started: 2026-08-15T00:00:50Z
+heartbeat: 2026-08-15T00:00:50Z
+status: claimed-before-planning
+items: http-lanes-disagree-on-the-default-bind-address
+paths: file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:tests/e2e/http-bind-address-gate.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
