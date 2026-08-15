@@ -416,7 +416,47 @@ and that widening is load-bearing — v2's `flt` refuses an Int, so `math.sqrt(1
 while the executor answered 4. Moving the declaration into the object would move that one line of
 `.ssc` both lanes run into a builder in Scala. The workaround is not what this entry was about.
 
-## v3-the-fleet-wires-two-plugin-modules-of-twenty-six — twenty-four host names still refuse
+## v3-the-fleet-wires-two-plugin-modules-of-twenty-six — wired seven; the rest is not a wiring problem
+
+<!-- status: fixed
+     lane: v3
+     area: runtime
+     fixed-in: 93726d1da
+     gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**FIXED IN 93726d1da by adding the five modules the corpus actually reaches — ui, content, json,
+crypto, actors — chosen by measurement rather than by reading the directory:**
+
+    two modules    PASS 228  DIFF 3  UNSUPPORTED 126  CRASH 9  EXCL 3
+    seven modules  PASS 230  DIFF 3  UNSUPPORTED 122  CRASH 9  EXCL 5
+
+Both floors held and the lists are identical — the same three DIFFs, the same nine CRASHes, all nine
+being the single `v2 bridge V-0 does not translate perform/handle` cause.
+
+**THE REFUSAL SHORT-CIRCUITS, SO THE FIRST CENSUS WAS A LOWER BOUND.** Before the change the names
+were `element ×7`, `signal`, `contentDocument`, `sha256` and the rest; after it the list is not those
+minus the fixed ones but a DIFFERENT set led by `forJsonView ×8`, which no earlier sweep could see
+because the case died on an earlier name. Anyone re-measuring this bucket should expect the same:
+each round of unblocking reveals the next layer, and no single count is the total.
+
+**WHAT REMAINS IS NOT UNWIRED, IT IS UNIMPLEMENTED.** `forJsonView`, `actorGroupTell`,
+`webauthnRegister` and `webauthnChallenge` appear in NO plugin source anywhere in the tree, so no
+module list answers them. Adding the remaining nineteen modules buys nothing measurable and costs an
+sbt build each in `v3/plugin-classpath.sh`, which is why the list stays at what the corpus reaches.
+
+**`add` LOOKED LIKE A SIXTH MODULE AND IS NOT.** A source grep put it in http-fast, but there it is
+`registerTaggedMethod("WsRoom", "add")` — a method on a tagged handle — while the refusing case is
+`node-basic.ssc:20:9`, a graph node's `add`. Wiring http-fast for it would have been a change
+justified by a name collision.
+
+**AND THAT NAMED A REAL BOUND ON THE WHOLE PATH: `V2PluginRegistry` HAS THREE TABLES** — `handlers`,
+`taggedApply` and `taggedMethods` — and `v3/plugins/V2Fleet.scala` bridges only the first. So a
+plugin's tagged-handle surface is invisible to v3. It FAILS SAFE rather than silently: lowering gates
+on the same table it bridges, so a tagged name is refused at compile time on BOTH lanes and I-3
+holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
+## v3-the-fleet-bridges-one-of-the-registrys-three-tables — tagged handles are invisible to v3
 
 <!-- status: open
      lane: v3
@@ -425,36 +465,22 @@ while the executor answered 4. Moving the declaration into the object would move
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**`v3/plugin-classpath.sh` lists TWO modules — `v2NativeFsPlugin` and `v2NativeOsPlugin` — and
-`build.sbt` defines TWENTY-SIX `v2Native*Plugin` projects.** So with the fleet on, the corpus still
-reports 24 refusals of `the host function '…' is not implemented on this lane`, and the file's own
-comment invites the rest: "start with the ones whose names the corpus actually reaches; the rest are
-a one-line addition each".
+**`ssc.V2PluginRegistry` keeps THREE tables** (`v2/src/Runtime.scala:1283`): `handlers` for plain
+Prim ops, `taggedApply` for calling a tagged handle, and `taggedMethods` for `(tag, method)` pairs
+such as `registerTaggedMethod("WsRoom", "add")`. `v3/plugins/V2Fleet.scala` snapshots only
+`handlers`, so every plugin surface expressed as a handle with methods — sockets, rooms, sessions,
+cursors — is unreachable from v3 no matter how many modules `v3/plugin-classpath.sh` lists.
 
-**THE NAMES, taken from the compiler's own refusal rather than from a scanner of mine** — a sweep of
-every corpus case, counting only that message:
+**IT FAILS SAFE, WHICH IS WHY THIS IS A GAP AND NOT A DEFECT.** `Lower.resolveExtern` emits a `Prim`
+only for names in the same table the adapter bridges, so a tagged name is refused with a position at
+compile time — on BOTH lanes, since lowering is shared. Invariant I-3 holds and no program gets a
+wrong answer; the surface is simply smaller than "the v2 plugins work in v3" suggests.
 
-        7 element                          ui-plugin
-        2 signal                           content-plugin, ui-plugin
-        2 contentDocument                  content-plugin
-        2 actorGroupTell                   NOT FOUND by a source grep
-        1 sha256                           actors-plugin, crypto-plugin
-        1 localStorageGet                  ui-plugin
-        1 webauthnChallenge                NOT FOUND by a source grep
-        1 eqSignal / computedSignal         (ui/reactive)
-        1 contentData / contentBlock / contentModuleMetadata   content-plugin
-        1 __jsonCoreWrap / __jsonCoreWrapStrict                json-plugin
-        1 add                              http-fast-plugin
-
-`actorGroupTell` and `webauthnChallenge` match no plugin source by name, so a module list alone will
-not answer them; that is recorded because a census answers only its own question and the mapping
-above is a grep for a string literal, not proof of registration.
-
-**WHY IT IS NOT JUST "ADD THE LINES".** Every module added is a new set of prims that lowering will
-then emit instead of refusing, and each carries the same risk the last claim closed: an argument or
-result shape the adapter cannot convert, or a failure thrown as a Java exception. The floors are the
-instrument — DIFF 3 and CRASH 9 with a fleet-off control run — and a module that moves either one is
-a defect found, not a reason to abandon the list.
+**WHAT IT WOULD TAKE.** A handle is a `ForeignV` on the v2 side and has no v3 counterpart at all —
+`V2Fleet.toV3` converts a `ForeignV` only when it holds an `ArrayBuffer`, and refuses the rest by
+name deliberately. So this is not a table to copy but a representation to design: v3 needs a value
+that carries an opaque v2 handle plus the tag, and lowering needs to admit `x.method(…)` on it. No
+corpus case reaches it today, so it is filed rather than taken.
 
 ## v3-plugin-fleet-regresses-four-cases-when-enabled — it does not; the fleet now RAISES N by five
 
