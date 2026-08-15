@@ -168,12 +168,18 @@ jobs:
     # made taking it off push safe rather than a coverage cut: the list of what runs on a push lives
     # in ONE place now, and it is that file. The one step not carried over is the three `test -f`
     # example-file checks, which the examples pass in `conformance-extras` covers.
-    # 25, not the old 15, and not a guess: ~246 s for the sbt launcher build plus the cargo builds
-    # this job's own step comments document (~25 s + 60 s + 30 s + 90 s + 60 s across the rust
-    # parity gates) is already ~8.5 min before a single board check runs. `conformance-extras` was
-    # cancelled on EVERY run for exactly this reason, and a timeout surfaces as `cancelled` rather
-    # than `failure`, so it reads as infrastructure noise instead of "your gates never ran".
-    timeout-minutes: 25
+    # 45. SIZED FROM THE RUNNER, because 25 was sized from a laptop and the job was CANCELLED.
+    # Local run of all 32 gate steps: 851 s. Same steps on the runner: 1803 s across 49 steps — 2.1x,
+    # and that is before the 260 s launcher build. The gates that dominate are the cargo ones
+    # (`v2 diagnostics and fast paths` 295 s, `conformance flags and the scljet corpus` 221 s,
+    # `a Response handler takes the Request entry` 138 s, `build-rust refuses loudly` 132 s), and a
+    # dev box with a warm cargo cache is not the runner.
+    #
+    # THE RULE THIS COST TWICE TODAY: size a CI budget from CI. The audit job made the identical
+    # mistake in the other direction — 737 s measured inside a warm job, 1193 s when it ran alone.
+    # A generous cap costs nothing here; a tight one costs the whole verdict, and reports it as
+    # `cancelled` so it does not even look like a failure.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
