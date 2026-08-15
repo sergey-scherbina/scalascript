@@ -188,38 +188,49 @@ if [ "$self_test" -eq 1 ]; then
     fi
   }
   old="$(date -u -j -v-400d +%Y-%m-%d 2>/dev/null || date -u -d '400 days ago' +%Y-%m-%d)"
-  hdr='<!-- triage: new
+  # …and its twin, which was missing. Every fixture below that must be ACCEPTED needs a date INSIDE
+  # the age bound, and that is a date relative to TODAY — not the literal `2026-07-31` these carried.
+  # MAX_AGE_DAYS is 14, so on 2026-08-15 those fixtures turned 15 days old and the whole ACCEPT half
+  # of this self-test started refusing, with no code change and no commit to blame: smoke went red
+  # for every agent at a date boundary. The stale case above was already written relative; only the
+  # fresh ones were absolute, and the asymmetry is the bug.
+  #
+  # The refuse cases use it too, deliberately. An `expect_red` fixture that has aged out is red for
+  # the WRONG reason — it would pass this suite while no longer testing `triage: routed`, a missing
+  # `reported-by`, or any of the rest.
+  fresh="$(date -u -j -v-1d +%Y-%m-%d 2>/dev/null || date -u -d '1 day ago' +%Y-%m-%d)"
+  hdr="<!-- triage: new
      reported-by: someone
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: 1.0.0
-     repro: none -->'
+     repro: none -->"
   expect_red "triage: routed left in the queue"  "## a-slug — s
 <!-- triage: routed
      reported-by: x
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: 1.0.0
      repro: none -->"
   expect_red "missing reported-by"               "## b-slug — s
 <!-- triage: new
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: 1.0.0
      repro: none -->"
   expect_red "missing ssc-version"               "## c-slug — s
 <!-- triage: new
      reported-by: x
-     reported-at: 2026-07-31
+     reported-at: $fresh
      repro: none -->"
   expect_red "needs-info without waiting-on"     "## d-slug — s
 <!-- triage: needs-info
      reported-by: x
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: 1.0.0
      repro: none -->"
   expect_red "a triaged conclusion (lane:) left here" "## e-slug — s
 <!-- triage: new
      lane: native
      reported-by: x
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: 1.0.0
      repro: none -->"
   expect_red "an entry older than the limit"     "## f-slug — s
@@ -231,15 +242,15 @@ if [ "$self_test" -eq 1 ]; then
   # The reporter's diagnosis must be ACCEPTED. This case is the mechanical half of "say anything you
   # like": if `reporter-suspects:` ever started tripping the same check as `lane:`, the policy would
   # have quietly reverted to the one users complained about, and nothing else would notice.
-  { echo '<!-- inbox-entries:start -->'; printf '## h-slug — s
+  { echo '<!-- inbox-entries:start -->'; printf "## h-slug — s
 <!-- triage: new
      reported-by: x
-     reported-at: 2026-07-31
+     reported-at: $fresh
      ssc-version: unknown
      repro: none
      reporter-suspects: the Map desugaring, not the List one
      impact: blocks -->
-'; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
+"; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
   if check_file "$lab/INBOX.md" selftest >/dev/null 2>&1; then
     printf '  ok   --self-test ACCEPTS a reporter diagnosis (reporter-suspects + impact)\n'
   else
