@@ -2749,7 +2749,14 @@ one §3 J1 item never built, and now the only one the evidence points at.
       would have passed with or without the check it exists to protect. Both loops now live in a
       `def`: the float one specializes to `f64` and is refused, the integral one to `i64` and is
       rewritten, which the fixture shows in one run.
-      *Owed:* the wall clock. Host load was 79–96 while this landed.
+      *Wall clock, 20 pairs at load 10–13, and only ONE row is established:* `nested-loop`
+      **20 of 20** against a control of 10 — it has TWO loops, so it loses two dispatches where the
+      others lose one. `arith-loop` 16 of 20 LEANS (p ≈ 0.12) and is not called. `range-sum` 11 of 20
+      and `list-fold` 12 of 20 are UNRESOLVED, not null: their per-pair ratios span 0.047–6.972 and
+      0.312–1.287, which is the instrument failing to resolve 8–12 % at this load. `recursion-fib`
+      7 of 20 is the control and its null was predicted — no loop, no triple. No magnitude is
+      claimed; `nested-loop`'s mean of 0.679 is dragged by outliers and the sign test is the only
+      statistic reported.
 
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
