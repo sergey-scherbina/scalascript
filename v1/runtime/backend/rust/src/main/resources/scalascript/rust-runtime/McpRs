@@ -13,11 +13,42 @@
       |    pub handler:     McpToolFn,
       |}
       |
+      |/// A resource: the handler receives the requested URI and returns its text.
+      |#[derive(Clone)]
+      |pub struct McpResource {
+      |    pub uri:      String,
+      |    pub name:     String,
+      |    pub mime:     String,
+      |    pub handler:  McpToolFn,
+      |}
+      |
+      |/// A prompt: the handler receives the arguments JSON object as a String and returns the
+      |/// message text. One message, `user` role — the shape every prompt here has needed so far,
+      |/// and inventing a multi-message surface nothing exercises is how a registry grows fiction.
+      |#[derive(Clone)]
+      |pub struct McpPrompt {
+      |    pub name:        String,
+      |    pub description: String,
+      |    pub handler:     McpToolFn,
+      |}
+      |
       |static MCP_TOOLS: std::sync::OnceLock<Arc<Mutex<Vec<McpTool>>>> =
+      |    std::sync::OnceLock::new();
+      |static MCP_RESOURCES: std::sync::OnceLock<Arc<Mutex<Vec<McpResource>>>> =
+      |    std::sync::OnceLock::new();
+      |static MCP_PROMPTS: std::sync::OnceLock<Arc<Mutex<Vec<McpPrompt>>>> =
       |    std::sync::OnceLock::new();
       |
       |fn mcp_tools() -> &'static Arc<Mutex<Vec<McpTool>>> {
       |    MCP_TOOLS.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |fn mcp_resources() -> &'static Arc<Mutex<Vec<McpResource>>> {
+      |    MCP_RESOURCES.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+      |}
+      |
+      |fn mcp_prompts() -> &'static Arc<Mutex<Vec<McpPrompt>>> {
+      |    MCP_PROMPTS.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
       |}
       |
       |/// `mcpRegisterTool(name, description, handler)` — register an MCP tool.
@@ -32,6 +63,33 @@
       |        name,
       |        description,
       |        handler: Arc::new(handler),
+      |    });
+      |}
+      |
+      |/// `mcpRegisterResource(uri, name, mimeType, handler)` — register an MCP resource.
+      |/// The handler receives the requested URI and returns its text.
+      |#[allow(dead_code)]
+      |pub fn _mcp_register_resource(
+      |    uri:      String,
+      |    name:     String,
+      |    mime:     String,
+      |    handler:  impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    mcp_resources().lock().unwrap().push(McpResource {
+      |        uri, name, mime, handler: Arc::new(handler),
+      |    });
+      |}
+      |
+      |/// `mcpRegisterPrompt(name, description, handler)` — register an MCP prompt.
+      |/// The handler receives the arguments JSON object as a String and returns the message text.
+      |#[allow(dead_code)]
+      |pub fn _mcp_register_prompt(
+      |    name:        String,
+      |    description: String,
+      |    handler:     impl Fn(String) -> String + Send + Sync + 'static,
+      |) {
+      |    mcp_prompts().lock().unwrap().push(McpPrompt {
+      |        name, description, handler: Arc::new(handler),
       |    });
       |}
       |
@@ -57,11 +115,24 @@
       |        let method = req["method"].as_str().unwrap_or("");
       |
       |        let result: serde_json::Value = match method {
-      |            "initialize" => serde_json::json!({
-      |                "protocolVersion": "2024-11-05",
-      |                "capabilities":    { "tools": {} },
-      |                "serverInfo":      { "name": "ssc-mcp", "version": "1.0.0" }
-      |            }),
+      |            // Capabilities are DERIVED from what is actually registered rather than announced
+      |            // flat: a client that sees `resources` advertised and then gets an empty list has
+      |            // been told something untrue about this server.
+      |            "initialize" => {
+      |                let mut caps = serde_json::Map::new();
+      |                caps.insert("tools".to_string(), serde_json::json!({}));
+      |                if !mcp_resources().lock().unwrap().is_empty() {
+      |                    caps.insert("resources".to_string(), serde_json::json!({}));
+      |                }
+      |                if !mcp_prompts().lock().unwrap().is_empty() {
+      |                    caps.insert("prompts".to_string(), serde_json::json!({}));
+      |                }
+      |                serde_json::json!({
+      |                    "protocolVersion": "2024-11-05",
+      |                    "capabilities":    serde_json::Value::Object(caps),
+      |                    "serverInfo":      { "name": "ssc-mcp", "version": "1.0.0" }
+      |                })
+      |            }
       |            "tools/list" => {
       |                let tools: Vec<serde_json::Value> = mcp_tools().lock().unwrap()
       |                    .iter().map(|t| serde_json::json!({
@@ -86,6 +157,60 @@
       |                serde_json::json!({
       |                    "content": [{ "type": "text", "text": reply }]
       |                })
+      |            }
+      |            "resources/list" => {
+      |                let rs: Vec<serde_json::Value> = mcp_resources().lock().unwrap()
+      |                    .iter().map(|r| serde_json::json!({
+      |                        "uri": r.uri, "name": r.name, "mimeType": r.mime
+      |                    }))
+      |                    .collect();
+      |                serde_json::json!({ "resources": rs })
+      |            }
+      |            "resources/read" => {
+      |                let uri   = req["params"]["uri"].as_str().unwrap_or("").to_string();
+      |                let guard = mcp_resources().lock().unwrap();
+      |                match guard.iter().find(|r| r.uri == uri) {
+      |                    Some(r) => serde_json::json!({
+      |                        "contents": [{
+      |                            "uri": r.uri, "mimeType": r.mime,
+      |                            "text": (r.handler)(uri.clone())
+      |                        }]
+      |                    }),
+      |                    // -32602 rather than an empty read: "no such resource" and "a resource
+      |                    // whose text is empty" are different answers and a client cannot tell
+      |                    // them apart from the same shape.
+      |                    None => serde_json::json!({
+      |                        "error": { "code": -32602, "message": format!("unknown resource: {}", uri) }
+      |                    }),
+      |                }
+      |            }
+      |            "prompts/list" => {
+      |                let ps: Vec<serde_json::Value> = mcp_prompts().lock().unwrap()
+      |                    .iter().map(|p| serde_json::json!({
+      |                        "name": p.name, "description": p.description, "arguments": []
+      |                    }))
+      |                    .collect();
+      |                serde_json::json!({ "prompts": ps })
+      |            }
+      |            "prompts/get" => {
+      |                let params = &req["params"];
+      |                let name   = params["name"].as_str().unwrap_or("").to_string();
+      |                let args   = params.get("arguments")
+      |                    .map(|a| a.to_string())
+      |                    .unwrap_or_else(|| "{}".to_string());
+      |                let guard  = mcp_prompts().lock().unwrap();
+      |                match guard.iter().find(|p| p.name == name) {
+      |                    Some(p) => serde_json::json!({
+      |                        "description": p.description,
+      |                        "messages": [{
+      |                            "role": "user",
+      |                            "content": { "type": "text", "text": (p.handler)(args.clone()) }
+      |                        }]
+      |                    }),
+      |                    None => serde_json::json!({
+      |                        "error": { "code": -32602, "message": format!("unknown prompt: {}", name) }
+      |                    }),
+      |                }
       |            }
       |            _ => serde_json::json!({ "error": { "code": -32601, "message": "Method not found" } }),
       |        };

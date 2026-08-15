@@ -534,6 +534,15 @@ SSC
   # the RECEIVER AS THE FIRST ARGUMENT, because an extern class has no Rust type of its own here.
   # Getting that wrong is a compile error, so this case is the rule's only real gate.
   #
+  # ALL NINE CLIENT MEMBERS ARE EXERCISED, and the resource and prompt halves are here because I
+  # landed them WITHOUT a gate: the ssc server answered only initialize/tools/*, so there was
+  # nothing to call them against and the code shipped uncovered. The server now registers a resource
+  # and a prompt, which is what makes them testable at all.
+  #
+  # `m.role` IS DESTRUCTURED ACROSS ALL THREE VARIANTS on purpose. `Role` is FIELD-LESS, the one
+  # shape Rust spells differently — `Role::User`, not `Role::User {}` — and a variant rebuilt with
+  # the wrong tag still compiles and still counts one message. Only the match tells the difference.
+  #
   # AND IT EXERCISES THE SDK-SHAPED MEMBERS, whose types no runtime can name — `listTools(): List[
   # ToolDescriptor]` and `callTool(…): ToolResult`, the latter carrying `List[Content]` where
   # `Content` is an ENUM. The runtime answers in `Value` and the call site assembles the real type.
@@ -547,6 +556,8 @@ SSC
   cat > "$tmp/mcpsrv.ssc" <<'SSC'
 def main(): Unit =
   mcpRegisterTool("greet", "Greet someone", args => "got:" + args)
+  mcpRegisterResource("file:///readme", "readme", "text/plain", uri => "body of " + uri)
+  mcpRegisterPrompt("summarize", "Summarize a text", args => "please summarize " + args)
   mcpServe()
 SSC
   # The real module, copied BESIDE the program rather than imported by an absolute path: an
@@ -556,7 +567,7 @@ SSC
   # comes too because `client.ssc` imports it as a sibling.
   cp "$ROOT/std/mcp/client.ssc" "$ROOT/std/mcp/types.ssc" "$tmp/"
   cat > "$tmp/mcpcli.ssc" <<SSC
-[McpClient, mcpConnectSpawn, ToolDescriptor, ToolResult, Content](client.ssc)
+[McpClient, mcpConnectSpawn, ToolDescriptor, ToolResult, ResourceDescriptor, ResourceResult, PromptDescriptor, PromptResult, Content, Role](client.ssc)
 
 def main(): Unit =
   val c = mcpConnectSpawn("$tmp/mcpsrvbin", [])
@@ -571,6 +582,22 @@ def main(): Unit =
   r.content.foreach(x => x match
     case Text(t) => println("text=" + t)
     case other   => println("other"))
+  val rs = c.listResources()
+  println("res=" + rs.length + ":" + rs(0).uri + "/" + rs(0).mimeType)
+  c.readResource("file:///readme").contents.foreach(x => x match
+    case Text(t) => println("read=" + t)
+    case other   => println("other"))
+  val ps = c.listPrompts()
+  println("prompts=" + ps.length + ":" + ps(0).name)
+  val pr = c.getPrompt("summarize", Map("k" -> "v"))
+  pr.messages.foreach(m =>
+    val who = m.role match
+      case User      => "user"
+      case Assistant => "assistant"
+      case System    => "system"
+    m.content match
+      case Text(t) => println("msg=" + who + ":" + t)
+      case other   => println("other"))
   c.close()
 SSC
   set +e
@@ -591,10 +618,14 @@ tools=1:greet
 call=got:{}
 desc=greet/Greet someone
 isError=false parts=1
-text=got:{\"k\":\"v\"}" ]]; then
+text=got:{\"k\":\"v\"}
+res=1:file:///readme/text/plain
+read=body of file:///readme
+prompts=1:summarize
+msg=user:please summarize {\"k\":\"v\"}" ]]; then
     echo "build-rust-refuses-loudly: FAILED — the MCP client did not drive the server" >&2
     echo "--- got: $(printf '%s' "$mc_out" | tr '\n' '|')" >&2
-    echo "    wanted: open=true|tools=1:greet|call=got:{}|desc=greet/Greet someone|isError=false parts=1|text=got:{\"k\":\"v\"}|" >&2
+    echo "    wanted: …|text=got:{\"k\":\"v\"}|res=1:…|read=body of …|prompts=1:summarize|msg=user:please summarize {\"k\":\"v\"}|" >&2
     failed=1
   fi
 

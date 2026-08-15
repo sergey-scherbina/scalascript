@@ -278,6 +278,71 @@
       |    }
       |}
       |
+      |/// `client.listPrompts()` — `case class PromptDescriptor(name, description, args: List[ArgSpec])`
+      |/// and `case class ArgSpec(name, typeName, required)`. Two levels of struct inside a list, all
+      |/// assembled at the call site from these tags.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_list_prompts(handle: i64) -> crate::value::Value {
+      |    let arr = match rpc(handle, "prompts/list", serde_json::json!({})) {
+      |        Some(r) => r.get("prompts").and_then(|t| t.as_array()).cloned().unwrap_or_default(),
+      |        None    => Vec::new(),
+      |    };
+      |    crate::value::Value::List(arr.iter().map(|p| {
+      |        let args = p.get("arguments").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+      |        crate::value::Value::Obj("PromptDescriptor", vec![
+      |            crate::value::Value::Str(p.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |            crate::value::Value::Str(p.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string()),
+      |            crate::value::Value::List(args.iter().map(|a| {
+      |                crate::value::Value::Obj("ArgSpec", vec![
+      |                    crate::value::Value::Str(a.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |                    crate::value::Value::Str(a.get("type").and_then(|t| t.as_str()).unwrap_or("String").to_string()),
+      |                    crate::value::Value::Bool(a.get("required").and_then(|r| r.as_bool()).unwrap_or(false)),
+      |                ])
+      |            }).collect()),
+      |        ])
+      |    }).collect())
+      |}
+      |
+      |/// `client.getPrompt(name, args)` — `case class PromptResult(messages: List[Message])` with
+      |/// `case class Message(role: Role, content: Content)`. `Role` is FIELD-LESS variants, so it
+      |/// arrives as an `Obj` with no fields and the call site spells it `Role::User` — the one shape
+      |/// in this whole surface that Rust writes differently from every other variant.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_get_prompt(
+      |    handle: i64,
+      |    name:   String,
+      |    args:   std::collections::HashMap<String, crate::value::Value>,
+      |) -> crate::value::Value {
+      |    let args = value_map_to_json(&args);
+      |    let result = rpc(handle, "prompts/get", serde_json::json!({
+      |        "name": name, "arguments": args
+      |    }));
+      |    let msgs = result.as_ref()
+      |        .and_then(|r| r.get("messages"))
+      |        .and_then(|m| m.as_array())
+      |        .cloned()
+      |        .unwrap_or_default();
+      |    crate::value::Value::Obj("PromptResult", vec![
+      |        crate::value::Value::List(msgs.iter().filter_map(|m| {
+      |            let text = m.get("content").and_then(|c| c.get("text")).and_then(|t| t.as_str())?;
+      |            Some(crate::value::Value::Obj("Message", vec![
+      |                role_value(m.get("role").and_then(|r| r.as_str()).unwrap_or("user")),
+      |                crate::value::Value::Obj("Text", vec![crate::value::Value::Str(text.to_string())]),
+      |            ]))
+      |        }).collect()),
+      |    ])
+      |}
+      |
+      |/// An unknown role reads as `User`: the wire spells three and the enum has three, but a server
+      |/// sending a fourth is not a reason to drop the message.
+      |fn role_value(role: &str) -> crate::value::Value {
+      |    match role {
+      |        "assistant" => crate::value::Value::Obj("Assistant", Vec::new()),
+      |        "system"    => crate::value::Value::Obj("System", Vec::new()),
+      |        _           => crate::value::Value::Obj("User", Vec::new()),
+      |    }
+      |}
+      |
       |/// `client.isOpen()` — false once closed, and false for a handle that never connected.
       |#[allow(dead_code)]
       |pub fn _mcp_client_is_open(handle: i64) -> bool {

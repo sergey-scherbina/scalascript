@@ -273,13 +273,14 @@ object RustGen:
    *  program that happens to define its own `listToolNames`, and the emitted file is
    *  `#[allow(dead_code)]` throughout. */
   private[rust] def scanMcpClientUsage(astModule: scalascript.ast.Module): Set[String] =
-    val names = Set("mcpConnectSpawn", "listToolNames", "callToolText", "readResourceText", "isOpen")
+    val names = Set("mcpConnectSpawn", "listToolNames", "callToolText", "readResourceText", "isOpen",
+                    "listTools", "listResources", "listPrompts", "callTool", "readResource", "getPrompt")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet
 
   private[rust] def scanMcpUsage(astModule: scalascript.ast.Module): Set[String] =
-    val names = Set("mcpRegisterTool", "mcpServe")
+    val names = Set("mcpRegisterTool", "mcpRegisterResource", "mcpRegisterPrompt", "mcpServe")
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, names, found))
     found.toSet

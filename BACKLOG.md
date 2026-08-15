@@ -394,10 +394,28 @@ and still reports one element — only `case Text(t)` tells the difference — a
 `{"k":"v"}` is what shows the argument arrived as JSON. Negative control: with the struct assembly
 suppressed the gate fails on that case.
 
-**Still open:** `listPrompts` and `getPrompt`. `PromptResult(messages: List[Message])` and
-`Message(role: Role, content: Content)` are within reach of the same machinery — `Role` is
-field-less variants, which the adapter already handles — but the runtime has no `prompts/*` calls
-and nothing here has exercised one, so they are left rather than written blind. Also found while
+**ALL NINE MEMBERS NOW WORK, and the two that were left are done.** `listPrompts` and `getPrompt`
+needed what the note below them said they needed — `prompts/*` on the wire — and the reason nothing
+had exercised one is that the ssc MCP SERVER answered only `initialize`, `tools/list` and
+`tools/call`. So the server grew `resources/list`, `resources/read`, `prompts/list` and
+`prompts/get`, with `mcpRegisterResource` and `mcpRegisterPrompt` beside `mcpRegisterTool`.
+
+**THAT ALSO CLOSES CODE I SHIPPED WITHOUT A GATE.** `listResources` and `readResource` were wired in
+28100232d and 4997222cd and never exercised — there was no server to call them against, so no case
+could cover them. Naming that plainly rather than leaving it in a footnote: it is the exact failure
+this repository's own notes describe as write-only code, and it stood for two commits.
+
+**`Role` is the interesting half.** `Message(role: Role, content: Content)` puts a FIELD-LESS enum
+variant inside a struct inside a list, and Rust spells that `Role::User`, not `Role::User {}`. The
+adapter had handled it since the SDK-member work and it had never once been built; the gate now
+destructures all three roles, because a variant rebuilt with the wrong tag still compiles and still
+counts one message.
+
+**Capabilities are DERIVED, not announced.** `initialize` advertises `resources` and `prompts` only
+when something is registered — a client told a server has resources and then handed an empty list
+has been told something untrue. An unknown uri or prompt name answers `-32602` rather than empty
+content, because "no such resource" and "a resource whose text is empty" are different answers and a
+client cannot tell them apart from the same shape. Also found while
 probing this and filed separately: a QUALIFIED enum PATTERN, `case Content.Text(t)`, is refused
 (`rust-qualified-enum-pattern-is-refused`). The qualified CONSTRUCTOR was fixed in `19ebadf00`; its
 pattern twin was not.
