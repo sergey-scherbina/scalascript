@@ -4,7 +4,7 @@ agent: claude-code
 started: 2026-08-15T10:09:05Z
 heartbeat: 2026-08-15T10:09:05Z
 status: working
-items: extension-name-collision v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name
+items: extension-name-collision v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name v3-given-instance-as-a-receiver-is-refused
 paths: file:v3/src/Lower.scala file:v3/BUGS.md
 scope: |
   A top-level `extension` and a `given`-instance `extension` of the same name collide, and the
@@ -35,4 +35,18 @@ scope: |
   change that moves something far away, so the gates matter more than usual here — and `front-gate`,
   `exec-gate` and `front-diff` are ALREADY red on `opaque-type`, someone else's fixture landing
   ahead of its parser support, so those three must be compared against a control rather than read.
-next: swap the two passes, probe the reproducer, measure
+  MEASURED after the swap alone: N 218/369, DIFF 3 and CRASH 9 held, and the reproducer prints
+  `Some(4)` instead of dying. N unchanged is the predicted answer — the three corpus cases need the
+  ARM as well.
+
+  WIDENED 2026-08-15 TO LAND THAT ARM, before the edit, and this is the third attempt at it. It was
+  measured and withheld TWICE — once because it took DIFF 3 -> 5 on its own, and again after the
+  multi-param fix, when it still did, because THIS collision was the reason. Both blockers are now
+  gone, so the entry's own sequence — "land the second, then the first, then re-measure" — reaches
+  its last step.
+
+  THE PREDICTION, written before the numbers: DIFF back to 3, CRASH 9, PASS above 218, with
+  `std-monaderror`, `std-index` and `std-semigroup-monoid` the candidates. If DIFF rises the arm
+  comes out a THIRD time — two withdrawals do not entitle it to a pass, and wanting the result is
+  not evidence.
+next: re-apply the arm, measure the pair, push both or neither
