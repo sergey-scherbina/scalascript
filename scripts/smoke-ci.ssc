@@ -420,6 +420,12 @@ val suite = List(
   // `unbound global` to `arity: 2 expected, 1 given` twice. Eight rows; `tuple-statement-after-def`
   // is why the fix is in the def parser and not in the layout.
   Check("v2", "f-handler-param", "tests/e2e/f-handler-param-gate.sh", List(), 300000),
+  // `f"${"x"}"` CRASHED the compiler (`Range [3, 3) out of bounds`): every string was scanned with
+  // the plain rule, so an interpolated one ended at its inner quote. The fix is the reference's
+  // three-way split — interpolated only when an identifier abuts the opening quote — and the plain
+  // rows are the controls that matter: scanning every string as interpolated makes `println("${")`
+  // eat its own closing quote, which is behaviour F already had RIGHT.
+  Check("v2", "f-gap-tail", "tests/e2e/f-gap-tail-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
