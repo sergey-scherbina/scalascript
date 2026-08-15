@@ -43,6 +43,29 @@ v3/ssc3 selftest >/dev/null 2>&1
 # sibling's commit and was reported as one.
 uniml=0
 v3/ssc3 fronts 2>/dev/null | grep -qx uniml && uniml=1
+
+# REFUSED HERE, IN SECONDS, RATHER THAN AFTER THE SWEEP. The verdict is unchanged — a missing uniml
+# front still makes this gate RED, deliberately, because a gate that goes green with fixtures unrun
+# reports less than it claims. What changes is WHEN you are told. `v3/.jars/uniml.cp` is a gitignored
+# build artifact, so EVERY fresh worktree starts without one and both v3 gates open RED on a clean,
+# correct tree; the remedy was already printed, but only after a full fixture run had been spent
+# finding out. Measured three times in one day in three separate worktrees, which is what filed
+# `v3/BUGS.md#v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout`.
+#
+# The question is asked through `ssc3 fronts` above rather than by testing for the file, because the
+# driver owns that decision and a second copy of it here would be a second place to be wrong.
+if [ "$uniml" = 0 ] && ls v3/tests/front/*.uniml-only >/dev/null 2>&1; then
+  n=$(ls v3/tests/front/*.uniml-only 2>/dev/null | wc -l | tr -d ' ')
+  echo "✋ the uniml front is NOT REGISTERED in this working tree, and $n fixture(s) need it."
+  echo "   Run it once here, then re-run this gate:"
+  echo
+  echo "       v3/uniml-classpath.sh"
+  echo
+  echo "   RED rather than skipped, and refused now rather than after the sweep: nothing in the"
+  echo "   code being tested can change this, and running the rest first would spend minutes to"
+  echo "   reach the same line. This is the state of the CHECKOUT, not a defect in the diff."
+  exit 1
+fi
 unreadable=0; unreadable_names=""
 ERRF="$(mktemp)"; trap 'rm -f "$ERRF"' EXIT
 
