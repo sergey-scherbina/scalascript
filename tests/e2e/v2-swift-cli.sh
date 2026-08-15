@@ -101,14 +101,32 @@ test -f "$TMP/plain-package/macos/Package.swift"
 ! grep -Fq 'Exception in thread' "$TMP/plain-package.err"
 ! grep -Fq 'Parser' "$TMP/plain-package.err"
 
+# ── an exact-match assertion that SHOWS THE MISMATCH ────────────────────────────────────────────
+#
+# `grep -Fqx PATTERN FILE` is silent on failure: with the ERR trap it now names the line, but the
+# reader still cannot see WHAT the file said, and `$TMP` is deleted on exit so there is nothing left
+# to inspect. Measured 2026-08-15 on the runner: this gate failed at exactly such a line and the log
+# carried the expected string and not one character of the actual one.
+#
+# The message being asserted is a user-facing diagnostic that differs between hosts, which is the
+# case this most needs to report rather than merely refuse.
+expect_line() { # expect_line <file> <exact line>
+  if ! grep -Fqx "$2" "$1"; then
+    echo "v2-swift-cli: expected this exact line in $(basename "$1"):" >&2
+    echo "  want | $2" >&2
+    echo "  got  | (file below, first 10 lines)" >&2
+    if [ -s "$1" ]; then head -10 "$1" | sed 's/^/       | /' >&2; else echo "       | <empty>" >&2; fi
+    return 1
+  fi
+}
+
 set +e
 "$SSC" run --v2 --target ios "$FIXTURE" >"$TMP/ios-run.out" 2>"$TMP/ios-run.err"
 IOS_EXIT=$?
 set -e
 test "$IOS_EXIT" -eq 1
-grep -Fqx \
-  'run --target ios: checked program does not define a NativeUi application' \
-  "$TMP/ios-run.err"
+expect_line "$TMP/ios-run.err" \
+  'run --target ios: checked program does not define a NativeUi application'
 ! grep -Fq 'Exception in thread' "$TMP/ios-run.err"
 
 set +e
