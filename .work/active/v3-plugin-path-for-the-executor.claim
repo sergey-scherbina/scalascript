@@ -5,7 +5,7 @@ started: 2026-08-15T15:45:55Z
 heartbeat: 2026-08-15T15:45:55Z
 status: working
 items: v3-plugin-path-for-the-executor
-paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3 file:v3/src/Main.scala file:v3/plugin-classpath.sh
+paths: file:v3/BUGS.md file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3 file:v3/src/Main.scala file:v3/plugin-classpath.sh
 scope: |
   The owner's decision of 2026-08-15: give v3's executor a path to plugin intrinsics. It is the
   single unlock for the whole `host function '…' is not implemented on this lane` bucket — 30
