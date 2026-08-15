@@ -1,0 +1,11 @@
+slug: env-or-else-host-prim
+branch: feature/env-or-else-host-prim
+agent: claude-code
+started: 2026-08-15T15:33:07Z
+heartbeat: 2026-08-15T15:33:07Z
+status: claimed-before-planning
+items: env-or-else-host-prim
+paths: file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/tests/parity
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
