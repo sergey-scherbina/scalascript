@@ -1,0 +1,1 @@
+println(envOrElse("SSC_ABSENT_VAR_QQQ","fallback"))

@@ -2745,6 +2745,17 @@ object Lower:
     // either lane growing a special case — and `utf8->str`/`str->utf8` are v2's own spellings, so
     // the decoding is v2's UTF-8 on both lanes rather than a choice made twice.
     "readFile"  -> (as => p => Expr.Prim("utf8->str", List(Expr.Prim("io.readFile", as, p)), p)),
+    // `envOrElse(k, d)` IS `io.env(k).getOrElse(d)` — a COMPOSITION over a prim BOTH lanes have,
+    // exactly like `readFile` above, and deliberately NOT a new prim of its own.
+    //
+    // `envOrElse` is a PLUGIN INTRINSIC elsewhere in this repository
+    // (`v1/runtime/plugins/os-plugin/…/OsIntrinsics.scala`), and v3's executor has no plugin path
+    // at all — that is the real gap behind the whole `host function … is not implemented on this
+    // lane` bucket. This one entry does not need it: `io.env` is a CORE prim in
+    // `v2/src/Runtime.scala:1985`, so the composition answers on both lanes with no plugin
+    // involved. The other twenty-eight in that bucket are not so lucky and are not addressed here.
+    "envOrElse" -> (as => p => Expr.MethodCall(Expr.Prim("io.env", List(as.head), p),
+                                               "getOrElse", as.tail, p)),
     "writeFile" -> (as => p => Expr.Prim("io.writeFile",
                                          List(as.head, Expr.Prim("str->utf8", as.tail, p)), p)),
     "readBytes"  -> (as => p => bytesToList(Expr.Prim("io.readFile", as, p), p)),

@@ -1927,6 +1927,15 @@ object Exec:
       args.head match
         case Value.VStr(path) => Value.VBool(new java.io.File(path).exists)
         case v                => throw ExecError("exists takes a path: " + show(v))
+    // THE ENVIRONMENT, and it returns an `Option` because that is what v2 returns
+    // (`Runtime.scala:1985`: `sys.env.get(…).fold(none)(some)`). The shape has to match or the two
+    // lanes disagree about a missing variable — the executor would hand back a bare string where
+    // the bridge hands back `None`, and `envOrElse`'s `.getOrElse` would then be applied to the
+    // wrong thing on one of them.
+    case "io.env" =>
+      args.head match
+        case Value.VStr(k) => sys.env.get(k).map(s => someOf(m, Value.VStr(s))).getOrElse(noneOf(m))
+        case v             => throw ExecError("io.env takes a name: " + show(v))
     // BYTES IN AND OUT, matching v2's shapes exactly — `Runtime.scala:1943` reads a file to
     // `BytesV` and `io.writeFile` takes bytes at argument 1. Getting this wrong once already cost a
     // lane divergence (`expected Bytes, got "hello from ScalaScript"`), which is why the table in
