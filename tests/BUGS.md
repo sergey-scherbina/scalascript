@@ -125,7 +125,50 @@ the suite.
 
 **What this changes about the decision, which is still the owner's.** Refreshing the baseline does
 not make the suite faster — it makes the budget honest, so the inner guard can speak again instead
-of being outrun by checks it cannot see. The duration question then has a name and a lever: three
+of being outrun by checks it cannot see.
+
+### 2026-08-15 — the baseline IS refreshed, and the cap tension is now a number
+
+Regenerated from twelve real CI runs with `tests/smoke-baseline-harvest.sh` — the action the file's
+own header prescribes, and the only one: `do not hand-edit a row`.
+
+| | before | after |
+|---|---|---|
+| rows | 82 | **112** |
+| sum at the reference host | 699.0 s | **1425.5 s** |
+| suites the runs held | 79, 81, 82 | **109, 110, 112** |
+
+**The obstacle I claimed in the census above was imaginary and is retracted here.** I wrote that a
+harvest on a contended host would freeze the contention. It would not: the harvester reads CI run
+LOGS and normalises each check to a reference host with `smoke-ci`'s own fit. Local load never
+enters it. The census stopped one step short of the fix for a reason that was not there.
+
+**What the refresh does to the budget, from `budgetFor` rather than from a ratio:**
+
+    budget = baseline × (436000 + 1263 × probe) / (436000 + 1263 × 224) + 250
+
+It is AFFINE, not multiplicative — the observed 699 → 952 at probe 227 is mostly the +250 margin,
+not a factor, and reading it as a factor would have overestimated the new budget by four minutes.
+Checked against the run: 699 × 1.0053 + 250 = 952, exactly what the suite printed.
+
+| host probe | derived budget |
+|---|---|
+| 227 ms (the run measured above) | **1682 s ≈ 28.0 min** |
+| 288 ms (the clamp's upper end) | **1835 s ≈ 30.6 min** |
+
+**So the guard can speak again: against the observed 1467.4 s the budget now has 215 s of headroom
+instead of being 515 s under the suite it governs.** That was the half that needed no decision, and
+it is done.
+
+**And the cap tension stops being a hypothesis.** `.github/workflows/smoke.yml` caps the job at 30
+minutes and requires that cap to stay STRICTLY LOOSER than the suite's budget plus build time. At a
+typical host the budget alone is now 28.0 min; on a slow-but-in-range host it is 30.6 min, past the
+cap outright, before any build time is added. The rule is violated at the typical host and
+impossible at the slow one — which is what the 17 cancelled runs in 100 were.
+
+**Still not decided here, and deliberately.** Two levers, both the owner's: move the cap, or take
+work off the push path — the three un-baselined F-front checks at 102.5, 83.6 and 82.6 s are 269 s,
+18 % of the run, and are the same kind of candidate the 2026-08-01 restructure moved to the nightly. The duration question then has a name and a lever: three
 F-front checks at ~90 s each on the push path. Whether they belong there, or belong in the nightly,
 is the same kind of call the 2026-08-01 restructure already made once. What the number says: the margin the cap was sized to give — ~11 min over the
 worst case — is gone, and the suite's median has moved from 16.8 to 26.0. Either the cap moves, or

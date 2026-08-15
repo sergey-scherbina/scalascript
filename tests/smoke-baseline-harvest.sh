@@ -200,7 +200,10 @@ fi
 
 command -v gh >/dev/null 2>&1 || die "gh is not installed; this reads completed CI runs"
 
-echo "harvesting up to $RUNS successful smoke runs (fit ${FIT_A} + ${FIT_B}/1000 x probe, reference host ${REF_PROBE}ms)"
+# "success and failure", not "successful": the selection below takes both, and saying otherwise
+# describes the very bias the 2026-08-12 fix removed — a reader would think it was still here, and
+# an auditor might "correct" the code to match the message and put it back.
+echo "harvesting up to $RUNS smoke runs (success and failure; fit ${FIT_A} + ${FIT_B}/1000 x probe, reference host ${REF_PROBE}ms)"
 gh run list --workflow smoke.yml --limit "$SEARCH" --json databaseId,conclusion \
   | python3 -c "import json,sys; [print(r['databaseId']) for r in json.load(sys.stdin) if r['conclusion'] in ('success','failure')]" \
   > "$work/ids.txt" || die "could not list smoke runs"
