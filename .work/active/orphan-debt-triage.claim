@@ -4,8 +4,8 @@ agent: claude-code
 started: 2026-08-15T23:22:47Z
 heartbeat: 2026-08-15T23:22:47Z
 status: claimed-before-planning
-items: orphan-debt-triage-31-frozen-gates orphaned-e2e-gates-52
-paths: file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:BUGS.md
+items: orphan-debt-triage-31-frozen-gates orphaned-e2e-gates-52 uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
+paths: file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:BUGS.md file:v2/src/Runtime.scala file:v2/lib/ssc1-lower.ssc0 file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:uniml/lint-portable-subset.sh file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownLexer.scala file:uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala file:specs/uniml-portable-gapmap.md file:uniml/v2-smoke/gap-char.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
