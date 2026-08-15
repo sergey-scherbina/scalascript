@@ -49,4 +49,35 @@ scope: |
   MEASUREMENT: N with floors DIFF 3 / CRASH 9; `mkdirs` answering identically on `ssc3 run` and
   `ssc3 run --bridge`; and the uniform-refusal property preserved for every name that still has no
   provider.
-next: record the design, add the registry, hook both sites, prove mkdirs on both lanes
+  THE OWNER ASKED WHETHER THE EXISTING PLUGINS CAN BE MADE TO WORK, AND THAT REFRAMES THE WHOLE
+  CLAIM. Measured 2026-08-15, cross-referencing every failing host name against `v2/runtime/std/`:
+
+      17 of the 19 distinct names ALREADY HAVE A v2 PLUGIN.
+      `element`, `signal`, `computedSignal`, `eqSignal`, `localStorageGet`  -> ui-plugin
+      `contentDocument`, `contentData`, `contentBlock`, `contentModuleMetadata` -> content-plugin
+      `envOrElse`, `readLine`, `exec`                                       -> os-plugin
+      `mkdirs`                                                              -> fs-plugin
+      `sha256`                                                              -> actors-plugin
+      `__jsonCoreWrap`, `__jsonCoreWrapStrict`                              -> json-plugin
+      `add`                                                                 -> http-fast-plugin
+      only `actorGroupTell` and `webauthnChallenge` have no provider at all.
+
+  SO THE WORK IS TO LOAD THE FLEET, NOT TO WRITE PROVIDERS. That is a different and much larger
+  lever: one mechanism against ~30 refusals instead of one intrinsic at a time.
+
+  AND NEITHER LANE LOADS ANY PLUGIN TODAY — which is why the refusal is uniform and why nothing has
+  drifted. `v3/ssc3` builds the bridge's v2 from `v2/src` ALONE (`classes_for ssc2 "" "$ROOT/v2/src"`)
+  and the whole fleet lives in `v2/runtime/std/*-plugin/`. Discovery is
+  `java.util.ServiceLoader.load(classOf[NativePlugin], …)` in `NativePluginHost`, so a plugin
+  registers itself once its classes are on the classpath.
+
+  THE BRIDGE HALF IS THEREFORE NEARLY FREE and the EXECUTOR HALF IS THE REAL WORK: an adapter
+  between `ssc3.Value` and `ssc.Value`, since a v2 plugin registers `List[ssc.Value] => ssc.Value`.
+  `v3/src/BridgeV2.scala` already translates v3's IR to v2's Core IR, so the value mapping is not
+  starting from nothing.
+
+  THEY MUST LAND TOGETHER, NOT IN SEQUENCE. Loading the fleet on the bridge alone changes nothing,
+  because the refusal is issued at LOWERING for both lanes; and relaxing that refusal with only the
+  bridge able to answer is EXACTLY the shape that once diverged 11 cases and printed five wrong
+  answers. Either both lanes answer a name or neither does.
+next: registry + executor adapter + lowering consult + fleet on both classpaths, landed together
