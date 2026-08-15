@@ -1379,11 +1379,39 @@ a question nobody has been asked to answer is how a board rots.
 
 ## bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken — native says `false`, real Scala says `true`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
-     gate: tests/e2e/mixed-numeric-comparison-gate.sh (the frozen row 20) -->
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh
+     fixed-in: ba75ed5ee2cd95d91a1371563485405a1b89ddf1 -->
+
+> **DECIDED BY THE OWNER 2026-08-15: the lanes answer, and the quiet ones moved.** `BigDecimal(1) ==
+> 1.0` is now `true` on native and bytecode, as it already was on jvm/js/int and in real Scala.
+>
+> **This entry's reason for existing was wrong, and that is what made the decision takeable.** It
+> said native's `false` was a design position, because `PortableDecimal` declines binary floating
+> point in three places. Measured: all three of those refusals THROW — none of them answers `false`.
+> The `false` came from the structural `case _ => false` in `DecimalV.equals` and from
+> `eqWidening`'s `l == r` default, i.e. a fall-through nobody chose. And the module already ALLOWS
+> the other direction: `(d: DecimalV, "toDouble")` converts through the very `toJava` that refuses
+> Double input. The line it actually draws is *refuse where inexactness would be CAPTURED into a
+> stored decimal, answer where it is only OBSERVED* — and `==` yields a Boolean, storing nothing.
+>
+> Implemented by delegating to Scala's `BigDecimal.equals`, exactly as the neighbouring `BigInt`
+> arm delegates, because those methods are the oracle this is measured against. Measured on a REAL
+> build (`install.sh --dev`, not a cached jar): native, bytecode and run-jvm all answer
+> `true / false / true / true` across `==1.0`, the `==2.0` anti-row, the reversed form and `0.1`.
+>
+> **The frozen block is deleted rather than edited** — that deletion is the record — and rows 12-21
+> are now one group.
+>
+> **A row added to catch a fake caught a different lane.** `BigDecimal("0.1") == 0.1` went in and the
+> JS lane refused to run: `cannot mix Decimal and a fractional Number`. So js's `true` on the
+> integer row was never agreement — `Number.isInteger(1.0)` is true and a fractional Double throws —
+> and the table in this entry recorded a coincidence of values, not a shared rule. Filed as
+> `js-refuses-a-decimal-against-a-fractional-double` (v1/runtime/backend/js/BUGS.md); the row is
+> withdrawn from the gate until it closes.
 
 **Carried out of `bigint-and-bigdecimal-do-not-widen-against-a-double` on 2026-08-13**, where it was
 the one of three defects that is not an omission. Every other row in that entry is now green on

@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## js-refuses-a-decimal-against-a-fractional-double — and its `true` on the integer case hid that
+<!-- status: open
+     lane: js
+     area: runtime
+     kind: divergence
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh (the row is withdrawn there; see below)
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+**Found 2026-08-15 while taking the `BigDecimal == Double` contract decision**, by adding the row
+that a wrong implementation could not fake — and it caught a lane nobody was looking at.
+
+```
+BigDecimal(1)     == 1.0     js: true
+BigDecimal("0.1") == 0.1     js: Error: cannot mix Decimal and a fractional Number — convert explicitly
+                             int/jvm/native/bytecode: true       real Scala: true
+```
+
+`v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs:162`
+
+```js
+if (!Number.isInteger(v)) throw new Error('cannot mix Decimal and a fractional Number — convert explicitly');
+```
+
+**The `true` above it is a coincidence, not agreement.** `Number.isInteger(1.0)` is true, so the
+integer-valued Double slips through the guard and the comparison answers correctly by accident. Every
+frozen table that recorded this lane as agreeing — including
+`bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken`, which listed
+"jvm/js/int `true`" — was recording a coincidence of values, not a shared rule. A row with a
+FRACTIONAL double is the only one that can tell the two apart, and until 2026-08-15 no gate had one.
+
+**It now contradicts a decision that has been taken.** The owner decided that a Decimal compared
+against a binary float ANSWERS rather than refuses, on the ground that `PortableDecimal` refuses
+where inexactness would be CAPTURED into a stored decimal and permits it where it is only OBSERVED
+(`.toDouble` already converts that direction). `==` yields a Boolean and stores nothing. This guard
+is the last lane still refusing.
+
+**Why the row is not in the gate.** `tests/e2e/mixed-numeric-comparison-gate.sh` runs ONE program per
+lane — deliberately, it is the most expensive check in the smoke suite and rows are cheap only
+because processes are not. A row that makes the js lane die takes the whole lane down, so the row is
+withdrawn with this entry named where it stood. When this closes, put it back and raise `BIG_TO`
+to 22.
+
+**Not fixed here** because the js runtime is a different lane from the one the decision was
+implemented in, and the guard is deliberate code with an argued message — removing it is a change to
+that lane's contract, and deserves its own claim rather than a drive-by while the entry it came from
+was being closed.
+
 ## jsgen-genexpr-is-three-times-the-jit-limit — 25328 bytecodes, refusal demonstrated, hot cost NOT established
 
 <!-- status: open
