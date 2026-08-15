@@ -1,0 +1,11 @@
+slug: sbt-shard-slash-syntax
+branch: feature/sbt-shard-slash-syntax
+agent: claude-code
+started: 2026-08-15T18:54:28Z
+heartbeat: 2026-08-15T18:54:28Z
+status: claimed-before-planning
+items: sbt-test-shard-enumeration-produces-zero-suites
+paths: file:scripts/sbt-test-shard file:tests/e2e/sbt-test-shard-gate.sh file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
