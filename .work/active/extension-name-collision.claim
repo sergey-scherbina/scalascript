@@ -1,0 +1,11 @@
+slug: extension-name-collision
+branch: feature/extension-name-collision
+agent: claude-code
+started: 2026-08-15T10:09:05Z
+heartbeat: 2026-08-15T10:09:05Z
+status: claimed-before-planning
+items: extension-name-collision v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
