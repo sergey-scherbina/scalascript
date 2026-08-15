@@ -2132,11 +2132,12 @@ one it names.
 
 ## native-serve-does-not-apply-a-default-argument-so-every-short-call-fails
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: bug
      confirmed: yes
+     fixed-in: a6c1806f2
      gate: tests/e2e/render-smoke.sh -->
 
 **Measured 2026-08-15 on a freshly built toolchain.** `bin/ssc examples/components-demo.ssc` serves
