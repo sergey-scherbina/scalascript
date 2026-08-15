@@ -84,6 +84,10 @@ def main(): Unit =
   println((BigInt(9007199254740993L) == 9.007199254740992e15).toString)
   println((BigInt("123456789012345678901234567890") == 1.2345678901234568e29).toString)
   println((BigDecimal(1) == 1.0).toString)
+  println((BigDecimal("0.1") == 0.1).toString)
+  println((BigDecimal(1) < 2.0).toString)
+  println((BigDecimal(2) < 1.0).toString)
+  println((BigDecimal("0.1") <= 0.1).toString)
 EOF
 
 # 11 comparison rows, then 9 wide-type rows, then 1 that is still wrong somewhere. ONE file and
@@ -92,27 +96,21 @@ EOF
 # BUDGET at 1004.5 s of 963 s. It grew because the wide-type rows arrived as two extra SOURCES,
 # and every source costs another launch on all five lanes, one of which compiles real Scala.
 # Rows are cheap; processes are not.
-ROWS=21
+ROWS=25
 CMP_TO=11      # 1-11   the Int/Double comparisons and the literal-pattern rows
-BIG_FROM=12    # 12-21  wide types, every lane agrees with the oracle
-BIG_TO=21
+BIG_FROM=12    # 12-25  wide types, every lane agrees with the oracle
+BIG_TO=25
 # THE KNOWN-GAP BLOCK IS GONE, and rows 21-22 moved up into the group above — the file's own
 # instruction for the day the frozen row starts matching jvm. `BigDecimal(1) == 1.0` answered
 # `false` on native and bytecode and `true` on jvm/js/int; the owner took the contract decision on
 # 2026-08-15 and the quiet lanes moved. (BUGS `bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken`.)
 #
-# `BigDecimal("0.1") == 0.1` IS NOT HERE, and its absence is a finding rather than an omission. It
-# was added as row 22 — the row that cannot be faked, since `0.1` is not exactly one tenth as a
-# Double and a hand-rolled `compareTo(new JBigDecimal(0.1d))` answers FALSE for it — and the js lane
-# then REFUSED TO RUN AT ALL:
-#
-#     Error: cannot mix Decimal and a fractional Number — convert explicitly
-#     (v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs:162)
-#
-# So js's `true` on row 21 was never agreement about the rule: `Number.isInteger(1.0)` is true, and
-# a genuinely fractional Double throws there. A row this gate cannot share cannot live in this
-# source, which is one program per lane. Filed as `js-refuses-a-decimal-against-a-fractional-double`;
-# when that closes, this row comes back and BIG_TO goes to 22.
+# `BigDecimal("0.1") == 0.1` IS BACK, and the note that used to stand here explains why it left.
+# Added on 2026-08-15 as the row a wrong implementation cannot fake, it took the JS lane down with
+# `cannot mix Decimal and a fractional Number — convert explicitly`, so js's `true` on the integer
+# row had never been agreement about the rule — `Number.isInteger(1.0)` is true and a fractional
+# Double threw. The row was withdrawn, the divergence filed, and the guard is now fixed: comparison
+# answers on every lane, arithmetic still refuses.
 
 # ROW 19 IS THE ONE THIS GATE COULD NOT SEE BEFORE, and it is here because every other wide row uses
 # a SMALL value. `BigInt(9007199254740993L) == 9.007199254740992e15` is 2^53+1 against the Double it
@@ -216,7 +214,12 @@ fi
 
 # Row 21 — `BigDecimal(1) == 1.0` — joined this list on 2026-08-15 when the contract decision was
 # taken and the two quiet lanes moved to the oracle's answer. It is the LAST entry, `true`.
-expected_big=$'true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue'
+# Rows 22-25 joined on 2026-08-15 when the Decimal-vs-Double decision was completed: `==` had
+# landed and the ORDERING comparisons were still throwing, which is the decision half-applied.
+# 22 `BigDecimal("0.1") == 0.1` — the row a hand-rolled exact compare fails.
+# 23 `<` true, 24 `<` false, 25 `<=` true — and 25 is the one that pins the RULE: Scala
+# compares the decimal's `toDouble`, so `"0.1" < 0.1` is FALSE while `<=` is true.
+expected_big=$'true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue\ntrue\ntrue\nfalse\ntrue'
 if [[ "$(slice jvm "$BIG_FROM" "$BIG_TO")" != "$expected_big" ]]; then
   echo "mixed-numeric-comparison: the ORACLE lane (run-jvm) does not match the frozen WIDE row." >&2
   echo "  expected: $(echo "$expected_big" | tr '\n' '/')" >&2
@@ -287,4 +290,8 @@ for lane in int native bytecode js; do
 done
 
 [[ $fail -eq 0 ]] || exit 1
-echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on eleven rows in a def, nine at top level and ten on the wide numeric types (no frozen gap left)"
+# COUNTED, NOT SPELLED. This line has been wrong twice in one day: it said "nine … (one more frozen
+# as a known gap)" after the frozen gap was gone, and "ten" after four rows were added. A summary a
+# reader trusts and an author retypes drifts by construction, so the numbers come from the same
+# constants the assertions use.
+echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on $CMP_TO rows in a def, $TOP_ROWS at top level and $(( BIG_TO - BIG_FROM + 1 )) on the wide numeric types"

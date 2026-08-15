@@ -269,6 +269,30 @@ function _arith(op, a, b) {
   }
   const aDec = a && a._type === '_Decimal', bDec = b && b._type === '_Decimal';
   if (aDec || bDec) {
+    // A DECIMAL COMPARED WITH A BINARY FLOAT ANSWERS; arithmetic still refuses, and the split is the
+    // owner's decision of 2026-08-15. `PortableDecimal` refuses where inexactness would be CAPTURED
+    // into a stored decimal and permits it where it is only OBSERVED — a comparison yields a boolean
+    // and stores nothing — so `+ - * /` fall through to `_toDec` below and keep throwing.
+    //
+    // Before this, `_toDec` threw for EVERY op, and the lane's apparent agreement on
+    // `BigDecimal(1) == 1.0` was `Number.isInteger(1.0)` being true rather than agreement about the
+    // rule. `BigDecimal("0.1") == 0.1` took the whole lane down.
+    // (BUGS `js-refuses-a-decimal-against-a-fractional-double`.)
+    //
+    // Compared by converting the DECIMAL to a number, which is what real Scala does — measured, not
+    // chosen: `BigDecimal("0.1") < 0.1` is FALSE there and `<=` is true, so it is not comparing
+    // against the double's exact binary value (0.1d is larger than one tenth, which would make `<`
+    // true). `_decShow` already renders the plain decimal text, so `Number(...)` of it is that
+    // conversion and nothing more.
+    if ((aDec && typeof b === 'number') || (bDec && typeof a === 'number')) {
+      const dx = aDec ? Number(_decShow(a)) : a;
+      const dy = bDec ? Number(_decShow(b)) : b;
+      switch (op) {
+        case '<': return dx < dy;   case '>': return dx > dy;
+        case '<=': return dx <= dy; case '>=': return dx >= dy;
+        case '==': return dx === dy; case '!=': return dx !== dy;
+      }
+    }
     const x = _toDec(a), y = _toDec(b);
     switch (op) {
       case '+': return _decAdd(x,y); case '-': return _decSub(x,y); case '*': return _decMul(x,y);

@@ -3066,6 +3066,34 @@ private[interpreter] object DispatchRuntime:
       case "negate"    => Pure(Value.DecimalV(-d))
       case "signum"    => Computation.pureIntV(d.signum.toLong)
       case "isZero"    => Computation.pureBool(d.signum == 0)
+      // ORDERING. Absent entirely until 2026-08-15 — `BigDecimal(1) < 2.0` answered
+      // `No method '<' on DecimalV(1)` on this lane while jvm answered `true`, and the five-lane
+      // gate could not carry the row because of it. This is the owner's Decimal-vs-Double decision
+      // reaching its third lane: a comparison yields a Boolean and stores nothing, so it ANSWERS;
+      // `+ - * /` still go through `asDec`, which refuses a Double, because there the inexactness
+      // would be captured into a stored decimal.
+      //
+      // Against a Double the comparison goes through `toDouble`, which is what real Scala does and
+      // is measured rather than assumed:
+      //
+      //     BigDecimal("0.1") <  0.1   false        BigDecimal("0.1") <= 0.1   true
+      //
+      // Exact binary `0.1d` is LARGER than one tenth, so comparing against the double's exact value
+      // would make `<` true. Scala converts the BigDecimal and compares doubles; these two rows are
+      // what tell the two implementations apart, and both are in the gate.
+      //
+      // Against anything else `asDec` still decides, so Decimal-vs-Decimal and Decimal-vs-Int stay
+      // EXACT — a `toDouble` shortcut there would lose precision the other lanes keep.
+      case "<" | "<=" | ">" | ">=" => args match
+        case List(Value.DoubleV(x)) =>
+          val a = d.toDouble
+          Computation.pureBool(name match
+            case "<" => a < x; case "<=" => a <= x; case ">" => a > x; case _ => a >= x)
+        case List(other) =>
+          val b = asDec(other)
+          Computation.pureBool(name match
+            case "<" => d < b; case "<=" => d <= b; case ">" => d > b; case _ => d >= b)
+        case _ => dispatchFallback(recv, name, args, env, interp)
       case "min"       => args match { case List(a) => Pure(Value.DecimalV(d.min(asDec(a)))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "max"       => args match { case List(a) => Pure(Value.DecimalV(d.max(asDec(a)))); case _ => dispatchFallback(recv, name, args, env, interp) }
       case "pow"       => args match

@@ -3402,6 +3402,25 @@ object Prims:
         case "*" => DataV("Money", Vector(IntV(x * y), c))
         case "/" => DataV("Money", Vector(IntV(x / y), c))
         case _   => sys.error(s"__arith__: op $op not valid for Money+Int")
+    // A Decimal ORDERED against a Double. The same decision `eqWidening` took for `==` on
+    // 2026-08-15, applied to the comparisons that change left behind: `==` answered while `<`
+    // still died with "Decimal and Double cannot be mixed", which is the decision half-applied
+    // rather than a second position. Comparison yields a Boolean and stores nothing, so it is the
+    // OBSERVED side of the line `PortableDecimal` draws; `+ - * /` fall through to `arith` below
+    // and keep refusing, because there the inexactness would be CAPTURED into a stored decimal.
+    //
+    // `toDouble` on the Decimal side, and that is measured against real Scala rather than chosen:
+    //
+    //     BigDecimal("0.1") <  0.1   false        BigDecimal("0.1") == 0.1   true
+    //     BigDecimal("0.1") <= 0.1   true         BigDecimal(1)     <  2.0   true
+    //
+    // Exact binary `0.1d` is LARGER than one tenth, so comparing the decimal against the double's
+    // exact value would make `<` true — Scala says false. It converts the BigDecimal to a Double
+    // and compares doubles, the same rule its `equals` uses, and these four rows are what pins it.
+    case (DecimalV(_), FloatV(b)) if decimalOrderOps(op) =>
+      decimalVsDouble(op, PortableDecimal.toJava(l).doubleValue(), b)
+    case (FloatV(a), DecimalV(_)) if decimalOrderOps(op) =>
+      decimalVsDouble(op, a, PortableDecimal.toJava(r).doubleValue())
     case (lv, rv) if PortableDecimal.involvesDecimal(lv, rv) =>
       PortableDecimal.arith(op, lv, rv)
     case (lv, rv) => op match
@@ -3482,6 +3501,20 @@ object Prims:
     case (DecimalV(_), FloatV(b)) => BigDecimal(PortableDecimal.toJava(l)).equals(b)
     case (FloatV(a), DecimalV(_)) => BigDecimal(PortableDecimal.toJava(r)).equals(a)
     case _                    => l == r
+
+  /** The comparison operators a Decimal may answer against a binary float — see the arm in
+    *  `arithOp`. `==`/`!=` are NOT here: they never reach `arithOp` for this pair, `__eq__` takes
+    *  them through `eqWidening`, and listing them in both places would be two rules for one
+    *  question. */
+  private def decimalOrderOps(op: String): Boolean =
+    op == "<" || op == "<=" || op == ">" || op == ">="
+
+  private def decimalVsDouble(op: String, x: Double, y: Double): Value = op match
+    case "<"  => BoolV(x < y)
+    case "<=" => BoolV(x <= y)
+    case ">"  => BoolV(x > y)
+    case ">=" => BoolV(x >= y)
+    case other => sys.error(s"__arith__: op $other is not an ordering comparison")
 
   private def bigArith(op: String, left: BigInt, right: BigInt): Value = op match
     case "+" => BigV(left + right)
