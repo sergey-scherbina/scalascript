@@ -3728,6 +3728,55 @@ condition found — the `package:` field in the module frontmatter. Kept rather 
 its account of how the reduction predicate deletes the very declaration it names is the reason the
 newer attempt pinned the trait.
 
+## fixed-status-without-fixed-in-reaches-main — four entries in one day, four authors, and the sha was already written down in three of them
+
+<!-- status: fixed
+     fixed-in: 430509382
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: .githooks/pre-push
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**An entry marked `status: fixed` with no `fixed-in:` reds `bugs-index-gate`, which runs in smoke,
+which means every agent's next push.** On 2026-08-15 that happened four times, from four different
+authors: `v3-extern-member-in-an-object-has-no-meaning`,
+`v3-capability-list-outlived-the-divergence-it-declared`,
+`v2-f-round-is-three-different-roundings-across-the-backends`, and one earlier the same day. Each
+stopped `main` until somebody noticed and paid for the fix.
+
+**Four authors is a property of the process.** The two-step close exists for a good reason — a sha
+written in the same commit as the fix does not survive the rebase-and-push loop, which is what
+`.githooks/pre-push`'s ORPHAN check already guards. But nothing between the two steps refused to let
+the gap reach main. **And in three of the four the sha was already written down**, in the claim's own
+release note (`8468b85b0` names `9ca1f4da2`; `f465c442a` names `4222bd4d0`; `7334a3316` names
+`d47dbf7e3`). Nobody had to find anything. The second half of the close is simply where attention
+runs out, and a document saying "remember step two" would not have helped any of the four.
+
+### CLOSED 2026-08-15 — `430509382`, in the hook, beside its sibling
+
+`pre-push` now refuses a `status: fixed` that carries no `fixed-in:` — the sibling of the check
+directly above it, which guards a sha that does not RESOLVE while this guards one that is ABSENT.
+`bugs-index-gate.sh` asks the same question but runs in smoke, after the push, and takes 13.9 s;
+the hook asks it with a regex in milliseconds.
+
+Written to the rules that block already paid for: **only what this push introduces** (offender sets
+computed at both tips, so pre-existing debt never blocks unrelated work), **only a push that could
+land** (behind the same `merge-base --is-ancestor` test), and **above the early exits**, where that
+block's own comments record a guard that silently did not run.
+
+**One copy of the detector**, as a function the guard and the self-test both call.
+
+**Proven in three directions, two against real history rather than a plant:** it refuses a push that
+adds a fixed-without-sha and names the slug; it passes a push that touches no `BUGS.md`; and
+replaying `7f682f344~2 → ~1`, where BOTH tips carry the same unfixed entry, it returns 0 — the
+pre-existing-debt case that decides whether a guard is usable. Five `--self-test` cases cover the
+detector itself: reported for fixed-without-sha; silent for fixed-with-sha, `open` and `wontfix`;
+and two entries where only the second is bad, so the walker cannot leak state between them.
+
+**What it cannot do:** clear the debt already on main. It stops the next one.
+
 ## orphan-fixedin-lands-red — a rewritten `fixed-in:` turns SMOKE red for everyone, three times in two days
 
 <!-- status: fixed
