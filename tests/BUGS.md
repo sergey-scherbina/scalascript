@@ -1,3 +1,37 @@
+## f-for-generator-tuple-pattern — `for (a, b) <- xs` loses the second binder
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none — open defect -->
+
+```scalascript
+val names = List("a", "b")
+val grades = List(90, 75)
+for (name, grade) <- names.zip(grades) do
+  println(name + ":" + grade)
+```
+
+`F: unbound global: (global grade)` · `ref: a:90`. The `yield` form fails identically
+(`for (a, b) <- List((1, 2)) yield a + b`); a single binder (`for n <- xs`) is fine.
+
+**The cause is a genuine ambiguity F resolves the wrong way.** `skipForOpen` skips a leading `(`
+because `for (n <- xs)` may parenthesise the whole generator — so for `for (a, b) <- …` it skips the
+tuple pattern's own paren, takes `name` as the entire binder, and the rest desynchronises. The two
+forms are told apart one token later: `( ident <-` is a parenthesised generator, `( ident ,` is a
+tuple pattern.
+
+**Not fixed here because the binder is threaded as a single NAME.** `forGen`, `forGuard`,
+`forGuardG`, `forSep`, `forFlatMap`, `forEnd`, `forYield`, `forDo` and `forLam` all carry `nm` as one
+string and push it as `nm :: env`; a tuple pattern needs a list of names, an env push in field order,
+and `forLam` emitting a destructuring lambda — `(lam 1 (match (local 0) ((arm Pair 2 …) (arm Tuple2
+2 …))))`, the Pair/Tuple2 duality `genPairArm` already encodes. That is nine signatures in a subset
+language that allows one `match` per function, for ONE corpus file
+(`examples/extensions.ssc`). Worth doing, not worth doing quickly.
+
 ## board-routing-debt-191-entries-sit-where-their-fix-does-not — the heuristic routed on prose
 
 <!-- status: open

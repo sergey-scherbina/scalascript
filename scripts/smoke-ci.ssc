@@ -426,6 +426,12 @@ val suite = List(
   // rows are the controls that matter: scanning every string as interpolated makes `println("${")`
   // eat its own closing quote, which is behaviour F already had RIGHT.
   Check("v2", "f-gap-tail", "tests/e2e/f-gap-tail-gate.sh", List(), 300000),
+  // Scala 3 separates additional parents with a COMMA as well as `with`, and F's chain knew only
+  // `with` — so `trait Traversable[T[_]] extends Functor[T], Foldable[T]` left the second parent in
+  // the token stream to be read as an expression, and the file declined on the name of its own
+  // trait. Seven rows; three are the separators that already worked, because the fix extends a
+  // recursion and getting that wrong breaks them.
+  Check("v2", "f-foldable-grade", "tests/e2e/f-foldable-grade-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

@@ -2755,7 +2755,12 @@ def ccOpenSkip(ts) = if isTok(hd(ts), 2, 21) then tl(ts) else ts
 def skipGenParen(ts) = ccOpenSkip(skipGen(ts))
 def skipNameGenParen(ts) = skipGenParen(tl(ts))
 def skipExtends(ts) = if isWord(hd(ts), "extends") then skipWithChain(skipTypeRef(tl(ts))) else ts
-def skipWithChain(ts) = if isWord(hd(ts), "with") then skipWithChain(skipTypeRef(tl(ts))) else ts
+// Scala 3 separates additional parents with a COMMA as well as `with` — `trait C[T] extends A[T],
+// B[T]` — and this chain knew only `with`. The comma and everything after it stayed in the token
+// stream, so the second parent was read as an EXPRESSION: `std/foldable-traversable.ssc` declines on
+// `(global Foldable)`, the name of its own trait, from the line
+// `trait Traversable[T[_]] extends Functor[T], Foldable[T]`.
+def skipWithChain(ts) = if isWord(hd(ts), "with") then skipWithChain(skipTypeRef(tl(ts))) else (if isTok(hd(ts), 2, 27) then skipWithChain(skipTypeRef(tl(ts))) else ts)
 // -- enums (P6.5 E1) ----------------------------------------------------------------------------
 // `enum Name [tparams] [(..)] [extends ..]:` then `;`-separated `case` lines. The oracle does NOT make
 // enum a layout declHead — it reads the `;`-separated cases directly (ssc1-front goCases :2810-2834), and
