@@ -1,0 +1,11 @@
+slug: f-summon-ctx
+branch: feature/f-summon-ctx
+agent: claude-code
+started: 2026-08-15T23:02:04Z
+heartbeat: 2026-08-15T23:02:04Z
+status: claimed-before-planning
+items: f-summon-and-context-bounds-are-unresolved
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-summon-ctx-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
