@@ -1,6 +1,7 @@
 ## sbt-test-shard-enumeration-produces-zero-suites — all four shards refuse, and the refusal could not say why
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: a79eaed07
      lane: apparatus
      area: build
      kind: bug
@@ -47,6 +48,43 @@ nothing about whether the pattern is broken. It never reached the subject.
 
 **Acceptance test:** the next dispatch prints either sbt's stderr or the "sbt wrote nothing" line,
 which names the cause. Then fix that cause and the four shards report a verdict instead of refusing.
+
+### CLOSED 2026-08-15 — `a79eaed07`. Neither candidate was right: THE QUERY was dead, not the parser
+
+`show test:definedTestNames` — the sbt 0.13 colon form — is ACCEPTED by sbt 1.10.7, warned about,
+COMPILED for, reported `[success]` on, and prints **no value at all**. Measured on this build, same
+warm server, the same key both ways:
+
+| query | headers | `Vector(` lines | wall | verdict |
+|---|---|---|---|---|
+| `show test:definedTestNames` | **0** | **0** | 259 s | `[success]` |
+| `show Test/definedTestNames` | **273** | 274 | 109 s | `[success]` |
+
+A silent no-op that still pays for a full test-source compile — which is exactly why each shard
+burned ~7 minutes before refusing, and why candidate 2 ("the enumeration does not finish") looked
+plausible. It finished. It said nothing.
+
+**END TO END ON REAL OUTPUT.** Feeding the actual sbt listing to the UNCHANGED parser via `--from`
+enumerates **1147 suites across 273 projects**, and the four shards partition them exactly:
+286 + 287 + 287 + 287 = 1147. The parser never needed touching.
+
+**Both candidates this entry named are refuted, and so is a third I invented on the way.**
+Candidate 1 said the parser no longer matches: it matches, and `show Test/sources` shows the same
+`header` + `Vector(…)` shape independently. Candidate 2 said the enumeration does not finish: it
+finishes in 109 s warm. My own detour was the project-name regex `[A-Za-z0-9_]+` — all **330**
+project ids in `build.sbt` match it, because the hyphens live in `name :=` and `show` prints the id.
+
+**What misled me, recorded because it would mislead the next reader too:** a SINGLE-project query,
+`show authPlugin/Test/definedTestNames`, prints `[info] * <name>` — no header, no `Vector`. That
+looks exactly like "the format changed under the parser". The AGGREGATED form does not; sbt renders
+the two differently, and only the aggregated one is what this script asks for.
+
+**THE GATE WAS GREEN THROUGHOUT AND COULD NOT HAVE BEEN OTHERWISE.** Every check in it runs on a
+synthetic listing through `--from`, so it never sees which question the script asks sbt. It now
+freezes the spelling — the part it can check without paying four minutes for a build — and that
+check is proven in all three states: green on the fixed script, RED when the colon form is planted
+in code, and not fooled by the script's own comment quoting the dead form. The first version of it
+WAS fooled, because it did not strip comments before grepping.
 
 # Build, CI and coordination tooling — bugs
 
