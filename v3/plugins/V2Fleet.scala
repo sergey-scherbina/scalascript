@@ -40,10 +40,32 @@ object V2Fleet:
       // `v2/src` entirely: the registry already exposes its table as a public map for batch
       // isolation, so no v2 edit is needed to list what the fleet registered.
       ssc.V2PluginRegistry.snapshot().handlers.foreach { (name, fn) =>
-        Plugins.register(name, (m, args) => toV3(m, fn(args.map(a => toV2(m, a)))))
+        Plugins.register(name, (m, args) => call(m, fn, args))
       }
 
   private var installed = false
+
+  /** Invoke a provider and TRANSLATE WHAT IT THROWS, because an exception is part of a host
+    * function's contract and not an accident.
+    *
+    * `std/fs.ssc`'s failure cases are the whole point of `std-fs-failure-raises`: `listDir` on a
+    * missing directory is SUPPOSED to raise, and the program catches it. On the bridge that works,
+    * because v2 raises `SscThrow` and its own `try` catches it. Here the plugin's Java exception
+    * escaped the executor entirely and surfaced as `cannot read '<the .ssc>': NoSuchFileException`
+    * — a message about the SOURCE FILE, from a handler that assumes anything thrown came from
+    * reading it. The program printed two lines and stopped while the bridge printed seven.
+    *
+    * So: v2's own `SscThrow` carries a value and maps straight across; anything else is a host
+    * failure and becomes a catchable throw carrying its message, which is the shape v3's `try`
+    * expects. */
+  private def call(m: Module, fn: List[ssc.Value] => ssc.Value, args: List[Value]): Value =
+    try toV3(m, fn(args.map(a => toV2(m, a))))
+    catch
+      case t: ssc.SscThrow  => throw ssc3.ExecThrow(toV3(m, t.value), String.valueOf(t.value))
+      case e: ssc3.ExecThrow => throw e
+      case e: Throwable     =>
+        val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+        throw ssc3.ExecThrow(Value.VStr(msg), msg)
 
   /** v3 -> v2. Total on the shapes a program can pass to a host function.
     *
@@ -66,6 +88,18 @@ object V2Fleet:
       if t < 0 || t >= m.types.length then throw ssc3.ExecError(
         "a host function was passed a constructor this program does not declare")
       ssc.Value.DataV(m.types(t).name, fs.map(f => toV2(m, f)).toIndexedSeq)
+    // MAP, SET and ARRAY. Mechanical, and each one was found by a probe rather than by reading the
+    // enum: the refusal below names the shape it met, so the surface was discovered one failing
+    // program at a time — `VData` first, then `VMap`.
+    //
+    // v2 has NO array case. `arr.new` answers `ForeignV(ArrayBuffer[Value])`, so what crosses is the
+    // handle itself, and a plugin that mutates it mutates the same buffer the program holds — which
+    // is what an array IS on that side.
+    case Value.VMap(es)   =>
+      ssc.Value.MapV.from(es.map((k, v) => (toV2(m, k), toV2(m, v))))
+    case Value.VSet(es)   => ssc.Value.SetV.from(es.map(e => toV2(m, e)))
+    case Value.VArr(items) =>
+      ssc.Value.ForeignV(collection.mutable.ArrayBuffer.from(items.map(i => toV2(m, i))))
     case other            => throw ssc3.ExecError(
       "a host function was passed " + other.getClass.getSimpleName +
       ", which this plugin bridge does not convert yet")
@@ -83,6 +117,15 @@ object V2Fleet:
     case ssc.Value.FloatV(d)    => Value.VFloat(d)
     case ssc.Value.StrV(s)      => Value.VStr(s)
     case ssc.Value.BytesV(b)    => Value.VBytes(b.toArray)
+    case mp: ssc.Value.MapV =>
+      Value.VMap(collection.mutable.ArrayBuffer.from(
+        mp.entries.iterator.map((k, v) => (toV3(m, k), toV3(m, v)))))
+    case st: ssc.Value.SetV => Value.VSet(st.elems.iterator.map(e => toV3(m, e)).toList)
+    // A FOREIGN HANDLE is an array when it holds one — that is v2's only array representation — and
+    // anything else foreign has no v3 counterpart and is refused by name rather than smuggled
+    // through as an opaque value the executor could not act on.
+    case ssc.Value.ForeignV(h: collection.mutable.ArrayBuffer[?]) =>
+      Value.VArr(h.iterator.map(x => toV3(m, x.asInstanceOf[ssc.Value])).toArray)
     case ssc.Value.DataV(tag, fs) =>
       val ix = m.types.indexWhere(t => t.name == tag)
       if ix < 0 then throw ssc3.ExecError(

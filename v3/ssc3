@@ -293,6 +293,18 @@ case "$cmd" in
     printf '%s:%s\n' "$cp2" "$TC"
     exit 0
     ;;
+  # THE v2 ENTRY, so a caller does not have to keep its own copy of the decision.
+  #
+  # `v3/corpus-report.sh` did keep one — `java -cp "$(ssc3 __v2-cp)" ssc.cli run-ir` — and the two
+  # copies diverged the moment this driver learned about the plugin fleet: the report BUILT the IR
+  # with a front that has the fleet installed, so lowering emitted `(prim "mkdirs" …)` instead of a
+  # refusal, and then RAN that IR on a plain `ssc.cli` with no plugins. The build side and the run
+  # side disagreed about which prims exist, and four cases died on a prim the builder was entitled
+  # to emit. Printing the whole command from here is what makes that unrepresentable.
+  __v2-run)
+    printf '%s\n' "${V2[@]}"
+    exit 0
+    ;;
   __classpath)
     uniml_available || { echo "ssc3: the uniml front is not available — run v3/uniml-classpath.sh" >&2; exit 2; }
     uniml_classpath || { echo "ssc3: could not compile the uniml front" >&2; exit 2; }

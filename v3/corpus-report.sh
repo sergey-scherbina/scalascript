@@ -62,8 +62,20 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 echo "building v3 and v2 …" >&2
 KERNEL_CP="$("$ROOT/v3/ssc3" __kernel-cp)" \
   || { echo "corpus-report: v3 failed to build" >&2; exit 2; }
-V2_CP="$("$ROOT/v3/ssc3" __v2-cp)" \
+# THE v2 SIDE IS THE DRIVER'S COMMAND, NOT A CLASSPATH THIS SCRIPT ASSEMBLES.
+#
+# It used to be `V2_CP="$(ssc3 __v2-cp)"` here and `java -cp "$V2_CP" ssc.cli run-ir` below — a
+# second copy of a decision `v3/ssc3` already makes. The two copies diverged the moment the driver
+# learned to load the v2 PLUGIN FLEET: this script builds the IR with the FRONT, which has the
+# fleet installed, so lowering emits `(prim "mkdirs" …)` where it used to emit a refusal — and then
+# it ran that IR on a plain `ssc.cli` with no plugins. Build side and run side disagreed about which
+# prims exist, and four cases that MATCH through `v3/ssc3 run --bridge`, individually and
+# concurrently, were counted DIFF here. The comment above says a census answers only its own
+# question and that the question is set by the command actually invoked; that is as true of the v2
+# half of the bridge as of the front.
+V2RUN_LINES="$("$ROOT/v3/ssc3" __v2-run)" \
   || { echo "corpus-report: v2 failed to build" >&2; exit 2; }
+IFS=$'\n' read -r -d '' -a V2RUN <<< "$V2RUN_LINES" || true
 
 # WHICH FRONT THIS REPORT MEASURES.
 #
@@ -128,7 +140,7 @@ run_case() {
   fi
   if [ "$err" = "0" ]; then
     if [ "$lane" = "exec" ]; then got="$(cat "$out")"
-    else got="$(java -Xss512m -cp "$V2_CP" ssc.cli run-ir "$irf" 2>/dev/null)"; fi
+    else got="$("${V2RUN[@]}" run-ir "$irf" 2>/dev/null)"; fi
     if [ "$got" = "$(cat "$exp")" ]; then
       printf 'PASS\t%s\t\n' "$name"
     elif ! holds_v2 "$f"; then
@@ -176,7 +188,16 @@ echo "running $total case(s), $JOBS at a time …" >&2
 # Waves of `$JOBS`, each writing to its OWN file so two cases cannot interleave inside a record.
 slot=0
 while IFS= read -r f; do
-  run_case "$f" >> "$WORK/v.$slot" &
+  # `< /dev/null` IS LOAD-BEARING: this loop reads the case list on fd 0, and a background job
+  # inherits it. With the plugin fleet on, `std-os-readline` really does read stdin — so it ate the
+  # REST OF THE CASE LIST and every case after it was never dispatched at all. The report still said
+  # "running 369 case(s)" (that count is taken upfront) while its buckets summed to 294: 75 cases
+  # silently vanished, and the number of them was the tail of the list behind the reader.
+  #
+  # It was latent before and the fleet only made it live — with no plugins loaded nothing on either
+  # side ever read stdin. A case must not be able to consume its own harness's input under any
+  # configuration, so this is closed here rather than in the one case that exposed it.
+  run_case "$f" >> "$WORK/v.$slot" < /dev/null &
   slot=$(( (slot + 1) % JOBS ))
   [ "$slot" -eq 0 ] && wait
 done < "$WORK/cases.txt"
