@@ -460,6 +460,12 @@ val suite = List(
   // enclosing expression, so a widening that wrapped the outer call would still compile and answer
   // differently.
   Check("v2", "f-placeholder-ctor", "tests/e2e/f-placeholder-ctor-gate.sh", List(), 300000),
+  // `for (a, b) <- xs` lost its second binder: skipForOpen stripped a leading `(` unconditionally
+  // because `for (n <- xs)` may parenthesise the whole generator, so the tuple pattern lost its own
+  // paren. The two forms separate one token later — `( ident <-` vs `( ident ,` — and
+  // `paren-generator` is the row that fails if that distinction is lost again, since it is the shape
+  // the old code was written for.
+  Check("v2", "f-for-tuple", "tests/e2e/f-for-tuple-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

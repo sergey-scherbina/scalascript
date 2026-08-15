@@ -1153,14 +1153,34 @@ def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, en
 // gen parses in the outer env; each lambda body parses with the binder pushed. Single-name binder only
 // (tuple binders / infix `1 to n` generators are a follow-on). Reuses emitMethodCall so the receiver's
 // map/filter/foreach/flatMap dispatch (var->__method__, list-ctor->_sel_*) is byte-identical.
+// A GENERATOR MAY BIND A TUPLE: `for (name, grade) <- names.zip(grades)`. The binder used to be one
+// NAME, and `skipForOpen` unconditionally skipped a leading `(` because `for (n <- xs)` may put the
+// whole generator in parens — so a tuple pattern lost its own paren, `name` became the entire
+// binder, and everything after desynchronised: `unbound global: (global grade)`.
+//
+// The two forms separate one token later, which is what isTuplePatHead reads: `( ident <-` is a
+// parenthesised generator, `( ident ,` is a tuple pattern. Only the latter keeps its paren.
+//
+// The binder is now a LIST of names. It is used in exactly two places — pushed onto the env, and
+// wrapped by the lambda — so widening it costs those two helpers and no new machinery:
+// forTupNames accumulates by PREPENDING, which yields ["b","a"] for `(a, b)`, and that is already
+// the order F's ctor arms use (parsePatVars prepends too, so env slot 0 is the LAST field).
+// forLamN emits the destructuring lambda through genPairArm, reusing the Pair/Tuple2 duality the
+// ordered resolver already encodes rather than inventing a second one.
 def parseForExpr(ts, env, cx) = parseForFromF(skipForOpen(ts), env, cx)
-def skipForOpen(ts) = if isTok(hd(ts), 2, 21) then tl(ts) else (if isTok(hd(ts), 2, 28) then tl(ts) else ts)
-def parseForFromF(ts, env, cx) = forGen(snd(hd(ts)), skipArrow(tl(ts)), env, cx)
+def isTuplePatHead(ts) = if isTok(hd(ts), 2, 21) then isTupPat2(tl(ts)) else false
+def isTupPat2(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 27) else false
+def skipForOpen(ts) = if isTuplePatHead(ts) then ts else (if isTok(hd(ts), 2, 21) then tl(ts) else (if isTok(hd(ts), 2, 28) then tl(ts) else ts))
+def forTupNames(ts, acc) = if isTok(hd(ts), 2, 22) then (acc, tl(ts)) else (if isTok(hd(ts), 2, 27) then forTupNames(tl(ts), acc) else forTupNames(tl(ts), snd(hd(ts)) :: acc))
+def forBinder(ts) = if isTuplePatHead(ts) then forTupNames(tl(ts), Nil) else (Cons(snd(hd(ts)), Nil), tl(ts))
+def parseForFromF(ts, env, cx) = parseForFromF1(forBinder(ts), env, cx)
+def parseForFromF1(pr, env, cx) = pr match { case (nms, r) => forGen(nms, skipArrow(r), env, cx) }
 def skipArrow(ts) = if isTok(hd(ts), 2, 58) then tl(ts) else ts
-def forGen(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (genE, r) => forGuard(nm, erase(genE, cx), r, env, cx) }
-def forGuard(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 2) then forGuardG(nm, genE, tl(ts), env, cx) else forSep(nm, genE, ts, env, cx)
-def forGuardG(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (g, r) => forSep(nm, emitMethodCall("filter", genE, Cons(forLam(erase(g, cx)), Nil), cx), r, env, cx) }
+def forGen(nms, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (genE, r) => forGuard(nms, erase(genE, cx), r, env, cx) }
+def forGuard(nms, genE, ts, env, cx) = if isTok(hd(ts), 2, 2) then forGuardG(nms, genE, tl(ts), env, cx) else forSep(nms, genE, ts, env, cx)
+def forGuardG(nms, genE, ts, env, cx) = parseExpr(ts, 0, appEnv(nms, env), cx) match { case (g, r) => forSep(nms, emitMethodCall("filter", genE, Cons(forLamN(nms, erase(g, cx)), Nil), cx), r, env, cx) }
 def forLam(body) = "(lam 1 " ++ body ++ ")"
+def forLamN(nms, body) = if dlen(nms) == 1 then forLam(body) else "(lam 1 (match (local 0) (" ++ genPairArm(dlen(nms), body) ++ ")))"
 // A SEPARATOR FOLLOWED BY `if` IS A GUARD, NOT THE NEXT GENERATOR. `forGuard` only looks for `if`
 // IMMEDIATELY after the generator, so `for x <- xs if p yield x` worked while the same guard on its
 // own line did not: the separator got here first, was read as "another generator follows", and the
@@ -1168,12 +1188,12 @@ def forLam(body) = "(lam 1 " ++ body ++ ")"
 // which is the symptom tests/BUGS.md v2-front-for-comprehension-guard-line records.
 // Both layouts route to the SAME forGuardG, so a guard after a newline and a guard on the same line
 // desugar identically, and repeated guards keep working because forGuardG returns here.
-def forSep(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 52) then (if isTok(hd(tl(ts)), 2, 2) then forGuardG(nm, genE, tl(tl(ts)), env, cx) else forFlatMap(nm, genE, tl(ts), env, cx)) else forEnd(nm, genE, forSkipClose(ts), env, cx)
+def forSep(nms, genE, ts, env, cx) = if isTok(hd(ts), 2, 52) then (if isTok(hd(tl(ts)), 2, 2) then forGuardG(nms, genE, tl(tl(ts)), env, cx) else forFlatMap(nms, genE, tl(ts), env, cx)) else forEnd(nms, genE, forSkipClose(ts), env, cx)
 def forSkipClose(ts) = if isTok(hd(ts), 2, 22) then tl(ts) else (if isTok(hd(ts), 2, 29) then tl(ts) else ts)
-def forFlatMap(nm, genE, ts, env, cx) = parseForFromF(ts, nm :: env, cx) match { case (rRest, r) => (emitMethodCall("flatMap", genE, Cons(forLam(rRest), Nil), cx), r) }
-def forEnd(nm, genE, ts, env, cx) = if isWord(hd(ts), "yield") then forYield(nm, genE, tl(ts), env, cx) else forDo(nm, genE, skipDoKw(ts), env, cx)
-def forYield(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (b, r) => (emitMethodCall("map", genE, Cons(forLam(erase(b, cx)), Nil), cx), r) }
-def forDo(nm, genE, ts, env, cx) = bodyExpr(ts, nm :: env, cx) match { case (b, r) => (emitMethodCall("foreach", genE, Cons(forLam(erase(b, cx)), Nil), cx), r) }
+def forFlatMap(nms, genE, ts, env, cx) = parseForFromF(ts, appEnv(nms, env), cx) match { case (rRest, r) => (emitMethodCall("flatMap", genE, Cons(forLamN(nms, rRest), Nil), cx), r) }
+def forEnd(nms, genE, ts, env, cx) = if isWord(hd(ts), "yield") then forYield(nms, genE, tl(ts), env, cx) else forDo(nms, genE, skipDoKw(ts), env, cx)
+def forYield(nms, genE, ts, env, cx) = parseExpr(ts, 0, appEnv(nms, env), cx) match { case (b, r) => (emitMethodCall("map", genE, Cons(forLamN(nms, erase(b, cx)), Nil), cx), r) }
+def forDo(nms, genE, ts, env, cx) = bodyExpr(ts, appEnv(nms, env), cx) match { case (b, r) => (emitMethodCall("foreach", genE, Cons(forLamN(nms, erase(b, cx)), Nil), cx), r) }
 def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env, cx) else parseParen(ts, env, cx)
 // An enum TYPE name in select position (`EnumName.Case` / `EnumName.values`) is a companion access, not a
 // ctor: `E.Case` (nullary) -> `(ctor Case)` (drops the qualifier, ssc1-lower :1703), `E.values` -> the
