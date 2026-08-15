@@ -122,10 +122,21 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          Char IS an Int on this lane, which would make it a widening rather than a coercion — but a
          one-character STRING is not a Char, and conflating the two is what produces `f("x") = 120`.
 
-      **4. [ ] CONVERGENCE, gated.** `tests/e2e/declared-type-agreement.sh`: the same program on
-         every lane must give ONE verdict. Whatever the contract turns out to be, agreement is
-         required by all three of the possible answers, so the gate can be written before the
-         decision and will simply encode it afterwards.
+      **4. [~] CONVERGENCE — the gate EXISTS and is green; the convergence itself is the backlog.**
+         `tests/e2e/declared-type-agreement.sh`, done 2026-08-16 as a **frozen table rather than an
+         assertion**: demanding agreement today would put a red gate in the suite on day one. It
+         freezes every lane's current verdict and fails when one changes SILENTLY; the table can only
+         shrink, and each shrink is a deliberate edit somebody reads. It prints the progress —
+         **1 row in agreement, 2 diverging** — and carries a `--self-test` that plants a wrong cell
+         and requires the gate to fail on it, so a table matching everything cannot be mistaken for a
+         table comparing nothing.
+
+         **The SHAPE of the remaining work changed, which is the point of having the table.** On
+         2026-08-15 the same three-line program got FOUR treatments and two different VALUES — `x`,
+         `x`, `120`, and a scalac rejection. The `120` is gone (`3555c8fce`), so three lanes now give
+         IDENTICAL answers and the only divergence left is **"native constrains, the interpreter, js
+         and v3 do not"**. One line of work rather than a four-way reconciliation — and blocked
+         behind the same 14 typer gaps as steps 2 and 3.
 
       **What I will not promise:** I cannot decide the contract, and I will not flip a language rule
       because a corpus number looked acceptable. What I can do is make the disagreement visible,

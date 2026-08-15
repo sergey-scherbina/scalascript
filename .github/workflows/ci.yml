@@ -1070,6 +1070,19 @@ jobs:
       - name: a declared parameter type is a constraint (12s, native lane)
         run: tests/e2e/declared-type-is-a-constraint.sh
 
+      # The same question asked of EVERY lane, as a frozen table rather than an assertion. The lanes
+      # do not agree yet — native rejects an ill-typed program, the interpreter, js and v3 accept it
+      # — so demanding agreement would put a red gate in the suite on day one. This freezes each
+      # lane's CURRENT verdict and fails when one changes silently; the table can only shrink toward
+      # agreement, and every shrink is a deliberate edit in that file.
+      #
+      # It replaced a four-way split with a single line: on 2026-08-15 the same three-line program
+      # printed x, x, 120 and was rejected by scalac. The 120 is gone (3555c8fce), so three lanes now
+      # give identical answers and the only divergence left is "native checks, the others do not".
+      # (tests/SPRINT.md TYPES MUST BE RIGHT step 4.)
+      - name: what a declared type means, per lane — frozen table (46s incl. self-test)
+        run: tests/e2e/declared-type-agreement.sh --self-test
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 
