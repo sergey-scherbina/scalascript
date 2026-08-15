@@ -1190,18 +1190,54 @@ import absolutely, and every row that needs a case class then goes red for a rea
 to do with what the gate tests. Two gates have now worked around it by creating the sandbox inside
 `examples/` (`rust-http-lane-parity-gate.sh`, `rust-route-handler-shapes-gate.sh`).
 
-## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
+## rust-any-map-read-default-not-lifted — `m.getOrElse(k, "?")` on an `Any`-valued map passes a String where the map holds a `Value`
 
 <!-- status: open
-     gate: tests/e2e/build-rust-refuses-loudly.sh
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
+     gate: none — the one-line repro below is the report
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+**Found while closing `rust-any-valued-map-literal-not-lifted`, and it is what made that
+measurement ambiguous.** With the literal now lifted correctly, the map is built as
+`HashMap<String, Value>` — and then the READ fails:
+
+```scala
+val m: Map[String, Any] = Map("k" -> "hello")
+println(m.getOrElse("k", "?"))
+```
+
+```rust
+m.get(&"k".to_string()).cloned().unwrap_or("?".to_string())
+//                                         ^^^^^^^^^^^^^^^ expected `Value`, found `String`
+```
+
+The write side of the `Any` boundary is handled at three sites (parameter, local annotation, and now
+the literal itself); the READ side is not. The default of `getOrElse` is emitted as whatever it is
+literally, so any `Any`-valued container that a program actually reads from meets this.
+
+**Why the probe mattered:** my first attempt at re-measuring the literal defect used `getOrElse` to
+observe the value, so the red I saw belonged to this defect and not to the one under test. The
+lesson is the standing one — a probe must not reach its subject through a second unfixed defect.
+
+`coerceFromValue` already has the arm this needs; it has to be applied to the default argument when
+the receiver is a `Value`-valued container.
+
+## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-any-map-literal-gate.sh
+     fixed-in: dfb796246
      found-by: claude-code
      found-at: 2026-08-14
      ssc-version: a1aea822a
-     repro: val m: Map[String, Any] = Map("k" -> "x")
+     repro: val m: Map[String, Any] = Map("a" -> "x", "b" -> 1)
      confirmed: yes -->
 
 **Found while building a probe for something else, and it is recorded separately for exactly that
@@ -1256,6 +1292,36 @@ Gate: `tests/e2e/build-rust-refuses-loudly.sh`, all three shapes, differentially
 lane — `m=1 / xs=2 / a=5` on both. Negative control: with the plain-`Any` lift suppressed — the one
 shape the report did NOT name — the gate fails, so the case discriminates each shape rather than
 passing on the loudest. rust-std-survey 78/54 BADRUST 0, unmoved; v1-jit-size PASS.
+
+**CLOSED 2026-08-15 — the HETEROGENEOUS literal was still broken, which is the half this entry
+opened with.** The lift above coerces the FINISHED value, and that works only where the literal could
+be built first. `Map("a" -> "x", "b" -> 1)` cannot: the first insert fixes the element type to
+`String` and the second is `E0308: expected String, found i64` — the message names the wrong element
+and never says `Any`, exactly as the report predicted. `List(1, "two")` at `List[Any]` fails the same
+way. Re-measured before touching anything: of the four shapes, `homo`, `listany`-homogeneous and the
+scalar `Any` already BUILT on main; only the heterogeneous ones did not.
+
+**The fix goes where the literal is BUILT**, not after it: each value passes through `Value::from` as
+its `insert` is emitted, so no element type is ever fixed. The Map renderer moved out of `renderTerm`
+into `renderMapLiteral` to be shared by both call sites rather than copied — which also makes
+`renderTerm` smaller, and it is frozen past HugeMethodLimit, so that direction is the only one
+available.
+
+**A row in the gate exists because of a mistake I made in this fix.** The first version decided
+"were the elements already lifted?" from the SHAPE of the right-hand side, which calls
+`val a: Any = List(1, 2)` lifted — a List literal at a SCALAR `Value` annotation, which takes the
+ordinary path and still needs the whole-value wrapper. Dropping it emits E0308. The flag now comes
+out of the branch that actually ran, and `scalarlist` is a gate row.
+
+Watched failing with the fix reverted and the toolchain rebuilt: the two heterogeneous rows red with
+the literal `E0308`, and the homogeneous, scalar and plainly-typed rows still GREEN — they were
+working before this change and must not move. Corpus control: `rust-std-survey-gate.sh` over 132 std
+modules unchanged at REFUSED 78 / COMPILES 54 / BADRUST 0; `v1-jit-size` PASS, none grown.
+
+**One defect found next door and filed, not folded in:** `m.getOrElse("k", "?")` on an `Any`-valued
+map emits `unwrap_or("?".to_string())` against a `HashMap<_, Value>` — the DEFAULT is not lifted. It
+is the reading side of the same boundary and it is what made my first probe ambiguous: the program
+built the map correctly and failed at the read. See `rust-any-map-read-default-not-lifted`.
 
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 
