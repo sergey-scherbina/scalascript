@@ -1,0 +1,11 @@
+slug: js-char-code-coercion-at-declared-int
+branch: feature/js-char-code-coercion-at-declared-int
+agent: claude-code
+started: 2026-08-15T21:06:20Z
+heartbeat: 2026-08-15T21:06:20Z
+status: claimed-before-planning
+items: js-coerces-a-one-char-string-to-its-code-point-at-a-declared-int
+paths: file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
