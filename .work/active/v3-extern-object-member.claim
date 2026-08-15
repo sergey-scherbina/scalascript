@@ -2,10 +2,10 @@ slug: v3-extern-object-member
 branch: feature/v3-extern-object-member
 agent: claude-code
 started: 2026-08-15T20:35:22Z
-heartbeat: 2026-08-15T20:38:49Z
+heartbeat: 2026-08-15T20:50:00Z
 status: in-progress
 items: v3-extern-member-in-an-object-has-no-meaning
-paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md file:v3/tests/front/extern-object-member.ssc
+paths: file:v3/src/Parser.scala file:v3/src/Lower.scala file:v3/uniml/UniFront.scala file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md file:v3/tests/front/extern-object-member.ssc file:v3/prelude/index.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: mirror the top-level extern rule into object members on both fronts, then Lower
+next: correct the two stale comments, then gates and push
