@@ -1,3 +1,80 @@
+## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none — open defect -->
+
+**Filed, not fixed, deliberately.** The obvious fix is already half-written in the file and it
+produces silent wrong answers. This entry exists mainly to say so before somebody ships it.
+
+`summon[TC[A]]` inside a context-bound def is unresolved on F:
+
+```scalascript
+trait M[A]:
+  def empty: A
+given intM: M[Int] with
+  def empty: Int = 0
+def total[A: M](xs: List[A]): A = summon[M[A]].empty
+def main(): Unit = println(total(List(1, 2)))
+```
+
+```
+F     ssc: unbound global: (global summon)
+ref   0
+```
+
+A CONCRETE type argument already works — `summon[M[Int]].empty` is fine since `29eb7dec4`. What
+fails is the abstract one, where `parseSummon`'s `findGivenF` cannot match `A` and `summonEmit`
+falls through to the bare `(global summon)`.
+
+**Five files**: `std/semigroup-monoid.ssc`, `std/index.ssc`, `tests/conformance/std-index.ssc`,
+`std-semigroup-monoid.ssc`, `tagless-context-bounds.ssc`. Three of them arrived here TODAY, each
+after its first cause was cleared — the bucket grows as others shrink, which is the census's
+short-circuit warning working as designed.
+
+### Why the obvious fix is wrong, measured
+
+`findAnyGivenF` already exists in `specs/v2.2-p6.5-fsub.ssc` and is already used by
+`usingGivenFor` for `using`-parameter injection. Making `summonEmit`'s `None` branch fall back to it
+is a one-line change, and it mirrors what the reference front's `computeActiveCtx` appears to do
+(`findGiven(tab, tc, "*")`, else `findAnyGiven`). **It is still wrong**, because the resolution is
+not static:
+
+```scalascript
+given intM: M[Int] with    def empty: Int = 0
+given strM: M[String] with def empty: String = "x"
+def z[A: M](xs: List[A]): A = summon[M[A]].empty
+z(List("a", "b"))   ->  x
+z(List(1, 2))       ->  0
+```
+
+Reference front AND v1 interpreter both answer in CALL ORDER — `x` then `0` — from a single
+definition of `z`. A static pick would answer the same value twice. So `summon` in an abstract
+context is resolved per call, and the one-liner would turn a clean decline into a silent wrong
+answer on any program with two instances of one typeclass. `std/semigroup-monoid.ssc`, the heaviest
+file in this bucket, declares THREE `Monoid` instances.
+
+**A sound partial exists and is not worth taking**: resolving statically only when the table holds
+exactly ONE given for that TC is unambiguous and would fix `tagless-context-bounds.ssc`. It fixes at
+most one of the five, and adds a special case the real fix deletes.
+
+### What the real fix looks like
+
+The reference lowers `summon[TC].m` to `(app (var <gname>_m) args)` via `lookupActiveCtx` — static —
+yet behaves dynamically, so the dispatch is happening through the value it builds for a given set:
+`summon[TC]` in VALUE position lowers to `IrGlobal("__summon_value_" ++ tc)` (`ssc1-lower.ssc0`).
+That is a runtime dispatcher over the instances, and F already has the analogous machinery for
+extension methods (`emitOneExtDispatcher`, the `extdisp` node). The work is to build the same
+dispatcher for given instances and route the abstract-`summon` case through it.
+
+**Not verified**: I have not read how `__summon_value_TC` is constructed, only established from
+three lanes that the behaviour is per-call. Whoever takes this should start there, and should keep
+the two-instance probe above as the acceptance test — it is the one that fails for the tempting fix.
+
 ## f-front-exit-code-replaces-the-real-diagnostic — and the defect it hid
 
 <!-- status: fixed
