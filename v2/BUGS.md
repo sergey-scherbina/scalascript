@@ -2090,6 +2090,79 @@ outward — was run on one front. On the reference front the same line is unboun
 parameterful form recurses forever. The correction is a top-level indirection, and the conclusion
 "one definition, two names, no copy" survived it unchanged.
 
+## a-declared-parameter-type-means-four-different-things-on-four-lanes
+
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/declared-type-agreement.sh -->
+
+**Measured 2026-08-15, one program, freshly built toolchain:**
+
+```scalascript
+def f(a: Int): Int = a
+println(f("x"))
+```
+
+| lane | what it does with the declared `Int` | prints |
+|---|---|---|
+| native (`bin/ssc run`) | **drops it at parse** | `x` |
+| interpreter (`--v1`) | drops it | `x` |
+| js (`run-js`) | **reads it and emits a COERCION** | **`120`** |
+| jvm (`run-jvm`) | hands it to scalac | **`[E007] Type Mismatch Error`** |
+
+**Four lanes, four treatments, and two of them silently produce different VALUES for the same
+source.** That is the finding; whether an unchecked annotation is acceptable is a contract question,
+but three answers to one program is not.
+
+**On native the mechanism is exact and is not "the checker is lenient" — the checker never sees the
+annotation.** `parseParam` in `v2/lib/ssc1-front.ssc0` reads the name and then calls
+`skipTypeAnnot`, so the AST carries the parameter NAME only. `ssc1inferLam` in
+`v2/lib/ssc1-check.ssc0` then gives every parameter a **fresh type variable**:
+
+```
+let n = ssc1chkFresh(0) in
+let env2 = Cons(Pair(p, Forall(Nil, TyVar(n))), env) in
+```
+
+Nothing constrains that variable except USE. So the checker is a pure Algorithm-W inference over the
+body, and a declaration is caught only when the body happens to pin it:
+
+    def f(a: Int): Int = a       ; f("x")   ->  x            annotation inert
+    def h(a: Int): Int = a + 1   ; h("x")   ->  TYPEERR: cannot unify Int: Int vs String
+
+The second is not the annotation being honoured — `a + 1` forces `Int` on its own, and the identical
+error appears without the annotation.
+
+**Return types and `val` types are inert the same way**, so this is not specific to parameters:
+
+    def g(a: Int): String = a    ; g(1)     ->  1
+    val x: Int = "s"             ; println(x)  ->  s
+
+**On js the annotation is read, but as a COERCION rather than a check** — the emitted code is the
+evidence, not an inference:
+
+```js
+function f(a) { a = _charCodeOrNull(a) ?? a; return a; }
+```
+
+`_charCodeOrNull` returns the code point of a ONE-CHARACTER string and null otherwise, so
+`f("x")` → 120, `f("y")` → 121, and `f("ab")` → `"ab"` because two characters fall through the `??`.
+That is the `v2-char-is-an-int` representation (`specs/v2-char-is-an-int.md`) reaching a parameter
+that was declared `Int` and given a String.
+
+**What has to be decided before this can be fixed, and it is not an agent's call.** A declared
+parameter type is currently (a) documentation, (b) a coercion hint, or (c) a constraint, depending on
+where the program runs. Any one of the three is defensible; having all three is what produces three
+answers. The cheap half is separable and does not need the decision: **whatever the rule is, the four
+lanes must agree**, and today they do not.
+
+**Done when** `tests/e2e/declared-type-agreement.sh` (to be written) runs this program on all four
+lanes and requires one verdict — all reject, or all accept with the same value. It should carry the
+`val` and return-type rows above too, since they are the same question asked in two other places.
+
 ## collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native
 
 <!-- status: open
