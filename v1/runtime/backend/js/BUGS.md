@@ -1865,9 +1865,17 @@ drove an `if`. A gate keying on exit status sees success.
      confirmed: yes
      gate: tests/conformance/native-import-in-fence.ssc -->
 
-**FIXED — all four lanes now load an in-fence import.** `tests/conformance/native-import-in-fence.ssc`
-prints `25 / 27 / 720` on int, js and jvm, so its `known-red: js,jvm` is gone along with the
-baseline row and the paired digest.
+**THE EMIT PATH IS FIXED ON ALL FOUR LANES; `run-js` IS NOT, AND THAT IS WHY THIS IS STILL OPEN.**
+`tests/conformance/native-import-in-fence.ssc` prints `25 / 27 / 720` on int, js, jvm and v2 —
+verified again on a clean build 2026-08-16, when the suite reported the `known-red: js` as STALE and
+it was deleted. But this suite's js lane is `--emit-js` (`run.sc:624`), and `f770dad20` measured the
+split that matters: `emit-js | node` prints the right answer while `run-js` dies with
+`ReferenceError` on the same file, same launcher, same build. A green here is a statement about one
+command.
+
+This paragraph used to open "FIXED — all four lanes now load an in-fence import ... its
+`known-red: js,jvm` is gone", while the header said `status: open` and the declaration was still in
+the case's front-matter. Two of those three were wrong, and a reader had no way to tell which.
 
 **The scan already existed; nobody called it.** `Parser.inlineImports` recovers the in-fence form —
 commonmark reads a `[names](path.ssc)` line inside a fence as literal text, never a link, so it never
@@ -1894,9 +1902,15 @@ the alias block, in both cases in the position a link above the fence would have
   reason for having two.
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while fixing the native half,
-`v2-native-front-in-fence-imports-not-followed`). Declared `known-red: js,jvm` on
-`tests/conformance/native-import-in-fence.ssc`, so both lanes still RUN, still diff, and the
-declaration expires by itself the day they start passing.
+`v2-native-front-in-fence-imports-not-followed`). The `known-red` declarations are GONE — jvm's
+earlier, js's on 2026-08-16 — because the declaration expires by itself the day a lane starts
+passing, and this suite told us so rather than being asked. What keeps the entry open is `run-js`,
+which no lane of that case exercises.
+
+**What would close it:** a `run-js` invocation of this same file printing `25 / 27 / 720`. The
+diagnosis to start from is `f770dad20`'s, not this entry's earlier one — it names
+`AutoResolve.scala:211` / `Main.scala:1557`, which were inferred from a grep and never shown to be
+on `run-js`'s path.
 
 **Symptom.** The Markdown link form `[names](path.ssc)` is an import wherever it stands. Move it
 inside the ` ```scalascript ` fence and only the v1 interpreter still loads the module:

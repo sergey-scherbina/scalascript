@@ -2,10 +2,19 @@
 name: native-import-in-fence
 description: A module import link written INSIDE a code fence must load the module on every lane
 backends: [int, js, jvm, v2]
-known-red: "js — the CLI's own import discovery still collects only `Content.Import`, so an in-fence link is not followed into the module graph; JsGen's three sites were fixed by 0796774ad and the CLI's were not. Remove when BUGS.md js-jvm-codegen-in-fence-imports-not-followed is fixed"
 ---
 
 # Import link inside a code fence
+
+**The `known-red: js` declaration was deleted 2026-08-16, on this suite's own instruction** — it
+printed `STALE known-red: this lane now PASSES`, which is the freeze doing what it is for. Measured
+on a clean build: int, js, jvm and v2 all pass.
+
+**It does NOT mean `js-jvm-codegen-in-fence-imports-not-followed` is fixed, and the distinction is
+the command.** This suite's js lane is `--emit-js` (`run.sc:624`), and `f770dad20` measured that
+`emit-js | node` works while `run-js` still dies on the same file — same launcher, same build. So
+the entry stays open for the half this case cannot see, and a reader who takes this green as the
+whole answer will look in the wrong place.
 
 `BUGS.md` `v2-native-front-in-fence-imports-not-followed`. The Markdown link form
 `[names](path.ssc)` is an import wherever it stands — the same statement above the
