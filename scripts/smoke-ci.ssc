@@ -390,7 +390,7 @@ val suite = List(
   //
   // They still PRINT here, as `skip`, every run: an optional check and a deleted one must never
   // look the same in a log (see the OPTIONAL block above). `SSC_SMOKE_OPTIONAL=1` runs them locally.
-  Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 300000, optional = true),
+  Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 600000, optional = true),  // ceiling raised 2026-08-15: costs 81.0s, was 3.7x (smoke-guard-headroom named it)
   // The `list-concat-chain` disease one dispatch over, and found the same way — by somebody
   // checking something else. A bare `recv.name` on a BUILTIN receiver has no nullary dispatch, so
   // it becomes the eta-expansion function value; that fallback cannot tell a genuine method
@@ -411,13 +411,13 @@ val suite = List(
   // match evaluate to a lambda — F printed `<closure>` where both other lanes print the value.
   // Fourteen rows, both fronts; three of them exist only to reach the second resolver, which a
   // sealed-trait scrutinee never does.
-  Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000, optional = true),
+  Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 600000, optional = true),  // ceiling raised 2026-08-15: costs 98.0s, was 3.1x — the tightest in the suite
   // Fourth of the family, and the one the CENSUS found rather than a person: `case h :: Nil` in the
   // ordered resolver, which had no cons rule, so the arm became a catch-all VAR bound to the whole
   // scrutinee — `one:List(4, 5)` where the reference says `other`. Wrong value AND wrong arm, on
   // nine tests/conformance/scljet-* files. Eleven rows; eight reach the ordered resolver because
   // their `Nil` tail is what routes them there, three reach the ctor path as controls.
-  Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 300000, optional = true),
+  Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 600000, optional = true),  // ceiling raised 2026-08-15: costs 80.9s, was 3.7x
   // Fifth of the family, and the only one where F's COMPILER died rather than F declining:
   // `given … with` registered into objReg with the OLD payload shape (a bare member list) after that
   // payload was widened to a (members, vars) pair for plain objects, so the reader's `fst` hit a
