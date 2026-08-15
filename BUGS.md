@@ -1367,11 +1367,12 @@ correct on both; only the presentation differs.
 
 ## rust-any-map-read-default-not-lifted — `m.getOrElse(k, "?")` on an `Any`-valued map passes a String where the map holds a `Value`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the one-line repro below is the report
+     gate: tests/e2e/rust-any-map-literal-gate.sh
+     fixed-in: d407a264d
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes -->
@@ -1400,6 +1401,27 @@ lesson is the standing one — a probe must not reach its subject through a seco
 
 `coerceFromValue` already has the arm this needs; it has to be applied to the default argument when
 the receiver is a `Value`-valued container.
+
+**FIXED 2026-08-16.** The default is emitted as `$d.into()` rather than as itself:
+
+```rust
+m.get(&k).cloned().unwrap_or(d.into())
+```
+
+**Total rather than type-directed, and that is the choice worth recording.** Knowing whether THIS
+map holds `Value` would need the receiver's type at the call site, which this walker does not carry
+— and threading it in means a new `Ctx` field, paid for at every copy site whether it is read or
+not. `.into()` needs no such knowledge: the target type is already fixed by the `Option` that `get`
+produced, and std's blanket `impl<T> From<T> for T` makes it the IDENTITY when the two types
+already agree. So a `Map[String, String]` and a `Map[String, Int]` emit the same behaviour they did
+before, which is what the two control rows in the gate assert.
+
+Rows added to `tests/e2e/rust-any-map-literal-gate.sh` — the write side of this boundary was already
+there, and the read side belongs beside it. Each reads TWICE, once with a present key and once with
+an absent one: only the absent key takes the default, which is the path that was broken. Watched
+failing with the fix reverted and the toolchain rebuilt: `anyread` red with the literal `E0308`,
+`plainread` and `intread` still green. Corpus control unchanged at REFUSED 78 / COMPILES 54 /
+BADRUST 0; `v1-jit-size` PASS, none grown.
 
 ## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
 
