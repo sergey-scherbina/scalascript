@@ -1,3 +1,75 @@
+## ci-gates-wired-into-jobs-that-cannot-run-them — 19 gates with no launcher, 28 steps behind a timeout
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: .github/workflows/ci.yml
+     fixed-in: ef6c81bfa -->
+
+**Two jobs in `ci.yml`, one shape: a gate wired where it cannot possibly run.** Both were invisible
+because neither failed in a way that says so.
+
+### 1. `validate` had no toolchain, and 19 of its 31 gate invocations need one
+
+Visible only after `07d770988` made the job stop hiding its own steps. The first full run reported
+18 failures, most of them the same sentence:
+
+```text
+http-bind-address-gate:      no launcher at …/bin/ssc-tools — run ./install.sh --dev
+rust-toint-parity-gate:      no launcher at …
+build-smoke.sh: line 30:     …/bin/ssc-tools: No such file or directory
+conformance-lanes-flag.sh:   bin/ssc or bin/ssc-tools not found. Build them first
+```
+
+The job had `Checkout` and `Setup Scala CLI` and nothing else. **Those gates could never have passed
+there**, on any commit, since the day each was added.
+
+**Fixed** by giving the job what its gates need — Java 21, sbt, the Coursier and zinc caches, and
+`bash install.sh --dev` — rather than moving the gates out, because the other job with a launcher
+(`conformance-extras`) was itself timing out and had no room to take them.
+
+**Verified with a launcher present, all 32 gate steps run individually: 31 pass, 1 fails** — and the
+one failure is `area-map-gate` (board-ownership drift), which is a content backlog and not a
+hosting problem. Elapsed 851 s; with the ~246 s build that is ~18.3 min against the new 25-minute
+budget.
+
+### 2. `conformance-extras` was CANCELLED on every run, and one step was eating the job
+
+```text
+started 03:42:14  ended 04:02:45     (20m31s)
+started 01:03:07  ended 01:23:37     (20m30s)
+started 16:24:27  ended 16:44:53     (20m26s)
+```
+
+`timeout-minutes: 20`, firing every time. **A GH job timeout surfaces as `cancelled`, not
+`failure`** — so it read as an infrastructure hiccup rather than as *47 steps, 18 completed, 28
+skipped*. Per-step timings name the cause exactly:
+
+```text
+737s  step 14  Every wired gate can fail (stub-launcher evidence audit)
+246s  step 10  Build ssc launcher (sbt-assembly)
+117s  step 12  Integer-literal fail-open regression
+ 59s  step 13  Scala-fence width parity
+```
+
+The audit is expensive BY DESIGN — it re-verifies every blind candidate ALONE against a stub
+launcher, which is what makes its verdict reproducible. **Moved to its own `gate-evidence-audit`
+job** with its own budget; jobs run in parallel, so this costs no wall-clock.
+
+**AND REMOVING IT WAS NOT ENOUGH, which is the part worth keeping.** The 18 steps that did run cost
+~491 s, and this job's own header documents ~11 further minutes for the 17 orphan gates it was
+skipping. 491 + 660 + 246 lands ON the old 20-minute line — a job "fixed" by deleting one step goes
+straight back to `cancelled`. Budget raised to 30 with that arithmetic written into the file, not a
+round number.
+
+**The generalisable half:** both instances are a gate wired into a job that cannot run it, and in
+both the failure mode disguised itself — one behind a fail-fast red, the other behind `cancelled`.
+Neither is discoverable by reading the workflow; both are obvious the moment the steps actually run.
+
 ## f-gap-tail-2026-08-15 — the crash is fixed; three narrowed defects behind it
 
 <!-- status: open
