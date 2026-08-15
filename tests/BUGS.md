@@ -1,3 +1,48 @@
+## v2-swift-cli-fails-silently-without-a-swift-toolchain — and my own fix put a live backtick in it
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: tests/e2e/v2-swift-cli.sh
+     fixed-in: PENDING -->
+
+**`v2-swift-cli.sh` compiles and runs Swift, and it was wired into a Linux job.** GitHub's ubuntu
+images ship no Swift, so `run-swift` died under `set -euo pipefail` with its output redirected to a
+temp file. The step printed `KNOWN GAP …` as its last word and exited 1 with **nothing attributable
+to it** — while the two gates sharing that step reported `15 ok, 0 FAIL` and `all checks passed`.
+
+Third instance today of one shape: **a gate wired where it cannot run, failing in a way that does
+not say so.** The other two were `validate` having no toolchain for 19 gates, and
+`board-ownership-check` needing history a depth-1 checkout does not have.
+
+**Fixed** with a toolchain guard that SKIPS loudly — the same shape the rust gates use for `cargo` —
+and by keeping `run-swift`'s stderr so a genuine failure on a Swift host prints its reason instead of
+an exit code. The guard names its binary (`SSC_SWIFT`, default `swift`) so the branch can be
+exercised; both were observed: with `SSC_SWIFT=/definitely/not/a/toolchain` it prints
+
+```text
+  [skip] v2-swift-cli: no swift on PATH — the emit checks above ran, the build/run checks
+         below need a Swift toolchain. NOT a pass: this host cannot test them.
+```
+
+**AND I PUT A LIVE COMMAND SUBSTITUTION IN THAT SKIP MESSAGE.** The first draft read
+``no `swift` on PATH`` inside a double-quoted `echo` — backticks, so on a host WITH swift it would
+have RUN the compiler to build its own error message. Caught by grepping the line I had just written,
+before it was committed.
+
+**That is the ninth occurrence of this class here, by me, hours after fixing the eighth** in
+`.githooks/pre-push` and landing `tests/e2e/no-live-backticks-in-heredocs.sh` for it. **The ratchet
+does not cover this case**: it checks heredoc bodies, and this was a double-quoted string. That gap
+is real and is not closed by widening the rule, because `` `cmd` `` inside a double-quoted string is
+legitimate substitution most of the time — a checker cannot tell intent apart from a message. What
+the ninth occurrence actually shows is that the *typing habit* is the failure point, and the only
+reliable answer found so far is the one already in use for durable text: write it somewhere that
+cannot expand, then pass it as data.
+
 ## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
 
 <!-- status: open

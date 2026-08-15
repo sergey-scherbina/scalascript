@@ -13,6 +13,27 @@ if [[ ! -x "$SSC" ]]; then
   exit 1
 fi
 
+# A SWIFT TOOLCHAIN IS REQUIRED BELOW, and without it this gate failed SILENTLY.
+#
+# `run-swift` and `run --target macos` compile and execute Swift. GitHub's ubuntu images ship no
+# Swift, so on CI those lines died under `set -e` with their output redirected to a temp file —
+# the step exited 1 having printed `KNOWN GAP …` as its last word and no reason at all. Measured on
+# the 2026-08-15 dispatch: the two gates sharing that step reported `15 ok, 0 FAIL` and
+# `all checks passed`, then the step failed with nothing attributable to it.
+#
+# SKIP LOUDLY rather than fail opaquely, the same shape the rust gates use for `cargo`. This is not
+# a pass: the emit half above is pure codegen and runs anywhere, but everything past this point
+# needs a compiler this host does not have, and saying so is the only honest verdict available.
+# Named rather than hardcoded so the skip branch can be OBSERVED (SSC_SWIFT=/nonexistent) and so a
+# host with a side-installed toolchain can point at it. A branch that cannot be exercised is
+# indistinguishable from one that does not work.
+SWIFT_BIN="${SSC_SWIFT:-swift}"
+if ! command -v "$SWIFT_BIN" >/dev/null 2>&1; then
+  echo "  [skip] v2-swift-cli: no swift on PATH — the emit checks above ran, the build/run checks"
+  echo "         below need a Swift toolchain. NOT a pass: this host cannot test them."
+  exit 0
+fi
+
 "$SSC" emit-swift --target ios -o "$TMP/ios" "$FIXTURE" >/dev/null
 grep -Fq 'platforms: [.iOS(.v16)]' "$TMP/ios/Package.swift"
 test -f "$TMP/ios/Sources/AppCore/GeneratedProgram.swift"
@@ -49,7 +70,12 @@ else
   echo "  KNOWN GAP  UI target — swift-macos-build-broken-by-forJsonView (declared, not counted)"
 fi
 
-"$SSC" run-swift "$FIXTURE" >"$TMP/run-swift.out"
+# stderr kept: a failure here used to leave nothing but `set -e` and an exit code.
+if ! "$SSC" run-swift "$FIXTURE" >"$TMP/run-swift.out" 2>"$TMP/run-swift.err"; then
+  echo "v2-swift-cli: run-swift FAILED — last 15 lines of its stderr:" >&2
+  tail -15 "$TMP/run-swift.err" | sed 's/^/  | /' >&2
+  exit 1
+fi
 diff -u "$EXPECTED" "$TMP/run-swift.out"
 "$SSC" run --target macos "$FIXTURE" --v2 >"$TMP/run-target.out"
 diff -u "$EXPECTED" "$TMP/run-target.out"
