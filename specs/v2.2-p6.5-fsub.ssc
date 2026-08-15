@@ -1530,8 +1530,21 @@ def phArgWrap(sc, ts, env, cx) = sc match { case (c0, rest) => rest match { case
   else parseExpr(ts, 0, env, cx) } }
 // The argument is `name(` … and every `_` in it is at depth exactly 1, i.e. a direct argument of
 // that call rather than nested deeper inside another one.
-def isSimpleAppPh(ts, ct) = if isAppHeadPh(ts) then phDepth1Count(tl(tl(ts)), 1, 0) == ct else false
-def isAppHeadPh(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 21) else false
+// A leading prefix `!` hides the call head from this test, so `filter(!composite(_))` fell through
+// while `filter(composite(_))` was wrapped. Scala scopes a placeholder to the smallest enclosing
+// EXPRESSION, and for `!isC(_)` as an argument that expression is the whole argument — the reference
+// front answers `x => !isC(x)`, which is what wrapping the argument produces. Only the TEST skips the
+// prefix; wrapPh still gets the original tokens, so the `!` stays inside the lambda where it belongs.
+def phSkipPrefix(ts) = if isTok(hd(ts), 2, 59) then tl(ts) else ts
+def isSimpleAppPh(ts, ct) = isSimpleAppPh1(phSkipPrefix(ts), ct)
+def isSimpleAppPh1(ts, ct) = if isAppHeadPh(ts) then phDepth1Count(tl(tl(ts)), 1, 0) == ct else false
+// The call head may be a CONSTRUCTOR as well as a def. This tested kind 1 — a lowercase identifier
+// — so `Some(_)` and `P(_, 9)` never reached the wrapper and their `_` fell through as a bare name,
+// while the identical `g(_)` and `g(_, 10)` were wrapped correctly. Two corpus files:
+// `tests/conformance/dsl-multi-pass.ssc` (`env.get(name).map(Right(_))`) and
+// `examples/wasm-primes.ssc` (`filter(!composite(_))`).
+def isAppNameTok(t) = if fst(t) == 1 then true else fst(t) == 3
+def isAppHeadPh(ts) = if isAppNameTok(hd(ts)) then isTok(hd(tl(ts)), 2, 21) else false
 // Walks to the call's own closing paren — depth back to 0 — NOT to the first comma. Stopping at a
 // comma counted only the FIRST argument, so `sub(100, _)` saw zero placeholders and fell through.
 def phDepth1Count(ts, depth, n) = if isEmpty(ts) then n else (if depth == 0 then n else phD1Tok(hd(ts), tl(ts), depth, n))

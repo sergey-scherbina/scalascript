@@ -432,6 +432,12 @@ val suite = List(
   // trait. Seven rows; three are the separators that already worked, because the fix extends a
   // recursion and getting that wrong breaks them.
   Check("v2", "f-foldable-grade", "tests/e2e/f-foldable-grade-gate.sh", List(), 300000),
+  // A placeholder in a CONSTRUCTOR application: the wrapper tested the call head for a lowercase
+  // identifier, so `Some(_)` never reached it while `g(_)` did. Eight rows, and
+  // `nested-call-scopes-inner` is the one that matters — Scala scopes a placeholder to the SMALLEST
+  // enclosing expression, so a widening that wrapped the outer call would still compile and answer
+  // differently.
+  Check("v2", "f-placeholder-ctor", "tests/e2e/f-placeholder-ctor-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
