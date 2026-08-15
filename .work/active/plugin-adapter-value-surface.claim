@@ -3,9 +3,31 @@ branch: feature/plugin-adapter-value-surface
 agent: claude-code
 started: 2026-08-15T19:03:33Z
 heartbeat: 2026-08-15T19:03:33Z
-status: claimed-before-planning
+status: working
 items: plugin-adapter-value-surface v3-plugin-fleet-regresses-four-cases-when-enabled
 paths: file:v3/plugins file:v3/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Finish `V2Fleet`'s value conversion. The plugin path landed in f30d11f05 and works — `mkdirs`
+  answers on both lanes — but the fleet is OPT-IN because enabling it takes DIFF from 3 to 7, and
+  one of those four is diagnosed as this: the adapter converts scalars, bytes and constructors and
+  nothing else.
+
+  MEASURED, ONE PROBE AT A TIME, WHICH IS HOW THE GAP WAS FOUND: `std-process-import` failed with
+  `a host function was passed VData` (fixed in f30d11f05, both directions — v3 numbers a constructor
+  and v2 names it), and now fails with `a host function was passed VMap`. The refusal is my own and
+  it is doing its job: it names the shape rather than passing something wrong through.
+
+  THREE SHAPES REMAIN AND ALL THREE ARE MECHANICAL, checked against v2 before claiming:
+      VMap  <-> MapV      `MapV.from(entries)` / `.entries` (a VectorMap, insertion-ordered)
+      VSet  <-> SetV      `SetV.from(elems)`   / `.elems`   (a LinkedHashSet)
+      VArr  <-> ForeignV  v2 has no array case: `arr.new` answers
+                          `ForeignV(ArrayBuffer[Value])`, so the handle is what crosses
+
+  A CLOSURE STILL CANNOT CROSS, and that is not this claim's to fix: v3's `VClos` is a function
+  index with captures and v2's `ClosV` is an env and code. A plugin taking a callback needs a
+  different mechanism than value conversion, and the refusal must keep naming it.
+
+  MEASUREMENT: with the fleet ENABLED, DIFF must fall — `std-process-import` is the case this
+  unblocks. The floor is still 3 and the fleet still does not go on by default until it is met; the
+  other three DIFFs are NOT diagnosed and are not claimed here.
+next: convert the three shapes, re-measure with the fleet on, report the new DIFF
