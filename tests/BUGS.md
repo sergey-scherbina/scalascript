@@ -1,3 +1,78 @@
+## f-curried-clause-param-lost-in-std-agent — `(global handler)`, and it is not what it looks like
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none — open defect -->
+
+**8 corpus files**, second-largest bucket in `f-gap-census-refresh` once effects landed:
+`std/agent.ssc`, `std/agent-mcp.ssc` and the six `examples/rozum-agent*` / `agent-mcp*` that import
+them. Every one reports `unbound global: (global handler)` — a name that is plainly a PARAMETER in
+the source.
+
+**I first mis-grouped this as part of the effects feature**, purely because `handler` reads like one.
+It is an ordinary parameter name. Effects was 11 files, not 19.
+
+### The reduction, at a fixpoint — 637 lines to 57
+
+Reduced BY DECLARATION with well-formedness inside the predicate: a candidate survives only if the
+REFERENCE front still RUNS it (rc 0) **and** F still reports `(global handler)`. Without the first
+half the reducer simply deletes `handler`'s own declaration and declares victory. It ran against a
+COPY at the repo root — verified to keep both properties — so `std/agent.ssc` was never swapped in
+and out, and an interrupted run leaves nothing behind.
+
+The 57-line fixpoint, code only (frontmatter and `exports:` retained, prose dropped):
+
+```scalascript
+[httpPost, httpPostStream, Response](std/http.ssc)
+[JsonValue, jsonValue, jStr, jNum, jBool, jField, jObj, jArr](std/json.ssc)
+
+case class AgentTool(
+  name: String,
+  description: String,
+  parametersJson: String,
+  handler: String => ToolResult
+)
+
+def agentTool(name: String, description: String, parametersJson: String)
+             (handler: String => ToolResult): AgentTool =
+  AgentTool(name, description, parametersJson, handler)
+
+def toolResultMessage(callId: String, result: ToolResult): String =
+  jObj(List(
+    jField("role", jStr("tool")),
+    jField("tool_call_id", jStr(callId)),
+    jField("content", jStr(result.contentJson))
+  ))
+```
+
+Every remaining declaration is load-bearing: removing any one flips the verdict.
+
+### Refuted, so nobody re-walks it
+
+**`package:` is NOT involved.** Deleting `package: std.agent` from the reduction leaves the verdict
+unchanged — still `GAP (global handler)`. That is worth stating loudly because the same field WAS
+the standing explanation for `f-package-namespace-breaks-on-an-object-with-extends`, where it also
+turned out to be a correlate rather than a cause.
+
+**Synthetic reconstruction fails to reproduce it.** Three built-up probes are all GREEN on F: a
+curried second-clause parameter used in the body; the same captured inside a trailing-brace lambda
+passed to another curried def; and the same with a generic `[A]` on the outer def. So the shape is
+narrower than "curried clause parameter", and building UP from synthetics does not find it —
+reduce DOWN from the file, which is what produced the fixpoint above.
+
+### Where to start
+
+Note what survived: a `case class` whose FIELD is named `handler` and typed `String => ToolResult`,
+AND a curried def whose second-clause parameter has the same name and type, AND a third def that
+uses neither. `ToolResult` itself is not declared in the reduction — the reference erases types, so
+it still runs. Whether the collision between the field name and the parameter name matters is the
+first thing to test, and it is a guess: the obvious suspect in this front has been wrong on three
+consecutive days.
+
 ## f-effect-declarations-and-handlers-unsupported — FIXED, and it was a translation
 
 <!-- status: fixed
