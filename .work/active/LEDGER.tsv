@@ -1,4 +1,4 @@
-# generation: 2283
+# generation: 2284
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -8,5 +8,4 @@ declared-return-and-val-types	claude-code	2026-08-15T17:35:27Z	declared-return-a
 f-placeholder-ctor	claude-code	2026-08-15T17:46:14Z	f-placeholder-in-constructor-application	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-placeholder-ctor-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 rust-given-member-double-emission	claude-code	2026-08-15T18:26:01Z	rust-given-instance-members-emit-twice-and-read-as-overloading	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
 uniml-paren-param-type	claude-code	2026-08-15T18:42:47Z	v3-uniml-drops-a-parenthesised-parameter-type	file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md
-swift-gate-needs-a-toolchain	claude-code	2026-08-15T18:43:30Z	v2-swift-cli-fails-silently-without-a-swift-toolchain	file:tests/e2e/v2-swift-cli.sh file:tests/BUGS.md
 sbt-shard-slash-syntax	claude-code	2026-08-15T18:54:28Z	sbt-test-shard-enumeration-produces-zero-suites	file:scripts/sbt-test-shard file:tests/e2e/sbt-test-shard-gate.sh file:scripts/BUGS.md
