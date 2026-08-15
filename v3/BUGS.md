@@ -6,6 +6,115 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-parser-rejects-opaque-type — `opaque` fell through to the expression parser, and the tool could not read its own standard library
+
+<!-- status: fixed
+     fixed-in: 28c34951e
+     lane: v3
+     area: front
+     gate: v3/front-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`opaque type X = Y` was refused; `type X = Y` beside it was accepted and erased.** The two
+spellings mean the same thing at this tier, and only one parsed.
+
+    ssc3: std/ui/primitives.ssc:74:26: expected an expression, found =
+
+Column 26 is the `=` of `opaque type Signal[T] = Any`. `opaque` is not in `keywords`, so it fell
+through to the expression parser, became a top-level statement reading a name, and the file died on
+the `=` that followed — **the fourth occurrence of one pattern**, after `type`, `sealed` and
+`extern`, each recorded in the comment block at that branch in `v3/src/Parser.scala`.
+
+**Where it was found is the part worth keeping.** Not by a corpus sweep — by trying to use `ssc3 ir`
+as a DIAGNOSTIC on an unrelated bug (`f-placeholder-u0-reduced-but-not-solved`). The tool could not
+read the file it was pointed at, so the instrument was unavailable exactly when it was wanted. Seven
+occurrences in four shipped modules were blocked behind it: `std/uuid.ssc`, `std/json.ssc`,
+`std/graphql.ssc` (two), `std/ui/primitives.ssc` (three).
+
+**This was two fronts disagreeing, not a feature gap.** F already ships the decision:
+`specs/v2.2-p6.5-fsub.ssc:2301`, whose `isTypeHead` accepts `type` and `opaque type` alike and emits
+nothing for either — "alias — erased, emits nothing". v3's own parser accepted one spelling and
+refused the other.
+
+**Fix.** One branch beside the existing `type` alias branch, testing the WHOLE shape before
+consuming anything — `opaque`, then `type`, then an alias that reaches its `=` — for the reason the
+neighbouring comment already gives: a branch keyed on the word alone would consume nothing on a real
+use of the name and the top-level loop would spin. That guard is not theoretical: `std/bench.ssc:26`
+declares `extern def Bench.opaque[A](x: A): A`, called from `bench/corpus/streams-pipeline.ssc` and
+`bench/corpus/typeclass-monoid.ssc`.
+
+Erasure only — `opaque` asks a type checker to hide the right-hand side outside the defining scope,
+and Tier 0 keeps no types at run time and has no checker, so the modifier has nothing to change.
+Recorded as a row in `v3/specs/20-core-language.md` beside `generics`, so the tier's answer is
+written down rather than inferred from the parser not objecting.
+
+**Gate: `v3/front-gate.sh`, fixture `v3/tests/front/opaque-type.ssc`.** It covers both shapes the
+corpus uses — a plain opaque alias and one with a type parameter — and, deliberately, a `def` named
+`opaque` that is called, so a future branch keyed on the bare word fails here rather than in a
+benchmark. DISCRIMINATION MEASURED, not assumed: with `v3/src/Parser.scala` reverted the fixture
+fails at `opaque-type.ssc:10:18: expected an expression, found =`, the same shape as the original;
+with the fix it prints `abc/41/5/8`.
+
+**Payoff, measured.** `v3/ssc3 ir std/ui/primitives.ssc` now lowers end to end — 10,167 bytes of SSC
+IR with an `(entry 58)` — where it used to produce nothing. `std/ui/content.ssc`, which imports it,
+advances past this blocker and stops at a DIFFERENT gap, `content.ssc:57:51: expected an
+expression, found [`. That one is not filed here: it is a separate construct and this entry should
+not grow to cover whatever the next file needs.
+
+## v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs
+
+<!-- status: open
+     lane: v3
+     area: build
+     gate: .github/workflows/v3.yml
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`.github/workflows/v3.yml` triggers on `v3/**`, `v2/**` and itself. It does not trigger on
+`uniml/**` — and `v3/front-gate.sh`'s verdict depends on `uniml/**`.**
+
+This is the SAME defect the workflow's own header describes, one path down. That header opens
+"`v2/**` IS IN THE TRIGGER, and leaving it out cost a red `main` nobody could have seen coming",
+and explains it: the bridge lane runs on the v2 runtime, so `v2/src/Runtime.scala` "is not a
+neighbouring project — it is half of what `exec-gate.sh` compares". `charAt` diverged for four
+commits before an unrelated push happened to trigger the workflow.
+
+**The same is true of uniml, and it is measured rather than argued.** The workflow's own
+"Register the UniML front" step runs `v3/uniml-classpath.sh` before the gates, so in CI `ssc3 run`
+takes the UniML front — and `v3/front-gate.sh` is therefore a verdict on
+`uniml/scala/.../ScalaSpike.scala` as much as on `v3/src/Parser.scala`. Measured today while adding
+`opaque type` support:
+
+| tree | `v3/front-gate.sh` |
+|---|---|
+| `v3/src/Parser.scala` fixed, uniml untouched | **RED** — `opaque-type.ssc:10:1: unknown name 'opaque'` |
+| both fronts fixed | GREEN, 88 cases |
+
+The RED came from a file the trigger does not watch. An edit confined to `uniml/**` can turn v3's
+front gate red and this workflow will not run — which is the four-commit blind spot the header was
+written about, still open on the other side.
+
+**Sharper still: the same registration makes the gate blind in the other direction.** With uniml
+registered, `ssc3 run` uses it, so the gate no longer exercises v3's OWN parser at all. Both halves
+of today's fix were confirmed only because they were run with `SSC3_FRONT` pinned, by hand:
+
+    SSC3_FRONT=v3     opaque-type.ssc -> abc/41/5/8   (fails 10:18 with v3's half reverted)
+    SSC3_FRONT=uniml  opaque-type.ssc -> abc/41/5/8   (failed 10:1 before uniml's half)
+
+So a regression in v3's own parser passes `front-gate.sh` in any environment where uniml is
+registered — which is every CI run.
+
+**Done when** two things hold, and they are separable — take either alone. (1) `uniml/**` is in the
+`push` and `pull_request` path filters of `.github/workflows/v3.yml`, for the reason its header
+already gives for `v2/**`. (2) `v3/front-gate.sh` runs its fixtures on BOTH fronts when both are
+registered, rather than on the default one, so that "the two fronts agree" is asserted instead of
+assumed — the `.uniml-only` marker already proves the gate knows the fronts differ in what they
+accept. Not attempted here: this was found while landing `v3-parser-rejects-opaque-type`, the
+workflow is outside that claim, and (1) makes every push touching `uniml/**` run v3's gates, which
+is a cost paid by every agent and should be someone's deliberate decision rather than a side effect
+of a parser fix.
+
 ## v3-extern-member-in-an-object-has-no-meaning — one front refuses it, the other silently makes it an unpositioned crash
 
 <!-- status: open
