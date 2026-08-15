@@ -1,4 +1,4 @@
-# generation: 2326
+# generation: 2327
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 ci-gates-that-cannot-run	claude-code	2026-08-15T15:42:01Z	ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14	file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
@@ -8,4 +8,3 @@ v3-fast-apply	claude-code	2026-08-15T19:43:26Z	SSC3-J5-apply1-builds-a-list-to-t
 v2-f-round-half-to-even	claude-code	2026-08-15T21:04:08Z	v2-f-round-is-three-different-roundings-across-the-backends	file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/specs/10-core-ir.md file:v3/BUGS.md file:v2/BUGS.md file:v2/conformance/float-round-ties.coreir
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims	file:v3/src/BridgeV2.scala file:v3/SPRINT.md file:bench/history.tsv
 js-char-code-coercion-at-declared-int	claude-code	2026-08-15T21:06:20Z	js-coerces-a-one-char-string-to-its-code-point-at-a-declared-int	file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
-f-gates-off-push-path	claude-code	2026-08-15T21:11:11Z	smoke-job-cap-no-longer-looser-than-the-suite	file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:tests/BUGS.md
