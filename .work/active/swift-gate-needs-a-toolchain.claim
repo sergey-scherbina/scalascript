@@ -1,0 +1,11 @@
+slug: swift-gate-needs-a-toolchain
+branch: feature/swift-gate-needs-a-toolchain
+agent: claude-code
+started: 2026-08-15T18:43:30Z
+heartbeat: 2026-08-15T18:43:30Z
+status: claimed-before-planning
+items: v2-swift-cli-fails-silently-without-a-swift-toolchain
+paths: file:tests/e2e/v2-swift-cli.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
