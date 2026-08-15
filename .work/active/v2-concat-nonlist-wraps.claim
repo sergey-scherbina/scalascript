@@ -2,10 +2,10 @@ slug: v2-concat-nonlist-wraps
 branch: feature/v2-concat-nonlist-wraps
 agent: claude-code
 started: 2026-08-15T21:36:29Z
-heartbeat: 2026-08-15T21:36:29Z
-status: claimed-before-planning
+heartbeat: 2026-08-15T21:38:33Z
+status: in-progress
 items: v3-concat-nonlist-splits-three-ways
-paths: file:v2/src/Runtime.scala file:v2/BUGS.md file:v3/BUGS.md
+paths: file:v2/src/Runtime.scala file:v3/src/Exec.scala file:v2/BUGS.md file:v3/BUGS.md file:v3/tests/parity/list-concat-nonlist.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: restore the withdrawn parity probe, run conformance, land
