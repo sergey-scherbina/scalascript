@@ -186,6 +186,43 @@ prices it, and it shows that the *disagreement* is a separate defect from the *c
 row across every lane. Agreement is required by all three possible contracts, so the gate can be
 built before the decision and will encode it afterwards.
 
+
+### The mechanism, and it is not "the annotation is discarded" — THE CHECKER AND THE LOWERER USE DIFFERENT PARSERS
+
+**Measured 2026-08-15 by reading both fronts.** There are two parsers in the native tier and they do
+NOT agree about type annotations:
+
+| parser | what it does with `p: Int` | who uses it |
+|---|---|---|
+| `v2/lib/ssc1-front.ssc0` | **erases it** — `parseParam` calls `skipTypeAnnot` | **the CHECKER**: `ssc1-check.ssc0` imports this front |
+| F, `specs/v2.2-p6.5-fsub.ssc` | **captures it** — `pushParamTy` embeds the name as `name:Type`, and `localTyOf` reads it back | the DEFAULT native LOWERER since 2026-07-23 |
+
+So the annotation is not universally thrown away: **the lowerer keeps it and the checker never sees
+it**, because they read the file with different parsers. That is a sharper and more fixable statement
+than "declared types are dropped".
+
+**F's capture is deliberately narrow, and the narrowness is documented in F itself:**
+
+    def knownTyName(tn) = if tn == "Int" then true else (if tn == "String" then true else tn == "BigInt")
+
+Only `Int`, `String`, `BigInt`, and only when the type is *immediately* closed by `,` or `)`. Its own
+comment: *"Generic/tuple/arrow/vararg/defaulted types don't match knownTyName+paramEndTok so they
+push the bare name (stays `?`)."* And the reference lowerer erases types entirely — *"Types are
+ERASED by the reference lowerer (measured: `def g(a: String, b: String)` -> `(lam 2 ...)`), so
+skipping them is byte-faithful."*
+
+**What this changes about the work.** Making a declared type a CONSTRAINT on the native lane does not
+start from nothing: the extraction already exists for the three commonest types in the commonest
+syntactic position, and it is already on the default path. The missing link is that the checker
+parses with the OTHER front. Whoever implements step 2 should measure that link first — feeding the
+checker what F already captures may be a far smaller change than teaching `ssc1-front.ssc0` to keep
+annotations, and it avoids a second, divergent extraction.
+
+**Carry the warning that comes with it:** `scripts/BUGS.md` records that `Long` could not be added to
+`knownTyName` without finding every consumer of the embedded `name:Type` form, and that the failure
+mode there is a SILENT COVERAGE LOSS rather than a compile error. Any widening of that set needs the
+consumer census first.
+
 ## f-effect-declarations-and-handlers-unsupported — FIXED, and it was a translation
 
 <!-- status: fixed
