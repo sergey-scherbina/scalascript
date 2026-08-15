@@ -7,6 +7,65 @@ grepping for status.
 
 Newest first.
 
+## int-a-double-in-a-signature-falls-off-the-jit — 250×, and the `Long` twin is the control
+
+<!-- status: open
+     lane: int
+     area: codegen
+     kind: perf
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none -->
+
+**A user function whose signature mentions `Double` is not JIT-compiled, and the call costs
+microseconds where the identical `Long` function costs nanoseconds.** Two programs that differ in
+nothing but the type:
+
+```scalascript
+def idi(x: Long): Long = x          def idd(x: Double): Double = x
+def workload(): Long =              def workload(): Double =
+  var sum = 0L                        var sum = 0.0
+  var i = 0                           var i = 0
+  while i < 2000 do                   while i < 2000 do
+    sum = sum + idi(1L)                 sum = sum + idd(1.0)
+    i = i + 1                           i = i + 1
+  sum                                 sum
+```
+
+```text
+ssc bench --machine --warmup-time 1500 --reps 20, three runs each, ms per workload()
+  Long -> Long        0.0120   0.0112   0.0014      ~6 ns per call
+  Double -> Double    3.31     3.13     2.99        ~1.6 us per call     250-2000x
+```
+
+**It is the SIGNATURE, not the arithmetic.** A loop doing `sum = sum + 1.0` with no call at all runs
+at 12 ns per iteration — Double arithmetic is JIT'd fine. Adding the Double-typed call is what
+costs, and either position is enough:
+
+```text
+  Long   -> Long      0.0281   0.0071
+  Double -> Double    5.45     1.36
+  Long   -> Double   13.9     11.1      (the body also calls .toDouble)
+  Double -> Long      2.79     3.77
+```
+
+**Why it matters beyond one row.** `int` is the reference lane for every table in this repository —
+`bench/BASELINE.md`'s three-version comparison divides by it — and this is the mechanism behind the
+bimodality recorded there on 2026-08-14: the `ssc` column read 0.114 ms and 0.0019 ms for the same
+`list-fold` in different rounds, 60×, while its six neighbours in the row moved by 1.4×. A JIT that
+covers or does not cover a call, depending on shape, produces exactly that.
+
+**Not a v2 problem, and worth saying because a neighbouring spec looks like it.**
+`specs/v2-emitter-unboxed-doubles.md` is about `JvmByteGen.canDouble` in v2's emitter. This entry is
+v1's own JIT: v2 runs the same `Double -> Double` call in about 48 ns, twenty times faster than v1.
+
+**What is NOT established here:** where in v1's JIT the refusal happens, and whether the fix is a
+`canParamDouble` twin of the existing unboxed-long entry or something wider. The probes are
+`Long/Double` × `param/return`, which localises the trigger to the signature and no further. A gate
+for this should assert the SHAPE — the `Double` twin within a small factor of the `Long` one — not a
+time, so a loaded host can still read it.
+
 ## int-no-paren-sibling-method-is-undefined — `Undefined: twice` for a sibling declared without parens
 
 <!-- status: fixed
