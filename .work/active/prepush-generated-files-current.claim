@@ -1,0 +1,11 @@
+slug: prepush-generated-files-current
+branch: feature/prepush-generated-files-current
+agent: claude-code
+started: 2026-08-15T22:09:17Z
+heartbeat: 2026-08-15T22:09:17Z
+status: claimed-before-planning
+items: generated-views-go-stale-and-the-next-agent-pays
+paths: file:.githooks/pre-push file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
