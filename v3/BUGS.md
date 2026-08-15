@@ -779,6 +779,7 @@ over: there was nothing to fix on the other side, and this side needed no help t
 ## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagreed at exactly `.5`
 
 <!-- status: fixed
+     fixed-in: d47dbf7e3
      lane: multi
      area: codegen
      gate: v2/conformance/float-round-ties.coreir (v2/backend/check.sh — NOT wired to CI, see below)
