@@ -3,6 +3,70 @@
 This module's queue. **Two states and no third:** `[~]` in progress, `[x]` done. Anything not being
 worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md).
 
+- [~] **TYPES MUST BE RIGHT — v1, v2 AND v3.** Mandate from Sergiy 2026-08-15, recorded in full
+      BEFORE any code, because by step 3 nobody will remember why step 1 exists.
+
+      **THE GOAL: one answer to "what does a declared type mean", enforced the same way on every
+      lane.** Today the same three-line program gets four different treatments and two different
+      VALUES, and the two checkers this repo owns disagree with each other.
+
+      **What is already measured, and is the reason this is a programme rather than a fix.**
+
+      `def f(a: Int): Int = a ; println(f("x"))` — one program, freshly built toolchain:
+
+      | lane | treatment of the declared `Int` | prints |
+      |---|---|---|
+      | native (`bin/ssc run`) | dropped at parse (`skipTypeAnnot`) | `x` |
+      | interpreter (`--v1`) | dropped | `x` |
+      | js (`run-js`) | read, emitted as a COERCION `_charCodeOrNull(a) ?? a` | **`120`** |
+      | jvm (`run-jvm`) | handed to scalac | **`[E007]` compile error** |
+
+      And the two checkers disagree on a program neither annotation is needed for:
+
+          def h(a: Int): Int = a + 1 ; h("x")
+            native ssc1-check   ->  TYPEERR: cannot unify Int: Int vs String
+            v1 `ssc-tools check` ->  OK
+
+      **What each lane actually has** (first pass, to be completed in step 1):
+      * **v2 native** — `v2/lib/ssc1-check.ssc0`, 809 lines, Hindley-Milner (Algorithm W). ON the
+        normal path: `RunNativeV2` runs `tower/bin/ssc1-check-run.ssc0` per source file and refuses
+        unless it answers `OK`. Infers from USE only; `parseParam` calls `skipTypeAnnot`, so
+        annotations never reach it, and `TyDyn` unifies with anything.
+      * **v1** — `v1/lang/core/.../typer/Typer.scala`, 2084 lines (+ Types 473, TypeEvidence 190).
+        NOT on the `run` path: called only from `check`, `watch`, `watch-bench`, `compile-jvm`,
+        `compile-js`. More permissive than the native checker on the one case measured so far.
+      * **jvm** — no checker of its own; scalac does it, which is why that lane is the strictest.
+      * **v3** — no `unify`/`Typer` under `v3/src` at all; to be established in step 1.
+
+      **1. [ ] THE CENSUS — one table, every lane, every question.**
+         A battery of small programs, each isolating ONE typing question (declared param, declared
+         return, declared `val`, use-derived conflict, arity/shape, `TyDyn` escapes), run through
+         every lane and every checker entry point, with the verdict recorded verbatim. The artifact
+         is the table; the finding is which cells disagree. **No fixes in this step** — a census that
+         also changes things cannot be re-run against its own baseline.
+
+      **2. [ ] THE BLAST RADIUS — what does honouring annotations cost.**
+         Upper bound already counted: of 399 conformance cases, 155 declare a typed parameter, 64
+         declare `jvm` among their backends (so scalac already checks them), 16 do both — leaving
+         **139 cases with typed parameters that no strict checker has ever seen.** That is an upper
+         bound, not a prediction. The real number needs `parseParam` to stop skipping and
+         `ssc1inferLam` to seed from the annotation, behind an env flag, and the corpus run. Nothing
+         flipped.
+
+      **3. [ ] THE CONTRACT — Sergiy's decision, taken with 1 and 2 in hand.**
+         A declared type is documentation, a coercion hint, or a constraint. Any one is defensible;
+         having all three simultaneously is what produces three answers to one program. **Not an
+         agent's call**, and it is the reason steps 1 and 2 come first.
+
+      **4. [ ] CONVERGENCE, gated.** `tests/e2e/declared-type-agreement.sh`: the same program on
+         every lane must give ONE verdict. Whatever the contract turns out to be, agreement is
+         required by all three of the possible answers, so the gate can be written before the
+         decision and will simply encode it afterwards.
+
+      **What I will not promise:** I cannot decide the contract, and I will not flip a language rule
+      because a corpus number looked acceptable. What I can do is make the disagreement visible,
+      priced, and impossible to reintroduce quietly.
+
 - [~] **GATE-HEALTH PROGRAMME — three steps, one goal.** Agreed with Sergiy 2026-08-13. Recorded
       here in full BEFORE any code, because by step 3 nobody will remember why step 1 exists.
 
