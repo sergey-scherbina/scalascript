@@ -142,6 +142,142 @@
       |    }
       |}
       |
+      |/// `client.listTools()` — the SDK-shaped member. Answers a `Value::List` of
+      |/// `Value::Obj("ToolDescriptor", …)`, which the CALL SITE assembles into the real struct: the
+      |/// type is generated code and this file cannot name it. The tag and the FIELD ORDER are the
+      |/// contract with `case class ToolDescriptor(name, description, schema)`; the end-to-end gate
+      |/// is what pins them, because nothing else can.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_list_tools(handle: i64) -> crate::value::Value {
+      |    let arr = match rpc(handle, "tools/list", serde_json::json!({})) {
+      |        Some(r) => r.get("tools").and_then(|t| t.as_array()).cloned().unwrap_or_default(),
+      |        None    => Vec::new(),
+      |    };
+      |    crate::value::Value::List(arr.iter().map(|t| {
+      |        crate::value::Value::Obj("ToolDescriptor", vec![
+      |            crate::value::Value::Str(t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |            crate::value::Value::Str(t.get("description").and_then(|d| d.as_str()).unwrap_or("").to_string()),
+      |            json_to_value_map(t.get("inputSchema")),
+      |        ])
+      |    }).collect())
+      |}
+      |
+      |/// `client.listResources()` — `case class ResourceDescriptor(uri, name, mimeType)`.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_list_resources(handle: i64) -> crate::value::Value {
+      |    let arr = match rpc(handle, "resources/list", serde_json::json!({})) {
+      |        Some(r) => r.get("resources").and_then(|t| t.as_array()).cloned().unwrap_or_default(),
+      |        None    => Vec::new(),
+      |    };
+      |    crate::value::Value::List(arr.iter().map(|t| {
+      |        crate::value::Value::Obj("ResourceDescriptor", vec![
+      |            crate::value::Value::Str(t.get("uri").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |            crate::value::Value::Str(t.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |            crate::value::Value::Str(t.get("mimeType").and_then(|n| n.as_str()).unwrap_or("").to_string()),
+      |        ])
+      |    }).collect())
+      |}
+      |
+      |/// `client.callTool(name, args)` — `case class ToolResult(content: List[Content], isError)`.
+      |/// `Content` is an ENUM whose `Text` case carries one field, so a variant is an `Obj` tagged
+      |/// with the CASE name; that is how the enum arrives at a struct field declared `List[Content]`.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_call_tool(
+      |    handle: i64,
+      |    name:   String,
+      |    args:   std::collections::HashMap<String, crate::value::Value>,
+      |) -> crate::value::Value {
+      |    // The .ssc signature says `Map[String, Any]`, which IS this type in emitted code, so the
+      |    // argument crosses without an adapter — only the RESULT needs one. Serialising here rather
+      |    // than at the call site keeps the JSON shape a runtime concern.
+      |    let args = value_map_to_json(&args);
+      |    let result = rpc(handle, "tools/call", serde_json::json!({ "name": name, "arguments": args }));
+      |    let is_error = result.as_ref()
+      |        .and_then(|r| r.get("isError")).and_then(|e| e.as_bool()).unwrap_or(false);
+      |    crate::value::Value::Obj("ToolResult", vec![
+      |        content_list(result.as_ref()),
+      |        crate::value::Value::Bool(is_error),
+      |    ])
+      |}
+      |
+      |/// `client.readResource(uri)` — `case class ResourceResult(uri, contents: List[Content])`.
+      |#[allow(dead_code)]
+      |pub fn _mcp_client_read_resource(handle: i64, uri: String) -> crate::value::Value {
+      |    let result = rpc(handle, "resources/read", serde_json::json!({ "uri": uri }));
+      |    crate::value::Value::Obj("ResourceResult", vec![
+      |        crate::value::Value::Str(uri),
+      |        content_list(result.as_ref()),
+      |    ])
+      |}
+      |
+      |/// `content` and `contents` are both spelled in the wild, so this reads either. Only the TEXT
+      |/// shape is produced: `Content.Image` and `Content.EmbeddedResource` would need their own tags
+      |/// and nothing here has ever been handed one, so emitting a Text for them would invent data.
+      |fn content_list(result: Option<&serde_json::Value>) -> crate::value::Value {
+      |    let items = result
+      |        .and_then(|r| r.get("content").or_else(|| r.get("contents")))
+      |        .and_then(|c| c.as_array())
+      |        .cloned()
+      |        .unwrap_or_default();
+      |    crate::value::Value::List(items.iter().filter_map(|c| {
+      |        c.get("text").and_then(|t| t.as_str()).map(|t| {
+      |            crate::value::Value::Obj("Text", vec![crate::value::Value::Str(t.to_string())])
+      |        })
+      |    }).collect())
+      |}
+      |
+      |/// A JSON object as a `Value::Map`, which is what a field declared `Map[String, Any]` expects.
+      |/// Anything that is not an object becomes an EMPTY map rather than a guess.
+      |fn json_to_value_map(v: Option<&serde_json::Value>) -> crate::value::Value {
+      |    match v.and_then(|x| x.as_object()) {
+      |        Some(o) => crate::value::Value::Map(
+      |            o.iter().map(|(k, val)| (k.clone(), json_to_value(val))).collect()
+      |        ),
+      |        None => crate::value::Value::Map(Vec::new()),
+      |    }
+      |}
+      |
+      |/// The inverse of `json_to_value_map`, for arguments travelling OUT.
+      |fn value_map_to_json(m: &std::collections::HashMap<String, crate::value::Value>) -> serde_json::Value {
+      |    serde_json::Value::Object(
+      |        m.iter().map(|(k, v)| (k.clone(), value_to_json(v))).collect()
+      |    )
+      |}
+      |
+      |fn value_to_json(v: &crate::value::Value) -> serde_json::Value {
+      |    match v {
+      |        crate::value::Value::Unit      => serde_json::Value::Null,
+      |        crate::value::Value::Bool(b)   => serde_json::Value::Bool(*b),
+      |        crate::value::Value::Int(i)    => serde_json::json!(i),
+      |        crate::value::Value::Double(d) => serde_json::json!(d),
+      |        crate::value::Value::Str(s)    => serde_json::Value::String(s.clone()),
+      |        crate::value::Value::List(xs)  =>
+      |            serde_json::Value::Array(xs.iter().map(value_to_json).collect()),
+      |        crate::value::Value::Map(kvs)  => serde_json::Value::Object(
+      |            kvs.iter().map(|(k, val)| (k.clone(), value_to_json(val))).collect()
+      |        ),
+      |        // An Obj or a Signal has no JSON spelling an MCP server would understand; its `show`
+      |        // is at least readable in a server-side log, which a silent null is not.
+      |        other => serde_json::Value::String(other.show()),
+      |    }
+      |}
+      |
+      |fn json_to_value(v: &serde_json::Value) -> crate::value::Value {
+      |    match v {
+      |        serde_json::Value::Null       => crate::value::Value::Unit,
+      |        serde_json::Value::Bool(b)    => crate::value::Value::Bool(*b),
+      |        serde_json::Value::Number(n)  =>
+      |            if let Some(i) = n.as_i64() { crate::value::Value::Int(i) }
+      |            else { crate::value::Value::Double(n.as_f64().unwrap_or(0.0)) },
+      |        serde_json::Value::String(s)  => crate::value::Value::Str(s.clone()),
+      |        serde_json::Value::Array(xs)  =>
+      |            crate::value::Value::List(xs.iter().map(json_to_value).collect()),
+      |        serde_json::Value::Object(o)  => crate::value::Value::Map(
+      |            o.iter().map(|(k, val)| (k.clone(), json_to_value(val))).collect()
+      |        ),
+      |    }
+      |}
+      |
       |/// `client.isOpen()` — false once closed, and false for a handle that never connected.
       |#[allow(dead_code)]
       |pub fn _mcp_client_is_open(handle: i64) -> bool {

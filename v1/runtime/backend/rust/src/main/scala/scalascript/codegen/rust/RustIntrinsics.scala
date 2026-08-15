@@ -101,6 +101,13 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("McpClient.readResourceText") -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_read_resource_text"),
   QualifiedName("McpClient.isOpen")           -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_is_open"),
   QualifiedName("McpClient.close")            -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_close"),
+  // The SDK-SHAPED members. Each returns a `Value` and the CALL SITE assembles the declared struct
+  // — `List[ToolDescriptor]`, `ToolResult`, `ResourceResult` — because those types exist only once a
+  // program declares them and no runtime can name one. See `valueToStruct`.
+  QualifiedName("McpClient.listTools")        -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_list_tools"),
+  QualifiedName("McpClient.listResources")    -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_list_resources"),
+  QualifiedName("McpClient.callTool")         -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_call_tool"),
+  QualifiedName("McpClient.readResource")     -> RuntimeCall("crate::runtime::mcp_client::_mcp_client_read_resource"),
   // std/ui — server-side View tree primitives (SSR).  Pull in
   // `src/runtime/ui.rs` only when an element/textNode/fragment is reached.
   QualifiedName("element")          -> RuntimeCall("crate::runtime::ui::_ui_element"),

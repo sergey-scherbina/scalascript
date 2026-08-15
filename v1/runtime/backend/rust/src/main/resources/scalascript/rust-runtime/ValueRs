@@ -392,6 +392,19 @@
       |    }
       |}
       |
+      |// A `Value::Map` is an ASSOC LIST — insertion order is part of the contract, see the note on the
+      |// variant — while a case-class field declared `Map[String, Any]` is a `HashMap` in emitted
+      |// code. `ssc_vec`'s counterpart for that boundary: without it a runtime handing back a map
+      |// could only be turned into an EMPTY one at the call site, which is a silent lie about data
+      |// the server did send.
+      |#[allow(dead_code)]
+      |pub fn ssc_map(v: Value) -> std::collections::HashMap<String, Value> {
+      |    match v {
+      |        Value::Map(kvs) => kvs.into_iter().collect(),
+      |        other => ssc_wrong("a Map", &other),
+      |    }
+      |}
+      |
       |#[allow(dead_code)]
       |pub fn ssc_is(v: &Value, ctor: &str) -> bool {
       |    matches!(v, Value::Obj(name, _) if *name == ctor)

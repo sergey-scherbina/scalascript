@@ -57,9 +57,11 @@ object RustCodeWalk:
     // INTRINSIC ENTRIES, which is how `Console.println` has always been lowered. That matters
     // beyond tidiness — `renderTerm` is one of the five known over-limit methods and the jit-size
     // gate forbids it growing, so a new match arm there was not available either.
-    val (externClasses, externMemberOwner) = collectExternClasses(module)
+    val (externClasses, externMemberOwner, externMemberRet, externMemberPars) = collectExternClasses(module)
     _externClasses        = externClasses
     _externMemberOwner    = externMemberOwner
+    _externMemberRet      = externMemberRet
+    _externMemberPars     = externMemberPars
     _externFactories      = collectExternFactories(module, _externClasses.keySet)
     val (objectMembers, defOwners) = collectObjectOwnership(module)
     _defOwners            = defOwners
@@ -659,24 +661,42 @@ object RustCodeWalk:
    *
    *  `extern class C:` is preprocessed to a plain `class C:` whose members have `__extern__` as a
    *  body, so the marker is what identifies them — the shape is an ordinary class. */
-  private def collectExternClasses(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
+  private def collectExternClasses(module: ast.Module): (Map[String, Set[String]], Map[Int, String], Map[String, m.Type], Map[String, List[Option[m.Type]]]) =
     val out    = scala.collection.mutable.LinkedHashMap.empty[String, Set[String]]
     // def POSITION → owning class. Needed by the unimplemented-extern refusal, which keys on the
     // BARE name and so cannot tell `SqliteCursor.close` from `McpClient.close`. Answering that by
     // name would mask a genuinely unimplemented member the moment two classes share one.
     val byPos  = scala.collection.mutable.LinkedHashMap.empty[Int, String]
+    // `Class.member` → its DECLARED return type, which is what tells the adapter site whether the
+    // runtime's `Value` has to be assembled into a struct. Read off the declaration; nothing here
+    // infers.
+    val rets   = scala.collection.mutable.LinkedHashMap.empty[String, m.Type]
+    // `Class.member` → its DECLARED parameter types. An intrinsic call does not consult a
+    // signature, so an argument crossing the `Any` boundary — `Map("k" -> "v")` at a
+    // `Map[String, Any]` parameter — arrives as `HashMap<String, String>` and rustc rejects it.
+    val pars   = scala.collection.mutable.LinkedHashMap.empty[String, List[Option[m.Type]]]
     def scan(t: m.Tree): Unit =
       t match
         case c: m.Defn.Class =>
           val ds = c.templ.body.stats.collect { case dd: m.Defn.Def if isExternBody(dd.body) => dd }
           if ds.nonEmpty then
             out(c.name.value) = ds.map(_.name.value).toSet
-            ds.foreach(dd => byPos(dd.pos.start) = c.name.value)
+            ds.foreach { dd =>
+              byPos(dd.pos.start) = c.name.value
+              dd.decltpe.foreach(rt => rets(s"${c.name.value}.${dd.name.value}") = rt)
+              pars(s"${c.name.value}.${dd.name.value}") =
+                dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.decltpe).toList
+            }
         case tr: m.Defn.Trait =>
           val ds = tr.templ.body.stats.collect { case dd: m.Defn.Def if isExternBody(dd.body) => dd }
           if ds.nonEmpty then
             out(tr.name.value) = ds.map(_.name.value).toSet
-            ds.foreach(dd => byPos(dd.pos.start) = tr.name.value)
+            ds.foreach { dd =>
+              byPos(dd.pos.start) = tr.name.value
+              dd.decltpe.foreach(rt => rets(s"${tr.name.value}.${dd.name.value}") = rt)
+              pars(s"${tr.name.value}.${dd.name.value}") =
+                dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.decltpe).toList
+            }
         case _ => ()
       t.children.foreach(scan)
     def content(c: ast.Content): Unit = c match
@@ -685,7 +705,7 @@ object RustCodeWalk:
     def section(sec: ast.Section): Unit =
       sec.content.foreach(content); sec.subsections.foreach(section)
     module.sections.foreach(section)
-    (out.toMap, byPos.toMap)
+    (out.toMap, byPos.toMap, rets.toMap, pars.toMap)
 
   /** def name → the extern class it RETURNS, read off the declared return type.
    *
@@ -722,20 +742,97 @@ object RustCodeWalk:
     scan(d.body)
     out.toMap
 
+  /** Build a GENERATED-CODE value — struct, enum variant, or a list of either — out of the `Value`
+   *  a runtime handed back.
+   *
+   *  THE BOUNDARY THIS CROSSES, and why it cannot be crossed the other way. `listTools(): List[
+   *  ToolDescriptor]` returns a type that exists only once a program declares it, so no runtime can
+   *  write that signature — the same wall `route` hit on the HTTP lane, where the `Request` literal
+   *  is built in emitted code for exactly this reason. The runtime therefore answers in `Value`,
+   *  naming the case class only as a STRING tag in `Value::Obj`, and the value is assembled HERE,
+   *  where the type is in scope.
+   *
+   *  SEPARATE FROM `coerceFromValue` ON PURPOSE. That function would be the natural home, but it
+   *  needs `ctx` to reach `ctorMap` and five of its ten call sites are inside `renderTerm`, which is
+   *  one of the five frozen over-limit methods — adding an argument there grows it and v1-jit-size
+   *  refuses.
+   *
+   *  `None` for anything that is not a user type or a list of one; the caller then emits the plain
+   *  call, so a type this cannot build is left to rustc rather than guessed at. */
+  private def valueToStruct(expr: String, tpe: m.Type, ctx: Ctx): Option[String] = tpe match
+    case m.Type.Apply.After_4_6_0(m.Type.Name("List" | "Seq" | "Vector" | "IndexedSeq"), argClause) =>
+      argClause.values match
+        case List(m.Type.Name(elem)) if isUserValueType(elem, ctx) =>
+          Some("crate::value::ssc_vec(" + expr + ").into_iter().map(|__e| " +
+               buildUserValue("__e", elem, ctx) + ").collect::<Vec<" + elem + ">>()")
+        case _ => None
+    case m.Type.Name(n) if isUserValueType(n, ctx) => Some(buildUserValue(expr, n, ctx))
+    case _ => None
+
+  /** A name `ctorMap` knows as a struct, or as the OWNER of at least one variant. */
+  private def isUserValueType(n: String, ctx: Ctx): Boolean =
+    ctx.ctorMap.get(n).exists(_.isStruct) || ctx.ctorMap.values.exists(c => c.enumName == n && !c.isStruct)
+
+  /** One struct literal, or an if/else chain over an enum's variants. */
+  private def buildUserValue(expr: String, n: String, ctx: Ctx): String =
+    ctx.ctorMap.get(n).filter(_.isStruct) match
+      case Some(ec) =>
+        val fs = ec.fieldNames.zipWithIndex.map { case (fname, i) =>
+          val ft   = ec.fieldTypes.lift(i).getOrElse("crate::value::Value")
+          val read = "crate::value::ssc_field(&__o, \"" + n + "\", " + i + ")"
+          fname + ": " + fieldFromValue(read, ft, ctx)
+        }
+        "{ let __o = " + expr + "; " + n + " { " + fs.mkString(", ") + " } }"
+      case None =>
+        // An ENUM: the runtime tags each variant by its CASE name. A variant with no fields is
+        // `Role::User`, NOT `Role::User {}` — different syntax in Rust, and getting it wrong is a
+        // compile error rather than a wrong answer, which is the good direction.
+        val variants = ctx.ctorMap.filter { case (_, c) => c.enumName == n && !c.isStruct }.toList.sortBy(_._1)
+        val arms = variants.map { case (vname, vc) =>
+          val body =
+            if vc.fieldNames.isEmpty then n + "::" + vname
+            else
+              val fs = vc.fieldNames.zipWithIndex.map { case (fname, i) =>
+                val ft   = vc.fieldTypes.lift(i).getOrElse("crate::value::Value")
+                val read = "crate::value::ssc_field(&__v, \"" + vname + "\", " + i + ")"
+                fname + ": " + fieldFromValue(read, ft, ctx)
+              }
+              n + "::" + vname + " { " + fs.mkString(", ") + " }"
+          "if crate::value::ssc_is(&__v, \"" + vname + "\") { " + body + " }"
+        }
+        "{ let __v = " + expr + "; " + arms.mkString(" else ") +
+          " else { panic!(\"no " + n + " variant matched {}\", __v.show()) } }"
+
+  /** One FIELD, by its emitted Rust type. Recurses for a user type or a list of one — `coerceFromValue`
+   *  cannot, it leaves them a `Value` — and hands everything else to it, which is total. */
+  private def fieldFromValue(read: String, rustType: String, ctx: Ctx): String =
+    if rustType.startsWith("Vec<") && rustType.endsWith(">") then
+      val inner = rustType.drop(4).dropRight(1)
+      if isUserValueType(inner, ctx) then
+        "crate::value::ssc_vec(" + read + ").into_iter().map(|__e| " +
+          buildUserValue("__e", inner, ctx) + ").collect::<Vec<" + inner + ">>()"
+      else coerceFromValue(read, rustType)
+    else if isUserValueType(rustType, ctx) then buildUserValue(read, rustType, ctx)
+    // A `Value::Map` is an assoc list; the `coerceFromValue` arm for a HashMap assumes it already
+    // HAS a map to iterate, so it cannot serve here.
+    else if rustType == "std::collections::HashMap<String, crate::value::Value>" then
+      "crate::value::ssc_map(" + read + ")"
+    else coerceFromValue(read, rustType)
+
   /** The runtime target for `recv.meth(args)` when `recv` holds an extern-class value and the lane
    *  has an intrinsic for `Class.meth`. The RECEIVER BECOMES THE FIRST ARGUMENT, which is the whole
    *  rule: an extern class has no Rust type of its own here, so its members cannot be inherent
    *  methods — they are free functions over an opaque handle, exactly like the MCP server's
    *  `_mcp_register_tool`. Returns None for anything else, so every method call that lowers today
    *  keeps lowering the same way. */
-  private def externMemberTarget(qual: m.Term, meth: String, ctx: Ctx): Option[String] =
+  private def externMemberTarget(qual: m.Term, meth: String, ctx: Ctx): Option[(String, String)] =
     qual match
       case m.Term.Name(recv) =>
         for
           cls    <- _externLocals.get(recv)
           if _externClasses.get(cls).exists(_.contains(meth))
           target <- ctx.intrinsics.get(QualifiedName(s"$cls.$meth")).collect { case RuntimeCall(t) => t }
-        yield target
+        yield (target, s"$cls.$meth")
       case _ => None
 
   private def collectObjectOwnership(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
@@ -956,6 +1053,8 @@ object RustCodeWalk:
    *  NAME is the defect this exists for, so the name cannot be the key. */
   private var _externClasses: Map[String, Set[String]] = Map.empty
   private var _externMemberOwner: Map[Int, String] = Map.empty
+  private var _externMemberRet: Map[String, m.Type] = Map.empty
+  private var _externMemberPars: Map[String, List[Option[m.Type]]] = Map.empty
   private var _externFactories: Map[String, String] = Map.empty
   /** Set per def in `renderDef` rather than carried in `Ctx`: a Ctx field costs bytecode at every
    *  `.copy()` site and `renderTerm` is already 2.5x the JIT limit. */
@@ -4739,8 +4838,24 @@ object RustCodeWalk:
             renderTerm(qual, ctx).map { q =>
               externMemberTarget(qual, meth, ctx) match
                 // An extern-class member: a free call over an opaque handle, receiver first.
-                case Some(target) => if joined.isEmpty then s"$target($q)" else s"$target($q, $joined)"
-                case None         => if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)"
+                case Some((target, key)) =>
+                  // Coerce each argument to its DECLARED parameter type. `coerceFromValue` is total,
+                  // so this is safe where the argument is already concrete and necessary where it
+                  // crosses the `Any` boundary — a `Map("k" -> "v")` literal at a `Map[String, Any]`
+                  // parameter is a `HashMap<String, String>` until something lifts it.
+                  val decls = _externMemberPars.getOrElse(key, Nil)
+                  val coerced = renderedArgs.zipWithIndex.map { case (a, i) =>
+                    decls.lift(i).flatten
+                      .flatMap(t => mapType(t, ctx.defName, ctx.enumNames).toOption)
+                      .map(rt => coerceFromValue(a, rt))
+                      .getOrElse(a)
+                  }.mkString(", ")
+                  val call = if coerced.isEmpty then s"$target($q)" else s"$target($q, $coerced)"
+                  // A member DECLARED to return a case class gets the runtime's `Value` assembled
+                  // into that struct right here — see `valueToStruct` for why it cannot happen in
+                  // the runtime.
+                  _externMemberRet.get(key).flatMap(t => valueToStruct(call, t, ctx)).getOrElse(call)
+                case None => if joined.isEmpty then s"$q.$meth()" else s"$q.$meth($joined)"
             }
           case _ =>
             val plainName = fn match

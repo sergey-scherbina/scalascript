@@ -975,6 +975,34 @@ And the qualification is NOT written: it lived only in a worktree that was remov
 committed, and it is on no branch and in no commit. It has to be redone. Recorded plainly because
 the previous sentence would otherwise have someone plan around code that does not exist.
 
+## rust-qualified-enum-pattern-is-refused — `case Content.Text(t)` is unsupported while `Content.Text(s)` as a CONSTRUCTOR lowers
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15
+     ssc-version: 28100232d
+     repro: the two-line pair in the body
+     confirmed: yes -->
+
+**The twin of a defect already fixed, on the other side of the same feature.** `19ebadf00` made a
+QUALIFIED enum constructor lower — `Content.Text(s)` emits `Content::Text{…}` rather than
+`Content.Text(s)`. The PATTERN was not touched and is still refused outright:
+
+    val c = Content.Text("x")          // lowers
+    c match { case Content.Text(t) => … }
+    // [error] Generic(def `main` has unsupported pattern: Pat.Extract (Content.Text(t)))
+
+The unqualified `case Text(t)` works, so the gap is exactly the qualifier. A refusal rather than bad
+code, which is the right direction — but it is a refusal for a form the constructor side accepts,
+so a user who writes one naturally writes the other.
+
+Found while gating the MCP client's `callTool`, whose `ToolResult.content` is a `List[Content]`;
+the gate uses the unqualified form and says so.
+
 ## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
 
 <!-- status: open

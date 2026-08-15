@@ -534,10 +534,19 @@ SSC
   # the RECEIVER AS THE FIRST ARGUMENT, because an extern class has no Rust type of its own here.
   # Getting that wrong is a compile error, so this case is the rule's only real gate.
   #
+  # AND IT EXERCISES THE SDK-SHAPED MEMBERS, whose types no runtime can name — `listTools(): List[
+  # ToolDescriptor]` and `callTool(…): ToolResult`, the latter carrying `List[Content]` where
+  # `Content` is an ENUM. The runtime answers in `Value` and the call site assembles the real type.
+  # THE PATTERN MATCH ON `Text(t)` IS THE POINT: a variant rebuilt with the wrong tag still compiles
+  # and still counts 1, and only destructuring it shows the difference. `Map("k" -> "v")` is there
+  # for the other direction — an argument at a `Map[String, Any]` parameter is a
+  # `HashMap<String, String>` until something lifts it, and the server echoing `{"k":"v"}` is what
+  # proves it arrived as JSON rather than as a shrug.
+  #
   # Two binaries and two cargo builds, which is why it is inside the `command -v cargo` block.
   cat > "$tmp/mcpsrv.ssc" <<'SSC'
 def main(): Unit =
-  mcpRegisterTool("greet", "Greet someone", args => "hello from ssc")
+  mcpRegisterTool("greet", "Greet someone", args => "got:" + args)
   mcpServe()
 SSC
   # The real module, copied BESIDE the program rather than imported by an absolute path: an
@@ -547,7 +556,7 @@ SSC
   # comes too because `client.ssc` imports it as a sibling.
   cp "$ROOT/std/mcp/client.ssc" "$ROOT/std/mcp/types.ssc" "$tmp/"
   cat > "$tmp/mcpcli.ssc" <<SSC
-[McpClient, mcpConnectSpawn](client.ssc)
+[McpClient, mcpConnectSpawn, ToolDescriptor, ToolResult, Content](client.ssc)
 
 def main(): Unit =
   val c = mcpConnectSpawn("$tmp/mcpsrvbin", [])
@@ -555,6 +564,13 @@ def main(): Unit =
   val names = c.listToolNames()
   println("tools=" + names.length + ":" + names.mkString(","))
   println("call=" + c.callToolText("greet", "{}"))
+  val ts = c.listTools()
+  println("desc=" + ts(0).name + "/" + ts(0).description)
+  val r = c.callTool("greet", Map("k" -> "v"))
+  println("isError=" + r.isError + " parts=" + r.content.length)
+  r.content.foreach(x => x match
+    case Text(t) => println("text=" + t)
+    case other   => println("other"))
   c.close()
 SSC
   set +e
@@ -572,10 +588,13 @@ SSC
     failed=1
   elif [[ "$mc_out" != "open=true
 tools=1:greet
-call=hello from ssc" ]]; then
+call=got:{}
+desc=greet/Greet someone
+isError=false parts=1
+text=got:{\"k\":\"v\"}" ]]; then
     echo "build-rust-refuses-loudly: FAILED — the MCP client did not drive the server" >&2
     echo "--- got: $(printf '%s' "$mc_out" | tr '\n' '|')" >&2
-    echo "    wanted: open=true|tools=1:greet|call=hello from ssc|" >&2
+    echo "    wanted: open=true|tools=1:greet|call=got:{}|desc=greet/Greet someone|isError=false parts=1|text=got:{\"k\":\"v\"}|" >&2
     failed=1
   fi
 

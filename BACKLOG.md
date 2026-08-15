@@ -371,9 +371,36 @@ check would pass on a client that connects and then hangs, and the survey cannot
 because client.ssc is a declaration module. Negative control: with the receiver map emptied it fails
 with `the MCP client half does not build`.
 
-**Still open, and now the only gap:** the SDK-shaped members on Rust. Closing them needs the
-generated-side adapter pattern `route` uses on the HTTP lane — the struct literal built in emitted
-code — and that is a separate piece of work, not a missing intrinsic.
+**The SDK-shaped members are DONE too.** `listTools()` returns real `ToolDescriptor`s with name and
+description; `callTool(name, Map(…))` takes the map, delivers it to the server as JSON and returns a
+`ToolResult` whose `content: List[Content]` destructures as `case Text(t)`. `listResources` and
+`readResource` are wired the same way.
+
+**The mechanism is general, not MCP-specific.** The runtime answers in `Value`, naming a generated
+type only as a STRING tag in `Value::Obj`, and the CALL SITE assembles the declared type — struct,
+enum variant (including a field-less one, which is `Role::User` and not `Role::User {}`), or a list
+of either, recursing through field types. Arguments cross the other way by being coerced to their
+DECLARED parameter types, which is what lifts a `Map("k" -> "v")` literal at a `Map[String, Any]`
+parameter; without it the argument is a `HashMap<String, String>` and rustc rejects it.
+
+**Three defects of my own on the way, each found by running rather than reading:** the enum arm
+matched case CLASSES too, because a standalone struct carries its own name in `enumName`; a field
+typed `List[Content]` went through `coerceFromValue`, which leaves a user type a `Value`; and the
+argument side was not coerced at all. All three were compile errors rather than wrong answers, which
+is the good direction.
+
+**The gate destructures rather than counts.** A variant rebuilt with the wrong tag still compiles
+and still reports one element — only `case Text(t)` tells the difference — and the server echoing
+`{"k":"v"}` is what shows the argument arrived as JSON. Negative control: with the struct assembly
+suppressed the gate fails on that case.
+
+**Still open:** `listPrompts` and `getPrompt`. `PromptResult(messages: List[Message])` and
+`Message(role: Role, content: Content)` are within reach of the same machinery — `Role` is
+field-less variants, which the adapter already handles — but the runtime has no `prompts/*` calls
+and nothing here has exercised one, so they are left rather than written blind. Also found while
+probing this and filed separately: a QUALIFIED enum PATTERN, `case Content.Text(t)`, is refused
+(`rust-qualified-enum-pattern-is-refused`). The qualified CONSTRUCTOR was fixed in `19ebadf00`; its
+pattern twin was not.
 
 ## mcp-2026-07-28 — speak the stateless MCP revision, dual-era
 
