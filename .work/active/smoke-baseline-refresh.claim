@@ -5,7 +5,15 @@ started: 2026-08-15T19:16:33Z
 heartbeat: 2026-08-15T19:16:33Z
 status: claimed-before-planning
 items: smoke-job-cap-no-longer-looser-than-the-suite
-paths: file:tests/smoke-baseline.tsv file:tests/BUGS.md
+paths: file:tests/smoke-baseline.tsv file:tests/smoke-baseline-harvest.sh file:tests/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+  Refresh tests/smoke-baseline.tsv from real CI runs — the artifact the file itself says to
+  regenerate rather than hand-edit. Stale since 2026-08-12: 82 rows summing 699 s, harvested
+  on suites of 79-82 checks, while the suite now runs 109-112 and the fresh harvest sums
+  1425.5 s.
+
+  WIDENED to tests/smoke-baseline-harvest.sh for ONE line: its progress message says
+  "harvesting up to N successful smoke runs" while the code selects ('success','failure').
+  The code is right — including failures is the 2026-08-12 fix for a selection bias that fed
+  itself — and the message describes the bug that fix removed.
 next: plan the task into SPRINT.md, then implement
