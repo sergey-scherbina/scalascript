@@ -76,14 +76,51 @@ if [ "${1:-}" = "--self-test" ]; then
   exit 0
 fi
 
+# A CONTROL, INTERLEAVED — measure the small keyspace, then the large, then the small AGAIN.
+#
+# WHY: this gate renders a verdict from a RATIO across a 2.5x line, and its workload is short enough
+# that a contended host moves it further than the defect does. Measured 2026-08-15 at load 34, six
+# consecutive runs on IDENTICAL code:
+#
+#     10 keys 1.16 / 1000 keys 0.76   ratio 0.66      10 keys 0.83 / 1000 keys 1.65   ratio 2.0
+#     10 keys 1.95 / 1000 keys 1.46   ratio 0.75      10 keys 0.98 / 1000 keys 3.52   ratio 3.6  FAIL
+#     10 keys 0.93 / 1000 keys 0.55   ratio 0.59      10 keys 2.73 / 1000 keys 1.29   ratio 0.47
+#
+# 0.47 to 3.6 — the large map came out FASTER than the small one in four of the six — and one run
+# crossed the line and turned smoke red. A gate that cannot separate its own repeats cannot separate
+# a copying store from noise, and an intermittent red is how a suite stops being read.
+#
+# The control is the same measurement twice. If IDENTICAL work spreads past `CONTROL_MAX`, the host
+# cannot resolve a 2.5x effect today and this gate says so instead of rendering a verdict it cannot
+# support. Interleaved rather than run in a block, because a control taken before or after the
+# experiment describes a different host than the experiment saw.
+# Overridable so the refusal branch can be OBSERVED rather than assumed — a branch that never runs
+# is indistinguishable from one that cannot. Measured floor on a dev host at load ~30: the control
+# spread 1.10x, 1.21x, 1.44x, 1.10x over four runs. 1.5 sits just above that, which means this host
+# renders verdicts today; tighten it with data if false reds return, since a 1.44x floor under a
+# 2.5x line leaves less margin than it looks.
+CONTROL_MAX="${SSC_MAP_CONTROL_MAX:-1.5}"
 SMALL="$(ms 10)"
 LARGE="$(ms 1000)"
-[ -n "$SMALL" ] && [ -n "$LARGE" ] || {
+SMALL2="$(ms 10)"
+[ -n "$SMALL" ] && [ -n "$LARGE" ] && [ -n "$SMALL2" ] || {
   echo "map-updated-shape: a lane produced no BENCH line — the gate measured nothing" >&2; exit 2; }
+
+spread="$(awk -v a="$SMALL" -v b="$SMALL2" 'BEGIN{ printf "%.2f", (a>b ? a/b : b/a) }')"
 
 echo "── Map.updated, 500 calls, workload-only ms (v2 lane) ──"
 echo "   10 keys:   $SMALL ms"
 echo "   1000 keys: $LARGE ms"
+echo "   10 keys again (control): $SMALL2 ms  — identical work, spread ${spread}x"
+
+if awk -v s="$spread" -v m="$CONTROL_MAX" 'BEGIN { exit !(s > m) }'; then
+  echo "map-updated-shape: NO VERDICT — the control spread ${spread}x on IDENTICAL work, over the"
+  echo "   ${CONTROL_MAX}x limit, so this host cannot resolve the 2.5x line today. Not a pass: nothing was"
+  echo "   measured. Re-run on a quiet host, or read the ratio below as noise."
+  echo "   (v2/BUGS.md -> v2-map-updated-copies-the-whole-map records why this control exists.)"
+  exit 0
+fi
+
 ratio="$(awk -v s="$SMALL" -v l="$LARGE" 'BEGIN{printf "%.1f", l/s}')"
 if awk -v s="$SMALL" -v l="$LARGE" 'BEGIN { exit !(l > s * 2.5) }'; then
   echo "map-updated-shape: FAIL — the large map costs ${ratio}x the small one."

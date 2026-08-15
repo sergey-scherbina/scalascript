@@ -103,6 +103,36 @@ the gate against the old build instead of trusting it. It now times the workload
 `ssc-tools bench --machine --backend v2`, reads **4.6× (FAIL) on the old build and 1.4× (PASS) on the
 new one**, and its self-test exercises the arithmetic on both measured points.
 
+
+### 2026-08-15 — the fix stands; its GATE was the thing going red, and it could not tell noise from a defect
+
+`v2-map-updated-shape-gate.sh` turned smoke red on a loaded host. The defect is NOT back: six
+consecutive runs on identical code at load 34 produced
+
+```text
+  10 keys 1.16 / 1000 keys 0.76  ratio 0.66      10 keys 0.83 / 1000 keys 1.65  ratio 2.0
+  10 keys 1.95 / 1000 keys 1.46  ratio 0.75      10 keys 0.98 / 1000 keys 3.52  ratio 3.6  FAIL
+  10 keys 0.93 / 1000 keys 0.55  ratio 0.59      10 keys 2.73 / 1000 keys 1.29  ratio 0.47
+```
+
+**0.47 to 3.6 on one machine, one commit** — and the "large" map came out FASTER than the small one
+in four of the six. One run crossed the 2.5x line and reported the copying store as back. A gate that
+cannot separate its own repeats cannot separate a copying store from scheduling noise, and its
+workload (0.17–2.7 ms) is under this host's resolution floor.
+
+**Fixed by measuring a CONTROL and refusing a verdict the host cannot support.** The gate now runs
+small → large → small AGAIN, interleaved rather than in blocks, and compares the two identical
+measurements. If they spread past `CONTROL_MAX` (default 1.5, `SSC_MAP_CONTROL_MAX` to override) it
+prints `NO VERDICT` naming the spread instead of rendering one. That is not a pass and says so.
+
+**Both branches observed, not assumed** (P-6.1b): at `SSC_MAP_CONTROL_MAX=1.0001` the refusal fires
+and exits 0 with its reason; at the default the same tree reports `PASS (2.1x, under the 2.5x line)`.
+The self-test still passes on its fixed numbers — 4.9x RED, 1.3x GREEN, 2.5x boundary GREEN.
+
+**An honest limit on the threshold:** the observed control floor at load ~30 was 1.10x, 1.21x, 1.44x,
+1.10x. 1.5 sits just above that, so this host renders verdicts today — but a 1.44x floor under a 2.5x
+line is less margin than it looks, and the knob exists so the next person can tighten it with data
+rather than by feel.
 ## v2-unknown-member-on-a-builtin-receiver-yields-a-closure-instead-of-refusing — `"a".nosuch` prints `<closure>`
 
 <!-- status: fixed
