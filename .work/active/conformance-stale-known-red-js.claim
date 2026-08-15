@@ -2,10 +2,10 @@ slug: conformance-stale-known-red-js
 branch: feature/conformance-stale-known-red-js
 agent: claude-code
 started: 2026-08-15T22:59:45Z
-heartbeat: 2026-08-15T22:59:45Z
-status: claimed-before-planning
+heartbeat: 2026-08-15T23:00:38Z
+status: in-progress
 items: native-import-in-fence-stale-known-red
-paths: file:tests/conformance/native-import-in-fence.ssc
+paths: file:tests/conformance/native-import-in-fence.ssc file:v1/runtime/backend/js/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: verify the js lane on a clean build, then delete the stale declaration

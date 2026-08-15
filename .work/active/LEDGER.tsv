@@ -1,4 +1,4 @@
-# generation: 2371
+# generation: 2372
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims SSC3-3-effects-across-the-bridge	v3/src/BridgeV2.scala v3/src/Main.scala v3/effects-gate.sh v3/bridge-gate.sh v3/tests/bridge/unsupported.ssir v3/tests/effects/nested-and-nonzero-shift.ssc v3/tests/effects/nested-and-nonzero-shift.expected specs/ssc3-jit.md v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
@@ -7,4 +7,4 @@ v1-typer-gaps	claude-code	2026-08-15T22:34:24Z	v1-typer-has-14-corpus-visible-ga
 rust-import-wrapper-depth	claude-code	2026-08-15T22:36:55Z	rust-import-wrapper-depth-hides-an-owner	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
 orphan-detector-one-directory	claude-code	2026-08-15T22:40:05Z	orphan-detector-scans-one-directory-and-misses-real-gates orphaned-e2e-gates-52	file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md
 swift-gate-shows-the-mismatch	claude-code	2026-08-15T22:59:00Z	v2-swift-cli-fails-silently-without-a-swift-toolchain	file:tests/e2e/v2-swift-cli.sh
-conformance-stale-known-red-js	claude-code	2026-08-15T22:59:45Z	native-import-in-fence-stale-known-red	file:tests/conformance/native-import-in-fence.ssc
+conformance-stale-known-red-js	claude-code	2026-08-15T22:59:45Z	native-import-in-fence-stale-known-red	file:tests/conformance/native-import-in-fence.ssc file:v1/runtime/backend/js/BUGS.md
