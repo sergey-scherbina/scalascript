@@ -1,3 +1,53 @@
+## sbt-test-shard-enumeration-produces-zero-suites — all four shards refuse, and the refusal could not say why
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: tests/e2e/sbt-test-shard-gate.sh -->
+
+**Every `sbt test shard i/4` job in the dispatch tier fails identically:**
+
+```text
+sbt-test-shard: enumeration produced 0 suite(s) — refusing. sbt output unparsed or
+  the test sources did not compile; running a slice of nothing would report green.
+```
+
+The refusal itself is CORRECT and is the gate working — `testOnly` with no arguments runs
+everything, so a shard that selected nothing would look like a fast green. What is wrong is that
+nobody can act on it.
+
+**MEASURED, 2026-08-15 dispatch:** all four shards, ~7 minutes each before refusing, on a run whose
+`sbt — compile and release gates` job SUCCEEDED. So the main sources compile; the two causes the
+message names are not equally likely, and it cannot tell them apart.
+
+**Fixed the half that is answerable: `enumerate()` was discarding stderr** (`2>/dev/null`), so the
+evidence for choosing between "unparsed" and "did not compile" was thrown away at the moment it was
+produced. It is now captured and the refusal prints its last 20 lines, or says explicitly that sbt
+wrote nothing — which distinguishes "the build failed" from "sbt ran and this parser did not match
+its output". The `--from` path says so too, rather than claiming sbt was silent when sbt was never
+run.
+
+**NOT diagnosed, and deliberately not guessed at.** Two candidates remain and the fix above is what
+will separate them on the next dispatch:
+
+1. **The parser no longer matches.** The awk wants `[info] <proj> / Test / definedTestNames`, and
+   sbt now warns *"sbt 0.13 shell syntax is deprecated; use slash syntax instead"* for this exact
+   query. If the header line moved, the enumeration is empty with a perfectly healthy build.
+2. **The enumeration does not finish.** Locally `scripts/sbtc "show test:definedTestNames"` was still
+   COMPILING after 9 minutes with zero errors — it must build every test source across ~250 projects
+   first. On a cold runner 7 minutes may simply not be enough.
+
+**A measurement I did NOT make, stated so it is not mistaken for one:** my local run was killed by my
+own timeout before any `definedTestNames` line appeared, so "0 awk matches" over that log says
+nothing about whether the pattern is broken. It never reached the subject.
+
+**Acceptance test:** the next dispatch prints either sbt's stderr or the "sbt wrote nothing" line,
+which names the cause. Then fix that cause and the four shards report a verdict instead of refusing.
+
 # Build, CI and coordination tooling — bugs
 
 Scope: defects whose FIX goes in `scripts/`. Layout and routing rules:

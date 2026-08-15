@@ -57,9 +57,17 @@ fi
 #     [info] 	Vector(a.B, c.D)
 # It needs the test sources COMPILED, which is why a shard job reuses the compile it already did
 # rather than paying twice.
+# STDERR IS KEPT, and that is the whole point of this function's shape.
+#
+# It used to end `2>/dev/null`, so when the enumeration came back empty the refusal below could only
+# offer a disjunction — "sbt output unparsed or the test sources did not compile" — with the evidence
+# for deciding between them already discarded. Measured 2026-08-15: all FOUR shards of the dispatch
+# tier failed on that message, and it is not answerable from the log, because the log is what was
+# thrown away. A refusal that cannot say why is a refusal somebody has to reproduce by hand.
+ENUM_ERR="${TMPDIR:-/tmp}/sbt-test-shard-enum.err"
 enumerate() {
   if [[ -n "$from_file" ]]; then cat "$from_file"; return; fi
-  "$ROOT/scripts/sbtc" "show test:definedTestNames" 2>/dev/null
+  "$ROOT/scripts/sbtc" "show test:definedTestNames" 2>"$ENUM_ERR"
 }
 
 pairs="$(enumerate | awk '
@@ -79,6 +87,16 @@ total="$(printf '%s\n' "$pairs" | grep -c . || true)"
 if [[ "$total" -lt 10 ]]; then
   echo "sbt-test-shard: enumeration produced $total suite(s) — refusing. sbt output unparsed or" >&2
   echo "  the test sources did not compile; running a slice of nothing would report green." >&2
+  # SAY WHICH. The two causes above need different fixes, and the reader has no other copy of this.
+  if [[ -n "$from_file" ]]; then
+    echo "  (read from --from $from_file, so sbt was never run — the file is the thing to look at.)" >&2
+  elif [[ -s "$ENUM_ERR" ]]; then
+    echo "  ── last 20 lines of sbt stderr ──────────────────────────────────────────────" >&2
+    tail -20 "$ENUM_ERR" | sed 's/^/  | /' >&2
+  else
+    echo "  (sbt wrote nothing to stderr — so it ran and produced output this parser did not match," >&2
+    echo "   not a build that failed. Compare a real line against the awk header pattern above.)" >&2
+  fi
   exit 2
 fi
 
