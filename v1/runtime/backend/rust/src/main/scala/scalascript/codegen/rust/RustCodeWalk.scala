@@ -114,6 +114,28 @@ object RustCodeWalk:
     _ctorDefaults = (standaloneCases ++ traitEnums.flatMap(_.caseClasses)).map { c =>
       c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.default).toList
     }.toMap
+    // A method in a `case class` body — `case class P(x: Int): def shifted(d: Int) = P(x + d)` —
+    // reached the emitter as an ORDINARY TOP-LEVEL DEF, because `contentDefs` collects defs with a
+    // DEEP `.collect` and a class body is just more tree. It came out as a free `pub fn shifted`
+    // whose `x` binds to nothing: `error[E0425]: cannot find value x in this scope`, on the
+    // simplest data type the language has. The call side was never wrong — it already emits
+    // `P{..}.shifted(5)`, method syntax — so only the definition side had to move.
+    // (rust-case-class-method-cannot-read-its-own-fields.)
+    //
+    // Keyed on POSITION, not on name: two classes may declare the same member, and the name alone
+    // cannot say which class a def came from — that ambiguity is what `collectExternClasses` already
+    // solves the same way.
+    val methodOwnerByPos: Map[Int, String] =
+      standaloneCases.flatMap { c =>
+        c.templ.body.stats.collect { case dd: m.Defn.Def if !isExternBody(dd.body) =>
+          dd.pos.start -> c.name.value
+        }
+      }.toMap
+    val classFieldNames: Map[String, List[String]] =
+      standaloneCases.map(c => c.name.value -> c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList).toMap
+    val classMethodNames: Map[String, Set[String]] =
+      standaloneCases.map(c =>
+        c.name.value -> c.templ.body.stats.collect { case dd: m.Defn.Def => dd.name.value }.toSet).toMap
     val rustBlocks        = collectRustBlocks(module)
     // `fn name(` in a verbatim `rust` fence block: those functions ARE in the crate, and the walker
     // knows nothing else about them. Without this a call to one is refused as undefined.
@@ -274,8 +296,18 @@ object RustCodeWalk:
       case (n, recv) if renderedByName.get(n).exists(d => readsName(d.body, recv)) =>
         unsupported(s"def `$n` is an `extension` member this lane cannot lower (generic group, operator name, or an untyped receiver) and its body reads the receiver `$recv`")
     }
-    val results = defsToRender.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks))
+    // A case-class method renders through the SAME `renderDef` as everything else — only where it
+    // lands differs. Rendering it separately would be a second copy of "how a def becomes Rust",
+    // and the two would drift.
+    val (methodDefs, freeDefs) = defsToRender.partition(d => methodOwnerByPos.contains(d.pos.start))
+    val results = freeDefs.map(renderDef(_, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks))
     val (errors, ok) = results.partitionMap(identity)
+    val methodResults = methodDefs.map { d =>
+      val owner = methodOwnerByPos(d.pos.start)
+      renderDef(d, intrinsics, userDefs, ctorMap, topVals, effectfulDefs, rustFnNamesInBlocks)
+        .map(g => (owner, classFieldNames.getOrElse(owner, Nil), classMethodNames.getOrElse(owner, Set.empty), d, g))
+    }
+    val (methodErrors, methodOk) = methodResults.partitionMap(identity)
     // Overloading is counted on what actually EMITS, which is one level deeper than "reachable".
     // `extern def getCurrentPosition()` and `extern def getCurrentPosition(opts)` in std/geo.ssc are
     // both reachable AND both render to NOTHING — an extern with no `@rust` has no Rust side — so
@@ -360,10 +392,18 @@ object RustCodeWalk:
           s"the Rust member of the same name"
         )
       }
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ externErrs ++ regexErrs
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ regexErrs
     if allErrs.nonEmpty then Left(allErrs)
     else
-      val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString
+      // One `impl` per owner, members in source order. Emitted next to the struct rather than among
+      // the free functions, because that is where a reader looks for them and where a second class
+      // declaring the same member name stops colliding.
+      val implBlock =
+        methodOk.groupBy(_._1).toList.sortBy(_._1).map { case (owner, ms) =>
+          val fns = ms.map { case (_, fields, siblings, d, g) => selfMethod(g.render, fields, siblings, d) }.mkString("\n")
+          s"impl $owner {\n$fns}\n"
+        }.mkString
+      val enumBlock = structOk.map(_.render).mkString + enumOk.map(_.render).mkString + implBlock
       // Render given instances as Rust structs + impls, emitted before the defs.
       val ctx0 = Ctx(intrinsics, userDefs, ctorMap, topVals, "<given>", effectfulDefs)
       val givenBlock = givens.map(g => renderGiven(g, ctx0)).mkString
@@ -1782,6 +1822,50 @@ object RustCodeWalk:
   private def isExternBody(body: m.Term): Boolean = body match
     case m.Term.Name("__extern__") => true
     case _ => false
+
+  /** The arity of the first call to `name` in this tree, or None if it is never CALLED here.
+   *  Distinct from `readsName`, which answers about any mention: a sibling that is only mentioned
+   *  cannot have its closure's parameter types inferred, so binding it would turn a working method
+   *  into `type annotations needed`. */
+  private def callArity(t: m.Tree, name: String): Option[Int] =
+    t match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) if n == name => Some(args.values.size)
+      case _ => t.children.view.flatMap(callArity(_, name)).headOption
+
+  /** Turn a rendered free function into an inherent method: give it `&self`, then bind what the
+   *  body names — the fields it reads, and the sibling methods it calls — as locals.
+   *
+   *  BINDING RATHER THAN REWRITING THE TREE, and that is the whole design decision here. A field
+   *  appears in patterns, in string interpolations and inside nested closures; a rewrite that
+   *  missed one of those positions would emit a crate that COMPILES and reads the wrong thing.
+   *  A `let` covers every position at once because it works the way the source already assumed —
+   *  the name is simply in scope. (scalameta's own `Transformer` would have been the alternative
+   *  and this build does not ship one: `scala/meta/transversers/` carries `SimpleTraverser` only.)
+   *
+   *  A sibling becomes a closure that captures `&self`, so `withSession` calling `withHeader(…)` —
+   *  the spelling `std/http.ssc` actually uses — keeps its call site untouched.
+   *
+   *  Only what the body USES is bound: everything else would warn on every method that ignores a
+   *  field, and the unused-closure case would not even compile. */
+  private def selfMethod(render: String, fields: List[String], siblings: Set[String], d: m.Defn.Def): String =
+    val params  = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet
+    val usedF   = fields.filter(f => !params.contains(f) && readsName(d.body, f))
+    val usedM   = siblings.filter(s => s != d.name.value && !params.contains(s))
+      .toList.sorted.flatMap(s => callArity(d.body, s).map(s -> _))
+    val withSelf =
+      if render.startsWith(s"pub fn ${rustIdent(d.name.value)}()")
+      then render.replaceFirst("""\(\)""", "(&self)")
+      else render.replaceFirst("""\(""", "(&self, ")
+    val binds =
+      usedF.map(f => s"let ${rustIdent(f)} = self.${rustIdent(f)}.clone();") ++
+      usedM.map { (s, n) =>
+        val as = (0 until n).map(i => s"__a$i").mkString(", ")
+        s"let ${rustIdent(s)} = |$as| self.${rustIdent(s)}($as);"
+      }
+    val body =
+      if binds.isEmpty then withSelf
+      else withSelf.replaceFirst("""\{""", "{\n" + binds.map("    " + _).mkString("\n"))
+    indent(body) + "\n"
 
   private def renderDef(
       d: m.Defn.Def,

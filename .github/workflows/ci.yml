@@ -455,6 +455,17 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-route-handler-shapes-gate.sh
 
+      # A method in a `case class` body reached the emitter as an ordinary top-level def — the
+      # collection is a DEEP `.collect`, and a class body is just more tree — so it came out as a
+      # free fn whose field reads bound to nothing: two Ints and one method did not compile. The
+      # rows run the program on all three lanes and compare ANSWERS, because a method that reads the
+      # WRONG field compiles perfectly well. The no-method row is the anti-row: it carries the shape
+      # almost every case class in the corpus has, and a revert must not move it. ~60 s, three cargo
+      # builds. The corpus-wide control is `rust-std-survey-gate.sh`, already in this job.
+      - name: a case-class method can read its own fields and call its siblings
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-case-class-method-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`
