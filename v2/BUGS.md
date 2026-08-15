@@ -2120,11 +2120,37 @@ a missing TWIN rather than a broken one, and the shape is the one
 `tests/BUGS.md two-front-bug-pairs` records: a feature present on one path and absent on the path
 beside it.
 
-**Where the fix goes is a decision, not a detail.** `collectCss(Page, Button, Card, Alert, Counter)`
-reaches into each argument's `css` field and `collectJs` does the same for `js`, so it is a std-level
-aggregation over module objects rather than a primitive. This repo's own rule
-(`feedback intrinsics-always-plugin`) is that new intrinsics go to `std/`, never to core — which
-would give all four lanes one implementation instead of a fourth copy.
+**AND THE MISSING INTRINSIC IS THE SYMPTOM, NOT THE CAUSE — measured 2026-08-15 on a fresh build.**
+`collectCss(Page, Button, Card, Alert, Counter)` passes OBJECTS as values, and the native lane has no
+value for a module object at all:
+
+```scalascript
+object A:
+  val css: String = ".a { color: red; }"
+def take(o: Any): String = "got"
+println(A.css)      -- native: ".a { color: red; }"   interpreter: same
+println(take(A))    -- native: ssc: unbound global: A  interpreter: "got"
+```
+
+Member access on an object works on both lanes; passing the object itself works only on the
+interpreter. On the native tier an object is lowered to a set of mangled globals (`A_render`,
+`A_css`), and the bare name `A` is bound to nothing — which is exactly what the error says.
+
+**So this cannot be closed by adding two intrinsics to `std/`.** A std-level `collectCss` would have
+to receive the objects, and there is nothing to receive. The decision in front of whoever takes this
+is a representation one: either module objects get a first-class value on the native lane (a record
+of their `val` members, which is what the interpreter's `InstanceV` already is), or `collectCss` /
+`collectJs` change shape to take something the native lane can pass — the css STRINGS rather than
+the objects, `collectCss(Page.css, Button.css, …)`, which every lane can already express.
+
+The second is smaller and would work on all four lanes today; the first is what makes the existing
+examples compile unchanged. That choice is not an agent's to make quietly, so it is written down
+rather than picked.
+
+**Nearest neighbour, worth reading first:** `tests/BUGS.md f-declines-every-non-top-level-def` covers
+the F front's handling of object members and was fixed for bare member calls in `03887cefb` /
+`122e63e03`; this is the same area seen from the value side rather than the call side.
+
 
 **Done when** `tests/e2e/render-smoke.sh` passes: headless and served byte-identical for
 `examples/components-demo.ssc`. That gate is the reason both defects were found, and this is the last
