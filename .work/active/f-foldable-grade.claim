@@ -1,0 +1,11 @@
+slug: f-foldable-grade
+branch: feature/f-foldable-grade
+agent: claude-code
+started: 2026-08-15T16:35:51Z
+heartbeat: 2026-08-15T16:35:51Z
+status: claimed-before-planning
+items: f-foldable-unbound f-grade-unbound
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-foldable-grade-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
