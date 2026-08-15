@@ -38,11 +38,12 @@ decide deliberately whether to match the reference (wrong, gate-green) or the in
 scored as "reference contradicted", which the gate counts but does not fail on).
 ## orphan-detector-scans-one-directory-and-misses-real-gates — 217 subjects became 291, and it got 7× faster
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: 16a93085a
      confirmed: yes
      gate: tests/e2e/no-orphan-gates.sh --self-test -->
 
