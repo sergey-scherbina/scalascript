@@ -5,7 +5,7 @@ started: 2026-08-15T15:45:55Z
 heartbeat: 2026-08-15T15:45:55Z
 status: working
 items: v3-plugin-path-for-the-executor
-paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3
+paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3 file:v3/src/Main.scala file:v3/plugin-classpath.sh
 scope: |
   The owner's decision of 2026-08-15: give v3's executor a path to plugin intrinsics. It is the
   single unlock for the whole `host function '…' is not implemented on this lane` bucket — 30
@@ -80,4 +80,21 @@ scope: |
   because the refusal is issued at LOWERING for both lanes; and relaxing that refusal with only the
   bridge able to answer is EXACTLY the shape that once diverged 11 cases and printed five wrong
   answers. Either both lanes answer a name or neither does.
-next: registry + executor adapter + lowering consult + fleet on both classpaths, landed together
+  WIDENED 2026-08-15 to `v3/src/Main.scala`, BEFORE the edit, because a wrapper `@main` does not
+  work. There are TWO entry points — the kernel's `ssc3` and the uniml front's `ssc3uniml` — and
+  `v3/ssc3` chooses the second whenever the front is built, which is always. A wrapper main that
+  installs the fleet is therefore discarded by the uniml branch that runs after it; measured, and
+  the fleet stayed uninstalled while everything else worked.
+  So the install belongs where BOTH entry points already meet, `Cli.run`, and the kernel must reach
+  it WITHOUT naming the provider type — by name, the way `ServiceLoader` does. That keeps I-1: a
+  string is not a dependency.
+
+  MECHANISM PROVEN SEPARATELY BEFORE THE WIRING, so the remaining failures are known to be mine:
+  `NativePluginHost.loadAll()` on the fleet classpath loads 2 providers and the registry then holds
+  `mkdirs`, `envOrElse`, `exec`, `exists`, `deleteFile`, `listDir`, `mkdir`, `moveFile`,
+  `pathBasename` and more. The fleet works; only the install point was wrong.
+
+  ALSO `v3/plugin-classpath.sh` — the cached fleet classpath, one module per line, the same shape
+  and the same reasoning as `v3/uniml-classpath.sh`: availability is an explicit cached fact so a
+  caller who is not using the fleet never waits for sbt.
+next: install by name from Cli.run, prove mkdirs on both lanes, then measure
