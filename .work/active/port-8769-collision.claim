@@ -1,0 +1,11 @@
+slug: port-8769-collision
+branch: feature/port-8769-collision
+agent: claude-code
+started: 2026-08-15T16:19:29Z
+heartbeat: 2026-08-15T16:19:29Z
+status: claimed-before-planning
+items: wired-gates-share-hard-coded-tcp-ports
+paths: file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/no-leaked-servers.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
