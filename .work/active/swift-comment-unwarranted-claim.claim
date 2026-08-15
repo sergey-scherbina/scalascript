@@ -1,0 +1,11 @@
+slug: swift-comment-unwarranted-claim
+branch: feature/swift-comment-unwarranted-claim
+agent: claude-code
+started: 2026-08-15T23:03:50Z
+heartbeat: 2026-08-15T23:03:50Z
+status: claimed-before-planning
+items: v2-swift-cli-fails-silently-without-a-swift-toolchain
+paths: file:tests/e2e/v2-swift-cli.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
