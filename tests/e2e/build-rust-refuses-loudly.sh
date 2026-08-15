@@ -714,6 +714,52 @@ SSC
     failed=1
   fi
 
+  # A GIVEN INSTANCE'S MEMBERS ARE NOT TOP-LEVEL DEFS.
+  #
+  # `collectDefs` is a DEEP collect, so each `def` inside a `given … with` was picked up as a free
+  # function AND emitted again by `renderGiven`, which owns them. The overloading check counted the
+  # copies and refused the module — `def combine emits 2 times (overloading)` — naming a Scala
+  # feature the file does not use. Ten std modules were refused for it.
+  #
+  # TWO INSTANCES OF ONE TRAIT is the minimum that shows it: with one instance there is one copy and
+  # nothing collides, so a single-instance probe passes while the defect stands. The program also
+  # CALLS through both, because a refusal counts what RENDERS and an unreachable instance renders
+  # nothing.
+  #
+  # The givens are NAMED deliberately. An ANONYMOUS `given Combiner[Int] with` has two defects of
+  # its own on this lane — every anonymous instance emits as `UnknownGiven`, so two of them are
+  # E0428, and `summon[T]` lowers to an empty expression — both filed separately. Writing the case
+  # that way would have made a red here ambiguous between three causes, and it did: the first draft
+  # failed on those two and not on the one this fixes.
+  cat > "$tmp/giveninst.ssc" <<'SSC'
+trait Combiner[A]:
+  def combine(a: A, b: A): A
+
+given intCombiner: Combiner[Int] with
+  def combine(a: Int, b: Int): Int = a + b
+
+given strCombiner: Combiner[String] with
+  def combine(a: String, b: String): String = a + b
+
+def main(): Unit =
+  println("i=" + intCombiner.combine(2, 3))
+  println("s=" + strCombiner.combine("a", "b"))
+SSC
+  set +e
+  gib=$("$SSC" build-rust "$tmp/giveninst.ssc" -o "$tmp/giveninstbin" 2>&1); girc=$?
+  gi_rust=$("$tmp/giveninstbin" 2>&1)
+  gi_ref=$("$ROOT/bin/ssc" run "$tmp/giveninst.ssc" 2>/dev/null)
+  set -e
+  if [[ $girc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — two given instances of one trait do not build" >&2
+    echo "--- output: $(printf '%s' "$gib" | tail -6)" >&2
+    failed=1
+  elif [[ "$gi_rust" != "$gi_ref" || -z "$gi_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on given instances" >&2
+    echo "--- rust: $(printf '%s' "$gi_rust" | tr '\n' '|')   ssc: $(printf '%s' "$gi_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather

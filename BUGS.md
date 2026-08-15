@@ -1135,6 +1135,140 @@ Gate: `tests/e2e/build-rust-refuses-loudly.sh` — all six cells, differentially
 lane, `circle:3 / rect:2x5 / dot / circle:7 / dot`. Negative control: with the bare field-less
 constructor suppressed the gate fails and names the case.
 
+## rust-import-wrapper-depth-hides-an-owner — an imported module's objects sit shallower than the merged manifest describes, so they are not recognised as owners
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-std-survey-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-15
+     ssc-version: febd37e88
+     repro: std/agent-mcp.ssc
+     confirmed: yes -->
+
+**THE SAME IMPORT-DEPTH DEFECT AS `rust-any-valued-map-literal-not-lifted`'s neighbour, biting the
+other way.** `collectObjectOwnership` decides which objects are USER objects by skipping as many
+wrapper levels as the merged module's own `package:` has segments. An INLINED module brings its own
+wrapper depth, and the two need not agree:
+
+    std/agent-mcp.ssc     package: std.agent.mcp   → skip = 3
+    std/mcp/types.ssc     package: std.mcp         → its blocks are wrapped 2 deep
+
+So inside agent-mcp, `object Tool` sits at depth 2, `2 >= 3` is false, and it is NOT recognised as an
+owner. `text` therefore reads as uncontested, is not qualified, and `object Tool: def text` collides
+with `object Resource: def text` again — the very collision fixed in dc3cfeeef, back because the
+OWNERS are invisible rather than because the fix regressed.
+
+`std/agent-mcp.ssc` is the LAST module in the corpus still refusing on `overloading` — the count went
+11 → 1 when given-instance members stopped being double-emitted, and this is the one.
+
+**Earlier the same depth mismatch went the OTHER direction:** with `std/json.ssc` (`package:
+std.json`) importing `std/json-core.ssc` (`package: std.json.core`), the inlined blocks were one
+level DEEPER than the manifest described and `core` was mistaken FOR a user object, renaming defs
+that nothing renamed at the call sites. That was worked around by qualifying only CONTESTED names,
+which is correct but does not make the depth right — as this entry shows.
+
+**Why it is not fixed here:** the AST carries no per-block provenance, so the wrapper depth of an
+inlined block cannot be read off anything. A structural rule — count the leading pass-through
+objects, each containing exactly one object and nothing else — identifies every wrapper except the
+innermost, and cannot tell a genuine single-object file from a wrapped one. Doing it properly means
+either recording the origin manifest on the block at inline time, or having the inliner strip its own
+wrappers. Both are outside the Rust backend.
+
+## setsid-is-not-on-macos-so-a-detached-gate-never-starts — and I read the empty log as "the gate died"
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15
+     ssc-version: febd37e88
+     repro: `setsid nohup bash tests/e2e/rust-std-survey-gate.sh`
+     confirmed: yes -->
+
+**A CORRECTION TO A CLAIM ALREADY LANDED.** The release note for `rust-mcp-resources-prompts` and the
+message of `58bb272f4` both say the std survey "could not be run — three attempts died after 1-3
+minutes, the host is at load 22 with 86 worktrees". **That is wrong.** Two of the three attempts
+never started: they were launched with `setsid`, which does not exist on macOS, and the log's single
+line was
+
+    (eval):1: command not found: setsid
+
+which I read as "died" without reading it. Only ONE attempt actually started and stopped early.
+
+**The survey runs fine.** Re-run with `nohup` alone and waited on the PROCESS rather than a timer:
+45 minutes, REFUSED 78 / COMPILES 54, BADRUST not grown. The conclusion drawn from the broken
+command — an environmental limitation of this host — was invented.
+
+**What went wrong is not the missing binary.** It is that I asserted a limitation of the TOOLING from
+a run whose output said, in plain text, what had actually happened. The same session had already
+recorded twice that a green exit code is not evidence and that the output must be read; the third
+time I broke my own rule, and it produced a false statement in a durable note. The note stands;
+this entry is the correction, because a reader hitting a slow survey should not conclude from mine
+that it is unrunnable here.
+
+**Practical residue:** long gates on this host need `nohup` (not `setsid`) and a wait keyed on
+`ps aux | grep` for the script, not a fixed sleep — the survey takes ~45 minutes under load, well
+past any timeout I had been giving it.
+
+## rust-anonymous-given-emits-one-name-for-all-of-them — two anonymous `given` instances are both `UnknownGiven`, which is E0428
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15
+     ssc-version: febd37e88
+     repro: the four-line pair in the body
+     confirmed: yes -->
+
+An anonymous instance has no name for `givenStructName` to use, so every one of them emits as the
+same struct:
+
+    given Combiner[Int] with
+      def combine(a: Int, b: Int): Int = a + b
+    given Combiner[String] with
+      def combine(a: String, b: String): String = a + b
+
+    error[E0428]: the name `UnknownGiven` is defined multiple times
+
+The NAMED form — `given intCombiner: Combiner[Int] with` — works, and both lanes agree on it. So the
+gap is the anonymous spelling, which is the one `std/eq.ssc`, `std/hash.ssc`, `std/order.ssc`,
+`std/show.ssc` and `std/semigroup-monoid.ssc` all use.
+
+Found while writing a gate case for the given-member double emission: the first draft used the
+anonymous form and went red on THIS instead, which would have made the case ambiguous between
+causes. The case now uses named givens and says why.
+
+## rust-summon-lowers-to-an-empty-expression — `val x = summon[T]` emits `let x = ;`
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15
+     ssc-version: febd37e88
+     repro: `val ints = summon[Combiner[Int]]`
+     confirmed: yes -->
+
+    let ints = ;
+    error: expected expression, found `;`
+
+Not a refusal — INVALID RUST, which is the worse direction. `std/semigroup-monoid.ssc` refuses
+earlier with `cannot resolve summon[Semigroup[A]] — no matching given instance`, so the resolver
+knows about `summon` and this is the path where resolution produced nothing and the emitter wrote
+the nothing out rather than refusing.
+
+Found the same way as the entry above, in the same discarded probe draft.
+
 ## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
 
 <!-- status: open

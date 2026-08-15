@@ -96,7 +96,19 @@ object RustCodeWalk:
     _effectOps            = collectEffectOps(module)
     _multiShotEffects     = collectMultiShotEffects(module)
     val customEffectOps   = _effectOps.map { case (e, ops) => e -> effectTraitSigs(ops) }
-    val defs              = collectDefs(module).filterNot(d => isEffectOpMarker(d.body))
+    // A GIVEN INSTANCE'S MEMBERS ARE NOT TOP-LEVEL DEFS, and treating them as such emitted each one
+    // TWICE — once as a free `pub fn` from this deep collect, once as an impl method from
+    // `renderGiven`, which owns them. The overloading check then counted the copies and refused the
+    // module: `def eqv emits 5 times (overloading)` for std/eq.ssc's five `given Eq[T] with`
+    // instances. The message named a Scala feature the file does not use; the defect is a DOUBLE
+    // EMISSION, and five std modules were refused for it — eq, hash, order, show,
+    // semigroup-monoid.
+    //
+    // Keyed by POSITION rather than by name, because the names are the very ones that collide.
+    val givenMemberPos    = collectGivens(module).flatMap(_.methods).map(_.pos.start).toSet
+    val defs              = collectDefs(module)
+                              .filterNot(d => isEffectOpMarker(d.body))
+                              .filterNot(d => givenMemberPos.contains(d.pos.start))
     _defBodies            = defs.map(d => d.name.value -> d).toMap
     _varargDefs = defs.flatMap { d =>
       val ps = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
