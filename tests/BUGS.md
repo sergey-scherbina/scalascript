@@ -1,3 +1,62 @@
+## f-u0-reduction-2026-08-15 — a 327→103 reduction, and the predicate that let it drift
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: none — open defect -->
+
+Work on the `__u0` bucket. **Not solved.** Three things were established that the next attempt
+should not have to rediscover, and one mistake of mine that is worth more than the reduction.
+
+### The bucket is ONE subject and two casualties
+
+`examples/markdown-toolkit-links.ssc` is 38 lines with four calls and **no placeholder at all**; it
+fails because it imports `std/ui/content.ssc`. Same for `examples/content-live-rows.ssc`. So the
+"3 files" is one real subject (`std/ui/content.ssc`, 327 lines) plus transitive collateral — exactly
+what `scripts/f-gap-census`'s header warns about, and it means `__u0` is a single-cause bucket like
+the guarded-tuple and for-tuple ones, not a third-ranked one.
+
+### Five build-ups failed to reproduce it
+
+Each of these is GREEN on F, written from the real call site outward:
+
+```
+List(1, 2).map(f(_, "o"))                                     placeholder + second arg
+el("p", List(1, 2).map(f(_, "o")))                            nested inside an outer call's argument
+case Par(inlines) => el("p", inlines.map(f(_, "o")))          the same, inside a match arm
+case Par(inlines, _) => …                                     with a wildcard in the pattern
+def f(a: Int, o: String = "z")  called as f(_, "o")           the callee has a DEFAULT argument
+```
+
+The last one matters: the reduced code's placeholder calls a def with a default argument, which
+looked like the mechanism (the default-synthesis path builds a call from token SLICES and could
+re-parse them without the pushed binder). It is not — that shape compiles.
+
+### MY PREDICATE WAS TOO WEAK, and the reduction drifted because of it
+
+The reducer kept a candidate when the reference front still RAN it and F's reason contained
+`(global __u0)`. A `BOTH-UNBOUND` row contains that substring too — so the 103-line result reports
+**`BOTH-UNBOUND`** where the original reports **`GAP`**. The reference front's validator objects to
+the reduced file as well, which makes it a weaker artefact than its size suggests: it is no longer
+demonstrably an F-only defect.
+
+**Pin the VERDICT field, not just the reason.** `cut -f2` is the category and `cut -f3` is the text;
+a reduction that preserves the text while changing the category has changed the bug. The reduced
+file is kept as a starting point, not as a reproducer.
+
+### Two reducer fixes that ARE reusable
+
+* The candidate must live at a SIBLING path inside `std/ui/` — this module's imports are relative,
+  and a copy at the repo root fails to resolve them, which collapses the predicate into a
+  false negative.
+* The declaration slice must stop at the CLOSING FENCE, not at end-of-file. Running to EOF means
+  removing a trailing `def` also removes the fence, so the candidate always breaks and the last
+  declarations look load-bearing when they are not. That flaw cost three declarations of a
+  previous reduction, which came off by hand afterwards.
+
 ## f-placeholder-in-constructor-application — a routing defect wearing a placeholder's clothes
 
 <!-- status: fixed
