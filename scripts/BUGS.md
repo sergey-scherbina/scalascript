@@ -7,6 +7,76 @@ grepping for status.
 
 Newest first.
 
+## build-slot-is-not-reentrant-so-one-install-holds-every-slot — and its own header recommended the nesting
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     gate: scripts/build-slot --self-test
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: 72ae0ba313465691b920e45fa175ffeba6e40a23 -->
+
+**Found 2026-08-15 by reading my own build log**, while making a real toolchain for the BigDecimal
+contract decision. `scripts/build-slot ./install.sh --dev` printed, about itself:
+
+```text
+build-slot: slot 2/2 acquired after 0s
+Toolchain cache MISS (0e05707d…) — building.
+build-slot: all 2 slots busy — waiting (load 94.31)
+build-slot: slot 1/2 acquired after 10s
+```
+
+Reproduced directly, with nothing else running:
+
+```text
+$ scripts/build-slot scripts/build-slot bash -c 'ls $SEM_DIR'
+build-slot: slot 1/2 acquired after 0s
+build-slot: all 2 slots busy — waiting (load 82.04)
+build-slot: slot 2/2 acquired after 76s
+slot.1 slot.2                    ← one logical build, both slots
+```
+
+**The documented usage was the cause.** `build-slot`'s header listed
+`scripts/build-slot ./install.sh --dev` as THE way to run an install, and `install.sh` later grew a
+slot of its own around `sbt cli/installBin`. Neither change is wrong alone; together the recommended
+command consumes a `MAX=2` semaphore entirely and every other agent waits on one install.
+
+**The 76 s matters more than the double-count.** The inner call did not simply take a spare slot — it
+BLOCKED waiting for one it could never need. With the other slot held by a real build it would have
+waited `SSC_BUILD_WAIT`, ninety minutes, before the run-anyway escape. A semaphore that blocks on
+itself is worse than no semaphore, because the guard's own cost is invisible in the thing it guards.
+
+**Fix:** a held slot marks itself in the environment; a nested acquire passes through and says so.
+Scoped by construction — only the holder's process tree inherits the marker. The give-up path marks
+it too, so one exhausted wait cannot become several. The header's usage line now says `install.sh`
+takes its own slot and must not be wrapped.
+
+**`--self-test`, and its first case is the one that passes BEFORE the fix.** A passthrough that
+fired unconditionally would be indistinguishable from inside a nested call — no wait, no second
+slot, all green, and the semaphore silently off for everyone. So the test asserts an ordinary call
+still TAKES a slot, and that case passes against the pre-fix body; the nesting cases fail there:
+
+```text
+ok   an ordinary call takes a slot
+FAIL a nested call held 2 slots — one logical build must hold one
+FAIL the nested call passed through without saying so
+ok   every slot released
+```
+
+It runs against its own `SSC_BUILD_SEMDIR`: this host is shared and a self-test reaching into the
+real semaphore could reap or occupy a slot a live build is using.
+
+**NOT WIRED YET, said out loud rather than left to be found.** `scripts/smoke-ci.ssc` and
+`.github/workflows/ci.yml` are both held by live claims. Two of my gates now wait on the same line;
+whoever holds `smoke-ci.ssc` next can add both:
+
+```scala
+Check("scripts", "build-slot-selftest", "scripts/build-slot", List("--self-test"), 60000),
+Check("scripts", "coord-update-rolls-back", "tests/coord/coord-update-rolls-back.sh", List(), 60000),
+```
+
 ## install-sh-rebuilds-a-digest-another-agent-just-cached — and publishLocal ran even when nothing was built
 <!-- status: fixed
      lane: apparatus
