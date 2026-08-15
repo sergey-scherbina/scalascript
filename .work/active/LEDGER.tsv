@@ -1,9 +1,8 @@
-# generation: 2323
+# generation: 2324
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 ci-gates-that-cannot-run	claude-code	2026-08-15T15:42:01Z	ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14	file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
 rust-given-member-double-emission	claude-code	2026-08-15T18:26:01Z	rust-given-instance-members-emit-twice-and-read-as-overloading	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
-plugin-adapter-value-surface	claude-code	2026-08-15T19:03:33Z	plugin-adapter-value-surface v3-plugin-fleet-regresses-four-cases-when-enabled	file:v3/plugins file:v3/BUGS.md file:v3/corpus-report.sh file:v3/ssc3
 rust-any-map-literal-lift	claude-code	2026-08-15T19:19:57Z	rust-any-valued-map-literal-not-lifted	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-any-map-literal-gate.sh file:.github/workflows/ci.yml file:BUGS.md
 v3-fast-apply	claude-code	2026-08-15T19:43:26Z	SSC3-J5-apply1-builds-a-list-to-take-apart	file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
 v2-f-round-half-to-even	claude-code	2026-08-15T21:04:08Z	v2-f-round-is-three-different-roundings-across-the-backends	file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/specs/10-core-ir.md file:v3/BUGS.md file:v2/BUGS.md file:v2/conformance/float-round-ties.coreir
