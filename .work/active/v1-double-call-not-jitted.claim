@@ -1,0 +1,11 @@
+slug: v1-double-call-not-jitted
+branch: feature/v1-double-call-not-jitted
+agent: claude-code
+started: 2026-08-15T15:48:58Z
+heartbeat: 2026-08-15T15:48:58Z
+status: claimed-before-planning
+items: int-a-double-in-a-signature-falls-off-the-jit
+paths: file:v1/runtime/backend/interpreter/BUGS.md file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
