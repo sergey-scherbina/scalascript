@@ -64,10 +64,40 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          `ssc1inferLam` to seed from the annotation, behind an env flag, and the corpus run. Nothing
          flipped.
 
-      **3. [ ] THE CONTRACT — Sergiy's decision, taken with 1 and 2 in hand.**
-         A declared type is documentation, a coercion hint, or a constraint. Any one is defensible;
-         having all three simultaneously is what produces three answers to one program. **Not an
-         agent's call**, and it is the reason steps 1 and 2 come first.
+      **3. [x] THE CONTRACT — DECIDED by Sergiy 2026-08-15.**
+         *"Объявленный тип — и документация, и подсказка приведения, и ограничение. Все сразу. Это
+         безусловно ограничение, но там где это допустимо и уместно и имеет смысл — это подсказка
+         приведения."*
+
+         So: **a declared type is a CONSTRAINT, unconditionally. Where a coercion is admissible it
+         is also a coercion hint.** Both halves, and the constraint is not conditional on anything.
+
+         **"Where admissible" has to be a CLOSED, NAMED SET or it means "wherever some implementation
+         happens to do something" — which is today's state.** The set is not invented here; it is
+         read off what the language already does, measured 2026-08-15:
+
+         | site | coercion today | on which lane |
+         |---|---|---|
+         | **operator** | `1 + 1.5` -> `2.5`, `1 == 1.0` -> `true` | native AND v1, agreeing |
+         | **declaration** — parameter | none: `f(a: Double)` given `1` prints `1`, not `1.0` | no lane |
+         | **declaration** — `val` | none: `val d: Double = 1` prints `1` | no lane |
+         | **declaration** — parameter, js only | `_charCodeOrNull(a) ?? a` turns a 1-char String into its code point | **js alone, and it is the wrong answer** |
+
+         **THE MEASUREMENT THAT MAKES THIS TRACTABLE: nothing depends on declaration-site coercion,
+         because none exists.** Turning the constraint on cannot break code that relied on a
+         conversion; the only thing it can break is code that was silently ill-typed. That is
+         precisely what step 2 counts, and it is a much cleaner question than it looked.
+
+         **The admissible set, therefore:** the numeric widenings the language already performs at
+         operators (Int -> Double and the rest of that tower). Everything else is an error at a
+         declaration — String -> Int, Bool -> Int, and the narrowing Double -> Int included. The js
+         String -> Int char-code coercion is NOT in the set and becomes a defect under this contract
+         rather than a design choice (`v2/BUGS.md a-declared-parameter-type-means-four-different-things-on-four-lanes`).
+
+         **Open sub-question, to be answered by measurement rather than taste before implementing:**
+         whether `Char` -> `Int` belongs in the admissible set. `specs/v2-char-is-an-int.md` says a
+         Char IS an Int on this lane, which would make it a widening rather than a coercion — but a
+         one-character STRING is not a Char, and conflating the two is what produces `f("x") = 120`.
 
       **4. [ ] CONVERGENCE, gated.** `tests/e2e/declared-type-agreement.sh`: the same program on
          every lane must give ONE verdict. Whatever the contract turns out to be, agreement is
