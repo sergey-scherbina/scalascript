@@ -1,0 +1,11 @@
+slug: v1-typer-gaps
+branch: feature/v1-typer-gaps
+agent: claude-code
+started: 2026-08-15T22:34:24Z
+heartbeat: 2026-08-15T22:34:24Z
+status: claimed-before-planning
+items: v1-typer-has-14-corpus-visible-gaps-hidden-by-the-println-escape
+paths: file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:v1/lang/core/src/main/scala/scalascript/typer/Types.scala file:tests/BUGS.md file:tests/e2e/declared-type-is-a-constraint.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
