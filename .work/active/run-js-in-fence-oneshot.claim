@@ -1,0 +1,11 @@
+slug: run-js-in-fence-oneshot
+branch: feature/run-js-in-fence-oneshot
+agent: claude-code
+started: 2026-08-15T23:31:49Z
+heartbeat: 2026-08-15T23:31:49Z
+status: claimed-before-planning
+items: js-jvm-codegen-in-fence-imports-not-followed
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/conformance/native-import-in-fence.ssc file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
