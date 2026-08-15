@@ -45,6 +45,83 @@ constraints) — the second front change to land under one of my claims today. T
 rebuilt and re-run on the rebased tree, 8/8, rather than trusting a verdict taken against the older
 one.
 
+## v1-check-never-looks-inside-a-println — one escape hides its arity and argument checks from every program
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/declared-type-is-a-constraint.sh -->
+
+**Measured 2026-08-15.** `ssc-tools check` has working arity and argument-type checks. They simply
+never see anything a program writes inside `println(...)`:
+
+```text
+h(1, 2, 3)              error: Wrong number of arguments: expected 2, got 3
+println(h(1, 2, 3))     OK
+h("x")   [def h(a: Int)] error: Type mismatch: expected Int, found String
+println(h("x"))         OK
+z(5)     [def z(): Int]  error: Wrong number of arguments: expected 0, got 1
+println(z(5))           OK
+```
+
+**The mechanism is two lines of `Typer.scala`.** `println` is declared in the prelude as
+`SType.Function(List(SType.Any), SType.Unit)`, and variadicity is decided by a literal comparison:
+
+```scala
+val isVariadic = paramTypes == List(SType.Any)      // println matches exactly
+if !isVariadic then
+  args.zip(paramTypes).foreach { (arg, expected) =>
+    val actual = inferType(arg, scope)              // the ONLY call that walks INTO the argument
+    checkAssignable(actual, expected, arg.pos)
+  }
+```
+
+`inferType(arg, …)` is what descends into the argument and finds its own errors, and it is called
+**only in the non-variadic branch**. So a variadic call's arguments are never inferred at all — not
+even for errors that have nothing to do with the parameter type. Since a program observes its result
+through `println`, that one escape hides the typer from essentially everything anyone writes,
+including all seven programs of the census in `no-two-type-checkers-in-this-repo-agree`. **That census
+measured the symptom; this is the mechanism, and the census's explanation of the v1 column —
+"declarations without inference" — is wrong and is corrected here.**
+
+### The fix is one line and it CANNOT LAND YET — priced 2026-08-15
+
+Always infer the argument; keep only `checkAssignable` conditional. Measured against the 399-case
+corpus, with the baseline established first (`check` already rejects 9 cases, on undefined names and
+the effect verifier):
+
+| change, measured ALONE | new rejections |
+|---|---|
+| infer arguments always | **+12** |
+| removing `paramTypes.nonEmpty` from the overflow guard (a separate, also-correct one-liner) | **+2** |
+| both together | +14 |
+
+**Every one of the 14 is a FALSE POSITIVE — a gap in the typer, not a defect in the program**, and
+they are three shapes:
+
+| shape | cases | what the typer cannot do |
+|---|---|---|
+| unresolved name | 9 | `direct-syntax` bindings, generator `suspend`, MCP `Transport`, a name imported inside a fence |
+| `Wrong number of arguments: expected 0` | 3 | a PARENLESS def invoked at its mention — modelled as 0-arity and then seen applied |
+| `Operator '+' is not applicable to Set[Int]` | 2 | set union via `+`, absent from the operator table |
+
+So turning argument inference on does not break 14 programs; it **reveals 14 holes in the checker**
+that the `println` escape has been hiding. Landing either change today would make `check` reject
+correct programs, which is the same defect in the other direction.
+
+**Both changes are reverted rather than carried.** A correct-in-principle edit that makes the tool
+wrong is not an improvement, and an unmeasurable one is not a change worth keeping.
+
+**Done when** the 14 gaps close and argument inference is on — then `check` stops green-lighting
+`z(5)` and `two(1)(2)(3)`, both of which its own runtime refuses with `Not callable`.
+
+**A METHOD NOTE, because it nearly cost the conclusion.** The first sweep measured BOTH edits at once
+and reported 14. Attributing that to either would have been guesswork: the three `expected 0` rows
+could have come from either edit. Separating them cost one rebuild and one sweep and moved 2 of the
+14 to a different cause. A control run as a block is not a control.
+
 ## v2-swift-cli-fails-silently-without-a-swift-toolchain — and my own fix put a live backtick in it
 
 <!-- status: fixed
