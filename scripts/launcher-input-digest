@@ -113,6 +113,57 @@ is_staged_source_under_excluded_dir() {
   return 1
 }
 
+# ── COORDINATION SCRIPTS, named one by one ───────────────────────────────────────────────────────
+#
+# `scripts/` is INCLUDED and stays included: `build.sbt:2039` bakes `scripts/launcher-input-digest`
+# into the generated launcher, which reads it at run time for the staleness check, and `build.sbt`
+# runs it again at build time to stamp the digest. Excluding the tree — the obvious fix — would have
+# excluded that. Measured before writing this: of everything under `scripts/`, the build definition
+# and the launcher templates name EXACTLY ONE file, and it is that one.
+#
+# So the exclusion is per FILE and by NAME, never by directory, and the default stays INCLUDED. That
+# direction is deliberate: a script wrongly included costs a rebuild, a script wrongly excluded hides
+# a stale toolchain. BUGS `trace-a-cache-key-before-building-on-it` is a directory exclusion that hid
+# the DEFAULT FRONT, and `cache-a-file-not-a-directory-path` is a key that served the wrong state's
+# classes. This list is not extended without the same measurement.
+#
+# What it buys, from the entry that asked for it: editing `scripts/coord-release` used to make
+# `scripts/smoke-ci` refuse to run and demand `./install.sh --dev` — a full sbt build — for a bash
+# script that talks to `git` and is compiled into nothing. Measured there: ~10 minutes of rebuild,
+# twice, in one session.
+EXCLUDE_SCRIPT=(
+  coord-claim coord-release coord-update coord-status coord-ledger   # the claim lifecycle
+  board board-ownership-check                                        # board rendering
+  build-slot build-ram-guard build-ram-report build-ram-idle-ab build-ram-peak kill-stale-builders
+  ci-status full-ci                                                  # CI reporting
+  bugs-report bugs-split bugs-index-migrate inbox-add inbox-route    # board tooling
+  new-worktree rm-worktree test-worktree-guardrail                   # worktree helpers
+  # The SUITE DECLARATION and its driver. Named by no build file and staged nowhere — the launcher
+  # RUNS them, it does not contain them. They are also the measured benefit: of the last 60 commits
+  # on main exactly one touched `scripts/` and nothing else, and the file was `smoke-ci.ssc`. Adding
+  # a `Check(...)` row used to cost a full sbt build.
+  smoke-ci smoke-ci.ssc
+)
+
+# THE LIST IS CHECKED, NOT TRUSTED. If the build ever starts naming one of these, the digest would
+# silently stop noticing a real change to it — the failure direction this whole file exists to avoid.
+# So the tool REFUSES rather than under-including, and says which name to remove.
+#
+# `|| true` on the substitution is not defensive noise: this file runs under `set -euo pipefail`, the
+# launcher-template grep matches NOTHING today, and a no-match `grep` under `pipefail` makes the
+# assignment non-zero and kills the script. It did — the digest exited 1 printing NOTHING, which as a
+# cache key is the worst available failure, since every caller reads "no digest" as its own answer.
+_script_refs="$( { grep -ohE 'scripts/[A-Za-z0-9._-]+' build.sbt 2>/dev/null || true
+                   grep -rhoE 'scripts/[A-Za-z0-9._-]+' v1/tools/scripts/launchers 2>/dev/null || true
+                 } | sed 's|^scripts/||' | LC_ALL=C sort -u || true )"
+for _s in "${EXCLUDE_SCRIPT[@]}"; do
+  if printf '%s\n' "$_script_refs" | grep -qx -- "$_s"; then
+    echo "launcher-input-digest: scripts/$_s is named by the build, so it CAN affect the launcher" >&2
+    echo "  and must not be excluded. Remove it from EXCLUDE_SCRIPT." >&2
+    exit 1
+  fi
+done
+
 is_excluded_path() {
   local path="$1" base="${1##*/}" excluded
   is_staged_source_under_excluded_dir "$path" && return 1
@@ -121,6 +172,11 @@ is_excluded_path() {
   for excluded in "${EXCLUDE_BASENAME[@]}"; do
     [[ "$base" == "$excluded" ]] && return 0
   done
+  if [[ "$path" == scripts/* ]]; then
+    for excluded in "${EXCLUDE_SCRIPT[@]}"; do
+      [[ "$base" == "$excluded" ]] && return 0
+    done
+  fi
   return 1
 }
 

@@ -145,6 +145,15 @@ included_case tracked-v1-source v1/lang/core/src/main/scala/scalascript/parser/P
   bash -c 'printf "\n// launcher-digest-gate probe\n" >> v1/lang/core/src/main/scala/scalascript/parser/PreprocessorRegistry.scala'
 included_case build-definition build.sbt \
   bash -c 'printf "\n// launcher-digest-gate probe\n" >> build.sbt'
+
+# THE ONE SCRIPT THAT DOES REACH THE LAUNCHER, and the reason `scripts/` is not excluded wholesale.
+# `build.sbt:2039` writes `$_SSC_ROOT/scripts/launcher-input-digest` into the generated launcher,
+# which runs it at STARTUP for the staleness check, and the build runs it again to stamp the digest.
+# So a change to it changes what every launcher does. Of everything under `scripts/`, the build
+# definition and the launcher templates name exactly this file — measured, then paired with the
+# excluded row above so neither can be widened without the other going red.
+included_case launcher-digest-tool scripts/launcher-input-digest \
+  bash -c 'printf "\n# launcher-digest-gate probe\n" >> scripts/launcher-input-digest'
 included_case untracked-new-source v1/lang/core/src/main/scala/__digest_probe.scala \
   bash -c 'printf "class DigestProbe\n" > v1/lang/core/src/main/scala/__digest_probe.scala'
 
@@ -183,6 +192,23 @@ excluded_case() { # excluded_case <label> <relative-path> <mutation-command…>
 
 excluded_case root-markdown CHANGELOG.md \
   bash -c 'printf "\nlauncher-digest-gate probe\n" >> CHANGELOG.md'
+
+# COORDINATION SCRIPTS. `scripts/` is INCLUDED as a tree and stays so, because `build.sbt` bakes
+# `scripts/launcher-input-digest` into the generated launcher and runs it again to stamp the digest —
+# so the exclusion is per FILE, and these two rows are the pair that keeps it honest.
+#
+# Measured in `editing-a-coordination-script-forces-a-compiler-rebuild`: editing `coord-release`, a
+# bash script that talks to `git` and is compiled into nothing, made `smoke-ci` refuse to run and
+# demanded a full `./install.sh --dev` — ~10 minutes, twice in one session, and it busts the
+# content-addressed toolchain cache for everyone who pulls.
+excluded_case coordination-script scripts/coord-release \
+  bash -c 'printf "\n# launcher-digest-gate probe\n" >> scripts/coord-release'
+
+# THE MEASURED ONE. Of the last 60 commits on main, exactly one touched `scripts/` and nothing else,
+# and its file was `scripts/smoke-ci.ssc` — the suite declaration, which the launcher RUNS and does
+# not contain. Adding a `Check(...)` row cost a full sbt build before this.
+excluded_case suite-declaration scripts/smoke-ci.ssc \
+  bash -c 'printf "\n// launcher-digest-gate probe\n" >> scripts/smoke-ci.ssc'
 excluded_case conformance-corpus tests/conformance/arithmetic.ssc \
   bash -c 'printf "\nlauncher-digest-gate probe\n" >> tests/conformance/arithmetic.ssc'
 excluded_case workflow .github/workflows/smoke.yml \
