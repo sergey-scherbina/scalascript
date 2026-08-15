@@ -416,6 +416,46 @@ and that widening is load-bearing — v2's `flt` refuses an Int, so `math.sqrt(1
 while the executor answered 4. Moving the declaration into the object would move that one line of
 `.ssc` both lanes run into a builder in Scala. The workaround is not what this entry was about.
 
+## v3-the-fleet-wires-two-plugin-modules-of-twenty-six — twenty-four host names still refuse
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`v3/plugin-classpath.sh` lists TWO modules — `v2NativeFsPlugin` and `v2NativeOsPlugin` — and
+`build.sbt` defines TWENTY-SIX `v2Native*Plugin` projects.** So with the fleet on, the corpus still
+reports 24 refusals of `the host function '…' is not implemented on this lane`, and the file's own
+comment invites the rest: "start with the ones whose names the corpus actually reaches; the rest are
+a one-line addition each".
+
+**THE NAMES, taken from the compiler's own refusal rather than from a scanner of mine** — a sweep of
+every corpus case, counting only that message:
+
+        7 element                          ui-plugin
+        2 signal                           content-plugin, ui-plugin
+        2 contentDocument                  content-plugin
+        2 actorGroupTell                   NOT FOUND by a source grep
+        1 sha256                           actors-plugin, crypto-plugin
+        1 localStorageGet                  ui-plugin
+        1 webauthnChallenge                NOT FOUND by a source grep
+        1 eqSignal / computedSignal         (ui/reactive)
+        1 contentData / contentBlock / contentModuleMetadata   content-plugin
+        1 __jsonCoreWrap / __jsonCoreWrapStrict                json-plugin
+        1 add                              http-fast-plugin
+
+`actorGroupTell` and `webauthnChallenge` match no plugin source by name, so a module list alone will
+not answer them; that is recorded because a census answers only its own question and the mapping
+above is a grep for a string literal, not proof of registration.
+
+**WHY IT IS NOT JUST "ADD THE LINES".** Every module added is a new set of prims that lowering will
+then emit instead of refusing, and each carries the same risk the last claim closed: an argument or
+result shape the adapter cannot convert, or a failure thrown as a Java exception. The floors are the
+instrument — DIFF 3 and CRASH 9 with a fleet-off control run — and a module that moves either one is
+a defect found, not a reason to abandon the list.
+
 ## v3-plugin-fleet-regresses-four-cases-when-enabled — it does not; the fleet now RAISES N by five
 
 <!-- status: fixed
