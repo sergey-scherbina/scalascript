@@ -1,0 +1,11 @@
+slug: v3-bridge-arr-prims
+branch: feature/v3-bridge-arr-prims
+agent: claude-code
+started: 2026-08-15T21:04:19Z
+heartbeat: 2026-08-15T21:04:19Z
+status: claimed-before-planning
+items: SSC3-3c-register-access-through-arr-prims
+paths: file:v3/src/BridgeV2.scala file:v3/SPRINT.md file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
