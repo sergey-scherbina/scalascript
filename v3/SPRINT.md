@@ -2757,6 +2757,13 @@ one §3 J1 item never built, and now the only one the evidence points at.
       7 of 20 is the control and its null was predicted — no loop, no triple. No magnitude is
       claimed; `nested-loop`'s mean of 0.679 is dragged by outliers and the sign test is the only
       statistic reported.
+      **RE-MEASURED AT LOAD 1.3–4.9, 30 pairs, and all three open rows now have an answer.**
+      `arith-loop` **30 of 30 at mean 0.816**, no pair crossing 1.0 — established, and an 18 % clock
+      against a 17 % dispatch cut (6→5). `list-fold` 21 of 30 at 0.987: about 1 %, which is what a
+      12 % cut to a loop body buys on a row whose cost is `invoke`. `range-sum` 10 of 30 at 1.027 —
+      a TRUE null now, not an unresolved one. Controls 14, 15, 15 of 30 against n/2 = 15. The
+      load-10–13 rows are kept as measured: a history corrected in place cannot show that the
+      instrument was the variable.
 
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
