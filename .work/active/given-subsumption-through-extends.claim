@@ -1,0 +1,11 @@
+slug: given-subsumption-through-extends
+branch: feature/given-subsumption-through-extends
+agent: claude-code
+started: 2026-08-15T13:52:45Z
+heartbeat: 2026-08-15T13:52:45Z
+status: claimed-before-planning
+items: given-subsumption-through-extends
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
