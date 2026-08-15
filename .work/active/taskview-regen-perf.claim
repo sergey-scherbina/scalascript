@@ -1,0 +1,11 @@
+slug: taskview-regen-perf
+branch: feature/taskview-regen-perf
+agent: claude-code
+started: 2026-08-15T10:57:13Z
+heartbeat: 2026-08-15T10:57:13Z
+status: claimed-before-planning
+items: task-views-stale-after-a-perf-entry-closed
+paths: file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
