@@ -1,0 +1,11 @@
+slug: wire-two-gates
+branch: feature/wire-two-gates
+agent: claude-code
+started: 2026-08-15T10:09:15Z
+heartbeat: 2026-08-15T10:09:15Z
+status: claimed-before-planning
+items: wire-build-slot-selftest-and-coord-update-gate
+paths: file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
