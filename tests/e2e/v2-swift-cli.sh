@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SSC="$ROOT/bin/ssc-tools"
@@ -7,6 +7,20 @@ FIXTURE="$ROOT/tests/conformance/money-portable-v2.ssc"
 EXPECTED="$ROOT/tests/conformance/expected/money-portable-v2.txt"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v2-swift-cli.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
+
+# ANY unexpected failure NAMES ITSELF. Sixteen commands here redirect their output, and under
+# `set -e` each died without a word: the CI step printed "KNOWN GAP ..." as its last line and exited
+# 1 with nothing attributable, twice, on two different days.
+#
+# `-E` propagates the trap into functions and subshells; without it the trap is skipped exactly
+# where a helper fails.
+#
+# THE `$-` TEST IS LOAD-BEARING, and leaving it out broke this gate once already. Eight blocks below
+# wrap a command that is SUPPOSED to fail in `set +e` … `set -e`. `set +e` turns off errexit but NOT
+# the ERR trap, so a trap without this guard fires on every deliberate failure and aborts a passing
+# gate — observed: `FAILED at line 102` on a host where the gate had just run to PASS. When errexit
+# is off, the failure is intentional and this says nothing.
+trap 'ec=$?; case $- in *e*) echo "v2-swift-cli: FAILED (exit $ec) at line $LINENO: $BASH_COMMAND" >&2; exit $ec ;; esac' ERR
 
 if [[ ! -x "$SSC" ]]; then
   echo "v2-swift-cli: bin/ssc-tools is missing; run scripts/sbtc installBin" >&2

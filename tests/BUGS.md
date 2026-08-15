@@ -257,6 +257,62 @@ to drop `set -e` here in favour of explicit checks that print.
 point from where the output STOPPED rather than from where the script FAILED, and those are only the
 same when every command reports. Here they are not.
 
+
+### 2026-08-16 — fixed at the right level: ONE trap, not sixteen instrumented commands
+
+The correction above ends with "instrument every command, or drop `set -e` in favour of checks that
+print". Neither is needed: **`trap … ERR` covers all sixteen at once**, and `set -E` propagates it
+into functions and subshells so it is not silently skipped where a helper fails.
+
+```sh
+set -Eeuo pipefail
+trap 'ec=$?; echo "v2-swift-cli: FAILED (exit $ec) at line $LINENO: $BASH_COMMAND" >&2; exit $ec' ERR
+```
+
+**Observed on the exact shape that was silent** — a planted bad flag on a redirected command:
+
+```text
+v2-swift-cli: FAILED (exit 1) at line 48: "$SSC" emit-swift --planted-bad-flag … > /dev/null
+```
+
+and the control alongside it, the same script with the trap deleted: `exit=1`, nothing printed.
+
+**Why this is the right level and hand-instrumenting was not.** I added a stderr capture to one
+command, saw the output still stop after `KNOWN GAP …`, and concluded the failure was there. It was
+not — my diagnostic never printed, which proved the script ran PAST it. Fixing one of sixteen taught
+me a false location, so the second error was caused by the shape of the first fix.
+
+**AND THE FIRST VERSION OF THAT TRAP BROKE THE GATE**, which is the half worth reading. Eight blocks
+here wrap a command that is SUPPOSED to fail in `set +e` … `set -e`. **`set +e` disables errexit but
+NOT the ERR trap**, so the trap fired on a deliberate failure and aborted a run that had passed
+minutes earlier on the same host:
+
+```text
+v2-swift-cli: FAILED (exit 1) at line 102: "$SSC" run --v2 --target ios … 2>"$TMP/ios-run.err"
+```
+
+My first instinct was to rewrite that block as `|| IOS_EXIT=$?` — correct in itself, and useless:
+there are EIGHT such blocks, so converting one leaves the gate aborting at the next. The fix belongs
+in the trap, which now tests `$-` and stays silent while errexit is off, because that is the script's
+own marker for "this failure is intended".
+
+**Both properties verified together**, since either alone is satisfiable by a broken trap:
+
+```text
+planted bad flag on a redirected command  ->  FAILED (exit 1) at line 51: … emit-swift --planted-bad-flag
+full unplanted run                        ->  v2-swift-cli: PASS   exit 0
+```
+
+**The generalisable rule, and it is cheap:** a gate that runs a sequence of commands under `set -e`
+should carry an `ERR` trap from its first line — guarded on `$-`, so it reports the unexpected and
+ignores the intended. Without one, the failing command is invisible and the reader infers it from
+where output STOPPED, which is only the same place when every command reports.
+
+**Twice on this gate a fix taught me a false general rule**: "instrument the command that seems to
+fail" (it was not the one), then "trap every failure" (eight of them are deliberate). Both were the
+right idea at the wrong level, and both were caught by running the gate UNPLANTED rather than
+trusting the planted case.
+
 ## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
 
 <!-- status: open
