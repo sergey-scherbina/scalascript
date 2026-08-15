@@ -1,0 +1,11 @@
+slug: b4-after-j4
+branch: feature/b4-after-j4
+agent: claude-code
+started: 2026-08-15T10:10:43Z
+heartbeat: 2026-08-15T10:10:43Z
+status: claimed-before-planning
+items: B4-after-the-J4-series
+paths: file:bench/history.tsv file:bench/BASELINE.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
