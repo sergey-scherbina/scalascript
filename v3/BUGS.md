@@ -6,6 +6,65 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-workflow-is-cancelled-before-it-can-report — 5 usable verdicts in 100 runs, so v3's gates protect almost nothing
+
+<!-- status: open
+     lane: v3
+     area: build
+     gate: .github/workflows/v3.yml
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`.github/workflows/v3.yml` almost never finishes.** Measured 2026-08-15 over its last 100 runs
+(2026-08-12 → 2026-08-15, `gh run list --workflow v3.yml --limit 100`):
+
+| conclusion | runs |
+|---|---|
+| cancelled | 76 |
+| failure | 18 |
+| **success** | **5** |
+| in progress | 1 |
+
+The mechanism is stated in the file itself: `concurrency: group: v3-${{ github.ref }}` with
+`cancel-in-progress: true`. Every push to `main` evicts the run in flight, and main's push interval
+is shorter than the suite — selftest, executor differential, bridge, parity, front, front report,
+plus a `v3/uniml-classpath.sh` step that builds an sbt project first. So the gate that owns v3's
+correctness reports on about one commit in twenty, and 76 % of its history reads as RED without
+having tested anything.
+
+**THIS REPOSITORY HAS ALREADY DIAGNOSED AND CURED THIS EXACT DISEASE ONCE.** `scripts/smoke-ci`'s
+own header records why the push path was restructured on 2026-08-01: *"of the last 100 `ci.yml`
+runs: 83 cancelled, 4 failure, 0 success. A suite that cannot finish inside the push interval does
+not give a verdict on most commits — and `cancelled` reads as RED, so it was also manufacturing
+reds for commits that were fine."* The numbers here are 76/18/5 against that 83/4/0. It is the same
+shape, in a workflow that was not part of that change.
+
+**Found while trying to read a verdict on my own commit** (`v3-opaque-type`, `28c34951e`). Its
+`v3.yml` run was cancelled; so was the run for `62c3ec562`; so were the twenty most recent runs
+without exception. There was no green descendant to fall back on either, which is the usual escape
+— the escape assumes SOME run completes.
+
+**A dispatched run does not currently escape it.** `AGENTS.md` recommends
+`gh workflow run … --ref main` when a push gives no verdict, on the grounds that `workflow_dispatch`
+has its own per-SHA concurrency group. That is true of `ci.yml`; here the group is
+`v3-${{ github.ref }}` with no event or SHA in it, so a dispatched run on `main` shares the group
+with pushes and is evicted the same way.
+
+**Consequence, and why this is worse than a slow gate.** `v3/front-gate.sh` is the only thing that
+runs v3's fixtures in CI, and it is also the only thing that exercises the UniML front there (the
+workflow registers it deliberately). Both are effectively unwatched. Two live examples from the
+same evening: `v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs`
+(filed beside this one) means a uniml-only change is not even scheduled; this entry means that when
+it IS scheduled, it is cancelled anyway.
+
+**Done when** `v3.yml` produces a usable verdict on a normal commit — measurable the same way, as a
+success rate over the next 100 runs rather than as a green on one SHA. Three shapes worth weighing,
+deliberately not chosen here because each spends someone else's time: put the SHA in the concurrency
+group so runs queue instead of evicting (most faithful, most runner-minutes); drop
+`cancel-in-progress` and accept a backlog; or split the suite the way the push path was split on
+2026-08-01 — a fast subset on push, the full set nightly and on dispatch — which is the option this
+repository already chose once for the same numbers.
+
 ## v3-parser-rejects-opaque-type — `opaque` fell through to the expression parser, and the tool could not read its own standard library
 
 <!-- status: fixed
