@@ -1,4 +1,4 @@
-# generation: 2168
+# generation: 2169
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -8,3 +8,4 @@ v3-cmp-invert	claude-code	2026-08-14T23:45:10Z	SSC3-J4b-compare-negate-branch	fi
 v1-bind-loopback-default	claude-code	2026-08-15T00:00:50Z	http-lanes-disagree-on-the-default-bind-address	file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:tests/e2e/http-bind-address-gate.sh file:BUGS.md
 f-front-exit-reason-lost	claude-code	2026-08-15T00:11:07Z	f-front-exit-code-replaces-the-real-diagnostic	file:v2/bin/ssc1-run-fsub.ssc0 file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/f-front-exit-reason-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 default-registry-keyed-by-bare-name	claude-code	2026-08-15T00:15:44Z	native-serve-does-not-apply-a-default-argument-so-every-short-call-fails	file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/e2e/render-smoke.sh file:tests/e2e/no-orphan-gates.sh file:.github/workflows/ci.yml
+inbox-selftest-ages-out	claude-code	2026-08-15T00:41:59Z	inbox-gate-selftest-fixtures-age-out	file:tests/e2e/inbox-gate.sh file:tests/BUGS.md
