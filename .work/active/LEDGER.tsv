@@ -1,4 +1,4 @@
-# generation: 2347
+# generation: 2348
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 ci-gates-that-cannot-run	claude-code	2026-08-15T15:42:01Z	ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14	file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
@@ -11,3 +11,4 @@ declared-type-lane-agreement	claude-code	2026-08-15T21:54:16Z	four-lanes-disagre
 rust-absolute-import	claude-code	2026-08-15T21:55:50Z	rust-absolute-import-path-inlines-nothing	file:v1/lang/core/src/main/scala/scalascript/imports/ImportResolver.scala file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:tests/e2e/absolute-import-resolves-gate.sh file:.github/workflows/ci.yml file:BUGS.md
 v3-workflow-pending-run-evicted	claude-code	2026-08-15T22:06:55Z	v3-workflow-is-cancelled-before-it-can-report	file:.github/workflows/v3.yml file:v3/BUGS.md
 prepush-generated-files-current	claude-code	2026-08-15T22:09:17Z	generated-views-go-stale-and-the-next-agent-pays	file:.githooks/pre-push file:tests/BUGS.md
+swift-gate-names-its-failure	claude-code	2026-08-15T22:10:13Z	v2-swift-cli-fails-silently-without-a-swift-toolchain	file:tests/e2e/v2-swift-cli.sh file:tests/BUGS.md
