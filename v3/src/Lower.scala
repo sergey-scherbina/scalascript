@@ -1111,7 +1111,62 @@ object Lower:
   /** The head of a declared type: `Show` for `Show[Int]`, `Show` for `Show`. */
   private def typeHead(t: String): String = t.takeWhile(c => c != '[').trim
 
-  private def resolveSummons(defs: List[Def], objects: List[ObjectDef]): List[Def] =
+  /** Does an instance declaring `sub` satisfy a bound asking for `sup`? THE EXTENDS GRAPH, read
+    * upward.
+    *
+    * `given intSum: Monoid[Int]` must satisfy `[A: Semigroup]`, because `trait Monoid[A] extends
+    * Semigroup[A]`. Without this, instance lookup compares the declared trait EXACTLY and a bound
+    * on a supertrait can never be satisfied — `std/semigroup-monoid.ssc` declares `intSum`,
+    * `stringConcat` and `listConcat` all as `Monoid[…]` and NOT ONE as `Semigroup[…]`, so every
+    * `[A: Semigroup]` call in the tree was refused.
+    *
+    * IT SURFACED AS AN ARITY ERROR, which is why it took a reduction rather than a reading:
+    * `call to 'combineAllOption' passes 1 argument(s), it takes 2`. The context bound desugars to a
+    * `using` parameter, the argument for it could not be found, and the missing argument is what
+    * the message counts. `combineAll[A: Monoid]` on the SAME list answered 24 while
+    * `combineAllOption[A: Semigroup]` refused; the trait name in the bound was the only difference.
+    *
+    * THE SAME GRAPH IS ALREADY READ THE OTHER WAY one pass down, where `rewriteGivenExtensionCalls`
+    * prefers the SUBTRAIT when several instances provide a method. An instance of a subtrait
+    * satisfying a supertrait bound is that rule's mirror, not a new concept. */
+  /** `Monoid[Int]` -> `("Monoid", "Int")`, taking the FIRST type argument.
+    *
+    * A file-level twin of the local `headAndArg` inside `rewriteGivenExtensionCalls`, which cannot
+    * be reached from here. Same rule and the same reason for it: cut at a nested `[` OR at a
+    * top-level comma, so `MonadError[Option, Unit]` keys on `Option` and `Foo[Map[K, V], Int]` on
+    * `Map`. Two copies is one too many and the duplication is deliberate only until something else
+    * needs it — at which point it moves out, not gets copied a third time. */
+  private def headAndArgOf(t: String): Option[(String, String)] =
+    val i = t.indexOf('[')
+    if i < 0 || !t.endsWith("]") then None
+    else
+      val arg = t.substring(i + 1, t.length - 1).trim
+      var depth = 0
+      var k = 0
+      var cut = arg.length
+      while k < arg.length && cut == arg.length do
+        val c = arg.charAt(k)
+        if c == '[' || c == '(' then { if depth == 0 then cut = k; depth += 1 }
+        else if c == ']' || c == ')' then depth -= 1
+        else if c == ',' && depth == 0 then cut = k
+        k += 1
+      Some((t.substring(0, i).trim, arg.substring(0, cut).trim))
+
+  private def satisfiesBound(traits: List[TraitDef], sub: String, sup: String): Boolean =
+    if sub == sup then true
+    else
+      var seen = Set.empty[String]
+      var todo = List(sub)
+      var found = false
+      while todo.nonEmpty && !found do
+        val h = todo.head; todo = todo.tail
+        if !seen.contains(h) then
+          seen = seen + h
+          val ps = traits.find(_.name == h).map(_.parents).getOrElse(Nil)
+          if ps.contains(sup) then found = true else todo = todo ++ ps
+      found
+
+  private def resolveSummons(defs: List[Def], objects: List[ObjectDef], traits: List[TraitDef]): List[Def] =
     val instances: List[(String, String)] =           // (declared type, instance name)
       objects.flatMap(o => o.givenOf.map(t => (t, o.name)))
     // AN IN-SCOPE `using` PARAMETER WINS OVER A GLOBAL INSTANCE, and that is what makes a generic
@@ -1127,7 +1182,7 @@ object Lower:
           fromParams.get(head) match
             case Some(pn) => Expr.Name(pn, p)
             case None =>
-              instances.filter((t, _) => typeHead(t) == head).map((_, n) => n) match
+              instances.filter((t, _) => satisfiesBound(traits, typeHead(t), head)).map((_, n) => n) match
                 case one :: Nil => Expr.Name(one, p)
                 case Nil =>
                   throw LowerFail(p, "`summon[" + head + "[…]]` finds no `given` declaring `" +
@@ -1160,7 +1215,7 @@ object Lower:
     *
     * An EXPLICIT `(using showInt)` at the call site needs nothing from this pass: the parser
     * flattens it into an ordinary argument, so the arity already matches and the call is skipped. */
-  private def resolveGivenArgs(defs: List[Def], objects: List[ObjectDef]): List[Def] =
+  private def resolveGivenArgs(defs: List[Def], objects: List[ObjectDef], traits: List[TraitDef]): List[Def] =
     val instances: List[(String, String)] = objects.flatMap(o => o.givenOf.map(t => (t, o.name)))
     val byName: Map[String, Def] = defs.map(d => (d.name, d)).toMap
     var extra: List[Def] = Nil
@@ -1349,7 +1404,17 @@ object Lower:
             val gs = d.params.filter(_.given_)
             val chosen = gs.map { g =>
               g.tpe.map(t => substitute(t, binds)).flatMap { concrete =>
-                instances.filter((it, _) => it == concrete).map((_, n) => n) match
+                // EXACT FIRST, then subsumption: an instance declared for the very trait asked for
+                // wins over one that merely extends it, so adding this rule cannot change a call
+                // that already resolved.
+                val exact = instances.filter((it, _) => it == concrete).map((_, n) => n)
+                val viable =
+                  if exact.nonEmpty then exact
+                  else instances.filter((it, _) =>
+                    headAndArgOf(it).zip(headAndArgOf(concrete)).exists { (a, b) =>
+                      a._2 == b._2 && satisfiesBound(traits, a._1, b._1)
+                    }).map((_, n) => n)
+                viable match
                   case one :: Nil => Some(one)
                   case _          => None
               }
@@ -3095,7 +3160,7 @@ object Lower:
     // nothing is refused, the expression falls through unchanged, and the second pass handles it.
     val allDefs = rewriteExtensionCalls(
       rewriteGivenExtensionCalls(resolveMethodRefs(
-        resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs),
+        resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects, p.traits), p.objects, p.traits), sigs),
         p.objects, p.traits, p.classes),
       p.classes)
 
