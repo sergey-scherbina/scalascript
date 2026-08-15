@@ -133,6 +133,24 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > drift surfaces within a day, and `workflow_dispatch` is the button for anyone who wants the answer
 > now. Editing a v3 file to provoke a run is the thing that button exists to replace.
 >
+> **INTERIM MEASUREMENT, 2026-08-16 ~23:00Z — the number moved, and this stays open anyway.**
+> Last 100 runs: **success 9, failure 16, cancelled 72** against the 5 / 19 / 76 this entry was filed
+> on. Sliced by when each change landed:
+>
+> | window | runs | success | failure | cancelled |
+> |---|---|---|---|---|
+> | since `cancel-in-progress: false` (18:37Z) | 21 | 4 | 2 | 12 |
+> | since the trigger narrowing (20:37Z) | 14 | 3 | 0 | 8 |
+>
+> Two effects, and they are separable. The FAILURES went to zero because
+> `v3-capability-list-outlived-the-divergence-it-declared` was fixed — the suite was red on four
+> declared-but-closed divergences, and once it could finish it was finishing red. The CANCELS are
+> still the majority, at a rate consistent with a third fewer arrivals rather than with a cure.
+>
+> **This is not the measurement that closes it.** The window is about two hours and is dominated by
+> my own push burst, which is exactly the traffic shape the entry blames. Re-measure a day out, on
+> the same instrument, before deciding whether the remaining cancels justify dropping the group.
+
 > **CLOSE THIS** when `gh run list --workflow v3.yml --limit 100 --json conclusion` shows `success`
 > well above 5 in 100 — the same instrument as the original measurement, at least a day later so the
 > window is not dominated by today's bursts. If `cancelled` is still the majority with a third of
