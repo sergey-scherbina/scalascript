@@ -23,13 +23,54 @@ Newest first.
 
 
 
-## rust-case-class-method-cannot-read-its-own-fields — a method on a case class is lowered to a free fn with the fields unbound, so the simplest data type in the language does not compile
+## rust-map-plus-pair-is-not-lowered — `map + (k -> v)` reaches rustc as an addition, and the `updated` that means the same thing is already lowered three lines away
 
 <!-- status: open
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the four-line repro below is the whole report
+     gate: none — the one-line repro below is the report
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+**Found the moment `rust-case-class-method-cannot-read-its-own-fields` stopped hiding it.** With
+case-class methods fixed, `std/http.ssc`'s `withHeader` gets as far as its own body and stops
+there:
+
+```scala
+def withHeader(name: String, value: String): Response =
+  Response(status, headers + (name -> value), body)
+```
+
+```
+error[E0369]: cannot add `(String, String)` to `HashMap<String, String>`
+```
+
+`+` on a Map is the immutable "with this pair added". The walker HAS that lowering — the `updated`
+arm renders exactly the right shape:
+
+```rust
+{ let mut m2 = q.clone(); m2.insert(k, v); m2 }
+```
+
+so `map + (k -> v)` needs to reach it. The argument shape settles the receiver without a type
+check: `x + (a -> b)` is a Map update in every program that type-checks at all, because `->` builds
+a pair and nothing else takes one on the right of `+`.
+
+Filed rather than folded into the case-class fix, which is about where a method's receiver comes
+from and has nothing to say about Map operators. It is the last thing standing between
+`Response(...).withHeader(...)` — ordinary HTTP code, and the spelling `std/http.ssc` itself uses —
+and a crate that compiles.
+
+## rust-case-class-method-cannot-read-its-own-fields — a method on a case class is lowered to a free fn with the fields unbound, so the simplest data type in the language does not compile
+
+<!-- status: fixed
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-case-class-method-gate.sh
+     fixed-in: 85dfe333a
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes -->
@@ -66,16 +107,54 @@ Not fixed here because it is a codegen change of a different size from the routi
 under, and folding it in would have made a claim about route handler SHAPES also about method
 lowering.
 
+**FIXED 2026-08-15 under `rust-case-class-methods-impl`.** The mechanism was one line of collection:
+`contentDefs` gathers defs with a DEEP `.collect`, and a class body is just more tree, so a method
+arrived at the emitter indistinguishable from a top-level `def`. It now renders through the SAME
+`renderDef` — rendering it separately would be a second copy of "how a def becomes Rust", and the
+two would drift — and lands in `impl <Owner>` with `&self`. Ownership is keyed on the def's POSITION,
+not its name: two classes may declare the same member, and the name alone cannot say which class a
+def came from.
+
+**The receiver is bound, not substituted, and that is the design decision worth keeping.** Inside the
+method, the fields the body reads are emitted as `let x = self.x.clone();` and the siblings it calls
+as `let m = |__a0| self.m(__a0);`. The alternative was rewriting the body's tree — and a field appears
+in patterns, in string interpolations and inside nested closures, so a rewrite that missed one of
+those positions would emit a crate that COMPILES and reads the wrong value. A `let` covers every
+position at once because it works the way the source already assumed: the name is in scope.
+(scalameta's own `Transformer` would have been the tool, and this build does not ship one —
+`scala/meta/transversers/` carries `SimpleTraverser` only.) Only what the body USES is bound: an
+unused binding warns, and an unused closure does not even compile.
+
+**Verified against the corpus, not only against the repro.** `tests/e2e/rust-std-survey-gate.sh` over
+132 std modules reads exactly its committed baseline — REFUSED 78, COMPILES 54, BADRUST 0 — so no
+module changed status in either direction. The gate's own three rows run on all three lanes and
+compare ANSWERS rather than compilation, because a method that reads the wrong field compiles fine;
+`P(1,2).shifted(5)` gives 6 and 2, `sum()` gives 3, and swapping the fields changes them. Watched
+failing with the fix reverted and the toolchain rebuilt: the two method rows red with the literal
+`E0425`, the no-method row still green — it is the anti-row, and a revert must not move it.
+
+`Response(...).withHeader(...)` still does not compile, one defect further in:
+`headers + (name -> value)` reaches rustc as an addition. Filed as `rust-map-plus-pair-is-not-lowered`.
+
 ## rust-absolute-import-path-does-not-resolve-a-case-class — the same program emits or refuses depending on how its import is spelled
 
-<!-- status: open
+<!-- status: duplicate
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the two spellings below are the report
+     gate: none — see the entry this duplicates
+     duplicate-of: rust-absolute-import-path-inlines-nothing
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes -->
+
+**DUPLICATE of `rust-absolute-import-path-inlines-nothing`, which was filed one day earlier and is
+the broader statement of the same defect**: the absolute form contributes NO declarations at all —
+not just the case classes I happened to reach for. I filed this one without searching the board
+first, and the two evidence paragraphs this entry added that the older one did not have have been
+moved there. Kept as a stub rather than deleted so the slug still resolves.
+
+The original body follows, for the record.
 
 Found while writing `tests/e2e/rust-route-handler-shapes-gate.sh`: the gate's first version put its
 sandbox in `$TMPDIR` and therefore had to write the import with an absolute path. Every Response row
@@ -1036,6 +1115,27 @@ An import that resolves to nothing should say so.
 Measured on `dc3cfeeef`. Not investigated further: the resolver is outside the Rust backend and
 outside the claim this was found under. The gate that found it now uses a sibling copy instead
 (`tests/e2e/build-rust-refuses-loudly.sh`, the MCP end-to-end case), with the reason recorded there.
+
+**HIT AGAIN 2026-08-15 on `std/http.ssc`, from a different direction, and two things it adds are
+worth keeping.** I filed it a second time as `rust-absolute-import-path-does-not-resolve-a-case-class`
+before searching the board; that entry is now a duplicate stub, and this is what it measured:
+
+*The emit-time refusal sees only ONE of the positions.* A handler whose body is directly
+`Response(…)` is refused at emit with `def main calls Response, which this crate does not define`,
+while one reaching the same constructor through an `if` emits a crate — which then fails at cargo:
+
+```
+error[E0412]: cannot find type `Request` in this scope
+error[E0412]: cannot find type `Response` in this scope
+```
+
+So the refusal is a symptom of the resolution gap rather than a guard against it, and BOTH imported
+case classes are gone, not just the one the message names.
+
+*It costs gate-writing time, repeatedly.* A gate whose sandbox lives in `$TMPDIR` must write the
+import absolutely, and every row that needs a case class then goes red for a reason that has nothing
+to do with what the gate tests. Two gates have now worked around it by creating the sandbox inside
+`examples/` (`rust-http-lane-parity-gate.sh`, `rust-route-handler-shapes-gate.sh`).
 
 ## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
 
