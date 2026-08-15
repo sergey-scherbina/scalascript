@@ -3,9 +3,21 @@ branch: feature/j4-residual-census
 agent: claude-code
 started: 2026-08-15T15:33:47Z
 heartbeat: 2026-08-15T15:33:47Z
-status: claimed-before-planning
+status: implementing
 items: SSC3-J4
-paths: file:v3/SPRINT.md file:specs/ssc3-jit.md
+paths: file:v3/SPRINT.md file:specs/ssc3-jit.md file:v3/src/Specialize.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Size the RESIDUAL of SSC3-J4 before building anything, which is what the row itself demands
+  ("the payoff is COUNTED before the pass is written").
+
+  Both shapes of the §10.2 census have already shipped as ordinary IR->IR passes — the const
+  half as J4a (loop-invariant hoist) and the cmp-branch half as J4b (invert, drop the `not`) —
+  so the open row is partly stale. §10.2 predicted a floor of 4/9/6 dispatches per loop body
+  for arith-loop/nested-loop/list-fold; the landed passes report 5/12/6-7. The question is
+  whether that gap justifies the fusion machinery and its representation fork.
+
+  WIDENED to v3/src/Specialize.scala: counting post-optimization needs a printer for the
+  OPTIMIZED module and none exists — `SpecializeMain` prints the specialized one and
+  `--census` gives whole-module totals, not per-loop-body. Adding `--optimized` beside the
+  existing `--census` is the instrument, in the file that already carries that instrument.
+next: print the optimized module, count loop bodies, compare with the 10.2 floor
