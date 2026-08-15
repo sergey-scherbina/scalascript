@@ -314,6 +314,45 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
+## v3-plugin-fleet-regresses-four-cases-when-enabled — the path works, the adapter's value surface does not
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**The plugin path landed in `f30d11f05` and the fleet is OPT-IN, because turning it on breaks the
+DIFF floor.** Measured on the same tree, the only difference being whether `v3/.jars/plugins.cp`
+exists:
+
+    without the fleet   PASS 223  DIFF 3  UNSUPPORTED 132  CRASH 9   <- identical to before
+    with the fleet      PASS 223  DIFF 7  UNSUPPORTED 126  CRASH 9
+
+Six cases leave the `host function … is not implemented` bucket and FOUR of them become wrong
+answers rather than passes: `std-fs-failure`, `std-fs-failure-raises`, `std-os-readline`,
+`std-process-import`. PASS does not move at all. An honest refusal traded for a silent wrong answer
+is the trade the floor exists to refuse, so the fleet is enabled by an explicit script exactly as
+the second front is — availability is a cached fact, not something the driver discovers.
+
+**ONE IS DIAGNOSED AND IT IS THE ADAPTER'S VALUE SURFACE, not the architecture.**
+`std-process-import` first died with `a host function was passed VData` — v3 numbers a constructor
+and v2 names it, so the conversion needs the module in BOTH directions; that half is fixed. It now
+dies with `a host function was passed VMap`. `VSet` and `VArr` are the same shape of gap. A CLOSURE
+cannot cross this boundary at all: v3's `VClos` is a function index with captures, v2's `ClosV` is
+an env and code, so a plugin taking a callback needs a different mechanism than value conversion.
+
+**THE OTHER THREE ARE NOT DIAGNOSED.** `std-fs-failure` and `std-os-readline` MATCH when run
+individually on both lanes, and the report still counts them DIFF — so the difference is in how the
+report runs them (its own harness, parallel jobs, stdin) and not in the lanes disagreeing. That has
+to be established before anything is changed for them; the obvious guess, that the plugin's failure
+shapes differ from the expectations, is a guess.
+
+**The architecture is proven and is not what needs work.** `mkdirs` answers `()` on the executor
+AND on the bridge and the directory appears; v2 needed no change, because `Prims.resolve` already
+falls back to `V2PluginRegistry.lookup` before throwing.
+
 ## v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name — was: v3-handleError-on-a-val-bound-None-matches-no-arm
 
 <!-- status: fixed
