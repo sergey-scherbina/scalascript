@@ -2732,6 +2732,18 @@ object Lower:
       case Some(build) =>
         Def(d.name, d.params, build(d.params.map(q => Expr.Name(q.name, d.pos)))(d.pos),
             d.pos, d.tparams, d.givenParams)
+      // A PROVIDER OFFERS IT: lower to a `Prim` under the extern's own name and let the lane
+      // perform it. Consulted here and not at run time because the refusal below is issued at
+      // LOWERING — a name with a provider must never become the throw in the first place.
+      //
+      // `Plugins.registered` IS THE WHOLE CONTRACT, and the reason it is a set of names rather than
+      // "try it and see" is recorded below: a name only ONE lane can perform is how eleven cases
+      // diverged and five programs printed wrong answers. A provider is expected to make the name
+      // answerable on BOTH lanes, and registering here is its assertion that it has.
+      case None if Plugins.registered.contains(d.name) =>
+        Def(d.name, d.params,
+            Expr.Prim(d.name, d.params.map(q => Expr.Name(q.name, d.pos)), d.pos),
+            d.pos, d.tparams, d.givenParams)
       case None =>
         val at = d.pos.line.toString + ":" + d.pos.col.toString
         d.copy(body = Expr.Prim("__throw__",
@@ -3329,7 +3341,11 @@ object Lower:
     // HERE, at the call, before its body is ever consulted — so `writeFile` kept its refusal while
     // its declaration had already been lowered to `(prim io.writeFile …)`. The two places that
     // decide what an `extern` means have to read the same table.
-    val gapNames = p.defs.filter(isAbstract).map(d => d.name).filterNot(hostPrims.contains)
+    // `Plugins.registered` IS SUBTRACTED for the same reason `hostPrims` is: a host function this
+    // lane can perform is not a gap. Missing it would refuse the declaration at lowering and the
+    // `Prim` emitted above would never run.
+    val gapNames = p.defs.filter(isAbstract).map(d => d.name)
+      .filterNot(hostPrims.contains).filterNot(Plugins.registered.contains)
     if gapNames.nonEmpty then
       val byName = allDefsH.map(d => (d.name, d)).toMap
       def callees(e: Expr): List[String] =

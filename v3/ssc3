@@ -110,6 +110,38 @@ V3CP="$(classes_for ssc3 "" "$ROOT/v3/src" "$ROOT/alphabet/src")" || exit 2
 SSC3=(java -cp "$V3CP:$TC" ssc3.ssc3)
 V2=(java -Xss512m -cp "$(classes_for ssc2 "" "$ROOT/v2/src"):$TC" ssc.cli)
 
+# ── THE PLUGIN FLEET, IF IT IS BUILT ─────────────────────────────────────────────────────────────
+#
+# `v2/runtime/std/*-plugin/` already implements seventeen of the nineteen host names the corpus
+# refuses; what was missing was a way to reach them. Availability is an explicit cached fact — the
+# `.cp` file exists or it does not — for the same reason the second front's is: a caller not using
+# the fleet must not wait for sbt, and a failed plugin build must not fail `ssc3 run`.
+# Refresh it with `v3/plugin-classpath.sh`.
+#
+# BOTH LANES OR NEITHER. The executor answers through `ssc3.plugins.V2Fleet`, which installs the
+# fleet into `ssc3.Plugins` before lowering; the bridge answers because its own `ssc.cli` process
+# gets the SAME jars and `NativePluginHost` finds them by ServiceLoader. Wiring one and not the
+# other is what once diverged eleven corpus cases and printed five wrong answers — the executor
+# stayed silent while v2's plugins answered on the bridge — so the two are set together, from one
+# file, or not at all.
+PLUGIN_CP_FILE="$JARS/plugins.cp"
+if [ -s "$PLUGIN_CP_FILE" ]; then
+  _pcp="$(cat "$PLUGIN_CP_FILE")"
+  # `v3/plugins` is a THIRD source directory, compiled with the kernel exactly as `alphabet/src`
+  # is — the kernel itself still references nothing outside the JDK, and the adapter that does is
+  # over here. The fleet's classpath is `extra`, so it is part of the content-addressed digest and
+  # a rebuilt fleet gets its own output directory rather than overwriting one.
+  if V3PCP="$(classes_for ssc3p "$_pcp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/plugins")"; then
+    SSC3=(java -cp "$V3PCP:$_pcp:$TC" ssc3.ssc3)
+    # `ssc3.plugins.v2cli`, not `ssc.cli`: the jars on the classpath are not enough, because
+    # `ssc.cli` never asks the ServiceLoader for them. One `loadAll()` in that process fills the
+    # registry that `Prims.resolve` already consults.
+    V2=(java -Xss512m -cp "$V3PCP:$(classes_for ssc2 "" "$ROOT/v2/src"):$_pcp:$TC" ssc3.plugins.v2cli)
+  else
+    echo "ssc3: the plugin fleet is present but did not compile — running without it" >&2
+  fi
+fi
+
 # The SECOND front, if it is available. Availability is an explicit cached fact — the classpath file
 # exists or it does not — rather than something the driver discovers by running sbt, because a
 # build of something the caller is not using has no business blocking `ssc3 run`.
@@ -145,8 +177,20 @@ uniml_classpath() {
   # it fails. The kernel's unit was updated by that refactor and this one was not, so the second
   # front stopped compiling — and the driver's fallback is silent by design, which turned a compile
   # error into "only these fronts are registered: none" two layers away.
-  out="$(classes_for uniml "$ucp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml")" || return 1
-  printf '%s' "$out:$ucp:$tc"
+  # THE FLEET BELONGS IN THIS UNIT TOO, and leaving it out is the same shape as the `alphabet/src`
+  # omission described above. The uniml front is what the driver runs BY DEFAULT, so a fleet wired
+  # only into the kernel's unit is wired into the lane almost nobody takes: `Cli.run` looks the
+  # adapter up BY NAME, finds nothing here, and every host function stays refused while the kernel
+  # lane answers. Measured exactly that way before this line existed.
+  local pcp=""
+  [ -s "$JARS/plugins.cp" ] && pcp="$(cat "$JARS/plugins.cp")"
+  if [ -n "$pcp" ]; then
+    out="$(classes_for unimlp "$ucp:$pcp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml" "$ROOT/v3/plugins")" || return 1
+    printf '%s' "$out:$ucp:$pcp:$tc"
+  else
+    out="$(classes_for uniml "$ucp" "$ROOT/v3/src" "$ROOT/alphabet/src" "$ROOT/v3/uniml")" || return 1
+    printf '%s' "$out:$ucp:$tc"
+  fi
 }
 
 # ── THE DEFAULT FRONT ────────────────────────────────────────────────────────────────────────────

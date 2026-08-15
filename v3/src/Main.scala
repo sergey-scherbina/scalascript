@@ -261,7 +261,35 @@ object Cli:
     if args.contains("--no-optimize") then specialized
     else Optimize.module(specialized, !args.contains("--no-hoist"), !args.contains("--no-invert"))
 
+  /** Install the host-function fleet, IF ONE IS ON THE CLASSPATH, before anything is lowered.
+    *
+    * BY NAME AND NOT BY TYPE, which is what keeps invariant I-1 intact: a string is not a
+    * dependency. The kernel must build with the JDK and repository files alone, and the adapter it
+    * would otherwise import lives in `v3/plugins` and references v2's runtime. This is the same
+    * trick `ServiceLoader` plays, spelled out.
+    *
+    * HERE AND NOT IN A WRAPPER `@main`, and that was measured rather than assumed. There are TWO
+    * entry points — `ssc3` in this file and `ssc3uniml` in `v3/uniml` — and the driver picks the
+    * second whenever the uniml front is built, which is almost always. A wrapper main that
+    * installed the fleet was simply discarded by the branch that runs after it: everything
+    * compiled, the fleet loaded nowhere, and `mkdirs` stayed refused. `Cli.run` is where the two
+    * entry points already meet.
+    *
+    * BEFORE LOWERING, not at the first call: `Lower` reads `Plugins.registered` to decide whether
+    * an `extern def` becomes a `Prim` or a positioned refusal, so a fleet that arrives later
+    * arrives after the program has been refused.
+    *
+    * A MISSING FLEET IS THE NORMAL CASE and is silent. `ClassNotFoundException` here means the
+    * providers were not built, which is exactly how `v3/uniml` is optional too. */
+  private def installFleet(): Unit =
+    try
+      val c = Class.forName("ssc3.plugins.V2Fleet$")
+      val m = c.getMethod("install")
+      m.invoke(c.getField("MODULE$").get(null))
+    catch case _: Throwable => ()
+
   def run(args: List[String]): Int =
+    installFleet()
     try
       if args.isEmpty then
         println("usage: ssc3 build|ir|exec|ast <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest | front")

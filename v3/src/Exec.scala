@@ -2238,4 +2238,13 @@ object Exec:
       // The VALUE travels; the rendering is only for an uncaught throw's message.
       val v = if args.isEmpty then Value.VStr("throw") else args.head
       throw ExecThrow(v, showV(m, v))
-    case other => throw ExecError("unknown primitive '" + other + "'")
+    // A PROVIDER'S HOST FUNCTION, consulted only after every prim the kernel performs itself.
+    // Kernel-first is deliberate: a plugin must not be able to redefine `io.println` or `f.sqrt`
+    // by registering the same name, so the door opens onto what is left over rather than onto
+    // everything. `Plugins` is a name -> function table in the kernel and nothing more; the
+    // providers live outside `v3/src` — see that file for why the same names must also be
+    // answerable on the bridge.
+    case other =>
+      Plugins.lookup(other) match
+        case Some(fn) => fn(m, args)
+        case None     => throw ExecError("unknown primitive '" + other + "'")
