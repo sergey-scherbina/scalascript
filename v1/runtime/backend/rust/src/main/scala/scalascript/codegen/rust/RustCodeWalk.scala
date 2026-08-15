@@ -3457,7 +3457,17 @@ object RustCodeWalk:
       // Map value in real code — does not implement (E0277). `cloned` accepts everything `copied`
       // does and costs the same for a Copy type, so there is no case where the narrower one was
       // right. Found while probing something else, where it MASKED the defect being hunted.
-      yield s"$q.get(&$k).cloned().unwrap_or($d)"
+      //
+      // `.into()` ON THE DEFAULT, because the map may hold `Value` while the default is written as
+      // the plain thing: `val m: Map[String, Any] = …; m.getOrElse("k", "?")` emitted
+      // `unwrap_or("?".to_string())` against a `HashMap<_, Value>` and rustc answered
+      // `expected Value, found String`. The WRITE side of the `Any` boundary is handled at three
+      // sites; this is the read side. TOTAL rather than type-directed on purpose: `.into()` is the
+      // identity when the two types already agree (std's blanket `impl<T> From<T> for T`), so a
+      // plainly-typed map emits the same behaviour, and the target type is fixed by the `Option`
+      // the `get` produced — no receiver type has to be known here, and no new `Ctx` field is paid
+      // for at every copy site. (rust-any-map-read-default-not-lifted.)
+      yield s"$q.get(&$k).cloned().unwrap_or($d.into())"
     // Partial function `{ case p => body; … }` (e.g. `xs.map { case (k, v) => … }`)
     // → a Rust closure that matches its single argument: `move |__pf| match __pf { … }`.
     case pf: m.Term.PartialFunction =>

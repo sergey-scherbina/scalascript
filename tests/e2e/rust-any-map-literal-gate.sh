@@ -21,11 +21,17 @@
 # Deciding "was this lifted?" from the shape of the right-hand side instead of from the branch that
 # actually ran drops that wrapper and emits E0308. The row exists because the mistake was made.
 #
+# THE READ SIDE IS HERE TOO, added when it turned out to be the next defect in the same boundary:
+# with the map correctly built as `HashMap<_, Value>`, `m.getOrElse("k", "?")` emitted
+# `unwrap_or("?".to_string())` and rustc answered `expected Value, found String`. The default is now
+# emitted as `$d.into()`, which is TOTAL — the identity when the types already agree — so the
+# plainly-typed and Int-valued maps below must answer exactly as before.
+#
 # THE LAST TWO ROWS ARE THE ANTI-ROWS. `renderLetBinding` is on the path of EVERY local in the
 # repository, so a rule that widened beyond the `Any` boundary would be measured in goldens rather
 # than in a probe. A plainly-typed `Map[String, String]` and `List[Int]` must emit exactly as before.
 #
-# COST: seven cargo builds, ~90 s. Lives in ci.yml with the other cargo gates.
+# COST: ten cargo builds, ~2 min. Lives in ci.yml with the other cargo gates.
 set -uo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -52,6 +58,11 @@ write_case scalarlist  '  val a: Any = List(1, 2)\n  println("ok")'
 write_case scalar      '  val a: Any = 5\n  println(a)'
 write_case plainmap    '  val m: Map[String, String] = Map("k" -> "v")\n  println(m.size)'
 write_case plainlist   '  val xs: List[Int] = List(1, 2, 3)\n  println(xs.length)'
+# The READ side of the same boundary. Both keys on purpose: the present one takes the value out of
+# the map, the absent one takes the DEFAULT, and only the second is the path that was broken.
+write_case anyread     '  val m: Map[String, Any] = Map("k" -> "hello")\n  println(m.getOrElse("k", "?"))\n  println(m.getOrElse("nope", "?"))'
+write_case plainread   '  val m: Map[String, String] = Map("k" -> "v")\n  println(m.getOrElse("k", "?"))\n  println(m.getOrElse("nope", "?"))'
+write_case intread     '  val m: Map[String, Int] = Map("k" -> 7)\n  println(m.getOrElse("k", 0))\n  println(m.getOrElse("nope", 0))'
 
 row() { # $1 name, $2 expected output
   local name=$1 want=$2 out
@@ -87,6 +98,11 @@ row listany    '2|'
 echo "── a literal at a SCALAR Any still gets the whole-value wrapper"
 row scalarlist 'ok|'
 row scalar     '5|'
+
+echo "── reading it back: the default is lifted too, whatever the map holds"
+row anyread    'hello|?|'
+row plainread  'v|?|'
+row intread    '7|0|'
 
 echo "── the anti-rows: a plainly-typed local is untouched"
 row plainmap   '1|'
