@@ -1,4 +1,4 @@
-# generation: 2324
+# generation: 2325
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 ci-gates-that-cannot-run	claude-code	2026-08-15T15:42:01Z	ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14	file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
@@ -10,4 +10,3 @@ v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-thr
 f-u0-binder	claude-code	2026-08-15T21:05:52Z	f-placeholder-u0-reduced-but-not-solved	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-u0-binder-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 js-char-code-coercion-at-declared-int	claude-code	2026-08-15T21:06:20Z	js-coerces-a-one-char-string-to-its-code-point-at-a-declared-int	file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
 f-gates-off-push-path	claude-code	2026-08-15T21:11:11Z	smoke-job-cap-no-longer-looser-than-the-suite	file:scripts/smoke-ci.ssc file:.github/workflows/ci.yml file:tests/BUGS.md
-bugs-index-red-missing-fixedin	claude-code	2026-08-15T21:15:37Z	v3-extern-member-in-an-object-has-no-meaning	file:v3/BUGS.md
