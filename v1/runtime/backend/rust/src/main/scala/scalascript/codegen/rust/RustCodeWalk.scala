@@ -4336,29 +4336,75 @@ object RustCodeWalk:
   /** Does the handler ANSWER a `Response`? Read from the declaration, the same three shapes as
    *  `handlerDeclaresRequest` reads the parameter from. `false` keeps the String shape, which is
    *  the safe direction: a wrong `true` would take `.status` off a String. */
+  /** Does this expression PRODUCE a `Response`? Both route decisions ask it — which runtime entry
+   *  the call takes, and whether the adapter converts a `Response` into `ResponseParts` — and they
+   *  have to agree, because answering the second alone is unreachable: the entry is chosen first.
+   *
+   *  Recognised, and each shape is one a program actually writes:
+   *
+   *    Response(…)                       the constructor (`case class Response`, std/http.ssc:199)
+   *    Response.json(…) / .text(…)       a companion factory (:197)
+   *    x.withHeader/.withSession/.clearSession(…)   the three builders DECLARED to return a
+   *                                      Response (:215, :238, :242) — named rather than "any
+   *                                      method call", because `.body` on a Response is a String.
+   *                                      This picks the right ENTRY for a builder chain and the
+   *                                      crate still does not compile, for a reason outside routing
+   *                                      entirely: this backend lowers a case-class method that
+   *                                      reads its own fields into a free fn with the fields
+   *                                      unbound, so plain `case class P(x: Int)` + `def f = x`
+   *                                      is already E0425. Filed separately; no gate row here,
+   *                                      because a row that red would be measuring THAT defect.
+   *    f(…) where `def f(…): Response`   a call to a declared def
+   *    if / else, and a block            both branches, and the block's last expression
+   *
+   *  Anything else is false, which keeps the String surface — the safe direction, and the one the
+   *  target chooser's own comment asks for: an untyped lambda must keep receiving the string it has
+   *  always received.
+   */
+  private def producesResponse(t: m.Term): Boolean =
+    def defReturnsResponse(n: String): Boolean =
+      _defBodies.get(n).flatMap(_.decltpe).exists {
+        case m.Type.Name("Response") => true
+        case _                       => false
+      }
+    t match
+      case m.Term.Apply.After_4_6_0(m.Term.Name("Response"), _)                   => true
+      case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name("Response"), _), _) => true
+      case m.Term.Apply.After_4_6_0(
+             m.Term.Select(inner, m.Term.Name("withHeader" | "withSession" | "clearSession")), _
+           ) => producesResponse(inner)
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), _)                            => defReturnsResponse(n)
+      case ifx: m.Term.If      => producesResponse(ifx.thenp) && producesResponse(ifx.elsep)
+      case m.Term.Block(stats) => stats.lastOption.collect { case x: m.Term => producesResponse(x) }.getOrElse(false)
+      case _                                                                      => false
+
+  /** The handler argument of a `route(method, path, handler)` call, with a braced handler unwrapped.
+   *  BOTH route decisions read it through here so they cannot disagree about which term the handler
+   *  even is — they already disagreed once, and the block form `route(m, p) { req => … }` is why:
+   *  scalameta hands that spelling over as `Block(List(Function))`, so a match on `Term.Function`
+   *  alone fell through to the String entry while the very same lambda written inline took the
+   *  Request entry. Only a single-expression block is unwrapped; a multi-statement block is left
+   *  alone, since its last expression is the handler's RESULT, not the handler. */
+  private def handlerArgOf(argTerms: List[m.Term]): Option[m.Term] =
+    (if argTerms.size == 3 then argTerms.lastOption else None).map {
+      case m.Term.Block(List(inner: m.Term)) => inner
+      case other                             => other
+    }
+
   private def handlerReturnsResponse(argTerms: List[m.Term]): Boolean =
     def defReturnsResponse(n: String): Boolean =
       _defBodies.get(n).flatMap(_.decltpe).exists {
         case m.Type.Name("Response") => true
         case _                       => false
       }
-    val handlerArg = if argTerms.size == 3 then argTerms.lastOption else None
-    // ONLY the shapes that actually REACH this code. A handler written as an inline lambda whose
-    // body constructs a `Response` never gets here at all: `handlerDeclaresRequest` cannot see a
-    // Request parameter in a bare lambda, so the call is emitted against `_http_route` — the plain
-    // string entry — and the return type is never consulted. I extended this function to recognise
-    // `Response(…)`, its factories and its builders, then emitted the crate and found the branch
-    // unreachable for them; the extension was removed rather than shipped as a comment claiming a
-    // coverage it does not have. That gap is filed as `rust-inline-route-handler-is-typed-as-a-
-    // string-handler`, with the three distinct rustc errors the three inline spellings produce.
-    handlerArg.exists {
-      case f: m.Term.Function =>
-        f.body match
-          case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) => defReturnsResponse(n)
-          case m.Term.Block(List(m.Term.Apply.After_4_6_0(m.Term.Name(n), _))) => defReturnsResponse(n)
-          case _                                                              => false
-      case m.Term.Name(n) => defReturnsResponse(n)
-      case _              => false
+    // Reached for every shape `handlerDeclaresRequest` accepts, and only those: the entry is chosen
+    // first, so a handler this says `true` about but that one says `false` about is unreachable. An
+    // earlier version of this function recognised `Response(…)` while the chooser did not, which is
+    // dead code that reads as coverage; both now ask the one `producesResponse`.
+    handlerArgOf(argTerms).exists {
+      case f: m.Term.Function => producesResponse(f.body)
+      case m.Term.Name(n)     => defReturnsResponse(n)
+      case _                  => false
     }
 
   private def handlerDeclaresRequest(argTerms: List[m.Term]): Boolean =
@@ -4367,12 +4413,19 @@ object RustCodeWalk:
         d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).headOption
           .exists(_.decltpe.exists { case m.Type.Name("Request") => true; case _ => false })
       }
-    val handlerArg = if argTerms.size == 3 then argTerms.lastOption else None
-    handlerArg.exists {
+    handlerArgOf(argTerms).exists {
       case f: m.Term.Function =>
         val declared = f.paramClause.values.headOption
           .exists(_.decltpe.exists { case m.Type.Name("Request") => true; case _ => false })
-        declared || (f.body match
+        // A BODY THAT BUILDS A `Response` settles it too, and this is the half that was missing.
+        // The comment at the target chooser asks that an untyped lambda keep the String surface it
+        // has always had — that is about a handler which ANSWERS a string. One that answers a
+        // `Response` cannot be a string handler: it does not compile as one, which is exactly the
+        // reported E0308. So no program that works today changes shape, and
+        // `route(m, p, req => Response(404, …))` — the spelling `std/http.ssc` invites, and the
+        // block form `route(m, p) { req => Response(…) }` with it — stops being refused.
+        // (rust-inline-route-handler-is-typed-as-a-string-handler.)
+        declared || producesResponse(f.body) || (f.body match
           case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) => firstParamIsRequest(n)
           case m.Term.Block(List(m.Term.Apply.After_4_6_0(m.Term.Name(n), _))) => firstParamIsRequest(n)
           case _                                                              => false)

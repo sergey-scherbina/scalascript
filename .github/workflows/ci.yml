@@ -392,6 +392,18 @@ jobs:
       - name: String.length is the same unit on every lane
         run: tests/e2e/rust-string-length-gate.sh
 
+      # `std/http.ssc` declares `handler: Request => Response` and the docs write it inline, but the
+      # target chooser read only the lambda's PARAMETER ANNOTATION — so `req => Response(404, …)`,
+      # and the block form `route(m, p) { req => … }` with it, went to the plain-String entry and
+      # rustc refused the crate. The fix keys off what the BODY proves, which is forced: the
+      # chooser's own comment asks that an untyped lambda keep receiving the string it always has,
+      # so the last two rows are controls, not symmetry — they fail if a working program's handler
+      # quietly changed what it is handed. Rows are read off the EMITTED crate, because only the
+      # entry name says which surface was chosen; one row then answers 404 on a real socket, which
+      # is the reported symptom. ~90 s, four cargo builds.
+      - name: a Response handler takes the Request entry however it is spelled
+        run: tests/e2e/rust-route-handler-shapes-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`
