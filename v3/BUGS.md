@@ -905,44 +905,61 @@ N held at 216/369 with DIFF 3 and CRASH 9, which is the expected answer: no corp
 fractional exponent. Ten v3 gates green; the four non-VM backends are COMPILED and not executed —
 `v2/backend/rust` through scala-cli, which is what builds it, since no sbt project references it.
 
-## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wraps on native, refuses on the v2 VM, and v3 must pick one
+## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wrapped on native, refused on the v2 VM, and v3 picked one
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 2e6da244d
      lane: multi
      area: runtime
-     gate: v3/parity-gate.sh (a probe was written and WITHDRAWN — see below)
+     gate: v3/parity-gate.sh (v3/tests/parity/list-concat-nonlist.ssc, restored)
      found-by: claude-code
      found-at: 2026-08-14 -->
 
-**Found by a parity probe written while fixing `v3-flatmap-nonlist-lane-divergence`, and it caught
-the fix itself over-reaching.** Three implementations, three answers, for `val n = 5; List(1,2) ++ n`:
+**THE ANSWER IS WRAP.** Owner's decision: a non-list right operand is ONE ELEMENT, everywhere. The
+fix went where this entry said it had to — v2 first, so its `++` agrees with its own `flatMap`, and
+v3 widened in the same commit.
 
-    reference native (bin/ssc run)   1,2,5                     wraps
-    v2 VM (v3/ssc3 run --bridge)     RuntimeException:         refuses, UNCAUGHT — a Java stack
-                                     expected a list, got 5    trace reaches the user
-    v3 exec                          ++ needs a List and got   refuses, with a position
-                                     the Int 5
+    val n = 5;  List(1,2) ++ n          before                  after
+      reference native (bin/ssc)        1,2,5                   1,2,5
+      v2 VM (ssc3 run --bridge)         RuntimeException,       1,2,5
+                                        uncaught, no position
+      v3 exec (ssc3 run)                refused, with position  1,2,5
 
-**v2 IS INTERNALLY ASYMMETRIC and that is the root of it:** its `flatMap` WRAPS a non-list (measured
-— `v3/ssc3 run --bridge` prints `List(10, 20, 30)` for `List(1,2,3).flatMap(x => x * 10)`) while its
-`++` refuses in `Prims.unlistPub`. Two operators, same question, opposite answers.
+**TWO DECISION SITES IN ONE FILE, and only one of them was in the entry.** `v2/src/Runtime.scala`
+answers `++` twice: `arithOp` for the infix spelling — which is what the reference native lane runs
+— and `methodOp` for the method call, which is what the bridge runs. The first wrapped, the second
+refused. Fixing only the one the entry named would have left the same program answering two ways
+depending on how it was spelled.
 
-**WHY v3 REFUSES RATHER THAN WRAPPING, for now.** I widened `++` alongside `flatMap` because the
-reference native lane wraps, and the new parity probe went RED in the same run: wrapping made
-`ssc3 run` disagree with `ssc3 run --bridge`, which is the exact I-3 violation that commit existed
-to remove, moved into a different operator. Invariant I-3 is about v3's OWN two lanes, and v3's
-bridge IS the v2 VM, so matching v2 is what agreement means here. The widening was reverted.
+**A DUPLICATE PROBE FOUND A SECOND DEFECT, and it is the reason this is not a one-line change.**
+`arithOp` wrapped with `.distinct`, so on the reference lane:
 
-**THE PROBE WAS WITHDRAWN, NOT SILENTLY DROPPED.** `v3/tests/parity/list-concat-nonlist.ssc` would
-sit RED for a divergence in the SHAPE of two refusals (v3's positioned diagnostic versus v2's
-uncaught exception) rather than in the answer, and a standing red teaches everyone to stop reading
-the gate. It goes back the day v2 picks a side. Re-create it with:
-`val n = 5` then `println((List(1,2) ++ n).mkString(","))`.
+    List(1,2) ++ List(2)   ->  1,2,2      keeps it
+    List(1,2) :+ 2         ->  1,2,2      keeps it
+    List(1,2) ++ 2         ->  1,2        DROPS it
 
-**THE FIX GOES IN v2**, making `++` agree with its own `flatMap`; v3 then widens to match in the
-same commit. Filed here rather than in the repository-root `BUGS.md` — where a cross-module defect
-belongs — because that file was held by the `v3-bridge-effects` claim at the time of writing. Move
-it when that releases.
+Silently. `.distinct` was there for `set + stringElement`, which the `+`→`++` string heuristic
+lowers to `++`; real sets never need it, since a `SetV` receiver is routed to `methodOp("union", …)`
+first, and only a set REPRESENTED AS A PLAIN LIST reached that arm. It is gone, so `xs ++ y` on a
+non-list `y` is exactly `xs :+ y` on both paths. Measured after: `1,2,2` on the native lane, the
+bridge and v3's executor.
+
+**THE WITHDRAWN PROBE IS BACK, AND IT NOW MEASURES SOMETHING** —
+`v3/tests/parity/list-concat-nonlist.ssc`. The entry withdrew it because two refusals differing only
+in SHAPE would have sat red; that reasoning was itself off, because this gate compares OUTPUT and
+two refusals both print nothing, so it would have read `neither` and been GREEN AND VACUOUS. Control
+run: with v3's half reverted the probe FAILS `bridge [1,2,5/] executor []`, so it distinguishes the
+lanes now that the bridge answers.
+
+**Regression:** the full conformance corpus, 366 passed of 367 — and the one failure is
+`native-import-in-fence`, a STALE `known-red` for the js lane that this suite is telling us to
+delete. It uses neither `++` nor a list, and a sibling's `f770dad20` is what made that lane pass, so
+it is not this change. v3 parity 60/64 agreeing with none diverging, exec-gate GREEN 86, front-gate
+GREEN 91.
+
+**`v1`'s interpreter is NOT part of this** and answers a third way entirely — `List(1,2) ++ 5` builds
+a TUPLE there. Filed separately with its measurement, because making it agree is a change to a
+shipped lane's semantics rather than a consequence of this decision.
 
 ## v3-flatmap-nonlist-lane-divergence — `flatMap` and `++` refused a non-list that v3's OWN BRIDGE accepted (was: v3-multishot-handler-without-a-return-clause)
 
