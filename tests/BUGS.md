@@ -591,13 +591,64 @@ it reports a shrunken subject set as untrustworthy rather than as a verdict.
 
 ## f-for-generator-tuple-pattern — `for (a, b) <- xs` loses the second binder
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: 3d2b62bb5
+     gate: tests/e2e/f-for-tuple-gate.sh -->
+
+### FIXED 2026-08-16 — the trigger is the PAREN, and the cost was two helpers, not nine signatures
+
+```scalascript
+for (name, grade) <- names.zip(grades) do
+  println(name + ":" + grade)
+```
+
+`F: unbound global: (global grade)` · `ref: a:90`.
+
+`skipForOpen` stripped a leading `(` unconditionally, because `for (n <- xs)` may put the whole
+generator in parens. A tuple pattern therefore lost its own paren, `name` became the entire binder,
+and everything after it desynchronised. **The two forms separate one token later** — `( ident <-` is
+a parenthesised generator, `( ident ,` is a tuple pattern — so the fix reads that far instead of
+guessing, and `paren-generator` is the gate row that fails if the distinction is lost again.
+
+**I over-estimated this when I filed it.** The entry said nine signatures in a subset language that
+allows one `match` per function. In fact `nm` was only ever used in TWO places — pushed onto the env
+and wrapped by the lambda — so widening it to a list cost two helpers and no new machinery:
+
+* `forTupNames` accumulates by PREPENDING, which yields `["b","a"]` for `(a, b)`. That is already the
+  order F's ctor arms use — `parsePatVars` prepends too, so env slot 0 is the LAST field — so the
+  ordering came out right by reusing an existing convention rather than by choosing one.
+* `forLamN` emits the destructuring lambda through `genPairArm`, reusing the `Pair`/`Tuple2` duality
+  the ordered resolver already encodes instead of inventing a second one.
+
+The signature count was real; what I got wrong was assuming each site needed thought. They were
+mechanical renames around two decision points.
+
+`tuple-field-order` is the row that makes the ordering claim testable rather than decorative: its two
+fields differ in value AND in type, so a reversed binding cannot pass by symmetry.
+
+### The corpus file is NOT the evidence, deliberately
+
+`examples/extensions.ssc` no longer reports `(global grade)` — but it now stops earlier, in the
+CHECKER:
+
+```
+TYPEERR: in def repeat: cannot unify Int: Int vs String
+def repeat(n: Int): String = s * n
+```
+
+Both lanes agree, so it is lane-independent rather than an F/reference divergence, and `def repeat`
+contains no `for`. That is the new declared-type constraint work (`fab2ea769`, `c9ee83035`), not this
+change. Raised in the coordination room for its owner instead of being absorbed here — a file that
+stops failing for MY reason and starts failing for SOMEBODY ELSE'S is not a file I get to count, in
+either direction.
+
+The evidence is the eight gate rows and the corpus agreement gate.
+
 
 ```scalascript
 val names = List("a", "b")
