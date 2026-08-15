@@ -240,14 +240,15 @@ of divergence this entry is about.
 
 ## http-lanes-disagree-on-the-default-bind-address — `run` binds loopback where `--v1` and `build-rust` bind every interface
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
      gate: tests/e2e/http-bind-address-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-14
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: 73e572730 -->
 
 Found while fixing `serve-binds-all-interfaces`, and it is the part that report did not contain.
 The same four-line server, one port, read from the OS with `lsof` rather than from any log line:
@@ -278,6 +279,38 @@ Left as-is deliberately rather than decided in a bug fix. The gate asserts the K
 lanes and each lane's CURRENT default, so whichever way this goes, the change will be visible as a
 row that has to be edited on purpose.
 
+
+### DECIDED 2026-08-15 by the owner — sort by what the COMMAND IS FOR, not by lane
+
+```text
+run-it-now commands  -> loopback     `ssc run`, `ssc-tools run --v1`
+a built artifact     -> wildcard     `build-rust`
+```
+
+**Both blanket answers cost something, and that is why this sat open. Sorting by purpose pays
+neither.** `build-rust` keeps wildcard, so nothing already deployed goes dark on upgrade — the thing
+the reporter asked for explicitly. `ssc run` was already loopback. Only `--v1` moves, and it moves to
+where the other run-it-now command already was.
+
+**So the "odd one out" was named backwards.** The entry above, and the gate's own comment, read `run`
+as the outlier because it was one loopback among two wildcards. Counted by purpose instead of by
+tally, `--v1` is the outlier: it is a run-it-now command that behaved like a deployment artifact.
+
+**One line per backend, and one decision site instead of two.** `FastServerBackend` and
+`JdkServerBackend` each had a `case None => InetSocketAddress(port)` — the wildcard constructor —
+AND a separate `case None` in their TLS branch reaching for `createServerSocket(port)`. Plaintext and
+TLS therefore decided the default in different places and could drift apart; both now go through
+`bindAddr`, which is the only thing that knows what the default is.
+
+**The gate's control had to flip, and this is the part worth keeping.** It asserted
+`SSC_HTTP_BIND=127.0.0.1 -> loopback` on `--v1`. With the default now loopback that row would pass
+whether or not the knob works at all — a control indistinguishable from the default measures
+nothing. It now asserts the knob can WIDEN: `SSC_HTTP_BIND=0.0.0.0 -> wildcard`.
+
+**Verified:** `tests/e2e/http-bind-address-gate.sh` PASS, all six default/knob rows plus both
+unresolvable-value refusals, reading the bound address from the OS with `lsof` rather than from a log
+line. `runtimeServerJvmFast/test` 13/13 and `runtimeServerJvm/test` 33/33, which is what covers the
+TLS branches the gate does not reach.
 ## route-handler-lowered-to-string — a handler declared `Request => Response` was lowered with a `-> String` callback, so no handler could answer anything but 200
 
 <!-- status: fixed
