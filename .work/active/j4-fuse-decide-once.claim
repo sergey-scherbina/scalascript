@@ -3,9 +3,18 @@ branch: feature/j4-fuse-decide-once
 agent: claude-code
 started: 2026-08-15T17:38:48Z
 heartbeat: 2026-08-15T17:38:48Z
-status: claimed-before-planning
+status: implementing
 items: SSC3-J4
-paths: file:v3/src/Exec.scala file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
+paths: file:v3/src/Exec.scala file:v3/bench-ab.sh file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  SSC3-J4 redone: the fusion DECISION moves out of the per-instruction walk to the loop
+  ENTRY, which is the defect the J4 series has already fixed three times (an immutable List
+  re-read on a per-call or per-instruction path). `exec` returns to its original 101 bytes
+  untouched, so a body with no pair pays nothing; a body with pairs walks `execFused` at one
+  integer compare per instruction.
+
+  WIDENED to v3/bench-ab.sh: it hardcodes the ON arm as the DEFAULT build, which stopped
+  being true when this pass became opt-in. Adding `ON_ARGS` lets an opt-in pass be A/B'd
+  without editing the harness per measurement — otherwise every future opt-in pass repeats
+  the same local hack.
+next: ON_ARGS in the harness, then measure
