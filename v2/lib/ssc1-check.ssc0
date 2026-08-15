@@ -322,6 +322,23 @@ def ssc1chkTailTys = (tys) =>
 -- The typed twin of ssc1inferLam: identical except that a parameter with a recorded declared type
 -- is bound to THAT type instead of to a fresh variable. Everything else — including a parameter
 -- whose type was not recorded — is unchanged, so this can only ADD rejections, never remove one.
+-- TYPES-2: an inferred `def` type is TyFun(a, TyFun(b, result)); the declared RETURN type belongs to
+-- the result, so peel one arrow per parameter. Peeling stops early if the shape runs out — a def
+-- whose body is itself a function is peeled only as far as it has parameters, and anything else is
+-- left alone rather than guessed at.
+def ssc1chkPeelResult = (t, n) =>
+  if #i.eq(n, 0) then t
+  else match t {
+    case TyFun(_a, b) => ssc1chkPeelResult(b, #i.sub(n, 1))
+    case _            => t
+  }
+def ssc1chkLookupTy1 = (nm, reg) =>
+  match reg {
+    case Nil => "?"
+    case Cons(h, rest) =>
+      match h { case Pair(k, v) => if #seq(k, nm) then v else ssc1chkLookupTy1(nm, rest) }
+  }
+
 def ssc1inferLamTys = (env, s, ps, tys, body) =>
   match ps {
     case Nil => ssc1inferE(env, s, body)
@@ -811,9 +828,19 @@ def ssc1chkTopStmts = (env, s, stmts) =>
                       case TcErr(m) =>
                         TcErr(#sconcat(#sconcat("in def ", name), #sconcat(": ", m)))
                       case TcOk(s2, tf) =>
-                        -- Re-bind with inferred type (improves precision vs TyDyn seed)
-                        let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, tf)), env) in
-                        ssc1chkTopStmts(env2, s2, rest)
+                        -- TYPES-2: the declared RETURN type, where the front recorded one.
+                        let rtn = ssc1chkLookupTy1(name, #cell.get(funcRetTypeCell)) in
+                        let rchk =
+                          if #seq(rtn, "?") then Ok(s2)
+                          else ssc1chkUnify(s2, ssc1chkPeelResult(ssc1chkAppTy(s2, tf), lenL(realParams)),
+                                            ssc1chkTyOfName(rtn)) in
+                        match rchk {
+                          case Err(m) => TcErr(#sconcat(#sconcat("in def ", name), #sconcat(": ", m)))
+                          case Ok(s3) =>
+                            -- Re-bind with inferred type (improves precision vs TyDyn seed)
+                            let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s3, tf)), env) in
+                            ssc1chkTopStmts(env2, s3, rest)
+                        }
                     }
                 }
             }
@@ -828,8 +855,17 @@ def ssc1chkTopStmts = (env, s, stmts) =>
                 match ssc1inferE(env, s, e) {
                   case TcErr(m) => TcErr(m)
                   case TcOk(s2, te) =>
-                    let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, te)), env) in
-                    ssc1chkTopStmts(env2, s2, rest)
+                    -- TYPES-2: the declared `val` type, where the front recorded one.
+                    let vtn = ssc1chkLookupTy1(name, #cell.get(valTypeCell)) in
+                    let vchk =
+                      if #seq(vtn, "?") then Ok(s2)
+                      else ssc1chkUnify(s2, te, ssc1chkTyOfName(vtn)) in
+                    match vchk {
+                      case Err(m) => TcErr(#sconcat(#sconcat("in val ", name), #sconcat(": ", m)))
+                      case Ok(s3) =>
+                        let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s3, te)), env) in
+                        ssc1chkTopStmts(env2, s3, rest)
+                    }
                 }
             }
           else ssc1chkTopStmts(env, s, rest)

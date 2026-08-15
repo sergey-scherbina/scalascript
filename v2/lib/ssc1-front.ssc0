@@ -763,6 +763,31 @@ def positionalDflts = (params, dflts) =>
 -- Anything else — generic, tuple, arrow, vararg, defaulted — is left unrecorded and stays "?", which
 -- is the same boundary F draws and for the same reason: a partially-understood type is worse than an
 -- absent one, because it constrains where it should not.
+-- TYPES-2: the same narrow recogniser, reusable for the two other declaration sites. `toks` is
+-- positioned AT the `:`; `endKind` is what must immediately follow the type name for it to count —
+-- `,`/`)` for a parameter, `=` for a return type and for a `val`. Anything else stays "?" and behaves
+-- exactly as before, which is the property that keeps a partially-understood type from constraining.
+def simpleDeclTy = (toks, endKind) =>
+  if kindIs(":", toks) then
+    let t1 = peek(advance(toks)) in
+    if #seq(tokKind(t1), "uid") then
+      if tychkKnownTyName(tokVal(t1)) then
+        if kindIs(endKind, advance(advance(toks))) then tokVal(t1) else "?"
+      else "?"
+    else "?"
+  else "?"
+
+def funcRetTypeCell = #cell.new(Nil)
+def valTypeCell     = #cell.new(Nil)
+def recordRetTy = (name, toks) =>
+  let ty = simpleDeclTy(toks, "=") in
+  if #seq(ty, "?") then 0
+  else #cell.set(funcRetTypeCell, Cons(Pair(name, ty), #cell.get(funcRetTypeCell)))
+def recordValTy = (name, toks) =>
+  let ty = simpleDeclTy(toks, "=") in
+  if #seq(ty, "?") then 0
+  else #cell.set(valTypeCell, Cons(Pair(name, ty), #cell.get(valTypeCell)))
+
 def recordParamTy = (name, toks) =>
   if kindIs(":", toks) then
     let t1 = peek(advance(toks)) in
@@ -2141,6 +2166,7 @@ def parseDef = (toks) =>
   } in
   let toks5 = prT(rp3) in
   -- optional return type
+  let _rty2 = recordRetTy(name, toks5) in
   let toks6 = skipTypeAnnot(toks5) in
   -- '=' is optional: abstract defs (in traits/effects) have no body
   if kindIs("=", toks6) then
@@ -2232,6 +2258,7 @@ def parseVal = (toks) =>
   else
     let name = tokVal(peek(toks)) in
     let toks2 = advance(toks) in
+    let _vty = recordValTy(name, toks2) in
     let toks3 = skipTypeAnnot(toks2) in
     let toks4 = skipKind("=", toks3) in
     let re = parseExpr(toks4) in

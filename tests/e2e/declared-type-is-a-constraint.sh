@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A declared parameter type is a CONSTRAINT on the native lane.
+# A declared type is a CONSTRAINT on the native lane — at ALL THREE declaration sites.
 #
 # THE CONTRACT (Sergiy, 2026-08-15, tests/SPRINT.md "TYPES MUST BE RIGHT"): a declared type is a
 # constraint unconditionally, and a coercion hint where a coercion is admissible. This gate holds the
@@ -23,8 +23,13 @@
 # half-constraining, so the rows below include a `Double` parameter that must still be accepted.
 # Two extractions that disagreed would be worse than one that is narrow.
 #
-# The measured cost of turning this on: **zero of 399 conformance cases**, 148 of which declare a
-# parameter in the recognised form. The corpus was already type-correct; nothing checked it.
+# The measured cost, per site, both measured the same way and both CONTROLLED by planting a
+# deliberately ill-typed case and confirming the sweep reports it:
+#
+#   parameter   0 rejected of 399 cases, 148 of which declare one in the recognised form
+#   return+val  0 rejected of 399 cases,  95 declare a recognised return type, 5 a recognised val
+#
+# The corpus was already type-correct at every one of the three sites; nothing checked any of them.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -63,7 +68,7 @@ want_accepted() {   # want_accepted <name> <expected-output> <src>
 }
 
 echo "============================================================"
-echo "  a declared parameter type is a constraint (native lane)"
+echo "  a declared type is a constraint — parameter, return, val (native lane)"
 echo "============================================================"
 echo
 
@@ -85,6 +90,25 @@ want_accepted correct-string 'hi!' \
 'def ok(a: String): String = a + "!"
 println(ok("hi"))'
 
+# ── the other two declaration SITES. A parameter was the first slice; a declared return type and a
+#    declared `val` type were inert for exactly the same reason and are enforced by the same
+#    recogniser, with `=` as the terminator instead of `,`/`)`.
+want_rejected return-type-violated \
+'def g(a: Int): String = a
+println(g(1))'
+
+want_rejected val-type-violated \
+'val x: Int = "s"
+println(x)'
+
+want_accepted correct-return 'hi' \
+'def g(a: String): String = a
+println(g("hi"))'
+
+want_accepted correct-val 7 \
+'val n: Int = 7
+println(n)'
+
 # ── THE EDGES OF THE RECOGNISED SET. A type outside it must behave exactly as before. `Double` is
 #    not in knownTyName, so this program is unconstrained and must still run — if it starts being
 #    rejected, the set widened without the consumer census that widening needs.
@@ -96,6 +120,11 @@ println(f(1))'
 want_accepted generic-type-still-passes 1 \
 'def f(a: List[Int]): Int = 1
 println(f(List(1, 2)))'
+
+# A return type outside the recognised set must also stay unconstrained.
+want_accepted unrecognised-return-still-passes 1 \
+'def f(a: Int): Double = a
+println(f(1))'
 
 echo
 if [ $fail -eq 0 ]; then
