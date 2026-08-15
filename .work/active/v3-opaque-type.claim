@@ -1,0 +1,11 @@
+slug: v3-opaque-type
+branch: feature/v3-opaque-type
+agent: claude-code
+started: 2026-08-15T00:10:03Z
+heartbeat: 2026-08-15T00:10:03Z
+status: claimed-before-planning
+items: v3-parser-rejects-opaque-type
+paths: file:v3/src/Parser.scala file:v3/tests/front/opaque-type.ssc file:v3/tests/front/opaque-type.expected file:v3/specs/20-core-language.md file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
