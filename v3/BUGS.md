@@ -15,6 +15,31 @@ Query: `scripts/bugs-report --module v3`.
      found-by: claude-code
      found-at: 2026-08-15 -->
 
+> **THE CHANGE IS LANDED (`ac924a416`) AND THIS STAYS OPEN UNTIL THE NUMBER MOVES.** `cancel-in-progress`
+> is now `false`. The effect on the cancelled rate cannot be read from a single push, so closing this
+> on the strength of the edit would be closing it on an intention. Re-run
+> `gh run list --workflow v3.yml --limit 100 --json conclusion` after a day and close it when
+> `success` is no longer 5 in 100.
+>
+> **The diagnosis below is wrong in a way that changed the fix, and is corrected here rather than
+> quietly superseded.** It says "main's push interval is shorter than the suite". Measured: runs are
+> created at **1.7 per hour** over 58 hours — one every ~35 minutes — while completed runs take a
+> median of **26 minutes**. On average a run has time to finish. What kills them is that arrivals
+> come in BURSTS, several `v3/`/`v2/` commits within minutes, each evicting the last; cancelled runs
+> die at a median of 5.9 minutes. So the remedy is not "run less" but "do not kill a run that is
+> already executing" — and that distinction is why the trigger could be WIDENED in the same commit
+> instead of narrowed.
+>
+> **Not `no group at all`, which is what `smoke.yml` carries and what this entry points at.** That
+> position rests on a premise this suite does not share: smoke is ONE job of ~6 minutes that skips
+> sbt on a cache hit, so 25 runs/hour is affordable. This is ~26 minutes and builds an sbt project
+> before its first gate. `ci.yml` uses `false` for its heavy jobs for the same reason. The cure was
+> already in the repository; the premise had to be checked before copying the conclusion.
+>
+> If `cancelled` stays high after this, concurrency is no longer the cause and the next suspects are
+> the 45-minute job timeout and the account's concurrent-job budget — neither of which that line can
+> fix.
+
 **`.github/workflows/v3.yml` almost never finishes.** Measured 2026-08-15 over its last 100 runs
 (2026-08-12 → 2026-08-15, `gh run list --workflow v3.yml --limit 100`):
 
@@ -194,12 +219,20 @@ unreachable. The whole cost fell on local work and never appeared in a run anybo
 
 ## v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: build
      gate: .github/workflows/v3.yml
      found-by: claude-code
-     found-at: 2026-08-15 -->
+     found-at: 2026-08-15
+     fixed-in: ac924a41628a9103772d3fc5a90f52ae096ff412 -->
+
+> **FIXED `ac924a416` — and the cost was measured before adding, not after.** Of the last 300 commits on
+> `main`, `uniml/` is touched by ONE, and by ZERO that do not already touch `v3/` or `v2/`. So the
+> trigger adds no runs to today's traffic; what it closes is the case where somebody works on uniml
+> alone, which is exactly when nobody is watching the front gate's other half. That is the same hole
+> the `v2/**` note in that file describes, and there it cost four commits of undetected lane
+> divergence.
 
 **`.github/workflows/v3.yml` triggers on `v3/**`, `v2/**` and itself. It does not trigger on
 `uniml/**` — and `v3/front-gate.sh`'s verdict depends on `uniml/**`.**
