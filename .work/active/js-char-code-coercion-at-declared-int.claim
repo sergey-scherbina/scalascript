@@ -2,10 +2,10 @@ slug: js-char-code-coercion-at-declared-int
 branch: feature/js-char-code-coercion-at-declared-int
 agent: claude-code
 started: 2026-08-15T21:06:20Z
-heartbeat: 2026-08-15T21:16:16Z
+heartbeat: 2026-08-15T21:39:50Z
 status: in-progress
 items: js-coerces-a-one-char-string-to-its-code-point-at-a-declared-int
-paths: file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+paths: file:v1/runtime/backend/js/BUGS.md file:tests/BUGS.md file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: raise the three guards my own headroom gate named, then push both
