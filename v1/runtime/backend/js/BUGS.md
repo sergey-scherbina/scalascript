@@ -2001,6 +2001,42 @@ that chain in isolation EMITS the import correctly, while the real `run-js` does
 remaining difference is something that chain does not capture: the backend's own `intrinsics`
 overlay, or `BackendOptions.extra`, are the two variables left uncontrolled.
 
+**RETRACTED 2026-08-15 — the four negative results above are WITHDRAWN. The instrument was wrong
+twice, and both faults are ones this repo has a rule about.**
+
+**1. The predicate matched a REFERENCE, not a definition.** Every one of those probes asked
+`code.contains("square")`. The emitted JS contains `_call(square, 5)` whether or not anything defines
+`square` — so the check returned true in exactly the broken case it was meant to detect. A search for
+a STRING read as a search for a FACT. With a predicate that can tell them apart
+(`(const|let|var|function)\s+square`), all three in-process paths report **defines=false**, the
+opposite of what was recorded.
+
+**2. The harness was not running what the CLI runs.** `ssc-tools emit-js` on that same file emits
+**148,393 bytes** and defines `function square(n)` at line 3070. The in-process
+`JsGen.generateWithStats(Parser.parse(src), Some(dir), noTreeShake = false)` call returns **508
+bytes**. Same function, same arguments, three orders of magnitude apart — so whatever the probe was
+measuring, it was not the emit path, and no conclusion drawn from it is worth anything.
+
+**So the table above is deleted as evidence, not merely annotated.** Normalize/Denormalize,
+MacroCodegen, the two JsGen entry points and "not a stale build" are all UNTESTED again. Nothing
+below the first section of this entry should be relied on.
+
+**What still stands, because it was measured through the CLI and not in-process:**
+
+```text
+ssc-tools emit-js <file> | node   ->  25 27 720 49     correct
+ssc-tools run-js  <file>          ->  ReferenceError: square is not defined
+```
+
+same launcher, same build stamp, same file — plus the harness split (`run.sc` drives `emit-js`,
+`contract.sc` drives `run-js`, contract.sc:669) that makes a single `known-red: js` unable to be
+right for both suites.
+
+**The next step is a CLI-level diff, not another in-process probe.** Both commands are a few lines
+in `EmitCommands.run` and `Main.scala:3367`; the difference to find is why one ends at 148 KB with
+the module inlined and the other does not, and it should be measured by capturing what each COMMAND
+emits, since that is the only instrument here that has not lied yet.
+
 **Next probe, so nobody repeats the four above:** call the registered backend directly
 (`scalascript.plugin.BackendRegistry.lookup("js")`) with the backend's real intrinsics and compare
 its `TextOutput` against `JsGen.generate` with empty intrinsics. If they differ, the intrinsics
