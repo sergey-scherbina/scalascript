@@ -1,0 +1,11 @@
+slug: f-u0-binder
+branch: feature/f-u0-binder
+agent: claude-code
+started: 2026-08-15T21:05:52Z
+heartbeat: 2026-08-15T21:05:52Z
+status: claimed-before-planning
+items: f-placeholder-u0-reduced-but-not-solved
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-u0-binder-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
