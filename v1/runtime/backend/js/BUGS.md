@@ -8,14 +8,26 @@ grepping for status.
 Newest first.
 
 ## js-refuses-a-decimal-against-a-fractional-double — and its `true` on the integer case hid that
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: runtime
      kind: divergence
-     gate: tests/e2e/mixed-numeric-comparison-gate.sh (the row is withdrawn there; see below)
+     gate: tests/e2e/mixed-numeric-comparison-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-15
-     confirmed: yes -->
+     confirmed: yes
+     fixed-in: c3a7c324886626aa6444b8a2692a9816531fa7ca -->
+
+> **FIXED the same day.** `_toDec` threw for EVERY operator, so a Decimal met a fractional Double and
+> died whatever was being asked. Comparison now answers — through `Number(_decShow(d))`, the decimal's
+> own plain text read as a double, which is the rule real Scala uses — and `+ - * /` still fall
+> through to `_toDec` and refuse, because there the inexactness would be captured into a stored
+> decimal. The withdrawn row `BigDecimal("0.1") == 0.1` is back in the gate, with three ordering rows
+> beside it, green on all five lanes.
+>
+> The same absence turned out to exist on two more lanes and neither was this one's shape: the VM had
+> no Decimal/Float arm in `arithOp`, and the v1 interpreter had **no ordering operators on Decimal at
+> all**. All three landed together — see the commit.
 
 **Found 2026-08-15 while taking the `BigDecimal == Double` contract decision**, by adding the row
 that a wrong implementation could not fake — and it caught a lane nobody was looking at.
