@@ -2,10 +2,10 @@ slug: v2-f-round-half-to-even
 branch: feature/v2-f-round-half-to-even
 agent: claude-code
 started: 2026-08-15T21:04:08Z
-heartbeat: 2026-08-15T21:10:28Z
+heartbeat: 2026-08-15T21:12:55Z
 status: in-progress
 items: v2-f-round-is-three-different-roundings-across-the-backends
-paths: file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/specs/10-core-ir.md file:v3/BUGS.md file:v2/conformance/float-round-ties.coreir file:tests/conformance/float-round-ties.ssc file:tests/conformance/expected/float-round-ties.txt
+paths: file:v2/backend/js/JsBackend.scala file:v2/backend/rust/RustBackend.scala file:v2/specs/10-core-ir.md file:v3/BUGS.md file:v2/BUGS.md file:v2/conformance/float-round-ties.coreir
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: add the conformance case so CI covers the js half, then land
+next: close the entry, file the math.round divergence, land
