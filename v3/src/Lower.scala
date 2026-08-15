@@ -1563,8 +1563,34 @@ object Lower:
       if i < 0 || !t.endsWith("]") then None
       else
         val arg = t.substring(i + 1, t.length - 1).trim
-        val j = arg.indexOf('[')
-        Some((t.substring(0, i).trim, (if j < 0 then arg else arg.substring(0, j)).trim))
+        // THE FIRST TYPE ARGUMENT, cut at a nested `[` OR at a top-level COMMA. Cutting only at the
+        // bracket is what made a typeclass with more than one type parameter unresolvable:
+        // `MonadError[Option, Unit]` keyed the instance table on the STRING `Option, Unit`, which no
+        // receiver type can ever equal, so every method of every multi-param instance fell through
+        // to the refusal.
+        //
+        // Reduced rather than reasoned about, and the reduction killed three other explanations
+        // first: `case Some(_)` and `case Some(v)` patterns work; the SAME extension body declared
+        // at TOP LEVEL works; and the receiver shape is irrelevant — a `val` bound to `None`, a
+        // `val` bound to `Some`, and the bare constructor `Some(42)` all failed identically. Only
+        // the trait's parameter count mattered:
+        //
+        //   given o1:  M1[Option]       with … def he …    Some(4).he(…) -> Some(4)
+        //   given oue: ME[Option, Unit] with … def he …    Some(4).he(…) -> REFUSED
+        //
+        // DEPTH-AWARE, because `Foo[Map[K, V], Int]` must key on `Map` and a plain `indexOf(',')`
+        // would stop inside the map's own argument list.
+        var depth = 0
+        var k = 0
+        var cut = arg.length
+        while k < arg.length && cut == arg.length do
+          val c = arg.charAt(k)
+          if c == '[' || c == '(' then depth += 1
+          else if c == ']' || c == ')' then depth -= 1
+          else if (c == ',' && depth == 0) then cut = k
+          if depth == 0 && c == '[' then cut = k
+          k += 1
+        Some((t.substring(0, i).trim, arg.substring(0, cut).trim))
 
     // (type head, method) -> (instance object name, trait head)
     var table: Map[(String, String), List[(String, String)]] = Map.empty
