@@ -8,7 +8,7 @@
      reported-at: 2026-08-15
      confirmed: yes
      gate: tests/e2e/v2-swift-cli.sh
-     fixed-in: PENDING -->
+     fixed-in: 29b205902 -->
 
 **`v2-swift-cli.sh` compiles and runs Swift, and it was wired into a Linux job.** GitHub's ubuntu
 images ship no Swift, so `run-swift` died under `set -euo pipefail` with its output redirected to a
