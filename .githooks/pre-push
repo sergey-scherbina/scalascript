@@ -43,6 +43,20 @@ path_rel() {
   esac
 }
 
+# Slugs of entries whose header says `status: fixed` and carries no `fixed-in:`. ONE copy, used by
+# the guard below and by the self-test above it — a detector with a second implementation is a
+# detector that disagrees with itself, which is the failure this repository files most often.
+fixed_without_sha() {
+  awk '
+    /^## / { slug = $2; inh = 0; next }
+    /<!--/ { inh = 1; sawfix = 0; sawsha = 0 }
+    inh {
+      if ($0 ~ /status:[ \t]*fixed([ \t]|$)/) sawfix = 1
+      if ($0 ~ /fixed-in:/)                     sawsha = 1
+      if ($0 ~ /-->/) { if (sawfix && !sawsha && slug != "") print slug; inh = 0 }
+    }'
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   st_fail=0
   st() { # st <a> <b> <expected>
@@ -64,6 +78,50 @@ if [ "${1:-}" = "--self-test" ]; then
   # A one-segment name is the case a naive `${a#$b}` fix gets wrong.
   st "v3x"                       "v3"              outside
   st "v3/x"                      "v3"              inside
+  echo
+  # Single-quoted on purpose: backticks inside double quotes are COMMAND SUBSTITUTION, and the
+  # first version of this line ran `status:` and `fixed-in:` as commands.
+  echo '── a `status: fixed` with no `fixed-in:` ───────────────────────────────'
+  stf() { # stf <label> <markdown> <expected slugs, space separated>
+    got="$(printf '%s\n' "$2" | fixed_without_sha | tr '\n' ' ' | sed 's/ *$//')"
+    if [ "$got" = "$3" ]; then printf '  ok   %-42s -> [%s]\n' "$1" "$got"
+    else printf '  FAIL %-42s -> [%s], want [%s]\n' "$1" "$got" "$3"; st_fail=1; fi
+  }
+  stf "fixed WITHOUT a sha is reported" \
+      '## a-slug — t
+
+<!-- status: fixed
+     lane: v3 -->' "a-slug"
+  # The other three states must stay silent, or the guard refuses correct work and teaches --no-verify.
+  stf "fixed WITH a sha is silent" \
+      '## b-slug — t
+
+<!-- status: fixed
+     fixed-in: abc1234
+     lane: v3 -->' ""
+  stf "an OPEN entry is silent" \
+      '## c-slug — t
+
+<!-- status: open
+     lane: v3 -->' ""
+  # `wontfix`/`duplicate` end in no sha by design and must not be mistaken for the defect.
+  stf "wontfix is silent" \
+      '## d-slug — t
+
+<!-- status: wontfix
+     lane: v3 -->' ""
+  # Two entries, one bad: the walker must not let the first entry's state leak into the second.
+  stf "state does not leak between entries" \
+      '## e-slug — t
+
+<!-- status: fixed
+     fixed-in: abc1234 -->
+
+## f-slug — t
+
+<!-- status: fixed
+     lane: v3 -->' "f-slug"
+
   echo
   [ "$st_fail" = 0 ] && echo "== pre-push self-test: PASS ==" || echo "== pre-push self-test: FAIL =="
   exit "$st_fail"
@@ -140,6 +198,60 @@ value was true when you typed it.
 What survives a rebase: land the change first, read the sha back with \`git rev-parse\`, and close
 the entry in a SECOND commit. Three entries turned SMOKE red for the whole repository this way in
 two days, which is why this is refused here instead of discovered after it lands.
+
+Override (rarely correct): git push --no-verify
+EOF
+  exit 1
+fi
+fi
+
+# ── a `status: fixed` with NO `fixed-in:` must not reach main ────────────────────────────────────
+#
+# The sibling of the check above, and the one that actually keeps happening: that one guards a
+# fixed-in whose sha does not RESOLVE, this one guards its ABSENCE. `bugs-index-gate.sh` refuses it
+# too, but it runs in SMOKE — after the push — so the first people to learn are everyone else, and
+# the gate takes 13.9 s, which is why this asks the same question with a regex instead of running it.
+#
+# FOUR ENTRIES DID THIS ON 2026-08-15 ALONE, from four different authors: v3-extern-member-in-an-
+# object-has-no-meaning, v3-capability-list-outlived-the-divergence-it-declared,
+# v2-f-round-is-three-different-roundings-across-the-backends, and one earlier the same day. Each
+# stopped every agent's push until somebody noticed. Four authors is a property of the process, not
+# carelessness — and in three of the four the sha was already written down in the claim's own
+# RELEASE NOTE, so nobody had to find anything. The second half of the two-step close is simply
+# where attention runs out.
+#
+# ONLY WHAT THIS PUSH INTRODUCES, by the same argument the block above makes: the offender sets are
+# computed for the remote tip and for what is being pushed, and only slugs that appear in the second
+# and not the first are refused. Pre-existing debt on main belongs to another entry and blocking
+# unrelated work on it would make the guard the problem.
+#
+# AND ONLY A PUSH THAT COULD LAND, for the same reason: on a branch that has not been rebased,
+# everything already on main reads as new.
+if git merge-base --is-ancestor "$remote_tip" "$local_tip" 2>/dev/null; then
+missing=""
+for bf in $(git diff --name-only "$remote_tip" "$local_tip" -- '*BUGS.md' 2>/dev/null); do
+  new="$(comm -13 \
+    <(git show "$remote_tip:$bf" 2>/dev/null | fixed_without_sha | LC_ALL=C sort -u) \
+    <(git show "$local_tip:$bf"  2>/dev/null | fixed_without_sha | LC_ALL=C sort -u))"
+  [ -n "$new" ] || continue
+  missing="$missing  $bf
+$(printf '%s\n' "$new" | sed 's/^/    /')
+"
+done
+
+if [ -n "$missing" ]; then
+  cat >&2 <<EOF
+
+✋ pre-push: an entry you are marking \`status: fixed\` has no \`fixed-in:\`.
+
+$missing
+\`bugs-index-gate.sh\` refuses this, and it runs in SMOKE — so pushing it stops every agent's next
+push, not yours. Four entries did exactly that on 2026-08-15, and in three of them the sha was
+already sitting in the claim's own release note.
+
+The two-step close is what survives a rebase: land the fix first, read the sha back with
+\`git rev-parse\`, then close the entry in a SECOND commit naming it. If the fix is already on main,
+the sha is in your release note or in \`git log\`.
 
 Override (rarely correct): git push --no-verify
 EOF
