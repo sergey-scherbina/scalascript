@@ -5,7 +5,7 @@ started: 2026-08-14T23:48:27Z
 heartbeat: 2026-08-14T23:48:27Z
 status: working
 items: given-instance-as-a-receiver
-paths: file:v3/src/Lower.scala
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
 scope: |
   `intSum.combine(a, b)` is refused, and it should not be: the receiver IS the given instance and
   `combine` is its own member. Next target after 32ac55842 took that refusal bucket from 8 to 6.
@@ -37,4 +37,30 @@ scope: |
   MEASUREMENT: N with floors DIFF 3 / CRASH 9, the three cases read INDIVIDUALLY against their
   expectations, and the refusal-histogram line re-read — it is the instrument that named this bucket
   and it says how many of the 6 remain.
-next: add the instance-member arm before the refusal, then measure
+  MEASURED 2026-08-15 AND NOT SHIPPED. The arm works and the floor says no:
+
+      control (no arm)   PASS 218  DIFF 3  UNSUPPORTED 137  CRASH 9
+      with the arm       PASS 220  DIFF 5  UNSUPPORTED 133  CRASH 9
+
+  DIFF is a FLOOR and it rose by two. The criterion was stated BEFORE the numbers were read, so
+  this is not a rule discovered to fit a result.
+
+  THE ARM IS NOT WRONG — what it removes is a refusal that was masking other defects. The whole
+  `is provided by a given instance` bucket goes from 6 to ZERO: two cases reach PASS, two move to a
+  different honest refusal (an arity one), and two become DIFF. Lists compared, not counts:
+  control DIFF is {parameterless-def-local, indent-block-statements, indent-config-format} and with
+  the arm it is those three plus `std-index` and `std-monaderror`. Neither was PASSING before — both
+  were UNSUPPORTED — so there is no PASS -> DIFF regression, but an honest refusal became a silent
+  wrong answer, which is the trade this repository refuses.
+
+  BOTH NEW DIFFS ARE ONE DEFECT, not two, and that is the finding worth keeping: `std-index` dies at
+  `noneInt.handleError((_: Unit) => Some(0))` after printing nine correct lines, and `std-monaderror`
+  dies on the same `handleError`. It is the extension inside `given optionUnitError:
+  MonadError[Option, Unit]`, whose body is `fa match { case Some(_) => fa; case None => h(()) }`, and
+  `fa` is a `val` bound to `None`. `match: no arm matched`, thrown from `Exec.prim` with no position
+  — which is why it lands in DIFF rather than UNSUPPORTED.
+
+  SO THE CLAIM SHIPS NO CODE. The arm is described in the filed entry precisely enough to re-apply
+  in one edit, so the next agent does not repeat the investigation, and it lands with the
+  `handleError` defect rather than before it.
+next: file the entry, revert the working tree, release with no code
