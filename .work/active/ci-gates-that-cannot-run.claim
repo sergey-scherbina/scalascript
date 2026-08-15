@@ -1,0 +1,11 @@
+slug: ci-gates-that-cannot-run
+branch: feature/ci-gates-that-cannot-run
+agent: claude-code
+started: 2026-08-15T15:42:01Z
+heartbeat: 2026-08-15T15:42:01Z
+status: claimed-before-planning
+items: ci-validate-has-no-toolchain-for-16-gates ci-extras-times-out-at-step-14
+paths: file:.github/workflows/ci.yml file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
