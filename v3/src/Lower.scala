@@ -1769,6 +1769,34 @@ object Lower:
               // A PARAMETER WINS OVER A `val` of the same name: the parameter's type is DECLARED and
               // the val's is derived, and an inner `val` shadowing a parameter is the case where
               // trusting the derivation would be guessing.
+              // THE RECEIVER IS THE INSTANCE ITSELF, not a value the instance operates on, and the
+              // two are opposite calls:
+              //
+              //   extension        `xs.foldMap(f)`        -> `listFoldable.foldMap(xs, f)`
+              //                    receiver PREPENDED: it is the value being operated on
+              //   instance member  `intSum.combine(a, b)` -> `intSum.combine(a, b)`
+              //                    receiver NOT prepended: it is the OWNER of the member
+              //
+              // `given intSum: Monoid[Int] with { def empty; def combine(a, b) }` makes `intSum` an
+              // object, so this is an ordinary qualified call the object flattening already
+              // resolves. The refusal below asks two true questions — `receiverType` cannot type
+              // the NAME `intSum`, and `combine` is declared only by given instances — from which
+              // the conclusion does not follow.
+              //
+              // THIS WAS MEASURED AND WITHHELD TWICE BEFORE LANDING. On its own it took DIFF from 3
+              // to 5: it unblocked cases that then hit two other defects and produced wrong answers
+              // instead of honest refusals. The floor decided that both times, and the second
+              // withdrawal is what led to finding the real cause — a top-level extension shadowing
+              // a given-instance one of the same name, fixed by the pass order in the commit
+              // before this. Three defects sat behind one diagnostic.
+              //
+              // `instanceDefs` already holds `object.member` for every given instance, so this adds
+              // no table and no new source of types — it only asks the question in the right order.
+              val instanceMember = recv match
+                case Expr.Name(n, _) if instanceDefs.contains(n + "." + m) => Some(n)
+                case _                                                     => None
+              if instanceMember.isDefined then Expr.Call(instanceMember.get + "." + m, args, p)
+              else
               receiverType(recv, valTypes ++ params).flatMap(ty => pick(ty, m)) match
                 case Some(obj) => Expr.Call(obj + "." + m, recv :: args, p)
                 // UNRESOLVED IS REFUSED, not left to fall through, and that is the difference
