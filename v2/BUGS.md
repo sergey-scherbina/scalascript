@@ -2168,10 +2168,49 @@ run through `ssc-tools run --v1`, **the interpreter does exactly the same**, so 
 is simply malformed rather than reproducing anything. An artifact that fails for an unknown reason
 is not evidence.
 
-**So reduce by CUTTING `examples/components-demo.ssc` DOWN, not by building a server up** — by
-declaration, keeping the file legal at every step, and re-checking that it still reproduces. That is
-the discipline `tests/BUGS.md a-reduction-predicate-naming-an-unbound-name-will-just-delete-its-declaration`
-already records, and this entry is another instance of paying for skipping it.
+**REDUCED 2026-08-15 BY CUTTING DOWN, and the cause is isolated: A DEFAULTED METHOD IN ONE MODULE
+DESTROYS THE DEFAULTS OF A SAME-NAMED METHOD IN ANOTHER.**
+
+The reduction, each step re-checked against the served body:
+
+| step | file | served |
+|---|---|---|
+| control | `examples/components-demo.ssc` unmodified | `arity: 3 expected, 2 given` |
+| A | handler body replaced by one `Alert.render(a, b)` | **0 bytes — no server** |
+| B | same, but `serve(8768)` KEPT | `arity: 3 expected, 2 given` |
+| C | B minus the four unused component imports | **148 bytes, correct** |
+
+**Step A is why two earlier hand-built reproducers "failed to start" and were written off as
+malformed: front-matter `routes:` does NOT start a server — the trailing `serve(8768)` call does.**
+Cutting the handler body took it with it. That is the whole of the silent-start mystery, and it is a
+fact worth carrying: the routes block declares, `serve(...)` binds.
+
+**Then the bisection, from B:**
+
+    B minus Page      -> still fails        Alert + Counter alone      -> OK
+    B minus Button    -> still fails        Alert + Counter + Card     -> OK
+    B minus Card      -> still fails        Alert + Counter + Button   -> OK
+    B minus Counter   -> OK                 Alert + Counter + Page     -> OK
+
+So `Counter` is necessary, and necessary together with at least two other component modules.
+
+**THE DECISIVE EXPERIMENT, one edit to a method the probe NEVER CALLS.** `Counter.render(initial:
+Int = 0)` is the only one of the five whose parameters are ALL defaulted — it can be called with zero
+arguments. Delete that one default, changing nothing else and calling nothing new:
+
+    Counter.render(initial: Int = 0)   ->   Alert.render("a","b")  FAILS  arity: 3 expected, 2 given
+    Counter.render(initial: Int)       ->   Alert.render("a","b")  WORKS  148 bytes
+
+**An uncalled method in an unrelated module decides whether another module's default is applied.**
+All five components name their method `render`, which puts this in the same family as
+`rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member` — a registry keyed by
+something that ignores the owner — except here it is the DEFAULTS registry on the native tier.
+
+**A synthetic four-module analogue does NOT reproduce** — three objects with `render(a, b, level =
+"info")` plus one with `render(initial: Int = 0)`, same import shape, same `serve(8768)` — and it
+answers correctly. So the trigger needs something the real components have and the synthetic ones do
+not: `scope`/`css`/`js`, the html-interpolator, or sheer module size. That is the next thing to vary,
+and it is recorded as an open question rather than guessed.
 
 **This entry exists because a THIRD WITNESS was stale for nine days.**
 `tests/e2e/render-smoke.sh` carried a documented known gap pointing at
