@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` is 3 on the shipped lanes and 2 in Core IR
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**MEASURED, not read** — `bin/ssc-tools run` on `println(math.round(2.5))` and three more ties:
+
+    lane                       2.5   3.5   -2.5   -3.5
+    --v1 (interpreter)          3     4     -2     -3      half UP, integer-valued
+    native                      3     4     -2     -3      half UP, integer-valued
+    Core IR `f.round` (v2 VM)   2     4     -2     -4      half to EVEN, float-valued
+
+**The disagreement is at 2.5 and -3.5, and it is two differences, not one:** the tie rule AND the
+result type. v1's `math.round` is `Computation.pureIntV(math.round(d))` —
+`DispatchRuntime.scala:3154` — which is Scala's `math.round`, defined as "half up" and returning a
+`Long`. The Core IR prim is `math.rint`, half to even, returning a Float. v3's prelude reaches the
+prim (`__mathRound` → `f.round`), so `math.round(2.5)` is **2** there and **3** here.
+
+**THIS IS NOT THE ENTRY THAT WAS JUST CLOSED.** `v2-f-round-is-three-different-roundings-across-the-backends`
+was about five implementations of the PRIM disagreeing, and it is fixed: every backend now breaks a
+tie to even, per the owner's decision recorded in `v2/specs/10-core-ir.md`. What that decision did
+NOT cover is the language-level `math.round`, which on v1 and native is a different function with
+the opposite rule.
+
+**Found because a conformance case was written for the prim and WITHDRAWN.** A case declaring
+`backends: [int, js, jvm, v2]` would have gone red on three of the four for a rule they never
+agreed to, which is how this got measured instead of assumed. The Core IR fixture
+(`v2/conformance/float-round-ties.coreir`) tests the prim directly and is the right instrument for
+the decision that was taken.
+
+**WHAT IT WOULD TAKE, and why it is not done here.** Either v1's `math.round` becomes `rint` — a
+change to a shipped language function's answer, and to its RESULT TYPE, which is the part that
+breaks callers doing arithmetic on an Int — or the two are declared to be different functions and
+the difference is documented where the standard library is described. That is a decision about the
+language, not a defect to patch, and it belongs to whoever owns the std spec.
+
 ## v2-map-updated-copies-the-whole-map — `Map.updated` is O(n), and the cost is 80 % of `map-ops`
 
 <!-- status: fixed

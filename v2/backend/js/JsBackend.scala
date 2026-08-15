@@ -330,7 +330,12 @@ object JsGen:
       case "f.sqrt" => s"Math.sqrt(${a(0)})"
       case "f.floor"=> s"Math.floor(${a(0)})"
       case "f.ceil" => s"Math.ceil(${a(0)})"
-      case "f.round"=> s"Math.round(${a(0)})"
+      // `$frint`, NOT `Math.round`, and the difference is only ever visible at exactly `.5`.
+      // `Math.round` breaks a tie by going UP (2.5 -> 3, -2.5 -> -2); the VM, the jvm backend and
+      // the swift backend all break it to EVEN, which is `math.rint` and IEEE-754's default. Three
+      // implementations of one prim answered three different ways and agreed everywhere else,
+      // which is why nothing caught it. (v3/BUGS.md v2-f-round-is-three-different-roundings.)
+      case "f.round"=> s"$$frint(${a(0)})"
       case "f.trunc"=> s"Math.trunc(${a(0)})"
       case "f.isNaN"=> s"Number.isNaN(${a(0)})"
       case "f.isInf"=> s"(!Number.isFinite(${a(0)}))"
@@ -535,6 +540,16 @@ function $ndiv(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
 function $nmod(a,b){ var ab=typeof a==='bigint', bb=typeof b==='bigint';
   return ab&&bb ? (a%b) : (ab?Number(a):a)%(bb?Number(b):b); }
 function $nneg(a){ return typeof a==='bigint' ? BigInt.asIntN(64,-a) : -a; }
+
+// ── f.round is HALF TO EVEN (IEEE-754 `rint`), the Core IR contract — see 10-core-ir.md §prims.
+// Written out rather than expressed over Math.round because the tie is exactly what Math.round
+// gets wrong: it rounds a tie UP, so -3.5 would be -3 here and -4 on every other backend.
+// The zero branch keeps the VALUE right rather than the printout: `rint(-0.5)` is -0.0, which
+// prints as `0` on both lanes (measured), but -0.0 and 0.0 are not the same number once something
+// divides by it. `f+1` where f is -1 yields a positive 0 in JS, so the sign has to be put back.
+function $frint(x){ var f=Math.floor(x), d=x-f, r;
+  if(d>0.5) r=f+1; else if(d<0.5) r=f; else r=(f%2===0)?f:f+1;
+  return r===0 ? (x<0?-0:0) : r; }
 
 // ── Trampoline ───────────────────────────────────────────────────────────────
 // Every closure call goes through $c which drives the trampoline.

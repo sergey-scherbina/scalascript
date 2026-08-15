@@ -1,0 +1,46 @@
+; `f.round` AT EXACTLY `.5`, which is the only input where the five implementations disagreed.
+;
+; They agreed on every other value, which is why nothing caught it: `round(2.4)` and `round(2.6)`
+; are 2 and 3 whatever rule you use. The tie is the whole test.
+;
+;   VM / jvm / swift   math.rint / .rounded(.toNearestOrEven)   half to EVEN
+;   js                 Math.round                               half UP          2.5 -> 3
+;   rust               .round()                                 half AWAY        -2.5 -> -3
+;
+; The Core IR contract is HALF TO EVEN (10-core-ir.md), so js and rust were changed to match the
+; other three rather than the other way round — three of five already did it, it is what
+; `math.rint` and IEEE-754's default rounding mean, and v3 had already shipped parity probes
+; pinning `round(2.5) = 2` on two lanes that both run the VM.
+;
+; `-0.5` IS IN HERE ON PURPOSE, and what it pins is the TIE, not the sign of the zero: half to even
+; sends it to zero while half-away-from-zero sends it to -1. The printed form does not distinguish
+; -0.0 from 0.0 on any of these lanes — measured, the VM prints `0` — so this row cannot be read as
+; a statement about signed zero.
+;
+; Expected output, from the VM (the oracle check.sh compares every backend against), COPIED FROM A
+; RUN rather than predicted — the floats print without a trailing `.0` here:
+;   2
+;   4
+;   -2
+;   -4
+;   2
+;   3
+;   0
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq
+     (prim __autoOutput__ (prim f.round (lit (float 2.5))))
+     (seq
+      (prim __autoOutput__ (prim f.round (lit (float 3.5))))
+      (seq
+       (prim __autoOutput__ (prim f.round (lit (float -2.5))))
+       (seq
+        (prim __autoOutput__ (prim f.round (lit (float -3.5))))
+        (seq
+         (prim __autoOutput__ (prim f.round (lit (float 2.4))))
+         (seq
+          (prim __autoOutput__ (prim f.round (lit (float 2.6))))
+          (prim __autoOutput__ (prim f.round (lit (float -0.5))))))))))))) 
+ (entry (app (global main))))

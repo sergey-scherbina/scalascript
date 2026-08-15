@@ -750,43 +750,45 @@ it was filed for is solved by a different route, `rewriteGivenExtensionCalls` fo
 step to its initialiser — and `std-bifunctor` passes. So "fix both, then measure" was wrong twice
 over: there was nothing to fix on the other side, and this side needed no help to be measured.
 
-## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagree at exactly `.5`
+## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagreed at exactly `.5`
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: codegen
-     gate: none
+     gate: v2/conformance/float-round-ties.coreir (v2/backend/check.sh — NOT wired to CI, see below)
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**FOUND BY READING, NOT BY RUNNING, and that is stated up front because it changes what the entry
-is worth.** Noticed while adding `f.pow` beside `f.sqrt` in every backend. The four implementations
-of `f.round` do not agree:
+**THE CONTRACT IS HALF TO EVEN.** Owner's decision, taken after this entry was filed asking for one:
+`round(2.5)` is 2, `round(3.5)` is 4, `round(-2.5)` is -2. That is IEEE-754's default and what
+`math.rint` means, it is what three of the five implementations already did, and it is what v3's
+shipped parity probes already pinned. Written into `v2/specs/10-core-ir.md` beside the prim list,
+because the list alone could not settle it and five implementations had settled it three ways.
 
-    v2/src/Runtime.scala:1437                 math.rint(flt(a, 0))                half to EVEN
-    v2/backend/jvm/JvmBackend.scala:446       math.rint(_asDouble(a0))            half to EVEN
-    v2/backend/swift/…/SwiftRuntime.scala     .rounded(.toNearestOrEven)          half to EVEN
-    v2/backend/js/JsBackend.scala:329         Math.round(a0)                      half UP
-    v2/backend/rust/RustBackend.scala:1248    as_float(a0).round()                half AWAY FROM ZERO
+**FIXED IN TWO BACKENDS, AND THE CONTROL SAYS IT IS FOUR LANES.** js emitted `Math.round` (half up)
+and rust `.round()` (half away from zero); js now emits a `$frint` helper and rust
+`round_ties_even()`. Measured with the fix reverted and the new fixture in place:
 
-Three different rules. They agree on every value that is not exactly `.5`, which is why nothing has
-caught it: `round(2.5)` is **2** on the VM, jvm and swift, **3** on js, and **3** on rust;
-`round(-2.5)` is `-2`, `-2` and `-3`.
+    jvm   ok
+    js    FAIL  row 1: expected 2, got 3
+    rust  FAIL  row 1: expected 2, got 3
+    wasm  FAIL  row 1: expected 2, got 3      <- NOT in the original census
 
-**WHY IT MATTERS HERE.** v3's `math.round` goes through this prim, and v3 shipped parity probes
-pinning `round(2.5) = 2` and `round(3.5) = 4` on its two lanes — both of which run the VM. The same
-program compiled to JS by v2 answers differently. Core IR is meant to be one language whatever
-executes it.
+**The wasm lane is generated through the rust backend**, so it inherited the away-from-zero rule and
+was a fourth wrong answer the entry did not know about. With both fixes: ALL GREEN, 4 backends.
+swift was read rather than run — `SwiftRuntime.scala:1112` is `.rounded(.toNearestOrEven)`, already
+correct, and this harness has no swift lane.
 
-**NOT FIXED, and not by me in the same breath as finding it:** which rule is CORRECT is a decision
-about the Core IR's contract, not a typo to patch. `10-core-ir.md` says `f.round` and nothing about
-its tie-breaking. Whoever owns that spec picks one — `rint` is what three of five already do and
-what Scala's `math.rint` and IEEE-754 "round half to even" mean — and then the two odd backends
-follow, with a conformance row at `.5` so it cannot drift again.
+**THE GATE IS HONEST ABOUT ITS REACH.** `v2/conformance/float-round-ties.coreir` is run by
+`v2/backend/check.sh`, and **nothing in CI runs check.sh** — it appears only in changelogs and bug
+entries. So this is a manual instrument, and the fix is not protected by a job. A conformance case
+was written to cover it in CI and then WITHDRAWN, because the `int`, `jvm` and `v2` lanes answer a
+DIFFERENT question — see the entry below.
 
-**Confirm before fixing.** This is a code reading; run one program per backend at `2.5`, `3.5`,
-`-2.5` before acting on it. `f.pow` was reported to the owner as "one line" on exactly this kind of
-evidence and turned out to be six sites.
+**`math.round` IS NOT `f.round`, and that is now filed separately.** Measured on the shipped lanes:
+`math.round(2.5)` prints **3** on both `--v1` and native, half UP and integer-valued, against **2**
+for the Core IR prim. Filed as `math-round-and-f-round-disagree-at-a-tie` in `v2/BUGS.md` — it is a
+consequence of this decision rather than part of it, and changing v1's semantics is its own call.
 
 ## v3-math-pow-fractional-needs-a-v2-prim — a fractional exponent had no answer on the bridge, and no v3-only fix could match
 

@@ -1249,7 +1249,11 @@ ${pad}    }));\n"""
       case "f.sqrt"  => s"V::Float(as_float($a0).sqrt())"
       case "f.floor" => s"V::Float(as_float($a0).floor())"
       case "f.ceil"  => s"V::Float(as_float($a0).ceil())"
-      case "f.round" => s"V::Float(as_float($a0).round())"
+      // `round_ties_even`, NOT `round`: Rust's `round` breaks a tie AWAY FROM ZERO (2.5 -> 3,
+      // -2.5 -> -3) and the Core IR contract is HALF TO EVEN — what the VM's `math.rint`, the jvm
+      // backend and the swift backend already do. Stable since Rust 1.77.
+      // (v3/BUGS.md v2-f-round-is-three-different-roundings-across-the-backends.)
+      case "f.round" => s"V::Float(as_float($a0).round_ties_even())"
       case "f.trunc" => s"V::Float(as_float($a0).trunc())"
       case "f.eq"    => s"V::Bool(as_float($a0) == as_float($a1))"
       case "f.lt"    => s"V::Bool(as_float($a0) < as_float($a1))"

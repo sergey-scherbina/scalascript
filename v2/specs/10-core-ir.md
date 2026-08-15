@@ -339,6 +339,18 @@ compare `f.eq f.lt f.le f.gt f.ge` → `Bool` (IEEE ordering; `NaN ≠ NaN`) · 
 (the ELEMENTARY functions `sqrt` and `pow` are kernel; the transcendentals `sin`/`cos`/`log`/`exp`
 live in the `Mira` prelude, not here)
 
+**`f.round` BREAKS A TIE TO EVEN — `round(2.5)` is 2, `round(3.5)` is 4, `round(-2.5)` is -2.**
+That is IEEE-754's default rounding, Java's `math.rint` and Scala's `math.rint`; it is NOT
+`Math.round`, which goes up, and NOT Rust's `.round()`, which goes away from zero. The rule is
+written here because the prim list alone could not settle it and five implementations had settled
+it three different ways: the VM, jvm and swift to even, js up, rust (and the wasm lane, which is
+generated through the rust backend) away from zero. They agree on every input that is not exactly
+`.5`, which is why it went unnoticed until someone read them side by side.
+
+Pinned by `v2/conformance/float-round-ties.coreir`, which check.sh runs against every backend with
+the VM as the oracle. `f.floor`, `f.ceil` and `f.trunc` need no such note: they have no tie to
+break.
+
 **`f.pow` was added 2026-08-14 and the line above was narrowed in the same commit**, because the old
 wording — "transcendentals such as `sin`/`cos`/`log`/`exp` live in the `Mira` prelude, not the
 kernel" — read as excluding it. Three things decided otherwise. `f.sqrt` was already kernel and IS
