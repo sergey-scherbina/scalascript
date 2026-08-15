@@ -251,6 +251,36 @@ round number.
 both the failure mode disguised itself — one behind a fail-fast red, the other behind `cancelled`.
 Neither is discoverable by reading the workflow; both are obvious the moment the steps actually run.
 
+
+### 3. `area-map-gate` cannot work on a shallow checkout — and that is why it was red on CI alone
+
+Found after the first two fixes, when `validate` finally ran to completion and step 16 was still red
+while the same gate passed locally on the same commit.
+
+`scripts/board-ownership-check` resolves every entry's `fixed-in:` sha with
+`git show --format= --name-only <sha>` to learn which board owns that code. `actions/checkout@v4`
+defaults to **depth 1**, so almost none of those commits exist in the clone. Measured on ONE tree,
+two checkouts:
+
+```text
+full history    470 entries resolved from a source path   exit 0
+depth-1 clone    83 entries resolved                      exit 1
+```
+
+**387 entries silently unresolvable**, which changes the misfiling set, makes baseline rows look
+stale, and fails the gate — while a developer with a full clone sees green. That is also why
+refreshing the baseline from a local clone did not fix CI: **the two were not looking at the same
+data.**
+
+**Fixed with `fetch-depth: 0` on this job's checkout**, with the measurement in the workflow so the
+next person does not delete it as a slow default. The other ten jobs stay shallow deliberately —
+none of them resolves a historical sha.
+
+**The generalisable half:** a gate whose verdict depends on CLONE DEPTH has to say which it needs.
+This one asked git for history it had not requested and reported the shortfall as a content
+failure — the same shape as the rest of this entry, where a check ran somewhere it could not work
+and the failure did not say so.
+
 ## f-gap-tail-2026-08-15 — the crash is fixed; three narrowed defects behind it
 
 <!-- status: open

@@ -184,6 +184,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, and the gate below cannot work without it.
+          #
+          # `board-ownership-check` resolves every entry's `fixed-in:` sha with
+          # `git show --name-only <sha>` to learn which board owns that code. On the default
+          # depth-1 checkout those commits are not in the clone, so the lookup fails silently and
+          # the check computes a DIFFERENT misfiling set from the one any developer sees.
+          #
+          # Measured 2026-08-15 on one tree, two checkouts:
+          #     full history   470 entries resolved, exit 0
+          #     depth-1 clone   83 entries resolved, exit 1
+          #
+          # That is why `area-map-gate` was red here for days while passing locally, and why
+          # refreshing its baseline from a full clone did not fix CI: the two are not looking at
+          # the same data. A gate whose verdict depends on clone depth has to say which it needs.
+          fetch-depth: 0
 
       - name: Setup Scala CLI
         uses: VirtusLab/scala-cli-setup@v1
