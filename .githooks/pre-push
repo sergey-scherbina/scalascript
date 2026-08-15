@@ -259,6 +259,56 @@ EOF
 fi
 fi
 
+# ── a GENERATED view must not be left behind by the source it is generated from ──────────────────
+#
+# `TASK/*.md` carries regions marked `<!-- task-views:begin … -->` that are GENERATED from the
+# `*BUGS.md` entries by `scripts/task-views --write`. Edit a BUGS entry, forget the regenerate, and
+# the derived copy still reads the old status — and `tests/e2e/task-views-gate.sh` then turns SMOKE
+# red for everybody, after the push.
+#
+# THE DERIVED COPY IS THE ONE PEOPLE READ. A stale view is not a cosmetic problem: it is a board
+# that reports an open entry as closed to every agent picking up work. It has already turned main
+# red once from a path written in a DIFFERENT ORDER than the generator emits, which is the same
+# lesson from the other direction — never hand-edit the derived side, generate it.
+#
+# THE CHECK READS THE WORKING TREE, NOT THE PUSHED COMMIT, and that is a real limit rather than an
+# oversight: `scripts/task-views --check` has no way to be pointed at a sha. So it is run only when
+# the working tree AGREES with what is being pushed for these paths; otherwise it would be answering
+# a question about a different state and a red would be unattributable. When they disagree the
+# skip is ANNOUNCED — a check that quietly declines to run reads exactly like a check that passed.
+#
+# ONLY A PUSH THAT TOUCHES A `*BUGS.md`, by the same argument the two blocks above make: a push that
+# does not touch the source cannot have staled the view, and pre-existing debt on main belongs to
+# somebody else. `scripts/board --check` asks a similar question but takes 2051 ms against this
+# one's 379 ms, and it would fire on every claim push — it is deliberately NOT run here.
+if git merge-base --is-ancestor "$remote_tip" "$local_tip" 2>/dev/null &&
+   ! git diff --quiet "$remote_tip" "$local_tip" -- '*BUGS.md' 2>/dev/null; then
+  tv="$(git rev-parse --show-toplevel)/scripts/task-views"
+  if ! git diff --quiet "$local_tip" -- '*BUGS.md' 'TASK' 2>/dev/null; then
+    echo "⚠ pre-push: working tree differs from the pushed tip under BUGS.md/TASK — task-views not checked." >&2
+  elif [ -x "$tv" ] && ! "$tv" --check >/dev/null 2>&1; then
+    cat >&2 <<EOF
+
+✋ pre-push: you are changing a \`*BUGS.md\` but its GENERATED \`TASK/\` views are stale.
+
+Regenerate and amend into this push:
+
+    scripts/task-views --write
+
+The \`<!-- task-views:begin … -->\` regions in \`TASK/*.md\` are derived from the BUGS entries — they
+are what other agents read when picking up work, so a stale one reports an open entry as closed.
+\`tests/e2e/task-views-gate.sh\` refuses this too, but it runs in SMOKE, after the push, which stops
+every agent's next push rather than yours.
+
+NEVER hand-edit the generated region — a path typed in a different ORDER than the generator emits
+has already turned main red. Run the writer.
+
+Override (rarely correct): git push --no-verify
+EOF
+    exit 1
+  fi
+fi
+
 # Field lookup: `items:`/`paths:` from a claim blob, whitespace-separated.
 field() { # field <sha>:<path> <name>
   git show "$1" 2>/dev/null | sed -n "s/^$2:[[:space:]]*//p" | head -1
