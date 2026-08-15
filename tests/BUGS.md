@@ -43,6 +43,37 @@ the ninth occurrence actually shows is that the *typing habit* is the failure po
 reliable answer found so far is the one already in use for durable text: write it somewhere that
 cannot expand, then pass it as data.
 
+
+### CORRECTION 2026-08-15, same evening — two claims above are FALSE, and the gate is still red
+
+**1. "GitHub's ubuntu images ship no Swift" is wrong.** The guard did NOT fire on the runner: the
+dispatch log shows `v2-swift-cli.sh` running past it to `Swift package written to /tmp/…`. `swift`
+IS on PATH there. The guard is still worth having — a host without a toolchain now gets an honest
+skip instead of an opaque exit — but it is not what this gate needed, and the reason I gave for
+adding it was an assumption I never checked against the runner.
+
+**2. `run-swift` was not shown to be the failure point.** The stderr capture I added prints
+`run-swift FAILED — last 15 lines of its stderr`, and it did **not** appear in the dispatch that
+included it (verified: the change is present at the dispatched sha `9752e6d8c`). So the script gets
+past `run-swift` and dies later.
+
+**What that leaves, stated as the actual state:** the step still exits 1 after `KNOWN GAP …` with
+nothing attributable, ~56 s later. Every remaining line in that script has the same shape I only
+half-fixed —
+
+```sh
+"$SSC" run --target macos "$FIXTURE" --v2 >"$TMP/run-target.out"
+"$SSC" package --target macos --out "$TMP/plain-package" "$FIXTURE" >… 2>…
+```
+
+each redirecting its output and dying silently under `set -euo pipefail`. **I instrumented one of
+them and generalised from it.** The fix is to give every command in this gate the same treatment, or
+to drop `set -e` here in favour of explicit checks that print.
+
+**The method note, because it is the second time today on this same gate:** I inferred the failure
+point from where the output STOPPED rather than from where the script FAILED, and those are only the
+same when every command reports. Here they are not.
+
 ## smoke-job-cap-no-longer-looser-than-the-suite — 17 of 100 pushes reached no verdict, every one killed at the 30-minute job cap
 
 <!-- status: open
