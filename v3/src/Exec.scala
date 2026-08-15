@@ -1685,7 +1685,13 @@ object Exec:
         // disagree with `ssc3 run --bridge` — it CREATED the I-3 violation this commit exists to
         // remove, in the other operator. v2 wraps for `flatMap` and refuses for `++`; the asymmetry
         // is v2's, and v3's two lanes agreeing is what I-3 asks. Filed rather than papered over.
-        case "++"      => listIn(m, xs ++ listOut(m, args.head, "++"))
+        // `listOrOne`, matching the doc block on that function — which described this call site
+        // and was true of an earlier commit rather than of this line. The widening was reverted in
+        // 2026-08-14 because it made `ssc3 run` disagree with `ssc3 run --bridge`: v3 wrapped and
+        // the v2 VM refused. The bridge now wraps too (v2/src/Runtime.scala, same commit), so the
+        // reason for the revert is gone and the two lanes agree again — which is the condition the
+        // entry set for widening this. (v3/BUGS.md v3-concat-nonlist-splits-three-ways.)
+        case "++"      => listIn(m, xs ++ listOrOne(m, args.head))
         case ":+"      => listIn(m, xs :+ args.head)
         case "+:"      => listIn(m, args.head :: xs)
         case "mkString" =>

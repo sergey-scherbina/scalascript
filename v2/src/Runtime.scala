@@ -2635,7 +2635,21 @@ object Prims:
         case (ls, "indexOf", List(v)) if isList(ls) => IntV(unlist(ls).indexOf(v).toLong)
         case (ls, "+:", List(v)) if isList(ls) => DataV("Cons", collection.immutable.ArraySeq(v, ls))
         case (ls, ":+" | "appended", List(v)) if isList(ls) => listOf(unlist(ls) :+ v)
-        case (ls, "++", List(other)) if isList(ls) => listOf(unlist(ls) ++ unlist(other))
+        // A NON-LIST RIGHT OPERAND IS ONE ELEMENT, not an error. This arm used to call
+        // `unlist(other)` unconditionally, so `List(1,2) ++ 5` died in `unlistPub` with
+        // `expected a list, got 5` — an UNCAUGHT Java exception, no position — while the very
+        // same VM's `flatMap` wrapped a non-list and the reference lane's `++` wrapped it too.
+        // Two operators, one question, opposite answers, inside one runtime.
+        //
+        // `:+` IS THE SPELLING IT AGREES WITH, deliberately: `xs ++ y` on a non-list y is now
+        // exactly `xs :+ y`, and `xs ++ List(y)` gives the same list. The alternative in this file
+        // — the `.distinct` that `arithOp`'s `++` applies — is NOT copied here, because it makes
+        // `List(1,2) ++ 2` drop the 2 while `List(1,2) ++ List(2)` and `List(1,2) :+ 2` both keep
+        // it. That asymmetry is filed separately rather than propagated.
+        // (v3/BUGS.md v3-concat-nonlist-splits-three-ways.)
+        case (ls, "++", List(other)) if isList(ls) =>
+          if isList(other) then listOf(unlist(ls) ++ unlist(other))
+          else listOf(unlist(ls) :+ other)
         // `(a, b) ++ (c, d)` = `(a, b, c, d)`. v2 ALREADY DID THIS — just not from here. The
         // `sconcat` prim has the identical arm (and `arithRest` reaches it), so a tuple concat
         // written as an operator worked while the same concat arriving as a METHOD died in this
@@ -3359,12 +3373,22 @@ object Prims:
       case _    => sys.error(s"__arith__: op $op not valid for Bool")
     // List :+ and ++ — bridge compiles infix ops as __arith__, but list ops live here too
     case (lv, rv) if op == ":+" && isList(lv) => listOf(unlist(lv) :+ rv)
-    // `list ++ list` = concat; but `set + stringElement` is lowered to `++` (the
-    // `+`→`++` string heuristic fires on a string operand), so a NON-list RHS is a
-    // Set element to ADD (distinct), not a collection to unlist.
+    // `list ++ list` = concat, and a NON-list RHS is ONE ELEMENT APPENDED.
+    //
+    // THE `.distinct` THAT USED TO BE HERE IS GONE, and it was not a rounding of the semantics —
+    // it silently dropped the element: `List(1,2) ++ 2` printed `1,2` on the reference lane while
+    // `List(1,2) ++ List(2)` and `List(1,2) :+ 2` both printed `1,2,2`. Measured 2026-08-15 on
+    // `bin/ssc-tools run`, which is the lane every other implementation was being aligned TO.
+    //
+    // It was there for `set + stringElement`, which the `+`→`++` string heuristic lowers to `++`.
+    // Real sets do not need it: a `SetV` receiver is routed to `methodOp("union", …)` further down,
+    // and this arm is reached only by a set REPRESENTED AS A PLAIN LIST. Keeping it would now cost
+    // more than it buys, because the method-call path (`methodOp`) appends without it, and having
+    // the infix and the method spelling of one operator answer differently is the split this
+    // commit exists to close. (v3/BUGS.md v3-concat-nonlist-splits-three-ways.)
     case (lv, rv) if op == "++" && isList(lv) =>
       if isList(rv) then listOf(unlist(lv) ++ unlist(rv))
-      else listOf((unlist(lv) :+ rv).distinct)
+      else listOf(unlist(lv) :+ rv)
     // `+` on a list: `list ++ list` semantics when the RHS is itself a list, but
     // `set + element` (v2 sets are distinct lists — `retried = Set(); retried + partId`)
     // ADDS the element (distinct). A non-list RHS is an element, not a list to unlist.

@@ -1,0 +1,2 @@
+val n = 5
+println((List(1, 2) ++ n).mkString(","))

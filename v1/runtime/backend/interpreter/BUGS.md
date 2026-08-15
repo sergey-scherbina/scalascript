@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` is a TUPLE here and a list everywhere else
+
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**MEASURED on `bin/ssc-tools run --v1`**, while converging the other lanes on the owner's decision
+that a non-list right operand of `++` is one element:
+
+    println((List(1,2) ++ n).mkString(","))   // n = 5
+
+    --v1 (this lane)   [ERROR] No method 'mkString' on TupleV((List(1, 2), 5))
+    native             1,2,5
+    v2 VM / bridge     1,2,5      (since 2026-08-16)
+    v3 exec            1,2,5      (since 2026-08-16)
+
+**It is not a refusal — it BUILDS something.** `List(1,2) ++ 5` evaluates to `TupleV((List(1,2), 5))`
+on this lane, so the program fails later and somewhere else, at whatever method the caller tries on
+the result. A program that never calls a method on it gets a tuple where every other lane gives a
+list, and nothing reports anything.
+
+**WHY IT IS FILED RATHER THAN FIXED IN THE SAME BREATH.** The decision that was taken —
+`v3-concat-nonlist-splits-three-ways` — was about the Core IR runtimes and their disagreement with
+the reference lane. This is a fourth behaviour in a lane the decision did not name, and changing
+what `++` builds here changes a shipped answer, not an error path. That is worth its own entry and
+its own owner, especially since `TupleV` suggests `++` is reaching a generic pair-forming arm rather
+than a list one — so the fix is a routing question, not a one-line semantics tweak.
+
+**Where to start:** `DispatchRuntime`/`BuiltinsRuntime` in this module, the `++` arm — and the
+control that says the shape is right is `List(1,2) ++ List(5)`, which already answers `1,2,5` here.
+
 ## int-a-double-in-a-signature-falls-off-the-jit — 250×, and the `Long` twin is the control
 
 <!-- status: open
