@@ -2894,7 +2894,7 @@ object RustCodeWalk:
       // re-inlining the `init` literal: inlining re-allocated the whole collection at
       // every use site — catastrophic inside a loop (`xs.foreach` rebuilt the `vec!`
       // each iteration: pattern-match-heavy 68× the interpreter, list-fold 500× jvm).
-      Right(n)
+      Right(bareNameOrNiladicCtor(n, ctx))
 
     // `if (cond) thenp else elsep` — Rust if expression.
     case ifExpr: m.Term.If =>
@@ -3279,7 +3279,7 @@ object RustCodeWalk:
       )))
 
     case m.Term.Select(qual, m.Term.Name(field)) =>
-      renderTerm(qual, ctx).map(q => s"$q.${rustIdent(field)}")
+      renderTerm(qual, ctx).map(q => selectOrNiladicCtor(qual, q, field, ctx))
     // A user effect op call `Eff.op(args)` → `_eff.op(args)` (tagless-final dispatch).
     // The `_eff` handler parameter is threaded into every effectful def. (R.4.2)
     case m.Term.Apply.After_4_6_0(
@@ -6090,7 +6090,58 @@ object RustCodeWalk:
       }.mkString
     case _ => ""
 
+  /** A bare `Dot` used as a VALUE — the FIFTH spelling of this one feature, and the one my own
+   *  probe missed. Found by the gate case, which enumerated the matrix the probe had not: qualified
+   *  and unqualified × pattern and constructor × with-args and field-less. `Dot` emitted as itself
+   *  and rustc answered E0425; there is no such identifier, only `Shape::Dot`.
+   *
+   *  Replaces the `Right(n)` that was here rather than adding an arm — `renderTerm` is frozen. */
+  private def bareNameOrNiladicCtor(n: String, ctx: Ctx): String =
+    ctx.ctorMap.get(n) match
+      case Some(c) if c.fieldNames.isEmpty && !c.isStruct => s"${c.enumName}::$n"
+      case _                                              => n
+
+  /** `Shape.Dot` — a QUALIFIED NILADIC enum constructor, and the THIRD twin in this family.
+   *
+   *  `19ebadf00` fixed the APPLIED form, `Shape.Circle(3)`, in the extractor path. A variant with no
+   *  fields never reaches that path — there is no argument list — so it fell through to ordinary
+   *  field access and emitted `Shape.Dot.clone()`, which is not Rust. The pattern side had the same
+   *  hole in both spellings; see `renderPattern`.
+   *
+   *  Written as a REPLACEMENT for the interpolation that was here rather than as a new match arm:
+   *  `renderTerm` is one of the five frozen over-limit methods and v1-jit-size refuses any growth,
+   *  and a call costs less bytecode at the call site than the interpolation it replaces. */
+  private def selectOrNiladicCtor(qual: m.Term, q: String, field: String, ctx: Ctx): String =
+    qual match
+      case m.Term.Name(enumName)
+          if ctx.ctorMap.get(field).exists(c => c.enumName == enumName && c.fieldNames.isEmpty) =>
+        s"$enumName::$field"
+      case _ => s"$q.${rustIdent(field)}"
+
   private def renderPattern(p: m.Pat, ctx: Ctx): Either[List[Diagnostic], String] = p match
+    // A QUALIFIED enum pattern — `case Content.Text(t)`. The TWIN of a defect already fixed on the
+    // other side of the same feature: `19ebadf00` made the qualified CONSTRUCTOR lower, and nobody
+    // did the pattern, so a user who writes `Content.Text(s)` to build one cannot write the
+    // matching `case`. It was refused outright — `unsupported pattern: Pat.Extract` — which is at
+    // least honest, but it is a refusal for a spelling the constructor side accepts.
+    //
+    // Delegated to the BARE spelling rather than formatted here, for the reason that fix records:
+    // the unqualified path already knows whether a variant is a tuple or a struct, and duplicating
+    // that produced `Content::Text(s)` for a STRUCT variant — E0533.
+    case m.Pat.Extract.After_4_6_0(m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName)), argClause)
+        if ctx.ctorMap.get(ctorName).exists(_.enumName == enumName) =>
+      renderPattern(m.Pat.Extract.After_4_6_0(m.Term.Name(ctorName), argClause), ctx)
+    // A FIELD-LESS variant carries no argument list, so it does not arrive as an extractor at all:
+    // `case Shape.Dot` is a `Term.Select` and bare `case Dot` is a `Term.Name`. NEITHER was
+    // supported — the field-less case could not be matched in ANY spelling, which is a more basic
+    // gap than the qualified one above and was found by putting a field-less variant in the probe
+    // rather than only the shapes the reported defect named.
+    case m.Term.Select(m.Term.Name(enumName), m.Term.Name(ctorName))
+        if ctx.ctorMap.get(ctorName).exists(c => c.enumName == enumName && c.fieldNames.isEmpty) =>
+      Right(s"$enumName::$ctorName")
+    case m.Term.Name(n)
+        if ctx.ctorMap.get(n).exists(c => c.fieldNames.isEmpty && !c.isStruct) =>
+      Right(s"${ctx.ctorMap(n).enumName}::$n")
     // ── List patterns ──────────────────────────────────────────────────────
     // A ScalaScript `List` is a Rust `Vec`, and a Vec has no constructor patterns — so these lower
     // to SLICE patterns, which is why `renderMatch` switches the subject to `.as_slice()` as soon

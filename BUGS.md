@@ -1060,7 +1060,7 @@ the previous sentence would otherwise have someone plan around code that does no
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
      ssc-version: 28100232d
@@ -1081,6 +1081,36 @@ so a user who writes one naturally writes the other.
 
 Found while gating the MCP client's `callTool`, whose `ToolResult.content` is a `List[Content]`;
 the gate uses the unqualified form and says so.
+
+**FIXED — AND IT WAS FIVE CELLS, NOT ONE.** The entry above names the qualified PATTERN. Enumerating
+the matrix that the reported spelling belongs to — qualified vs bare, pattern vs constructor,
+with-args vs field-less — found four more, of which `19ebadf00` had fixed exactly one:
+
+    Shape.Circle(3)        constructor, qualified, with args    fixed 19ebadf00
+    case Shape.Circle(r)   pattern,     qualified, with args    was refused
+    case Shape.Dot         pattern,     qualified, field-less   was refused
+    case Dot               pattern,     bare,      field-less   was refused
+    Shape.Dot              constructor, qualified, field-less   emitted `Shape.Dot.clone()`
+    Dot                    constructor, bare,      field-less   emitted `Dot` — E0425
+
+**THE FIELD-LESS ROW HIDES FOR A STRUCTURAL REASON.** A variant with no fields has no argument list,
+so it never reaches the extractor path at all: it arrives as a `Term.Select` or a bare `Term.Name`.
+Different node, different code path, and in Rust a different syntax — `Shape::Dot`, not
+`Shape::Dot {}`. The refusal message names the node kind, which is the tell.
+
+**AND MY OWN PROBE MISSED ONE.** The probe covered five of the six; the GATE case, written to cover
+the matrix rather than the probe, caught the sixth — bare `Dot` as a value — on its first run. That
+is the argument for writing the gate from the matrix and not from the bug report.
+
+Both pattern fixes DELEGATE to the bare spelling rather than formatting Rust here, for the reason
+`19ebadf00` records: the unqualified path already knows tuple from struct variant, and duplicating
+it produced `Content::Text(s)` for a struct variant, E0533. The two constructor fixes REPLACE an
+existing expression rather than adding a match arm, because `renderTerm` is one of the five frozen
+over-limit methods; v1-jit-size PASS confirms it did not grow.
+
+Gate: `tests/e2e/build-rust-refuses-loudly.sh` — all six cells, differentially against the default
+lane, `circle:3 / rect:2x5 / dot / circle:7 / dot`. Negative control: with the bare field-less
+constructor suppressed the gate fails and names the case.
 
 ## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
 

@@ -598,6 +598,55 @@ text=got:{\"k\":\"v\"}" ]]; then
     failed=1
   fi
 
+  # QUALIFIED and FIELD-LESS enum forms — four spellings of one feature, against the default lane.
+  #
+  # `19ebadf00` fixed the qualified CONSTRUCTOR with arguments, `Shape.Circle(3)`, and left three
+  # relatives behind: the qualified PATTERN `case Shape.Circle(r)`, the field-less pattern in BOTH
+  # spellings, and the field-less CONSTRUCTOR `Shape.Dot`, which emitted `Shape.Dot.clone()`.
+  #
+  # THE FIELD-LESS VARIANT IS WHY THE CASE HAS A `Dot` IN IT. A variant with no fields takes a
+  # different route through the walker — no argument list, so it is a `Term.Select` or a bare
+  # `Term.Name` rather than an extractor — and in Rust it is `Shape::Dot`, not `Shape::Dot {}`. A
+  # probe built only from the shapes the reported defect named would have passed while three quarters
+  # of the feature stayed broken; this one found them.
+  cat > "$tmp/qenum.ssc" <<'SSC'
+enum Shape:
+  case Dot
+  case Circle(r: Int)
+  case Rect(w: Int, h: Int)
+
+def qualified(s: Shape): String = s match
+  case Shape.Dot        => "dot"
+  case Shape.Circle(r)  => "circle:" + r
+  case Shape.Rect(w, h) => "rect:" + w + "x" + h
+
+def bare(s: Shape): String = s match
+  case Dot        => "dot"
+  case Circle(r)  => "circle:" + r
+  case Rect(w, h) => "rect:" + w + "x" + h
+
+def main(): Unit =
+  println(qualified(Shape.Circle(3)))
+  println(qualified(Shape.Rect(2, 5)))
+  println(qualified(Shape.Dot))
+  println(bare(Circle(7)))
+  println(bare(Dot))
+SSC
+  set +e
+  qeb=$("$SSC" build-rust "$tmp/qenum.ssc" -o "$tmp/qenumbin" 2>&1); qerc=$?
+  qe_rust=$("$tmp/qenumbin" 2>&1)
+  qe_ref=$("$ROOT/bin/ssc" run "$tmp/qenum.ssc" 2>/dev/null)
+  set -e
+  if [[ $qerc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — qualified/field-less enum forms do not build" >&2
+    echo "--- output: $(printf '%s' "$qeb" | tail -8)" >&2
+    failed=1
+  elif [[ "$qe_rust" != "$qe_ref" || -z "$qe_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on enum forms" >&2
+    echo "--- rust: $(printf '%s' "$qe_rust" | tr '\n' '|')   ssc: $(printf '%s' "$qe_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather
