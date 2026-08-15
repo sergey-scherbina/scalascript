@@ -534,6 +534,7 @@ fixed and the default front now keeps the parameter's type.
 ## v3-uniml-drops-a-parenthesised-parameter-type — `def go(t: (Int, String))` loses its type on the default front
 
 <!-- status: fixed
+     fixed-in: 482e3393b
      lane: v3
      area: front
      gate: v3/front-gate.sh (v3/tests/front/paren-param-type-tuple.ssc)
