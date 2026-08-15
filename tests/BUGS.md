@@ -1,3 +1,64 @@
+## f-effect-declarations-and-handlers-unsupported — FIXED, and it was a translation
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: 454efb1a1
+     gate: tests/e2e/f-effects-gate.sh -->
+
+The census ranked algebraic effects as F's largest single gap. **All eleven files now lower under F
+and agree with the reference front**, including both multi-shot ones.
+
+**It is a translation, not a feature, because the runtime owns the continuations.** The reference
+lowerer spends seventeen mentions on effects and its `multi_effect` case returns `Nil`. So `multi`
+costs nothing beyond choosing a different prim and a different label shape, and splitting the work
+along that boundary — which was considered — would have bought nothing.
+
+```
+effect E:        def op(a, b)   ->  (def E_op (lam 2 (prim effect.perform.oneshot "E" "op" a b)))
+multi effect E:  def op(a)      ->  (def E_op (lam 1 (prim effect.perform "E.op" a)))
+```
+
+**Most of it already existed**, measured before a line was written: F already turns a `{ case … }`
+block argument into a case lambda, chains trailing block arguments into a curried application, and
+joins a dotted constructor tag. `handle(body) { case E.op(a, resume) => … }` needed no new parsing.
+
+### The marker, which is the part worth reading
+
+A handler root is identified by the MARKER the front emits, **not by the lambda's shape**
+(`v2/src/CoreIR.scala` `HandlerDispatchShape`). The shape test used to be
+`arity == 1 && Match(Local(0), …)` — which is also every ordinary `x => x match { … }`, so each of
+those was paying a ThreadLocal read, two allocations and a try/finally per call; `range-sum`, a
+program with no effects at all, spent 36 profile samples on it. Removing the shape test is what
+makes the marker load-bearing.
+
+Both plausible fixes are wrong, and each was measured:
+
+```
+no marker at all         match: no arm for Return/1     the runtime never opens a dispatch, so the
+                                                        Return(v) it delivers at the end finds no arm
+miss-only default        match: no matching case        handlerDispatchMiss RAISES unless an exact
+                                                        root dispatch is already pending
+mark every arm body,
+add NO default           works                          the absent default IS the Unhandled path
+                                                        for a recognised root
+```
+
+That mirrors `lowerDirectHandlerMatch` (`ssc1-lower.ssc0`). The marking is applied to the emitted
+arm string rather than inside `parseArmBody`, because that function is shared with every other match
+in the language and the handler is its only caller that wants this; only top-level arms are marked,
+so a nested match inside an arm keeps its own arms untouched.
+
+### What was NOT needed
+
+An IR dump. I built one — fsub's own source plus an appended `compile(<src>)` — and it died with
+`TYPEERR: in def parsePatAtom1: if branches must have the same type` before printing anything. The
+fix came from reading the runtime contract instead. That `TYPEERR` is the one unexplained entry in
+the census's ERROR bucket and is left for someone to chase.
+
 ## ci-validate-fails-early-and-skips-every-later-step — 25 checks, 16 with no other home
 
 <!-- status: fixed
