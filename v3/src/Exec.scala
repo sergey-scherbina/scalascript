@@ -170,25 +170,16 @@ object Exec:
     prepareCacheOn = on
     preparedOwner = null
 
-  // SSC3-J4. DEFAULT OFF, and the default is the result rather than a precaution.
+  // SSC3-J4. Default ON, and the default is a measurement rather than an intention.
   //
-  // Measured 2026-08-15, 20 alternating pairs per row with the control interleaved: on the two rows
-  // whose control behaved — `arith-loop` 11 of 20 and `recursion-fib` 9 of 20 against n/2 = 10 —
-  // the fusion was SLOWER in 15 pairs of 20. `recursion-fib` is the finding: it has ZERO fusable
-  // pairs, counted statically, so the only thing ON changes there is that every instruction pays
-  // the pair test. It moved anyway, which prices that test above what one saved dispatch per loop
-  // iteration returns.
-  //
-  // THAT IS WHY §10.2's FORK EXISTS, and the peephole was written believing it did not. A runtime
-  // pair test costs PER INSTRUCTION; a represented fusion — a portable opcode or a private flat
-  // encoding — costs once, at load. The saving is real (`BrIf` lives in the uninlined `stepRest`),
-  // but this is the wrong place to buy it.
-  //
-  // Kept rather than reverted, and behind an OFF default rather than deleted, because the mechanism
-  // and its reachability are proven and the measurement was taken at load 10-12 — the band where
-  // J4b read 16 of 20 and was not callable, against 30 of 30 once quiet. `--fuse-cmpbr` turns it on
-  // for that re-run; the row on the board says what would settle it.
-  private var fuseCmpBrOn: Boolean = false
+  // It shipped OFF first: the version that tested for the pair INSIDE the walk measured slower, and
+  // the row that proved it was `recursion-fib` — zero fusable pairs, so the test there can only
+  // cost, and it moved (5 of 20 against a control of 9). Hoisting the decision to the loop ENTRY,
+  // where it belongs because `b` is immutable and `Loop` is entered once however long it runs,
+  // turned that around: `arith-loop` 20 of 20 at mean 0.770 against a control of exactly 10 of 20,
+  // and `recursion-fib` back to 11 of 20 — a dead null, which is what the prediction demanded.
+  // Same code doing the fusion; only the placement of the decision changed.
+  private var fuseCmpBrOn: Boolean = true
 
   private[ssc3] def useFuseCmpBr(on: Boolean): Unit =
     fuseCmpBrOn = on
@@ -488,57 +479,96 @@ object Exec:
         case Signal.Tail(g, as)  => fi = g; args = as
     result
 
-  /** SSC3-J4, the compare-and-branch fusion — done HERE rather than as an instruction.
+  /** SSC3-J4, the compare-and-branch fusion — DECIDED ONCE PER LOOP, executed per iteration.
     *
-    * §10.2 framed the last of the J4 census as a choice between a new portable opcode and an
-    * executor-private flat encoding, on the premise that a fused operation has to be REPRESENTED
-    * somewhere. It does not. This loop already holds a cursor, so the second half of the pair is
-    * `rest.tail.head`, and after J4b the pair is canonical and adjacent — `(bin ge i64 6 1 4)` then
-    * `(brif 6 1)`, the branch reading exactly the register the comparison wrote. Recognising it
-    * costs nothing in `Ir.scala`, the verifier, the canonical text form and its round-trip gate,
-    * `BridgeV2`, or §1's charter, which is the same reason J4a and J4b could collect their halves
-    * of the census as ordinary rewrites.
+    * The pair is `(bin cmp)` immediately followed by `(brif)` on the register the comparison wrote,
+    * which after J4b is the canonical shape every counted loop ends with. Running both in one
+    * dispatch needs no new opcode and no private flat encoding: `exec` already holds a cursor, so
+    * the second half is `rest.tail.head`. `Ir.scala`, the verifier, the text form and its round-trip
+    * gate, `BridgeV2` and §1's charter are untouched.
     *
-    * WHAT IT ACTUALLY SAVES, and it is more than the dispatch the census counted: `Bin` is one of
-    * the three opcodes `step` keeps inline, but `BrIf` is in `stepRest` — 5684 bytecodes, never
-    * inlined — so every counted loop paid a call into it once per iteration. The fused path takes
-    * the branch without that call.
+    * WHAT IT SAVES is more than the census counted. `Bin` is one of the three opcodes `step` keeps
+    * inline; `BrIf` is in `stepRest` — 5684 bytecodes, never inlined — so every counted loop paid a
+    * call there once per iteration.
     *
-    * THE TEST IS ORDERED FOR THE COMMON CASE. `BrIf` appears about once per loop body while `Bin`
-    * appears several times, so the cheap test — is the NEXT instruction a branch — runs first and
-    * fails for nearly every instruction after one type check. Reversing it would pay two checks on
-    * every arithmetic instruction to save one on a rare one.
+    * ⚠️ THE FIRST VERSION TESTED FOR THE PAIR ON EVERY INSTRUCTION AND MEASURED SLOWER, and the
+    * reason is the defect this series has now found four times: an answer that is a property of an
+    * IMMUTABLE list, re-derived on a path that runs per instruction. `Loop` calls `exec` once per
+    * ITERATION over the same `List[Instr]`, so `arith-loop` asked "is this pair fusable?" five
+    * million times to keep learning about one pair. The control said so before the experiment did:
+    * `recursion-fib` has ZERO fusable pairs, so the test there can only cost, and it moved.
+    * Same shape as `tagOf` scanning the type table per call (J4c), `prepare` walking three `List`s
+    * per call (J4d) and a `Const` re-executed per iteration (J4a) — all three of them WINS once the
+    * work moved to where it is done once.
     *
-    * `regs(d)` IS STILL WRITTEN. The comparison's register is dead after the branch in every shape
-    * the corpus produces, but "in every shape I looked at" is not a proof and nothing in the IR
-    * marks a register dead — so the fusion drops the second dispatch and the read, not the write.
-    * A liveness analysis that let the write go too is a separate change with its own gate.
+    * So the decision is hoisted to the LOOP, which is entered once however long it runs:
+    * `fusablePairs` walks the body a single time and returns the positions, or `null` when there
+    * are none. A body with no pairs then walks through the untouched `exec` and pays NOTHING — the
+    * `recursion-fib` case is not merely cheap, it is absent.
     */
   private def exec(m: Module, body: List[Instr], regs: Array[Value]): Signal =
     var rest = body
     var out: Signal = Signal.Done
     var running = true
     while running && rest.nonEmpty do
+      val s = step(m, rest.head, regs)
+      s match
+        case Signal.Done => rest = rest.tail
+        case other       => out = other; running = false
+    out
+
+  /** The positions at which a fusable `(bin cmp) (brif)` pair starts, or `null` if there are none.
+    *
+    * Computed once per loop ENTRY, never per iteration. `null` rather than an empty array so the
+    * caller can pick the untouched walker by a reference test and leave bodies without pairs
+    * exactly as fast as they were before this pass existed.
+    */
+  private def fusablePairs(body: List[Instr]): Array[Int] | Null =
+    var rest = body
+    var k = 0
+    var found: List[Int] = Nil
+    while rest.nonEmpty do
       val t = rest.tail
-      val f = if fuseCmpBrOn && t.nonEmpty then fuseCmpBr(m, rest.head, t.head, regs) else null
-      if f == null then
-        step(m, rest.head, regs) match
-          case Signal.Done => rest = t
-          case other       => out = other; running = false
+      if t.nonEmpty then
+        rest.head match
+          case Instr.Bin(_, _, d, _, _) =>
+            t.head match
+              case Instr.BrIf(c, _) if c == d => found = k :: found
+              case _                          => ()
+          case _ => ()
+      rest = t
+      k = k + 1
+    if found.isEmpty then null else found.reverse.toArray
+
+  /** The walk for a body that HAS at least one fusable pair. One integer compare per instruction —
+    * `k == nextFuse` — instead of the two type tests and a call the first version paid.
+    */
+  private def execFused(m: Module, body: List[Instr], regs: Array[Value], fus: Array[Int]): Signal =
+    var rest = body
+    var out: Signal = Signal.Done
+    var running = true
+    var k = 0
+    var fp = 0
+    var nextFuse = fus(0)
+    while running && rest.nonEmpty do
+      if k == nextFuse then
+        val f = fuseCmpBr(m, rest.head, rest.tail.head, regs)
+        if f == Signal.Done then
+          rest = rest.tail.tail
+          k = k + 2
+          fp = fp + 1
+          nextFuse = if fp < fus.length then fus(fp) else -1
+        else
+          out = f.asInstanceOf[Signal]; running = false
       else
-        f match
-          case Signal.Done => rest = t.tail      // the pair ran; BOTH instructions are consumed
+        step(m, rest.head, regs) match
+          case Signal.Done => rest = rest.tail; k = k + 1
           case other       => out = other; running = false
     out
 
-  /** The pair test and its execution, SPLIT OUT for the reason J0c split `step`: inline, this took
-    * `exec` from 101 bytecodes to 350 and over `-XX:FreqInlineSize`, which would have paid for one
-    * saved dispatch by making the whole walk uninlinable. Two type tests and an arithmetic call do
-    * not belong in a loop header.
-    *
-    * `null` means "not this shape, walk normally" — a sentinel rather than an `Option`, because an
-    * allocation per instruction is exactly the cost this is trying to remove. `Signal.Done` means
-    * the pair ran and the branch was NOT taken, so the caller consumes both.
+  /** The pair itself. Reached only at a position `fusablePairs` already approved, so the type tests
+    * here run once per pair per iteration rather than once per instruction — which is the whole
+    * difference between this version and the one that measured slower.
     */
   private def fuseCmpBr(m: Module, i: Instr, next: Instr, regs: Array[Value]): Signal | Null =
     next match
@@ -626,10 +656,16 @@ object Exec:
         case Signal.Branch(d) => Signal.Branch(d - 1)
         case other            => other
     case Instr.Loop(b) =>
+      // SSC3-J4. THE DECISION IS TAKEN HERE, and that placement is the whole pass. `b` is an
+      // immutable `List[Instr]`, so which positions hold a fusable pair cannot change however long
+      // the loop runs — and a `Loop` is ENTERED once while `exec` below is called once per
+      // ITERATION. The first version asked inside the walk and measured slower for exactly that
+      // reason. A body with no pair gets `null` and the untouched `exec`, so it pays nothing.
+      val fus = if fuseCmpBrOn then fusablePairs(b) else null
       var out: Signal = Signal.Done
       var looping = true
       while looping do
-        exec(m, b, regs) match
+        (if fus == null then exec(m, b, regs) else execFused(m, b, regs, fus.asInstanceOf[Array[Int]])) match
           // A branch to a LOOP repeats it; a branch past it keeps unwinding. Falling off the end
           // EXITS, which is WebAssembly's rule and not the one most people expect.
           case Signal.Branch(0) => ()

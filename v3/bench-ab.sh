@@ -37,10 +37,15 @@ WORKLOADS=${*:-"arith-loop nested-loop list-fold recursion-fib"}
 
 [ -x v3/ssc3 ] || { echo "bench-ab: no v3/ssc3 — build it first" >&2; exit 2; }
 
-one() { v3/ssc3 bench $2 "bench/corpus/$1.ssc" 2>/dev/null | awk -F': ' '/BENCH_MS/{print $2}'; }
+# `ON_ARGS` exists because the ON arm is not always the DEFAULT build. A pass that ships OFF —
+# because it measured slower and is parked pending a quiet re-run — still has to be A/B'd, and
+# without this every such measurement edits this file locally and reverts it afterwards, which
+# is a hack that leaves no trace and gets forgotten in the middle.
+ON_ARGS=${ON_ARGS:-}
+one() { v3/ssc3 bench $ON_ARGS $2 "bench/corpus/$1.ssc" 2>/dev/null | awk -F': ' '/BENCH_MS/{print $2}'; }
 lt()  { awk -v a="$1" -v b="$2" 'BEGIN{exit !(a<b)}'; }
 
-echo "bench-ab: ON vs '$OFF_ARGS', $PAIRS pairs, control interleaved"
+echo "bench-ab: ON '$ON_ARGS' vs OFF '$ON_ARGS $OFF_ARGS', $PAIRS pairs, control interleaved"
 for wl in $WORKLOADS; do
   [ -f "bench/corpus/$wl.ssc" ] || { echo "=== $wl — no such workload, skipped"; continue; }
   cw=0; ew=0; n=0

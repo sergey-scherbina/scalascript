@@ -586,6 +586,29 @@ REACHABILITY, planted and confirmed in both directions: an unconditional throw i
 makes `bench/corpus/arith-loop.ssc` fail with it, and `--no-fuse-cmpbr` on the same binary runs
 clean. Keep the arm for the day the register write goes away; do not read its green as evidence now.
 
+#### AND THE NEGATIVE WAS ABOUT PLACEMENT, NOT ABOUT FUSION — 2026-08-15
+
+The fusion code did not change. The DECISION moved, from inside the walk to the loop entry, and
+the same pass went from a measured pessimization to `arith-loop` **20 of 20 at mean 0.770** against
+a control of exactly 10 of 20 — p ≈ 9.5e-7. **`recursion-fib` returned to 11 of 20, a dead null**,
+which is the row that had refuted the first version and the one the registered prediction named.
+`nested-loop` read 15 of 20 and is not called: load was 24 at the start of that row.
+
+**Why the first version lost.** `Loop` calls `exec` once per ITERATION over the same immutable
+`List[Instr]`, so asking "is this pair fusable?" inside the walk made `arith-loop` pay five million
+type tests to keep re-learning about one pair. `fusablePairs` now walks the body ONCE at loop entry
+and returns the positions, or `null` when there are none — and a body with none runs through the
+untouched 101-byte `exec` and pays nothing at all.
+
+**So §10.2's fork is still not needed, and the earlier retraction of that claim was itself wrong.**
+A represented fusion is decided once at load; so is this, and without an opcode. What must be true
+is only that the decision is not taken per instruction. The paragraph below stands as the record of
+getting that backwards.
+
+**This is the FOURTH instance of the pattern §10.3 already names** — an immutable `List` re-read on
+a path that runs per call or per instruction, after `tagOf` (J4c), `prepare` (J4d) and a
+loop-invariant `Const` (J4a). It was written by someone who had just read the other three.
+
 **THE CLOCK CAME BACK NEGATIVE, and it refutes the paragraph above this one.** 20 alternating
 pairs per row at load 10-12, control interleaved: `arith-loop` 5 of 20 with ON faster (ON SLOWER
 in 15) against a control of 11 of 20; `recursion-fib` 5 of 20 against a control of 9;

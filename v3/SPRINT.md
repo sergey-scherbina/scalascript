@@ -2765,45 +2765,30 @@ one §3 J1 item never built, and now the only one the evidence points at.
       load-10–13 rows are kept as measured: a history corrected in place cannot show that the
       instrument was the variable.
 
-- [~] **SSC3-J4 — the last shape is BUILT as a peephole, not an opcode; the clock is OWED.**
-      `Exec.exec` reads `rest.head` and `rest.tail.head` and runs a `(bin cmp)` + `(brif)` pair
-      in ONE dispatch when the branch reads the register the comparison wrote. §10.2 offered a
-      fork — portable opcodes or a private flat encoding — on the premise that a fused
-      operation must be REPRESENTED; it need not be, and the peephole leaves `Ir.scala`, the
-      verifier, the text form and its round-trip gate, `BridgeV2` and §1's charter untouched.
-      **It saves more than the census counted:** `Bin` is inline in `step`, but `BrIf` is in
-      `stepRest` — 5684 bytecodes, never inlined — so every counted loop paid a call into an
-      uninlined method once per iteration.
-      *The split is load-bearing:* inline, the peephole took `exec` from 101 bytecodes to 350,
-      over `-XX:FreqInlineSize`. Split into `fuseCmpBr` it is 207/194, and `-XX:+PrintInlining`
-      on a real workload — not `--sizes`, which is a lower bound — reports all of `step`,
-      `fuseCmpBr` and `binK` as `inline (hot)`.
-      *Fusable pairs, counted statically:* `arith-loop` 1, `nested-loop` 2, `list-fold`,
-      `range-sum`, `var-expr-init`, `instance-field`, `hof-pipeline` 1 each, **`recursion-fib`
-      0** — the free control, measured rather than assumed. Every adjacent pair is fusable.
-      *PREDICTION, registered before the clock — AND IT FAILED, 2026-08-15.* It said
-      `arith-loop` must move like J4b's 18 % and `recursion-fib` must NOT move. Measured, 20
-      alternating pairs at load 10-12: `arith-loop` 5 of 20 with ON faster — i.e. **ON SLOWER
-      in 15** — against a well-behaved control of 11 of 20; `recursion-fib` the same, 5 of 20
-      against a control of 9. `nested-loop` read 15 of 20 and is NOT READABLE: its control sat
-      at 7 of 20, and this harness's rule is to read the control first.
-      **`recursion-fib` is the finding, not the noise.** It has ZERO fusable pairs, so ON and
-      OFF differ there by exactly one thing — every instruction pays the pair test and none
-      ever fuses. It moved. **That prices the test above the saving: five tests per iteration
-      on `arith-loop` against ONE saved dispatch.**
-      **So §10.2's fork exists for a reason and this peephole was written believing it did
-      not.** A runtime pair test costs PER INSTRUCTION; a represented fusion — portable opcode
-      or private flat encoding — is decided once, at load. The mechanism it targets is still
-      real (`BrIf` is in the uninlined `stepRest`), but this is the wrong place to buy it.
-      **Default flipped to OFF; `--fuse-cmpbr` turns it on.** Parked rather than deleted, and
-      NOT called final: load 10-12 is where J4b read 16 of 20 and was not callable against 30
-      of 30 quiet. A quiet re-run decides delete-or-keep.
-      **⚠️ The ninth `--identity` arm is GREEN BY CONSTRUCTION and cannot currently fail.**
-      The fusion still WRITES the comparison register, so dropping the `d == c` guard AND
-      advancing the cursor by one instead of two both leave the output identical — planted,
-      both stayed green. What has an opinion is REACHABILITY, planted both ways: a throw in
-      the fused branch fails `arith-loop`, and `--no-fuse-cmpbr` on the same binary runs clean.
-      **OWED: a QUIET re-run**, to decide whether the peephole is deleted or kept parked.
+- [x] **SSC3-J4 — the last shape LANDED: `arith-loop` 20 of 20 at 0.770, and the fix was
+      MOVING THE DECISION, not changing the fusion.** `(bin cmp)` + `(brif)` now run in one
+      dispatch. No new opcode and no private flat encoding: §10.2 offered that fork on the
+      premise that a fused operation must be REPRESENTED, and it need not be — `exec` holds a
+      cursor, so the pair is `rest.head` / `rest.tail.head`, and after J4b it is canonical and
+      adjacent. `Ir.scala`, the verifier, the text form and its round-trip gate, `BridgeV2` and
+      §1's charter are untouched.
+      **IT SHIPPED SLOWER FIRST, and the control caught it.** The first version tested for the
+      pair inside the walk: `arith-loop` 5 of 20 with ON faster, `recursion-fib` 5 of 20
+      against a control of 9. `recursion-fib` has ZERO fusable pairs, so movement there is
+      pure overhead — `Loop` calls `exec` once per ITERATION over the same immutable list, so
+      `arith-loop` paid five million type tests to keep re-learning about one pair.
+      **Hoisting the decision to the loop ENTRY turned it around with the fusion code
+      unchanged:** `arith-loop` **20 of 20, mean 0.770**, control exactly 10 of 20, p ≈ 9.5e-7;
+      `recursion-fib` **11 of 20 — a dead null**, which is what the registered prediction
+      demanded. `nested-loop` 15 of 20 is NOT called: load 24 at the start of that row.
+      *Why 23 % for a 20 % dispatch cut:* `BrIf` lives in `stepRest`, 5684 bytecodes and never
+      inlined, so the pair also removes a call there once per iteration. `exec` is back to its
+      original 101 bytecodes untouched — a body with no pair pays NOTHING.
+      *This is the FOURTH instance of the J4 pattern* — an immutable `List` re-read on a
+      per-call or per-instruction path — after `tagOf` (J4c), `prepare` (J4d) and a loop-
+      invariant `Const` (J4a). I wrote it while holding the note that records the other three.
+      *Harness:* `bench-ab.sh` gained `ON_ARGS`, because it hardcoded the ON arm as the
+      DEFAULT build and that stops being true the moment a pass is parked OFF.
       *The re-count that reframed this row (79 % already banked, 15 % left) is below.* Both shapes the census
       below sized turned out to be expressible as ordinary IR→IR passes, and both shipped:
       the const half as J4a's loop-invariant hoist, the cmp-branch half as J4b's inversion.

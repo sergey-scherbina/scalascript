@@ -340,14 +340,11 @@ check_identity() {
     # reads a different register, or a `rest` advanced by one where it should be two, which leaves
     # a `brif` to run twice or not at all. That is a control-flow error, silent, and shaped exactly
     # like the output differential this loop already runs.
-    # The peephole is OFF by default (it measured slower), so the arm runs it the other way round:
-    # the DEFAULT is the plain walk and `--fuse-cmpbr` is the ON arm. Comparing `--no-fuse-cmpbr`
-    # against the default would compare off with off and pass by construction.
-    nofuse="$(v3/ssc3 exec --fuse-cmpbr "$f" 2>&1)"
+    nofuse="$(v3/ssc3 exec --no-fuse-cmpbr "$f" 2>&1)"
     if [ "$on" != "$nofuse" ]; then
       echo "  FAIL $name — FUSING compare-and-branch changed the output:"
-      diff <(printf '%s\n' "$on") <(printf '%s\n' "$nofuse") | sed 's/^/         /'
-      echo "         left = default (no fusion), right = --fuse-cmpbr."
+      diff <(printf '%s\n' "$nofuse") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-fuse-cmpbr, right = default."
       fail=1
     elif [ "$on" != "$noinv" ]; then
       echo "  FAIL $name — INVERTING a comparison changed the output:"
