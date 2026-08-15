@@ -1,0 +1,11 @@
+slug: f-effects-port
+branch: feature/f-effects-port
+agent: claude-code
+started: 2026-08-15T10:19:24Z
+heartbeat: 2026-08-15T10:19:24Z
+status: claimed-before-planning
+items: f-effect-declarations-and-handlers-unsupported
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-effects-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
