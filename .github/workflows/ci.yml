@@ -299,6 +299,16 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/task-views-gate.sh --self-test
 
+      # `.githooks/pre-push` carries FOURTEEN self-test cases — nine for path containment, five for
+      # the `status: fixed` walker — and until this step existed NOTHING RAN THEM. The hook is the
+      # one gate whose failure mode is silent by construction: it runs on developer machines, so a
+      # broken comparison inside it does not turn anything red, it just stops refusing. Two planted
+      # defects (a containment expectation flipped, a walker expectation blanked) were each caught
+      # with rc=1 before this was wired, so the step is known to be capable of failing.
+      - name: Verify the pre-push hook's own comparisons
+        if: always()          # see the block above this job's steps
+        run: .githooks/pre-push --self-test
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

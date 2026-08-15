@@ -1,3 +1,62 @@
+## generated-views-go-stale-and-the-next-agent-pays — and the hook's own tests ran nowhere
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: .githooks/pre-push --self-test -->
+
+Two defects in the same apparatus, found together because the second was in the way of testing the
+first.
+
+### 1. A `*BUGS.md` edit that leaves its generated `TASK/` views stale
+
+`TASK/*.md` carries `<!-- task-views:begin … -->` regions generated from the BUGS entries by
+`scripts/task-views --write`. Edit an entry, forget the regenerate, and the derived copy reports an
+**open entry as closed to every agent picking up work** — then `tests/e2e/task-views-gate.sh` turns
+SMOKE red for the whole repository, after the push, so the first people to learn are everyone else.
+
+Refused in `pre-push` now, scoped the way the two guards above it are scoped: only a push that
+touches a `*BUGS.md`, only a push that could land. `scripts/board --check` asks a similar question
+but costs **2051 ms** against this one's **379 ms** and would fire on every claim push — deliberately
+not run here.
+
+The check reads the WORKING TREE (`--check` cannot be pointed at a sha), so it runs only when the
+tree agrees with the pushed tip for these paths, and **announces** the skip when it does not: a
+check that quietly declines to run reads exactly like one that passed.
+
+### 2. `.githooks/pre-push --self-test` was run by NOTHING
+
+Fourteen cases — nine for path containment, five for the `status: fixed` walker — written by two
+earlier sessions, wired into no gate. CI already runs `--self-test` for `bugs-index-gate`,
+`task-views-gate` and `policy-single-source`; the hook was missing from that list.
+
+**The hook is the one gate whose failure mode is silent by construction.** It runs on developer
+machines, so a broken comparison inside it does not turn anything red — it just stops refusing, and
+every guard it holds quietly becomes decorative. Now wired as a tier-2 step, and known to be capable
+of failing: two planted defects (a containment expectation flipped, a walker expectation blanked)
+were each caught with rc=1 before the step was added.
+
+### The method note: three invalid controls in a row, each invalid differently
+
+The refuse-direction control did not fire three times, and **not once because the guard was wrong**:
+
+| attempt | why it proved nothing |
+|---|---|
+| 1 | the plant landed OUTSIDE the `task-views:begin` region — the subject was never stale |
+| 2 | `git add -A` in the control swept the UNCOMMITTED guard into the throwaway commit, and the `reset --hard` cleanup then deleted it — the hook under test had no guard in it at all |
+| 3 | `origin/main` moved under the branch (11 live claims, siblings pushing), so `merge-base --is-ancestor` was false and all three guards correctly skipped |
+
+Attempt 2 is the one worth keeping: **a control that resets to clean up will delete an uncommitted
+fix, and then measures a binary that never contained it.** Commit the subject BEFORE running a
+control that resets. Attempt 3 says a control must not be built on a moving reference — using the
+guard's own commit as the simulated remote tip makes the ancestor relation true by construction.
+
+All four directions verified afterwards: refuses on a stale view, passes on a current one, ignores a
+push that does not touch `*BUGS.md`, and announces the skip when the tree differs from the tip.
+
 ## f-u0-reduction-2026-08-15 — a 327→103 reduction, and the predicate that let it drift
 
 <!-- status: open
