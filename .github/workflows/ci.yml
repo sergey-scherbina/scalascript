@@ -1014,7 +1014,13 @@ jobs:
     # launcher, which is what makes its verdict reproducible. That cost is worth paying — but not
     # out of the same 20 minutes as 33 unrelated gates. Jobs run in parallel, so moving it here
     # costs no wall-clock and gives both halves a budget they fit in.
-    timeout-minutes: 25
+    # 40, and the first number was measured wrong — worth recording because the error is instructive.
+    # Inside `conformance-extras` this audit took 737 s, so 25 looked generous. Run ALONE it took
+    # 1193 s, and with its own 263 s launcher build the job hit the cap at ~24.3 min and was
+    # CANCELLED on its first outing. A step's cost inside a warm job is not its cost in a cold one,
+    # and the audit re-verifies every blind candidate individually, so it scales with what it finds.
+    # A generous cap here is free: the job runs in parallel with everything else.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4
