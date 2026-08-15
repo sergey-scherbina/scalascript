@@ -1864,6 +1864,28 @@ object Parser:
       // spin on them forever — the shape has to be recognised before anything is consumed.
       else if isId(peek(ts), "type") && typeAliasEq(ts.tail).isDefined then
         ts = skipType(typeAliasEq(ts.tail).get)
+      // `opaque type X = Y` — the SAME erasure as the plain alias directly above. `opaque` is a
+      // modifier asking the type checker to hide the right-hand side outside this scope; Tier 0 has
+      // no types at run time and no checker to hide them from, so the modifier has nothing left to
+      // change and the alias is erased either way. That is not a shortcut taken here — it is the
+      // decision F already shipped (`specs/v2.2-p6.5-fsub.ssc:2301`, whose `isTypeHead` accepts
+      // `type` and `opaque type` alike and emits nothing for both), so accepting one spelling and
+      // refusing the other was the two fronts disagreeing, not a feature gap.
+      //
+      // Found by the tool that could not read its own corpus: `v3/ssc3 ir std/ui/content.ssc` died
+      // at `std/ui/primitives.ssc:74:26: expected an expression, found =` — the `=` of
+      // `opaque type Signal[T] = Any` — so `opaque` fell through to the expression parser exactly
+      // as `type`, `sealed` and `extern` each did before it. Fourth occurrence of the one pattern.
+      //
+      // THE WHOLE SHAPE IS THE TEST, for the reason the paragraph above gives: `opaque`, then
+      // `type`, then an alias that reaches its `=`. `opaque` is an ordinary identifier here — it is
+      // not in `keywords`, and the corpus already has a member by that name: `std/bench.ssc:26`
+      // declares `extern def Bench.opaque[A](x: A): A`, called from `bench/corpus/streams-pipeline`
+      // and `typeclass-monoid`. A branch keyed on the word alone would consume nothing on a real
+      // use of that name and this loop would spin.
+      else if isId(peek(ts), "opaque") && ts.tail.nonEmpty && isId(peek(ts.tail), "type")
+        && ts.tail.tail.nonEmpty && typeAliasEq(ts.tail.tail).isDefined then
+        ts = skipType(typeAliasEq(ts.tail.tail).get)
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         defs = d :: defs

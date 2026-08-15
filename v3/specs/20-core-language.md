@@ -54,6 +54,7 @@ expectation. 46 fixtures at the time of writing.
 | local functions | a `def` inside a `def`, recursive and capturing — lifted with captures as leading parameters |
 | comprehensions | `for x <- xs do e` / `yield e`, several generators, `if` filters — desugared to `foreach`/`map`/`filter`/`flatMap` |
 | generics | type parameters and type arguments are PARSED AND ERASED, everywhere they may appear |
+| type aliases | `type X = Y`, `type X[..] = Y` and `opaque type X = Y` are PARSED AND ERASED. `opaque` asks a type checker to hide the right-hand side outside the defining scope; this tier keeps no types at run time and has no checker, so the modifier changes nothing and both spellings emit the same thing — which is also what F does (`specs/v2.2-p6.5-fsub.ssc`, `isTypeHead`) |
 | errors | `try`/`catch` binding one name, `throw` |
 | files | literate `.ssc` (```` ```scalascript ```` / ```` ```scala ```` fences, line numbers preserved); `//` and `/* … */` comments, the latter NESTED |
 | scripts | top-level statements ARE the program; `main()` runs after them if defined |

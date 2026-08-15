@@ -793,6 +793,18 @@ object SpikeParse:
       else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
       else if isWord(c, "extern") then defs += parseExtern(c)
       else if isWord(c, "type") && isNameKind(c.peek2Kind) then defs += parseTypeAlias(c) // `type X = Y` erased
+      // `opaque type X = Y` — erased exactly like the plain alias above, and read the same way
+      // `multi effect` is read two lines up: a two-word head, matched on the second lexeme. Step
+      // over `opaque` and the existing parser handles the rest, since it consumes the alias LINE.
+      //
+      // THE TWIN, and why it is here. v3's own parser had the same hole and fixing it alone was not
+      // enough: `ssc3 run` takes THIS front whenever uniml is registered, so the fixture went green
+      // in a worktree without uniml and RED with it, at a different position and message
+      // (`unknown name 'opaque'` here, `expected an expression, found =` there). A construct this
+      // tier erases has to be erased by both fronts or the feature is invisible on the default path.
+      else if isWord(c, "opaque") && c.peek2Lexeme == "type" then
+        c.advance() // `opaque`; `parseTypeAlias` starts at `type` and eats the rest of the line
+        defs += parseTypeAlias(c)
       else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
       // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).

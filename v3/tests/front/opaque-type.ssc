@@ -1,0 +1,27 @@
+// `opaque type X = Y` is parsed and ERASED, exactly as the plain `type X = Y` beside it and
+// exactly as F does it. Tier 0 keeps no types at run time, so the value flows as its underlying
+// representation and the modifier changes nothing.
+//
+// The three shapes here are the ones the corpus actually uses: a plain opaque alias
+// (`std/uuid.ssc`, `std/json.ssc`, `std/graphql.ssc`) and one with a type parameter
+// (`std/ui/primitives.ssc` — `opaque type Signal[T] = Any`, whose `=` is the character the parser
+// used to die on).
+
+opaque type Uuid = String
+opaque type Signal[T] = Any
+type Plain = Int
+
+def mkUuid(s: String): Uuid = s
+def hold(v: Int): Signal[Int] = v
+def unwrap(s: Signal[Int]): Int = s
+def widen(p: Plain): Int = p
+
+// `opaque` is NOT a keyword — it is an ordinary identifier that only means anything when the next
+// word is `type`. A def may be named it, and a statement may begin with a call to it; both would
+// break if the new branch keyed on the word alone.
+def opaque(n: Int): Int = n + 1
+
+println(mkUuid("abc"))
+println(unwrap(hold(41)))
+println(widen(5))
+println(opaque(7))
