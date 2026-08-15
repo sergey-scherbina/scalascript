@@ -339,7 +339,14 @@ private[cli] def compileViaBackend(
   var importedDefNames = Set.empty[String]
   val module  =
     if backendId == "rust" then
-      val extra = inlineImportsRust(module0, file / os.up, scala.collection.mutable.Set.empty[String])
+      val bad   = scala.collection.mutable.Buffer.empty[String]
+      val extra = inlineImportsRust(module0, file / os.up, scala.collection.mutable.Set.empty[String], bad)
+      // REFUSE, matching every other lane. Printed and short-circuited here rather than deeper down
+      // for the same reason `reportCodeBlockParseErrors` below is: the backend must never run on IR
+      // that is missing declarations the program asked for.
+      if bad.nonEmpty then
+        bad.distinct.foreach(p => System.err.println(s"ssc: import not found: $p from ${file.last}"))
+        return CompileResult.Failed(Nil)
       importedDefNames = extra.flatMap(sectionDefNames).toSet
       if extra.isEmpty then module0 else module0.copy(sections = extra ++ module0.sections)
     else module0
@@ -1543,7 +1550,11 @@ final class ParseCmd extends CliCommand:
 private def inlineImportsRust(
     module:  scalascript.ast.Module,
     baseDir: os.Path,
-    seen:    scala.collection.mutable.Set[String]
+    seen:    scala.collection.mutable.Set[String],
+    // Import paths that could NOT be resolved. Collected rather than thrown so one run reports all
+    // of them, and kept SEPARATE from the deliberate skips below — a directory, a `.sscc` and an
+    // already-inlined file are not failures and must stay silent.
+    unresolved: scala.collection.mutable.Buffer[String] = scala.collection.mutable.Buffer.empty
 ): List[scalascript.ast.Section] =
   import scalascript.ast.{Section, Content}
   // BOTH forms. A Markdown-LINK import reaches the AST as `Content.Import`; a bare `.ssc` — the
@@ -1567,8 +1578,19 @@ private def inlineImportsRust(
           && !seen.contains(p.toString) =>
         seen += p.toString
         scala.util.Try(Parser.parse(os.read(p))).toOption match
-          case Some(im) => inlineImportsRust(im, p / os.up, seen) ++ im.sections
+          case Some(im) => inlineImportsRust(im, p / os.up, seen, unresolved) ++ im.sections
           case None     => Nil
+      // AN IMPORT THAT RESOLVES TO NOTHING IS A FAILURE, and this lane used to be the only one that
+      // did not say so. `[Response](/abs/path/std/http.ssc)` throws inside the resolver — os-lib
+      // refuses an absolute path as a RelPath — and every other lane refuses the program for it
+      // (`run`: "native frontend import not found: …"; `--v1`: "… is not a relative path"). Here the
+      // throw was caught and the import contributed NOTHING: no case classes, no extern class, and
+      // a crate written with exit 0, so the defect surfaced later as a rustc error inside generated
+      // code the user never wrote. (rust-absolute-import-path-inlines-nothing.)
+      case None                          => unresolved += rawPath; Nil
+      case Some(p) if !os.exists(p)      => unresolved += rawPath; Nil
+      // The remaining skips are DELIBERATE and stay silent: a directory, a compiled `.sscc`, and a
+      // file already inlined on another path through the graph.
       case _ => Nil
   }
 

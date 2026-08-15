@@ -728,6 +728,14 @@ val suite = List(
   // a tool that refuses everything, which is a mistake this repository has made before. 352 ms
   // measured, against a 420 s budget.
   Check(".", "inbox-route", "scripts/inbox-route", List("--self-test"), 60000),
+  // An import `build-rust` cannot resolve used to contribute NOTHING and still exit 0 — an absolute
+  // path throws inside the resolver, the throw was caught, and the user met the consequence as a
+  // rustc error in generated code they never wrote. Every other lane already refused the same
+  // program. On the PUSH path rather than in ci.yml because it costs no cargo build: four
+  // emit-rust runs, ~20 s measured. The last two rows are anti-rows — a resolvable relative import
+  // and a program with no imports must still emit, or the refusal has been widened into working
+  // programs. (rust-absolute-import-path-inlines-nothing.)
+  Check(".", "absolute-import-resolves", "tests/e2e/absolute-import-resolves-gate.sh", List(), 120000),
   // The shared boards had no guard at all — claim-scope and overlap both exempt them by design, and
   // that is how a commit about jsLiteral deleted 65 lines of v3/BACKLOG.md. Its self-test drives
   // the four directions the rule has to tell apart, including the one that caught a defect in the
