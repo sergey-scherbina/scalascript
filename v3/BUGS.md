@@ -151,6 +151,86 @@ keyword, that is the line to add back.
 abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
 shape.
 
+## v3-handleError-on-a-val-bound-None-matches-no-arm — and it is what blocks the given-instance receiver fix
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     gate: v3/corpus-report.sh (std-index, std-monaderror)
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**`noneInt.handleError((_: Unit) => Some(0))` dies with `match: no arm matched`**, thrown from
+`Exec.prim` with NO position — which is why the case lands in DIFF rather than in the honest
+UNSUPPORTED bucket. `std-index` prints nine correct lines and stops there; `std-monaderror` dies on
+the same call and prints nothing.
+
+The method is the extension inside `given optionUnitError: MonadError[Option, Unit]`
+(`std/monaderror.ssc:47`):
+
+    extension [A](fa: Option[A]) def handleError(h: Unit => Option[A]): Option[A] = fa match
+      case Some(_) => fa
+      case None    => h(())
+
+and `fa` is `val noneInt: Option[Int] = None`. `case None` ought to match and does not.
+
+**IT IS INVISIBLE TODAY, which is the only reason it has not been filed before.** Both cases are
+refused earlier by the `is provided by a given instance` diagnostic, so the line is never reached.
+Fixing that refusal is what exposes this.
+
+## v3-given-instance-as-a-receiver-is-refused — `intSum.combine(a, b)` is a member call, not extension dispatch
+
+<!-- status: open
+     lane: v3
+     area: front
+     gate: v3/corpus-report.sh (the `is provided by a given instance` histogram line)
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**The receiver IS the instance and its member is refused.** `given intSum: Monoid[Int] with { def
+empty; def combine(a, b) }` makes `intSum` an object, so `intSum.combine(intSum.empty, 42)` is an
+ordinary qualified call that the object flattening already resolves. It is refused by
+`rewriteGivenExtensionCalls`, whose guard asks two true questions — `receiverType` cannot type the
+NAME `intSum`, and `combine` is declared only by given instances — from which the conclusion does
+not follow.
+
+Three cases, one shape: `std-semigroup-monoid:21` `intSum.combine(intSum.empty, 42)`,
+`tagless-multi-file:39` `listLogged.pure(42)`, `std-monaderror:21` `optionUnitError.raise[Int](())`.
+
+**THE FIX IS WRITTEN AND MEASURED AND DELIBERATELY NOT SHIPPED.** One arm, before the refusal, and
+the distinction it encodes is the whole of it:
+
+    extension        xs.foldMap(f)        -> listFoldable.foldMap(xs, f)   receiver PREPENDED,
+                                                                          it is the value operated on
+    instance member  intSum.combine(a, b) -> intSum.combine(a, b)          receiver NOT prepended,
+                                                                          it is the OWNER
+
+    val instanceMember = recv match
+      case Expr.Name(n, _) if instanceDefs.contains(n + "." + m) => Some(n)
+      case _                                                     => None
+    if instanceMember.isDefined then Expr.Call(instanceMember.get + "." + m, args, p)
+    else <the existing receiverType/pick chain>
+
+`instanceDefs` already holds `object.member` for every given instance, so this adds no table and no
+new source of types — it only asks the question in the right order.
+
+**WHY IT IS NOT SHIPPED: the DIFF floor.** Measured 2026-08-15, control against the same tree minus
+exactly this arm:
+
+    control (no arm)   PASS 218  DIFF 3  UNSUPPORTED 137  CRASH 9
+    with the arm       PASS 220  DIFF 5  UNSUPPORTED 133  CRASH 9
+
+The `is provided by a given instance` histogram line goes from 6 to ZERO — two cases reach PASS, two
+move to a different honest refusal, and two become DIFF. Lists compared rather than counts: control
+DIFF is {parameterless-def-local, indent-block-statements, indent-config-format}; with the arm it is
+those three plus `std-index` and `std-monaderror`. NEITHER was passing before, so there is no
+PASS -> DIFF regression — but an honest refusal became a silent wrong answer, and the floor exists
+for exactly that trade.
+
+**BOTH NEW DIFFS ARE ONE DEFECT** — `v3-handleError-on-a-val-bound-None-matches-no-arm`, filed
+above. Land that first, then this arm, then re-measure; the expectation is DIFF back to 3 with PASS
+higher than 220.
+
 ## v3-stmt-val-discards-a-type-the-author-wrote — WORKED AROUND, not fixed: the resolver follows the initialiser instead
 
 <!-- status: wontfix
