@@ -329,7 +329,17 @@ check_identity() {
     # are rebuilt for this module. A mis-keyed memo hands a program ANOTHER module's tables, which
     # is a wrong answer with no diagnostic, so it is checked the same way as the others.
     noprep="$(v3/ssc3 exec --no-prepare-cache "$f" 2>&1)"
-    if [ "$on" != "$noprep" ]; then
+    # SSC3-J4b: an EIGHTH arm. Inverting a comparison to drop its `Not` is an algebraic identity that
+    # is FALSE on floats — a NaN compares false both ways — so this arm is the one that would catch a
+    # kind guard that stopped being right. `v3/tests/front/cmp-invert-nan.ssc` is the program with
+    # both halves in it.
+    noinv="$(v3/ssc3 exec --no-invert "$f" 2>&1)"
+    if [ "$on" != "$noinv" ]; then
+      echo "  FAIL $name — INVERTING a comparison changed the output:"
+      diff <(printf '%s\n' "$noinv") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-invert, right = default."
+      fail=1
+    elif [ "$on" != "$noprep" ]; then
       echo "  FAIL $name — the PREPARE cache changed the output:"
       diff <(printf '%s\n' "$noprep") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-prepare-cache, right = default."

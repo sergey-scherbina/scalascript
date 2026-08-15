@@ -1,0 +1,37 @@
+// cmp-invert-nan — the guard on SSC3-J4b, and the only program that can fail it.
+//
+// `not (a < b)` is `a >= b` for integers and NOT for floats: a NaN compares false to everything.
+//
+// TWO THINGS THIS FIXTURE HAD TO GET RIGHT, both found by measuring what it exercised rather than by
+// assuming:
+//   * the triple the pass rewrites is what a WHILE lowers to — the compiler's own negation of the
+//     loop test. A source-level `!` lowers to a SECOND `Un(Not)` and forms no triple at all.
+//   * both loops live inside a `def` with LOCAL vars. Written at top level the same code reads its
+//     variables through `globget`, `Specialize` cannot prove a global's kind, and the comparison
+//     stays `Dyn` — which the guard refuses for a reason that has nothing to do with floats, so the
+//     fixture would have passed with or without the check it exists to protect.
+//
+// Correct: `NaN < 1.0` is false, the compiler's negation is true, the loop exits before its first
+// iteration and `floaty` answers 0. Rewritten without the kind guard the test becomes `x >= 1.0`,
+// also false for NaN — but it is the branch condition now, so the loop ENTERS, sets x to 2.0, and
+// the answer is 1.
+def floaty(): Long =
+  var x = 0.0 / 0.0
+  var n = 0L
+  while x < 1.0 do
+    x = 2.0
+    n = n + 1
+  n
+
+// The integral twin, which the pass IS allowed to rewrite — so the fixture shows the rewrite
+// happening as well as the refusal.
+def county(): Long =
+  var i = 0L
+  var s = 0L
+  while i < 4L do
+    s = s + i
+    i = i + 1
+  s
+
+println(floaty())
+println(county())

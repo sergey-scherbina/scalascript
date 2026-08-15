@@ -2729,6 +2729,28 @@ one §3 J1 item never built, and now the only one the evidence points at.
       *It also closed a latent HOLE:* the length guard rebuilt only when a length differed, so two
       different modules matching in all three counts would have shared the first one's tables.
 
+- [x] **SSC3-J4b — the `(bin cmp) (un not) (brif)` triple loses its `Not`.** Inverting the
+      comparison is the identity `not (a < b) == a >= b` — and it is FALSE on floats, because a NaN
+      compares false both ways, so the rewrite is refused unless `Specialize` proved the kind `I64`
+      or `Big`. `Eq`/`Ne` need no guard on any kind (IEEE makes `not (a == b)` and `a != b` agree
+      even for NaN). Dataflow conditions are copy propagation's shape: the three adjacent in one
+      region, the comparison's destination written once and read once in the whole function, the
+      `Not`'s destination written once.
+      *Instruction count, load-independent:* one dispatch per loop, every loop — `arith-loop` 6→5,
+      `nested-loop` 14→12 (two loops), `list-fold` 8→7, `range-sum` 13→12.
+      *Gates:* exec 84, front 88, jit `--identity` with an EIGHTH arm (`--no-invert`). The guard is
+      load-bearing and proven so: removing the kind check turns `cmp-invert-nan` red and nothing
+      else, because no other program in the corpus compares a NaN in a loop test.
+      **THE FIXTURE TOOK THREE ATTEMPTS AND EACH FAILURE WAS INVISIBLE WITHOUT MEASURING IT.**
+      A source-level `!` lowers to a SECOND `Un(Not)` and forms no triple; the triple is what a
+      `while` lowers to, from the compiler's own negation. And written at top level the same code
+      reads its variables through `globget`, `Specialize` cannot prove a global's kind, the
+      comparison stays `Dyn` — so the guard refused for a reason unrelated to floats and the fixture
+      would have passed with or without the check it exists to protect. Both loops now live in a
+      `def`: the float one specializes to `f64` and is refused, the integral one to `i64` and is
+      rewritten, which the fixture shows in one run.
+      *Owed:* the wall clock. Host load was 79–96 while this landed.
+
 - [ ] **SSC3-J4 — superinstructions, and the payoff is COUNTED before the pass is written.**
       The through-line below says the next move is fewer dispatches, not a cheaper one. Counting the
       two fusions on what `ssc3 ir` prints, per loop body, post-J1d baseline: `arith-loop` 8 → **4**,

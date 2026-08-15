@@ -254,7 +254,7 @@ object Cli:
     // is off. `--no-optimize` turns off BOTH, so measuring the lift against it would charge one pass
     // for the other's effect — which is what the OFF arm of an A/B exists to prevent.
     if args.contains("--no-optimize") then specialized
-    else Optimize.module(specialized, !args.contains("--no-hoist"))
+    else Optimize.module(specialized, !args.contains("--no-hoist"), !args.contains("--no-invert"))
 
   def run(args: List[String]): Int =
     try

@@ -41,12 +41,110 @@ object Optimize:
   // written twice, which the guard below correctly refuses. Same two passes, opposite outcome, and
   // `v3/tests/front/hoist-guard.ssc` is the program that tells them apart: it prints 30 in this
   // order and 297 in the other.
-  def module(m: Module, hoistConsts: Boolean): Module =
+  def module(m: Module, hoistConsts: Boolean): Module = module(m, hoistConsts, true)
+
+  def module(m: Module, hoistConsts: Boolean, invertCompares: Boolean): Module =
     m.copy(funcs = m.funcs.map { f =>
       val folded = f.copy(body = copyProp(f))
-      if hoistConsts then folded.copy(body = hoist(folded, folded.body, writeCounts(folded)))
-      else folded
+      val turned =
+        if invertCompares then
+          val (reads, writes) = census(folded)
+          folded.copy(body = invert(folded, folded.body, reads, writes))
+        else folded
+      if hoistConsts then turned.copy(body = hoist(turned, turned.body, writeCounts(turned)))
+      else turned
     })
+
+  // ── compare, negate, branch ────────────────────────────────────────────────────────────────────
+  //
+  // SSC3-J4b. Every counted loop in the corpus ends its test the same way — three dispatches for one
+  // decision:
+  //
+  //     (bin lt i64 5 1 4)  (un not dyn 6 5)  (brif 6 1)
+  //
+  // Inverting the comparison removes the `Not`: `not (a < b)` is `a >= b`. That identity is the
+  // whole pass and it is NOT universally true —
+  //
+  //   * on FLOATS it is false. A NaN compares false to everything, so `!(nan < 1.0)` is TRUE while
+  //     `nan >= 1.0` is FALSE. The rewrite is therefore refused unless `Specialize` proved the
+  //     comparison's kind `I64` or `Big`. `v3/tests/front/cmp-invert-nan.ssc` is the program that
+  //     tells the two apart: `true true true` with the guard, `false false true` without it.
+  //   * `Eq`/`Ne` need no guard at all, on any kind: IEEE says `NaN == x` is false and `NaN != x` is
+  //     true, so `not (a == b)` is `a != b` even where the ordering identity fails.
+  //
+  // The dataflow conditions are the same shape as copy propagation's, and for the same reason — the
+  // cheap version is the one that is obviously correct:
+  //
+  //   * the three are ADJACENT in one region's list, so nothing runs between them;
+  //   * the comparison's destination is written once and read once IN THE WHOLE FUNCTION, so the
+  //     `Not` is its only reader and dropping it cannot orphan another use;
+  //   * the `Not`'s destination is written once, so writing the comparison straight into it cannot
+  //     clobber a value some other path produced.
+
+  private def census(f: Func): (Array[Int], Array[Int]) =
+    val reads = new Array[Int](f.nregs)
+    val writes = new Array[Int](f.nregs)
+    var all = Instr.flatten(f.body)
+    while all.nonEmpty do
+      val i = all.head
+      val d = dstOf(i)
+      if d >= 0 && d < f.nregs then writes(d) = writes(d) + 1
+      var rs = readsOf(i)
+      while rs.nonEmpty do
+        val r = rs.head
+        if r >= 0 && r < f.nregs then reads(r) = reads(r) + 1
+        rs = rs.tail
+      all = all.tail
+    (reads, writes)
+
+  private def inverseOf(op: BinOp): BinOp = op match
+    case BinOp.Lt => BinOp.Ge
+    case BinOp.Le => BinOp.Gt
+    case BinOp.Gt => BinOp.Le
+    case BinOp.Ge => BinOp.Lt
+    case BinOp.Eq => BinOp.Ne
+    case BinOp.Ne => BinOp.Eq
+    case other    => other
+
+  /** `Eq`/`Ne` invert on any kind; the ordering four need a kind with no NaN in it. */
+  private def invertible(op: BinOp, kind: NumKind): Boolean = op match
+    case BinOp.Eq | BinOp.Ne => true
+    case BinOp.Lt | BinOp.Le | BinOp.Gt | BinOp.Ge =>
+      kind == NumKind.I64 || kind == NumKind.Big
+    case _ => false
+
+  private def invert(f: Func, body: List[Instr], reads: Array[Int], writes: Array[Int]): List[Instr] =
+    var out: List[Instr] = Nil
+    var rest = body
+    while rest.nonEmpty do
+      val head = descendInvert(f, rest.head, reads, writes)
+      var turned = false
+      (head, rest.tail) match
+        case (Instr.Bin(op, kind, d, a, b), Instr.Un(UnOp.Not, _, e, nd) :: (br @ Instr.BrIf(c, _)) :: after)
+            if invertible(op, kind) && nd == d && c == e
+               && d >= f.nparams && d < f.nregs && e >= f.nparams && e < f.nregs
+               && writes(d) == 1 && reads(d) == 1 && writes(e) == 1 =>
+          out = br :: Instr.Bin(inverseOf(op), kind, e, a, b) :: out
+          rest = after
+          turned = true
+        case _ => ()
+      if !turned then
+        out = head :: out
+        rest = rest.tail
+    out.reverse
+
+  private def descendInvert(f: Func, i: Instr, reads: Array[Int], writes: Array[Int]): Instr = i match
+    case Instr.Block(b)    => Instr.Block(invert(f, b, reads, writes))
+    case Instr.Loop(b)     => Instr.Loop(invert(f, b, reads, writes))
+    case Instr.If(c, t, e) => Instr.If(c, invert(f, t, reads, writes), invert(f, e, reads, writes))
+    case Instr.Switch(s, arms, df) =>
+      Instr.Switch(s, arms.map(a => SwitchArm(a.tag, invert(f, a.body, reads, writes))),
+                   invert(f, df, reads, writes))
+    case Instr.Try(d, b, exn, h)  => Instr.Try(d, invert(f, b, reads, writes), exn, invert(f, h, reads, writes))
+    case Instr.Handle(d, b, arms) =>
+      Instr.Handle(d, invert(f, b, reads, writes),
+                   arms.map(a => HandlerArm(a.op, a.params, a.k, invert(f, a.body, reads, writes))))
+    case other => other
 
   // ── loop-invariant constants ───────────────────────────────────────────────────────────────────
   //
