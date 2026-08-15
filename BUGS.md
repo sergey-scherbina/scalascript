@@ -1171,6 +1171,7 @@ to do with what the gate tests. Two gates have now worked around it by creating 
 ## rust-any-valued-map-literal-not-lifted — a `val m: Map[String, Any] = Map("k" -> "x")` annotates `HashMap<String, Value>` and builds `HashMap<String, String>`
 
 <!-- status: open
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      lane: v2-rust
      area: codegen
      kind: bug
@@ -1208,6 +1209,31 @@ declared type is PRINTED, never APPLIED. The narrow fix is to coerce the RHS to 
 when they can differ; the reason this is filed rather than done is that `renderLetBinding` is on
 the path of every local in the repository, so the change needs the survey and the goldens to
 measure it, not a one-line edit at the end of another claim.
+
+**FIXED, and it was THREE shapes rather than the one reported.** Measured before touching anything:
+
+    val m: Map[String, Any] = Map("k" -> "v")   HashMap<String, String> under a HashMap<_, Value>
+    val xs: List[Any]       = [1, 2]            Vec<i64>                under a Vec<Value>
+    val a: Any              = 5                 i64                     under a Value
+
+Four cargo errors from three lines. Fixing only the Map — the shape the entry names — would have
+left the same trap one keystroke away, which is the [[a-feature-has-a-spelling-matrix]] lesson
+applied before rather than after.
+
+**The ARGUMENT boundary already worked**, which is why this survived: `take(m)` coerces through
+`needsAnyCoercion`, so a probe that only passed a literal to a function shows nothing. The local is
+the one site that had been left out.
+
+**Total, and deliberately narrow.** `Value::from` is the identity on a `Value` (Rust's blanket
+`impl<T> From<T> for T`) and the element maps are the identity on a container already holding
+`Value`s, so emitting the lift where the RHS is already right costs nothing. Every other annotation
+is returned untouched — the concern this entry raised, that `renderLetBinding` is on the path of
+EVERY local, is answered by narrowing rather than by hoping.
+
+Gate: `tests/e2e/build-rust-refuses-loudly.sh`, all three shapes, differentially against the default
+lane — `m=1 / xs=2 / a=5` on both. Negative control: with the plain-`Any` lift suppressed — the one
+shape the report did NOT name — the gate fails, so the case discriminates each shape rather than
+passing on the loudest. rust-std-survey 78/54 BADRUST 0, unmoved; v1-jit-size PASS.
 
 ## rust-object-member-call-emits-invalid-rust — `Tool.mk(x)` emits `Tool.mk(x)` while the def emits as bare `fn mk`, so rustc answers E0425 and the survey cannot see it
 

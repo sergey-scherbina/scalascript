@@ -647,6 +647,42 @@ SSC
     failed=1
   fi
 
+  # A TYPED LOCAL at the `Any` boundary — the declared type must be APPLIED, not just printed.
+  #
+  # `renderLetBinding` computed the annotation from the declaration and rendered the RHS separately,
+  # so `val m: Map[String, Any] = Map("k" -> "v")` emitted a `HashMap<String, String>` under a
+  # `HashMap<String, Value>` annotation. ALL THREE SHAPES of the boundary had it, which is why all
+  # three are here: only the Map one was reported, and fixing that alone would have left the same
+  # trap one keystroke away.
+  #
+  # The ARGUMENT boundary already worked — `take(m)` coerces — so a probe that only passed a literal
+  # to a function would have shown nothing. The local is the site that was left out.
+  cat > "$tmp/typedlocal.ssc" <<'SSC'
+def take(m: Map[String, Any]): Int = m.size
+
+def main(): Unit =
+  val m: Map[String, Any] = Map("k" -> "v")
+  val xs: List[Any] = [1, 2]
+  val a: Any = 5
+  println("m=" + take(m))
+  println("xs=" + xs.length)
+  println("a=" + a)
+SSC
+  set +e
+  tlb=$("$SSC" build-rust "$tmp/typedlocal.ssc" -o "$tmp/typedlocalbin" 2>&1); tlrc=$?
+  tl_rust=$("$tmp/typedlocalbin" 2>&1)
+  tl_ref=$("$ROOT/bin/ssc" run "$tmp/typedlocal.ssc" 2>/dev/null)
+  set -e
+  if [[ $tlrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — a typed local at the Any boundary does not build" >&2
+    echo "--- output: $(printf '%s' "$tlb" | tail -8)" >&2
+    failed=1
+  elif [[ "$tl_rust" != "$tl_ref" || -z "$tl_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on a typed local" >&2
+    echo "--- rust: $(printf '%s' "$tl_rust" | tr '\n' '|')   ssc: $(printf '%s' "$tl_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather

@@ -6221,6 +6221,33 @@ object RustCodeWalk:
   /** Render a `val`/`var` binding to a Rust `let` (optionally `mut`)
    *  statement.  Only single-name patterns are supported; destructuring
    *  binders lower to a structured diagnostic. */
+  /** APPLY the declared type of a local, rather than merely printing it.
+   *
+   *  `renderLetBinding` computes the annotation from `decltpe` and renders the RHS separately, then
+   *  puts the two next to each other — so `val m: Map[String, Any] = Map("k" -> "v")` emitted
+   *  `let m: HashMap<String, Value> = {…HashMap<String, String>…}` and rustc rejected it. The same
+   *  hole in all three shapes of the `Any` boundary, which is why all three are handled here and not
+   *  just the one that was reported:
+   *
+   *      val m: Map[String, Any] = Map("k" -> "v")   HashMap<String, String> at a HashMap<_, Value>
+   *      val xs: List[Any]       = [1, 2]            Vec<i64>                at a Vec<Value>
+   *      val a: Any              = 5                 i64                     at a Value
+   *
+   *  The ARGUMENT boundary already worked — a call passing the same literal is coerced by
+   *  `needsAnyCoercion` — so this is the one site that had been left out.
+   *
+   *  TOTAL, and deliberately narrow. `Value::from` is the identity on a `Value` (Rust's blanket
+   *  `impl<T> From<T> for T`) and the element maps are the identity on a container that already
+   *  holds `Value`s, so emitting this where the RHS is already right costs nothing. Everything else
+   *  is returned untouched, so no local outside the `Any` boundary changes shape — `renderLetBinding`
+   *  is on the path of EVERY local in the repository and a wider rule would be measured in goldens,
+   *  not in a probe. */
+  private def liftToAnnotation(expr: String, tyAnn: String): String = tyAnn match
+    case ": crate::value::Value" => s"crate::value::Value::from($expr)"
+    case ": Vec<crate::value::Value>" | ": std::collections::HashMap<String, crate::value::Value>" =>
+      coerceFromValue(expr, tyAnn.drop(2))
+    case _ => expr
+
   private def renderLetBinding(
       pats:    List[m.Pat],
       decltpe: Option[m.Type],
@@ -6244,7 +6271,8 @@ object RustCodeWalk:
           // A `val t = theme.typography.body` binding moves the field out of its owner
           // (partial move), poisoning a later read of `theme`.  Clone a name/projection
           // rhs rooted at a reused/captured value so the owner survives.
-          s"$kw $name$tyAnn = ${cloneIfMoved(rhs, rhsRs, ctx)};"
+          val rhsC = cloneIfMoved(rhs, rhsRs, ctx)
+          s"$kw $name$tyAnn = ${liftToAnnotation(rhsC, tyAnn)};"
       // `val (a, b) = expr` / `val (a, _) = expr` — tuple destructuring.
       case List(m.Pat.Tuple(elems)) =>
         val kw = if mutable then "let mut" else "let"
