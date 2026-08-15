@@ -1,0 +1,67 @@
+# Handlers where the FRAME IS NOT AT `local 0` — three places at once
+
+Every other fixture here installs its handler at the top of a function body, where the v2 bridge's
+frame sits at de Bruijn `local 0` and the shift arithmetic is the identity. That is the one case a
+wrong shift cannot expose. This one puts a `handle` in each of the three places the shift is not
+zero:
+
+  - **nested** — one `handle` inside another's body, so the inner arm's closures are built two
+    binders deeper than the function's frame, and the inner arm reads `bump`, a register of a
+    handling function it does not itself belong to;
+  - **inArm** — a `handle` inside a `match` arm, where v2 binds the constructor's fields as locals
+    and the frame has moved to `local k`;
+  - **inLoop** — a `handle` inside a `while`, entered three times, so a record left on the handler
+    stack by one iteration would be found by the next.
+
+It also uses TWO effects rather than one, which is what makes the `handles` array in each record do
+real work: the inner handler must answer `say` and decline `get`, and declining is the path a
+one-effect program never takes.
+
+The answers are hand-derived, not recorded from a run:
+
+  - `nested(3)`  — `get` → 7, `say(7)` → 7·10+3 = 73, and `inner` returns 7 + 73 = **80**
+  - `inArm(Some(5))` — `get` → 5, `say(5)` → 6, so 5 + 6 = **11**
+  - `inArm(None)` — **-1**, no handler runs at all
+  - `inLoop()` — i=0: 0 + 0; i=1: 1 + 2; i=2: 2 + 4 — **9**
+
+```scalascript
+effect Ask:
+  def get(): Int
+
+effect Tell:
+  def say(x: Int): Int
+
+def inner(): Int =
+  val a = Ask.get()
+  val b = Tell.say(a)
+  a + b
+
+def nested(bump: Int): Int =
+  handle(handle(inner()) { case say(v, resume) => resume(v * 10 + bump) }) {
+    case get(resume) => resume(7)
+  }
+
+def inArm(o: Option[Int]): Int =
+  o match
+    case Some(n) => handle(inner()) {
+      case get(resume) => resume(n)
+      case say(v, resume) => resume(v + 1)
+    }
+    case None => -1
+
+def inLoop(): Int =
+  var i = 0
+  var acc = 0
+  while i < 3 do
+    acc = acc + handle(inner()) {
+      case get(resume) => resume(i)
+      case say(v, resume) => resume(v * 2)
+    }
+    i = i + 1
+  acc
+
+println(nested(3))
+println(inArm(Some(5)))
+println(inArm(None))
+println(inLoop())
+```

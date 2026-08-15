@@ -242,6 +242,40 @@ tail-resumptive fast path stays exactly as it is — it is what a CPS-converted 
 arm resumes once as its last act, so it becomes an optimisation rather than the only thing that
 works.
 
+#### Both encodings cross the v2 bridge — decided 2026-08-16
+
+`Handle`, `Perform` and `Resume` are no longer executor-only. `BridgeV2` translates them, so all
+twelve fixtures in `v3/tests/effects/` run on the v2 lane and `v3/effects-gate.sh` is a differential
+rather than a one-lane suite.
+
+**It does NOT go through v2's own `effect.perform` / `effect.handle`.** Those implement effects by
+threading an `Op` value out through evaluation and rebuilding the continuation from v2's term tree.
+Handing a bridged program to that machinery would put two continuation mechanisms in series, and the
+bridge's register frame is one MUTABLE ARRAY — so a v2-captured continuation resumed twice would see
+the first resumption's stores. Not a refusal: a wrong answer. The very fixture that would catch it,
+`two-performs-multi-shot`, is in the suite and reads 8 where the answer is 12 the moment the copy is
+removed, which is the same number the executor produced from the same defect before it was fixed.
+
+**What is emitted instead is this document's own protocol.** Because CPS conversion has already made
+the continuation an ordinary closure, what is left for the target to do is dynamically-scoped
+dispatch, and that needs nothing v2 lacks:
+
+| this IR | in v2 Core IR |
+|---|---|
+| `Handle` | push a record on a global array, run the body under `__tryFinally__`, pop |
+| `Perform` | walk that array from the top for a record whose arm answers this operation, call it |
+| `Resume` | apply the closure in `k` — resuming IS calling |
+| an arm | a one-argument closure over a `arr.slice` COPY of the handling frame |
+| the return clause | the same, applied when the body finished having performed nothing |
+
+The tail-resumptive encoding — a `perform` that carries no continuation, which is what the lowering
+emits when it cannot split (a `perform` inside a `Loop`, per step 3 above) — is translated by
+REWRITING `resume(d, k, v)` to `move(d, v)` in the arm and running it in the handler's own frame.
+That is not an approximation: with `k` bound to `unit` the two instructions do the same thing, which
+is exactly what makes the tail-resumptive path an optimisation of the general one rather than a
+second semantics. Only `ctl` is saved and restored around it, because the arm's trailing `ret` would
+otherwise tell the HANDLING function it had returned.
+
 **Host boundary** — `Prim d, primId, args`
 
 The single door to everything the IR does not define: I/O, host interop, plugin SPI. This is what

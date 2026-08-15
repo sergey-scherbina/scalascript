@@ -1,11 +1,19 @@
 ; What V-0 must REFUSE, not mistranslate.
 ;
-; `resume` is an EFFECT instruction: the IR has one-shot continuations, v2 Core IR has no
-; counterpart, and there is no honest lowering. The bridge must say so and name it.
+; `un bnot` — bitwise complement — is a VERIFIED-LEGAL module (`ssc3 check` says ok, `ssc3 exec`
+; runs it) that the bridge has no case for, so the refusal it produces comes from the bridge and
+; from nowhere else. That is the whole property this fixture holds: the emitter names what it
+; cannot translate instead of emitting something plausible.
 ;
-; This fixture held `globget` until 2026-08-04, when globals became translatable and the check went
-; red — the gate noticing its own probe had gone stale is the gate working. The replacement must be
-; re-pointed the same way if effects ever land on the bridge.
+; THIS FIXTURE HAS NOW BEEN RE-POINTED TWICE, AND BOTH TIMES BECAUSE THE GATE WENT RED ON ITS OWN
+; PROBE — which is the gate working, not failing.
+;   - it held `globget` until 2026-08-04, when globals became translatable;
+;   - it held `resume` until 2026-08-16, when effects did (`BridgeV2` §effects: `handle`, `perform`
+;     and `resume` all translate now, and `v3/effects-gate.sh` runs all twelve effects fixtures on
+;     both lanes).
+; Re-point it the same way when the bridge grows a case for `un bnot`: find an instruction the
+; emitter still has no arm for, check it verifies, and update `bridge-gate.sh`'s grep to the new
+; name. When nothing is left to point at, that is worth saying out loud rather than deleting.
 (module
   (consts (int 1))
   (types)
@@ -14,6 +22,6 @@
   (funcs
     (func "main" 0 2
       (const 1 0)
-      (resume 0 1 1)
+      (un bnot dyn 0 1)
       (ret 0)))
   (entry 0))

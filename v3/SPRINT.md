@@ -50,9 +50,12 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       the v2 VM, and its OUTPUT compared against a checked-in expectation, never the exit code.
       Red in BOTH directions: a fixture using an untranslatable instruction must be refused with the
       instruction named, and the gate fails loud if no case ran.
-      Still refused, each by name: `Loop`/`Br`/`BrIf` (needs each region's continuation as a
-      `LetRec`), `Switch`, `MkData`/`Field`/`Tag`, the array and global instructions,
-      `MkClos`/`CallV`, the effect trio, and the bitwise operators.
+      *That refusal list is now almost empty, and each line of it came off by measurement.* `Loop`,
+      `Br`/`BrIf` (one CTL register, not a `LetRec`), `Switch`, `MkData`/`Field`/`Tag`, the array
+      and global instructions, `MkClos`/`CallV`, the bitwise operators and — since 2026-08-16 — the
+      whole effect trio all translate. **What is left is `un bnot`**, which is what
+      `v3/tests/bridge/unsupported.ssir` now points at; the fixture's own comment predicted both
+      re-pointings and asked for the third to be made the same way.
 
 - [x] **SSC3-3b — the executor.** `ssc3 exec` runs SSC IR directly; 10 000 000 tail calls in
       constant stack, and every bridge fixture agrees byte for byte across both lanes.
@@ -79,8 +82,42 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       *Why the measurement mattered at all:* the same program is 46 ms on v3's executor and 1472 ms
       through the bridge — 32× — and 20× worse than v2's OWN front through the same VM. That is what
       makes the bridge unusable as a route to v2's compiled backends, which is the J3 question.
+      *SECOND CHEAP HALF, 2026-08-16 — the bridge is handed the OPTIMIZED module.* `build` and
+      `run --bridge` called `BridgeV2.program(m)` on `Driver.moduleOf` output while `exec` called it
+      on `prepared(m, args)`, so the lane that pays MOST per instruction was the one lane running
+      un-propagated `Move`s, constants reloaded every iteration and un-fused compares. One call site,
+      and `prepared` is the single decision point for what a lane runs, so `--no-optimize` and the
+      rest of the J-series flags reach the bridge too.
+      *Measured on the loop body of `arith-loop` — the text that runs a million times — because the
+      host was at load 36 and a wall clock there resolves nothing:* **47 v2 prim operations per
+      iteration before, 32 after** (`arr.get` 20→14, `arr.set` 14→9, `__arith__` 13→9); whole
+      emitted program 4215 → 3324 bytes. An operation count is load-independent, which is the whole
+      reason it was the instrument.
       *STILL OPEN — the `Let`-binding rewrite itself.* The frame is still one mutable array and
       there is still a prim call per access. SSA-with-joins is the rest of this entry.
+
+- [x] **SSC3-3e — effects cross the bridge: `handle`, `perform` and `resume` translate.**
+      DONE 2026-08-16. All twelve `v3/tests/effects/` fixtures run on the v2 lane and agree with the
+      executor and with the recorded answer; `v3/effects-gate.sh` became a DIFFERENTIAL instead of a
+      one-lane suite, which is what its own header said should happen "when the bridge grows
+      effects".
+      *NOT through v2's `effect.perform`/`effect.handle`.* Those rebuild a continuation from v2's
+      term tree, and the bridge's frame is one mutable array — a v2-captured continuation resumed
+      twice would see the first resumption's stores. That is a wrong answer, not a refusal. What is
+      emitted instead is the executor's own algorithm: a global array used as a handler stack, each
+      arm a one-argument closure over an `arr.slice` COPY of the handling frame, `resume` an
+      application, and a per-handler counter — not a flag — deciding whether the return clause
+      applies.
+      *BOTH ENCODINGS.* The tail-resumptive form (a `perform` the lowering could not split, e.g.
+      inside a `Loop`) is handled by rewriting `resume(d, k, v)` to `move(d, v)` in the arm, which is
+      what those two instructions mean when `k` is `unit`. `handle-tail-resumptive` and
+      `runner-in-the-language` are the two fixtures that need it — a CPS-only bridge refuses two of
+      twelve.
+      *The gate was PROVEN to fire, twice, by planting the defect it exists for:* remove the frame
+      copy and `two-performs-multi-shot` reads **8** where the answer is 12 — the same number the
+      executor produced from the same defect; drop the `performs == 0` condition and `handle-return`
+      reads `List(List(11, 21, 12, 22))`, lifted one level too many. `multi-shot` does NOT move under
+      the first plant, so the fixture that catches re-entrancy is specifically the two-performs one.
 
 - [ ] **SSC3-3c-rest — `V-1` proper: raise registers to `Let` bindings.** Each assignment becomes a fresh
       de Bruijn binding, with joins at the ends of `If`/`Loop` bodies expressed as lambda

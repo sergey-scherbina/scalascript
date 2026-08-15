@@ -337,7 +337,12 @@ object Cli:
                   Console.err.println("ssc3: " + path + ": lowering produced invalid IR: " + e.render)
                   1
                 case None =>
-                  println(BridgeV2.program(m))
+                  // SSC3-3c. The bridge is handed the OPTIMIZED module, exactly as `exec` is. It
+                  // used to receive `Driver.moduleOf` raw, so the lane that already pays most per
+                  // instruction was the one lane running un-propagated `Move`s, constants reloaded
+                  // every iteration and un-fused compares. `prepared` is one decision site for what
+                  // a lane runs, and the flags (`--no-optimize`, `--no-hoist`, …) reach it here too.
+                  println(BridgeV2.program(prepared(m, args)))
                   0
             catch
               case e: LoadError    => Console.err.println("ssc3: " + e.message); 1

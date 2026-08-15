@@ -69,6 +69,17 @@ object BridgeV2:
   private def arith(op: String, a: String, b: String): String =
     "(prim __arith__ " + lit("(str \"" + op + "\")") + " " + a + " " + b + ")"
 
+  /** v2's direct array prims, spelled once. The frame, the handler stack and every effect record
+    * are the SAME representation — `ForeignV(ArrayBuffer)` — so one set of helpers serves all
+    * three, and a reader who has understood the frame has understood the effect runtime. */
+  private def glob(n: String): String = "(global " + n + ")"
+  private def aget(a: String, i: String): String = "(prim arr.get " + a + " " + i + ")"
+  private def aset(a: String, i: String, v: String): String =
+    "(prim arr.set " + a + " " + i + " " + v + ")"
+  private def alen(a: String): String = "(prim arr.len " + a + ")"
+  private def mkarr(xs: List[String]): String =
+    "(prim __mk_arr__" + (if xs.isEmpty then "" else " " + xs.mkString(" ")) + ")"
+
   private def ifThen(c: String, t: String, e: String): String = "(if " + c + " " + t + " " + e + ")"
 
   private def litOf(l: Lit): String = l match
@@ -138,6 +149,11 @@ object BridgeV2:
       * time, so they share. That is why no counter has to be threaded through the translation. */
     val loopBase: Int = f.nregs + 2
     val frameSize: Int = loopBase + maxLoopDepth(f.body)
+    /** How wide an effect record's per-operation arrays are. Module-wide rather than per-handler,
+      * because `Perform` indexes them with an operation number it carries and every record it walks
+      * past must be able to answer "not mine" at that index. `lazy` — a module without effects never
+      * asks, and asking costs a whole-module scan. */
+    lazy val nOps: Int = opCount(m)
 
   private def maxLoopDepth(body: List[Instr]): Int =
     var best = 0
@@ -166,7 +182,250 @@ object BridgeV2:
     case _: Instr.TailCall => true
     case _: Instr.Br       => true
     case _: Instr.BrIf     => true
+    // An ARM'S `ret` DIVERTS THE CLONE, NOT THIS FRAME — every arm body ends with one, so the
+    // generic `children` rule would mark every `handle` as diverting and guard the whole rest of the
+    // function behind a `ctl == 0` test that can never be false for that reason. Only the BODY runs
+    // against this frame, so only the body is asked. Correct either way; this one is not slow.
+    case Instr.Handle(_, b, _) => b.exists(mayDivert)
     case other             => Instr.children(other).exists(mayDivert)
+
+  // ── effects ─────────────────────────────────────────────────────────────────
+  //
+  // WHAT THIS IS NOT: v2's own effect primitives. `effect.perform` / `effect.handle` implement
+  // effects by THREADING an `Op` value out through evaluation and rebuilding the continuation from
+  // v2's own term tree. Feeding a bridged program into that would put two continuation mechanisms in
+  // series — v2 capturing a continuation over the register frame it knows nothing about — and the
+  // frame is one MUTABLE array, so a continuation resumed twice would see the first resumption's
+  // stores. That is a wrong answer, not a refusal, and it is the failure mode this whole file exists
+  // to avoid. Measured first, not assumed: `v3/tests/effects/multi-shot.ssc` resumes twice.
+  //
+  // WHAT IT IS: the executor's own algorithm, emitted. `Cps.split` has ALREADY turned every
+  // performing function inside out — read `ssc3 ir` on any effects fixture and a `perform` is
+  //
+  //     (mkclos 15 3 …)        ← the rest of the function, as an ordinary closure
+  //     (perform 5 0 4 15)     ← performed with that closure as its LAST argument
+  //
+  // so the continuation is a value before the bridge ever sees it. Nothing here captures anything.
+  // What is left is DYNAMICALLY-SCOPED DISPATCH: find the innermost handler with an arm for this
+  // operation, run the arm, hand back its value. That needs three things v2 already has — a global
+  // array used as a stack, closures, and `arr.slice` to copy a frame — and no new v2 primitive.
+  //
+  // THE SHAPE, one record per live `handle`, pushed on `__ssc3_eff_stack__`:
+  //
+  //     [0] arms      one slot per operation index: the arm's closure, or unit
+  //     [1] handles   the same width, `true` where this handler has an arm
+  //     [2] ret       the `case x => …` clause as a closure, or unit
+  //     [3] hasRet    whether [2] is real
+  //     [4] performs  a one-element array used as a counter
+  //
+  // `handles` is a separate BOOLEAN array rather than a null check on `arms` because the test has to
+  // be `(if …)`-shaped: comparing a closure against a sentinel with `__arith__ "=="` asks v2 to
+  // decide equality on a `ClosV`, which is a question with no good answer.
+  //
+  // WHY A COUNTER AND NOT A FLAG: `performs` is what makes the return clause apply EXACTLY ONCE, and
+  // a boolean does not survive nesting — an inner `resume` clears what the outer one is about to
+  // read, and `handle-return` comes out `List(List(List(11, 21), …))`. Read before and after, which
+  // is what `Exec` does and why that file says so at length.
+
+  private val effStack    = "__ssc3_eff_stack__"
+  private val effPerform  = "__ssc3_eff_perform__"
+  private val effFind     = "__ssc3_eff_find__"
+  private val effTop      = "__ssc3_eff_top__"
+  private val effPerforms = "__ssc3_eff_performs__"
+  private val effAfter    = "__ssc3_eff_after_resume__"
+
+  private val R_ARMS = 0
+  private val R_HANDLES = 1
+  private val R_RET = 2
+  private val R_HASRET = 3
+  private val R_PERFORMS = 4
+
+  private def scanAll(m: Module)(f: Instr => Unit): Unit =
+    def go(body: List[Instr]): Unit = body.foreach { i => f(i); go(Instr.children(i)) }
+    m.funcs.foreach(fn => go(fn.body))
+
+  /** One past the highest operation index the module mentions — from `Perform`s AND from arms, since
+    * a handler may be written for an operation this module never performs. `-1` is the return
+    * clause's marker and is deliberately not counted. */
+  private def opCount(m: Module): Int =
+    var best = -1
+    scanAll(m) {
+      case Instr.Perform(_, op, _)  => if op > best then best = op
+      case Instr.Handle(_, _, arms) => arms.foreach(a => if a.op > best then best = a.op)
+      case _                        => ()
+    }
+    best + 1
+
+  private def usesEffects(m: Module): Boolean =
+    var found = false
+    scanAll(m) {
+      case _: Instr.Handle | _: Instr.Perform | _: Instr.Resume => found = true
+      case _                                                    => ()
+    }
+    found
+
+  /** A fresh copy of the handling function's frame, per activation.
+    *
+    * NOT an optimisation to skip. An arm reads its `params` and `k` from the HANDLING function's
+    * registers (`specs/10-ssc-ir.md` §3), and one array cannot serve two activations at once —
+    * `case op(k) => k(1) + k(10)` over a function that performs twice re-enters the arm while the
+    * outer activation is still live. The executor measured that as 8 where the answer is 12: a wrong
+    * answer. `arr.slice a 0 (len a)` is v2's copy — `ArrayBuffer.from(_.slice(…))`, a new buffer. */
+  private def cloneOf(src: String): String =
+    "(prim arr.slice " + src + " " + int(0) + " " + alen(src) + ")"
+
+  /** An operation arm as a one-argument closure: it takes the perform's ARGUMENT ARRAY and returns
+    * the arm's value. Inside `(lam 1 …)` the argument is `local 0` and the enclosing frame has moved
+    * to `local (sh+1)`; inside the `let` the clone is `local 0` and the arguments `local 1`, which is
+    * why the body is translated at shift 0 — the frame it means IS the clone. */
+  private def armClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
+    val binds =
+      arm.params.zipWithIndex.map((p, i) => aset("(local 0)", int(p), aget("(local 1)", int(i)))) ++
+        List(aset("(local 0)", int(arm.k), aget("(local 1)", int(arm.params.length))),
+             aset("(local 0)", int(cx.ctl), int(0)))
+    "(lam 1 (let (" + cloneOf("(local " + (sh + 1) + ")") + ") " +
+      sq(binds ++ List(seqOf(arm.body, cx, 0), aget("(local 0)", int(cx.retVal)))) + "))"
+
+  /** The `case x => …` clause, likewise a one-argument closure — but it takes the VALUE, not an
+    * argument array, because that is how `Exec.applyRet` calls it. `retVal` is seeded with that value
+    * so a clause body that falls off its end answers the value unchanged, which is the `case _ => v`
+    * arm of `applyRet` written in the target. */
+  private def retClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
+    val pre = arm.params.headOption.toList.map(p => aset("(local 0)", int(p), "(local 1)")) ++
+      List(aset("(local 0)", int(cx.ctl), int(0)), aset("(local 0)", int(cx.retVal), "(local 1)"))
+    "(lam 1 (let (" + cloneOf("(local " + (sh + 1) + ")") + ") " +
+      sq(pre ++ List(seqOf(arm.body, cx, 0), aget("(local 0)", int(cx.retVal)))) + "))"
+
+  /** THE SECOND ENCODING, and it is not a fallback — it is what the lowering emits whenever it
+    * cannot split a performing function, most often because the `perform` is inside a `while`.
+    * `handle-tail-resumptive` and `runner-in-the-language` are both this shape, so a bridge that
+    * only did CPS would refuse two of the twelve effects fixtures.
+    *
+    * Here the `perform` carries NO continuation: the arm computes a value, that value IS the
+    * perform's result, and the performing function simply carries on. `Exec` implements it by
+    * writing `resumedWith` from a `Resume` whose `k` register holds `unit` — which means, at IR
+    * level, that `resume(d, k, v)` and `move(d, v)` do the same thing. So the arm is translated by
+    * REWRITING it into ordinary instructions rather than by a second runtime protocol.
+    *
+    * The arm runs in the handler's OWN frame, not a copy, because `Exec` does: a later read of a
+    * register the arm wrote must see the same thing on both lanes. Only `ctl` is saved and restored
+    * — the arm's trailing `ret` would otherwise tell the HANDLING function it had returned, which on
+    * the executor is a `Signal` the `Perform` discards and here would be a store nothing undoes. */
+  private def isTailResumptive(arm: HandlerArm): Boolean =
+    def countResumes(body: List[Instr]): Int =
+      body.map { case Instr.Resume(_, _, _) => 1; case o => countResumes(Instr.children(o)) }.sum
+    val body = arm.body match
+      case init :+ Instr.Ret(_) => init
+      case other                => other
+    body.nonEmpty && (body.last match
+      case Instr.Resume(_, _, _) => countResumes(arm.body) == 1
+      case _                     => false)
+
+  private def deResume(body: List[Instr]): List[Instr] = body.map {
+    case Instr.Resume(d, _, v)      => Instr.Move(d, v)
+    case Instr.Block(b)             => Instr.Block(deResume(b))
+    case Instr.Loop(b)              => Instr.Loop(deResume(b))
+    case Instr.If(c, t, e)          => Instr.If(c, deResume(t), deResume(e))
+    case Instr.Switch(s, arms, df)  => Instr.Switch(s, arms.map(a => a.copy(body = deResume(a.body))), deResume(df))
+    case Instr.Try(d, b, x, h)      => Instr.Try(d, deResume(b), x, deResume(h))
+    case Instr.Handle(d, b, arms)   => Instr.Handle(d, deResume(b), arms.map(a => a.copy(body = deResume(a.body))))
+    case other                      => other
+  }
+
+  private def tailArmClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
+    if !isTailResumptive(arm) then
+      throw Unsupported(
+        "a handler for operation " + arm.op + " that neither takes a continuation nor is " +
+        "tail-resumptive — its last act must be a single `resume`. This is the same shape v3's " +
+        "own executor refuses, and for the same reason: capturing the continuation here needs a " +
+        "reified stack neither lane has")
+    val fr = "(local " + (sh + 2) + ")"
+    val binds =
+      arm.params.zipWithIndex.map((p, i) => aset(fr, int(p), aget("(local 1)", int(i)))) ++
+        List(aset(fr, int(arm.k), lit("unit")), aset(fr, int(cx.ctl), int(0)))
+    // Read the answer, put `ctl` back, hand the answer over — in that order, because restoring
+    // first would overwrite `retVal`'s guard and reading after would read the restored frame.
+    val restore = "(let (" + aget(fr, int(cx.retVal)) + ") " +
+      sq(List(aset("(local " + (sh + 3) + ")", int(cx.ctl), "(local 1)"), "(local 0)")) + ")"
+    "(lam 1 (let (" + aget("(local " + (sh + 1) + ")", int(cx.ctl)) + ") " +
+      sq(binds ++ List(seqOf(deResume(arm.body), cx, sh + 2), restore)) + "))"
+
+  /** Which of the two encodings this arm is reached by — decided from the MODULE, because the arm
+    * alone cannot say. The `perform` carries the answer in its argument count, and every `perform`
+    * of the operation must agree; a module mixing both for one operation is refused rather than
+    * guessed at. An arm no `perform` reaches is translated as CPS and never runs. */
+  private def armIsCps(cx: Ctx, arm: HandlerArm): Boolean =
+    var counts: Set[Int] = Set.empty
+    scanAll(cx.m) {
+      case Instr.Perform(_, op, as) => if op == arm.op then counts = counts + as.length
+      case _                        => ()
+    }
+    if counts.isEmpty || counts == Set(arm.params.length + 1) then true
+    else if counts == Set(arm.params.length) then false
+    else
+      throw Unsupported(
+        "operation " + arm.op + " performed with " + counts.toList.sorted.mkString("/") +
+        " argument(s) against one handler binding " + arm.params.length + " — the bridge needs " +
+        "every `perform` of an operation to use one encoding")
+
+  /** A `perform` whose operation NO handler in the module answers. The executor raises this at run
+    * time; refusing here is strictly narrower — a handler that exists may still not be installed —
+    * and it turns what would otherwise be an uncaught v2 exception with a Java stack trace into the
+    * one-line refusal `corpus-report.sh` can classify. */
+  private def performIsAnswerable(cx: Ctx, op: Int): Unit =
+    var found = false
+    scanAll(cx.m) {
+      case Instr.Handle(_, _, arms) => if arms.exists(_.op == op) then found = true
+      case _                        => ()
+    }
+    if !found then
+      throw Unsupported(
+        "a `perform` of operation " + op + ", which no `handle` in this module answers — the " +
+        "executor reports this as `no handler for effect operation " + op + "` when it runs")
+
+  /** The six defs the effect runtime needs, emitted once per module and only when something uses
+    * them. Written here as text rather than as a prelude file because the bridge's whole contract is
+    * that `emit-v2` output is self-contained — `run-ir` installs no prelude. */
+  private def effectDefs: String =
+    val stack = glob(effStack)
+    // `(def x (prim arr.new))` is evaluated ONCE at load, the same fact the global cells rest on.
+    val defStack = "(def " + effStack + " (prim arr.new))"
+    val defTop = "(def " + effTop + " (lam 0 " + aget(stack, arith("-", alen(stack), int(1))) + "))"
+    val defPerforms = "(def " + effPerforms + " (lam 0 " +
+      ifThen(arith(">", alen(stack), int(0)),
+             aget(aget("(app " + glob(effTop) + ")", int(R_PERFORMS)), int(0)),
+             int(0)) + "))"
+    // `(lam 3)` — i, op, args — so i is `local 2`, op `local 1`, args `local 0`; the `let` that binds
+    // the record shifts each by one. Recursion rather than a loop because a loop would need a mutable
+    // cursor, and handler stacks are a handful of frames deep however long the program runs.
+    val defFind = "(def " + effFind + " (lam 3 " +
+      ifThen(arith("<", "(local 2)", int(0)),
+             "(prim __throw__ " + lit("(str \"no handler for effect operation\")") + ")",
+             "(let (" + aget(stack, "(local 2)") + ") " +
+               ifThen(aget(aget("(local 0)", int(R_HANDLES)), "(local 2)"),
+                      sq(List(
+                        // The counter belongs to the handler that ANSWERS, which need not be the top
+                        // of the stack — `Exec` bumps `h.performs` for the handler it found.
+                        aset(aget("(local 0)", int(R_PERFORMS)), int(0),
+                             arith("+", aget(aget("(local 0)", int(R_PERFORMS)), int(0)), int(1))),
+                        "(app " + aget(aget("(local 0)", int(R_ARMS)), "(local 2)") + " (local 1))")),
+                      "(app " + glob(effFind) + " " + arith("-", "(local 3)", int(1)) +
+                        " (local 2) (local 1))") + ")") + "))"
+    // NOT POPPED WHILE THE ARM RUNS. `Exec` leaves the handler on the list, so a `resume` whose
+    // continuation performs the same operation again finds the same handler — which is what makes
+    // `two-performs-multi-shot` produce a cross product instead of failing on the second perform.
+    val defPerform = "(def " + effPerform + " (lam 2 (app " + glob(effFind) + " " +
+      arith("-", alen(stack), int(1)) + " (local 1) (local 0))))"
+    val defAfter = "(def " + effAfter + " (lam 2 " +
+      ifThen(arith("!=", "(app " + glob(effPerforms) + ")", "(local 1)"),
+             "(local 0)",
+             ifThen(arith(">", alen(stack), int(0)),
+                    "(let ((app " + glob(effTop) + ")) " +
+                      ifThen(aget("(local 0)", int(R_HASRET)),
+                             "(app " + aget("(local 0)", int(R_RET)) + " (local 1))",
+                             "(local 1)") + ")",
+                    "(local 0)")) + "))"
+    List(defStack, defTop, defPerforms, defFind, defPerform, defAfter).mkString(" ")
 
   // ── instructions ────────────────────────────────────────────────────────────
   private def stmt(i: Instr, cx: Ctx, sh: Int): String = i match
@@ -181,6 +440,10 @@ object BridgeV2:
     // guessed `__arith__` spelling for `!`. A wrong operator name lowers to a runtime miss far from
     // here, which is the failure this whole file is written to avoid.
     case Instr.Un(UnOp.Not, _, d, a) => write(d, arith("==", read(a, sh), lit("false")), sh)
+    // NAMED, not left to the catch-all. `Text.opcode` answers "un" for all three of them, and a
+    // refusal that says "does not translate un" tells a reader which INSTRUCTION and not which
+    // OPERATOR — the same distinction `binName` and `bitPrim` already make one line down.
+    case Instr.Un(op, _, _, _) => throw Unsupported("the " + op + " operator")
 
     case Instr.If(c, t, e) =>
       // An `If` is a branchable region in this IR (the verifier counts it), so both arms end with
@@ -339,6 +602,57 @@ object BridgeV2:
     case Instr.GlobSet(g, a) =>
       "(prim cell.set (global " + cellName(cx.m, g) + ") " + read(a, sh) + ")"
 
+    // ── effects ─────────────────────────────────────────────────────────────
+    // NO `endRegion` HERE, and it is a decision rather than an omission: `Exec`'s `Handle` returns
+    // the body's signal untouched, so a `br` does not stop at a handle boundary on that lane and
+    // must not on this one. `Try` is emitted the same way for the same reason. The differential gate
+    // is what holds the two lanes to one answer, so matching the executor is the rule.
+    case Instr.Handle(d, body, arms) =>
+      val ops = arms.filter(_.op >= 0)
+      val ret = arms.find(_.op == -1)
+      val rec = mkarr(List(
+        mkarr((0 until cx.nOps).toList.map(o =>
+          ops.find(_.op == o)
+            .map(a => if armIsCps(cx, a) then armClos(cx, a, sh) else tailArmClos(cx, a, sh))
+            .getOrElse(lit("unit")))),
+        mkarr((0 until cx.nOps).toList.map(o => lit(if ops.exists(_.op == o) then "true" else "false"))),
+        ret.map(a => retClos(cx, a, sh)).getOrElse(lit("unit")),
+        lit(if ret.isDefined then "true" else "false"),
+        mkarr(List(int(0)))))
+      // Inside the `let` the record is `local 0` and the frame has moved to `local (sh+1)`. The
+      // record's closures were built in the binding expression, one env shallower — which is why
+      // `armClos` is passed `sh` and looks for the frame at `sh+1` from inside its own `lam`.
+      val fr = "(local " + (sh + 1) + ")"
+      // `__tryFinally__`, not a plain `seq`: the pop has to happen even when the body throws, or one
+      // escaping exception leaves a dead handler on the stack and the NEXT perform answers to it.
+      // `Exec` spells this `try … finally handlers = handlers.tail`.
+      val run = "(prim __tryFinally__ (lam 0 " + seqOf(body, cx, sh + 1) + ") (lam 0 (prim arr.pop " +
+        glob(effStack) + ")))"
+      // The return clause applies to a body that finished WITHOUT performing — `ctl == 0` is that
+      // "finished" (a `ret` leaves -1), and `performs == 0` is the "without performing". When either
+      // fails the value is already the arm's own, lifted by the `resume` inside it.
+      val lift = ret match
+        case None => lit("unit")
+        case Some(_) =>
+          ifThen(arith("==", aget(fr, int(cx.ctl)), int(0)),
+                 ifThen(arith("==", aget(aget("(local 0)", int(R_PERFORMS)), int(0)), int(0)),
+                        aset(fr, int(d),
+                             "(app " + aget("(local 0)", int(R_RET)) + " " + aget(fr, int(d)) + ")"),
+                        lit("unit")),
+                 lit("unit"))
+      "(let (" + rec + ") " + sq(List("(prim arr.push " + glob(effStack) + " (local 0))", run, lift)) + ")"
+
+    case Instr.Perform(d, op, as) =>
+      performIsAnswerable(cx, op)
+      write(d, "(app " + glob(effPerform) + " " + int(op) + " " + mkarr(as.map(r => read(r, sh))) + ")", sh)
+
+    // Resuming IS calling: after `Cps.split` the continuation is an ordinary closure, so this is an
+    // application with the return-clause rule wrapped round it. The `let` is what makes `before` a
+    // reading taken BEFORE the continuation runs; inside it the frame is one binder deeper.
+    case Instr.Resume(d, k, v) =>
+      write(d, "(let ((app " + glob(effPerforms) + ")) (app " + glob(effAfter) + " (local 0) (app " +
+              read(k, sh + 1) + " " + read(v, sh + 1) + ")))", sh)
+
     case other => throw Unsupported(Text.opcode(other))
 
   /** `__cell` rather than the bare name: the cell is a DEF holding a mutable box, and a program may
@@ -382,6 +696,11 @@ object BridgeV2:
     // entry has not initialised yet — which is legal, and is why a cell starts as `unit`.
     val cells = m.globals.indices.toList
       .map(g => "(def " + cellName(m, g) + " (prim cell.new (lit unit)))").mkString(" ")
-    val defs = (if cells.isEmpty then "" else cells + " ") + m.funcs.map(f => func(m, f)).mkString(" ")
+    // The effect runtime goes in only when something reaches it, so a module without effects emits
+    // exactly the text it emitted before this feature existed — which is what makes the A/B of
+    // everything else still comparable.
+    val eff = if usesEffects(m) then effectDefs + " " else ""
+    val defs = (if cells.isEmpty then "" else cells + " ") + eff +
+      m.funcs.map(f => func(m, f)).mkString(" ")
     val entryName = m.funcs(m.entry).name
     "(program (defs " + defs + ") (entry (app (global " + entryName + "))))"
