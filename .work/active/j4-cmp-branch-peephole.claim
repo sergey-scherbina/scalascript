@@ -5,15 +5,16 @@ started: 2026-08-15T16:24:33Z
 heartbeat: 2026-08-15T16:24:33Z
 status: implementing
 items: SSC3-J4
-paths: file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
+paths: file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
 scope: |
-  SSC3-J4's last shape, `(bin cmp)` + `(brif)`, fused as a PEEPHOLE in `Exec.exec` rather
-  than as a new opcode or a private flat encoding. §10.2 offered only those two because it
-  assumed a fused operation must be represented; `exec` already holds a cursor, so the pair
-  is `rest.head` / `rest.tail.head` and after J4b it is canonical and adjacent. IR, verifier,
-  text form, round-trip gate, BridgeV2 and the charter are all untouched.
+  SSC3-J4's `(bin cmp)` + `(brif)` fusion, as a PEEPHOLE in `Exec.exec` — no new opcode and
+  no private flat encoding, because `exec` already holds a cursor and after J4b the pair is
+  canonical and adjacent. IR, verifier, text form, round-trip gate, BridgeV2 and the charter
+  untouched.
 
-  WIDENED to v3/src/Main.scala for the OFF arm alone: `--no-fuse-cmpbr`, wired exactly like
-  `--no-tag-cache` and `--no-prepare-cache` beside it, so both arms live in ONE binary and an
-  A/B cannot accidentally compare two builds.
-next: wire the OFF arm, then --sizes and PrintInlining before any clock
+  Paths and why each: `Exec.scala` (the peephole and its `fuseCmpBr` split, which keeps `exec`
+  under the inline budget the way J0c split `step`), `Main.scala` (the `--no-fuse-cmpbr` OFF
+  arm, one binary two arms), `jit-gate.sh` (a NINTH identity arm — every pass in this series
+  got one and each was proven to fire by planting), plus the board, the spec and the bench
+  history for the measurement.
+next: ninth identity arm, prove it fires, then measure
