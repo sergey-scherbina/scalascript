@@ -880,6 +880,21 @@ jobs:
       - name: emit-wc bundle has the expected shape (2s, same cause)
         run: tests/e2e/wc-card-smoke.sh
 
+      # Orphan drain: this gate ENCODED A DEFECT THAT WAS LATER FIXED. Its `curried-three-clauses`
+      # case required the message `cannot unify tuple: () vs (Int -> t6)` from `def tri(a)(b)(c)`,
+      # a program that was expected to fail type checking — and
+      # `v2-three-parameter-clauses-fail-typecheck` is status:fixed (6d0066d14), so the program now
+      # prints 6 and the case asserted an error that no longer exists.
+      #
+      # The author predicted exactly this and then wrote the opposite: the note above the case said
+      # the row was "the generic one rather than this specific text", and the row was the specific
+      # text. A comment cannot hold an invariant. Every case now asserts the generic shape — a name,
+      # a colon, two sides around ` vs ` — and no case depends on a program staying broken. The
+      # self-test tests the MATCHER on literal text in both directions, so it cannot rot the same way.
+      # (tests/BUGS.md orphaned-e2e-gates-52.)
+      - name: type errors name both types (11s, was an orphan asserting a fixed defect)
+        run: tests/e2e/typeerr-names-both-types.sh --self-test
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

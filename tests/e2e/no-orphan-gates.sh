@@ -41,7 +41,6 @@ read -r -d '' FROZEN <<'EOF' || true
 negtc-shard-gate.sh
 render-smoke.sh
 serve-view-frontend-v2-smoke.sh
-typeerr-names-both-types.sh
 v21-native-content-smoke.sh
 v21-native-doc-render-smoke.sh
 v21-portable-gates-smoke.sh

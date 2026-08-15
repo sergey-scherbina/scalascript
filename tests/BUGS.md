@@ -6163,6 +6163,50 @@ in 16 s.
 green when that entry is fixed.
 
 
+### batch 4, part 6 — a gate that ENCODED a defect, and predicted its own rot in prose
+
+`typeerr-names-both-types` asserts that the type checker's unify errors name BOTH sides rather than
+just the constructor. Its `curried-three-clauses` case ran `def tri(a)(b)(c)` and required
+`cannot unify tuple: () vs (Int -> t6)` — a program that was **expected to fail type checking**.
+`v2-three-parameter-clauses-fail-typecheck` is `status: fixed` (`6d0066d14`); the program now prints
+**6**, and the case has been asserting an error that no longer exists.
+
+**The author predicted this exactly and then wrote the opposite**, which is the part worth keeping.
+The note above the case read:
+
+> this gate asserts the QUALITY OF THE MESSAGE, not that the program works — so it keeps passing
+> once that bug is fixed only if the message shape survives, **which is why the row below is the
+> generic one rather than this specific text**
+
+The row below was the specific text. **The mitigation existed in prose and not in the assertion.**
+
+**And the self-test had gone vacuous the same way.** It planted `tri` and required the gate to FAIL;
+once `tri` started working, that failure came from the program SUCCEEDING rather than from the
+message being uninformative — so it would have passed against a checker that had stopped
+type-checking altogether, which is the one hole a self-test here exists to close.
+
+**Rewritten so neither can rot:** every case asserts the generic shape (`cannot unify [^:]+: .+ vs
+.+` — a name, a colon, two sides), and the self-test now exercises the MATCHER on literal text in
+three directions — the old uninformative message must be REJECTED, a real both-sides message
+ACCEPTED, and a program's ordinary output (`6`) must not read as a type error. None of that depends
+on any program staying broken.
+
+**Two sources, both measured today rather than assumed**, and both still fail unification:
+
+    def g(): Int = 1;            println(g(5))          ->  cannot unify Int: Int vs (Int -> t0)
+    def two(a: Int)(b: Int) …;   println(two(1)(2)(3))  ->  cannot unify Int: Int vs (Int -> t5)
+
+**Negative control on the real path:** make the first case's program legal (`println(g())`) and the
+gate fails that case by name while the other still passes — so it can fail, and it says which.
+
+Wired into `conformance-extras` with `--self-test`, 11 s. Frozen orphans **9 -> 8**.
+
+**Noticed while choosing sources, NOT filed as a defect because it may be deliberate:**
+`def f(a: Int): Int = a; println(f("x"))` prints `x` — a String reaches a parameter declared `Int`
+with no complaint. Every unify error I could produce comes from application SHAPE (arity/currying),
+never from an argument's type. That is either gradual typing by design or a hole, and saying which
+is a language-contract question rather than something to file from a probe.
+
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: fixed
      lane: apparatus
