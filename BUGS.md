@@ -25,11 +25,12 @@ Newest first.
 
 ## rust-map-plus-pair-is-not-lowered — `map + (k -> v)` reaches rustc as an addition, and the `updated` that means the same thing is already lowered three lines away
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the one-line repro below is the report
+     gate: tests/e2e/rust-map-plus-pair-gate.sh
+     fixed-in: 5203c31c0
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes -->
@@ -62,6 +63,27 @@ Filed rather than folded into the case-class fix, which is about where a method'
 from and has nothing to say about Map operators. It is the last thing standing between
 `Response(...).withHeader(...)` — ordinary HTTP code, and the spelling `std/http.ssc` itself uses —
 and a crate that compiles.
+
+**FIXED 2026-08-15 under `rust-map-plus-pair`.** One arm, placed AHEAD of the string-concat `+` so
+the operator is decided by the pair rather than by whether an operand happens to look like a string,
+rendering the same `{ let mut m2 = q.clone(); m2.insert(k, v); m2 }` the `updated` arm does.
+
+**THE CLONE IS THE WHOLE CORRECTNESS ARGUMENT, and it is why the gate has a third row.** `+` on a
+Map is IMMUTABLE: after `val h2 = h + ("b" -> "2")`, `h` must still not contain `b`. A lowering that
+inserted into the receiver would pass "the pair is there" and "the old key survived" and quietly
+corrupt every caller that kept the original, so the gate asserts `h.getOrElse("b", "?")` is still
+`?` — on all three lanes, which answer `1|2|?|xy|3|` identically.
+
+**Two anti-rows guard what this arm now sits in front of:** `"x" + "y"` is still `xy` and `1 + 2` is
+still `3`. If either moves, the arm is keying off the wrong half of the expression.
+
+**And the chain finally runs.** `Response(201, …).withHeader("X-A", "b")` in an inline route handler
+answers `HTTP 201` with `x-a: b` set, on a real socket — three fixes deep: the Request entry for
+inline handlers (`rust-inline-route-handler-is-typed-as-a-string-handler`), a case-class method's
+receiver (`rust-case-class-method-cannot-read-its-own-fields`), and this. Corpus control:
+`rust-std-survey-gate.sh` over 132 std modules reads its committed baseline unchanged — REFUSED 78,
+COMPILES 54, BADRUST 0. Watched failing with the arm reverted and the toolchain rebuilt: both Rust
+rows red with the literal `E0369`, both reference lanes green.
 
 ## rust-case-class-method-cannot-read-its-own-fields — a method on a case class is lowered to a free fn with the fields unbound, so the simplest data type in the language does not compile
 
