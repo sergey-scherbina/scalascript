@@ -1530,6 +1530,19 @@ object Parser:
         ts = ts.tail; go = false
       else if ts.head.isInstanceOf[Tok.TEof] then go = false
       else if isId(peek(ts), "override") || isId(peek(ts), "final") then ts = ts.tail
+      // `object math: extern def sqrt(x: Double): Double` — the SAME modifier this parser already
+      // steps over at top level, one scope deeper. Stepping over it leaves a body-less `def`, which
+      // `parseDef` turns into `__abstract__`, which is exactly what an `extern` is here too.
+      //
+      // ONLY IN AN `object`, and the `what` test is the whole reason this is not a one-word change.
+      // This loop is shared by `object`, `trait` and `class`, and a body-less def means something
+      // ELSE in the other two: a member to be dispatched to a subclass. Accepting `extern` there
+      // would silently erase a word rather than honour it — the failure this entry is about, moved
+      // to a new site. An `object` is a NAMESPACE, nothing can override its members, so a member
+      // with no body has no other reading. (v3/BUGS.md v3-extern-member-in-an-object-has-no-meaning.)
+      else if what == "object" && isId(peek(ts), "extern") && ts.tail.nonEmpty &&
+              isId(peek(ts.tail), "def") then
+        ts = ts.tail
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         members = d :: members

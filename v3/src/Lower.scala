@@ -3055,17 +3055,32 @@ object Lower:
     // object's own `n`. The members are stored as dotted globals, so the body is rewritten to name
     // them that way; without it the method reported `unknown name 'n'` while the global sat beside
     // it under another name.
-    // AN OBJECT'S MEMBER IS NEVER AN `extern` HERE, and that is a FRONT limitation rather than a
-    // decision this pass gets to make. Probed 2026-08-14 while wiring `math`: neither front carries
-    // the keyword into an object. v3's own parser REFUSES (`only \`def\` members are supported in a
-    // object at Tier 0, found extern`), and uniml silently gives the member the same `???` body it
-    // gives ANY bodyless member — the keyword changes nothing there. So resolving externs over this
-    // list would be code no front can reach, and the prelude declares its host functions at top
-    // level instead. Filed as `v3-extern-member-in-an-object-has-no-meaning`.
-    val objectDefs = p.objects.flatMap { o =>
+    // AN OBJECT'S MEMBER CAN BE AN `extern`, since 2026-08-15. This paragraph used to say the
+    // opposite and to explain why resolving externs here would be unreachable code: neither front
+    // carried the keyword into an object — v3's own parser refused it and uniml dropped it, leaving
+    // the member the `???` body it gives any bodyless one. Both fronts were fixed with this pass,
+    // in the commit that closed `v3-extern-member-in-an-object-has-no-meaning`, so the resolution
+    // below is reached rather than dead.
+    val objectDefs0 = p.objects.flatMap { o =>
       val own = o.vals.map(_.name)
       o.defs.map(d => d.copy(name = o.name + "." + d.name, body = qualifyMembers(d.body, o.name, own)))
     }
+    // AN OBJECT'S BODY-LESS MEMBER IS AN EXTERN, resolved through the SAME table and the same
+    // fallback as a top-level one — the paragraph above is the history of why it could not be,
+    // and both fronts now carry the keyword, so this is reachable.
+    //
+    // BY ITS QUALIFIED NAME, `math.sqrt` rather than `sqrt`, because the rename above has already
+    // happened and the object is part of the declaration's identity. The plain-name rule was the
+    // alternative and is worse in a way that is hard to see later: `object anything: extern def
+    // exists(p: String)` would silently capture the host `exists` this table already answers, and
+    // a program would get a working function it never asked for. A qualified key is a key someone
+    // has to write on purpose.
+    //
+    // With no key, `resolveExtern` gives it a body that throws NAMING ITSELF AND ITS POSITION,
+    // which is the whole point of the entry: the failure was previously `an implementation is
+    // missing (???)` with neither.
+    val (objectGaps, objectDefs) = objectDefs0.partition(isAbstract)
+    val objectExterns = objectGaps.map(resolveExtern)
     // Every class's FULL method set: its own, plus the concrete members of the traits it extends,
     // transitively. A member the subclass defines itself WINS — that is what overriding means, and
     // it falls out of putting the class's own methods first and de-duplicating by name.
@@ -3130,7 +3145,7 @@ object Lower:
     // the whole reason the first attempt at this was rejected: an unpositioned run-time failure is
     // classified CRASH, and rightly.
     val externDefs = p.defs.filter(isAbstract).map(resolveExtern)
-    val allDefs0 = (p.defs.filterNot(isAbstract) ++ externDefs ++ objectDefs ++ methodDefs) :+ entryDef
+    val allDefs0 = (p.defs.filterNot(isAbstract) ++ externDefs ++ objectExterns ++ objectDefs ++ methodDefs) :+ entryDef
     // Every callable's signature, so a call site that omits a defaulted argument can be completed
     // before anything is lowered. Constructors are in here too: `case class C(x: Int, y: Int = 0)`
     // is called as `C(1)`, and its 116 corpus cases are the reason this exists.
@@ -3344,13 +3359,34 @@ object Lower:
     // `Plugins.registered` IS SUBTRACTED for the same reason `hostPrims` is: a host function this
     // lane can perform is not a gap. Missing it would refuse the declaration at lowering and the
     // `Prim` emitted above would never run.
-    val gapNames = p.defs.filter(isAbstract).map(d => d.name)
+    // `objectGaps` IS IN HERE TOO, under its qualified name. Reachability is what turns a host gap
+    // into a positioned refusal at the CALL instead of a throw when it runs, and an object's extern
+    // has no claim to a worse diagnosis than a top-level one — that difference is the entry this
+    // closes.
+    val gapNames = (p.defs.filter(isAbstract) ++ objectGaps).map(d => d.name)
       .filterNot(hostPrims.contains).filterNot(Plugins.registered.contains)
     if gapNames.nonEmpty then
       val byName = allDefsH.map(d => (d.name, d)).toMap
+      // `obj.member(…)` COUNTS AS A CALL TO `obj.member`, and without this line an object's extern
+      // was unreachable by construction: outside the object a member call is still a `MethodCall`
+      // at this stage, and only the lowering further down rewrites it to a `Call` under the dotted
+      // name — the same key this builds, spelled the same way (`obj + "." + nm`, see the `fns`
+      // test on the member-call rewrite). So a top-level extern got a positioned refusal at its
+      // call and an object's got a run-time throw, which is the difference this entry is about.
+      //
+      // STILL AN UNDER-APPROXIMATION, deliberately, and this does not widen it: it adds the one
+      // syntactic form that names a member of a namespace. Dispatch on a VALUE stays invisible
+      // here, which is what keeps the 113 importers of `jvm-vfs.ssc` compiling.
       def callees(e: Expr): List[String] =
         var out: List[String] = Nil
-        mapDeep(e, x => { x match { case Expr.Call(fn, _, _) => out = fn :: out; case _ => () }; x })
+        mapDeep(e, x => {
+          x match {
+            case Expr.Call(fn, _, _)                          => out = fn :: out
+            case Expr.MethodCall(Expr.Name(obj, _), nm, _, _) => out = (obj + "." + nm) :: out
+            case _                                            => ()
+          }
+          x
+        })
         out
       var seen: List[String] = List(entryName)
       var queue: List[String] = List(entryName)
@@ -3363,9 +3399,16 @@ object Lower:
       seen.foreach { n =>
         byName.get(n).foreach { d =>
           var bad: Option[(String, Pos)] = None
+          // BOTH CALL FORMS, for the same reason the reachability walk above reads both: a call to
+          // an object's member is a `MethodCall` here, and matching only `Call` made the walk find
+          // the gap and this loop refuse to see it — reachable and unrefused, so the failure came
+          // back at run time with a stack trace. Two walkers over the same syntax must agree on
+          // what a call is.
           mapDeep(d.body, x => {
             x match
               case Expr.Call(fn, _, cp) if bad.isEmpty && gapNames.contains(fn) => bad = Some((fn, cp))
+              case Expr.MethodCall(Expr.Name(obj, _), nm, _, cp)
+                   if bad.isEmpty && gapNames.contains(obj + "." + nm) => bad = Some((obj + "." + nm, cp))
               case _ => ()
             x
           })

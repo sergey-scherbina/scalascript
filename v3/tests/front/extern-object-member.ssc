@@ -1,0 +1,15 @@
+// `extern` INSIDE AN `object`, which both fronts used to answer differently: v3's own parser
+// refused it as an unsupported member, and uniml dropped the keyword and gave the member the `???`
+// body it gives any bodyless one — so the default front ACCEPTED the program and it died at run
+// time with a JVM stack trace, no position and no name. `corpus-report.sh` ranks that CRASH, below
+// an honest refusal, and it is invariant I-3: one language, two answers.
+//
+// NO `.expected`, so this gate requires a REFUSAL CARRYING A POSITION. That is the right verdict
+// for this program rather than an accident of it being unfinished: `fsx.exists` is a host function
+// no lane implements, and a call to one is refused at the CALL, exactly as a top-level extern is.
+// An object extern that a lane DOES implement resolves instead — `resolveExtern` is the same
+// function for both, keyed on the qualified name.
+object fsx:
+  extern def exists(path: String): Bool
+
+def main() = println(fsx.exists("v3").toString)

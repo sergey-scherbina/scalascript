@@ -187,12 +187,15 @@ half-to-EVEN, returning a Double — and not as Scala's `math.round`, which is h
 Long. The two agree on every value in the corpus and disagree at exactly `.5`, so taking the
 familiar name would have left a divergence no fixture here can see.
 
-**The four host hooks are declared at TOP LEVEL, not inside the object, and that is a front
-limitation rather than a preference.** Neither front carries `extern` into an `object`: v3's own
-parser refuses it outright, and uniml drops the keyword and leaves the member with the same `???`
-body it gives any bodyless one. So they are declared beside `object math`, which delegates, and the
-`__` prefix keeps them out of the way of a program that defines its own `sqrt` — this file loads
-for EVERY program. Filed as `v3-extern-member-in-an-object-has-no-meaning`.
+**The four host hooks are declared at TOP LEVEL, not inside the object, and since 2026-08-15 that
+is a CHOICE rather than a limitation.** It used to be a limitation: neither front carried `extern`
+into an `object`, which is `v3-extern-member-in-an-object-has-no-meaning`, now fixed — both fronts
+carry it and `Lower` resolves it under the qualified name. What keeps the declarations out here is
+the DELEGATING BODY, and specifically its `.toDouble`: v2's `flt` refuses an Int, so `math.sqrt(16)`
+died on the bridge while the executor answered 4. That widening is one line of `.ssc` that both
+lanes run. Writing `object math: extern def sqrt(…)` would move it into a builder in Scala, which is
+a worse place for it. The `__` prefix keeps these names out of the way of a program that defines its
+own `sqrt` — this file loads for EVERY program.
 
 ```scalascript
 extern def __mathPow(b: Double, e: Double): Double

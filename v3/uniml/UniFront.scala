@@ -189,8 +189,25 @@ object UniFront:
         var vs: List[Stmt.Val] = Nil
         var cs: List[ClassDef] = Nil
         ms.foreach { m => m match
+          // A MEMBER WITH NO BODY IS A HOST GAP, exactly as a top-level one is, and this line is
+          // the difference between a positioned refusal and a crash. It used to project through
+          // `expr`, which turns the body-less marker into `???` — so `object math: extern def
+          // sqrt(…)` was ACCEPTED here and died at run time with no position and no name, while
+          // v3's own parser refused it outright. One language, two answers (invariant I-3), and
+          // the uniml answer was the worse of the two: `corpus-report.sh` classifies an
+          // unpositioned run-time failure as CRASH, which is ranked below an honest refusal.
+          //
+          // `???` IS RIGHT WHERE IT IS AND WRONG HERE, which is why this is a per-site rule and
+          // not a change to `expr`. In a `trait` or a `class` a body-less member is ABSTRACT — a
+          // subclass supplies it, and `???` is what you get if none does. An `object` is a
+          // NAMESPACE: nothing extends it, nothing can override the member, so "no body" has
+          // exactly one reading left, the same one it has at top level.
+          // (v3/BUGS.md v3-extern-member-in-an-object-has-no-meaning.)
           case dd: U.Def =>
-            ds = ds :+ Def(dd.name, dd.params.toList.map(param), expr(dd.body), pos(dd.span))
+            val body = dd.body match
+              case U.NotImplemented(bs) => hostGap(dd.name, pos(bs))
+              case b                    => expr(b)
+            ds = ds :+ Def(dd.name, dd.params.toList.map(param), body, pos(dd.span))
           case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
             vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
           // A `case class` declared INSIDE the object is HOISTED to the top level under its plain

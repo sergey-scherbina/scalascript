@@ -332,41 +332,68 @@ workflow is outside that claim, and (1) makes every push touching `uniml/**` run
 is a cost paid by every agent and should be someone's deliberate decision rather than a side effect
 of a parser fix.
 
-## v3-extern-member-in-an-object-has-no-meaning — one front refuses it, the other silently makes it an unpositioned crash
+## v3-extern-member-in-an-object-has-no-meaning — one front refused it, the other silently made it an unpositioned crash
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
-     gate: none
+     gate: v3/front-gate.sh (v3/tests/front/extern-object-member.ssc)
      found-by: claude-code
      found-at: 2026-08-14 -->
 
-**`object math: extern def sqrt(x: Double): Double` is not expressible, and the two fronts fail
-differently — which is the part that matters.**
+**`object math: extern def sqrt(x: Double): Double` was not expressible, and the two fronts failed
+differently — which was the part that mattered.**
 
-    SSC3_FRONT=v3   ssc3: …:2:3: only `def` members are supported in a object at Tier 0, found extern
-    uniml (default) (def "sqrt" (params (p "x")) (prim "__throw__" (str "an implementation is missing (`???`)")))
+    before   SSC3_FRONT=v3   …:2:3: only `def` members are supported in a object at Tier 0, found extern
+             uniml (default) (def "sqrt" (params (p "x")) (prim "__throw__" (str "an implementation is missing (`???`)")))
+                             → at run time: a JVM stack trace, no position, no name
 
-v3's own parser REFUSES, with a position, which is honest. uniml DROPS THE KEYWORD and gives the
-member the body it gives any bodyless member — proved by a control: a member written without
-`extern` at all projects to the identical `???`. So on the default front the declaration is accepted
-and the program dies at run time with **no position and no name**, which `corpus-report.sh`
-classifies CRASH rather than UNSUPPORTED.
+    after    SSC3_FRONT=v3   …:4:26: the host function 'fsx.exists' is not implemented on this lane
+             uniml (default) …:4:22: the host function 'fsx.exists' is not implemented on this lane
 
-**Found while wiring `math` (SSC3-14).** Worked around by declaring the four host hooks at TOP
-LEVEL — `__mathSqrt`, `__mathFloor`, `__mathCeil`, `__mathRound` — with `object math` delegating.
-The `__` prefix is not decoration: the prelude loads for every program, so a bare `sqrt` there would
-shadow a program's own.
+**FIXED IN THREE PLACES, AND EACH ONE MIRRORS A RULE THAT ALREADY EXISTED AT TOP LEVEL** rather than
+inventing one:
 
-**A `Lower` change for this was written and REVERTED rather than shipped.** Resolving `hostPrims`
-over object members is correct and unreachable — no front produces an abstract object member for it
-to act on — and dead code that looks like support is worse than none. The comment at the
-`objectDefs` site records this so the next reader does not re-derive it. When a front learns the
-keyword, that is the line to add back.
+- `Parser.scala` steps over `extern` before a member `def` — the same two-token test it already
+  applies at top level. **Only when the member list belongs to an `object`.** The loop is shared
+  with `trait` and `class`, where a body-less def means "dispatch to a subclass"; accepting the
+  keyword there would erase a word instead of honouring it, which is this bug moved to a new site.
+  Verified: `trait Fs: extern def exists(…)` is still refused, by name, with a position.
+- `UniFront.scala` projects a body-less OBJECT member as `hostGap`, not as `???`. `???` is right in
+  a trait or a class and wrong here for a reason that is structural: an object is a NAMESPACE,
+  nothing extends it, so "no body" has exactly one reading left — the same one it has at top level.
+- `Lower.scala` partitions the object's members and sends the abstract ones through `resolveExtern`,
+  **the same function top-level externs use**, keyed on the QUALIFIED name. No new branch: a dotted
+  key would bind exactly as a plain one does, and with no key the extern gets a body that throws
+  naming itself and its position.
 
-**The fix is a FRONT pair**: v3's parser accepts `extern` as an object member and marks the def
-abstract; uniml carries the keyword instead of dropping it. Both, or the divergence just changes
-shape.
+**Qualified rather than plain, and the alternative is the reason to say so.** Keying on the member
+name would let `object anything: extern def exists(p: String)` silently capture the host `exists`
+that `hostPrims` already answers, handing a program a working function it never asked for. A
+qualified key is one somebody has to write on purpose.
+
+**A SECOND DEFECT WAS UNCOVERED BY THE FIRST FIX, and it is why this is not a two-line change.**
+With both fronts carrying the keyword, the refusal still arrived at RUN time — positioned, but as a
+stack trace. Two walkers decide the difference: one computes reachability from the entry, the other
+turns a reachable gap into a refusal at the call. **Both matched only `Expr.Call`**, and a call to
+an object's member is still a `MethodCall` at that stage, so the gap was reachable and unrefused.
+Adding the one form to BOTH is what turns it into a lowering refusal. It stays an
+under-approximation — dispatch on a value is still invisible, which is what keeps the 113 importers
+of `jvm-vfs.ssc` compiling.
+
+**The `Lower` change this entry recorded as REVERTED is the one that landed**, now that a front can
+reach it. The comment at the `objectDefs` site is replaced by the code it described.
+
+**Measured after, all four v3 gates and the corpus:** front-gate GREEN 91 (the new fixture refuses
+with a position), exec-gate GREEN 86, front-capability-gate OK, corpus 223/369 with CRASH 9 —
+**unchanged**, which is the number that matters for the reachability widening: seeing a new call
+form could have refused programs that used to run, and refused none.
+
+**The prelude keeps its `__mathSqrt` workaround, deliberately.** It could now be written as
+`object math: extern def sqrt(…)`, and it should not be: the delegating body carries `.toDouble`,
+and that widening is load-bearing — v2's `flt` refuses an Int, so `math.sqrt(16)` died on the bridge
+while the executor answered 4. Moving the declaration into the object would move that one line of
+`.ssc` both lanes run into a builder in Scala. The workaround is not what this entry was about.
 
 ## v3-plugin-fleet-regresses-four-cases-when-enabled — the path works, the adapter's value surface does not
 
