@@ -1056,13 +1056,14 @@ the previous sentence would otherwise have someone plan around code that does no
 
 ## rust-qualified-enum-pattern-is-refused — `case Content.Text(t)` is unsupported while `Content.Text(s)` as a CONSTRUCTOR lowers
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
+     fixed-in: 5c715bfbb
      ssc-version: 28100232d
      repro: the two-line pair in the body
      confirmed: yes -->
