@@ -1,0 +1,11 @@
+slug: plugin-adapter-value-surface
+branch: feature/plugin-adapter-value-surface
+agent: claude-code
+started: 2026-08-15T19:03:33Z
+heartbeat: 2026-08-15T19:03:33Z
+status: claimed-before-planning
+items: plugin-adapter-value-surface v3-plugin-fleet-regresses-four-cases-when-enabled
+paths: file:v3/plugins file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
