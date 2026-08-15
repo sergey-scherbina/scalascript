@@ -185,6 +185,20 @@ declare -a KNOWN_CONF_V3_ONLY=(
 #   actors-process-info      the same file, the same line
 #   indent-block-statements  tests/conformance/indent-block-statements.ssc:113 — an expression
 #                            form v3's parser does not have
+# FOUR ROWS CAME OUT 2026-08-15 — `std-ui-i18n`, `tkv2-component`, `tkv2-offline`, `tkv2-webauthn`.
+# They were not four separate closures: `ast` compares `Loader.closure`, which FOLLOWS IMPORTS, and
+# all four reach `std/ui/primitives.ssc`, which declares three `opaque type`s. v3's own parser
+# refused that file and UniML's accepted it, so the divergence the gate saw was in an import, not in
+# the case. `28c34951e` taught BOTH fronts `opaque type` and closed all four at once.
+#
+# The row-per-file shape is what made this legible: a COUNT would have fallen by four and said
+# nothing about one cause. The check that the story is not larger than the evidence — no other
+# corpus case reaches `primitives.ssc`, so the set that stopped diverging is exactly the set that
+# imported it, with nothing left over.
+#
+# It also arrived here as a RED CI JOB rather than as a removal in `28c34951e`, which is what this
+# list is designed to do — but the gate names the row and not the reason, so recovering "why" cost a
+# separate investigation. If you close a divergence, take its row out in the same commit.
 declare -a KNOWN_CONF_UNIML_ONLY=(
   actors-bounded-mailbox actors-process-info indent-block-statements
   actors-cluster-coordinator
@@ -218,7 +232,6 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   scljet-readonly-pager-btree
   std-fs-failure
   std-fs-failure-raises
-  std-ui-i18n
   std-ui-native-css-scope
   std-ui-native-css-scope-lib
   std-ui-native-pair-lib
@@ -227,18 +240,15 @@ declare -a KNOWN_CONF_UNIML_ONLY=(
   tkv2-busi-home
   tkv2-button-size
   tkv2-button-variant
-  tkv2-component
   tkv2-forms
   tkv2-hstack-wrap
   tkv2-keyed-for
-  tkv2-offline
   tkv2-pwa
   tkv2-raw-html
   tkv2-select
   tkv2-select-reactive
   tkv2-textfield-reactive-label
   tkv2-tri-state
-  tkv2-webauthn
   try-catch-exception-delivery
   try-catch-io-failure
   type-ascription

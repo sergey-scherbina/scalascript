@@ -6,6 +6,41 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     gate: v3/front-capability-gate.sh
+     found-by: claude-code
+     found-at: 2026-08-15 -->
+
+**The job `the two fronts accept the same programs` failed on every v3 run that got far enough to
+report.** Not for a divergence that appeared — for four that DISAPPEARED and were still declared:
+
+    FAIL   std-ui-i18n     no longer diverges; drop it from KNOWN_uniml in this commit
+    FAIL   tkv2-component  no longer diverges; drop it from KNOWN_uniml in this commit
+    FAIL   tkv2-offline    no longer diverges; drop it from KNOWN_uniml in this commit
+    FAIL   tkv2-webauthn   no longer diverges; drop it from KNOWN_uniml in this commit
+
+That is the gate working exactly as designed — `check_set` is bidirectional so a declared row that
+stops diverging is as red as an undeclared one that starts. It was red for five days because the
+red was invisible: the suite was being cancelled before it could report
+(`v3-workflow-is-cancelled-before-it-can-report`), so nobody saw the gate that was telling them.
+
+**ONE CAUSE, NOT FOUR.** `ssc3 ast` compares `Loader.closure`, which FOLLOWS IMPORTS, and all four
+cases reach `std/ui/primitives.ssc` — three `opaque type` declarations that v3's own parser refused
+and UniML's accepted. The divergence was in an import, not in any of the four cases. `28c34951e`
+taught BOTH fronts `opaque type` and closed all four at once, and did not take the rows out.
+
+**The claim is bounded by a check, not by the story sounding right:** no other corpus case reaches
+`primitives.ssc`, so the set that stopped diverging is exactly the set that imported it, with
+nothing left over. This is also what a row-per-file list buys over a count — a ceiling would have
+dropped by four and said nothing about one cause.
+
+**Fixed** by removing the four rows, with the mechanism recorded above the list so the next reader
+does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the declared rows".
+
 ## v3-workflow-is-cancelled-before-it-can-report — 5 usable verdicts in 100 runs, so v3's gates protect almost nothing
 
 <!-- status: open
@@ -39,6 +74,25 @@ Query: `scripts/bugs-report --module v3`.
 > If `cancelled` stays high after this, concurrency is no longer the cause and the next suspects are
 > the 45-minute job timeout and the account's concurrent-job budget — neither of which that line can
 > fix.
+
+> **RE-MEASURED 2026-08-15, AND `cancel-in-progress: false` IS NOT ENOUGH — the paragraph above sends
+> the next reader to the wrong suspects.** Two runs whose sha CONTAINS `ac924a416` were cancelled
+> anyway (`063849133`, `c9ee83035`), so it is still concurrency and not the job timeout. The timing
+> says how: every cancelled run dies within ~1–20 seconds of the NEXT run being created, and the only
+> runs that reach a conclusion are the ones with no push behind them. `cancel-in-progress: false`
+> protects the run that is EXECUTING; a run that arrives while the group is busy goes **pending**, and
+> a pending run in a concurrency group is cancelled by the next arrival regardless of that setting.
+> With ~26-minute runs arriving in bursts, most runs are pending, so most are still cancelled.
+>
+> So the choice is real, not a setting: keep the group and accept that only the newest pending run
+> survives — the TIP is always tested, intermediate commits never are — or drop the group and pay for
+> parallel runners. Whoever picks, measure again; the number to watch is unchanged.
+>
+> **What the change DID buy, measured the same day:** the suite now reaches a conclusion often enough
+> to report, and what it reports is RED — 10 failures in the last 40 runs where previously there were
+> almost none to read. The failing job is `front-capability-gate.sh`, for a real and self-inflicted
+> reason: see `v3-capability-list-outlived-the-divergence-it-declared`. A suite that cannot finish
+> cannot tell you it is red, which is the cost this entry is about.
 
 **`.github/workflows/v3.yml` almost never finishes.** Measured 2026-08-15 over its last 100 runs
 (2026-08-12 → 2026-08-15, `gh run list --workflow v3.yml --limit 100`):
