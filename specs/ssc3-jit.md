@@ -542,6 +542,53 @@ comment above `step` recording it at 5867 (before the split) and this gate's 202
 "reported `Exec$.step` at exactly 325". J1b's dispatch on `kind` shrank it since. Quote the
 measurement, not either note.
 
+#### The peephole is BUILT, and the prediction is registered before the clock — 2026-08-15
+
+Landed as a peephole in `Exec.exec`, not as an opcode. `exec` reads `rest.head` and `rest.tail.head`
+and, when the second is a `BrIf` on the register the first `Bin` writes, runs both in one dispatch.
+
+**The pair test is SPLIT OUT into `fuseCmpBr`, and that split is not tidiness.** Written inline the
+peephole took `exec` from 101 bytecodes to **350** — over `-XX:FreqInlineSize` — which would have
+paid for one saved dispatch by making the whole walk uninlinable. Split, and verified with the
+instrument this file insists on rather than with `--sizes`: `-XX:+PrintInlining` on a real workload
+reports `Exec$::step (236) inline (hot)`, `Exec$::fuseCmpBr (194) inline (hot)`,
+`Exec$::binK (87) inline (hot)`.
+
+**What it saves is bigger than the census counted.** `Bin` is one of the three opcodes `step` keeps
+inline; `BrIf` is in `stepRest`, 5684 bytecodes and never inlined. So every counted loop paid a call
+into an uninlined method once per iteration, and the fused path does not.
+
+**Fusable pairs, counted statically — the free control among them:**
+
+| workload | fusable pairs | adjacent `bin`+`brif` |
+|---|---|---|
+| `arith-loop` | 1 | 1 |
+| `nested-loop` | 2 | 2 |
+| `list-fold`, `range-sum`, `var-expr-init`, `instance-field`, `hof-pipeline` | 1 | 1 |
+| **`recursion-fib`** | **0** | **0** |
+
+Every adjacent pair is fusable — the register always matches, so the `d == c` guard is defensive
+rather than discriminating, and the mismatched shape appears not to be producible: a `BrIf` is
+always preceded by the computation of its own condition.
+
+**THE PREDICTION, written before the measurement.** `arith-loop` loses 1 dispatch of 5 and one
+`stepRest` call per iteration, so it must move, by an amount comparable to J4b's 18 % for a similar
+cut. `nested-loop` has two pairs. **`recursion-fib` has no loop and no pair: if it moves, the
+measurement is wrong before its result is read.** `list-fold` has a pair but is the invoke-bound row
+that did not respond to J4a's or J4c's dispatch cuts, so a null there is expected and is not
+evidence against the pass.
+
+**⚠️ THE IDENTITY ARM IS GREEN BY CONSTRUCTION, and saying so is the point (§4).** A ninth
+`--no-fuse-cmpbr` arm was added and it cannot currently fail: the fusion still WRITES the comparison
+register, so removing the `d == c` guard, and even advancing the cursor by one instead of two,
+leave the output identical — both were planted and both stayed green. What has an opinion instead is
+REACHABILITY, planted and confirmed in both directions: an unconditional throw in the fused branch
+makes `bench/corpus/arith-loop.ssc` fail with it, and `--no-fuse-cmpbr` on the same binary runs
+clean. Keep the arm for the day the register write goes away; do not read its green as evidence now.
+
+**Owed: the clock.** Not measured at landing — the host was at load 14, and this is the size of
+effect that read 16 of 20 for J4b under load and 30 of 30 once quiet.
+
 **So the fork below is a fallback, not the first move.** Try the peephole, and let
 `jit-gate.sh --sizes` answer whether it still inlines — that check exists and goes red immediately.
 Only if the pair-match does not fit does the choice between a portable opcode and a private flat

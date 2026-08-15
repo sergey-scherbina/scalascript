@@ -170,6 +170,15 @@ object Exec:
     prepareCacheOn = on
     preparedOwner = null
 
+  // SSC3-J4. The OFF arm of the compare-and-branch fusion, the same shape `--no-hoist`,
+  // `--no-invert`, `--no-tag-cache` and `--no-prepare-cache` already have: one binary, both arms,
+  // so an A/B cannot be comparing two builds. With it off `exec` walks instruction by instruction
+  // exactly as it did before the peephole, which is what makes the measurement about the peephole.
+  private var fuseCmpBrOn: Boolean = true
+
+  private[ssc3] def useFuseCmpBr(on: Boolean): Unit =
+    fuseCmpBrOn = on
+
   private def prepare(m: Module): Unit =
     if prepareCacheOn && (preparedOwner eq m) then return
     preparedOwner = if prepareCacheOn then m else null
@@ -465,16 +474,68 @@ object Exec:
         case Signal.Tail(g, as)  => fi = g; args = as
     result
 
+  /** SSC3-J4, the compare-and-branch fusion — done HERE rather than as an instruction.
+    *
+    * §10.2 framed the last of the J4 census as a choice between a new portable opcode and an
+    * executor-private flat encoding, on the premise that a fused operation has to be REPRESENTED
+    * somewhere. It does not. This loop already holds a cursor, so the second half of the pair is
+    * `rest.tail.head`, and after J4b the pair is canonical and adjacent — `(bin ge i64 6 1 4)` then
+    * `(brif 6 1)`, the branch reading exactly the register the comparison wrote. Recognising it
+    * costs nothing in `Ir.scala`, the verifier, the canonical text form and its round-trip gate,
+    * `BridgeV2`, or §1's charter, which is the same reason J4a and J4b could collect their halves
+    * of the census as ordinary rewrites.
+    *
+    * WHAT IT ACTUALLY SAVES, and it is more than the dispatch the census counted: `Bin` is one of
+    * the three opcodes `step` keeps inline, but `BrIf` is in `stepRest` — 5684 bytecodes, never
+    * inlined — so every counted loop paid a call into it once per iteration. The fused path takes
+    * the branch without that call.
+    *
+    * THE TEST IS ORDERED FOR THE COMMON CASE. `BrIf` appears about once per loop body while `Bin`
+    * appears several times, so the cheap test — is the NEXT instruction a branch — runs first and
+    * fails for nearly every instruction after one type check. Reversing it would pay two checks on
+    * every arithmetic instruction to save one on a rare one.
+    *
+    * `regs(d)` IS STILL WRITTEN. The comparison's register is dead after the branch in every shape
+    * the corpus produces, but "in every shape I looked at" is not a proof and nothing in the IR
+    * marks a register dead — so the fusion drops the second dispatch and the read, not the write.
+    * A liveness analysis that let the write go too is a separate change with its own gate.
+    */
   private def exec(m: Module, body: List[Instr], regs: Array[Value]): Signal =
     var rest = body
     var out: Signal = Signal.Done
     var running = true
     while running && rest.nonEmpty do
-      val s = step(m, rest.head, regs)
-      s match
-        case Signal.Done => rest = rest.tail
-        case other       => out = other; running = false
+      val t = rest.tail
+      val f = if fuseCmpBrOn && t.nonEmpty then fuseCmpBr(m, rest.head, t.head, regs) else null
+      if f == null then
+        step(m, rest.head, regs) match
+          case Signal.Done => rest = t
+          case other       => out = other; running = false
+      else
+        f match
+          case Signal.Done => rest = t.tail      // the pair ran; BOTH instructions are consumed
+          case other       => out = other; running = false
     out
+
+  /** The pair test and its execution, SPLIT OUT for the reason J0c split `step`: inline, this took
+    * `exec` from 101 bytecodes to 350 and over `-XX:FreqInlineSize`, which would have paid for one
+    * saved dispatch by making the whole walk uninlinable. Two type tests and an arithmetic call do
+    * not belong in a loop header.
+    *
+    * `null` means "not this shape, walk normally" — a sentinel rather than an `Option`, because an
+    * allocation per instruction is exactly the cost this is trying to remove. `Signal.Done` means
+    * the pair ran and the branch was NOT taken, so the caller consumes both.
+    */
+  private def fuseCmpBr(m: Module, i: Instr, next: Instr, regs: Array[Value]): Signal | Null =
+    next match
+      case Instr.BrIf(c, depth) =>
+        i match
+          case Instr.Bin(op, kind, d, a, b) if d == c =>
+            val v = binK(m, op, kind, regs(a), regs(b))
+            regs(d) = v
+            if truthy(v) then Signal.Branch(depth) else Signal.Done
+          case _ => null
+      case _ => null
 
   /** THE HOT OPCODES, and only as many as fit under `-XX:FreqInlineSize` (325 bytecodes).
     *

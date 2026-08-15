@@ -334,7 +334,19 @@ check_identity() {
     # kind guard that stopped being right. `v3/tests/front/cmp-invert-nan.ssc` is the program with
     # both halves in it.
     noinv="$(v3/ssc3 exec --no-invert "$f" 2>&1)"
-    if [ "$on" != "$noinv" ]; then
+    # SSC3-J4: a NINTH arm, and it guards a different kind of mistake from the eight above. The
+    # compare-and-branch peephole is the only rewrite here that reads TWO instructions and consumes
+    # both, so its failure mode is an OFF-BY-ONE IN THE WALK — a pair recognised where the branch
+    # reads a different register, or a `rest` advanced by one where it should be two, which leaves
+    # a `brif` to run twice or not at all. That is a control-flow error, silent, and shaped exactly
+    # like the output differential this loop already runs.
+    nofuse="$(v3/ssc3 exec --no-fuse-cmpbr "$f" 2>&1)"
+    if [ "$on" != "$nofuse" ]; then
+      echo "  FAIL $name — FUSING compare-and-branch changed the output:"
+      diff <(printf '%s\n' "$nofuse") <(printf '%s\n' "$on") | sed 's/^/         /'
+      echo "         left = --no-fuse-cmpbr, right = default."
+      fail=1
+    elif [ "$on" != "$noinv" ]; then
       echo "  FAIL $name — INVERTING a comparison changed the output:"
       diff <(printf '%s\n' "$noinv") <(printf '%s\n' "$on") | sed 's/^/         /'
       echo "         left = --no-invert, right = default."

@@ -2765,8 +2765,34 @@ one §3 J1 item never built, and now the only one the evidence points at.
       load-10–13 rows are kept as measured: a history corrected in place cannot show that the
       instrument was the variable.
 
-- [ ] **SSC3-J4 — superinstructions. RE-COUNTED 2026-08-15: 79 % of the payoff is already
-      banked by J4a and J4b, and the row is worth 15 %, not 36 %.** Both shapes the census
+- [~] **SSC3-J4 — the last shape is BUILT as a peephole, not an opcode; the clock is OWED.**
+      `Exec.exec` reads `rest.head` and `rest.tail.head` and runs a `(bin cmp)` + `(brif)` pair
+      in ONE dispatch when the branch reads the register the comparison wrote. §10.2 offered a
+      fork — portable opcodes or a private flat encoding — on the premise that a fused
+      operation must be REPRESENTED; it need not be, and the peephole leaves `Ir.scala`, the
+      verifier, the text form and its round-trip gate, `BridgeV2` and §1's charter untouched.
+      **It saves more than the census counted:** `Bin` is inline in `step`, but `BrIf` is in
+      `stepRest` — 5684 bytecodes, never inlined — so every counted loop paid a call into an
+      uninlined method once per iteration.
+      *The split is load-bearing:* inline, the peephole took `exec` from 101 bytecodes to 350,
+      over `-XX:FreqInlineSize`. Split into `fuseCmpBr` it is 207/194, and `-XX:+PrintInlining`
+      on a real workload — not `--sizes`, which is a lower bound — reports all of `step`,
+      `fuseCmpBr` and `binK` as `inline (hot)`.
+      *Fusable pairs, counted statically:* `arith-loop` 1, `nested-loop` 2, `list-fold`,
+      `range-sum`, `var-expr-init`, `instance-field`, `hof-pipeline` 1 each, **`recursion-fib`
+      0** — the free control, measured rather than assumed. Every adjacent pair is fusable.
+      *PREDICTION, registered before any clock:* `arith-loop` must move by something like
+      J4b's 18 %; `recursion-fib` must NOT move, and if it does the measurement is wrong
+      before its result is read; `list-fold` is the invoke-bound row and a null there is
+      expected.
+      **⚠️ The ninth `--identity` arm is GREEN BY CONSTRUCTION and cannot currently fail.**
+      The fusion still WRITES the comparison register, so dropping the `d == c` guard AND
+      advancing the cursor by one instead of two both leave the output identical — planted,
+      both stayed green. What has an opinion is REACHABILITY, planted both ways: a throw in
+      the fused branch fails `arith-loop`, and `--no-fuse-cmpbr` on the same binary runs clean.
+      **OWED: the wall clock, on a quiet host.** Not taken at landing — load was 14, which is
+      where J4b read 16 of 20 and was not callable; quiet it read 30 of 30.
+      *The re-count that reframed this row (79 % already banked, 15 % left) is below.* Both shapes the census
       below sized turned out to be expressible as ordinary IR→IR passes, and both shipped:
       the const half as J4a's loop-invariant hoist, the cmp-branch half as J4b's inversion.
       Re-counted on the post-`Optimize` module (`ssc3.SpecializeMain --optimized`, added for
