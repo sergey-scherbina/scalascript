@@ -108,8 +108,11 @@ test -f "$TMP/plain-package/macos/Package.swift"
 # to inspect. Measured 2026-08-15 on the runner: this gate failed at exactly such a line and the log
 # carried the expected string and not one character of the actual one.
 #
-# The message being asserted is a user-facing diagnostic that differs between hosts, which is the
-# case this most needs to report rather than merely refuse.
+# WHY THE FILE'S CONTENT AND NOT JUST A REFUSAL: what is ESTABLISHED is only that this assertion
+# passes here and fails on the runner. Whether the message differs, the file is empty, or the command
+# failed some other way is NOT known — all three produce this identical failure, and an earlier
+# version of this comment picked one ("differs between hosts") and stated it as fact. Printing the
+# content is what will decide it, which is the whole reason for the helper.
 expect_line() { # expect_line <file> <exact line>
   if ! grep -Fqx "$2" "$1"; then
     echo "v2-swift-cli: expected this exact line in $(basename "$1"):" >&2
