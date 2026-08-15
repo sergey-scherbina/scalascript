@@ -5,16 +5,17 @@ started: 2026-08-15T17:38:48Z
 heartbeat: 2026-08-15T17:38:48Z
 status: implementing
 items: SSC3-J4
-paths: file:v3/src/Exec.scala file:v3/bench-ab.sh file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
+paths: file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/bench-ab.sh file:v3/SPRINT.md file:specs/ssc3-jit.md file:bench/history.tsv
 scope: |
-  SSC3-J4 redone: the fusion DECISION moves out of the per-instruction walk to the loop
-  ENTRY, which is the defect the J4 series has already fixed three times (an immutable List
-  re-read on a per-call or per-instruction path). `exec` returns to its original 101 bytes
-  untouched, so a body with no pair pays nothing; a body with pairs walks `execFused` at one
-  integer compare per instruction.
+  SSC3-J4: the compare-and-branch fusion, with the DECISION hoisted to the loop entry —
+  which is what turned it from a measured pessimization into arith-loop 20 of 20 at 0.770.
 
-  WIDENED to v3/bench-ab.sh: it hardcodes the ON arm as the DEFAULT build, which stopped
-  being true when this pass became opt-in. Adding `ON_ARGS` lets an opt-in pass be A/B'd
-  without editing the harness per measurement — otherwise every future opt-in pass repeats
-  the same local hack.
+  Paths and why each: Exec.scala (fusablePairs / execFused / the Loop wiring), Main.scala
+  (the --no-fuse-cmpbr OFF arm), jit-gate.sh (the ninth identity arm), bench-ab.sh (ON_ARGS,
+  because the harness hardcoded the ON arm as the default build), plus the board, the spec
+  and the append-only bench history.
+
+  NOTE TO SELF: this list is the WHOLE scope, not an addition — `coord-update --paths`
+  replaces, and widening for bench-ab.sh silently dropped jit-gate.sh and Main.scala until
+  the pre-commit guard refused the commit.
 next: ON_ARGS in the harness, then measure
