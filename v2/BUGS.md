@@ -2090,6 +2090,46 @@ outward — was run on one front. On the reference front the same line is unboun
 parameterful form recurses forever. The correction is a top-level indirection, and the conclusion
 "one definition, two names, no copy" survived it unchanged.
 
+## collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     confirmed: yes
+     gate: tests/e2e/render-smoke.sh -->
+
+**Found 2026-08-15, the moment the defaults defect above stopped masking it.** With
+`native-serve-does-not-apply-a-default-argument-so-every-short-call-fails` fixed,
+`examples/components-demo.ssc` gets one statement further and dies on:
+
+```text
+native HTTP handler failed: unbound global: collectCss
+```
+
+**Three lanes have it, the native one does not** — counted by files mentioning each name:
+
+| | interpreter | js | jvm | native / v2 |
+|---|---|---|---|---|
+| `collectCss` | 2 | 3 | 2 | **0** |
+| `collectJs` | 2 | 3 | 2 | **0** |
+
+Both are v1-era builtins (`BuiltinsRuntime.scala`, each backend's `intrinsics/Core.scala`,
+`JvmRuntimePreamble.scala`) with no counterpart anywhere under `v2/` or `v1/runtime/std/`. So this is
+a missing TWIN rather than a broken one, and the shape is the one
+`tests/BUGS.md two-front-bug-pairs` records: a feature present on one path and absent on the path
+beside it.
+
+**Where the fix goes is a decision, not a detail.** `collectCss(Page, Button, Card, Alert, Counter)`
+reaches into each argument's `css` field and `collectJs` does the same for `js`, so it is a std-level
+aggregation over module objects rather than a primitive. This repo's own rule
+(`feedback intrinsics-always-plugin`) is that new intrinsics go to `std/`, never to core — which
+would give all four lanes one implementation instead of a fourth copy.
+
+**Done when** `tests/e2e/render-smoke.sh` passes: headless and served byte-identical for
+`examples/components-demo.ssc`. That gate is the reason both defects were found, and this is the last
+one it names.
+
 ## native-serve-does-not-apply-a-default-argument-so-every-short-call-fails
 
 <!-- status: open
@@ -2211,6 +2251,42 @@ something that ignores the owner — except here it is the DEFAULTS registry on 
 answers correctly. So the trigger needs something the real components have and the synthetic ones do
 not: `scope`/`css`/`js`, the html-interpolator, or sheer module size. That is the next thing to vary,
 and it is recorded as an open question rather than guessed.
+
+### FIXED 2026-08-15 — the registry is keyed by BARE NAME and the lookup stopped at the first homonym
+
+**One line of `v2/lib/ssc1-lower.ssc0`, and the comment above it already described the hazard
+without noticing it was live.** `funcDefaultsCell` maps a method's BARE name to its parameter list
+and defaults. When an object is lowered, `aliasFuncDefault` mirrors that entry under the mangled
+`O_render` name the call site actually looks up — but only when the entry's parameter count matches
+this method's, so that `Tool_text` cannot inherit `Resource.text`'s 2-param default.
+
+**That guard was right and its lookup was not.** `dfltRegLookup` returns the FIRST entry under the
+bare name; `aliasFuncDefault` checked that one's arity and, on a mismatch, gave up. With five objects
+all naming their method `render`, whichever `render` sat at the head decided the outcome for every
+other. In `examples/components-demo.ssc` the head was `Counter.render/1`, `1 != 3`, so `Alert_render`
+was never mirrored and the legal short call `Alert.render(a, b)` was refused as under-applied.
+
+The fix keeps the guard and drops the stopping: look up by **(name, arity)** rather than by name and
+then check.
+
+```
+def dfltRegLookupArity = (nm, arity, reg) =>            -- keeps searching past a homonym
+  ... if #seq(fnm, nm) && lenL(params) == arity then found else recurse
+```
+
+**Verified in both directions on the reduced case** (`components-demo` with the handler cut to a
+single `Alert.render(a, b)` and `serve(8768)` kept):
+
+| build | served |
+|---|---|
+| fixed | **148 bytes, the correct fragment** |
+| lookup reverted to first-match-then-check, rebuilt | `arity: 3 expected, 2 given` |
+| fix restored, rebuilt | 148 bytes again |
+
+**The full example now fails one statement LATER**, on `unbound global: collectCss` — a different,
+pre-existing gap this defect was masking, filed as
+`collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native`. `tests/e2e/render-smoke.sh`
+therefore stays unwired until that one lands too; it is the gate for both.
 
 **This entry exists because a THIRD WITNESS was stale for nine days.**
 `tests/e2e/render-smoke.sh` carried a documented known gap pointing at

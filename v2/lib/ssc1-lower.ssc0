@@ -1864,19 +1864,43 @@ def dfltRegLookup = (nm, reg) =>
 -- under the BARE name `f`, but the call `O.f(a)` lowers to `app(var O_f, …)` so the
 -- call-site default synthesis looks up the MANGLED `O_f` and misses. When an object
 -- is lowered, mirror each bare-name default entry under its `O_`-prefixed name.
+--
 -- `funcDefaultsCell` is keyed by BARE name, so two objects' same-named methods
--- (e.g. Tool.text/1 vs Resource.text/2) share one entry — only mirror it when its
--- arity matches THIS method's own param count, else Tool_text would inherit
+-- (e.g. Tool.text/1 vs Resource.text/2) share one key — the mirror must only be made
+-- when the entry's parameter count matches THIS method's, else Tool_text would inherit
 -- Resource.text's 2-param default and over-apply.
+--
+-- LOOK PAST THE FIRST MATCH, and this is a fix rather than a tidy-up. `dfltRegLookup`
+-- returns the FIRST entry under the bare name, so checking its arity and giving up
+-- means one module's method silently disables another's defaults. Measured 2026-08-15
+-- (BUGS `native-serve-does-not-apply-a-default-argument-so-every-short-call-fails`):
+-- `examples/components-demo.ssc` has FIVE objects whose method is named `render`, and
+-- `Alert.render(a, b)` — a legal short call — was refused with `arity: 3 expected,
+-- 2 given`, because the first `render` entry in the registry was `Counter.render/1`
+-- and 1 != 3, so `Alert_render` was never mirrored. Deleting the default from
+-- `Counter.render`, A METHOD THAT PROGRAM NEVER CALLS, made the page render. That is
+-- the whole defect: an unrelated module decided whether another's default applied.
+--
+-- So the lookup is by (name, arity) rather than by name-then-check. Same guard, same
+-- refusal to over-apply — it simply keeps looking instead of stopping at the first
+-- homonym.
+def dfltRegLookupArity = (nm, arity, reg) =>
+  match reg {
+    case Nil => Pair("__none__", Nil)
+    case Cons(h, t) =>
+      match h { case Pair(fnm, entry) =>
+        if #seq(fnm, nm) then
+          match entry { case Pair(params, dflts) =>
+            if #i.eq(lenL(params), arity) then Pair("__some__", entry)
+            else dfltRegLookupArity(nm, arity, t) }
+        else dfltRegLookupArity(nm, arity, t) }
+  }
 def aliasFuncDefault = (bareName, mangledName, arity) =>
-  match dfltRegLookup(bareName, #cell.get(funcDefaultsCell)) {
+  match dfltRegLookupArity(bareName, arity, #cell.get(funcDefaultsCell)) {
     case Pair(found, entry) =>
       if #seq(found, "__some__") then
-        match entry { case Pair(params, dflts) =>
-          if #i.eq(lenL(params), arity) then
-            #cell.set(funcDefaultsCell,
-              Cons(Pair(mangledName, entry), #cell.get(funcDefaultsCell)))
-          else 0 }
+        #cell.set(funcDefaultsCell,
+          Cons(Pair(mangledName, entry), #cell.get(funcDefaultsCell)))
       else 0
   }
 def hasNamedDfltArg = (args) =>
