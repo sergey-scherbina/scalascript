@@ -35,4 +35,20 @@ scope: |
   MEASUREMENT: N with floors DIFF 3 / CRASH 9. Expect `std-monaderror` to move — it is the corpus
   case built on `MonadError[F, E]` — and nothing to regress, since a key that matched nothing before
   cannot have been dispatching anything.
-next: make headAndArg depth-aware, probe both arities, measure
+  MEASURED: N 218/369 unchanged, DIFF 3 and CRASH 9 held. N-NEUTRAL ON ITS OWN and that is the
+  predicted result, not a disappointment: the two cases it unblocks — `std-monaderror` and
+  `std-index` — are now refused by exactly one remaining thing, `'raise' is provided by a given
+  instance` at 21:9 and `'pure' …` at 23:9. That is the arm from
+  `v3-given-instance-as-a-receiver-is-refused`, measured yesterday and deliberately NOT shipped
+  because it took DIFF from 3 to 5.
+
+  WIDENED 2026-08-15 TO LAND THAT ARM TOO, before the edit. The filed entry states the order —
+  "land the second, then the first, then re-measure" — and this is that step. They are one
+  deliverable rather than two claims: the arm alone turns two honest refusals into wrong answers,
+  and this fix alone unblocks nothing, because each case needs both. Same file, same mechanism, one
+  measurement.
+
+  THE PREDICTION, written before the numbers: DIFF back to 3, CRASH 9, PASS above 218. If DIFF rises
+  again the arm comes out again — the floor decided that once already and nothing about wanting the
+  result changes it.
+next: re-apply the arm from the entry, measure the pair, push both or neither
