@@ -3,9 +3,17 @@ branch: feature/v3-opaque-type
 agent: claude-code
 started: 2026-08-15T00:10:03Z
 heartbeat: 2026-08-15T00:10:03Z
-status: claimed-before-planning
+status: implementing
 items: v3-parser-rejects-opaque-type
-paths: file:v3/src/Parser.scala file:v3/tests/front/opaque-type.ssc file:v3/tests/front/opaque-type.expected file:v3/specs/20-core-language.md file:v3/BUGS.md
+paths: file:v3/src/Parser.scala file:v3/tests/front/opaque-type.ssc file:v3/tests/front/opaque-type.expected file:v3/specs/20-core-language.md file:v3/BUGS.md file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  `opaque type X = Y` parsed and ERASED in v3 — the decision F already ships
+  (specs/v2.2-p6.5-fsub.ssc:2301, isTypeHead accepts both spellings).
+
+  WIDENED 2026-08-15 to uniml's ScalaSpike. ssc3 has TWO fronts and `ssc3 run` takes
+  uniml whenever it is registered, so fixing only v3/src/Parser.scala left the feature
+  invisible on the default path. Measured, not reasoned: the front gate went RED on my
+  own fixture with a DIFFERENT error than the one I had fixed — uniml says
+  `10:1: unknown name 'opaque'`, v3's parser said `10:18: expected an expression, found =`.
+  Both fronts or neither.
+next: fix the uniml twin, then re-run v3/front-gate.sh
