@@ -915,7 +915,25 @@ object SpikeParse:
           // the role, exactly as they ignore `def.comma`.
           if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
             c.advance().foreach(t => kids += Node.Leaf(t, Some("def.byname")))
-          if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+          // A PARENTHESISED parameter type is CAPTURED, not skipped. `def go(t: (Int, String))`
+          // used to consume the parens and record nothing, so `Param.tpe` arrived as `None` and the
+          // receiver's type was unknown at the call site: `t.bimap(…)` resolved on v3's own front
+          // and was refused here with "the type of the receiver is not known" — one language, two
+          // answers, decided by whether `v3/.jars/uniml.cp` exists. That is invariant I-3.
+          // (v3/BUGS.md `v3-uniml-drops-a-parenthesised-parameter-type`.)
+          //
+          // `captureType` rather than a new capture loop: it already opens with
+          // `if c.peekKind == "spike.lparen" then takeBalanced(…)` under the comment `(A, B) domain`,
+          // and returns a `Frame` carrying the role, which is what `SpikeTyped.text` concatenates
+          // into a `TypeRef`. The consumer comment says the same thing from the other side — "types
+          // are captured as token runs (ScalaSpike.captureType), so concatenating is exactly how the
+          // reference reads them". The mechanism existed; this call site was the one not using it.
+          //
+          // It also swallows a trailing `=> C`, which `skipBalancedParens` left for the arrow branch
+          // further up. That is the whole function type rather than half of it, and it is what the
+          // reference front records too.
+          if c.peekKind == "spike.lparen" then
+            kids += captureType(c, if usingClause then "def.usingtype" else "def.paramType")
           else expectType(c, if usingClause then "def.usingtype" else "def.paramType").foreach(kids += _)
           // A TYPE ARGUMENT IS KEPT for a `using` parameter, as ordered `def.usingtypearg` leaves.
           //
