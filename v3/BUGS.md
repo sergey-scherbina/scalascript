@@ -9,6 +9,7 @@ Query: `scripts/bugs-report --module v3`.
 ## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
 
 <!-- status: fixed
+     fixed-in: 4222bd4d0
      lane: v3
      area: build
      gate: v3/front-capability-gate.sh
@@ -74,7 +75,7 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > If `cancelled` stays high after this, concurrency is no longer the cause and the next suspects are
 > the 45-minute job timeout and the account's concurrent-job budget — neither of which that line can
 > fix.
-
+>
 > **RE-MEASURED 2026-08-15, AND `cancel-in-progress: false` IS NOT ENOUGH — the paragraph above sends
 > the next reader to the wrong suspects.** Two runs whose sha CONTAINS `ac924a416` were cancelled
 > anyway (`063849133`, `c9ee83035`), so it is still concurrency and not the job timeout. The timing
@@ -106,7 +107,7 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > window is not dominated by today's bursts. If `cancelled` is still the majority with a third of
 > the arrivals gone, then arrivals were never the binding constraint and the next thing to measure
 > is how long a run sits PENDING before it starts.
-
+>
 > **What the change DID buy, measured the same day:** the suite now reaches a conclusion often enough
 > to report, and what it reports is RED — 10 failures in the last 40 runs where previously there were
 > almost none to read. The failing job is `front-capability-gate.sh`, for a real and self-inflicted
@@ -354,6 +355,7 @@ of a parser fix.
 ## v3-extern-member-in-an-object-has-no-meaning — one front refused it, the other silently made it an unpositioned crash
 
 <!-- status: fixed
+     fixed-in: 9ca1f4da2
      lane: v3
      area: front
      gate: v3/front-gate.sh (v3/tests/front/extern-object-member.ssc)
