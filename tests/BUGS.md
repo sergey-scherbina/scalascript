@@ -1,3 +1,47 @@
+## f-trait-parent-list-comma — `extends A, B` left the second parent in the token stream
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: 872500b18
+     gate: tests/e2e/f-foldable-grade-gate.sh -->
+
+```scalascript
+trait Traversable[T[_]] extends Functor[T], Foldable[T]
+```
+
+`F: unbound global: (global Foldable)` · reference: compiles. Scala 3 accepts a COMMA as well as
+`with` between parents; F's chain knew only `with`, so the comma and everything after it stayed in
+the token stream and the second parent was read as an EXPRESSION — which is why the diagnostic names
+the trait declared one line above, and why nothing about the message points at `extends`.
+
+One line: the chain recurses on `,` exactly as it already did on `with`. Two corpus files —
+`std/foldable-traversable.ssc` and `tests/conformance/std-foldable-traversable.ssc` — now lower
+under F and agree with the reference.
+
+Three of the gate's seven rows are separators that ALREADY worked (single parent, `with`, a class
+`extends`), because the fix extends a recursion and a broken recursion breaks what used to pass.
+
+### The corpus gate could not measure this, twice, and that is worth recording
+
+Two runs at the default `-P 8` came back RED with 121 and 107 files of 639 — and **zero timeouts**
+both times. Zero is the tell: under load the timeout bucket normally holds 90–130, so a short list
+with no timeouts means workers were being KILLED, not slowed. The same host had already killed a
+census at 570 of 771 earlier the same day.
+
+**Re-running at `JOBS=2` measured 422 files — more than any run all day** (the usual figure at `-P 8`
+is 290–320), with 6 timeouts and F-wrong 0. So the default parallelism was not merely slower here,
+it was LOSING WORK, and the loss looked exactly like a regression in a one-line change that cannot
+affect how many files an instrument gets through.
+
+What made that legible in seconds rather than an hour was the gate freezing THREE numbers instead of
+one. With only an agreement floor, 33-of-50 reads as a plausible red. `f-output-agreement-gate`'s
+own header says a gate that reports 0 == 0 as green is worse than no gate; the same argument is why
+it reports a shrunken subject set as untrustworthy rather than as a verdict.
+
 ## f-for-generator-tuple-pattern — `for (a, b) <- xs` loses the second binder
 
 <!-- status: open
