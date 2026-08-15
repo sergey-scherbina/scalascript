@@ -1,4 +1,4 @@
-# generation: 2391
+# generation: 2392
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims SSC3-3-effects-across-the-bridge	v3/src/BridgeV2.scala v3/src/Main.scala v3/ssc3 v3/exec-gate.sh v3/effects-gate.sh v3/bridge-gate.sh v3/tests/bridge v3/tests/effects/nested-and-nonzero-shift.ssc v3/tests/effects/nested-and-nonzero-shift.expected specs/ssc3-jit.md v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
