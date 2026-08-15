@@ -979,6 +979,22 @@ jobs:
       - name: type errors name both types (11s, was an orphan asserting a fixed defect)
         run: tests/e2e/typeerr-names-both-types.sh --self-test
 
+      # TYPES MUST BE RIGHT, the native slice. A declared parameter type is now a CONSTRAINT on this
+      # lane: `def f(a: Int); f("x")` is rejected, where it used to print `x`. The checker never saw
+      # the annotation before, because the native tier has TWO parsers and only the lowerer's keeps
+      # types — ssc1-front.ssc0 erases them with skipTypeAnnot and the checker imports that front.
+      #
+      # The gate pins the EDGES as well as the middle: a `Double` parameter and a generic one are
+      # outside the recognised set (Int|String|BigInt in the simple position, the same boundary F
+      # draws) and must still be ACCEPTED. If they start being rejected, the set widened without the
+      # consumer census that widening needs — scripts/BUGS.md records that Long could not be added
+      # to knownTyName without one, and that the failure mode is a silent coverage loss.
+      #
+      # Measured cost of turning it on: ZERO of 399 conformance cases, 148 of which declare a
+      # parameter in the recognised form. (tests/BUGS.md no-two-type-checkers-in-this-repo-agree.)
+      - name: a declared parameter type is a constraint (12s, native lane)
+        run: tests/e2e/declared-type-is-a-constraint.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

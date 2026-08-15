@@ -659,6 +659,25 @@ def patternTypeHead = (toks) =>
 -- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
+-- TYPES-1: declared parameter types, recorded the same way the defaults above are. The AST is NOT
+-- changed: `parseParam` still yields the bare name, so the lowerer and every other consumer of the
+-- param list are byte-unaffected. paramTypesCell accumulates the current list's [Pair(name, tyName)];
+-- registerParamTypes snapshots it into funcParamTypesCell as Pair(funcName, positionalTypes), one
+-- entry per param, either the type name or "?" — POSITIONAL, and keyed by the DEF's name.
+--
+-- Keyed by (def, position) and not by bare name ON PURPOSE. `funcDefaultsCell` is keyed by bare name
+-- and that cost a real defect the same day this landed: five objects each with a `render` meant the
+-- first entry decided for all of them (BUGS a6c1806f2). Two defs may each have a param `a`, and one
+-- must not type the other.
+--
+-- The RECOGNISED SET IS DELIBERATELY THE SAME AS F's, which already captures declared types for
+-- lowering (`knownTyName` in specs/v2.2-p6.5-fsub.ssc: Int | String | BigInt, and only when the type
+-- is immediately closed by `,` or `)`). Two extractions that disagree would be worse than one that
+-- is narrow, so this one is narrow in exactly the same places.
+def paramTypesCell     = #cell.new(Nil)
+def funcParamTypesCell = #cell.new(Nil)
+def tychkKnownTyName = (tn) =>
+  if #seq(tn, "Int") then true else if #seq(tn, "String") then true else #seq(tn, "BigInt")
 -- FIRST parameter list's positional defaults for a CURRIED def (name → [dflt…]).
 -- The lowerer's curry-collapse fills these when the first clause is under-applied
 -- (e.g. `hstack()(kids)` where `def hstack(gap=0, wrap=false)(children*)`): without
@@ -740,6 +759,51 @@ def positionalDflts = (params, dflts) =>
     case Nil => Nil
     case Cons(p, rest) => Cons(dfltLookup(p, dflts), positionalDflts(rest, dflts))
   }
+-- TYPES-1: record `p: Int` / `String` / `BigInt` when the type is IMMEDIATELY closed by `,` or `)`.
+-- Anything else — generic, tuple, arrow, vararg, defaulted — is left unrecorded and stays "?", which
+-- is the same boundary F draws and for the same reason: a partially-understood type is worse than an
+-- absent one, because it constrains where it should not.
+def recordParamTy = (name, toks) =>
+  if kindIs(":", toks) then
+    let t1 = peek(advance(toks)) in
+    -- `Int`/`String`/`BigInt` are UPPERCASE, so their token kind is `uid`, not `id`. Reading `id`
+    -- here recorded nothing at all and the constraint silently never fired — caught by the probe
+    -- rather than by the code review that wrote it.
+    if #seq(tokKind(t1), "uid") then
+      if tychkKnownTyName(tokVal(t1)) then
+        let t2 = peek(advance(advance(toks))) in
+        if kindIs(",", advance(advance(toks))) then
+          #cell.set(paramTypesCell, Cons(Pair(name, tokVal(t1)), #cell.get(paramTypesCell)))
+        else if kindIs(")", advance(advance(toks))) then
+          #cell.set(paramTypesCell, Cons(Pair(name, tokVal(t1)), #cell.get(paramTypesCell)))
+        else 0
+      else 0
+    else 0
+  else 0
+
+def tyLookup = (nm, tys) =>
+  match tys {
+    case Nil => "?"
+    case Cons(p, rest) =>
+      match p { case Pair(k, v) => if #seq(k, nm) then v else tyLookup(nm, rest) }
+  }
+def positionalTys = (params, tys) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) => Cons(tyLookup(p, tys), positionalTys(rest, tys))
+  }
+def anyTy = (params, tys) =>
+  match params {
+    case Nil => false
+    case Cons(p, rest) => if #seq(tyLookup(p, tys), "?") then anyTy(rest, tys) else true
+  }
+def registerParamTypes = (name, params) =>
+  let tys = #cell.get(paramTypesCell) in
+  if anyTy(params, tys) then
+    #cell.set(funcParamTypesCell,
+      Cons(Pair(name, positionalTys(params, tys)), #cell.get(funcParamTypesCell)))
+  else 0
+
 def registerParamDflts = (name, params) =>
   let dflts = #cell.get(paramDefaultsCell) in
   if anyDflt(params, dflts) then
@@ -815,6 +879,7 @@ def parseParam = (toks0) =>
   if #seq(tokKind(peek(toks)), "id") then
     let name = tokVal(peek(toks)) in
     let _vararg = #cell.set(lastParamVarargCell, paramTypeIsVararg(advance(toks))) in
+    let _ty = recordParamTy(name, advance(toks)) in
     let ts1 = skipTypeAnnot(advance(toks)) in
     -- K62.6g/K62.17: default value `param: T = expr` — parse the default AND record it
     -- in paramDefaultsCell so parseDef can register it for call-site synthesis.
@@ -1873,7 +1938,7 @@ def registerExternDflts = (tsName) =>
     let _clr = #cell.set(paramDefaultsCell, Nil) in
     let rp = parseParamList(tsP) in
     if kindIs("(", prT(rp)) then 0
-    else registerParamDflts(nm, prV(rp))
+    else let _rty = registerParamTypes(nm, prV(rp)) in registerParamDflts(nm, prV(rp))
   else 0
 
 -- KC5: skip a single [T] type argument list after a TC name
@@ -2000,6 +2065,7 @@ def parseDef = (toks) =>
   -- (a nested def in the body clears it again before the outer def reads the body,
   -- so outer/inner never interfere).
   let _clr = #cell.set(paramDefaultsCell, Nil) in
+  let _clrt = #cell.set(paramTypesCell, Nil) in
   -- Reset the transient using-types accumulator; only parseUsingParams sets it, so a def with no
   -- `using` clause leaves it Nil (won't inherit a previous def's types).
   let _clru = #cell.set(pendingUsingTypesCell, Nil) in
@@ -2058,6 +2124,7 @@ def parseDef = (toks) =>
   -- Context dictionaries are injected separately by the lowerer and therefore
   -- are not part of the source-call arity/default registry.
   let callParams = append(params, append(prV(rp2), prV(rp3))) in
+  let _rty = registerParamTypes(name, callParams) in
   let _reg = registerParamDflts(name, callParams) in
   -- Curried = a non-empty SECOND clause; snapshot the first clause's defaults so the
   -- lowerer's curry-collapse can fill them when the first clause is called empty.
@@ -2575,6 +2642,7 @@ def parseCaseClass = (toks) =>
   let params = caseParamNames(prV(rp)) in
   let types = caseParamTypes(prV(rp)) in
   let derives = findCaseDerives(prT(rp)) in
+  let _rty = registerParamTypes(name, params) in
   let _reg = registerParamDflts(name, params) in
   -- Record `extends Parent` (first named parent) so a `case _: Parent` ascription
   -- can expand to the child tags. Only an uppercase (uid) parent is nominal.
@@ -3158,6 +3226,7 @@ def parseOneStmt = (toks) =>
               let tsC = advance(tsB) in
               let _clr = #cell.set(paramDefaultsCell, Nil) in
               let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
+              let _rty = registerParamTypes(cname, prV(rp)) in
               let _reg = registerParamDflts(cname, prV(rp)) in
               let acc1 = Cons(Pair(cname, prV(rp)), acc) in
               -- `case Red, Green, …`: additional comma-separated NULLARY cases on one

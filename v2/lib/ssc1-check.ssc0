@@ -297,6 +297,44 @@ def ssc1inferVar = (env, s, name) =>
   }
 
 -- Lambda: bind each param to a fresh var, infer body
+-- TYPES-1: seed a parameter from its DECLARED type when the front recorded one.
+-- `funcParamTypesCell` (ssc1-front, same process) holds Pair(defName, positionalTypeNames), one
+-- entry per parameter, "?" where nothing was recorded. Only the names F also recognises are there —
+-- Int, String, BigInt — and only in the simple syntactic position, so an unrecognised annotation
+-- behaves exactly as before rather than half-constraining.
+--
+-- BigInt maps to TyDyn ON PURPOSE: this checker's type set has no BigInt, and inventing a
+-- constraint it cannot represent would reject correct programs. Unconstrained is the honest answer
+-- until the type exists.
+def ssc1chkTyOfName = (tn) =>
+  if #seq(tn, "Int") then TyInt else if #seq(tn, "String") then TyStr else TyDyn
+def ssc1chkLookupFnTys = (nm, reg) =>
+  match reg {
+    case Nil => Nil
+    case Cons(h, rest) =>
+      match h { case Pair(fnm, tys) => if #seq(fnm, nm) then tys else ssc1chkLookupFnTys(nm, rest) }
+  }
+def ssc1chkHeadTy = (tys) =>
+  match tys { case Nil => "?" case Cons(h, _r) => h }
+def ssc1chkTailTys = (tys) =>
+  match tys { case Nil => Nil case Cons(_h, r) => r }
+
+-- The typed twin of ssc1inferLam: identical except that a parameter with a recorded declared type
+-- is bound to THAT type instead of to a fresh variable. Everything else — including a parameter
+-- whose type was not recorded — is unchanged, so this can only ADD rejections, never remove one.
+def ssc1inferLamTys = (env, s, ps, tys, body) =>
+  match ps {
+    case Nil => ssc1inferE(env, s, body)
+    case Cons(p, restPs) =>
+      let declared = ssc1chkHeadTy(tys) in
+      let pty = if #seq(declared, "?") then TyVar(ssc1chkFresh(0)) else ssc1chkTyOfName(declared) in
+      let env2 = Cons(Pair(p, Forall(Nil, pty)), env) in
+      match ssc1inferLamTys(env2, s, restPs, ssc1chkTailTys(tys), body) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tb) => TcOk(s2, TyFun(ssc1chkAppTy(s2, pty), tb))
+      }
+  }
+
 def ssc1inferLam = (env, s, ps, body) =>
   match ps {
     case Nil =>
@@ -688,7 +726,8 @@ def ssc1inferBlockStmts = (env, s, stmts, lastTy) =>
               case Pair(name, rest2) =>
                 match rest2 {
                   case Pair(params, body) =>
-                    match ssc1inferLam(env, s, params, body) {
+                    match ssc1inferLamTys(env, s, params,
+                            ssc1chkLookupFnTys(name, #cell.get(funcParamTypesCell)), body) {
                       case TcErr(m) => TcErr(m)
                       case TcOk(s2, tf) =>
                         let env2 = Cons(Pair(name, ssc1chkGeneralize(env, s2, tf)), env) in
@@ -762,7 +801,13 @@ def ssc1chkTopStmts = (env, s, stmts) =>
                     -- skip context-dict params (__tc_*) during body inference;
                     -- they're resolved at runtime by given injection, not type-checked here
                     let realParams = ssc1chkFilterCtxParams(params) in
-                    match ssc1inferLam(env, s, realParams, body) {
+                    -- TYPES-1: the TOP-LEVEL def branch. Patching only the block-statement one left
+                    -- every top-level def unconstrained, which is most of a program — the probe said
+                    -- `TYDBG reg f any=Y` while the verdict never changed, i.e. the front recorded
+                    -- and the checker read a different branch. Positional types are looked up here
+                    -- for the same `name` the front registered under.
+                    match ssc1inferLamTys(env, s, realParams,
+                            ssc1chkLookupFnTys(name, #cell.get(funcParamTypesCell)), body) {
                       case TcErr(m) =>
                         TcErr(#sconcat(#sconcat("in def ", name), #sconcat(": ", m)))
                       case TcOk(s2, tf) =>

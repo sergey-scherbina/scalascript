@@ -56,13 +56,36 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          at all). Two consequences need no contract decision: `ssc-tools check` green-lights programs
          that crash on its own runtime, and `run --v1` type-checks nothing.
 
-      **2. [ ] THE BLAST RADIUS — what does honouring annotations cost.**
+      **2. [x] THE BLAST RADIUS — MEASURED, AND IT IS ZERO.**
          Upper bound already counted: of 399 conformance cases, 155 declare a typed parameter, 64
          declare `jvm` among their backends (so scalac already checks them), 16 do both — leaving
          **139 cases with typed parameters that no strict checker has ever seen.** That is an upper
          bound, not a prediction. The real number needs `parseParam` to stop skipping and
          `ssc1inferLam` to seed from the annotation, behind an env flag, and the corpus run. Nothing
          flipped.
+
+         **DONE 2026-08-15, and the answer is 0 of 399.** Implemented and measured rather than
+         estimated: 148 conformance cases declare a parameter in the recognised form and **not one
+         is rejected** when the constraint is on. The corpus was already type-correct; nothing
+         checked it. Full smoke 110/110 green with it on.
+         **The zero is controlled**: a deliberately ill-typed case planted into the corpus IS
+         reported by the same sweep, and the sweep saw all 399 files — so 0 means "nothing to
+         reject", not "the instrument did not look".
+         **Honest limit of the number:** it measures the NARROW set — `Int`, `String`, `BigInt` in
+         the simple syntactic position, the same boundary F draws. Widening the set is a separate
+         measurement with a separate cost, and `scripts/BUGS.md` records that `Long` could not be
+         added to `knownTyName` without a consumer census whose failure mode is a SILENT coverage
+         loss.
+         **How it is built, so it cannot become a second divergent extraction:** the AST is
+         unchanged — `parseParam` still yields the bare name — and a positional registry keyed by the
+         DEF's name carries the types, mirroring `funcDefaultsCell`. Keyed positionally and by def on
+         purpose: the bare-name keying of that older registry cost a real defect the same day
+         (`a6c1806f2`).
+         **Two bugs in my own implementation, both found by a PROBE rather than by re-reading it:**
+         `Int` lexes as `uid`, not `id`, so the recording silently never fired; and patching the
+         block-statement `def` branch left every TOP-LEVEL def unconstrained while the front happily
+         recorded. A debug print said `TYDBG reg f any=Y` with the verdict unchanged, which is what
+         named the second one.
 
       **3. [x] THE CONTRACT — DECIDED by Sergiy 2026-08-15.**
          *"Объявленный тип — и документация, и подсказка приведения, и ограничение. Все сразу. Это
