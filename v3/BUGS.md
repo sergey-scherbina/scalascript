@@ -212,12 +212,20 @@ shape.
 
 ## v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name — was: v3-handleError-on-a-val-bound-None-matches-no-arm
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: runtime
+     fixed-in: 5e8b9c2dc
      gate: v3/corpus-report.sh (std-index, std-monaderror)
      found-by: claude-code
      found-at: 2026-08-15 -->
+
+**FIXED IN 5e8b9c2dc BY THE PASS ORDER, not by a new table.** `rewriteExtensionCalls` rewrites by NAME and
+never looks at the receiver, and it ran BEFORE the pass that can type one. Swapped: the resolver
+that knows the receiver's type claims what it can, the name-only rewrite takes the rest — the same
+"more specific wins" the subtrait preference encodes one level down. No new guard was needed:
+`instanceOnly` already subtracts `defs.map(_.name)`, so a method a top-level extension also provides
+cannot be refused by the resolver running first.
 
 **RENAMED, BECAUSE THE TITLE I FILED WAS THE SYMPTOM AND NOT THE MECHANISM.** It read
 `handleError-on-a-val-bound-None`, and none of those three words is load-bearing: not `val`, not
@@ -264,12 +272,22 @@ Fixing that refusal is what exposes this.
 
 ## v3-given-instance-as-a-receiver-is-refused — `intSum.combine(a, b)` is a member call, not extension dispatch
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      area: front
+     fixed-in: 86ba35237
      gate: v3/corpus-report.sh (the `is provided by a given instance` histogram line)
      found-by: claude-code
      found-at: 2026-08-15 -->
+
+**FIXED IN 86ba35237, AT THE THIRD ATTEMPT, AND THE TWO WITHDRAWALS ARE WHY IT IS CORRECT.** Shipped alone
+it took DIFF from 3 to 5 twice, because it unblocked cases that then hit two OTHER defects and
+produced wrong answers instead of honest refusals. The floor refused it both times; the second
+refusal is what sent me looking for the cause instead of the symptom, and found them:
+`v3-multi-param-typeclass-never-resolves` and
+`v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name`. With both fixed, this arm
+gives **N 218 -> 222 with DIFF back to 3 and CRASH 9** — the number predicted in the claim before it
+was measured. `std-monaderror` and `std-index`, the two that had become DIFF, now MATCH.
 
 **The receiver IS the instance and its member is refused.** `given intSum: Monoid[Int] with { def
 empty; def combine(a, b) }` makes `intSum` an object, so `intSum.combine(intSum.empty, 42)` is an
