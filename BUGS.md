@@ -1484,6 +1484,45 @@ The five scljet rows do not declare the clashing member themselves; they import 
 does, so a single qualification fix should move all six. That is a prediction and is written down
 as one — the survey is the instrument that will settle it.
 
+**SETTLED 2026-08-15, AND THE PREDICTION IS WRONG: the fix would move ZERO modules.** Re-measured by
+emitting every module that mentions an overloading refusal and counting ALL its diagnostics, not just
+the first one the baseline stores:
+
+| module | diagnostics | of them overloading | other |
+|---|---|---|---|
+| `std/agent-mcp.ssc` | 4 | 1 | 3 |
+| `std/eq.ssc` | 3 | 1 | 2 |
+| `std/hash.ssc` | 2 | 1 | 1 |
+| `std/order.ssc` | 8 | 1 | 7 |
+| `std/semigroup-monoid.ssc` | 3 | 2 | 1 |
+| `std/show.ssc` | 2 | 1 | 1 |
+| `std/scljet/{address,jdbc,mutate,sql,typedsql}.ssc` | 308–608 each | 1 | the rest |
+
+Eleven modules mention it now, not six — and not one of them is blocked by it alone. THE COUNT IN
+THE BASELINE READS AS "ONLY REASON" AND IS NOT: the file stores the FIRST reason plus a shape count,
+so a module whose other blockers share one shape looks single-cause.
+
+**And the four typeclass modules name the real wall.** Beside `def eqv emits 5 times (overloading)`
+sits `def eqv uses type Eq[A]; R.2 accepts primitives, enums, function types, tuple, and List/Vec` —
+same for `Hash[A]`, `Show[A]`, `Order[A]`. The flattening is a SYMPTOM of having no typeclass
+dispatch, not an independent defect: a typeclass declares one member name per instance, so five
+instances flatten to five `fn eqv`. Qualifying the names leaves the dictionary type unlowerable and
+the module still refused.
+
+**The nearest module to COMPILES is `std/agent-mcp.ssc`** — two diagnostics, one of them this one.
+That is the only place where this fix is one of a pair rather than one of a queue.
+
+**Cross-check with the sibling measurement, which reached the same shape of answer by another route.**
+`rust-no-paren-member-needs-receiver-type` is `wontfix` for exactly this reason: lowering the three
+parenless members is four lines, and of the 16 modules refusing on them, zero reach COMPILES while
+five turn into rustc errors (207 in `content-core`, 98 in `yaml-core`, 47 in `json-core`). Two
+independent probes now say the same thing: **a walker-level refusal count is not a queue position.**
+Clearing the reason a module reports first only exposes the next blocker, in the walker or in rustc.
+
+So this entry stays open as a real defect — two receivers cannot share a member, and any `.ssc` API
+that gives two types a `close` or a `text` meets it — but it should be taken for what a PROGRAM needs,
+not for what the REFUSED column would show. It moves that column by nothing.
+
 **Why this matters beyond the six.** It is what actually blocks the Rust MCP client. Fixing
 `types.ssc` alone would not be enough: `std/mcp/client.ssc` declares `McpClient.close` while
 `std/http.ssc` declares `SseStream.close`, so the client meets the same wall one step later. Any
