@@ -154,6 +154,16 @@ object BridgeV2:
       * past must be able to answer "not mine" at that index. `lazy` — a module without effects never
       * asks, and asking costs a whole-module scan. */
     lazy val nOps: Int = opCount(m)
+    /** Reads and writes per register, over the WHOLE function — computed once, because `seqOf` runs
+      * per region and recomputing it there would be quadratic in the nesting. */
+    lazy val census: (Array[Int], Array[Int]) =
+      val reads = new Array[Int](f.nregs)
+      val writes = new Array[Int](f.nregs)
+      Instr.flatten(f.body).foreach { i =>
+        writesOf(i).foreach(d => if d >= 0 && d < f.nregs then writes(d) = writes(d) + 1)
+        readsOf(i).foreach(r => if r >= 0 && r < f.nregs then reads(r) = reads(r) + 1)
+      }
+      (reads, writes)
 
   private def maxLoopDepth(body: List[Instr]): Int =
     var best = 0
@@ -173,11 +183,68 @@ object BridgeV2:
   private def endRegion(cx: Ctx, sh: Int): String =
     ifThen(ctlIs(cx, ">", 0, sh), write(cx.ctl, arith("-", read(cx.ctl, sh), int(1)), sh), lit("unit"))
 
+  // ── recovering the `while` ──────────────────────────────────────────────────
+  //
+  // THE CTL FLAG IS THE BRIDGE'S DOMINANT COST, and it is paid where it hurts most. Counted on
+  // `arith-loop`'s loop body, the text that runs a million times: of 30 v2 prim operations, TWENTY
+  // are the apparatus — four `ctl == 0` guards at two operations each, the per-depth "go round
+  // again" slot, the `ctl == 1` test at the bottom and the `endRegion` decrement. Six do the work.
+  //
+  // But the lowering emits exactly ONE shape for a `while`, and v2 HAS `while`:
+  //
+  //     (block (loop  <cond…>  (brif c 1)  <body…>  (br 0)))
+  //
+  // — leave the enclosing block when the condition holds, go round again otherwise. When neither
+  // `cond` nor `body` diverts by any OTHER route, that is a `while` and nothing about it needs a
+  // flag. The `brif` becomes the loop condition negated, the `br 0` disappears, and because the
+  // structured form never writes CTL, `mayDivert` answers false for the whole loop — so the
+  // statements AFTER it lose their guards too.
+  //
+  // This is a peephole on a shape the lowering guarantees, not a relooper. Anything that does not
+  // match — a `return` inside the loop, a `br` to an outer depth, two exits — falls back to the CTL
+  // form unchanged, which is why the fallback is worth keeping rather than replacing.
+  private var structuredLoops: Boolean = true
+  private[ssc3] def useStructuredLoops(on: Boolean): Unit = structuredLoops = on
+
+  /** `(lead… (loop pre… (brif c 1) body… (br 0)))` → the four pieces of a `while`.
+    *
+    * `lead` is NOT always empty, and assuming it was is why the first version of this matched
+    * nothing: `Optimize`'s loop-invariant lift (SSC3-J4a) moves a `Const` OUT of the loop and into
+    * the enclosing list, which is the BLOCK's body. So the shape after optimisation is
+    * `Block(hoisted… , Loop(…))`, and a pattern demanding `Block(List(Loop(…)))` is a pattern for
+    * the un-optimised program — the one lane nobody runs. `brif 1` still exits the block, which is
+    * still the statement after the loop, so `lead` changes nothing about the meaning. */
+  private object WhileShape:
+    def unapply(i: Instr): Option[(List[Instr], List[Instr], Int, List[Instr])] = i match
+      case Instr.Block(bs) if bs.nonEmpty =>
+        bs.last match
+          case Instr.Loop(is) =>
+            val at = is.indexWhere { case Instr.BrIf(_, 1) => true; case _ => false }
+            if at < 0 || at >= is.length - 1 then None
+            else
+              (is(at), is.last) match
+                case (Instr.BrIf(c, _), Instr.Br(0)) =>
+                  Some((bs.init, is.take(at), c, is.slice(at + 1, is.length - 1)))
+                case _ => None
+          case _ => None
+      case _ => None
+
+  /** Is this the while shape AND will it actually be emitted as one? Both halves matter: a loop
+    * whose body returns still has to carry the flag, so its `Br`/`BrIf` are still real. */
+  private def isStructuredWhile(i: Instr): Boolean = structuredLoops && (i match
+    case WhileShape(lead, pre, _, body) =>
+      !lead.exists(mayDivert) && !pre.exists(mayDivert) && !body.exists(mayDivert)
+    case _ => false)
+
   /** Does this instruction possibly leave CTL non-zero? Everything after one that can must be
     * guarded. Conservative on purpose: a `Br` that targets an inner region cannot actually escape,
     * but proving that is dataflow, and an extra guard costs speed where a missing one costs
     * correctness. */
   private def mayDivert(i: Instr): Boolean = i match
+    // A STRUCTURED `while` CONSUMES ITS OWN `br`s, so it leaves CTL alone — and this line is what
+    // lets the statements after a loop drop their guards, which is half of what the rewrite buys.
+    // It is checked FIRST because the generic rule below would find the `brif` inside and say true.
+    case i2 if isStructuredWhile(i2) => false
     case _: Instr.Ret      => true
     case _: Instr.TailCall => true
     case _: Instr.Br       => true
@@ -452,6 +519,13 @@ object BridgeV2:
       ifThen(read(c, sh),
              sq(List(seqOf(t, cx, sh), endRegion(cx, sh))),
              sq(List(seqOf(e, cx, sh), endRegion(cx, sh))))
+    // The structured `while`, taken BEFORE the generic `Block` arm it would otherwise match. The
+    // condition is `(seq <cond-statements> (c == false))` — v2's `while` re-evaluates its condition
+    // term every iteration, so the statements that compute `c` live inside it rather than being
+    // duplicated before the loop and again at the end of the body.
+    case i2 @ WhileShape(lead, pre, c, body) if isStructuredWhile(i2) =>
+      sq(List(seqOf(lead, cx, sh),
+              "(while " + condOf(pre, c, cx, sh) + " " + seqOf(body, cx, sh) + ")"))
     case Instr.Block(b) => sq(List(seqOf(b, cx, sh), endRegion(cx, sh)))
     case Instr.Loop(b) =>
       // A WASM loop does NOT repeat by falling off its end — only a `br` to it repeats. So the
@@ -662,16 +736,157 @@ object BridgeV2:
   private def args(as: List[Int], sh: Int): String =
     if as.isEmpty then "" else " " + as.map(r => read(r, sh)).mkString(" ")
 
+  // ── folding the temporaries ─────────────────────────────────────────────────
+  //
+  // MOST REGISTERS ARE NOT VARIABLES. Measured over a sample of bridged functions: 135 of 147
+  // registers are written once and read at most once — they are the nodes of an expression tree that
+  // the IR happens to spell as a register file. `Optimize.copyProp` cannot see this, because at IR
+  // level a register IS the representation and folding one costs nothing there; on this lane each
+  // one costs an `arr.set` at the definition and an `arr.get` at the use, both through v2's prim
+  // dispatcher.
+  //
+  // So this folds the definition INTO the use, and it is a peephole rather than SSA: the definition
+  // must be the statement IMMEDIATELY BEFORE the use, in the same list. Adjacency is what makes the
+  // reordering argument short enough to be checkable — nothing runs between the two, so moving the
+  // computation from one to the other cannot cross an effect.
+  //
+  // FIVE CONDITIONS, and each rules out a way this goes wrong:
+  //   1. written once IN THE WHOLE FUNCTION — otherwise the folded value can be the stale one;
+  //   2. read once in the whole function — otherwise the expression is duplicated, and a `call`
+  //      would run twice;
+  //   3. the read is a DIRECT operand of the next instruction, not something inside its body — a
+  //      read inside a `Loop` executes per iteration and a read inside an `If` arm may not execute
+  //      at all, and folding a `call` into either changes how often it happens;
+  //   4. not a parameter — the prologue writes those, and the prologue is not an instruction, so
+  //      condition 1 cannot see it;
+  //   5. the definition's emitted text is exactly `write(d, VALUE, sh)` and the use's text contains
+  //      the read pattern EXACTLY ONCE. This is the belt-and-braces check: it re-derives conditions
+  //      1-3 from the text that will actually be emitted, so a case the census got wrong is skipped
+  //      rather than mistranslated.
+  //
+  // The guard state is untouched: only a non-diverting instruction can match condition 5's shape,
+  // and `seqOf` flips `guarded` only AFTER a diverting one — so the definition and the use are
+  // always on the same side of the flip and the fold cannot move a computation into or out of a
+  // `ctl == 0` test.
+  private var foldTemps: Boolean = true
+  private[ssc3] def useFoldTemps(on: Boolean): Unit = foldTemps = on
+
+  /** Every register an instruction WRITES, and the difference from `Optimize.dstOf` IS the safety
+    * argument. That one answers -1 for `Perform`, `Resume`, `Try` and `Handle`; a missed destination
+    * only costs those passes a rewrite they could have made. Here a missed write is a register that
+    * LOOKS written once when it is written twice, and folding its first value into a later read
+    * would use a stale one — a wrong answer. Under-listing is the unsafe direction, so this lists
+    * everything, including an arm's `params` and `k`. */
+  private def writesOf(i: Instr): List[Int] = i match
+    case Instr.Const(d, _)        => List(d)
+    case Instr.Move(d, _)         => List(d)
+    case Instr.Un(_, _, d, _)     => List(d)
+    case Instr.Bin(_, _, d, _, _) => List(d)
+    case Instr.Call(d, _, _)      => List(d)
+    case Instr.CallV(d, _, _)     => List(d)
+    case Instr.MkClos(d, _, _)    => List(d)
+    case Instr.MkData(d, _, _)    => List(d)
+    case Instr.Field(d, _, _, _)  => List(d)
+    case Instr.Tag(d, _)          => List(d)
+    case Instr.NewArr(d, _)       => List(d)
+    case Instr.ArrGet(d, _, _)    => List(d)
+    case Instr.ArrLen(d, _)       => List(d)
+    case Instr.GlobGet(d, _)      => List(d)
+    case Instr.Invoke(d, _, _, _) => List(d)
+    case Instr.Prim(d, _, _)      => List(d)
+    case Instr.Perform(d, _, _)   => List(d)
+    case Instr.Resume(d, _, _)    => List(d)
+    case Instr.Try(d, _, x, _)    => List(d, x)
+    case Instr.Handle(d, _, arms) => d :: arms.flatMap(a => a.k :: a.params)
+    case _                        => Nil
+
+  /** Every register an instruction reads AS ITS OWN OPERAND — not the ones its body reads. The
+    * distinction is condition 3: an operand is evaluated exactly once, before anything the
+    * instruction does; a register read inside a `Loop` body is not. A region form lists nothing,
+    * which is correct for the direct sense and makes it ineligible as a fold target. */
+  private def readsOf(i: Instr): List[Int] = i match
+    case Instr.Move(_, a)          => List(a)
+    case Instr.Un(_, _, _, a)      => List(a)
+    case Instr.Bin(_, _, _, a, b)  => List(a, b)
+    case Instr.If(c, _, _)         => List(c)
+    case Instr.BrIf(c, _)          => List(c)
+    case Instr.Call(_, _, as)      => as
+    case Instr.CallV(_, c, as)     => c :: as
+    case Instr.MkClos(_, _, cs)    => cs
+    case Instr.TailCall(_, as)     => as
+    case Instr.Ret(a)              => List(a)
+    case Instr.MkData(_, _, as)    => as
+    case Instr.Field(_, a, _, _)   => List(a)
+    case Instr.Tag(_, a)           => List(a)
+    case Instr.Switch(s, _, _)     => List(s)
+    case Instr.NewArr(_, n)        => List(n)
+    case Instr.ArrGet(_, a, ix)    => List(a, ix)
+    case Instr.ArrSet(a, ix, v)    => List(a, ix, v)
+    case Instr.ArrLen(_, a)        => List(a)
+    case Instr.GlobSet(_, a)       => List(a)
+    case Instr.Perform(_, _, as)   => as
+    case Instr.Resume(_, k, v)     => List(k, v)
+    case Instr.Invoke(_, _, r, as) => r :: as
+    case Instr.Prim(_, _, as)      => as
+    case _                         => Nil
+
+  private def occurrences(hay: String, needle: String): Int =
+    var n = 0
+    var i = hay.indexOf(needle)
+    while i >= 0 do { n += 1; i = hay.indexOf(needle, i + needle.length) }
+    n
+
+  private def fold(arr: Array[Instr], texts: Array[String], cx: Ctx, sh: Int): Unit =
+    val (reads, writes) = cx.census
+    var p = 0
+    while p < arr.length - 1 do
+      val ds = writesOf(arr(p))
+      if ds.length == 1 then
+        val d = ds.head
+        if d >= cx.f.nparams && d < cx.f.nregs && writes(d) == 1 && reads(d) == 1 &&
+           readsOf(arr(p + 1)).count(_ == d) == 1
+        then
+          val pfx = "(prim arr.set " + frameAt(sh) + " " + int(d) + " "
+          val t = texts(p)
+          if t != null && t.startsWith(pfx) && t.endsWith(")") then
+            val pat = read(d, sh)
+            if occurrences(texts(p + 1), pat) == 1 then
+              texts(p + 1) = texts(p + 1).replace(pat, t.substring(pfx.length, t.length - 1))
+              texts(p) = null
+      p += 1
+
+  /** A structured `while`'s condition: the statements that compute `c`, then `c == false` — the
+    * `brif` exits when `c` holds, so the loop runs while it does not.
+    *
+    * The trailing `Instr.Ret(c)` is a VIRTUAL READER and never emitted; it exists so `fold` can see
+    * that the comparison reads `c` and fold the statement computing it into the comparison. Without
+    * it the last link of the chain — usually the whole condition — would stay an array slot.
+    * `Ret` is the right stand-in because `readsOf` gives it exactly `List(c)` and `writesOf` gives
+    * it nothing, so it can never be mistaken for a definition. No guards: `pre` is known not to
+    * divert, which is what let this shape be structured at all. */
+  private def condOf(pre: List[Instr], c: Int, cx: Ctx, sh: Int): String =
+    val arr = (pre :+ Instr.Ret(c)).toArray
+    val texts = (pre.map(i => stmt(i, cx, sh)) :+ arith("==", read(c, sh), lit("false"))).toArray
+    if foldTemps then fold(arr, texts, cx, sh)
+    sq(texts.filter(_ != null).toList)
+
   /** Statements in one region. Everything after an instruction that may divert is wrapped in a
     * guard; everything before it is not, so straight-line code pays nothing. */
   private def seqOf(body: List[Instr], cx: Ctx, sh: Int): String =
+    val arr = body.toArray
+    val texts = arr.map(i => stmt(i, cx, sh))
+    if foldTemps then fold(arr, texts, cx, sh)
     var out: List[String] = Nil
     var guarded = false
-    body.foreach { i =>
-      val s = stmt(i, cx, sh)
-      out = (if guarded then ifThen(running(cx, sh), s, lit("unit")) else s) :: out
-      if mayDivert(i) then guarded = true
-    }
+    var p = 0
+    while p < arr.length do
+      // `mayDivert` is asked of EVERY instruction, folded away or not. A folded one never diverts —
+      // condition 5's shape excludes it — but reading the flag off the instruction list rather than
+      // off what survived keeps the guard sequence a property of the IR.
+      if texts(p) != null then
+        out = (if guarded then ifThen(running(cx, sh), texts(p), lit("unit")) else texts(p)) :: out
+      if mayDivert(arr(p)) then guarded = true
+      p += 1
     sq(out.reverse)
 
   private def func(m: Module, f: Func): String =

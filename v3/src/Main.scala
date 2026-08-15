@@ -247,6 +247,15 @@ object Cli:
     Exec.usePrepareCache(!args.contains("--no-prepare-cache"))
     // SSC3-J5. `--no-fast-apply` restores the `cap :+ x` list, so the A/B lives in one binary.
     Exec.useFastApply(!args.contains("--no-fast-apply"))
+    // SSC3-3c. The BRIDGE's temporary fold, set here with the executor's switches rather than in
+    // `build`'s own arm, because this is the one place that answers "what is this invocation
+    // running". It changes nothing on the executor lane — `Exec` never sees it — so `--no-fold-temps`
+    // is a no-op for `exec` and the OFF arm for `run --bridge`.
+    BridgeV2.useFoldTemps(!args.contains("--no-fold-temps"))
+    // SSC3-3c. `--no-structured-loops` restores the CTL-flag form of every `while`, which is the OFF
+    // arm the structured one is measured against — and the arm that says which of the two rewrites
+    // a divergence belongs to, since both touch the same emitted text.
+    BridgeV2.useStructuredLoops(!args.contains("--no-structured-loops"))
     // SSC3-J4. `--no-fuse-cmpbr` restores the plain instruction-at-a-time walk, which is the OFF
     // arm the compare-and-branch fusion is measured against — in one binary, so a ratio cannot be a
     // difference between two builds. `--fuse-cmpbr` is accepted as the explicit ON arm, which the

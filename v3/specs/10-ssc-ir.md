@@ -70,6 +70,21 @@ and output nobody wants to read. Source output is an explicit requirement here, 
 direction that is free and pays nothing for it: control flow built from regions is reducible by
 construction, and the verifier's branch check is one integer comparison against the region depth.
 
+**And the constraint has now been cashed in.** A target that has `while` but no `goto` — v2's Core
+IR, and every source language the backends print — needs the loop back, and because the lowering
+emits exactly one shape for one,
+
+```
+(block (loop  <cond…>  (brif c 1)  <body…>  (br 0)))
+```
+
+recovering it is a pattern match rather than an analysis. `BridgeV2` does exactly that, and the
+measurement is what makes the point concrete: emitting the CTL-flag form instead cost `arith-loop`
+**32 v2 operations per iteration where the structured form costs 12**, and twenty of those thirty-two
+were the flag — a guard before every statement, a per-depth "go round again" slot, a test at the
+bottom of the loop. That number is the price of NOT having this section's constraint, paid on one
+backend, on one loop.
+
 ## 3 · Instruction set
 
 `d`, `a`, `b`, `c` are register indices; `k` indexes the constant pool; `g` the global table;

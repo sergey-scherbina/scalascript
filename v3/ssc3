@@ -256,7 +256,13 @@ case "$cmd" in
       trap 'rm -f "$ir"' EXIT
       # The build step's diagnostics go to stderr and its exit code decides. Running a program the
       # front refused would be worse than not running it at all.
-      "${SSC3[@]}" build "$3" > "$ir" || exit 1
+      #
+      # ANYTHING AFTER THE FILE IS FORWARDED. This line read `build "$3"` and dropped the rest, so
+      # the bridge's own OFF flags — `--no-structured-loops`, `--no-fold-temps` — could be spelled
+      # but not USED through `run --bridge`, which is the only command a gate runs the lane with.
+      # An A/B whose OFF arm silently runs ON reports the rewrite as free.
+      f="$3"; shift 3
+      "${SSC3[@]}" build "$f" "$@" > "$ir" || exit 1
       exec "${V2[@]}" run-ir "$ir"
     fi
     exec "${SSC3[@]}" exec "$2"

@@ -101,7 +101,20 @@ for f in v3/tests/front/*.ssc; do
   # the same command — and did not touch this file. A gate can be broken by a commit that never
   # names it, and this one broke into a shape that says the opposite of the truth.
   via="$(v3/ssc3 run --bridge "$f" 2>/dev/null)"
+  # SSC3-3c: a THIRD arm, the bridge with its two emission rewrites OFF.
+  #
+  # Two reasons, and the second is the one that matters. (1) ATTRIBUTION — the structured `while` and
+  # the temporary fold both change the same emitted text, so a divergence with only two arms says
+  # "the bridge is wrong" and not which of them made it so. (2) The OFF path is otherwise DEAD CODE
+  # as far as any gate is concerned: `--no-structured-loops` restores the CTL-flag form of every
+  # loop, nothing else runs it, and a fallback nobody exercises is a fallback that has stopped
+  # working. Both arms must print the same bytes as the executor.
+  vioff="$(v3/ssc3 run --bridge "$f" --no-structured-loops --no-fold-temps 2>/dev/null)"
   want="$(cat "$exp")"
+  if [ "$own" != "$vioff" ] && [ "$own" = "$via" ]; then
+    echo "  FAIL $name — the bridge's OFF arm disagrees: executor [$(printf '%s' "$own" | tr '\n' '/')] --no-structured-loops --no-fold-temps [$(printf '%s' "$vioff" | tr '\n' '/')]"
+    fail=1
+  fi
   if [ "$own" = "$via" ] && [ "$own" = "$want" ]; then
     if [ -f "v3/tests/front/$name.bridge-diverges" ]; then
       # A declaration that no longer applies is worse than none: it silences a real future

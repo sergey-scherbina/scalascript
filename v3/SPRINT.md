@@ -93,8 +93,40 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       iteration before, 32 after** (`arr.get` 20→14, `arr.set` 14→9, `__arith__` 13→9); whole
       emitted program 4215 → 3324 bytes. An operation count is load-independent, which is the whole
       reason it was the instrument.
+      *THIRD AND FOURTH, 2026-08-16 — the `while` is recovered, and the temporaries fold.* Counted
+      on `arith-loop`'s loop body, per iteration, all four arms in one binary:
+
+      | arm | v2 prim ops / iteration |
+      |---|---|
+      | neither (`--no-structured-loops --no-fold-temps`) | 32 |
+      | fold-temps only | 30 |
+      | structured-loops only | 14 |
+      | both | **12** |
+
+      **2.7× fewer operations on the hottest path, and the flag was most of the cost.** Of the 32,
+      twenty were the CTL apparatus — four `ctl == 0` guards at two operations each, the per-depth
+      "go round again" slot, the `ctl == 1` test at the bottom, the `endRegion` decrement — and six
+      did the work. The lowering emits exactly one shape for a `while`,
+      `(block (loop <cond> (brif c 1) <body> (br 0)))`, and v2 HAS `while`, so when nothing in it
+      diverts by another route the flag is not needed at all. Statements AFTER the loop lose their
+      guards too, because `mayDivert` answers false for a structured one.
+      *The first version of the pattern matched NOTHING,* and the reason is worth keeping: it
+      demanded `Block(List(Loop(…)))`, while `Optimize`'s loop-invariant lift (SSC3-J4a) moves a
+      `Const` out of the loop into the enclosing block — so the shape after optimisation is
+      `Block(hoisted…, Loop(…))`. A pattern written against the un-optimised IR is a pattern for the
+      one lane nobody runs, and it read as "the rewrite is free" rather than as "it never fired".
+      The fold is a peephole with five conditions, and it is deliberately NOT SSA: written once, read
+      once, read as a DIRECT operand of the very next statement, not a parameter, and the emitted
+      text re-derives all of it before anything is dropped.
+      *Both have OFF flags in the one binary* — `--no-structured-loops`, `--no-fold-temps` — and
+      `v3/exec-gate.sh` gained a THIRD ARM that runs the bridge with both off. That arm exists as
+      much for attribution as for coverage: the OFF path is otherwise dead code no gate exercises,
+      and a fallback nobody runs is a fallback that has stopped working. `v3/ssc3` had to be fixed
+      first — `run --bridge` dropped everything after the filename, so the OFF arm was silently the
+      ON arm.
       *STILL OPEN — the `Let`-binding rewrite itself.* The frame is still one mutable array and
-      there is still a prim call per access. SSA-with-joins is the rest of this entry.
+      there is still a prim call per access for everything the peephole cannot reach. SSA-with-joins
+      is the rest of this entry.
 
 - [x] **SSC3-3e — effects cross the bridge: `handle`, `perform` and `resume` translate.**
       DONE 2026-08-16. All twelve `v3/tests/effects/` fixtures run on the v2 lane and agree with the
