@@ -1,0 +1,11 @@
+slug: gates-refuse-fast-without-uniml
+branch: feature/gates-refuse-fast-without-uniml
+agent: claude-code
+started: 2026-08-15T18:26:59Z
+heartbeat: 2026-08-15T18:26:59Z
+status: claimed-before-planning
+items: v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout
+paths: file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
