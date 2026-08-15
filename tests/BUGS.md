@@ -1,10 +1,11 @@
 ## generated-views-go-stale-and-the-next-agent-pays — and the hook's own tests ran nowhere
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: e3b9e4970
      confirmed: yes
      gate: .githooks/pre-push --self-test -->
 
