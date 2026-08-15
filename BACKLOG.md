@@ -2762,7 +2762,8 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       preamble is untouched. Naive `\bInt\b`→Long ALONE = 70/84; **+given = MEASURED
       84 fails → 11.** deep-tail-recursion JVM → 5000050000; content-introspection passes.
 - [x] **int-2c consistency (SUPERSEDED — text-rewrite proven net-negative, best 84→11)** — see int-2v2 below
-- [ ] **_int-2c-orig_ — close the last 10 JVM (generic/inferred)** — the given bridges
+- [x] **_int-2c-orig_ — SUPERSEDED with int-2e (2026-08-15); the analysis below is still the record
+      of WHY the text-only approach floors at 11** — close the last 10 JVM (generic/inferred): the given bridges
       VALUES but not TYPE CONSTRUCTORS (`List[Long]` vs `List[Int]` invariance, `Int=>Int`
       vs `Long=>Long`) nor runtime BOXING (`generator[Int]`→`[Long]` but inferred `var i=1`
       stays Int → Integer boxed → `unboxToLong` CCE). ROOT = PARTIAL rewrite: I rewrite
@@ -2770,12 +2771,24 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       rewrite integer LITERALS `N`→`NL` (so inference yields Long) — regex must skip
       decimals/hex/exponents/already-`L`. With types+literals+given CONSISTENT, generic
       pipelines box Long uniformly. Iterate to 0 JVM regressions.
-- [ ] **int-2d JS lane** — JsGen→scala.js is a SEPARATE emission (JsGen.genModuleSegmented
-      scala segments). Apply the same given + Int/literal rewrite there so deep-tail-recursion
-      passes on JS too (it needs all 3 backends green).
-- [ ] **int-2e validate+land per-stage** — FULL conformance (int/js/jvm) ≤ baseline (0 net
-      regressions) BEFORE each push. Only push net-positive stages. deep-tail-recursion green
-      on all 3 = done. WIP on feature/int64b (given+rewrite, ff8e90fc2, 84→11).
+- [x] **int-2d JS lane — SUPERSEDED with int-2e (2026-08-15), and it was never needed: the v1 JS
+      lane genuinely PASSES** (measured 2026-07-17, recorded in the case's own `known-red`) because
+      it carries values in a double and 5000050000 is exactly representable as one. Original plan,
+      kept for the record: JsGen→scala.js is a SEPARATE emission (JsGen.genModuleSegmented
+      scala segments); apply the same given + Int/literal rewrite there.
+- [x] **int-2e validate+land per-stage — SUPERSEDED, and its branch is gone (2026-08-15)** — the
+      goal (deep-tail-recursion green) was met by int-2v2's v2 routing, landed `70d8b0b25`, not by
+      landing the text rewrite. The rewrite is proven net-negative, and the project's position is now
+      stronger than "not landable": `tests/conformance/deep-tail-recursion.ssc` carries a `known-red`
+      that says the v1 JVM 32-bit truncation **EXPIRES when the v1 codegen is deleted — do not fix
+      the v1 codegen**. int-2c/int-2d above are the same approach and are superseded with it.
+
+      THE POINTER THIS LINE USED TO CARRY WAS ALREADY DEAD. It named `ff8e90fc2` on
+      `feature/int64b`; that commit was orphaned by an amend 38 minutes later (the branch head became
+      `345ab11fd`) and was reachable from no branch and no tag — alive only until the next `git gc`.
+      A note that names a sha is only as durable as the ref that keeps it, which is why what the
+      experiment MEASURED lives in int-2b above, in prose, with the conversion written out. The
+      branch has been deleted; nothing it held is missing here.
 
 ### ▶ v1→v2 codegen migration — BASELINE + SCOPE REFRAMING (2026-07-13, chosen path A for Int→Long)
 - [~] **v2-codegen-migration-baseline** — measured the v2 bytecode lane (`ssc run --bytecode`) over the
