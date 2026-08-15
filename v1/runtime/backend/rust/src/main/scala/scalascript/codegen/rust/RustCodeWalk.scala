@@ -1867,6 +1867,35 @@ object RustCodeWalk:
       else withSelf.replaceFirst("""\{""", "{\n" + binds.map("    " + _).mkString("\n"))
     indent(body) + "\n"
 
+  /** The `k -> v` on the right of a `+`, if that is what it is. Recognising the RECEIVER as a Map
+   *  would need a type; recognising the ARGUMENT needs nothing, because `->` builds a pair and
+   *  nothing else takes one on the right of `+`. */
+  private def mapPairArg(args: m.Term.ArgClause): Option[m.Term.ApplyInfix] =
+    if args.values.size != 1 then None
+    else args.values.head match
+      case p @ m.Term.ApplyInfix.After_4_6_0(_, m.Term.Name("->"), _, pv) if pv.values.size == 1 =>
+        Some(p)
+      case _ => None
+
+  /** `map + (k -> v)` — Scala's immutable "the same map with this pair added". It reached rustc as
+   *  an ADDITION: `error[E0369]: cannot add (String, String) to HashMap<String, String>`, which is
+   *  what `std/http.ssc`'s `withHeader` is written with, so no builder chain compiled on this lane.
+   *
+   *  The CLONE is the whole of the correctness: after `val h2 = h + ("b" -> "2")`, `h` must still
+   *  not contain `b`. Inserting into the receiver would pass "the pair is there" and quietly corrupt
+   *  every caller that kept the original — which is why the gate asserts the old map separately.
+   *
+   *  The same shape `.updated(k, v)` renders, deliberately: two spellings of one operation should
+   *  not be two lowerings. (rust-map-plus-pair-is-not-lowered.) */
+  private def renderMapPlusPair(
+      lhs: m.Term, pair: m.Term.ApplyInfix, ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    for
+      q <- renderTerm(lhs, ctx)
+      k <- renderTerm(pair.lhs, ctx)
+      v <- renderTerm(pair.argClause.values.head.asInstanceOf[m.Term], ctx)
+    yield s"{\n    let mut m2 = $q.clone();\n    m2.insert($k, $v);\n    m2\n  }"
+
   private def renderDef(
       d: m.Defn.Def,
       intrinsics0:    Map[QualifiedName, IntrinsicImpl],
@@ -4173,6 +4202,14 @@ object RustCodeWalk:
           case Some(n) => Right(s"$n[($joined) as usize].clone()")
           case None    => applyNonListCtor(fn, callee, renderedArgs, joined, ctx, args.values.toList)
 
+    // `map + (k -> v)` — Scala's immutable "the same map with this pair added". It reached rustc as
+    // an ADDITION: `error[E0369]: cannot add (String, String) to HashMap<String, String>`, which is
+    // what `std/http.ssc`'s `withHeader` is written with and so what stopped every builder chain on
+    // this lane. The lowering is not new — `.updated(k, v)` a few arms below already renders exactly
+    // this shape — so the only question was how to recognise the receiver, and the ARGUMENT answers
+    // it without a type check: `->` builds a pair, and nothing else takes one on the right of `+`.
+    // Placed ahead of the string-concat arm so the operator is decided by the pair rather than by
+    // whether one operand happens to look like a string. (rust-map-plus-pair-is-not-lowered.)
     // `String + any` / `any + String` — lower to `format!("{}{}", lhs, rhs)`.
     // Triggered when either side is a best-effort string expression.
     case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args)
@@ -4355,6 +4392,14 @@ object RustCodeWalk:
       ctx:   Ctx
   ): Either[List[Diagnostic], String] =
     infix match
+      // `map + (k -> v)` lands HERE rather than in `renderTerm`, and that placement is a size
+      // decision, not a taste one: `renderTerm` is frozen by `tests/e2e/v1-jit-size.sh` at a size
+      // already past HotSpot's HugeMethodLimit, so it is never JIT-compiled and every byte added to
+      // it is a byte the interpreter walks — an arm there cost 66 bytecodes the ratchet refuses.
+      // Reaching it here means passing the string-concat `+` arm first, which is what the gate's
+      // `"x" + "y"` row and its Rust value rows exist to check.
+      case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name("+"), _, args) if mapPairArg(args).isDefined =>
+        renderMapPlusPair(lhs, mapPairArg(args).get, ctx)
       case m.Term.ApplyInfix.After_4_6_0(lhs, m.Term.Name(op), _, args) =>
         val rhsTerms = args.values
         val rendered =

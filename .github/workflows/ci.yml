@@ -466,6 +466,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-case-class-method-gate.sh
 
+      # `map + (k -> v)` reached rustc as an ADDITION — E0369 — and `std/http.ssc`'s `withHeader` is
+      # written exactly that way, so no builder chain compiled on this lane. The lowering was never
+      # missing, only unreachable: `.updated(k, v)` a few arms below renders the same operation. The
+      # third row is the one that matters — the original map must be UNCHANGED, and a lowering that
+      # inserted into the receiver rather than a clone would pass the first two and corrupt every
+      # caller that kept it. Two anti-rows keep `"x" + "y"` and `1 + 2` where they were, since this
+      # arm now sits in front of `+` for everything else. The wire row is the payoff: a header set
+      # through the builder chain actually arrives. ~60 s, two cargo builds.
+      - name: map + (k -> v) is a Map update, and the header it sets reaches the wire
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-map-plus-pair-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`
