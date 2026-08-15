@@ -1,0 +1,11 @@
+slug: v3-plugin-path-for-the-executor
+branch: feature/v3-plugin-path-for-the-executor
+agent: claude-code
+started: 2026-08-15T15:45:55Z
+heartbeat: 2026-08-15T15:45:55Z
+status: claimed-before-planning
+items: v3-plugin-path-for-the-executor
+paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
