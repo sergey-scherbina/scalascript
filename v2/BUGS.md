@@ -4723,16 +4723,30 @@ is gone by then.
 > (`contentToolkitBlock` unregistered, and `extern` defaults never filled) are both closed, and this
 > throw is all that stands between that gate and green. Measured, not inferred from the entries.
 >
-> **Where the rewrite has to go, so the next reader does not re-derive it.** The pairing the entry
-> asks for already exists: `std/content-core.ssc`'s `contentFlatSections` walks headings and collects
-> each fence into the `SectionContent` it belongs to, so section↔fence identity is known there. What
-> does NOT know it is the place that turns those fences into the PROGRAM — the scalascript-fence
-> assembly in `v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala`. That is where a
-> `contentCurrentSection()` inside section `S` would become `contentSection("S")`, and it is the file
-> the fix needs.
+> **Where the rewrite has to go — CORRECTED the same day, because the first version of this note
+> named the wrong file.** It said the assembly lives in
+> `v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala`. It does not: that file mentions a
+> scalascript fence exactly once, to APPEND a synthetic one, and extracts nothing. Read the file
+> before following a pointer, including this one.
 >
-> **Not started because that file is held** by the live claim `f-front-exit-reason-lost`. `std/`
-> and the plugin are free; `RunNativeV2.scala` is the one that is not.
+> The real map is TWO SEPARATE WALKS over the same markdown, which is why the identity is lost:
+>
+> | file | what it does | knows the section? |
+> |---|---|---|
+> | `std/content-core.ssc` | builds the document; `contentFlatSections` collects each fence into the `SectionContent` it belongs to, and `contentFenceKind` tags a `scalascript` fence `Executable` | **yes** |
+> | `v2/lib/mira-md.ssc0` (237 lines, "Markdown fence-block extractor (K55)") | turns the fences into the PROGRAM | **no** — it looks at headings only to decide "heading-less document = bare code" |
+>
+> Nothing consumes the `Executable` tag: the two scanners never meet. That is the shape
+> `markdown-inline-scanner-duplicated` describes, and here it is what makes a one-line rewrite
+> impossible — the extractor would have to become section-aware first.
+>
+> **A constraint for whoever does it:** the section id must come from `contentHeadingId`, not from a
+> second implementation of the same rule in the extractor. Two id derivations that agree today and
+> drift tomorrow would put `contentCurrentSection()` in a different section from `contentSection(id)`
+> for the same heading, which is worse than the throw.
+>
+> Both files are free as of 2026-08-15; the work is a change to the extractor plus the plugin arm,
+> not a rewrite at one call site.
 
 **Two honest options, and the case should stop being an unexplained red either way:**
 1. implement the rewrite in the front, and the case passes on v2;
