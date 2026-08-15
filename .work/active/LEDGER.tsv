@@ -1,7 +1,6 @@
-# generation: 2352
+# generation: 2353
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
-v3-fast-apply	claude-code	2026-08-15T19:43:26Z	SSC3-J5-apply1-builds-a-list-to-take-apart	file:v3/src/Exec.scala file:v3/src/Main.scala file:v3/jit-gate.sh file:v3/SPRINT.md file:bench/history.tsv file:specs/ssc3-jit.md
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims	file:v3/src/BridgeV2.scala file:v3/src/Main.scala file:specs/ssc3-jit.md file:v3/SPRINT.md file:bench/history.tsv
 v2-concat-nonlist-wraps	claude-code	2026-08-15T21:36:29Z	v3-concat-nonlist-splits-three-ways	file:v2/src/Runtime.scala file:v3/src/Exec.scala file:v2/BUGS.md file:v3/BUGS.md file:v3/tests/parity/list-concat-nonlist.ssc
 f-for-tuple	claude-code	2026-08-15T21:39:40Z	f-for-generator-tuple-pattern	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-for-tuple-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
