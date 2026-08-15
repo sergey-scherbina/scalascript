@@ -76,20 +76,25 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > assumed. That is the largest remaining cut in arrivals and it costs no coverage, because a heading
 > cannot fail a gate.
 >
-> **THE GROUP WAS DELIBERATELY NOT TOUCHED, though one group per commit would stop the eviction
-> outright.** The owner was offered three options and chose fewer arrivals; that choice landed at
-> 21:02Z with EIGHT runs behind it when this was measured. Changing the lever an hour later would
-> have made the owner's choice unreadable — a control that contains the change under test. It is
-> offered as a decision with the evidence attached, not taken.
+> **THEN THE GROUP WAS CHANGED TOO, ON THE OWNER'S DECISION, AND THE COST IT WAS WEIGHED AGAINST
+> DOES NOT EXIST.** Every previous round treated "fewer arrivals" as the cheap lever and per-commit
+> groups as the expensive one. This repository is PUBLIC, and GitHub charges no minutes for standard
+> runners on a public repository — so the expensive option was free all along, and three rounds of
+> this entry optimised against a bill nobody pays. Checked with `gh repo view --json visibility`
+> rather than assumed in either direction.
 >
-> **STILL OPEN, AND THE PREDICTION IS WRITTEN DOWN SO IT CAN BE WRONG.** Arrivals fall from ~1.7/hour
-> to roughly 0.6/hour against a 26–45 minute run, so most runs should now finish before the next one
-> arrives and `success + failure` should become the majority. If `cancelled` is STILL the majority
-> after that, arrivals are not the binding constraint at any achievable rate and the group is the
-> only remaining lever. Re-measure with
-> `gh run list --workflow v3.yml --limit 100 --json conclusion,createdAt` after a day, SPLIT at this
-> commit's time — an unsplit window mixes three policies and says nothing — and check the job count
-> of a sample of cancelled runs to confirm the mechanism is still eviction and not something new.
+> The real limit is the account's concurrent-JOB cap of 20, and this workflow runs two jobs, so ten
+> runs can execute at once against ~15 commits a day reaching these paths. Beyond that cap GitHub
+> QUEUES rather than cancels, so the worst case is slowness, not a lost verdict.
+>
+> **STILL OPEN, AND THE PREDICTION IS SHARPER NOW SO IT CAN FAIL CLEANLY.** With one group per commit
+> on `main`, eviction is structurally impossible: `cancelled` on a push event should go to ZERO, and
+> anything that remains is a genuine cancellation — a run killed by hand, or the 45/60-minute job
+> timeout, which is a different defect wearing the same word. Re-measure with
+> `gh run list --workflow v3.yml --limit 100 --json conclusion,createdAt` after a day and SPLIT at
+> this commit's time; an unsplit window now mixes FOUR policies and says nothing. For any cancelled
+> run that remains, read its job count — zero jobs means eviction is somehow still happening and this
+> diagnosis is wrong; two jobs means it ran and died of something else.
 >
 
 > **Not `no group at all`, which is what `smoke.yml` carries and what this entry points at.** That

@@ -133,14 +133,24 @@ on:
 # is the one thing `cancel-in-progress: false` cannot prevent. The job timeout is ruled out by the
 # same data: these die at a 7-minute median against limits of 45 and 60.
 #
-# THE GROUP IS DELIBERATELY LEFT ALONE. One group per commit would stop the eviction outright, but
-# the owner was offered three options and chose fewer arrivals, and that choice landed an hour before
-# this measurement with eight runs behind it. Changing the lever now would make its effect
-# unreadable. The arrival rate is the thing being tested; the `.md` exclusion above pulls the same
-# direction and is the largest remaining cut that costs no coverage.
+# ONE GROUP PER COMMIT ON main, SO NOTHING CAN EVICT ANYTHING — the owner's decision once the cost
+# was named, and the cost turned out to be zero: this repository is PUBLIC, and GitHub bills no
+# minutes for standard runners on a public repository. The lever that was rejected as "fewer
+# arrivals is cheaper" was only cheaper against a bill that does not exist.
+#
+# WHAT REPLACES THE BILL AS THE REAL LIMIT is the account's concurrent-JOB cap — 20 for this plan —
+# and this workflow uses two jobs per run, so ten runs can execute at once. Against ~15 commits a day
+# reaching these paths, a burst would have to be six times anything in the last three days to touch
+# it. If that cap is ever hit, GitHub queues rather than cancels, so the failure mode is slowness and
+# not a lost verdict.
+#
+# A PULL REQUEST KEEPS THE OLD BEHAVIOUR, and deliberately: there, cancelling the run for a commit
+# that has just been replaced is right, because only the tip of a branch needs an answer. On `main`
+# every commit is permanent and every one of them deserves its own verdict — that is the whole
+# difference, and it is why the group key and the cancel flag both switch on the event.
 concurrency:
-  group: v3-${{ github.ref }}
-  cancel-in-progress: false
+  group: v3-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gates:
