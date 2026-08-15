@@ -51,9 +51,20 @@ object BridgeV2:
     * which is remembering that one construct is different. */
   private def frameAt(sh: Int): String = "(local " + sh + ")"
 
-  private def read(r: Int, sh: Int): String = "(app " + frameAt(sh) + " " + int(r) + ")"
+  // SSC3-3c, the cheap half. V-0's register access went through the GENERIC dispatchers: a read was
+  // `(app frame idx)`, which walks v2's application path, and a write was
+  // `(prim __method__ "update" frame idx v)`, which dispatches on a STRING method name per store.
+  // `arr.get`/`arr.set` are v2's direct array prims and land on the same `ForeignV(ArrayBuffer)` the
+  // frame already is — `Array.fill` answers one (`Runtime.scala`, `case (DataV("Array", _), "fill",
+  // …)`), so this is a spelling change, not a representation change.
+  //
+  // It is NOT the `Let`-binding rewrite the SSC3-3c entry describes, and it does not pretend to be:
+  // the frame is still one mutable array and there are still two prim calls per register access. It
+  // is the part of that entry's win that costs no SSA and no join analysis.
+  private def read(r: Int, sh: Int): String =
+    "(prim arr.get " + frameAt(sh) + " " + int(r) + ")"
   private def write(r: Int, v: String, sh: Int): String =
-    "(prim __method__ " + lit("(str \"update\")") + " " + frameAt(sh) + " " + int(r) + " " + v + ")"
+    "(prim arr.set " + frameAt(sh) + " " + int(r) + " " + v + ")"
 
   private def arith(op: String, a: String, b: String): String =
     "(prim __arith__ " + lit("(str \"" + op + "\")") + " " + a + " " + b + ")"

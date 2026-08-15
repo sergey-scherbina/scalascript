@@ -66,7 +66,23 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       a tail-recursive loop of 10^7 iterations completing in constant stack is part of it, since
       that is the stability claim.
 
-- [ ] **SSC3-3c — `V-1`: raise registers to `Let` bindings.** Each assignment becomes a fresh
+- [~] **SSC3-3c — `V-1`: raise registers to `Let` bindings.** *The CHEAP HALF landed first and the
+      entry's own condition — "only where a measurement says it pays" — is now met.* The bridge
+      emits `arr.get`/`arr.set` for register access instead of `(app frame idx)` and
+      `(prim __method__ "update" …)`, a string-keyed method dispatch per store, 30 of them in
+      `arith-loop`'s Core IR. Same representation, different spelling: `arr.get`/`arr.set` land on
+      the `ForeignV(ArrayBuffer)` the frame already is.
+      *Measured with the control INSIDE every pair, 8 pairs, two checkouts feeding the same
+      `v2 run-ir`:* control 3 of 8 against n/2 = 4, experiment **7 of 8**, median ratio ≈ 0.46, six
+      of eight below the control's own minimum of 0.727. Direction established (p ≈ 0.035);
+      magnitude soft, because the control spans 0.727–1.725 on identical code at load 20–24.
+      *Why the measurement mattered at all:* the same program is 46 ms on v3's executor and 1472 ms
+      through the bridge — 32× — and 20× worse than v2's OWN front through the same VM. That is what
+      makes the bridge unusable as a route to v2's compiled backends, which is the J3 question.
+      *STILL OPEN — the `Let`-binding rewrite itself.* The frame is still one mutable array and
+      there is still a prim call per access. SSA-with-joins is the rest of this entry.
+
+- [ ] **SSC3-3c-rest — `V-1` proper: raise registers to `Let` bindings.** Each assignment becomes a fresh
       de Bruijn binding, with joins at the ends of `If`/`Loop` bodies expressed as lambda
       parameters. Strictly a performance follow-up to `V-0`, and only where a measurement says it
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
