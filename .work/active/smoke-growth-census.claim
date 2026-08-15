@@ -1,0 +1,11 @@
+slug: smoke-growth-census
+branch: feature/smoke-growth-census
+agent: claude-code
+started: 2026-08-15T19:12:24Z
+heartbeat: 2026-08-15T19:12:24Z
+status: claimed-before-planning
+items: smoke-job-cap-no-longer-looser-than-the-suite
+paths: file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
