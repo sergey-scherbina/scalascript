@@ -97,7 +97,7 @@ v2-bridged-ui-signal-id-field	v1/runtime/backend/interpreter	v2/src/Runtime.scal
 v2-bytecode-x402-unhandled-op-success	v1/runtime/backend/jvm	v1/tools/cli/src/main/scala/scalascript/cli/RunV2.scala	fixed-in
 v2-db-url-scheme-not-jdbc	v1/runtime/backend/js	v2/frontend-bridge/.../FrontendBridge.scala	prose
 v2-doc-only-file-rejected-by-three-gates	v1/runtime/backend/interpreter	v2/bin/ssc1-check-run.ssc0	fixed-in
-v2-f-round-is-three-different-roundings-across-the-backends	v3	v2/src/Runtime.scala	prose
+v2-f-round-is-three-different-roundings-across-the-backends	v3	v2/backend/js/JsBackend.scala	fixed-in
 v2-f-small-vm-admission-loads-asm	tests	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
 v2-frontendbridge-sqlite-timeout	tests	v2/plugin-bridge/src/main/scala/ssc/bridge/PluginBridge.scala	fixed-in
 v2-generator-provider	v1/runtime/backend/jvm	v2/runtime/std/dataset-plugin/src/main/scala/ssc/plugin/dataset/DatasetNativePlugin.scala	fixed-in
@@ -198,6 +198,8 @@ v21-standard-ui-fetch-json-vm-arity	tests	v2/lib/ssc1-front.ssc0	fixed-in
 v21-symbolic-extension-infix-precedence	tests	v2/lib/ssc1-lower.ssc0	fixed-in
 v21-yaml-parser-context-arity	tests	v2/lib/ssc1-front.ssc0	fixed-in
 v21-yaml-unit-global	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v3-the-fleet-bridges-one-of-the-registrys-three-tables	v3	v2/src/Runtime.scala	prose
+v3-uniml-drops-a-parenthesised-parameter-type	v3	uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala	fixed-in
 v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs	v3	v2/src/Runtime.scala	prose
 wasm-emitter-js-import-name-mismatch	v1/runtime/backend/js	v1/runtime/backend/wasm/src/main/scala/scalascript/codegen/WasmBackend.scala	fixed-in
 zipwithindex-result-is-not-indexable	tests	v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala	fixed-in
