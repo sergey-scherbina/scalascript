@@ -1,4 +1,4 @@
-# generation: 2377
+# generation: 2378
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-bridge-arr-prims	claude-code	2026-08-15T21:04:19Z	SSC3-3c-register-access-through-arr-prims SSC3-3-effects-across-the-bridge	v3/src/BridgeV2.scala v3/src/Main.scala v3/ssc3 v3/exec-gate.sh v3/effects-gate.sh v3/bridge-gate.sh v3/tests/bridge/unsupported.ssir v3/tests/effects/nested-and-nonzero-shift.ssc v3/tests/effects/nested-and-nonzero-shift.expected specs/ssc3-jit.md v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
@@ -8,3 +8,4 @@ orphan-detector-one-directory	claude-code	2026-08-15T22:40:05Z	orphan-detector-s
 conformance-stale-known-red-js	claude-code	2026-08-15T22:59:45Z	native-import-in-fence-stale-known-red	file:tests/conformance/native-import-in-fence.ssc file:v1/runtime/backend/js/BUGS.md
 f-summon-ctx	claude-code	2026-08-15T23:02:04Z	f-summon-and-context-bounds-are-unresolved	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-summon-ctx-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 v3-plugin-globals-and-opaque-handle	claude-code	2026-08-15T23:02:48Z	v3-the-fleet-bridges-one-of-the-registrys-five-tables	file:v3/plugins/V2Fleet.scala file:v3/src/Plugins.scala file:v3/src/Lower.scala file:v3/src/Exec.scala file:v3/src/Value.scala file:v3/plugin-classpath.sh file:v3/BUGS.md
+rust-any-map-read	claude-code	2026-08-15T23:03:08Z	rust-any-map-read-default-not-lifted	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-any-map-literal-gate.sh file:BUGS.md
