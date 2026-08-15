@@ -1,12 +1,56 @@
 ## f-curried-clause-param-lost-in-std-agent — `(global handler)`, and it is not what it looks like
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
      reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none — open defect -->
+     fixed-in: fdb90875d
+     gate: tests/e2e/f-handler-param-gate.sh -->
+
+### FIXED 2026-08-15 — a curried clause on a CONTINUATION LINE, and three sites tested for it
+
+The trigger is the line break, not the parameter:
+
+```scalascript
+def mk(a: Int)
+      (b: Int): Int =
+  a + b
+```
+
+`F: unbound global: (global b)` · `ref: 3`. On one line F was always fine.
+
+The layout inserts a separator at that newline — a line beginning with `(` passes `canStartLine`
+and fails `isCont`, so it reads as a new statement — and THREE independent places tested `hd(r)`
+for the next `(`, found the separator, and each drew a different wrong conclusion:
+
+| site | what it dropped | symptom |
+| --- | --- | --- |
+| `emitDefU` | the clause itself | `unbound global: (global b)` |
+| `curried1` | the def's entry in the curried registry, so `f(a)(b)` NESTED instead of flattening — and this runtime has no partial application | `arity: 2 expected, 1 given` |
+| `collectUS3` | a continued `(using …)` clause, so the call site injected no given | the SAME message, from a different registry |
+
+Fixing them one at a time walked the symptom from `unbound global` to that arity message twice.
+
+**The fix is in the def parser, not the layout, deliberately.** Making a leading `(` a continuation
+would change how every statement beginning with a tuple is read. Skipping separators is safe at
+these three sites and nowhere else, because all three run MID-DECLARATION — the def has not reached
+its `=`, so nothing between the clauses can start a new statement. `tuple-statement-after-def` in
+the gate is the row that would catch a layout-level fix.
+
+**All eight files now lower under F and agree with the reference.**
+
+### What this says about the instrument
+
+The three synthetic reconstructions recorded below as "refuted" were green for a reason worth
+keeping: **they were written on one line**, and the trigger is the line break. Building UP from a
+synthetic reproduces the shape you were thinking of, not the shape in the file.
+
+The automated reducer's fixpoint was **not minimal** either. Its declaration slice ran to the end of
+the file, so removing a TRAILING `def` also removed the closing fence and always broke the
+candidate — three declarations that looked load-bearing came off by hand afterwards. A reducer that
+reduces by declaration has to know where the code region ends.
 
 **8 corpus files**, second-largest bucket in `f-gap-census-refresh` once effects landed:
 `std/agent.ssc`, `std/agent-mcp.ssc` and the six `examples/rozum-agent*` / `agent-mcp*` that import
