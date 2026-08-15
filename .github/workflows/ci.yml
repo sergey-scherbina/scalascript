@@ -559,6 +559,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-map-plus-pair-gate.sh
 
+      # `val m: Map[String, Any] = Map("a" -> "x", "b" -> 1)` did not compile: the annotation was
+      # applied to the FINISHED value, which works only if the literal could be built first — and a
+      # heterogeneous one cannot, because the first insert fixes the element type. Each value now
+      # goes through `Value::from` AS THE INSERT IS EMITTED. The scalar row (`val a: Any = List(1,2)`)
+      # is there because deciding "was this lifted?" from the right-hand side's shape instead of from
+      # the branch that ran drops the wrapper — the mistake was made and the row is what caught it.
+      # The last two rows are anti-rows: `renderLetBinding` is on the path of every local in the
+      # repository. ~90 s, seven cargo builds.
+      - name: a literal at an Any container is lifted as it is built
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-any-map-literal-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

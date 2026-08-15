@@ -4178,21 +4178,7 @@ object RustCodeWalk:
         else if isMapCtor then
           if args.values.isEmpty then Right("std::collections::HashMap::new()")
           else
-            // `Map(k -> v, …)` → `{ let mut __m = HashMap::new(); __m.insert(k, v); … __m }`
-            // (consistent with empty `Map()` → `HashMap::new()`).
-            val inserts = args.values.toList.map {
-              case m.Term.ApplyInfix.After_4_6_0(k, m.Term.Name("->"), _, vArgs)
-                  if vArgs.values.size == 1 =>
-                for
-                  kr <- renderTerm(k, ctx)
-                  vr <- renderTerm(vArgs.values.head, ctx)
-                yield s"__m.insert($kr, $vr);"
-              case _ =>
-                Left(List(unsupported(s"def `${ctx.defName}`: `Map` entry is not `k -> v`")))
-            }
-            val (errs, ok) = inserts.partitionMap(identity)
-            if errs.nonEmpty then Left(errs.flatten)
-            else Right(s"{ let mut __m = std::collections::HashMap::new(); ${ok.mkString(" ")} __m }")
+            renderMapLiteral(args.values.toList, ctx, liftValues = false)
         else seqIndexName match
           // Index *read* `seq(i)` → `seq[(i) as usize].clone()`. The `.clone()` is required
           // for non-Copy elements (`Vec<String>` from `.split`/`.toList`, structs) — Rust
@@ -6287,6 +6273,35 @@ object RustCodeWalk:
    *  is returned untouched, so no local outside the `Any` boundary changes shape — `renderLetBinding`
    *  is on the path of EVERY local in the repository and a wider rule would be measured in goldens,
    *  not in a probe. */
+  /** `Map(k -> v, …)` → `{ let mut __m = HashMap::new(); __m.insert(k, v); … __m }`, consistent with
+   *  the empty `Map()` → `HashMap::new()`.
+   *
+   *  `liftValues` puts each VALUE through `Value::from` AS THE LITERAL IS BUILT, which is the only
+   *  place it can go for a HETEROGENEOUS one. `val m: Map[String, Any] = Map("a" -> "x", "b" -> 1)`
+   *  cannot be built and then coerced: the first insert fixes the element type to `String` and the
+   *  second is `E0308: expected String, found i64` — the message names the wrong element and never
+   *  mentions `Any`. Lifting after the fact works only when the literal was homogeneous enough to
+   *  exist first. (rust-any-valued-map-literal-not-lifted.)
+   *
+   *  Extracted from `renderTerm` rather than copied beside it: `renderTerm` is frozen by
+   *  `tests/e2e/v1-jit-size.sh` past HugeMethodLimit, so moving this out makes it SMALLER, and one
+   *  renderer for one shape is what keeps the two call sites from drifting. */
+  private def renderMapLiteral(
+      entries: List[m.Term], ctx: Ctx, liftValues: Boolean
+  ): Either[List[Diagnostic], String] =
+    val inserts = entries.map {
+      case m.Term.ApplyInfix.After_4_6_0(k, m.Term.Name("->"), _, vArgs) if vArgs.values.size == 1 =>
+        for
+          kr <- renderTerm(k, ctx)
+          vr <- renderTerm(vArgs.values.head, ctx)
+        yield s"__m.insert($kr, ${if liftValues then s"crate::value::Value::from($vr)" else vr});"
+      case _ =>
+        Left(List(unsupported(s"def `${ctx.defName}`: `Map` entry is not `k -> v`")))
+    }
+    val (errs, ok) = inserts.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else Right(s"{ let mut __m = std::collections::HashMap::new(); ${ok.mkString(" ")} __m }")
+
   private def liftToAnnotation(expr: String, tyAnn: String): String = tyAnn match
     case ": crate::value::Value" => s"crate::value::Value::from($expr)"
     case ": Vec<crate::value::Value>" | ": std::collections::HashMap<String, crate::value::Value>" =>
@@ -6311,13 +6326,35 @@ object RustCodeWalk:
           }
         for
           tyAnn <- annotated
-          rhsRs <- renderTerm(rhs, ctx)
+          // A LITERAL at an `Any`-container annotation is lifted ELEMENT BY ELEMENT as it is built,
+          // not coerced afterwards, because a heterogeneous one cannot be built first at all: the
+          // first entry fixes the element type and the second is E0308. Only these two shapes take
+          // this path; everything else renders exactly as before and is handled by
+          // `liftToAnnotation`, which stays for the non-literal cases (`val m: Map[String, Any] = f()`).
+          // The flag comes out of the SAME match that did the work: deriving it from the rhs shape
+          // instead would call `val a: Any = List(1, 2)` lifted — a List literal at a scalar `Value`
+          // annotation, which takes the ordinary path and still NEEDS the wrapper.
+          rendered <- (tyAnn, rhs) match
+                        case (": std::collections::HashMap<String, crate::value::Value>",
+                              m.Term.Apply.After_4_6_0(m.Term.Name("Map"), args)) if args.values.nonEmpty =>
+                          renderMapLiteral(args.values.toList, ctx, liftValues = true).map(_ -> true)
+                        case (": Vec<crate::value::Value>",
+                              m.Term.Apply.After_4_6_0(m.Term.Name("List" | "Vector" | "Seq"), args)) if args.values.nonEmpty =>
+                          args.values.toList
+                            .map(e => renderTerm(e, ctx).map(r => s"crate::value::Value::from($r)"))
+                            .partitionMap(identity) match
+                              case (errs, _) if errs.nonEmpty => Left(errs.flatten)
+                              case (_, ok)                    => Right(s"vec![${ok.mkString(", ")}]" -> true)
+                        case _ => renderTerm(rhs, ctx).map(_ -> false)
+          (rhsRs, lifted) = rendered
         yield
           // A `val t = theme.typography.body` binding moves the field out of its owner
           // (partial move), poisoning a later read of `theme`.  Clone a name/projection
           // rhs rooted at a reused/captured value so the owner survives.
           val rhsC = cloneIfMoved(rhs, rhsRs, ctx)
-          s"$kw $name$tyAnn = ${liftToAnnotation(rhsC, tyAnn)};"
+          // Skip the after-the-fact coercion where the elements were already lifted: it would be a
+          // no-op map over a collection that is already right, and emitting one reads as doubt.
+          s"$kw $name$tyAnn = ${if lifted then rhsC else liftToAnnotation(rhsC, tyAnn)};"
       // `val (a, b) = expr` / `val (a, _) = expr` — tuple destructuring.
       case List(m.Pat.Tuple(elems)) =>
         val kw = if mutable then "let mut" else "let"
