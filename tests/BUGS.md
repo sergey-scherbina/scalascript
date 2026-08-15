@@ -1,3 +1,50 @@
+## f-placeholder-in-constructor-application — a routing defect wearing a placeholder's clothes
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     fixed-in: ae0f799c1
+     gate: tests/e2e/f-placeholder-ctor-gate.sh -->
+
+```scalascript
+def main(): Unit = println(List(1, 2).map(Some(_)))
+```
+
+`F: unbound global: (global _)` · `ref: List(Some(1), Some(2))`.
+
+**Not a placeholder defect — a routing one.** `isAppHeadPh` tested the call head for kind 1, a
+LOWERCASE identifier, so a constructor (kind 3) never reached the placeholder wrapper at all. The
+identical def call was always fine, which is exactly what made the bucket name misleading:
+
+```
+g(_)      def   fine        Some(_)   ctor   (global _)
+g(_, 10)  def   fine        P(_, 9)   ctor   (global _)
+```
+
+A leading prefix `!` hid the head from the same test, so `filter(!composite(_))` fell through too.
+Only the TEST skips the prefix; `wrapPh` still receives the original tokens, so the `!` stays inside
+the lambda — the reference answers `x => !isC(x)` and F now matches.
+
+Two corpus files: `tests/conformance/dsl-multi-pass.ssc` and `examples/wasm-primes.ssc`.
+
+### The scoping rule is the risk, and it has its own row
+
+Scala scopes a placeholder to the SMALLEST enclosing expression. `map(id(inc(_)))` must scope to
+`inc(_)`, not to the outer call — and a wrap applied one level out **would still compile and would
+answer differently**. That is the failure mode this widening could have introduced, so
+`nested-call-scopes-inner` exists to fail if the guard (every placeholder a direct argument of a
+single leading application) stops holding.
+
+### Re-verified after the rebase, not before
+
+The rebase pulled in `c9ee83035`, an upstream change to the FRONT (declared return and val types as
+constraints) — the second front change to land under one of my claims today. The covering gate was
+rebuilt and re-run on the rebased tree, 8/8, rather than trusting a verdict taken against the older
+one.
+
 ## v2-swift-cli-fails-silently-without-a-swift-toolchain — and my own fix put a live backtick in it
 
 <!-- status: fixed
