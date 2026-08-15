@@ -4606,6 +4606,31 @@ rewrite: a `contentCurrentSection()` inside section `S` becomes `contentSection(
 front change, not a runtime one — the plugin cannot recover the answer at runtime because the information
 is gone by then.
 
+> **SIZED 2026-08-15, and it is now the LAST blocker of a chain whose other two are fixed.**
+> `bin/ssc-tools --v2 examples/content-introspection.ssc` today gets to
+>
+> ```text
+> content-introspection:ok
+> plans-data=true
+> default-renderer=true
+> ssc: contentCurrentSection() is unavailable on native 2.1 without source-aware call identity
+> ```
+>
+> — i.e. the two earlier blockers of `v2-lane-does-not-serve-the-content-introspection-view`
+> (`contentToolkitBlock` unregistered, and `extern` defaults never filled) are both closed, and this
+> throw is all that stands between that gate and green. Measured, not inferred from the entries.
+>
+> **Where the rewrite has to go, so the next reader does not re-derive it.** The pairing the entry
+> asks for already exists: `std/content-core.ssc`'s `contentFlatSections` walks headings and collects
+> each fence into the `SectionContent` it belongs to, so section↔fence identity is known there. What
+> does NOT know it is the place that turns those fences into the PROGRAM — the scalascript-fence
+> assembly in `v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala`. That is where a
+> `contentCurrentSection()` inside section `S` would become `contentSection("S")`, and it is the file
+> the fix needs.
+>
+> **Not started because that file is held** by the live claim `f-front-exit-reason-lost`. `std/`
+> and the plugin are free; `RunNativeV2.scala` is the one that is not.
+
 **Two honest options, and the case should stop being an unexplained red either way:**
 1. implement the rewrite in the front, and the case passes on v2;
 2. declare the case `backends:` without v2 (or known-red with THIS slug as the reason), so the row states

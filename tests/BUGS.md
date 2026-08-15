@@ -1007,7 +1007,7 @@ and is green on the v1 side. It goes green when `--v2` answers 200 with the same
 > |---|---|---|
 > | 1 | `contentToolkitBlock` was never registered on the v2 content plugin, though `toolkitBlockNode` was already there | **FIXED** `864eaefd8` |
 > | 2 | an `extern`'s declared default argument is not filled on v2, so the one-arg `contentToolkitBlock("team-controls")` the example uses dies with `arity: 2 expected, 1 given` | open — `v2/BUGS.md` → `v2-extern-default-argument-is-never-filled-so-a-plugin-native-needs-full-arity` |
-> | 3 | `contentCurrentSection()`, which the example calls twice, is a deliberate throw on native ("unavailable on native 2.1 without source-aware call identity") | open — `v2/BUGS.md` → `content-current-section-native-unavailable` |
+> | 3 | `contentCurrentSection()`, which the example calls twice, is a deliberate throw on native ("unavailable on native 2.1 without source-aware call identity") | open — `v2/BUGS.md` → `content-current-section-native-unavailable`, and as of 2026-08-15 it is the ONLY blocker left: 1 and 2 are both fixed and the example now runs to exactly that throw |
 >
 > Blocker 2 is NOT this fix's doing: the untouched twin `contentToolkitSection("team")` fails
 > identically on the shared toolchain, and an ordinary `def` with a default is filled correctly on
