@@ -109,12 +109,22 @@ observe() { # $1 label, $2 want, $3.. the command
   fi
 }
 
-echo "── each lane keeps its default, and SSC_HTTP_BIND is honoured by all of them"
+echo "── the default follows what the COMMAND IS FOR, and SSC_HTTP_BIND is honoured by all of them"
 
+# THE RULE THESE ROWS PIN, decided by the owner 2026-08-15 and no longer an accident of which caller
+# builds the socket:
+#
+#     run-it-now commands  -> loopback     `ssc run`, `ssc-tools run --v1`
+#     a built artifact     -> wildcard     `build-rust`
+#
+# Both blanket answers cost something — all-loopback takes deployed services dark on upgrade,
+# all-wildcard puts the dev-loop command on whatever network its user is on — and sorting by purpose
+# pays neither. `v1 default` changed from wildcard to loopback here; the `rust default` row below is
+# deliberately still wildcard, and that asymmetry is the decision rather than an oversight.
 observe "run default"        loopback env -u SSC_HTTP_BIND "$ssc" run "$sandbox/decl.ssc"
 observe "run bind=0.0.0.0"   wildcard env SSC_HTTP_BIND=0.0.0.0   "$ssc" run "$sandbox/decl.ssc"
-observe "v1 default"         wildcard env -u SSC_HTTP_BIND "$tools" run --v1 "$sandbox/block.ssc"
-observe "v1 bind=127.0.0.1"  loopback env SSC_HTTP_BIND=127.0.0.1 "$tools" run --v1 "$sandbox/block.ssc"
+observe "v1 default"         loopback env -u SSC_HTTP_BIND "$tools" run --v1 "$sandbox/block.ssc"
+observe "v1 bind=0.0.0.0"    wildcard env SSC_HTTP_BIND=0.0.0.0   "$tools" run --v1 "$sandbox/block.ssc"
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "  [skip] cargo is not on PATH — the Rust rows cannot run. That is a SKIP, not a pass."

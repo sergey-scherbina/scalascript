@@ -34,12 +34,18 @@ class FastServerBackend extends HttpServerSpi:
     // host DOES let the engine bind, so the same program listened on 127.0.0.1 there and on `*`
     // here. Measured with lsof before this change: run 127.0.0.1, --v1 `*`, build-rust `*`.
     //
-    // The default stays what it was on this lane; `SSC_HTTP_BIND` narrows it and an address the
-    // host cannot resolve fails at startup rather than binding wider than asked.
+    // THE DEFAULT IS LOOPBACK as of 2026-08-15, sorted by what the COMMAND IS FOR rather than by
+    // lane: run-it-now commands (`ssc run`, `ssc-tools run --v1`) bind loopback, a built artifact
+    // (`build-rust`) binds wildcard. That pays neither price the entry
+    // `http-lanes-disagree-on-the-default-bind-address` was stuck between — nothing deployed goes
+    // dark, and the dev-loop command is not on the café LAN. The engine's own `host` parameter has
+    // defaulted to loopback all along; this backend simply stopped overriding it with the wildcard
+    // constructor. `SSC_HTTP_BIND` widens it for anyone serving from this lane on purpose, and an
+    // address the host cannot resolve fails at startup rather than binding wider than asked.
     val bindHost: Option[String] = sys.env.get("SSC_HTTP_BIND").map(_.trim).filter(_.nonEmpty)
     def bindAddr(p: Int): InetSocketAddress =
       bindHost match
-        case None    => new InetSocketAddress(p)
+        case None    => new InetSocketAddress("127.0.0.1", p)
         case Some(h) =>
           val a = new InetSocketAddress(h, p)
           if a.isUnresolved then
@@ -56,11 +62,11 @@ class FastServerBackend extends HttpServerSpi:
         val ctx = TlsContextBuilder.build(cfg.certPemPath, cfg.keyPemPath)
         // Same address for TLS: confined in plaintext and world-facing over HTTPS would be the
         // worse half to get wrong, and neither half announces itself.
-        (bindHost match
-          case None    => ctx.getServerSocketFactory.createServerSocket(port)
-          case Some(_) => ctx.getServerSocketFactory
-                             .createServerSocket(port, 0, bindAddr(port).getAddress)
-        ).asInstanceOf[SSLServerSocket]
+        // ONE path, not two: the `case None` arm reached for the wildcard overload, so plaintext
+        // and TLS decided the default in separate places. Both now go through `bindAddr`.
+        ctx.getServerSocketFactory
+          .createServerSocket(port, 0, bindAddr(port).getAddress)
+          .asInstanceOf[SSLServerSocket]
     _engine   = engine
     _running  = true
     _localPort = engine.startOn(ss)

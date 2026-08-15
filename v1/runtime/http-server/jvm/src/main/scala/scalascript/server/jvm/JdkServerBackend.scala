@@ -82,15 +82,29 @@ class JdkServerBackend extends HttpServerSpi:
     // as a side effect of a refactor meant to preserve behaviour. `serve` takes a port and nothing
     // else, so the program could not say otherwise.
     //
-    // The DEFAULT IS UNCHANGED on this lane (wildcard): a running service must not go dark on an
-    // upgrade. `SSC_HTTP_BIND` narrows it, and a value that does not resolve fails at startup
-    // rather than silently binding wider than asked — the failure mode that matters here is the
-    // quiet one. The same variable is read by the Rust runtime and by the native lane's host, so
-    // one program answers the same way wherever it runs.
+    // THE DEFAULT IS LOOPBACK as of 2026-08-15, and the rule that decided it is about what the
+    // COMMAND IS FOR rather than about which lane it is:
+    //
+    //     run-it-now commands   -> loopback     `ssc run`, `ssc-tools run --v1`
+    //     a built artifact      -> wildcard     `build-rust`
+    //
+    // `http-lanes-disagree-on-the-default-bind-address` left this open because both blanket answers
+    // cost something: all-loopback takes deployed services dark on upgrade, all-wildcard puts the
+    // dev-loop command on whatever network its user is sitting on. Sorting by purpose pays neither.
+    // `build-rust` keeps wildcard so nothing deployed goes dark, and this lane — which exists to RUN
+    // a program you are editing — joins `ssc run` on loopback, where it should have been all along.
+    // The previous comment here argued the opposite from the same evidence; it was written before
+    // the decision, and the reasoning it gives ("a running service must not go dark") is exactly why
+    // the artifact lane was NOT changed.
+    //
+    // `SSC_HTTP_BIND` widens it back for anyone serving from this lane on purpose, and a value that
+    // does not resolve fails at startup rather than silently binding wider than asked — the failure
+    // mode that matters here is the quiet one. The same variable is read by the Rust runtime and by
+    // the native lane's host, so one program answers the same way wherever it runs.
     val bindHost: Option[String] = sys.env.get("SSC_HTTP_BIND").map(_.trim).filter(_.nonEmpty)
     def bindAddr(p: Int): InetSocketAddress =
       bindHost match
-        case None    => InetSocketAddress(p)
+        case None    => InetSocketAddress("127.0.0.1", p)
         case Some(h) =>
           val a = InetSocketAddress(h, p)
           if a.isUnresolved then
@@ -108,11 +122,13 @@ class JdkServerBackend extends HttpServerSpi:
         // The TLS branch binds through the same address: `createServerSocket(port)` is the wildcard
         // overload, so without this half a program could be confined in plaintext and world-facing
         // over HTTPS — the worse direction, and invisible without asking the OS.
-        val ss  = bindHost match
-          case None    => ctx.getServerSocketFactory.createServerSocket(port)
-          case Some(_) => ctx.getServerSocketFactory
-                             .createServerSocket(port, 0, bindAddr(port).getAddress)
-        ss.asInstanceOf[SSLServerSocket]
+        // ONE path, not two: the `case None` arm used to reach for `createServerSocket(port)` — the
+        // wildcard overload — so the plaintext and TLS defaults were decided in separate places and
+        // could drift apart. Both now go through `bindAddr`, which is the only thing here that
+        // knows what the default is.
+        ctx.getServerSocketFactory
+          .createServerSocket(port, 0, bindAddr(port).getAddress)
+          .asInstanceOf[SSLServerSocket]
     _serverSocket = pubSocket
     _localPort    = pubSocket.getLocalPort
 
