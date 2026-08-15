@@ -183,6 +183,20 @@ object BridgeV2:
   private def endRegion(cx: Ctx, sh: Int): String =
     ifThen(ctlIs(cx, ">", 0, sh), write(cx.ctl, arith("-", read(cx.ctl, sh), int(1)), sh), lit("unit"))
 
+  /** The same, ELIDED when the region it closes cannot have set CTL.
+    *
+    * A region only ever runs with CTL at 0 — `seqOf` guards every statement after a diverting one,
+    * a loop's repeat path resets it, and a function's prologue starts it there — so if nothing
+    * inside the region writes CTL either, the decrement is reading a register it already knows is
+    * zero. Two operations, and they are paid on the INSIDE of every `if` in every loop: measured on
+    * a `while` with an `if` in it, 2 of the ~21 operations an iteration actually executes.
+    *
+    * Under the same switch as the structured `while` rather than a fourth flag of its own. Both are
+    * the one idea — do not emit CTL machinery that cannot fire — and `--no-structured-loops` puts
+    * every last piece of it back, which is what an OFF arm is for. */
+  private def endRegionOf(body: List[Instr], cx: Ctx, sh: Int): String =
+    if structuredLoops && !body.exists(mayDivert) then lit("unit") else endRegion(cx, sh)
+
   // ── recovering the `while` ──────────────────────────────────────────────────
   //
   // THE CTL FLAG IS THE BRIDGE'S DOMINANT COST, and it is paid where it hurts most. Counted on
@@ -517,8 +531,8 @@ object BridgeV2:
       // the same decrement a block does. Skipping that would make `br 0` inside an if mean
       // something different from `br 0` inside a block, for no reason a reader could guess.
       ifThen(read(c, sh),
-             sq(List(seqOf(t, cx, sh), endRegion(cx, sh))),
-             sq(List(seqOf(e, cx, sh), endRegion(cx, sh))))
+             sq(List(seqOf(t, cx, sh), endRegionOf(t, cx, sh))),
+             sq(List(seqOf(e, cx, sh), endRegionOf(e, cx, sh))))
     // The structured `while`, taken BEFORE the generic `Block` arm it would otherwise match. The
     // condition is `(seq <cond-statements> (c == false))` — v2's `while` re-evaluates its condition
     // term every iteration, so the statements that compute `c` live inside it rather than being
@@ -526,7 +540,7 @@ object BridgeV2:
     case i2 @ WhileShape(lead, pre, c, body) if isStructuredWhile(i2) =>
       sq(List(seqOf(lead, cx, sh),
               "(while " + condOf(pre, c, cx, sh) + " " + seqOf(body, cx, sh) + ")"))
-    case Instr.Block(b) => sq(List(seqOf(b, cx, sh), endRegion(cx, sh)))
+    case Instr.Block(b) => sq(List(seqOf(b, cx, sh), endRegionOf(b, cx, sh)))
     case Instr.Loop(b) =>
       // A WASM loop does NOT repeat by falling off its end — only a `br` to it repeats. So the
       // while-condition is a per-depth "go round again" slot, set false at the top of every
@@ -651,10 +665,10 @@ object BridgeV2:
       val armText = arms.map { a =>
         val td = cx.m.types(a.tag)
         "(arm " + td.name + " " + td.fields + " " +
-          sq(List(seqOf(a.body, cx, sh + td.fields), endRegion(cx, sh + td.fields))) + ")"
+          sq(List(seqOf(a.body, cx, sh + td.fields), endRegionOf(a.body, cx, sh + td.fields))) + ")"
       }.mkString(" ")
       "(match " + read(scrut, sh) + " (" + armText + ") (default " +
-        sq(List(seqOf(dflt, cx, sh), endRegion(cx, sh))) + "))"
+        sq(List(seqOf(dflt, cx, sh), endRegionOf(dflt, cx, sh))) + "))"
 
     // ── arrays ──────────────────────────────────────────────────────────────
     // The same shapes the frame itself is built from, which is the strongest evidence they are

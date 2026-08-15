@@ -124,6 +124,21 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       and a fallback nobody runs is a fallback that has stopped working. `v3/ssc3` had to be fixed
       first — `run --bridge` dropped everything after the filename, so the OFF arm was silently the
       ON arm.
+      *FIFTH, the same day — the region decrement is not emitted when it cannot fire.* A region only
+      runs with CTL at zero, so when nothing inside it writes CTL the `endRegion` decrement is two
+      operations spent re-reading a register whose value is known. They are paid INSIDE every `if`,
+      which is once per iteration of every loop with one in it: on
+      `while i < 1000000 do if i % 3 == 0 then … else …`, the emitted loop body goes **64 → 24** v2
+      operations across all three rewrites, and ten of the thirty-four the structured `while` alone
+      left were this.
+      *AND IT NEEDED A FIXTURE THE FRONT CANNOT WRITE.* Planting an UNCONDITIONAL elision left all
+      86 conformance fixtures and all 13 effects fixtures GREEN — the front has no `break`, so
+      nothing it lowers branches out past its own enclosing region, and `Ret` sets -1 which no
+      decrement consumes. The shape that needs the decrement is one the front cannot produce, so a
+      guard no test can exercise is a guard nobody knows is right.
+      `v3/tests/bridge/br-out-of-if.ssir` is that shape by hand: `(br 1)` from inside an `if` inside
+      a `block` sets CTL to 2 and it takes BOTH decrements to reach zero. Guarded it prints 10/20;
+      unconditionally elided, 10/0.
       *STILL OPEN — the `Let`-binding rewrite itself.* The frame is still one mutable array and
       there is still a prim call per access for everything the peephole cannot reach. SSA-with-joins
       is the rest of this entry.

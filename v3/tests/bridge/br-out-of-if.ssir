@@ -1,0 +1,41 @@
+; A `br` that leaves TWO regions at once — the only shape that makes `endRegion` do work.
+;
+; WHY THIS FIXTURE EXISTS. The bridge stopped emitting `endRegion` for a region whose body cannot
+; set CTL, which is nearly every region a real `.ssc` program produces: the front has no `break`, so
+; nothing it lowers ever branches out past its own enclosing region. Planting an UNCONDITIONAL
+; elision — drop the decrement whether or not the body diverts — left all 86 conformance fixtures
+; and all 13 effects fixtures GREEN. An optimisation nothing can catch being wrong is an
+; optimisation whose guard is untested, so the guard gets a fixture of its own, hand-written,
+; because the front cannot write one.
+;
+; THE SHAPE. Inside the `if`, depth 0 is the `if` and depth 1 is the `block`, so `(br 1)` leaves
+; both and sets CTL to 2. Then:
+;
+;   the if's endRegion    2 -> 1     <- THE INSTRUCTION UNDER TEST
+;   `A` is guarded, CTL is 1         <- skipped, correctly, either way
+;   the block's endRegion 1 -> 0
+;   `B` runs                         <- only if the first decrement happened
+;
+; Drop the first decrement and CTL is still 1 when the block ends, so `B` is guarded off too and the
+; program prints 10 instead of 10/20. One line of output is the whole difference, which is why it is
+; the LAST print that moves rather than the first.
+(module
+  (consts (int 10) (int 20) (int 30) (bool true))
+  (types)
+  (globals)
+  (prims (prim "io.println"))
+  (funcs
+    (func "main" 0 4
+      (const 0 0)
+      (prim 3 0 0)
+      (block
+        (const 1 3)
+        (if 1
+          (then (br 1))
+          (else))
+        (const 2 2)
+        (prim 3 0 2))
+      (const 0 1)
+      (prim 3 0 0)
+      (ret 3)))
+  (entry 0))
