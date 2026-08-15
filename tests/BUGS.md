@@ -1,3 +1,58 @@
+## board-routing-debt-191-entries-sit-where-their-fix-does-not — the heuristic routed on prose
+
+<!-- status: open
+     lane: apparatus
+     area: docs
+     kind: apparatus
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: tests/e2e/area-map-gate.sh -->
+
+**`scripts/board-ownership-check` now freezes 191 entries whose `fixed-in` commit touched code owned
+by a different board.** 24 were added to that freeze on 2026-08-15 to unblock `validate`, and the
+freeze is the gate's own sanctioned route — but a frozen misfiling is still a misfiling, so the debt
+is recorded here rather than absorbed silently.
+
+**The 24, and the pattern is the finding:** 20 of them sit in `tests` (or another wrong module) while
+the fix lives in a product module.
+
+```text
+tests  -> rust  (7)   type-lost-across-a-boundary, map-get-lowers-to-an-owned-key,
+                      build-rust-std-imports-unlowerable, zipwithindex-result-is-not-indexable,
+                      map-getorelse-emits-copied-on-a-string, json-core-emitted-rust-does-not-compile,
+                      typed-pattern-against-an-any-does-not-test-the-type,
+                      jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
+tests  -> v2    (7)   no-two-type-checkers-in-this-repo-agree, ref-front-drops-every-block-tail-but-the-last,
+                      f-effect-declarations-and-handlers-unsupported, f-front-exit-code-replaces-the-real-diagnostic,
+                      charat-returns-char-on-v1-and-int-everywhere-else,
+                      ref-front-drops-all-but-one-vararg-when-an-earlier-p…,
+                      reference-front-answers-three-conformance-files-diff…
+tests  -> cli   (2)   cli-errors-are-messages-guard-is-18-percent-above-it,
+                      jvm-artifact-stack-trace-never-names-the-users-own-file
+tests  -> other (2)   jsonparse-null-is-none-on-every-lane (json-plugin), f-gap-census-refresh (scripts)
+v3     -> v2    (2)   v2-f-round-is-three-different-roundings…, v3-workflow-does-not-trigger-on-uniml…
+v2     -> rust  (1)   rust-list-concat-moves-its-operands
+v1/js  -> v2    (1)   js-long-arith-no-64bit-wrap
+```
+
+**This is the exact failure the `bugs` skill warns about, and the gate's own comment says so:** the
+`lane:` field came from a keyword heuristic over prose, and *"an entry names its GATE far more often
+than its cause"*. An entry found by a conformance case gets filed in `tests`; its fix goes to rust or
+v2. Routing on the module that owns the FIX is the rule, and 20 of 24 break it the same way.
+
+**Why frozen rather than moved.** Moving 24 entries across boards other agents own is a large,
+conflict-prone edit, and it is not what was blocking anything: `validate` was red on this one check
+and had 31 other gates behind it. The freeze is the gate's documented remedy — *"record it with
+`--update-baseline` and say why"* — and this entry is the "why".
+
+**Acceptance test:** move an entry to the board that owns its `fixed-in` paths, delete its baseline
+row, and `tests/e2e/area-map-gate.sh` must still pass — the checker verifies the other direction too
+("a baseline row that is no longer misfiled" fails the gate), so the two halves cannot drift.
+
+**A stale row was cleared in the same refresh:** `ci-status-guard-races-the-shared-repo-index-lock`
+stopped being misfiled when it was fixed on 2026-08-14, and the checker had been flagging it since.
+
 ## ci-gates-wired-into-jobs-that-cannot-run-them — 19 gates with no launcher, 28 steps behind a timeout
 
 <!-- status: fixed
