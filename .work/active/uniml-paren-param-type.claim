@@ -2,10 +2,14 @@ slug: uniml-paren-param-type
 branch: feature/uniml-paren-param-type
 agent: claude-code
 started: 2026-08-15T18:42:47Z
-heartbeat: 2026-08-15T18:42:47Z
-status: claimed-before-planning
+heartbeat: 2026-08-15T19:14:42Z
+status: in-progress
 items: v3-uniml-drops-a-parenthesised-parameter-type
 paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Capture the parenthesised parameter type in uniml's `def` parameter loop instead of skipping it,
+  so `def go(t: (Int, String))` records `Param.tpe` and the default front stops refusing a call
+  that v3's own front accepts (invariant I-3). One call site in ScalaSpike.scala, reusing
+  `captureType`, which already handles the balanced-paren domain. Closing the entry in v3/BUGS.md
+  with a before/after corpus measurement taken on this host.
+next: A/B the corpus report before/after, then close the entry
