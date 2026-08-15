@@ -1,3 +1,75 @@
+## f-gap-tail-2026-08-15 — the crash is fixed; three narrowed defects behind it
+
+<!-- status: open
+     lane: native
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes
+     gate: tests/e2e/f-gap-tail-gate.sh -->
+
+Working the small GAP buckets left after effects and `handler` landed. **One fixed, three narrowed
+to minimal reproducers and left open.** Each was measured, and in each case the bucket's NAME was a
+poor guide to its cause.
+
+### FIXED — `f"${"x"}"` crashed the compiler (`f9031bd4f`)
+
+`Range [3, 3) out of bounds for length 2`, not a decline. Every string was scanned with the plain
+rule, so an interpolated literal ended at its inner quote. Fixed by the reference's three-way split;
+the plain-string rows in the gate guard behaviour F already had right. See `f-gap-tail-gate.sh`.
+
+### OPEN 1 — a guarded tuple-of-cons arm drops its binders
+
+```scalascript
+(List(5), List(2)) match
+  case (ah :: at, bh :: bt) if ah <= bh => println("h " + ah + at)
+  case _ => println("no")
+```
+
+`F: unbound global: (global at)` · `ref: h 52`. **Remove the guard and it compiles.**
+
+`isTupArmOk` requires `=>` immediately after the pattern, so a guard sends the arm to the var
+fallback, which reads `(` as a variable name. The comment above it says "Non-cpat/guarded -> keep the
+old var fallback (no corpus need, no regression)" — there is a corpus need now:
+`tests/conformance/standard-scala-multifence.ssc`, which reached this defect only once the crash
+above was fixed.
+
+Fixing it means giving the nested-arm machinery the guard treatment `parseGenCtorGuard` already has
+(parse the guard on the arm scope, then the rest TWICE — once as the default, once on a failed
+scope). That machinery carries the obligation/fail-scope logic, and a mistake there is a silent
+wrong answer rather than a decline, which is why this is filed rather than rushed.
+
+### OPEN 2 — a placeholder in a CONSTRUCTOR application
+
+```scalascript
+def main(): Unit = println(List(1, 2).map(Some(_)))
+```
+
+`F: unbound global: (global _)` · `ref: List(Some(1), Some(2))`.
+
+**The def path handles the same shapes.** Measured side by side:
+
+```
+g(_, 10)   def call, placeholder + second arg   F fine
+g(_)       def call, bare placeholder           F fine
+P(_, 9)    ctor call, placeholder + second arg  F: (global _)
+Some(_)    ctor call, bare placeholder          F: (global _)
+```
+
+Two corpus files: `tests/conformance/dsl-multi-pass.ssc` (`env.get(name).map(Right(_))`) and
+`examples/wasm-primes.ssc` (`(2 to limit).filter(!composite(_))` — that one is under a prefix `!`,
+which may be a third sub-shape and is NOT yet separated from this one).
+
+### OPEN 3 — `__u0` is NOT the same defect as `_`
+
+Worth stating because I nearly recorded it as one. Both buckets are placeholder-related, so the
+tempting reading is "one feature, five files". They report DIFFERENT names — `(global _)` above
+versus `(global __u0)` for `examples/content-live-rows.ssc`,
+`examples/markdown-toolkit-links.ssc` and `std/ui/content.ssc` — and `__u0` is the name F assigns
+when it HAS decided to wrap a placeholder and renamed it. So the `_` files never reached the
+renaming and the `__u0` files did: different stages, and not necessarily the same fix.
+`f-placeholder-u0-reduced-but-not-solved` holds that half.
+
 ## f-curried-clause-param-lost-in-std-agent — `(global handler)`, and it is not what it looks like
 
 <!-- status: fixed
