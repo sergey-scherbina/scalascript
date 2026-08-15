@@ -444,6 +444,37 @@ jobs:
           tests/e2e/conformance-lanes-flag.sh
           tests/e2e/scljet-m2-corpus-smoke.sh
 
+      # ── MOVED OFF THE PUSH PATH 2026-08-15, by the same argument as the block above ──────────
+      #
+      # These nine were in `scripts/smoke-ci.ssc` and cost 580.4 s of a 1425.5 s suite — 40.7 %,
+      # with seven of them among the eleven most expensive checks it had. Measured off the
+      # refreshed baseline (twelve real CI runs): f-at-bind-pattern 98.0 s, f-bodyless-object 81.0,
+      # f-cons-nil-tail 80.9, f-cons2-no-arm 67.4, f-handler-param 60.5, f-gap-tail 51.3,
+      # f-front-exit-reason 51.3, f-foldable-grade 51.0, f-effects 27.4.
+      #
+      # `smoke.yml` caps its job at 30 min and requires that cap to stay strictly looser than the
+      # suite's budget plus build time. With these nine on the push path the budget alone was
+      # 28.0 min typical and 30.6 min at the clamp's upper end — which is what 17 cancelled runs
+      # in 100 were, and `cancelled` is RED carrying no evidence at all (P-6.7). Without them the
+      # suite is ~845 s and its budget ~1095 s.
+      #
+      # THEY ARE STILL IN THE SMOKE SUITE, marked `optional`, so every push prints them as `skip`
+      # rather than letting them vanish — and `SSC_SMOKE_OPTIONAL=1` runs them locally. This step
+      # is where they actually execute, because `ci.yml` does not run `smoke-ci` at all: marking
+      # them optional without wiring them HERE would have been deletion wearing a flag.
+      - name: F-front regression gates — moved off the push path
+        if: always()          # see the block above this job's steps
+        run: |
+          tests/e2e/f-at-bind-pattern-gate.sh
+          tests/e2e/f-bodyless-object-gate.sh
+          tests/e2e/f-cons-nil-tail-gate.sh
+          tests/e2e/f-cons2-no-arm-gate.sh
+          tests/e2e/f-handler-param-gate.sh
+          tests/e2e/f-gap-tail-gate.sh
+          tests/e2e/f-front-exit-reason-gate.sh
+          tests/e2e/f-foldable-grade-gate.sh
+          tests/e2e/f-effects-gate.sh
+
       # Was in neither tier, which is why its failure went unread for weeks and got recorded in the
       # orphan census as "empty output" — the gate discarded stderr. It runs four lanes end to end,
       # one of them a scala-cli JVM compile: 6.5 s local, so it belongs here and not under the smoke

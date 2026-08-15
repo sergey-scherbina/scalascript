@@ -368,7 +368,29 @@ val suite = List(
   // five reproduce the three symptoms (rest discarded, continued def body eaten, members attributed
   // to the WRONG object) and five are the shapes that must not move, including the `given … with`
   // body that reaches the same shared scan.
-  Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 300000),
+  // ── THE F-FRONT REGRESSION GATES ARE OPTIONAL HERE AND RUN IN THE NIGHTLY — 2026-08-15 ────────
+  //
+  // Nine `tests/e2e/f-*-gate.sh` gates cost 580.4 s of a 1425.5 s suite — 40.7 %, and seven of them
+  // are in the eleven most expensive checks the suite has. Measured off the refreshed baseline
+  // (`tests/smoke-baseline.tsv`, twelve real CI runs), per check: f-at-bind-pattern 98.0 s,
+  // f-bodyless-object 81.0, f-cons-nil-tail 80.9, f-cons2-no-arm 67.4, f-handler-param 60.5,
+  // f-gap-tail 51.3, f-front-exit-reason 51.3, f-foldable-grade 51.0, f-effects 27.4.
+  //
+  // WHY THEY GO. `.github/workflows/smoke.yml` caps the job at 30 minutes and requires that cap to
+  // stay STRICTLY LOOSER than this suite's budget plus build time. With these nine on the push path
+  // the budget alone is 28.0 min at a typical host probe and 30.6 min at the clamp's upper end —
+  // violated at the typical host, impossible at the slow one. That is what 17 cancelled runs in 100
+  // were: killed at the cap, and `cancelled` is RED with no evidence in it (P-6.7). Without them the
+  // suite is ~845 s and the budget ~1095 s ≈ 18 min, which is a cap that can speak again.
+  //
+  // WHERE THEY WENT, because `optional` alone would have been deletion wearing a flag: `ci.yml`
+  // does NOT run this suite — it carries its own gate list — so a check marked optional here and
+  // wired nowhere else runs in no tier at all. All nine are now a step in the tier-2 job, beside
+  // the "Gates without a home" steps that exist for exactly this reason.
+  //
+  // They still PRINT here, as `skip`, every run: an optional check and a deleted one must never
+  // look the same in a log (see the OPTIONAL block above). `SSC_SMOKE_OPTIONAL=1` runs them locally.
+  Check("v2", "f-bodyless-object", "tests/e2e/f-bodyless-object-gate.sh", List(), 300000, optional = true),
   // The `list-concat-chain` disease one dispatch over, and found the same way — by somebody
   // checking something else. A bare `recv.name` on a BUILTIN receiver has no nullary dispatch, so
   // it becomes the eta-expansion function value; that fallback cannot tell a genuine method
@@ -389,49 +411,49 @@ val suite = List(
   // match evaluate to a lambda — F printed `<closure>` where both other lanes print the value.
   // Fourteen rows, both fronts; three of them exist only to reach the second resolver, which a
   // sealed-trait scrutinee never does.
-  Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000),
+  Check("v2", "f-at-bind-pattern", "tests/e2e/f-at-bind-pattern-gate.sh", List(), 300000, optional = true),
   // Fourth of the family, and the one the CENSUS found rather than a person: `case h :: Nil` in the
   // ordered resolver, which had no cons rule, so the arm became a catch-all VAR bound to the whole
   // scrutinee — `one:List(4, 5)` where the reference says `other`. Wrong value AND wrong arm, on
   // nine tests/conformance/scljet-* files. Eleven rows; eight reach the ordered resolver because
   // their `Nil` tail is what routes them there, three reach the ctor path as controls.
-  Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 300000),
+  Check("v2", "f-cons-nil-tail", "tests/e2e/f-cons-nil-tail-gate.sh", List(), 300000, optional = true),
   // Fifth of the family, and the only one where F's COMPILER died rather than F declining:
   // `given … with` registered into objReg with the OLD payload shape (a bare member list) after that
   // payload was widened to a (members, vars) pair for plain objects, so the reader's `fst` hit a
   // Cons and F crashed with `match: no arm for Cons/2` on any member call to a given BY NAME. Nine
   // rows; four are the crash, and `object-var-member` / `given-def-is-not-a-var` guard the two
   // halves of the widened pair the fix now makes givens carry.
-  Check("v2", "f-cons2-no-arm", "tests/e2e/f-cons2-no-arm-gate.sh", List(), 300000),
+  Check("v2", "f-cons2-no-arm", "tests/e2e/f-cons2-no-arm-gate.sh", List(), 300000, optional = true),
   // Sixth, and the one that was invisible rather than hard: a documentation module — markdown whose
   // only fences are ```sh / ```text — made F exit 1 where the reference front has always run it as
   // an empty program. F's runner has an ordering pass the reference does not have at all, and it
   // hard-exited on a root with no code. Twelve rows over the five real corpus files plus a
   // synthetic one; `note-still-printed` guards the stderr note, which was correct and is kept.
-  Check("v2", "f-front-exit-reason", "tests/e2e/f-front-exit-reason-gate.sh", List(), 300000),
+  Check("v2", "f-front-exit-reason", "tests/e2e/f-front-exit-reason-gate.sh", List(), 300000, optional = true),
   // Algebraic effects on F — the census's largest single gap, and a TRANSLATION rather than a
   // feature: the runtime owns the continuations, so `multi` costs nothing beyond choosing a
   // different prim. Five rows; `multi-effect-declares` resumes twice per pick, which is the one
   // that proves the right prim was chosen rather than the label merely parsing.
-  Check("v2", "f-effects", "tests/e2e/f-effects-gate.sh", List(), 300000),
+  Check("v2", "f-effects", "tests/e2e/f-effects-gate.sh", List(), 300000, optional = true),
   // A curried clause on a CONTINUATION LINE, which took THREE sites: the layout inserts a separator
   // before the `(`, and the declaration parser, the curried-call registry and the using-injection
   // registry each tested `hd(r)` for it independently. Fixing one at a time walked the symptom from
   // `unbound global` to `arity: 2 expected, 1 given` twice. Eight rows; `tuple-statement-after-def`
   // is why the fix is in the def parser and not in the layout.
-  Check("v2", "f-handler-param", "tests/e2e/f-handler-param-gate.sh", List(), 300000),
+  Check("v2", "f-handler-param", "tests/e2e/f-handler-param-gate.sh", List(), 300000, optional = true),
   // `f"${"x"}"` CRASHED the compiler (`Range [3, 3) out of bounds`): every string was scanned with
   // the plain rule, so an interpolated one ended at its inner quote. The fix is the reference's
   // three-way split — interpolated only when an identifier abuts the opening quote — and the plain
   // rows are the controls that matter: scanning every string as interpolated makes `println("${")`
   // eat its own closing quote, which is behaviour F already had RIGHT.
-  Check("v2", "f-gap-tail", "tests/e2e/f-gap-tail-gate.sh", List(), 300000),
+  Check("v2", "f-gap-tail", "tests/e2e/f-gap-tail-gate.sh", List(), 300000, optional = true),
   // Scala 3 separates additional parents with a COMMA as well as `with`, and F's chain knew only
   // `with` — so `trait Traversable[T[_]] extends Functor[T], Foldable[T]` left the second parent in
   // the token stream to be read as an expression, and the file declined on the name of its own
   // trait. Seven rows; three are the separators that already worked, because the fix extends a
   // recursion and getting that wrong breaks them.
-  Check("v2", "f-foldable-grade", "tests/e2e/f-foldable-grade-gate.sh", List(), 300000),
+  Check("v2", "f-foldable-grade", "tests/e2e/f-foldable-grade-gate.sh", List(), 300000, optional = true),
   // A placeholder in a CONSTRUCTOR application: the wrapper tested the call head for a lowercase
   // identifier, so `Some(_)` never reached it while `g(_)` did. Eight rows, and
   // `nested-call-scopes-inner` is the one that matters — Scala scopes a placeholder to the SMALLEST
@@ -1170,8 +1192,12 @@ def main() =
   if listOnly then
     println("smoke-ci — " + suite.length.toString() + " checks, budget " +
             (if budgetOverride == "" then "host-relative" else budgetOverride + "s"))
+    // OPTIONAL IS MARKED HERE, because `--list` is what a reader consults to know what a push runs
+    // and an unmarked list overstates it by however many are parked. That was one check when this
+    // printer was written and is ten now, so the difference stopped being cosmetic.
     suite.foreach(check =>
-      println("  " + pad(check.module, 34) + check.name + "  (" + check.cmd + ")"))
+      println("  " + pad(check.module, 34) + check.name + "  (" + check.cmd + ")" +
+              (if check.optional then "  [optional — SSC_SMOKE_OPTIONAL=1]" else "")))
     exit(0)
 
   val probeMillis = hostProbeMillis()

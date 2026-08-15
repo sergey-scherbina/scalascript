@@ -389,6 +389,46 @@ worst case — is gone, and the suite's median has moved from 16.8 to 26.0. Eith
 the suite's real duration does; the inner budget cannot report on this one, because a job killed at
 30 min never reaches the line that prints it.
 
+
+### DECIDED 2026-08-15 by Sergiy: take work off the push path. Nine F-front gates moved to the nightly
+
+The nine `tests/e2e/f-*-gate.sh` gates are `optional` in `scripts/smoke-ci.ssc` and now run as a
+step in `ci.yml`'s tier-2 job. Costs from the refreshed baseline, twelve real CI runs:
+
+| gate | s | | gate | s |
+|---|---|---|---|---|
+| `f-at-bind-pattern` | 98.0 | | `f-gap-tail` | 51.3 |
+| `f-bodyless-object` | 81.0 | | `f-front-exit-reason` | 51.3 |
+| `f-cons-nil-tail` | 80.9 | | `f-foldable-grade` | 51.0 |
+| `f-cons2-no-arm` | 67.4 | | `f-effects` | 27.4 |
+| `f-handler-param` | 60.5 | | **total** | **580.4** |
+
+**580.4 s of a 1425.5 s suite — 40.7 %**, and seven of the nine were among the eleven most expensive
+checks the push path had.
+
+| | before | after |
+|---|---|---|
+| suite | 1425.5 s | **~845 s** |
+| derived budget, typical probe | 1682 s ≈ 28.0 min | **~1095 s ≈ 18.2 min** |
+| derived budget, clamp upper end | 1835 s ≈ 30.6 min | **~1190 s ≈ 19.8 min** |
+| job cap | 30 min | 30 min |
+
+So the rule the cap is written under — it must stay STRICTLY LOOSER than the suite's budget plus
+build time — holds again with about ten minutes of room, where it was violated at a typical host and
+impossible at a slow one.
+
+**`optional` ALONE WOULD HAVE BEEN DELETION WEARING A FLAG.** `ci.yml` does not run `smoke-ci` — it
+carries its own gate list — so a check parked here and wired nowhere else runs in no tier at all.
+The nine are therefore also a named step in the tier-2 job, beside the "Gates without a home" steps
+that exist for the same reason.
+
+**They stay VISIBLE on every push,** printed as `skip` rather than vanishing: the OPTIONAL block in
+`smoke-ci.ssc` requires that an optional check and a deleted one never look the same in a log.
+`--list` now says so too — it had no marker, which was cosmetic when one check was parked and is not
+when ten are, since `--list` is what a reader consults to know what a push runs.
+
+**Verified by the suite's own reader, not by grep:** `scripts/smoke-ci --list` reports 114 checks
+with exactly 10 marked optional — the nine here plus the pre-existing `stdin-ownership`.
 ## f-trait-parent-list-comma — `extends A, B` left the second parent in the token stream
 
 <!-- status: fixed
