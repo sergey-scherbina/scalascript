@@ -3,9 +3,50 @@ branch: feature/v3-plugin-path-for-the-executor
 agent: claude-code
 started: 2026-08-15T15:45:55Z
 heartbeat: 2026-08-15T15:45:55Z
-status: claimed-before-planning
+status: working
 items: v3-plugin-path-for-the-executor
 paths: file:v3/src/Exec.scala file:v3/src/Lower.scala file:v3/specs/00-charter.md file:v3/plugins file:v3/ssc3
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The owner's decision of 2026-08-15: give v3's executor a path to plugin intrinsics. It is the
+  single unlock for the whole `host function '…' is not implemented on this lane` bucket — 30
+  refusals today, the largest single-cause group left in the corpus.
+
+  THE OWNER CORRECTED MY FRAMING AND HE WAS RIGHT. I had reported these as "needing prims in v2".
+  They are PLUGIN INTRINSICS and they already exist: `element` in
+  `v1/runtime/plugins/frontend-plugin/…/FrontendIntrinsics.scala`, `envOrElse` in `os-plugin`,
+  `sha256` in the cross-backend parity list. v2 has a plugin SPI (`NativePluginHost.register`) and a
+  registry (`V2PluginRegistry`, a plain name -> `List[Value] => Value` map inside `v2/src`). What v3
+  has is NOTHING: grep finds the plugin SPI named in v3's charter and in six comments, and in no
+  code.
+
+  MEASURED TODAY, so the starting point is not assumed. Both lanes refuse identically and at
+  LOWERING, not at run time: `the host function 'mkdirs' is not implemented on this lane` from
+  `resolveExtern`'s fallback. So there is NO divergence today — there is a uniform honest refusal,
+  and that is the property any fix must preserve.
+
+  WHY THE OBVIOUS ROUTE IS WRONG, and it is recorded in `Lower.scala` because it was already tried:
+  handing the extern's name straight to the lane as a prim let v2's plugins answer on the BRIDGE and
+  nothing answer on the EXECUTOR, so the two lanes disagreed on 11 cases and FIVE PROGRAMS RAN AND
+  PRINTED THE WRONG THING. Any design that lets one lane answer alone reproduces that.
+
+  THE DESIGN, and the constraint that shapes it: ONE implementation must serve BOTH lanes.
+    - `v3/src` gains a REGISTRY — name -> `List[Value] => Value` — mirroring `V2PluginRegistry`'s
+      shape. It is kernel code with zero dependencies, which is what I-1 asks: the kernel holds the
+      door, not what comes through it.
+    - `Exec.prim` consults it before refusing an unknown primitive.
+    - `Lower` consults it too, because the refusal is issued at LOWERING: an extern with a provider
+      must lower to a `Prim` rather than to the positioned throw.
+    - PROVIDERS LIVE OUTSIDE `v3/src`, in a new `v3/plugins` source directory compiled alongside —
+      exactly how `alphabet/src` is already added by `v3/ssc3`. A provider registers into v3's
+      registry AND into `V2PluginRegistry`, with the value conversion at that boundary, so the
+      bridge answers from the SAME implementation. Both lanes agree by construction rather than by
+      coincidence.
+
+  SLICE: the design recorded in the charter, the registry, both hooks, and ONE intrinsic proven end
+  to end on BOTH lanes. `mkdirs` is the candidate — JDK-only, two corpus cases, and impossible to
+  get subtly wrong. The other 28 are follow-ups, not this claim.
+
+  MEASUREMENT: N with floors DIFF 3 / CRASH 9; `mkdirs` answering identically on `ssc3 run` and
+  `ssc3 run --bridge`; and the uniform-refusal property preserved for every name that still has no
+  provider.
+next: record the design, add the registry, hook both sites, prove mkdirs on both lanes
