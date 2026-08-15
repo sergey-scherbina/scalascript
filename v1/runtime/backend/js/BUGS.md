@@ -1959,6 +1959,58 @@ again.
 **Acceptance test:** the two-file control in the table, on js. Route the CLI sites through
 `Parser.sectionImports` as the generators already do, then delete the declaration from both halves.
 
+
+### 2026-08-15 — the CLI-import-discovery diagnosis above is REFUTED, and the divergence is narrower
+
+**`emit-js` WORKS. Only `run-js` is broken.** Same launcher, same build, same file:
+
+```text
+ssc-tools emit-js native-import-in-fence.ssc | node   ->  25 27 720 49   correct
+ssc-tools run-js  native-import-in-fence.ssc          ->  ReferenceError: square is not defined
+```
+
+So the fix in `0796774ad` is real for one command and absent in the other, and the section above
+naming `AutoResolve.scala:211` / `Main.scala:1557` etc. as the miss is **wrong** — those sites were
+never shown to be on `run-js`'s path; they were inferred from a grep.
+
+**AND IT EXPLAINS WHY TWO SUITES DISAGREE ABOUT ONE CASE.** The harnesses define "the js lane" as two
+different commands:
+
+```text
+tests/conformance/run.sc       js lane = `emit-js` piped into node   -> PASS
+tests/conformance/contract.sc  js lane = `run-js`                    -> FAIL   (contract.sc:669)
+```
+
+A defect in either command is invisible to the other suite, and **no single `known-red: js` can be
+correct for both** — which is exactly what happened: restoring the declaration made `contract.sc`
+green and turned `run.sc` red with *"STALE known-red: this lane now PASSES"*. That red is a true
+statement about `emit-js` and a false one about the lane as a user meets it.
+
+**WHERE IT IS NOT.** Each of these was measured, not reasoned about, and each came back negative:
+
+| hypothesis | probe | result |
+| --- | --- | --- |
+| `Normalize`→`Denormalize` drops the in-fence import | `Parser.sectionImports` before and after | **survives** |
+| `MacroCodegen.expand` drops it | same, after expand | **survives** |
+| `JsGen.generate` misses it where `generateWithStats` does not | both entry points, both module shapes | **all four DEFINE `square`** |
+| a stale build | both commands from one launcher, one stamp | **both reproduce** |
+
+`JsBackend` is the registered `"js"` backend and its path is
+`compileViaBackend` → `Normalize` → `backend.compile` → `Denormalize` → `JsGen.generate`. Replicating
+that chain in isolation EMITS the import correctly, while the real `run-js` does not — so the
+remaining difference is something that chain does not capture: the backend's own `intrinsics`
+overlay, or `BackendOptions.extra`, are the two variables left uncontrolled.
+
+**Next probe, so nobody repeats the four above:** call the registered backend directly
+(`scalascript.plugin.BackendRegistry.lookup("js")`) with the backend's real intrinsics and compare
+its `TextOutput` against `JsGen.generate` with empty intrinsics. If they differ, the intrinsics
+overlay is the site; if they agree, the loss is after `compile`, in how `run-js` assembles
+`runtime + frontendInit + userCode`.
+
+**Filed rather than fixed, deliberately.** The measured facts above are worth more than a guess at
+the fix, and the four negative results are the expensive part — each one is a hypothesis the next
+reader would otherwise re-form.
+
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
 <!-- status: open
      lane: js
