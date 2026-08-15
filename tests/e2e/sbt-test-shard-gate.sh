@@ -77,6 +77,23 @@ if "$SHARD" --list --shard 1/0 --from "$FIX" >/dev/null 2>&1; then
 if "$SHARD" --shard 13/14 --from "$FIX" >/dev/null 2>&1; then
   bad "ran a slice that selected 0 suites"; else ok "refuses to RUN an empty slice"; fi
 
+# THE QUERY ITSELF, frozen — because everything above runs on a synthetic listing through `--from`
+# and therefore cannot see what the script actually asks sbt. On 2026-08-15 all four dispatch shards
+# refused with an empty enumeration while this gate was green, and the cause was the QUERY: the
+# sbt 0.13 colon form `show test:definedTestNames` is accepted by sbt 1.10.7, warned about,
+# COMPILED for, reported `[success]` on — and prints nothing. Measured both ways on the same warm
+# server: colon 0 headers in 259 s, slash 273 headers in 109 s.
+#
+# This check cannot ask sbt (that is four minutes and a build), so it freezes the spelling instead.
+# A gate that can only test the parser should at least say which question the parser is fed.
+# COMMENTS ARE STRIPPED FIRST, and the first version of this check did not: the script's own
+# comment quotes the dead colon form to explain why it is dead, and the check read that as the
+# defect. A freeze that cannot tell code from prose fires on the explanation of the thing it
+# guards.
+if grep -vE '^[[:space:]]*#' "$SHARD" | grep -q 'show test:definedTestNames'; then
+  bad "the enumeration uses the sbt 0.13 colon form, which prints NOTHING on sbt 1.10.7 — use \`show Test/definedTestNames\`"
+else ok "the enumeration asks in slash syntax, which is the form that prints a value"; fi
+
 echo
 [ "$fail" -eq 0 ] && { echo "✓ sbt test shard partition gate PASSED"; exit 0; }
 echo "✗ sbt test shard partition gate FAILED"; exit 1

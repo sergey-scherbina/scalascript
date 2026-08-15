@@ -52,9 +52,23 @@ fi
 
 # ── enumeration ──────────────────────────────────────────────────────────────
 #
-# `show test:definedTestNames` prints, per project:
+# `show Test/definedTestNames` prints, per project:
 #     [info] <project> / Test / definedTestNames
 #     [info] 	Vector(a.B, c.D)
+#
+# SLASH SYNTAX, AND THE COLON FORM IS NOT A STYLE CHOICE HERE — it produced NOTHING.
+# This read `show test:definedTestNames` until 2026-08-15, which sbt 1.10.7 accepts, warns about
+# ("sbt 0.13 shell syntax is deprecated"), COMPILES every test source for, reports `[success]` on,
+# and prints no value at all. A silent no-op that costs four minutes. Measured on this build,
+# warm server, same command in both forms:
+#
+#     show test:definedTestNames    0 headers, 0 Vector lines, 259 s, [success]
+#     show Test/definedTestNames  273 headers, 274 Vector lines, 109 s, [success]
+#
+# So the enumeration was empty for a reason that had nothing to do with the parser or with the
+# build being broken, which is why the refusal below could not name it: both of the causes it
+# offered were wrong. The parser and this file's format expectations were correct throughout —
+# `show Test/sources` proves the same shape independently.
 # It needs the test sources COMPILED, which is why a shard job reuses the compile it already did
 # rather than paying twice.
 # STDERR IS KEPT, and that is the whole point of this function's shape.
@@ -67,7 +81,7 @@ fi
 ENUM_ERR="${TMPDIR:-/tmp}/sbt-test-shard-enum.err"
 enumerate() {
   if [[ -n "$from_file" ]]; then cat "$from_file"; return; fi
-  "$ROOT/scripts/sbtc" "show test:definedTestNames" 2>"$ENUM_ERR"
+  "$ROOT/scripts/sbtc" "show Test/definedTestNames" 2>"$ENUM_ERR"
 }
 
 pairs="$(enumerate | awk '
