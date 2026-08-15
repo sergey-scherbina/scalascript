@@ -1008,9 +1008,22 @@ object Lower:
         (acc :+ Instr.CallV(d, st.lookup(fn).get, args), d, st1)
       else
         val idx = fns.indexOf(fn)
-        if idx < 0 then throw LowerFail(p, "call to unknown function '" + fn + "'")
-        val (d, st1) = st.fresh
-        (acc :+ Instr.Call(d, idx, args), d, st1)
+        if idx < 0 && Plugins.registered.contains(fn) then
+          // A PLUGIN GLOBAL — a function the program calls by name that no `extern` declares.
+          // `suspend(1)` in `coroutine-basic.ssc` is not an extern and never was: generator-plugin
+          // puts it in the registry's `globalValues` table with `registerGlobal`, and on the v2 lane
+          // it resolves because that table IS the program's global namespace. This arm is the same
+          // resolution for v3, and it sits LAST on purpose — after the scope lookup, the global
+          // cell and the top-level function list — so a plugin can never shadow a name the program
+          // defines itself. The bridge answers these too, through v2's own resolution, which is the
+          // condition `V2Fleet` registers under.
+          val (pi, st1) = st.primIdx(fn)
+          val (d, st2) = st1.fresh
+          (acc :+ Instr.Prim(d, pi, args), d, st2)
+        else if idx < 0 then throw LowerFail(p, "call to unknown function '" + fn + "'")
+        else
+          val (d, st1) = st.fresh
+          (acc :+ Instr.Call(d, idx, args), d, st1)
 
   /** `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the oracle, not assumed — so it is
     * ordinary `MkData` over the type table rather than a special form anywhere downstream. */

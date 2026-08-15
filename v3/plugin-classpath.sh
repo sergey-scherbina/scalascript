@@ -31,6 +31,11 @@ MODULES=(
   v2NativeJsonPlugin
   v2NativeCryptoPlugin
   v2NativeActorsPlugin
+  # COROUTINES AND GENERATORS, which reach v3 through the registry's `globalValues` table rather
+  # than through Prim handlers: `suspend`, `coroutineCreate`, `coroutineResume` are all
+  # `registerGlobal`, and six corpus cases wait on the first of them.
+  v2NativeGeneratorPlugin
+  v2NativeDatasetPlugin
 )
 
 cd "$ROOT" || exit 2

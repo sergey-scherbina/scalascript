@@ -40,8 +40,80 @@ object V2Fleet:
       // `v2/src` entirely: the registry already exposes its table as a public map for batch
       // isolation, so no v2 edit is needed to list what the fleet registered.
       ssc.V2PluginRegistry.snapshot().handlers.foreach { (name, fn) =>
-        Plugins.register(name, (m, args) => call(m, fn, args))
+        // The tombstone filter belongs on BOTH tables, because json-plugin's `native` helper
+        // registers a name into `handlers` AND `globalValues` in one call — so excluding it from
+        // the globals alone left it reachable and `json-lookup` still died on the redirect.
+        if !selfHosted(name) then Plugins.register(name, (m, args) => call(m, fn, args))
       }
+      installGlobals()
+
+  /** THE SECOND TABLE, and the one with the corpus cases behind it.
+    *
+    * `handlers` is what `register` fills and it is not where a plugin puts a FUNCTION THE PROGRAM
+    * CALLS BY NAME. `suspend` — six corpus cases — is `registerGlobal("suspend", 1)` in
+    * generator-plugin, and the host wraps that into `Value.ClosV(emptyEnv, arity, env =>
+    * Done(fn(env.toList)))` before storing it in `globalValues`. So the value in the table is a v2
+    * CLOSURE whose body is the plugin's function, and calling it needs no general v2-closure
+    * applier: the env is empty by construction, so applying it is running its body on the argument
+    * array and taking the `Done`.
+    *
+    * ONLY `ClosV` IS BRIDGED, and anything else in that table is left alone rather than guessed at.
+    * `registerValue` can store a plain datum under a global name, and a datum is not callable; a
+    * bridge that assumed every global was a function would turn a wrong shape into a class-cast
+    * crash at run time instead of a refusal at compile time. */
+  private def installGlobals(): Unit =
+    ssc.V2PluginRegistry.allGlobalNames().foreach { name =>
+      if !selfHosted(name) then
+        ssc.V2PluginRegistry.lookupGlobal(name) match
+          case Some(c: ssc.Value.ClosV) =>
+            Plugins.register(name, (m, args) => call(m, as => applyClos(c, as), args))
+          case _ => ()
+    }
+
+  /** A GLOBAL WHOSE ONLY BEHAVIOUR IS TO REDIRECT THE CALLER IS NOT AN IMPLEMENTATION.
+    *
+    * json-plugin registers `jsonParse` with a body that throws
+    * `jsonParse is self-hosted; import std/json.ssc` — a TOMBSTONE, there so v2 can answer "import
+    * the module" instead of "unknown name". Bridging it turned `json-lookup` from an honest refusal
+    * into a stack trace: measured, +1 DIFF against a control on the same tree, which is the exact
+    * trade the DIFF floor exists to refuse.
+    *
+    * ONE NAME, AND THE CENSUS IS COMPLETE RATHER THAN A GUESS: `grep -rn 'self-hosted'` across every
+    * plugin's sources finds exactly one global of this shape in the wired fleet. Re-run that grep
+    * when a module is added to `v3/plugin-classpath.sh`; a tombstone cannot be detected by calling
+    * it, because calling it is the failure. */
+  private def selfHosted(name: String): Boolean = name == "jsonParse"
+
+  /** THE SAME GLOBALS, MADE ANSWERABLE ON THE BRIDGE — called from `V2Cli`, in v2's process.
+    *
+    * Lowering is SHARED, so once it emits `(prim "coroutineCreate" …)` for a globals-table name both
+    * lanes get that IR. v2 resolves such a name as a Global, not a Prim, so `Prims.resolve` looked
+    * only in `handlers`, missed, and the bridge died with `unimplemented primitive:
+    * coroutineCreate` while the executor answered. Measured, not feared: that is exactly the
+    * one-lane-answers divergence this file's header describes, reproduced by my own change before it
+    * landed.
+    *
+    * Copying the globals into `handlers` in the bridge's process closes it, and it belongs HERE
+    * rather than in `v2/src` for the same reason as everything else in this file: v2 does not need
+    * to know that v3 lowers a global as a prim. */
+  def installGlobalsAsHandlers(): Unit =
+    ssc.V2PluginRegistry.allGlobalNames().foreach { name =>
+      if !selfHosted(name) then
+        ssc.V2PluginRegistry.lookupGlobal(name) match
+          case Some(c: ssc.Value.ClosV) =>
+            ssc.V2PluginRegistry.register(name, args => applyClos(c, args))
+          case _ => ()
+    }
+
+  /** Apply a v2 closure whose environment is empty. The body answers a trampoline step; a plugin
+    * global's body is `Done(...)` by construction, and a `More` here would mean the table held a
+    * user closure rather than a registered global — refused by name instead of driven, because
+    * driving v2's trampoline from here would be v3 running v2's evaluator. */
+  private def applyClos(c: ssc.Value.ClosV, args: List[ssc.Value]): ssc.Value =
+    c.code(args.toArray) match
+      case ssc.Done(v) => v
+      case _ => throw ssc3.ExecError(
+        "a plugin global did not answer immediately, which this bridge does not drive")
 
   private var installed = false
 
@@ -63,6 +135,11 @@ object V2Fleet:
     catch
       case t: ssc.SscThrow  => throw ssc3.ExecThrow(toV3(m, t.value), String.valueOf(t.value))
       case e: ssc3.ExecThrow => throw e
+      // AN INTERNAL REFUSAL IS NOT A PROGRAM EXCEPTION and must not be dressed as one. `ExecError`
+      // is this bridge saying it cannot convert a shape; turning it into a catchable `ExecThrow`
+      // let it surface as a JVM stack trace from a `try` the program never wrote, and would let a
+      // program CATCH a limitation of the adapter as though it were a failure of the host call.
+      case e: ssc3.ExecError => throw e
       case e: Throwable     =>
         val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
         throw ssc3.ExecThrow(Value.VStr(msg), msg)
@@ -100,6 +177,29 @@ object V2Fleet:
     case Value.VSet(es)   => ssc.Value.SetV.from(es.map(e => toV2(m, e)))
     case Value.VArr(items) =>
       ssc.Value.ForeignV(collection.mutable.ArrayBuffer.from(items.map(i => toV2(m, i))))
+    // A HANDLE GOES BACK EXACTLY AS IT CAME. It was never anything but a v2 `ForeignV` — v3 only
+    // carried it — so this is an unwrap, not a conversion, and the plugin receives the same object
+    // it handed out. Reference identity is the whole contract: `coroutineResume(h, x)` resumes THAT
+    // coroutine, not an equal one.
+    case Value.VForeign(h, _) => ssc.Value.ForeignV(h)
+    // A CLOSURE CROSSES AS A v2 CLOSURE WHOSE BODY RE-ENTERS v3. This was refused until now, and the
+    // refusal is what actually blocked coroutines: `coroutineCreate(body)` takes a function, and the
+    // plugin calls it later through `context.invoke`, which accepts a `ClosV` and drives its `code`.
+    // So the wrapper is that `code` — it converts the arguments back, runs v3's own `applyValue`,
+    // and converts the answer.
+    //
+    // ARITY -1 ON PURPOSE. `invoke` checks `clos.arity != args.length` only when the arity is
+    // non-negative, and v3's `VClos` carries captured values rather than a remaining arity, so there
+    // is no honest number to put here. -1 says "do not check" instead of inventing one that would be
+    // wrong for a partially-applied closure.
+    //
+    // THE HOST MAY CALL THIS ON ANOTHER THREAD — generator-plugin runs a coroutine body on a virtual
+    // thread — and that is safe here only because the coroutine protocol hands control over rather
+    // than sharing it: exactly one of the two threads is inside the executor at any moment, and the
+    // plugin's own lock is what publishes the state between them.
+    case Value.VClos(_, _) =>
+      ssc.Value.ClosV(ssc.Runtime.emptyEnv, -1,
+        env => ssc.Done(toV2(m, ssc3.Exec.applyValue(m, v, env.toList.map(a => toV3(m, a))))))
     case other            => throw ssc3.ExecError(
       "a host function was passed " + other.getClass.getSimpleName +
       ", which this plugin bridge does not convert yet")
@@ -126,6 +226,12 @@ object V2Fleet:
     // through as an opaque value the executor could not act on.
     case ssc.Value.ForeignV(h: collection.mutable.ArrayBuffer[?]) =>
       Value.VArr(h.iterator.map(x => toV3(m, x.asInstanceOf[ssc.Value])).toArray)
+    // ANY OTHER FOREIGN OBJECT IS A HANDLE, carried opaquely. This used to be a refusal, and the
+    // refusal was the reason `coroutineCreate` could not answer: its `CoroutineState` has no v3
+    // counterpart and needs none, because every operation on it is a call with the handle in
+    // argument position. The tag is the JVM class's simple name and is for diagnostics only — it is
+    // what makes a later refusal say `<handle CoroutineState>` instead of naming nothing.
+    case ssc.Value.ForeignV(h) => Value.VForeign(h, h.getClass.getSimpleName)
     case ssc.Value.DataV(tag, fs) =>
       val ix = m.types.indexWhere(t => t.name == tag)
       if ix < 0 then throw ssc3.ExecError(

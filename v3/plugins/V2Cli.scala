@@ -17,4 +17,10 @@ package ssc3.plugins
   * The same reasoning puts the executor's adapter in this directory rather than in `v3/src`. */
 @main def v2cli(args: String*): Unit =
   ssc.plugin.NativePluginHost.loadAll()
+  // AND THE GLOBALS AS HANDLERS, because lowering is shared and now emits a `Prim` for a name that
+  // lives in the registry's `globalValues` table. v2 resolves such a name as a Global and its
+  // `Prims.resolve` never looks there, so without this line the bridge dies with `unimplemented
+  // primitive: coroutineCreate` on IR the executor runs — one lane answering alone, which is the
+  // divergence the fleet's registration rule exists to prevent.
+  V2Fleet.installGlobalsAsHandlers()
   ssc.cli(args*)

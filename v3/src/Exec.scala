@@ -69,6 +69,19 @@ enum Value:
     * invisible for the pure functions Tier 0 has and would not be once effects arrive. Stated here
     * because the name promises memoisation to anyone who knows the Scala type. */
   case VLazy(step: () => Option[(Value, Value)])
+  /** A HANDLE OWNED BY A HOST PLUGIN, carried through v3 and handed back untouched.
+    *
+    * `coroutineCreate` answers a `CoroutineState`, the program keeps it and passes it to
+    * `coroutineResume`. Nothing in v3 can look inside, and nothing needs to: every operation on it is
+    * an ordinary call with the handle in argument position, which is why this is a value and not a
+    * new dispatch mechanism. `tag` is the owner's name for it and exists ONLY for diagnostics — a
+    * refusal that says `<handle CoroutineState>` is worth the field.
+    *
+    * `AnyRef` rather than the plugin's type keeps invariant I-1 intact: the kernel gains a JVM
+    * reference, not a dependency on v2 or on any plugin, and it cannot act on the value at all. That
+    * inability is the point — an opaque handle that the executor could inspect would be a Tier 0
+    * type addition (I-2), and this is a value the RUNTIME passes through, like `VBytes`. */
+  case VForeign(handle: AnyRef, tag: String)
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -321,6 +334,7 @@ object Exec:
     // one that says how much of it there was. `show` is the ONE match in this file with no
     // catch-all, which is why the compiler named it and the other eight stayed silent.
     case Value.VBytes(b)   => "<" + b.length.toString + " bytes>"
+    case Value.VForeign(_, tag) => "<handle " + tag + ">"
 
   /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
     * `.ssir` form. Sharing one helper between an IR serialisation and a program's output is the
@@ -1199,6 +1213,22 @@ object Exec:
   private var fastApply: Boolean = true
 
   private[ssc3] def useFastApply(on: Boolean): Unit = fastApply = on
+
+  /** APPLY A CLOSURE FROM OUTSIDE THE INSTRUCTION LOOP — the door a host callback comes back
+    * through.
+    *
+    * `coroutineCreate(body)` hands a plugin a function and the plugin CALLS it later, from its own
+    * thread. Nothing else in the executor needs this: every ordinary call is an instruction, and a
+    * closure only escapes the loop when a host holds one. So the surface is deliberately one method
+    * and it takes the module, because a closure is a function INDEX and means nothing without the
+    * table it indexes.
+    *
+    * Re-entrant by construction — it goes through the same `callFunc` an instruction would — and
+    * that is what makes a host callback that itself calls back into the program work rather than
+    * being a special case. */
+  def applyValue(m: Module, f: Value, args: List[Value]): Value = f match
+    case Value.VClos(g, cap) => callFunc(m, g, cap ++ args)
+    case v => throw ExecError("not a function: " + show(v))
 
   private def apply1(m: Module, f: Value, x: Value): Value = f match
     case Value.VClos(g, cap) =>
