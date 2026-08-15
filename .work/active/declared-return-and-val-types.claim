@@ -1,0 +1,11 @@
+slug: declared-return-and-val-types
+branch: feature/declared-return-and-val-types
+agent: claude-code
+started: 2026-08-15T17:35:27Z
+heartbeat: 2026-08-15T17:35:27Z
+status: claimed-before-planning
+items: declared-return-and-val-types-are-inert-on-native
+paths: file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-check.ssc0 file:tests/e2e/declared-type-is-a-constraint.sh file:tests/SPRINT.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
