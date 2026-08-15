@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# no-orphan-gates.sh — a NEW gate in tests/e2e must be invoked by something.
+# no-orphan-gates.sh — a NEW gate ANYWHERE IN THE REPOSITORY must be invoked by something.
 #
 # WHY THIS EXISTS. A gate nobody runs is not a weaker gate, it is a gate that reports GREEN by not
 # existing, and this repo has paid for that repeatedly and recently:
@@ -15,13 +15,22 @@
 # AND THE SWEEP DID NOT HOLD, which is the reason this file is a RATCHET and not another sweep.
 # Re-censused 2026-08-13: 182 scripts, 39 orphans. The pile was drained by 13 and refilled by new
 # arrivals — gates are written faster than they are wired. A one-off cleanup of an ongoing leak buys
-# a few weeks. So: freeze today's orphans BY NAME, fail on a NEW one, and let the list only shrink.
+# a few weeks. So: freeze today's orphans BY PATH, fail on a NEW one, and let the list only shrink.
 # Same shape as `v1-jit-size.sh`'s frozen debt and the negtc release gate: freeze the hard invariant,
 # derive the rest.
 #
-# WHAT COUNTS AS "INVOKED". A reference to the script's basename from anything executable —
-# `.github/workflows/`, `scripts/`, another `tests/e2e/` script. Prose in a `.md` does NOT count:
-# documentation is how these rot in the first place, cited but never run.
+# WHAT COUNTS AS "INVOKED". A reference to the script's PATH — or to a segment-boundary suffix or
+# prefix of it — from a file that can execute something: `.github/workflows/`, `scripts/`, another
+# script, a `build.sbt`, or a `.tsv` manifest a runner reads. Prose does NOT count, whether it lives
+# in a `.md`, in a `#` or `//` comment inside a script, or on a ` * ` line of a Scala doc comment.
+# Documentation is how these rot in the first place: cited everywhere, run nowhere.
+#
+# SCOPE, since 2026-08-16: EVERY tracked `*.sh` in the repository, against EVERY tracked file that
+# could execute one. Before that it was `tests/e2e/*.sh` against `.github`/`scripts`/`tests`, so a
+# gate living anywhere else was not merely unwired — it was invisible, and the entry
+# `orphaned-e2e-gates-52` had recorded that blind spot without being able to fix it here. Widening
+# both sets took the census from 217 subjects / 8 orphans to 291 / 31, and made it FASTER: one pass
+# over the corpus instead of one recursive grep per script, 26.6 s -> 3.5 s.
 #
 # WHAT THIS DOES NOT DO. It does not check that a gate PASSES, or that the suite it is wired into
 # actually runs. Both are real and both have bitten: `v1-jit-size.sh` was first wired into ci.yml's
@@ -33,19 +42,53 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-# Frozen orphans: gates that were already unwired on 2026-08-13, listed so this gate is green on
-# arrival. A gate red the day it lands is disabled within a day. DELETE from this list when you wire
-# or remove one — the gate fails if a frozen entry stops being an orphan, so the list cannot rot into
-# a permanent exemption.
+# Frozen orphans: gates that were already unwired when the scan last widened, listed so this gate is
+# green on arrival. A gate red the day it lands is disabled within a day. DELETE from this list when
+# you wire or remove one — the gate fails if a frozen entry stops being an orphan, so the list cannot
+# rot into a permanent exemption.
+#
+# REPO-RELATIVE PATHS since 2026-08-16, not basenames: the scan now covers the whole repository, and
+# 291 scripts there carry only 284 distinct names. Widening took the census from 217 subjects / 8
+# orphans to 291 / 31 — the 23 new ones were never wired and were never VISIBLE either, which is a
+# different and worse thing. Several name themselves gates in their own first line:
+# `v2/backend/check.sh` is a parity harness over every `v2/conformance/*.coreir` fixture,
+# `v2/conformance/coreir-name-guard.sh` says the Writer "must refuse" a name, `v3/extension-gate.sh`
+# "keeps Lower's built-in vocabulary honest", `uniml/lint-portable-subset.sh` "guards" the portable
+# subset. Others are manual reports and demos by design (`scripts/bundle-size.sh`,
+# `v3/corpus-report.sh`, `v1/tools/scripts/v2-scale-bench.sh`, `specs/*-demo.sh`) — triaging which is
+# which is the work this list exists to make visible, and it is NOT done here.
 read -r -d '' FROZEN <<'EOF' || true
-negtc-shard-gate.sh
-render-smoke.sh
-serve-view-frontend-v2-smoke.sh
-v21-native-content-smoke.sh
-v21-native-doc-render-smoke.sh
-v21-portable-gates-smoke.sh
-v21-typeclass-dictionary-smoke.sh
-v21-unhandled-effect-smoke.sh
+examples/run-wasm.sh
+scripts/bundle-size.sh
+specs/coreir-inventory-gate.sh
+specs/newfront-diff-multi.sh
+specs/newfront-diff.sh
+specs/v2-f5b-method-census.sh
+specs/v2.2-p6.0-spike-verify.sh
+specs/v2.2-p6.18-capstone.sh
+specs/v2.2-p6.5-corpus.sh
+specs/v2.2-p6.6-fixpoint.sh
+specs/v2.2-p6.6-selfcompile-demo.sh
+tests/e2e/negtc-shard-gate.sh
+tests/e2e/render-smoke.sh
+tests/e2e/serve-view-frontend-v2-smoke.sh
+tests/e2e/v21-native-content-smoke.sh
+tests/e2e/v21-native-doc-render-smoke.sh
+tests/e2e/v21-portable-gates-smoke.sh
+tests/e2e/v21-typeclass-dictionary-smoke.sh
+tests/e2e/v21-unhandled-effect-smoke.sh
+tests/interop-conformance/validation-test.sh
+tests/rust-build-smoke.sh
+uniml/lint-portable-subset.sh
+v1/tools/scripts/v2-scale-bench.sh
+v2/backend/check-handler-markers.sh
+v2/backend/check.sh
+v2/conformance/check.sh
+v2/conformance/coreir-name-guard.sh
+v2/conformance/portable-capsule.sh
+v3/extension-gate.sh
+v3/plugin-classpath.sh
+v3/toolchain-gate.sh
 EOF
 
 # ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────
@@ -54,7 +97,7 @@ EOF
 # defect measured two ways, so they live in ONE file: two frozen lists over one population kept in
 # two places is a second decision site, and this repo has paid for those repeatedly.
 #
-# TWO DEPTHS, ONE TABLE. The wired axis is cheap (~25 s) and runs on every push. The evidence axis
+# TWO DEPTHS, ONE TABLE. The wired axis is cheap (~3.5 s) and runs on every push. The evidence axis
 # (`--evidence`) runs the suite again with the launcher removed, 15-20 minutes, so it belongs in
 # tier 2. Same file, same lists, different depth — not a second gate with its own copy.
 #
@@ -123,18 +166,126 @@ SELF="$(basename "${BASH_SOURCE[0]}")"
 #     So the match must survive having the comment tail removed. A trailing comment on a real call
 #     (`run x.sh   # why`) still counts — the self-test asserts that direction too, because the
 #     over-strict fix that drops it would silently turn working gates into "orphans" to be frozen.
-callers_of() { # callers_of <root> <basename> -> "path:line:text", one per line (empty = orphan)
-  local r="$1" b="$2" out
-  out="$(grep -rnF --exclude-dir=.git --exclude="$b" --exclude="$SELF" "$b" \
-           "$r/.github" "$r/scripts" "$r/tests" 2>/dev/null || true)"
-  printf '%s' "$out" | { grep -v '^[^:]*\.md:' || true; } | while IFS= read -r hit; do
-    [[ -n "$hit" ]] || continue
-    local text code
-    text="${hit#*:}"; text="${text#*:}"   # strip `path:lineno:`
-    code="${text%%#*}"; code="${code%%//*}"
-    [[ "$code" == *"$b"* ]] && printf '%s\n' "$hit"
-  done
-  return 0
+#   * AND THE SEARCH USED TO COVER ONE DIRECTORY. Until 2026-08-16 the subjects were `tests/e2e/*.sh`
+#     and the callers were `.github`, `scripts`, `tests` — so a gate living anywhere else was not
+#     merely unwired, it was INVISIBLE. `v2/backend/check.sh` runs every `v2/conformance/*.coreir`
+#     fixture through the VM and diffs four generators against it, exits non-zero on a mismatch, and
+#     is invoked by nothing; the entry `orphaned-e2e-gates-52` recorded it as the detector's own blind
+#     spot and could not fix it here. Widening BOTH sets to the whole repository took the census from
+#     217 subjects / 8 orphans to 291 / 30.
+#   * KEYED BY PATH, NOT BY BASENAME, and that is forced by the widening: 291 scripts carry only 284
+#     distinct names. `v2/backend/check.sh` and `v2/conformance/check.sh` are two different gates, and
+#     under a basename key a call to either marks BOTH as wired — the masking this gate exists to
+#     stop, one level up. Matching is at a SEGMENT BOUNDARY in both directions, because both occur:
+#     `"$ROOT/tests/e2e/x.sh"` (token carries a prefix) and a relative tail after a `cd`. A BARE
+#     basename is ambiguous by construction and marks every candidate — the conservative direction,
+#     since a ratchet must never invent an orphan. Substring matching, which is what the old
+#     basename search did, is not merely loose: `v3/extension-gate.sh` read as WIRED because
+#     `single-line-extension-gate.sh` ends with its name.
+#   * ONE PASS, NOT ONE PER SUBJECT. The old shape ran a recursive `grep` per script — 217 walks of
+#     the same tree, 26.6 s. Reading the corpus once and looking up whole `*.sh` tokens in a hash is
+#     3.5 s over 7198 files and 291 subjects: an order of magnitude faster while covering three times
+#     the population. It also lets ONE classifier serve both the census and `--evidence`, instead of
+#     two call sites that can drift.
+#   * `LC_ALL=C`, because macOS awk aborts with `towc: multibyte conversion failure` on the first
+#     binary fixture it meets (`tests/fixtures/scljet/m2/valid/overflow-thresholds.db`) and would
+#     take the whole census down with it.
+#   * REGULAR FILES ONLY, and this is not defensive tidying — it was a silent `exit 1` with no
+#     output at all. `git ls-files` lists a SUBMODULE gitlink (`.agents/plugins`) and a SYMLINK TO A
+#     DIRECTORY (`v1/runtime/plugins/scljet -> ../../../scljet`) as ordinary paths; awk cannot open
+#     either, exits 1, and `pipefail` takes the whole census down before it prints a line. Filtering
+#     by index MODE also stops a symlinked script from becoming a second subject for one file.
+tracked_files() { # tracked_files <root> -> repo-relative paths of REGULAR tracked files
+  git -C "$1" ls-files -s |
+    awk -F'\t' '{ split($1, m, " "); if (m[1] != "100644" && m[1] != "100755") next; print $2 }'
+}
+subjects_of() { # subjects_of <root> -> repo-relative paths of every candidate gate
+  tracked_files "$1" | awk '/\.sh$/{print}'
+}
+# A CALLER IS CODE OR CONFIGURATION, NEVER A DATA FIXTURE, and this became load-bearing the moment
+# the corpus stopped being "shell and yaml". The repository holds 2528 `.scala`, 1364 `.ssc` and
+# hundreds of `.event`/`.out`/`.expected`/`.coreir` fixtures, and COMMENT SYNTAX VARIES BY FILE TYPE:
+# `;` opens a comment in `.coreir` and separates commands in shell, so it cannot be stripped
+# globally. Measured: `v2/conformance/autooutput.coreir` says "which is why check.sh — a harness
+# that otherwise compares…" in a `;` comment, and that sentence alone marked BOTH `v2/backend/
+# check.sh` and `v2/conformance/check.sh` as invoked.
+#
+# AN ALLOWLIST, NOT A DENYLIST, because the two errors are not equally bad. Missing a caller makes a
+# wired gate look like an orphan — loud, and fixed by adding a type here. Counting a comment as a
+# caller hides a REAL orphan — silent, and it is the exact defect this gate exists to catch. So a
+# new file type is excluded until someone shows it invokes something.
+#
+# `.tsv` IS ON THE LIST, AND THAT IS THE INTERESTING ENTRY. The line is not code-vs-data, it is
+# EXECUTED-vs-PROSE: `tests/fixtures/v21-explicit-lanes/manifest.tsv` names four
+# `v21-explicit-*-smoke.sh` gates in a column, and `tests/e2e/v21-explicit-lanes-gate.sh` reads that
+# column and runs them. Leaving `.tsv` out turned four correctly-wired gates into orphans — caught
+# by the regression check that the `tests/e2e` subset of the new census must still equal the eight
+# this gate already knew about, which is the only reason the widening did not ship with them.
+corpus_of() {  # corpus_of <root> -> repo-relative paths of everything that could name one
+  tracked_files "$1" |
+    awk -v self="$SELF" '
+      # NO APOSTROPHES IN THIS PROGRAM: it is a single-quoted shell string, so one closes it and the
+      # script dies with a syntax error 6 lines further down.
+      # .work/ IS COORDINATION STATE, NOT CODE. .work/active/LEDGER.tsv lists the paths each claim
+      # reserves (... file:v3/plugin-classpath.sh ...), which reads exactly like an invocation and
+      # marked a real orphan as wired the first time this ran against a live ledger. Caught by the
+      # ratchet minutes after the widening landed, which is the ratchet earning its keep.
+      /^\.work\// { next }
+      { n = split($0, a, "/"); f = a[n]
+        if (f == self) next
+        ext = ""; if (f ~ /\./) { m = split(f, e, "."); ext = e[m] }
+        if (ext == "sh" || ext == "bash" || ext == "zsh" || ext == "yml" || ext == "yaml" ||
+            ext == "ssc" || ext == "sbt" || ext == "scala" || ext == "json" || ext == "mk" ||
+            ext == "py" || ext == "rb" || ext == "js" || ext == "ts" || ext == "tsv" || ext == "" ||
+            f == "Makefile" || f == "Dockerfile") print }'
+}
+orphans_of() { # orphans_of <root> -> repo-relative paths invoked by nothing, sorted
+  local r="$1" pats seen corpus
+  pats="$(mktemp)"; seen="$(mktemp)"; corpus="$(mktemp)"
+  subjects_of "$r" | LC_ALL=C sort -u > "$pats"
+  corpus_of "$r" > "$corpus"
+  : > "$seen"
+  # `xargs` with empty input still runs the utility once, and awk would then read STDIN and hang.
+  if [[ -s "$corpus" ]]; then
+    ( cd "$r" && LC_ALL=C xargs awk -v patfile="$pats" '
+        BEGIN {
+          while ((getline s < patfile) > 0) {
+            if (s == "") continue
+            n = split(s, a, "/"); bybase[a[n]] = bybase[a[n]] " " s
+          }
+        }
+        {
+          # A Scala/Java DOC-COMMENT continuation carries no `#` and no `//`, so it survived both
+          # strippers: `v2/src/Runtime.scala` mentions `specs/coreir-inventory-gate.sh` on a ` * `
+          # line and that alone marked the gate as invoked.
+          if ($0 ~ /^[ \t]*\*/) next
+          code = $0
+          sub(/\/\*.*\*\//, "", code)     # a one-line block comment
+          sub(/#.*/, "", code); sub(/\/\/.*/, "", code)
+          while (match(code, /[A-Za-z0-9._+\/-]+\.sh/)) {
+            t = substr(code, RSTART, RLENGTH); code = substr(code, RSTART + RLENGTH)
+            n = split(t, a, "/"); b = a[n]
+            if (!(b in bybase)) continue
+            m = split(bybase[b], cand, " ")
+            for (i = 1; i <= m; i++) {
+              s = cand[i]
+              if (s == "" || s == FILENAME) continue     # a script naming itself is not its caller
+              if (t == b || s == t) { seen[s] = 1; continue }
+              # Deleting either of the next two lines turns a self-test assertion red, which is how
+              # they were shown to matter. Replacing them with a plain `index(s, t)` does NOT — and
+              # that is a fact about the code, not a gap: candidates are pre-filtered by BASENAME, so
+              # a substring hit that is not a segment-boundary suffix cannot occur here. The strict
+              # form is kept because the pre-filter is the only thing making it safe.
+              if (length(t) > length(s) && substr(t, length(t) - length(s)) == "/" s) { seen[s]=1; continue }
+              if (length(s) > length(t) && substr(s, length(s) - length(t)) == "/" t) seen[s] = 1
+            }
+          }
+        }
+        END { for (s in seen) print s }
+      ' < "$corpus" ) 2>/dev/null | LC_ALL=C sort -u > "$seen"
+  fi
+  LC_ALL=C comm -23 "$pats" "$seen"
+  rm -f "$pats" "$seen" "$corpus"
 }
 
 # ── self-test: a detector only ever observed staying quiet is not a detector ─────────────────────
@@ -143,14 +294,14 @@ callers_of() { # callers_of <root> <basename> -> "path:line:text", one per line 
 if [[ "${1:-}" == "--self-test" ]]; then
   TMP="$(mktemp -d "${TMPDIR:-/tmp}/no-orphan-selftest.XXXXXX")"
   trap 'rm -rf "$TMP"' EXIT
-  mkdir -p "$TMP/tests/e2e" "$TMP/scripts"
+  mkdir -p "$TMP/tests/e2e" "$TMP/scripts" "$TMP/v9/backend" "$TMP/v9/conformance"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/wired-example.sh"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/orphan-example.sh"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/commented-example.sh"
   printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/tests/e2e/trailing-example.sh"
   printf 'run tests/e2e/wired-example.sh\n'                > "$TMP/scripts/caller"
   # THE PROSE FIXTURE MUST LIVE WHERE THE SEARCH LOOKS. It was `$TMP/prose.md`, at the root — and
-  # `callers_of` only reads `.github`, `scripts` and `tests`, so that file was never opened and the
+  # the search only read `.github`, `scripts` and `tests`, so that file was never opened and the
   # ".md does not count" assertion passed whether or not the `.md` filter existed. A probe whose
   # subject is unreachable WITHOUT the thing under test measures nothing.
   printf 'see tests/e2e/orphan-example.sh for details\n'   > "$TMP/tests/prose.md"
@@ -159,31 +310,95 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # …and the opposite direction, so the fix cannot be "drop anything near a #".
   printf 'run tests/e2e/trailing-example.sh   # why we run it\n' > "$TMP/scripts/trailing-caller"
 
-  probe() { # probe <root> <basename> -> "wired" | "orphan"
-    local r="$1" b="$2" hits
-    hits="$(callers_of "$r" "$b")"
-    [[ -n "$hits" ]] && printf wired || printf orphan
+  # ── the 2026-08-16 widening, asserted where it can actually fail ────────────────────────────────
+  # Two subjects with the SAME BASENAME in different directories, one of them called by path. Under
+  # the basename key this gate used until then, the call marked both and the second was invisible.
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/backend/dup-example.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/conformance/dup-example.sh"
+  # A CALLER OUTSIDE `.github`/`scripts`/`tests`, invoking with a `$ROOT/` prefix — the direction
+  # where the TOKEN is longer than the subject, which a suffix test written one way only will miss.
+  printf 'exec "$ROOT/v9/backend/dup-example.sh"\n'        > "$TMP/v9/run-backend"
+  # Suffix collision: `collide-example.sh` is a SUFFIX of `long-collide-example.sh`, so substring
+  # matching reports the short one wired off the long one's call. Real instance: `v3/extension-gate.sh`
+  # read as wired because `single-line-extension-gate.sh` ends with its name.
+  # The OTHER suffix direction: a caller that `cd`s first names a RELATIVE TAIL, so the SUBJECT is
+  # the longer string. Without a fixture here that branch was unreachable from the self-test — found
+  # by deleting the branch and watching every assertion still pass, which is the only way to learn
+  # that a line is untested.
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/backend/tail-example.sh"
+  printf 'cd v9 && bash backend/tail-example.sh\n'         > "$TMP/v9/run-tail"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/collide-example.sh"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/long-collide-example.sh"
+  printf 'bash v9/long-collide-example.sh\n'               > "$TMP/v9/run-collide"
+
+  # THE COORDINATION LEDGER IS NOT A CALLER. `.work/active/LEDGER.tsv` reserves paths per claim, and
+  # a `.tsv` is on the allowlist because a manifest can drive a runner — so without the `.work/`
+  # exclusion a claim row marks every script it reserves as invoked. This happened for real:
+  # `v3/plugin-classpath.sh` flipped to "wired" the moment a sibling claimed it.
+  mkdir -p "$TMP/.work/active"
+  printf '#!/usr/bin/env bash\ntrue\n' > "$TMP/v9/claimed-example.sh"
+  printf 'some-slug\tclaude-code\t2026-08-16T00:00:00Z\tan-item\tfile:v9/claimed-example.sh\n' \
+    > "$TMP/.work/active/LEDGER.tsv"
+
+  # A GIT REPOSITORY, because `subjects_of`/`corpus_of` enumerate with `git ls-files` — the branch
+  # that runs in production is the branch the self-test must exercise. `git add` alone populates the
+  # index; no commit is needed, so no user identity is required.
+  git -C "$TMP" init -q
+  git -C "$TMP" add -A
+
+  ORPHANS_CACHE=""
+  probe() { # probe <root> <repo-relative path> -> "wired" | "orphan"
+    local r="$1" p="$2"
+    [[ -n "$ORPHANS_CACHE" ]] || ORPHANS_CACHE="$(orphans_of "$r")"
+    grep -qxF "$p" <<<"$ORPHANS_CACHE" && printf orphan || printf wired
   }
-  [[ "$(probe "$TMP" wired-example.sh)"  == wired  ]] \
+  [[ "$(probe "$TMP" tests/e2e/wired-example.sh)"  == wired  ]] \
     || { echo "SELF-TEST FAIL: a script named by an executable caller was called an orphan" >&2; exit 1; }
-  [[ "$(probe "$TMP" commented-example.sh)" == orphan ]] \
+  [[ "$(probe "$TMP" tests/e2e/commented-example.sh)" == orphan ]] \
     || { echo "SELF-TEST FAIL: a script named ONLY by a COMMENT was called wired. Excluding .md is" >&2
          echo "  not enough — prose also lives inside scripts, and that is how three real orphans" >&2
          echo "  (bytecode-fallback-visible, negtc-shard-gate, ssc1-front-annotation) read as wired." >&2; exit 1; }
-  [[ "$(probe "$TMP" trailing-example.sh)" == wired ]] \
+  [[ "$(probe "$TMP" tests/e2e/trailing-example.sh)" == wired ]] \
     || { echo "SELF-TEST FAIL: a REAL call carrying a trailing comment was called an orphan — the" >&2
          echo "  comment rule is over-strict and would freeze working gates as debt." >&2; exit 1; }
-  [[ "$(probe "$TMP" orphan-example.sh)" == orphan ]] \
+  [[ "$(probe "$TMP" tests/e2e/orphan-example.sh)" == orphan ]] \
     || { echo "SELF-TEST FAIL: a script named ONLY by a .md was called wired — prose is not a caller," >&2
          echo "  and treating it as one is how these gates rot: cited everywhere, run nowhere." >&2; exit 1; }
+
+  # ── the widening, both directions ───────────────────────────────────────────────────────────────
+  [[ "$(probe "$TMP" v9/backend/dup-example.sh)" == wired ]] \
+    || { echo "SELF-TEST FAIL: a gate OUTSIDE tests/e2e, called by a file OUTSIDE .github/scripts/tests" >&2
+         echo "  with a \$ROOT/ prefix, was called an orphan. The suffix test must work in the direction" >&2
+         echo "  where the TOKEN is longer than the subject, not only the other one." >&2; exit 1; }
+  [[ "$(probe "$TMP" v9/conformance/dup-example.sh)" == orphan ]] \
+    || { echo "SELF-TEST FAIL: a gate was called wired because a DIFFERENT gate with the same basename" >&2
+         echo "  is invoked. 291 scripts here carry 284 distinct names — v2/backend/check.sh and" >&2
+         echo "  v2/conformance/check.sh are two gates, and a basename key hides one behind the other." >&2; exit 1; }
+  [[ "$(probe "$TMP" v9/claimed-example.sh)" == orphan ]] \
+    || { echo "SELF-TEST FAIL: a script was called wired because a CLAIM reserved its path in" >&2
+         echo "  .work/active/LEDGER.tsv. Coordination state is not an invocation — v3/plugin-classpath.sh" >&2
+         echo "  flipped to wired for real the moment a sibling claimed it." >&2; exit 1; }
+  [[ "$(probe "$TMP" v9/backend/tail-example.sh)" == wired ]] \
+    || { echo "SELF-TEST FAIL: a gate named by a RELATIVE TAIL from a caller that cd'd first was" >&2
+         echo "  called an orphan. The suffix test must also work where the SUBJECT is longer than" >&2
+         echo "  the token — the mirror of the \$ROOT/ case above." >&2; exit 1; }
+  [[ "$(probe "$TMP" v9/collide-example.sh)" == orphan ]] \
+    || { echo "SELF-TEST FAIL: a gate was called wired off a LONGER name that ends with its own —" >&2
+         echo "  substring matching, not a segment boundary. Real instance: v3/extension-gate.sh read" >&2
+         echo "  as wired because single-line-extension-gate.sh ends with it." >&2; exit 1; }
+  [[ "$(probe "$TMP" v9/long-collide-example.sh)" == wired ]] \
+    || { echo "SELF-TEST FAIL: the LONG name in the collision pair was called an orphan — the boundary" >&2
+         echo "  rule is over-strict and would freeze a working gate as debt." >&2; exit 1; }
 
   # THIS GATE MUST NOT COUNT ITSELF. Every frozen name is a literal string in this file; without
   # excluding SELF the search finds it and every orphan reads as wired. Measured, not imagined: the
   # first run of this gate reported 1 orphan out of 183 and asked for 38 frozen entries to be
   # deleted as "now invoked".
   cp "$ROOT/tests/e2e/$SELF" "$TMP/tests/e2e/$SELF"
-  printf 'orphan-example.sh\n' >> "$TMP/tests/e2e/$SELF"
-  [[ "$(probe "$TMP" orphan-example.sh)" == orphan ]] \
+  printf 'tests/e2e/orphan-example.sh\n' >> "$TMP/tests/e2e/$SELF"
+  git -C "$TMP" add -A
+  ORPHANS_CACHE=""          # the tree changed; a cached verdict would answer about the old one
+  [[ "$(probe "$TMP" tests/e2e/orphan-example.sh)" == orphan ]] \
     || { echo "SELF-TEST FAIL: a name appearing only in THIS gate's own frozen list was called wired." >&2
          echo "  The detector is matching itself, so its whole list reads as already fixed." >&2; exit 1; }
   echo "no-orphan-gates self-test: PASS (an executable caller counts — with or without a trailing" \
@@ -230,10 +445,14 @@ if [[ "${1:-}" == "--evidence" ]]; then
 
   declared="$(printf '%s\n' "$GREEN_WITHOUT_LAUNCHER" | grep -v '^$' | cut -f1 | sort)"
   efail=0; invoked=0; blind=(); noverdict=()
+  EVIDENCE_ORPHANS="$(orphans_of "$ROOT")"
   for g in "$ROOT"/tests/e2e/*.sh; do
     b="$(basename "$g")"
     [[ "$b" == "$SELF" ]] && continue
-    [[ -n "$(callers_of "$ROOT" "$b")" ]] || continue    # an orphan's evidence is moot until wired
+    # An orphan's evidence is moot until it is wired. ONE classifier for both axes: the set is
+    # computed once, above, by the same `orphans_of` the census uses — two call sites asking the
+    # question two ways is how the two halves of this file would drift apart.
+    grep -qxF "tests/e2e/$b" <<<"$EVIDENCE_ORPHANS" && continue
     : > "$elog"
     timeout "$ECAP" "$g" >/dev/null 2>&1 && rc=0 || rc=$?
     # ── A TIMEOUT IS A THIRD OUTCOME, and folding it into "red" is what made this unreproducible ──
@@ -309,41 +528,34 @@ if [[ "${1:-}" == "--evidence" ]]; then
 fi
 
 observed="$(mktemp)"; trap 'rm -f "$observed"' EXIT
-for g in tests/e2e/*.sh; do
-  b="$(basename "$g")"
-  # `--exclude` drops the script's own file, so a gate naming itself in a usage line is not its own
-  # caller. Same helper as the self-test asserts, by construction.
-  [[ -n "$(callers_of "$ROOT" "$b")" ]] && continue
-  printf '%s\n' "$b" >> "$observed"
-done
-sort -o "$observed" "$observed"
+orphans_of "$ROOT" > "$observed"
 
-frozen="$(mktemp)"; printf '%s\n' "$FROZEN" | grep -v '^$' | sort > "$frozen"
+frozen="$(mktemp)"; printf '%s\n' "$FROZEN" | grep -v '^$' | LC_ALL=C sort > "$frozen"
 trap 'rm -f "$observed" "$frozen"' EXIT
 
 n_obs="$(wc -l < "$observed" | tr -d ' ')"
-echo "no-orphan-gates: $(ls tests/e2e/*.sh | wc -l | tr -d ' ') scripts, $n_obs invoked by nothing, $(wc -l < "$frozen" | tr -d ' ') frozen"
+echo "no-orphan-gates: $(subjects_of "$ROOT" | wc -l | tr -d ' ') scripts, $n_obs invoked by nothing, $(wc -l < "$frozen" | tr -d ' ') frozen"
 
 fail=0
-while read -r b; do
-  [[ -n "$b" ]] || continue
-  grep -qxF "$b" "$frozen" || {
+while read -r p; do
+  [[ -n "$p" ]] || continue
+  grep -qxF "$p" "$frozen" || {
     echo "FAIL  NEW orphan — nothing invokes it, so it reports green by not running:" >&2
-    echo "        tests/e2e/$b" >&2
+    echo "        $p" >&2
     echo "        Wire it into scripts/smoke-ci.ssc (per push) or a tier-2 job in ci.yml, and CHECK" >&2
     echo "        that job's \`if:\` and the workflow's \`on:\` — v1-jit-size.sh was once wired into a" >&2
     echo "        workflow_dispatch-only job and still ran essentially never. Or delete it." >&2
     fail=1; }
 done < "$observed"
 
-while read -r b; do
-  [[ -n "$b" ]] || continue
-  if ! grep -qxF "$b" "$observed"; then
-    if [[ -f "tests/e2e/$b" ]]; then
-      echo "FAIL  frozen orphan is now invoked — DELETE it from FROZEN: $b" >&2
+while read -r p; do
+  [[ -n "$p" ]] || continue
+  if ! grep -qxF "$p" "$observed"; then
+    if [[ -f "$p" ]]; then
+      echo "FAIL  frozen orphan is now invoked — DELETE it from FROZEN: $p" >&2
       echo "        (an exemption that outlives its need is the same rot as a stale known-red)" >&2
     else
-      echo "FAIL  frozen orphan no longer exists — DELETE it from FROZEN: $b" >&2
+      echo "FAIL  frozen orphan no longer exists — DELETE it from FROZEN: $p" >&2
     fi
     fail=1
   fi

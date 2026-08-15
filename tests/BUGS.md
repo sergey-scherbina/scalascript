@@ -36,6 +36,89 @@ is invisible to a two-front comparison; only a three-lane probe finds it.
 Filed against the reference front rather than F. Whoever implements context bounds on F should
 decide deliberately whether to match the reference (wrong, gate-green) or the interpreter (right, and
 scored as "reference contradicted", which the gate counts but does not fail on).
+## orphan-detector-scans-one-directory-and-misses-real-gates — 217 subjects became 291, and it got 7× faster
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/no-orphan-gates.sh --self-test -->
+
+`no-orphan-gates.sh` holds the invariant that a gate nobody runs is a gate that reports GREEN by not
+existing. It scanned **one directory**: subjects were `tests/e2e/*.sh`, callers were `.github`,
+`scripts` and `tests`. A gate living anywhere else was not merely unwired — it was **invisible**.
+`orphaned-e2e-gates-52` recorded this as the detector's own blind spot and could not fix it there.
+
+**Census: 217 subjects / 8 orphans → 291 / 31.** Twenty-three gates were never wired and never seen.
+Several call themselves gates in their own first line: `v2/backend/check.sh` (a parity harness that
+runs every `v2/conformance/*.coreir` fixture through the VM and diffs four generators against it),
+`v2/conformance/coreir-name-guard.sh` ("must refuse"), `v3/extension-gate.sh` ("keeps `Lower`'s
+built-in vocabulary honest"), `uniml/lint-portable-subset.sh` ("guards"). Others are manual reports
+and demos by design. **Triaging which is which is NOT done here** — the ratchet is the deliverable;
+a one-off sweep is what this entry's predecessor already showed does not hold.
+
+### Widening forced three correctness changes, each found by measurement
+
+**Keyed by path, not basename.** 291 scripts carry 284 distinct names. `v2/backend/check.sh` and
+`v2/conformance/check.sh` are two different gates, and under a basename key a call to either marks
+BOTH — the masking this gate exists to stop, one level up. Matching is now at a segment boundary in
+both directions, because both occur: `"$ROOT/tests/e2e/x.sh"` (token longer) and a relative tail
+after a `cd` (subject longer). Substring matching is not merely loose — measured over the widened
+scope, `v3/extension-gate.sh` reads as INVOKED because `single-line-extension-gate.sh` ends with its
+name.
+
+**Comment syntax varies by file type, and the corpus is now an allowlist.** The repository holds
+2528 `.scala`, 1364 `.ssc` and hundreds of `.event`/`.out`/`.coreir` fixtures. `;` opens a comment
+in `.coreir` and separates commands in shell, so it cannot be stripped globally: one `;` sentence in
+`v2/conformance/autooutput.coreir` marked both `check.sh` gates as invoked. A ` * ` line of a Scala
+doc comment in `v2/src/Runtime.scala` did the same for `specs/coreir-inventory-gate.sh`. An
+allowlist, not a denylist, because the errors are not symmetric: missing a caller makes a wired gate
+look like an orphan — loud, fixed by adding a type; counting a comment as a caller hides a REAL
+orphan — silent, and that is the defect being detected.
+
+**`.tsv` is on the allowlist, and that is the interesting entry.** The line is not code-vs-data, it
+is EXECUTED-vs-PROSE: `tests/fixtures/v21-explicit-lanes/manifest.tsv` names four
+`v21-explicit-*-smoke.sh` gates in a column and `v21-explicit-lanes-gate.sh` runs that column.
+Leaving `.tsv` out turned four correctly-wired gates into orphans.
+
+**…and admitting `.tsv` let the COORDINATION LEDGER in, which the ratchet caught within minutes.**
+`.work/active/LEDGER.tsv` records the paths each claim reserves, so the moment a sibling claimed
+`file:v3/plugin-classpath.sh` that frozen orphan flipped to "wired" and the gate went red on a
+rebase — against a change of mine that had passed every local run. **Reserving a path is not
+invoking it**; `.work/` is coordination state and is now excluded, with a self-test fixture that
+plants a ledger row and requires the script it names to stay an orphan. This is the ratchet working
+on its own author, and it is the reason the frozen list is a ratchet rather than a sweep.
+
+### It also got faster: 26.6 s → 3.5 s
+
+The old shape ran one recursive `grep` per subject — 217 walks of the same tree. Reading the corpus
+once and looking up whole `*.sh` tokens in a hash covers 291 subjects against 7198 files in 3.5 s,
+and lets ONE classifier serve both the census and `--evidence` instead of two call sites that drift.
+
+### Two silent-exit bugs the widening exposed
+
+`git ls-files` lists a submodule gitlink (`.agents/plugins`) and a symlink to a directory
+(`v1/runtime/plugins/scljet`) as ordinary paths. awk cannot open either, exits 1, and `pipefail`
+took the whole census down **before it printed a line** — `rc=1`, no output. Filtering by index mode
+also stops a symlinked script from becoming a second subject for one file.
+
+### The regression check is what kept this honest
+
+The `tests/e2e` subset of the new census must still equal the eight orphans the gate already knew
+about. It caught the missing `.tsv` — without it, four wired gates would have shipped frozen as
+debt. Both suffix branches are now exercised by self-test fixtures and each turns an assertion red
+when deleted. Replacing them with a plain `index()` does NOT go red, and that is recorded in the
+file as a fact about the code rather than left as an unexplained pass: candidates are pre-filtered by
+basename, so a substring hit that is not a boundary suffix cannot occur.
+
+**Method note.** Two controls were invalid before any of this measured anything, both mine. A
+prototype's awk died partway on the symlink and silently lost that batch's callers, inventing four
+orphans — `pipefail` was the only reason the real gate did not do the same. And a plant run as a
+COPY under a different filename stopped excluding `no-orphan-gates.sh`, so the gate's own frozen
+list counted as callers and the census read 0 orphans out of 291. A mutation must be installed
+where the original lives.
 
 ## generated-views-go-stale-and-the-next-agent-pays — and the hook's own tests ran nowhere
 
@@ -6995,6 +7078,13 @@ still a proxy for it.
 > the VM and diffs four generators against it, and it exits non-zero on a mismatch), it is invoked by
 > NO workflow, NO suite and NO other script, and the detector cannot see it because of where it lives.
 > So the count above is a floor for `tests/e2e/`, not a census of the repository's gates.
+>
+> **THE BLIND SPOT IS CLOSED, 2026-08-16** — see `orphan-detector-scans-one-directory-and-misses-real-gates`.
+> The detector now scans every tracked `*.sh` against every tracked file that could execute one:
+> 217 subjects / 8 orphans became 291 / 31, and `v2/backend/check.sh` is among the newly visible
+> ones, confirming this note's reading of it. The paragraph below still stands on its own point —
+> the COST of wiring it is unchanged, and the ratchet freezes it as visible debt rather than wiring
+> it. What changed is that the number above is no longer scoped to one directory.
 >
 > Not fixed here, and the reason is a real cost rather than a shrug: the harness compiles a Rust crate
 > and a wasm module per fixture and takes minutes, so wiring it into `scripts/smoke-ci.ssc` spends the
