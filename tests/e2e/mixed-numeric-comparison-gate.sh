@@ -94,10 +94,25 @@ EOF
 # Rows are cheap; processes are not.
 ROWS=21
 CMP_TO=11      # 1-11   the Int/Double comparisons and the literal-pattern rows
-BIG_FROM=12    # 12-20  wide types, every lane agrees with the oracle
-BIG_TO=20
-GAP_ROWS_END=21
-GAP_FROM=21    # 21     wide types, some lane still disagrees — frozen per lane below
+BIG_FROM=12    # 12-21  wide types, every lane agrees with the oracle
+BIG_TO=21
+# THE KNOWN-GAP BLOCK IS GONE, and rows 21-22 moved up into the group above — the file's own
+# instruction for the day the frozen row starts matching jvm. `BigDecimal(1) == 1.0` answered
+# `false` on native and bytecode and `true` on jvm/js/int; the owner took the contract decision on
+# 2026-08-15 and the quiet lanes moved. (BUGS `bigdecimal-against-a-binary-float-is-a-contract-decision-nobody-has-taken`.)
+#
+# `BigDecimal("0.1") == 0.1` IS NOT HERE, and its absence is a finding rather than an omission. It
+# was added as row 22 — the row that cannot be faked, since `0.1` is not exactly one tenth as a
+# Double and a hand-rolled `compareTo(new JBigDecimal(0.1d))` answers FALSE for it — and the js lane
+# then REFUSED TO RUN AT ALL:
+#
+#     Error: cannot mix Decimal and a fractional Number — convert explicitly
+#     (v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs:162)
+#
+# So js's `true` on row 21 was never agreement about the rule: `Number.isInteger(1.0)` is true, and
+# a genuinely fractional Double throws there. A row this gate cannot share cannot live in this
+# source, which is one program per lane. Filed as `js-refuses-a-decimal-against-a-fractional-double`;
+# when that closes, this row comes back and BIG_TO goes to 22.
 
 # ROW 19 IS THE ONE THIS GATE COULD NOT SEE BEFORE, and it is here because every other wide row uses
 # a SMALL value. `BigInt(9007199254740993L) == 9.007199254740992e15` is 2^53+1 against the Double it
@@ -199,7 +214,9 @@ if [[ "$(cat "$tmp/jvm-top.txt")" != "$expected_top" ]]; then
   exit 2
 fi
 
-expected_big=$'true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\nfalse'
+# Row 21 — `BigDecimal(1) == 1.0` — joined this list on 2026-08-15 when the contract decision was
+# taken and the two quiet lanes moved to the oracle's answer. It is the LAST entry, `true`.
+expected_big=$'true\nfalse\ntrue\ntrue\ntrue\ntrue\ntrue\nfalse\nfalse\ntrue'
 if [[ "$(slice jvm "$BIG_FROM" "$BIG_TO")" != "$expected_big" ]]; then
   echo "mixed-numeric-comparison: the ORACLE lane (run-jvm) does not match the frozen WIDE row." >&2
   echo "  expected: $(echo "$expected_big" | tr '\n' '/')" >&2
@@ -226,32 +243,20 @@ for lane in int native bytecode js; do
   fi
 done
 
-# The frozen KNOWN-WRONG block. Each lane's current answer, not the oracle's — read the comment on
-# row 21 above. When it starts matching jvm, this gate FAILS on purpose: move that row up into the
-# 12-20 group (widen BIG_TO, raise GAP_FROM) and delete this block.
-# Rows 17-18 (`BigInt(1) == 1.0`, `1.0 == BigInt(1)`) LEFT this block on 2026-08-13: interp grew the
-# wide/Double arms in `infix2Eq` and now agrees with the oracle, so all five lanes match and the rows
-# moved up into the 12-18 group. What remains is ONE row, and it is not an omission — see below.
-gap_expect() { case $1 in
-  jvm|js)             printf 'true' ;;
-  native|bytecode)    printf 'false' ;;
-  int)                printf 'true' ;;
-esac; }
-for lane in jvm js native bytecode int; do
-  if [[ "$(slice "$lane" "$GAP_FROM" "$GAP_ROWS_END")" != "$(gap_expect "$lane")" ]]; then
-    echo "mixed-numeric-comparison: the frozen KNOWN-GAP row moved on $lane" >&2
-    echo "  frozen: $(gap_expect "$lane" | tr '\n' '/')" >&2
-    echo "  now:    $(slice "$lane" "$GAP_FROM" "$GAP_ROWS_END" | tr '\n' '/')" >&2
-    echo "  row: BigDecimal(1)==1.0   (jvm/js/int true · native/bytecode false)" >&2
-    echo "  If it moved TOWARDS jvm this is a fix landing, not a regression: widen BIG_TO to 19," >&2
-    echo "  drop GAP_FROM/GAP_ROWS_END and this whole block, and close the entry." >&2
-    echo "  native/bytecode false is a DESIGN position, not an omission: PortableDecimal declines" >&2
-    echo "  to read a binary float as a decimal in three places (toJava, construct, arith). Making" >&2
-    echo "  it true means DECIDING a binary float may be read as a decimal — that is the contract" >&2
-    echo "  owner's call, so do not widen it in passing to get this gate green." >&2
-    fail=1
-  fi
-done
+# THE FROZEN KNOWN-WRONG BLOCK USED TO BE HERE, and its deletion is the record that the decision was
+# taken. It froze `BigDecimal(1) == 1.0` per lane — jvm/js/int `true`, native/bytecode `false` — and
+# said, in its own failure message, that native's `false` was "a DESIGN position, not an omission"
+# because `PortableDecimal` declines to read a binary float as a decimal in three places.
+#
+# MEASURED 2026-08-15, and that reading was wrong. All three of those refusals THROW; none of them
+# answers `false`. The `false` came from a structural `case _ => false` in `DecimalV.equals` and from
+# `eqWidening`'s `l == r` default — a fall-through, not a position. And the module already ALLOWS
+# the other direction: `(d: DecimalV, "toDouble")` converts through the very `toJava` that refuses
+# Double input. The line it actually draws is: refuse where inexactness would be CAPTURED into a
+# stored decimal, answer where it is only OBSERVED. `==` yields a Boolean and stores nothing.
+#
+# The owner decided on that basis; the two quiet lanes moved and now answer what the oracle answers,
+# which is why rows 21-22 sit in the 12-22 group above and this block is gone rather than edited.
 
 for lane in int-top native-top bytecode-top js-top; do
   if ! diff -u "$tmp/jvm-top.txt" "$tmp/$lane.txt" > "$tmp/$lane.diff"; then
@@ -282,4 +287,4 @@ for lane in int native bytecode js; do
 done
 
 [[ $fail -eq 0 ]] || exit 1
-echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on eleven rows in a def, nine at top level and nine on the wide numeric types (one more frozen as a known gap)"
+echo "mixed-numeric-comparison: ok — int, native, bytecode and js all agree with run-jvm on eleven rows in a def, nine at top level and ten on the wide numeric types (no frozen gap left)"

@@ -3460,13 +3460,27 @@ object Prims:
     case (DecimalV(_), IntV(_)) | (IntV(_), DecimalV(_)) |
          (DecimalV(_), BigV(_)) | (BigV(_), DecimalV(_)) =>
       PortableDecimal.toJava(l).compareTo(PortableDecimal.toJava(r)) == 0
-    // NO Decimal-against-Float arm, and this is a refusal to overrule a design decision rather
-    // than an oversight. `PortableDecimal.toJava` rejects `FloatV` outright — "binary
-    // floating-point input is inexact" — and `construct` refuses to build a Decimal from a Double
-    // for the same reason. Real Scala answers `BigDecimal(1) == 1.0` with `true`, so this pair
-    // stays a KNOWN divergence, documented in the entry, rather than something widened here on the
-    // way past: making it true means deciding that a binary float may be read as a decimal, which
-    // is precisely what that module declines to do.
+    // Decimal against a Double. DECIDED 2026-08-15 by the owner, after the previous note here said
+    // this arm was missing on purpose — "making it true means deciding that a binary float may be
+    // read as a decimal, which is precisely what that module declines to do". The measurement says
+    // the refusal was never the behaviour anyway:
+    //
+    //   * `PortableDecimal`'s three refusals all THROW (`toJava`, `construct`, `arith`). None of
+    //     them answers `false`. The `false` observed here came from `DecimalV.equals`' structural
+    //     `case _ => false` and from the `l == r` default below — a fall-through, not a position.
+    //   * The module ALREADY allows Decimal → Double: `(d: DecimalV, "toDouble")` converts through
+    //     `toJava(d).doubleValue()`. What it refuses is the other direction, Double → Decimal.
+    //
+    // So the line the module actually draws is: refuse where inexactness would be CAPTURED into a
+    // stored decimal, allow where it is only OBSERVED. `==` yields a Boolean and stores nothing.
+    //
+    // Delegated to Scala's own `BigDecimal.equals`, exactly as the `BigV`/`FloatV` arm above
+    // delegates to `BigInt.equals`, and for the reason stated there: those methods ARE the oracle
+    // this comparison is measured against. Written by hand it would answer differently — a raw
+    // `JBigDecimal.compareTo(new JBigDecimal(0.1d))` makes `BigDecimal("0.1") == 0.1` FALSE, where
+    // Scala and every other lane say true.
+    case (DecimalV(_), FloatV(b)) => BigDecimal(PortableDecimal.toJava(l)).equals(b)
+    case (FloatV(a), DecimalV(_)) => BigDecimal(PortableDecimal.toJava(r)).equals(a)
     case _                    => l == r
 
   private def bigArith(op: String, left: BigInt, right: BigInt): Value = op match
