@@ -1,4 +1,4 @@
-# generation: 2277
+# generation: 2278
 #slug	agent	started	items	paths
 v3-bridge-effects	claude-code	2026-08-11T13:26:52Z	R1-effects-cross-the-bridge-or-are-refused	file:v3/src/BridgeV2.scala file:v3/tests/effects file:v3/bridge-gate.sh file:BUGS.md
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
@@ -7,5 +7,4 @@ v3-plugin-path-for-the-executor	claude-code	2026-08-15T15:45:55Z	v3-plugin-path-
 declared-return-and-val-types	claude-code	2026-08-15T17:35:27Z	declared-return-and-val-types-are-inert-on-native	file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-check.ssc0 file:tests/e2e/declared-type-is-a-constraint.sh file:tests/SPRINT.md file:tests/BUGS.md
 f-placeholder-ctor	claude-code	2026-08-15T17:46:14Z	f-placeholder-in-constructor-application	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-placeholder-ctor-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
 rust-given-member-double-emission	claude-code	2026-08-15T18:26:01Z	rust-given-instance-members-emit-twice-and-read-as-overloading	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/build-rust-refuses-loudly.sh file:tests/rust-std-survey-baseline.tsv file:BUGS.md
-gates-refuse-fast-without-uniml	claude-code	2026-08-15T18:26:59Z	v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout	file:v3/exec-gate.sh file:v3/front-gate.sh file:v3/BUGS.md
 v3-workflow-verdicts	claude-code	2026-08-15T18:33:44Z	v3-workflow-is-cancelled-before-it-can-report v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs	file:.github/workflows/v3.yml file:v3/BUGS.md
