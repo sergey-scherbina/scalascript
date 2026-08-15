@@ -925,13 +925,21 @@ def sscOrderRoot = (rawPath, seen) =>
   let path = sscNormalize(rawPath) in
   let fileStr = #utf8->str(#io.readFile(path)) in
   let src = sscProgramSource(fileStr) in
-  if #i.eq(slen(src), 0) then
-    let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
-    #io.exit(1)
-  else
-    match sscOrderImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
-      case Pair(impPaths, seen2) => Pair(sscApp(impPaths, Cons(path, Nil)), seen2)
-    }
+  -- A ROOT with no `scalascript` fences is a DOCUMENTATION module, not an error. This exited 1,
+  -- and `sscLoadMod` a few lines up — identical in this runner and in the reference's — does the
+  -- opposite and says why: "Short-circuiting to an empty program instead only trades `exit 1` for
+  -- an ABI error." The reference front has no ordering pass at all (F needs one because it
+  -- assembles its closure from SOURCE), so this exit had no counterpart to disagree with and the
+  -- divergence was F's alone: `ssc run std/index.ssc` failed on F and printed nothing on the
+  -- reference. Keep the stderr note — "this file has no code" is worth saying — and order the file
+  -- like any other, so its CONTENT module is still produced.
+  --
+  -- Five corpus files: std/index.ssc, std/graphql.ssc, examples/deploy.ssc and the two frontend
+  -- dashboards, all prose with ```sh / ```text blocks.
+  let z = (if #i.eq(slen(src), 0) then #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) else 0) in
+  match sscOrderImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+    case Pair(impPaths, seen2) => Pair(sscApp(impPaths, Cons(path, Nil)), seen2)
+  }
 def sscOrderRoots = (paths, seen) =>
   match paths {
     case Nil => Pair(Nil, seen)

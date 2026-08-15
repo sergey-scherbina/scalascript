@@ -403,6 +403,12 @@ val suite = List(
   // rows; four are the crash, and `object-var-member` / `given-def-is-not-a-var` guard the two
   // halves of the widened pair the fix now makes givens carry.
   Check("v2", "f-cons2-no-arm", "tests/e2e/f-cons2-no-arm-gate.sh", List(), 300000),
+  // Sixth, and the one that was invisible rather than hard: a documentation module — markdown whose
+  // only fences are ```sh / ```text — made F exit 1 where the reference front has always run it as
+  // an empty program. F's runner has an ordering pass the reference does not have at all, and it
+  // hard-exited on a root with no code. Twelve rows over the five real corpus files plus a
+  // synthetic one; `note-still-printed` guards the stderr note, which was correct and is kept.
+  Check("v2", "f-front-exit-reason", "tests/e2e/f-front-exit-reason-gate.sh", List(), 300000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
