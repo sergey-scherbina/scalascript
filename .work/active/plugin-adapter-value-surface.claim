@@ -5,7 +5,7 @@ started: 2026-08-15T19:03:33Z
 heartbeat: 2026-08-15T19:03:33Z
 status: working
 items: plugin-adapter-value-surface v3-plugin-fleet-regresses-four-cases-when-enabled
-paths: file:v3/plugins file:v3/BUGS.md
+paths: file:v3/plugins file:v3/BUGS.md file:v3/corpus-report.sh file:v3/ssc3
 scope: |
   Finish `V2Fleet`'s value conversion. The plugin path landed in f30d11f05 and works — `mkdirs`
   answers on both lanes — but the fleet is OPT-IN because enabling it takes DIFF from 3 to 7, and
@@ -30,4 +30,26 @@ scope: |
   MEASUREMENT: with the fleet ENABLED, DIFF must fall — `std-process-import` is the case this
   unblocks. The floor is still 3 and the fleet still does not go on by default until it is met; the
   other three DIFFs are NOT diagnosed and are not claimed here.
-next: convert the three shapes, re-measure with the fleet on, report the new DIFF
+  DONE: the three shapes convert, and a FIFTH gap the claim did not predict — EXCEPTIONS. A host
+  function's failure is part of its contract: `std/fs.ssc`'s `listDir` on a missing directory is
+  SUPPOSED to raise and the program catches it. v2 raises `SscThrow` and its own `try` catches it;
+  here the plugin's Java exception escaped the executor and surfaced as
+  `cannot read '<the .ssc>': NoSuchFileException` — a message about the SOURCE FILE, from a handler
+  that assumes anything thrown came from reading it. Translated now: `SscThrow` crosses by value,
+  anything else becomes a catchable throw carrying its message. All FOUR previously-DIFF cases then
+  MATCH — individually, concurrently, and on both lanes.
+
+  WIDENED 2026-08-15 to `v3/corpus-report.sh` and `v3/ssc3`, BEFORE the edit, because the report
+  still counts those four DIFF and the cause is neither the adapter nor the cases.
+
+  THE REPORT HAS ITS OWN COPY OF THE v2 INVOCATION and the two copies have now diverged. It builds
+  the IR with the FRONT (whose classpath I extended, so the fleet IS installed and lowering emits
+  `(prim "mkdirs" …)` instead of a refusal) and then runs that IR with
+  `java -cp "$V2_CP" ssc.cli` — the plain entry, WITHOUT the fleet. So the build side and the run
+  side disagree about which prims exist, and the program dies on a prim the builder was entitled to
+  emit. `__v2-cp` returns `v2/src` classes and the toolchain and nothing else.
+
+  That is a second decision site, the shape this repository keeps paying for: `v3/ssc3` learned
+  about the fleet and `v3/corpus-report.sh` did not. The fix is for the report to use the same v2
+  entry the driver does rather than to keep a parallel copy of the decision.
+next: make the report use the driver's v2 entry, then re-measure with the fleet on
