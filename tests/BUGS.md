@@ -3322,6 +3322,99 @@ what `renameArgPh` rewrites for the failing argument.
 **Not claimed further:** `specs/v2.2-p6.5-fsub.ssc` is held by `f-cons2-no-arm`, so the fix belongs
 to whoever holds F. This section is the handoff.
 
+### 2026-08-15 — a 24-line SELF-CONTAINED reproducer, five ingredients eliminated, and a correction to this entry's own method
+
+**The reproducer is now self-contained and a quarter of the size.** 327 lines with relative imports
+became 24 non-blank lines needing nothing but three `extern def` stubs, so it can live in a gate's
+sandbox instead of inside `std/ui/`. Reduced mechanically — declarations, then `case` arms, then
+lines — and verified after every stage:
+
+```scalascript
+extern def element(tag: String, attrs: Map[String, Any], style: Map[String, Any], kids: List[Any]): Any
+extern def textNode(s: String): Any
+extern def fragment(kids: List[Any]): Any
+
+def contentViewSection(section: SectionContent,
+                       options: ContentRenderOptions = ContentRenderOptions()): View =
+  val tag = if section.level >= 1 && section.level <= 6 then s"h${section.level}" else "h2"
+  val headingAttrs =
+    if options.sectionIdsAsAnchors then Map("id" -> section.id) else Map()
+  val heading = element(tag, headingAttrs, Map(), [textNode(section.title)])
+  val body = section.blocks.map(contentViewBlock(_, options))
+  val children = section.children.map(contentViewSection(_, options))
+  fragment([heading] ++ body ++ children)
+
+def contentViewBlock(block: ContentBlock,
+                     options: ContentRenderOptions = ContentRenderOptions()): View =
+  block match
+    case ContentBlock.Paragraph(inlines, _) =>
+      element("p", Map(), Map(), inlines.map(contentInlineView(_, options)))
+
+def contentInlineView(inline: ContentInline,
+                      options: ContentRenderOptions): View =
+  inline match
+    case ContentInline.Text(value) =>
+      textNode(value)
+```
+
+The declaration pass reproduced this entry's banked figures exactly — 191 lines / 6 declarations,
+then 124 lines — which is independent evidence that the apparatus is sound before any new claim is
+read off it.
+
+**⚠️ THE METHOD CORRECTION, and it invalidates a sentence written above.** This entry prescribes
+putting `./bin/ssc run` INSIDE the predicate and says that "requiring the REFERENCE front to still
+compile and run the file expresses 'well-formed' directly, and the reducer then cannot cheat."
+**It can. `ssc run` exiting 0 is not a well-formedness oracle.** A span-deleting pass converged on a
+file whose last line was
+
+    def contentViewBlock(block: ContentBlock,
+
+— an unclosed parameter list with no body — and `ssc run` returned **0**. Worse, `SSC_DUMP_DEFS`
+shows the reference front emitting `REF-DEF contentViewBlock` for that truncated header: it does not
+merely tolerate the wreck, it manufactures a def from it. That is the same trivial-solution failure
+this entry was written about, reached through the predicate the entry offers as the cure.
+
+**A cheap check that does catch it:** bracket balance over the fenced block. Measured on the three
+artifacts — the 31-line one `()[]{} = 0,0,0`; the self-contained one `0,0,0`; the corrupted one
+`() = +1`. Add it to the predicate beside `ssc run`; it costs no process at all.
+
+**Five more ingredients eliminated, mechanically rather than by probe.** Each was removed by the
+reducer while the defect survived, which is stronger than a probe that fails to reproduce it:
+
+| eliminated | how |
+|---|---|
+| defaulted arguments / high arity | the 13-parameter `ContentToolkitOptions` and `contentToolkitOptionsWithComponents` are gone |
+| the `"${"` string literal | gone with the `ContentInline.Expr` arm |
+| brace-lambdas `{ (a, b) => … }` | gone with the `Table` arm |
+| `s"h${…}"` interpolation | probed separately, lowers to `F` |
+| a `_` in a PATTERN | naming it changes nothing; the defect stays |
+
+Also checked: the two fronts emit **identical def-name sets** for the reproducer, 64 and 64, empty
+both ways. The divergence is inside a body, not in what gets declared.
+
+**The observation that should drive the next attempt.** The defect MOVES WITH THE TOKEN STREAM, and
+that rules out "construct X is mis-parsed". Deleting the `body` line entirely leaves the defect;
+replacing that same line's `_` with an explicit `b => …` lambda REMOVES it — and the second edit
+lengthens the stream where the first shortens it. Symmetrically, the `children` line reproduces on
+its own once `body` is deleted, but not while `body` sits there de-placeholdered. So no single line
+is "the" cause; what matters is where an argument ENDS relative to what a walk over it consumes.
+
+That is the same extent question left above, now with a 24-line subject: `wrapPh` calls
+`parseExpr(renameArgPh(ts), 0, pushU(0, n, env), cx)` and keeps only `b` inside `(lam n …)`, while
+the remainder `r` is parsed by the caller OUTSIDE that lambda. **A `__u0` that the renamer produced
+beyond where `parseExpr` stopped therefore lands outside its own binder — which is precisely
+`(global __u0)`.** Not confirmed: F is written one expression per `def`, so printing `n` against the
+number of tokens actually renamed needs the staged tower edited (it is read at RUNTIME from
+`bin/lib/**/tower/bin/fsub.ssc`, so that iterates in seconds without a rebuild — but revert BOTH
+staged copies afterwards).
+
+**Nine further hypotheses refuted by probe** and not worth re-running: `"${"` across a declaration
+boundary, the same inside a `match` arm, its `"$" + "{"` control, a placeholder in a call made from
+a brace-lambda, one inside a brace-lambda plus another after it, defaults beside a placeholder in
+both declaration orders, an `s"…"` interpolation beside a placeholder, and its control. All lower to
+`F`. Combined with the ten already listed, that is nineteen negative probes: **isolated shapes do
+not reproduce this defect, and the next person should reduce rather than guess.**
+
 ## jsonparse-returns-a-string-on-rust-and-a-value-everywhere-else
 
 <!-- status: fixed
