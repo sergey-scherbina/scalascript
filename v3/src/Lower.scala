@@ -3047,11 +3047,29 @@ object Lower:
     // top-level extension is the more specific reading of `v.m(x)` — it names one function, while
     // an instance method has to be chosen — so the unambiguous rewrite goes first and this one only
     // sees what it left.
-    val allDefs = rewriteGivenExtensionCalls(
-      rewriteExtensionCalls(resolveMethodRefs(
+    // THE GIVEN RESOLVER RUNS FIRST, and the order is the fix for a real defect rather than a
+    // tidying. `rewriteExtensionCalls` rewrites `x.m(args)` to `m(x, args)` whenever `m` is a
+    // top-level def name — it never looks at the receiver — and a top-level
+    // `extension [A](fa: Either[String, A]) def handleError` lifts to exactly such a def. Running
+    // it first meant it ATE every `handleError` call, including one on an `Option`, before the pass
+    // that can type the receiver ever saw it: `std/monaderror.ssc` declares that name twice, once
+    // inside `given optionUnitError: MonadError[Option, Unit]` and once at top level for `Either`,
+    // so an Option ran the Either body and `case Right(_) / case Left(e)` matched no arm — an
+    // unpositioned `match: no arm matched` from inside `Exec.prim`.
+    //
+    // Swapped, the pass that KNOWS the receiver's type claims what it can and the name-only rewrite
+    // takes the rest. That is the same "more specific wins" the subtrait preference encodes one
+    // level down.
+    //
+    // NO NEW GUARD IS NEEDED, and that was checked rather than hoped: `instanceOnly` already
+    // subtracts `defs.map(_.name)`, so a method a top-level extension also provides is not
+    // instance-only and the resolver cannot refuse it. On an `Either` receiver `pick` returns None,
+    // nothing is refused, the expression falls through unchanged, and the second pass handles it.
+    val allDefs = rewriteExtensionCalls(
+      rewriteGivenExtensionCalls(resolveMethodRefs(
         resolveGivenArgs(resolveSummons(rewriteByName(allDefsEager), p.objects), p.objects), sigs),
-        p.classes),
-      p.objects, p.traits, p.classes)
+        p.objects, p.traits, p.classes),
+      p.classes)
 
     // ── effect operations ──────────────────────────────────────────────────────────────────────
     //
