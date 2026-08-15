@@ -1,0 +1,11 @@
+slug: v3-workflow-group-per-commit
+branch: feature/v3-workflow-group-per-commit
+agent: claude-code
+started: 2026-08-15T22:54:09Z
+heartbeat: 2026-08-15T22:54:09Z
+status: claimed-before-planning
+items: v3-workflow-is-cancelled-before-it-can-report
+paths: file:.github/workflows/v3.yml file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
