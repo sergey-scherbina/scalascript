@@ -76,11 +76,20 @@ on:
       - 'v3/**'
       - 'uniml/**'
       - '.github/workflows/v3.yml'
+      # A BOARD EDIT CANNOT BREAK A GATE, and 47% of the arrivals were board edits: of the 85
+      # commits touching these paths in three days, 40 changed ONLY `.md` under `v3/`. Each fired a
+      # 45-minute suite that can tell nothing about a heading, and — this is the part that cost
+      # something — each one evicted a pending run that could have reported. Checked before writing
+      # the line rather than assumed: every step in this file runs a `v3/*.sh` gate against code,
+      # and none of them reads BUGS.md, SPRINT.md, BACKLOG.md or a spec. If a gate ever starts
+      # validating the boards, this exclusion silently drops it — that is the trade being made here.
+      - '!v3/**.md'
   pull_request:
     paths:
       - 'v3/**'
       - 'uniml/**'
       - '.github/workflows/v3.yml'
+      - '!v3/**.md'
   schedule:
     # 03:17 UTC — an odd minute on purpose, so this does not queue behind every other nightly in
     # the account at the top of the hour and lose its runner to the same contention it is here to
@@ -116,6 +125,19 @@ on:
 # longer coming from concurrency and the next suspect is the 45-minute job timeout or the account's
 # concurrent-job budget — neither of which this line can fix. The measurement to repeat is
 # `gh run list --workflow v3.yml --limit 100 --json conclusion`.
+# MEASURED, AND IT CONFIRMS THE PARAGRAPH ABOVE WITH A COUNT rather than adding a new theory. Of
+# the twelve runs cancelled after `cancel-in-progress: false` landed, TWELVE had a newer run created
+# on the same branch while they were still alive. Better than the timing: a cancelled run has ZERO
+# JOBS in the API (`/actions/runs/<id>/jobs` returns an empty array) while a completed one has two,
+# so those runs never executed a step at all — they were evicted while waiting in this group, which
+# is the one thing `cancel-in-progress: false` cannot prevent. The job timeout is ruled out by the
+# same data: these die at a 7-minute median against limits of 45 and 60.
+#
+# THE GROUP IS DELIBERATELY LEFT ALONE. One group per commit would stop the eviction outright, but
+# the owner was offered three options and chose fewer arrivals, and that choice landed an hour before
+# this measurement with eight runs behind it. Changing the lever now would make its effect
+# unreadable. The arrival rate is the thing being tested; the `.md` exclusion above pulls the same
+# direction and is the largest remaining cut that costs no coverage.
 concurrency:
   group: v3-${{ github.ref }}
   cancel-in-progress: false

@@ -51,21 +51,47 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-> **THE CHANGE IS LANDED (`ac924a416`) AND THIS STAYS OPEN UNTIL THE NUMBER MOVES.** `cancel-in-progress`
-> is now `false`. The effect on the cancelled rate cannot be read from a single push, so closing this
-> on the strength of the edit would be closing it on an intention. Re-run
-> `gh run list --workflow v3.yml --limit 100 --json conclusion` after a day and close it when
-> `success` is no longer 5 in 100.
+> **UPDATE 2026-08-15, AND THE PREVIOUS FIX DID NOT MOVE THE NUMBER.** Split at the moment
+> `ac924a416` landed (18:37Z), the 100-run window reads:
 >
-> **The diagnosis below is wrong in a way that changed the fix, and is corrected here rather than
-> quietly superseded.** It says "main's push interval is shorter than the suite". Measured: runs are
-> created at **1.7 per hour** over 58 hours — one every ~35 minutes — while completed runs take a
-> median of **26 minutes**. On average a run has time to finish. What kills them is that arrivals
-> come in BURSTS, several `v3/`/`v2/` commits within minutes, each evicting the last; cancelled runs
-> die at a median of 5.9 minutes. So the remedy is not "run less" but "do not kill a run that is
-> already executing" — and that distinction is why the trigger could be WIDENED in the same commit
-> instead of narrowed.
+>     before   83 runs   cancelled 63   failure 15   success  5
+>     after    17 runs   cancelled 12   failure  2   success  2
 >
+> **THIS CONFIRMS THE DIAGNOSIS ALREADY IN THIS ENTRY, it does not replace it.** The paragraph below
+> had already worked out that a pending run is evicted regardless of `cancel-in-progress`; what was
+> missing was a count and a way to tell "pending" from "running" apart. Both now exist: ALL TWELVE
+> post-fix cancellations had a newer run created on the same branch while they were still alive, and
+> — the decisive one — **a cancelled run has ZERO JOBS**. `/actions/runs/<id>/jobs` returns an empty
+> array for every cancelled run and two jobs for a completed one, so those runs never executed a
+> single step. `startedAt` is useless here because the API sets it equal to `createdAt` whether or
+> not anything ran; the job count is the instrument that actually distinguishes the two states.
+>
+> **THE TIMEOUT SUSPECT NAMED BY THE PREVIOUS ROUND IS REFUTED**, and it was the right one to check
+> first — a job timeout does surface as `cancelled` in this account's history. The durations rule it
+> out here: a timeout dies at 45 or 60 minutes and these die at 7.
+>
+> **ONE CHANGE, AND IT IS THE OWNER'S LEVER RATHER THAN MINE.** The trigger no longer fires on `.md`
+> under `v3/`: of the 85 commits touching the trigger paths in three days, FORTY changed only board
+> files, and every step in this suite runs a `v3/*.sh` gate against code — checked step by step, not
+> assumed. That is the largest remaining cut in arrivals and it costs no coverage, because a heading
+> cannot fail a gate.
+>
+> **THE GROUP WAS DELIBERATELY NOT TOUCHED, though one group per commit would stop the eviction
+> outright.** The owner was offered three options and chose fewer arrivals; that choice landed at
+> 21:02Z with EIGHT runs behind it when this was measured. Changing the lever an hour later would
+> have made the owner's choice unreadable — a control that contains the change under test. It is
+> offered as a decision with the evidence attached, not taken.
+>
+> **STILL OPEN, AND THE PREDICTION IS WRITTEN DOWN SO IT CAN BE WRONG.** Arrivals fall from ~1.7/hour
+> to roughly 0.6/hour against a 26–45 minute run, so most runs should now finish before the next one
+> arrives and `success + failure` should become the majority. If `cancelled` is STILL the majority
+> after that, arrivals are not the binding constraint at any achievable rate and the group is the
+> only remaining lever. Re-measure with
+> `gh run list --workflow v3.yml --limit 100 --json conclusion,createdAt` after a day, SPLIT at this
+> commit's time — an unsplit window mixes three policies and says nothing — and check the job count
+> of a sample of cancelled runs to confirm the mechanism is still eviction and not something new.
+>
+
 > **Not `no group at all`, which is what `smoke.yml` carries and what this entry points at.** That
 > position rests on a premise this suite does not share: smoke is ONE job of ~6 minutes that skips
 > sbt on a cache hit, so 25 runs/hour is affordable. This is ~26 minutes and builds an sbt project
