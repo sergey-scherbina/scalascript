@@ -3,9 +3,36 @@ branch: feature/multi-param-typeclass-never-resolves
 agent: claude-code
 started: 2026-08-15T00:45:19Z
 heartbeat: 2026-08-15T00:45:19Z
-status: claimed-before-planning
+status: working
 items: multi-param-typeclass-never-resolves v3-handleError-on-a-val-bound-None-matches-no-arm
 paths: file:v3/src/Lower.scala file:v3/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  A typeclass with MORE THAN ONE type parameter never resolves. `headAndArg` splits
+  `MonadError[Option, Unit]` into `("MonadError", "Option, Unit")` — it cuts at a nested `[` and
+  never at a comma — so the instance table is keyed on the string `Option, Unit` and no receiver
+  can ever match it.
+
+  REDUCED, not guessed. Identical body, identical call site, one difference:
+
+      given o1:  M1[Option]        with … extension … def he …   Some(4).he(…) -> Some(4)   WORKS
+      given oue: ME[Option, Unit]  with … extension … def he …   Some(4).he(…) -> REFUSED
+
+  Four steps got there, and three of them killed a hypothesis: the plain patterns `case Some(_)` and
+  `case Some(v)` work; the SAME extension body at top level works; the receiver shape is irrelevant
+  (a `val` bound to `None`, a `val` bound to `Some`, and the bare constructor `Some(42)` all fail
+  identically). Only the arity of the trait's type parameters matters.
+
+  THIS CORRECTS `v3-handleError-on-a-val-bound-None-matches-no-arm`, which I filed YESTERDAY with
+  the wrong mechanism in its title. It is not about `val`, not about `None`, and not about
+  `handleError` — that method was simply the only multi-param instance the corpus reaches. Same
+  shape of error as `v3-multishot-handler-without-a-return-clause` earlier in this session: I named
+  the symptom the diagnostic pointed at instead of reducing to the smallest difference.
+
+  THE FIX: cut the type argument at the first TOP-LEVEL comma as well as at a nested `[`, so
+  `MonadError[Option, Unit]` keys on `Option`. Depth-aware, because `Foo[Map[K, V], Int]` must key
+  on `Map` and a naive `indexOf(',')` reads the map's own comma.
+
+  MEASUREMENT: N with floors DIFF 3 / CRASH 9. Expect `std-monaderror` to move — it is the corpus
+  case built on `MonadError[F, E]` — and nothing to regress, since a key that matched nothing before
+  cannot have been dispatching anything.
+next: make headAndArg depth-aware, probe both arities, measure
