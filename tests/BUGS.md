@@ -86,7 +86,48 @@ an agent who learns to shrug at RED will miss one that is.
 
 **Measured, not decided.** Raising or lowering this cap has been the project owner's call three
 times (see `smoke-suite-over-its-own-budget`, and the comment block in the workflow), so this entry
-stops at the number. What the number says: the margin the cap was sized to give — ~11 min over the
+stops at the number.
+
+### 2026-08-15 — WHY the duration moved, measured. The budget cannot see more than half the suite
+
+The entry above says "either the cap moves, or the suite's real duration does". Here is the second
+half, and it needs nobody's decision to establish.
+
+From a GREEN run (`5ef9c49af`, run 31900764370), the suite's own header and rollup:
+
+| | |
+|---|---|
+| checks run | 113 |
+| budget | **952 s**, derived from **82** per-check baselines totalling 699 s |
+| actual | **1467.4 s** |
+| checks with NO baseline row | **30**, charged their measured **804.6 s** so they cannot fail the run |
+
+**So 55 % of the suite's runtime is invisible to the budget that is supposed to govern it.** 952 s
+cannot be met by a 1467 s suite, and the gap is not drift — it is thirty checks the budget never
+counted.
+
+**The thirty are exactly the checks added since the baseline was last harvested**, and that
+correspondence is exact rather than approximate. `tests/smoke-baseline.tsv` was last refreshed in
+`78710cf86` on 2026-08-12. Between that commit and today, `scripts/smoke-ci.ssc` was touched by 23
+commits carrying **+36 `Check(` lines and −6 — net +30.**
+
+**The cost is concentrated, not spread.** The three most expensive checks in the whole run are all
+un-baselined F-front checks: `f-at-bind-pattern` 102.5 s, `f-bodyless-object` 83.6 s,
+`f-cons-nil-tail` 82.6 s — **269 s between them, 18 % of the run.** Average cost of a baselined
+check is ~8.5 s (699 s over 82); of an un-baselined one, ~27 s (804.6 over 30). The additions are
+three times the price of what was there.
+
+**The mechanism that let it drift is that nothing couples the two.** Adding a check to
+`smoke-ci.ssc` is one line and lands with its gate; refreshing `tests/smoke-baseline.tsv` is a
+separate deliberate act (`tests/smoke-baseline-harvest.sh`). Every agent does the first. In 23
+commits nobody did the second, and the suite's own budget quietly stopped being a statement about
+the suite.
+
+**What this changes about the decision, which is still the owner's.** Refreshing the baseline does
+not make the suite faster — it makes the budget honest, so the inner guard can speak again instead
+of being outrun by checks it cannot see. The duration question then has a name and a lever: three
+F-front checks at ~90 s each on the push path. Whether they belong there, or belong in the nightly,
+is the same kind of call the 2026-08-01 restructure already made once. What the number says: the margin the cap was sized to give — ~11 min over the
 worst case — is gone, and the suite's median has moved from 16.8 to 26.0. Either the cap moves, or
 the suite's real duration does; the inner budget cannot report on this one, because a job killed at
 30 min never reaches the line that prints it.
