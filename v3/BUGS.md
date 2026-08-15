@@ -487,7 +487,7 @@ justified by a name collision.
 plugin's tagged-handle surface is invisible to v3. It FAILS SAFE rather than silently: lowering gates
 on the same table it bridges, so a tagged name is refused at compile time on BOTH lanes and I-3
 holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
-## v3-the-fleet-bridges-one-of-the-registrys-three-tables — tagged handles are invisible to v3
+## v3-the-fleet-bridges-one-of-the-registrys-five-tables — tagged handles and plugin globals are invisible to v3
 
 <!-- status: open
      lane: v3
@@ -496,7 +496,14 @@ holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**`ssc.V2PluginRegistry` keeps THREE tables** (`v2/src/Runtime.scala:1283`): `handlers` for plain
+**CORRECTED 2026-08-16: it is FIVE tables, not three, and the two I had missed are the ones with a
+corpus case behind them.** Besides `handlers`, `taggedApply` and `taggedMethods` there is
+`globalValues` — what `registerGlobal` fills, read with `allGlobalNames`/`lookupGlobal` — and the
+PROGRAM's own globals map handed over by `onProgram`. `suspend`, which blocks six corpus cases, is a
+`globalValues` entry registered by `generator-plugin`, not a Prim handler at all. The census that
+produced "three" read the block around `taggedMethods` and stopped there.
+
+**`ssc.V2PluginRegistry` keeps FIVE tables** (`v2/src/Runtime.scala:1283`): `handlers` for plain
 Prim ops, `taggedApply` for calling a tagged handle, and `taggedMethods` for `(tag, method)` pairs
 such as `registerTaggedMethod("WsRoom", "add")`. `v3/plugins/V2Fleet.scala` snapshots only
 `handlers`, so every plugin surface expressed as a handle with methods — sockets, rooms, sessions,
