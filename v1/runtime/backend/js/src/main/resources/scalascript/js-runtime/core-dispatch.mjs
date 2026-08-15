@@ -31,6 +31,24 @@ function _charCodeOrNull(x) {
   if (typeof x === 'string' && [...x].length === 1) return x.codePointAt(0);
   return null;
 }
+// The same question asked by a DECLARATION rather than by an operator, and the answer differs.
+//
+// `_charCodeOrNull` above accepts a one-character STRING because `==` must equate a boxed `_Char`
+// with a char literal, and literals were plain strings when that was written. A declared `Int`
+// parameter must not: `def f(a: Int); f("x")` is a type error, not a request for 120, and turning it
+// into 120 is a SILENT WRONG ANSWER — measured across four lanes, the same program gives `x`, `x`,
+// `120` and a scalac rejection (tests/BUGS.md
+// a-declared-parameter-type-means-four-different-things-on-four-lanes).
+//
+// Char -> Int IS admissible under the contract (a Char is an Int, specs/v2-char-is-an-int.md);
+// String -> Int is not. One helper cannot serve both callers, so this is the strict one: a BOX or a
+// number, never a string. Char literals are boxed today (`val c = 'a'` emits `_char(97)`), so the
+// admissible coercion is unaffected — verified rather than assumed.
+function _charCodeStrict(x) {
+  if (x instanceof _Char) return x.__c;
+  if (typeof x === 'number') return x;
+  return null;
+}
 
 // ── Exact numerics (v1.64): BigInt is native; Decimal is BigInt-backed ──────
 // A Decimal is { _type:'_Decimal', u: bigint, s: int } with value = u * 10^-s.

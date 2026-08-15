@@ -3823,7 +3823,9 @@ class JsGen(
     paramVals.collect {
       case p if isDeclaredIntParam(p) =>
         val n = safeJsParam(p.name.value)
-        s"$n = _charCodeOrNull($n) ?? $n;"
+        // _charCodeStrict, NOT _charCodeOrNull: a declared Int accepts a Char (admissible) and must
+        // NOT silently turn a one-character String into 120 (not admissible). See the runtime.
+        s"$n = _charCodeStrict($n) ?? $n;"
       case p if isDeclaredCharParam(p) =>
         val n = safeJsParam(p.name.value)
         s"$n = _asChar($n);"
@@ -3835,7 +3837,7 @@ class JsGen(
     else s"{ ${guards.mkString(" ")} return $expr; }"
 
   private def intParamInitializer(p: Term.Param, source: String): String =
-    if isDeclaredIntParam(p) then s"(_charCodeOrNull($source) ?? $source)" else source
+    if isDeclaredIntParam(p) then s"(_charCodeStrict($source) ?? $source)" else source
 
   // ─── Mutual TCO helpers ──────────────────────────────────────────
 
