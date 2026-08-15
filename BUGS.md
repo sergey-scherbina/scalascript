@@ -23,6 +23,90 @@ Newest first.
 
 
 
+## rust-case-class-method-cannot-read-its-own-fields — a method on a case class is lowered to a free fn with the fields unbound, so the simplest data type in the language does not compile
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — the four-line repro below is the whole report
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+Found while fixing `rust-route-handler-shapes`, and it is why that gate has no builder-chain row:
+`Response(…).withHeader(…)` selects the right runtime entry and the crate still does not compile.
+The cause has nothing to do with routing.
+
+```scala
+case class P(x: Int, y: Int):
+  def shifted(d: Int): P = P(x + d, y)
+```
+
+```
+error[E0425]: cannot find value `x` in this scope
+error[E0425]: cannot find value `y` in this scope
+```
+
+The method is emitted as a FREE function — `pub fn shifted(d: i64) -> P` — with no receiver, so the
+field names in its body bind to nothing. Read off the emitted crate for `std/http.ssc` itself:
+
+```rust
+pub fn withHeader(name: String, value: String) -> Response {   // no `self`
+    Response { status: status, … }                             // `status` unbound
+}
+```
+
+**Only this lane.** `x`, `this.x` and a sibling call all answer `1` on `run` and on `--v1`; all
+three fail here. `std/http.ssc`'s three builders (`withHeader`, `withSession`, `clearSession`) are
+the ones a program actually reaches, which is how it surfaced, but nothing about the repro is
+HTTP-shaped: it is two Ints.
+
+Not fixed here because it is a codegen change of a different size from the routing one it was found
+under, and folding it in would have made a claim about route handler SHAPES also about method
+lowering.
+
+## rust-absolute-import-path-does-not-resolve-a-case-class — the same program emits or refuses depending on how its import is spelled
+
+<!-- status: open
+     lane: v2-rust
+     area: codegen
+     kind: bug
+     gate: none — the two spellings below are the report
+     reported-by: claude-code
+     reported-at: 2026-08-15
+     confirmed: yes -->
+
+Found while writing `tests/e2e/rust-route-handler-shapes-gate.sh`: the gate's first version put its
+sandbox in `$TMPDIR` and therefore had to write the import with an absolute path. Every Response row
+went red, and none of them were about routing.
+
+```
+[route, serve, Request, Response](../../std/http.ssc)   emits
+[route, serve, Request, Response](/abs/…/std/http.ssc)  error: def `main` calls `Response`,
+                                                        which this crate does not define
+```
+
+Byte-identical bodies; only the import path differs. The FUNCTIONS from the same import resolve
+either way — `route` and `serve` are fine — so it is the case-class member of the import list that
+is dropped.
+
+**The emit-time refusal is only a partial view of the damage.** With the absolute spelling, a
+handler whose body is directly `Response(…)` is refused at emit, while one that reaches the same
+constructor through an `if` emits a crate — and that crate then fails at cargo:
+
+```
+error[E0412]: cannot find type `Request` in this scope
+error[E0412]: cannot find type `Response` in this scope
+```
+
+So the types are not in the crate at all; the emit-time check merely catches one of the positions
+they can appear in. Both imported case classes are dropped, not just the one named in the message.
+
+Worked around in the gate the way `rust-http-lane-parity-gate.sh` already does it — the sandbox is
+created inside `examples/` so the import can stay relative — and filed here rather than fixed,
+because a gate is not the place to discover import resolution.
+
 ## string-length-counts-bytes-not-characters — `length` answered BYTES on the Rust lane while `substring` indexed code units, so the pair panicked on any non-ASCII string
 
 <!-- status: fixed
@@ -403,11 +487,12 @@ branch also carried an unrelated 251-line `pm.ssc`, which was not taken.
 
 ## rust-inline-route-handler-is-typed-as-a-string-handler — a bare lambda handler never reaches the Request/Response path at all
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none — the three spellings are below
+     gate: tests/e2e/rust-route-handler-shapes-gate.sh
+     fixed-in: ea6eed905
      reported-by: claude-code
      reported-at: 2026-08-14
      confirmed: yes -->
@@ -456,6 +541,40 @@ removed rather than shipped with a comment claiming a coverage it does not have.
 `handler: Request => Response`; reading an extern's parameter types at the call site would settle
 both halves for every spelling, and is the same shape as the extern-default work
 (`v2-extern-default-argument-is-never-filled…`) — a declaration that exists and is not read.
+
+**FIXED 2026-08-15, and NOT the way the line above proposed.** Reading the declaration would move
+EVERY handler to the Request entry, including the untyped lambdas that answer a String today — and
+a handler that uses its parameter AS a string (`req => "hello " + req`) would then be handed a
+`Request`. The target chooser's own comment asks for the opposite, in as many words: an untyped
+lambda keeps receiving the path/body string it has always received. So the recogniser keys off what
+the BODY PROVES instead — a body that builds a `Response` cannot be a string handler, because it
+does not compile as one, which IS the reported E0308. Nothing that compiles today changes shape.
+
+One `producesResponse` now answers for both decisions — which runtime entry the call takes and what
+the adapter says the handler returns — because they were two functions that could disagree, and the
+attempt recorded above is what disagreeing looks like: a return-side extension that no entry ever
+reached. It recognises the constructor, the `Response.x(…)` factories, the three declared builders,
+`if`/`else`, a block's last expression, and a call to a `def` declared `: Response`.
+
+**The block form was the same defect one layer down.** `route(m, p) { req => … }` reaches the
+walker as `Block(List(Function))`, so a match on `Term.Function` alone fell through to the String
+entry while the identical lambda written inline took the Request entry. Both decisions now read the
+handler argument through one `handlerArgOf`, which unwraps a single-expression block.
+
+| spelling | before | after |
+|---|---|---|
+| `req => Response(404, …)` | E0308 | `_http_route_req`, `-> Response` |
+| `req => if … then Response(…) else Response(…)` | E0609 | `_http_route_req`, `-> Response` |
+| `route(m, p) { req => Response(…) }` | E0308 | `_http_route_req`, `-> Response` |
+| `req => "plain"` (control) | String entry | String entry |
+| `def h(req: Request): String` (control) | `_http_route_req`, `-> String` | unchanged |
+
+`req => Response(…).withHeader(…)` selects the right entry and still does not compile, for a reason
+outside routing entirely — see `rust-case-class-method-cannot-read-its-own-fields`. That is why the
+gate has no builder row: a red row there would be measuring the other defect.
+
+**Verified on the wire:** `GET /refuse` against a handler written as an inline `Response(404, …)`
+answers `404`. The gate was watched FAILING with the fix reverted and the toolchain rebuilt.
 
 ## build-rust-indexof-on-string — indexOf on a String took the LIST lowering, and String has no `iter`
 
