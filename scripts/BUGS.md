@@ -285,11 +285,48 @@ kept `lint-markdown` red for seven commits, arriving from the other direction.
 
 ## editing-a-coordination-script-forces-a-compiler-rebuild — `scripts/` is a digest input wholesale
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: perf
-     gate: tests/e2e/launcher-digest-gate.sh -->
+     gate: tests/e2e/launcher-digest-gate.sh
+     fixed-in: e67b75a146bf777290aa5597dc249ee51f03e1c4 -->
+
+> **FIXED 2026-08-15, and step 1 of this entry's own plan is what shaped it.** "Establish which files
+> the launcher actually derives from — from `install.sh` and the `installBin` templates, not from a
+> guess." Done: `build.sbt:2039` writes `$_SSC_ROOT/scripts/launcher-input-digest` INTO the generated
+> launcher, which runs it at startup for the staleness check, and the build runs it again to stamp
+> the digest. Of everything under `scripts/`, the build definition and the launcher templates name
+> EXACTLY that one file — so the obvious directory exclusion would have excluded the only script that
+> genuinely reaches the launcher.
+>
+>     scripts/ inputs                 66 -> 41
+>     scripts/coord-release           input -> excluded
+>     scripts/smoke-ci.ssc            input -> excluded
+>     scripts/launcher-input-digest   input -> INPUT
+>
+> **On step 2's wording, which cannot be followed literally.** It asks for "an allowlist of what CAN
+> affect it, never a denylist" AND for "a new script added tomorrow must default to affects the
+> launcher". Those are opposite: an allowlist makes a new file default to EXCLUDED, which is the
+> unsafe direction. The goal is the one that matters, so this is a per-file DENYLIST — the default
+> stays INCLUDED — plus a check that refuses to emit a digest if the build ever names an excluded
+> file. A script wrongly included costs a rebuild; one wrongly excluded hides a stale toolchain, and
+> this repo has paid for that twice.
+>
+> **Step 4, counted rather than claimed:** of the last 60 commits on `origin/main`, exactly ONE
+> touched `scripts/` and nothing else, and its file was `scripts/smoke-ci.ssc`. Smaller than "paid
+> twice in one session" suggests — that number belongs to sessions editing coordination tooling, not
+> to main's traffic. Both files now have gate rows.
+>
+> **Step 3's A/B, and the first attempt of it measured NOTHING.** Running the pre-fix tool from a
+> scratch directory died with `fatal: not a git repository` and printed nothing; two empty strings
+> compare equal, so it reported "unchanged" for both tools and nearly had me conclude this entry's
+> premise was wrong. From a copy placed inside the repo:
+>
+>     pre-fix  coord-release edited: MOVED  bd4641951 -> 3c05d6b2f
+>     fixed    coord-release edited: UNCHANGED
+>     fixed    v1/ source edited:    MOVED       (the true positive still fires)
+>     fixed    digest tool edited:   MOVED       (still an input)
 
 **Found 2026-08-13**, paid twice in one session. `scripts/launcher-input-digest` includes
 `scripts/` in the launcher input set — 62 files — and that set includes things the launcher does
