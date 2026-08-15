@@ -3,9 +3,37 @@ branch: feature/given-subsumption-through-extends
 agent: claude-code
 started: 2026-08-15T13:52:45Z
 heartbeat: 2026-08-15T13:52:45Z
-status: claimed-before-planning
+status: working
 items: given-subsumption-through-extends
 paths: file:v3/src/Lower.scala file:v3/BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  An instance declared `Monoid[Int]` does not satisfy a context bound `[A: Semigroup]`, even though
+  `trait Monoid[A] extends Semigroup[A]`. Instance lookup compares the declared type EXACTLY and
+  never walks the extends graph upward.
+
+  REDUCED BEFORE CLAIMING, and the reduction is what stopped me building the wrong thing. The
+  symptom is an ARITY refusal — `call to 'combineAllOption' passes 1 argument(s), it takes 2` — which
+  reads like a defaulting or a currying bug. Probed:
+
+      combineAll(List(7, 8, 9))         -> 24        `def combineAll[A: Monoid]`
+      combineAllOption(List(7, 8, 9))   -> REFUSED   `def combineAllOption[A: Semigroup]`
+      combineAllOption(xs) with `val xs: List[Int]` -> REFUSED, identically
+
+  Same argument, same shape, same file. The declared TYPE ARGUMENT is not the difference and neither
+  is the element type being invisible (§4a1's third edge, which is what I expected to find):
+  `std/semigroup-monoid.ssc` declares `intSum`, `stringConcat` and `listConcat` ALL as `Monoid[…]`
+  and NOT ONE as `Semigroup[…]`, so a `Semigroup` bound can never be satisfied by anything.
+
+  TWO LOOKUP SITES, both exact: `resolveSummons` compares `typeHead(t) == head` (Lower.scala:1130)
+  and `resolveGivenArgs` compares `it == concrete` (:1352).
+
+  THE RULE IS ALREADY IN THIS FILE, one pass down: `rewriteGivenExtensionCalls` has `extendsFrom`
+  and uses it to prefer the SUBTRAIT when several instances provide a method. This is the same graph
+  read in the other direction — an instance of a subtrait SATISFIES a supertrait bound — so the fix
+  is subsumption, not a new concept. It needs `traits` threaded into `resolveGivenArgs` and
+  `resolveSummons`, which currently take only `(defs, objects)`.
+
+  MEASUREMENT: N with floors DIFF 3 / CRASH 9. The histogram line `3 call to '…' passes 1
+  argument(s), it takes 2` is the instrument; I do NOT yet know that all three are this cause, so
+  the claim is for the rule and the yield is whatever it is — up to 3.
+next: thread traits, subsume through extends at both sites, measure
