@@ -20,6 +20,17 @@ OUT="$ROOT/v3/.jars/plugins.cp"
 MODULES=(
   v2NativeFsPlugin
   v2NativeOsPlugin
+  # ADDED ONE MODULE PER REFUSED NAME, and the names came from the compiler's own message rather
+  # than from a scanner: a sweep of every corpus case counting only `the host function '…' is not
+  # implemented on this lane`. `element`, `localStorageGet` and the signal family are ui; the
+  # `content*` family and `signal` are content; `__jsonCoreWrap*` is json; `sha256` is crypto and
+  # actors; `add` is http-fast. Two of the refused names — `actorGroupTell` and `webauthnChallenge`
+  # — match no plugin source by name at all, so this list is not expected to answer them.
+  v2NativeUiPlugin
+  v2NativeContentPlugin
+  v2NativeJsonPlugin
+  v2NativeCryptoPlugin
+  v2NativeActorsPlugin
 )
 
 cd "$ROOT" || exit 2
