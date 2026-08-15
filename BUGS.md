@@ -1271,11 +1271,12 @@ Found the same way as the entry above, in the same discarded probe draft.
 
 ## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: front
      kind: bug
-     gate: none
+     gate: tests/e2e/absolute-import-resolves-gate.sh
+     fixed-in: fc7a455c4
      found-by: claude-code
      found-at: 2026-08-14
      ssc-version: dc3cfeeef
@@ -1323,6 +1324,46 @@ case classes are gone, not just the one the message names.
 import absolutely, and every row that needs a case class then goes red for a reason that has nothing
 to do with what the gate tests. Two gates have now worked around it by creating the sandbox inside
 `examples/` (`rust-http-lane-parity-gate.sh`, `rust-route-handler-shapes-gate.sh`).
+
+**FIXED 2026-08-16 — as a REFUSAL, which is the opposite of what the title suggests, and the other
+lanes are why.** Before changing anything I ran the same program on all three:
+
+| lane | absolute import |
+|---|---|
+| `run` | `ssc: native frontend import not found: /…/std/http.ssc from abs.ssc` |
+| `--v1` | `Import /…/std/http.ssc: requirement failed: … is not a relative path` |
+| `build-rust` | `Cargo crate written …`, **exit 0** |
+
+An absolute import path is not supported by the language as implemented, and this lane was the only
+one that did not say so. Making it RESOLVE would be a language change on three lanes and is not what
+this entry asked for; what it asked for is in its own words — *an import that resolves to nothing
+should say so*.
+
+**The mechanism, exactly.** `inlineImportsRust` (`v1/tools/cli/.../Main.scala`) calls
+`ImportResolver.resolve`, which builds `baseDir / os.RelPath(path)` — and os-lib REFUSES an absolute
+string as a RelPath, so it throws. The throw was swallowed by a `catch { case _: Throwable => None }`
+and the import contributed nothing; a `case _ => Nil` did the same for a path that resolved to a
+file that does not exist.
+
+**It was never about absolute paths.** A plainly MISSING relative import — `../../std/nosuchfile.ssc`
+— went down the identical path and was dropped just as silently. Both are refused now, and the
+second is the row in the gate that says so.
+
+**Three skips stay silent, deliberately**, and separating them from the failure is most of the
+change: a directory, a compiled `.sscc`, and a file already inlined elsewhere in the import graph
+are not failures. Turning those into refusals would have broken working programs, which is the risk
+this change carried.
+
+Gate: `tests/e2e/absolute-import-resolves-gate.sh`, on the PUSH path (four `emit-rust` runs, no
+cargo, 3.9 s measured in the suite). Watched failing with the fix reverted and the toolchain
+rebuilt: both refusal rows came back `exit 0, Cargo crate written` — the literal symptom — while the
+two anti-rows stayed green. Corpus control: `rust-std-survey-gate.sh` over 132 std modules unchanged
+at REFUSED 78 / COMPILES 54 / BADRUST 0, so no std module was relying on an import being silently
+dropped.
+
+**Left for someone else, filed here rather than fixed:** `--v1` answers this with an `[ERROR]` line
+followed by a raw `InterpretError` stack trace, where `run` prints one clean sentence. The refusal is
+correct on both; only the presentation differs.
 
 ## rust-any-map-read-default-not-lifted — `m.getOrElse(k, "?")` on an `Any`-valued map passes a String where the map holds a `Value`
 
