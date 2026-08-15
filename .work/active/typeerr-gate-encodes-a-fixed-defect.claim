@@ -1,0 +1,11 @@
+slug: typeerr-gate-encodes-a-fixed-defect
+branch: feature/typeerr-gate-encodes-a-fixed-defect
+agent: claude-code
+started: 2026-08-15T10:31:22Z
+heartbeat: 2026-08-15T10:31:22Z
+status: claimed-before-planning
+items: orphaned-e2e-gates-52
+paths: file:tests/e2e/typeerr-names-both-types.sh file:tests/e2e/no-orphan-gates.sh file:tests/BUGS.md file:.github/workflows/ci.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
