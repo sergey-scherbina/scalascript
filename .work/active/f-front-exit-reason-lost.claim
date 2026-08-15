@@ -1,0 +1,11 @@
+slug: f-front-exit-reason-lost
+branch: feature/f-front-exit-reason-lost
+agent: claude-code
+started: 2026-08-15T00:11:07Z
+heartbeat: 2026-08-15T00:11:07Z
+status: claimed-before-planning
+items: f-front-exit-code-replaces-the-real-diagnostic
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:tests/e2e/f-front-exit-reason-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
