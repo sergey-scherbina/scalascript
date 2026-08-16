@@ -13264,12 +13264,12 @@ the typed and untyped paths cannot disagree; the Rust equivalent is whatever `v_
 
 ## rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist — `V::Int(i64) /*big*/`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: v2/conformance/bigint-from-string.coreir + v2/conformance/bigint-dynamic-arith.coreir (both skipped for rust/wasm; unskip when this closes)
-     fixed-in: - -->
+     fixed-in: 4a7746ae8 -->
 
 **Found 2026-08-13** by the fixture written for
 `bigint-from-a-string-is-unsupported-on-native-and-bytecode` (root `BUGS.md`), which the VM, the
@@ -13303,6 +13303,37 @@ real — the same self-maintaining shape as a `known-red` declaration.
 **What it costs today:** any program whose big integer is genuinely big is silently out of reach on
 the Rust and wasm lanes. `n.toLong` on a larger literal does not refuse — it TRUNCATES, so the
 generated program runs and answers with a different number.
+
+**FIXED 2026-08-16 — `V::Big(BigInt)`, and the lane moved to cargo to get it.**
+
+The blocker was not the arithmetic, it was the toolchain: this generator emits ONE `gen.rs` built by
+`rustc` directly — for native AND for wasm — so it had no way to take a dependency at all. The
+project owner chose `num-bigint`, which made moving the build the first half of the work:
+`v2/backend/check.sh` now writes a small cargo crate and reuses ONE directory for the whole run, so
+the dependency compiles once and each fixture pays only for its own `main.rs`.
+
+**What the value type does now**
+
+| | |
+|---|---|
+| `Lit(CBig)` | parsed from the DIGITS via `BigInt::parse_bytes`, not through `toLong` |
+| `i->big` | takes an Int, a String or a Big — both fronts lower `BigInt(x)` to this prim whatever `x` is |
+| `big->i` | narrows, and PANICS naming the value when it does not fit; truncating quietly is this entry |
+| `big->f`, `f->big`, `big->str`, `str->big` | through the decimal string, so no second crate |
+| `v_iadd`/`v_isub`/`v_imul`/`v_idiv`/`v_imod` and the five comparisons | a Big on EITHER side wins, checked before the i64 arms so Int/Int keeps its exact wrapping |
+| `big.add`…`big.ge` | the TYPED prims, which did not exist at all: the program compiled and panicked with `unimplemented prim: big.mul` |
+
+**Both fixtures are real rows now** — `RUST_NO_BIGNUM_SKIP` is empty. The whole v2 backend suite is
+green at 61 ok (from 59), and the only skips left are the JS bigint one (`js-long-arith-no-64bit-wrap`,
+a different defect) and the two wasm deep-recursion ones.
+
+**The negative control showed the two fixtures cover different halves**, which is worth recording:
+reverting ONLY the literal makes `bigint-dynamic-arith` fail while `bigint-from-string` still passes,
+because that one constructs through `i->big` from a String — an independent path. One fixture would
+not have caught the other's regression.
+
+**Wired into ci.yml**, filtered to `bigint`: `v2/backend/check.sh` runs on no push path at all, so
+without that step the fix would have had no gate.
 
 ## js-boolean-has-no-tostring-on-the-v2-lane — `__method__: no dispatch for .toString on true`
 
