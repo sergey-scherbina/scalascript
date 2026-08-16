@@ -416,12 +416,45 @@
       |    pub exitCode: i64,
       |}
       |
-      |// `_opts` is the std/process `ProcessOptions` (cwd/env/timeout) — accepted to match the
-      |// 3-arg `exec(cmd, args, opts)` surface; cwd/env/timeout aren't applied yet.
+      |// `opts` is the std/process `ProcessOptions`, and until 2026-08-16 this function DROPPED IT.
+      |// The signature took `_opts: O` and the comment here said "cwd/env/timeout aren't applied
+      |// yet", which made it look like a known gap rather than what it was from the outside: a
+      |// program that sets `cwd` or scrubs the environment got it obeyed under `run` and silently
+      |// ignored under `build-rust`. Nothing failed, nothing warned, and the child ran in the wrong
+      |// directory with the wrong environment.
+      |//
+      |// It is read through `Into<Value>` rather than by naming the struct, because the struct is
+      |// GENERATED into the crate from the `case class` and this template cannot name it. Fields are
+      |// positional, in declaration order — the same access the v2 os-plugin uses on the same type,
+      |// and `Value::Obj`'s own comment says why it carries no names. A shape this does not
+      |// recognise leaves every option unset, which is exactly the old behaviour, so an unrelated
+      |// caller cannot be broken by this.
       |#[allow(dead_code, unused_variables)]
-      |pub fn _exec<O>(cmd: String, args: Vec<String>, _opts: O) -> ProcessResult {
-      |    let out = std::process::Command::new(&cmd)
-      |        .args(&args)
+      |pub fn _exec<O: Into<crate::value::Value>>(cmd: String, args: Vec<String>, opts: O) -> ProcessResult {
+      |    let mut command = std::process::Command::new(&cmd);
+      |    command.args(&args);
+      |    if let crate::value::Value::Obj("ProcessOptions", f) = opts.into() {
+      |        // cwd — field 0, an Option lowered as `Obj("Some", [v])` / `Obj("None", [])`.
+      |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(0) {
+      |            if let Some(crate::value::Value::Str(dir)) = inner.get(0) { command.current_dir(dir); }
+      |        }
+      |        // inheritEnv — field 3. SCRUBBED BEFORE `env` IS APPLIED, not after: the point of
+      |        // `inheritEnv = false` is that the child sees ONLY what the caller listed, and
+      |        // clearing after would throw those away too.
+      |        if let Some(crate::value::Value::Bool(false)) = f.get(3) { command.env_clear(); }
+      |        // env — field 1.
+      |        if let Some(crate::value::Value::Map(entries)) = f.get(1) {
+      |            for (k, v) in entries {
+      |                if let crate::value::Value::Str(s) = v { command.env(k, s); }
+      |            }
+      |        }
+      |        // timeout — field 2, and it is NOT applied here. `std::process::Command` has no
+      |        // timeout, so honouring it means spawning, polling and killing, which changes this
+      |        // function's shape and its failure contract. Left unapplied DELIBERATELY and recorded
+      |        // in `rust-exec-ignores-processoptions-timeout` rather than half-done, because a
+      |        // timeout that is accepted and not enforced is the same silent lie this change fixes.
+      |    }
+      |    let out = command
       |        .output()
       |        .unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
       |    ProcessResult {

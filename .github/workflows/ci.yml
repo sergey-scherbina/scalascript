@@ -777,6 +777,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-mkstring-parity-gate.sh
 
+      # `exec` took a `ProcessOptions` and THREW IT AWAY on this lane — the signature said `_opts`
+      # and the comment beside it said "not applied yet", which reads as a known gap from inside the
+      # repository and as nothing at all from outside. A program that set `cwd` or scrubbed the
+      # environment got it obeyed under `run` and ignored under `build-rust`, with the child running
+      # in the wrong directory. Row 4 is the one that orders the implementation: `inheritEnv = false`
+      # must scrub BEFORE the caller's `env` is applied, or the listed variables are thrown away too
+      # and it prints `[][]` instead of `[][only]`. `timeout` is deliberately NOT asserted — it is
+      # accepted and not enforced, filed rather than half-done. ~40 s, one cargo build.
+      - name: exec obeys ProcessOptions on the rust lane
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-exec-options-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:
