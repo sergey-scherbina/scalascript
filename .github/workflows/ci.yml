@@ -694,6 +694,16 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-json-core-gate.sh
 
+      # Two receivers can each declare a member of the same name — reported as "overloading" when
+      # members of distinct owners were flattened into one namespace. Fixed by two unrelated changes
+      # (an object member emits as `Owner_member`; a case-class method emits into `impl Owner`), so
+      # these rows are a regression guard. The third row is the BOUNDARY: a typeclass still refuses,
+      # and the row asserts it refuses on its DICTIONARY TYPE rather than on the name — if that ever
+      # reads "emits N times (overloading)" again, the flattening is back. ~40 s, two cargo builds.
+      - name: two receivers can share a member name
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-member-qualify-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`
