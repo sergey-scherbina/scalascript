@@ -688,6 +688,18 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-http-lane-parity-gate.sh
 
+      # A third HTTP report from rozum, `impact: blocks`, and the worst failure shape of the three:
+      # one handler panicked on an empty `.jsonl` line, and the server then answered NOTHING — on
+      # every route, permanently — while its process and its port stayed healthy. The handler ran
+      # while holding `routes().lock()`, so its panic poisoned the mutex and every later request
+      # died on `lock().unwrap()`. Rows 3 and 5 are the gate: the SAME `/ok` that worked before the
+      # panic must work after it. Row 2 is 500 and row 4 is 404 on purpose — a registered route that
+      # failed and a path that never existed must not answer alike, which my first fix got wrong.
+      # ~60 s, one cargo build.
+      - name: one panicking handler costs one request, not the server
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-serve-panic-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:

@@ -53,7 +53,8 @@
       |    handler: impl Fn(String) -> String + Send + Sync + 'static,
       |) {
       |    let h = RouteHandler::Str(Box::new(move |s: &str| handler(s.to_string())));
-      |    routes().lock().unwrap().push((
+      |    // poison-tolerant for the same reason as the dispatch site below
+      |    routes().lock().unwrap_or_else(|p| p.into_inner()).push((
       |        method.to_uppercase(),
       |        path,
       |        Arc::new(h),
@@ -98,7 +99,8 @@
       |    handler: impl Fn(RequestParts) -> ResponseParts + Send + Sync + 'static,
       |) {
       |    let h = RouteHandler::Req(Box::new(move |v| handler(v)));
-      |    routes().lock().unwrap().push((method.to_uppercase(), path, Arc::new(h)));
+      |    // poison-tolerant for the same reason as the dispatch site below
+      |    routes().lock().unwrap_or_else(|p| p.into_inner()).push((method.to_uppercase(), path, Arc::new(h)));
       |}
       |
       |/// Split a urlencoded string (`a=1&b=2`) into pairs — used for BOTH the URI query and a form
@@ -220,8 +222,21 @@
       |            m.insert(k.clone(), v.clone());
       |        }
       |    });
-      |    let out = {
-      |        let guard = routes().lock().unwrap();
+      |    // THE HANDLER RUNS WITH NO LOCK HELD, and that is the whole of this defect. The call used
+      |    // to happen INSIDE `let guard = routes().lock()`, so a handler that panicked poisoned the
+      |    // mutex — and every later request, on any route, then died on `lock().unwrap()` with
+      |    // `PoisonError`. From outside: healthy port, healthy process, no answers, permanently, from
+      |    // one malformed byte a caller sent. Reported from rozum, whose handler met an empty last
+      |    // line in a `.jsonl` file. The lookup still needs the lock; the CALL does not, so the chosen
+      |    // handler is cloned out (an `Arc`, so this is a refcount bump) and the guard is dropped.
+      |    // (rust-serve-dies-permanently-after-one-handler-panic.)
+      |    let chosen_handler = {
+      |        let guard = match routes().lock() {
+      |            Ok(g)  => g,
+      |            // Poison is not fatal for THIS data: the routes table is a plain Vec that a panic
+      |            // in a handler cannot leave half-written, because handlers no longer run under it.
+      |            Err(p) => p.into_inner(),
+      |        };
       |        // Exact method+path first; then a prefix route (a registered path ending in
       |        // `/` matches any request path under it) so a handler can serve a whole
       |        // namespace like `/r/<room>` and read the suffix from its `&str` arg (the path).
@@ -229,7 +244,18 @@
       |        let chosen = exact.or_else(|| {
       |            guard.iter().find(|(m, p, _)| m == &method && p.ends_with('/') && path.starts_with(p.as_str()))
       |        });
-      |        chosen.map(|(_, _, h)| match &**h {
+      |        chosen.map(|(_, _, h)| h.clone())
+      |    };
+      |    // A PANIC IN A HANDLER ANSWERS 500 instead of dropping the connection. Without this the
+      |    // caller sees `curl: (52) Empty reply from server` and no status at all; with it the one
+      |    // bad request is the only casualty. `AssertUnwindSafe` is honest here: nothing the closure
+      |    // touches is observed again after a panic — the ResponseParts it would have built is
+      |    // discarded, and the routes table is behind its own lock.
+      |    // A PANIC IS 500, NOT 404, and the difference matters to whoever is debugging: 404 says the
+      |    // route does not exist, which is a lie about a route that is registered and just failed.
+      |    // Only a genuinely unmatched path keeps `None` here.
+      |    let out = chosen_handler.map(|h| {
+      |        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &*h {
       |            // The String surface answers 200 with no headers of its own — exactly what it
       |            // answered before ResponseParts existed. Normalising here keeps ONE path below.
       |            RouteHandler::Str(f) => ResponseParts {
@@ -259,8 +285,10 @@
       |                         { urlencoded_pairs(&body_text) }
       |                         else { std::collections::HashMap::new() },
       |            }),
+      |        })).unwrap_or_else(|_| ResponseParts {
+      |            status: 500, headers: Vec::new(), body: "Internal Server Error".to_string(),
       |        })
-      |    };
+      |    });
       |    if let Some(parts) = out {
       |        let body = parts.body;
       |        // Content-Type by path extension first — so a route can serve a service
