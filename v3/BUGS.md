@@ -6,6 +6,43 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator — four lines, default front
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/front-diff.sh (corpus ONE-SIDED, markdown-html)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**FOUR LINES, AND THE DEFAULT FRONT REFUSES THEM:**
+
+    def f(level: Int): String =
+      val tag = "h" + level
+      "<" + tag + ">"
+
+    v3     OK
+    uniml  ssc3: 2:19: the `level"…"` interpolator is outside SSC3 core Tier 0
+
+An identifier ENDING a line and a string literal OPENING the next are read as one interpolator. In
+Scala `level"…"` is interpolator syntax only when the two are adjacent; a newline between them makes
+them two tokens, which is what v3's own parser does and what every reader assumes.
+
+**THIS IS NOT A CAPABILITY GAP AND MUST NOT BE DECLARED AS ONE.** It is the single file over the
+one-sided ceiling — `markdown-html`, 78 against a declared 77 — so `v3/front-diff.sh` is RED on main
+because of it. Adding the file to `KNOWN_CONF_V3_ONLY` would turn the gate green while leaving the
+default front unable to read an ordinary line break.
+
+**THE SHAPE IS COMMON, WHICH IS WHAT MAKES IT WORTH THE ENTRY RATHER THAN THE LIST.** `std/markdown-html.ssc:206`
+is `val tag = "h" + level` followed by a line that starts with `"<"` — string-building code hits it
+constantly. One corpus file shows it today because most files put an operator or a paren at the line
+break instead.
+
+**WHERE IT LIVES:** the ScalaSpike lexer under `uniml/`, not in `v3/` — the projection only reports
+what it was handed. `v3/uniml/UniFront.scala` refusing the interpolator is correct behaviour for a
+node that should never have been built.
+
 ## v3-a-val-bound-to-another-val-does-not-type-the-receiver — two gaps, and neither half worked alone
 
 <!-- status: fixed
