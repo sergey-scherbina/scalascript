@@ -6,6 +6,37 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-a-val-bound-to-another-val-does-not-type-the-receiver — `flatMap` stops one link short
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/corpus-report.sh (indent-config-format, indent-block-statements)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**The typed extension arm (dcc8e98f6) types a receiver from a CALL's declared result type, and
+`std/parsing/layout.ssc:275` binds one from a NAME:**
+
+    val firstItem: Parser[Any] = itemAtCurrentIndent
+    firstItem.flatMap(first => …)
+
+`itemAtCurrentIndent` types, `firstItem` does not, so `.flatMap` falls through to the built-in and
+the two remaining `indent-*` cases die on it — one as a DIFF on the bridge, one as a CRASH on the
+executor.
+
+**ONE LINK, NOT A NEW MECHANISM.** `bindingTypes` types each binding by asking `receiverHead` with an
+EMPTY map, so a binding whose initialiser is another binding's name can never resolve. Iterating that
+map to a fixed point — a name types from what it was bound to, which may itself have just typed —
+is the whole of it.
+
+**THE DECLARED TYPE IS RIGHT THERE AND UNREACHABLE, which is the other half worth recording.**
+`val firstItem: Parser[Any]` says so in the source, but `Stmt.Val` carries no type field
+(`Ast.scala:151`) — the fronts drop it exactly as they used to drop a `def`'s result type. Adding it
+is the same two-front change that landed for `Def.retType`, and it would make this case direct rather
+than inferred.
+
 ## v3-an-extension-is-disabled-by-a-prelude-class-of-the-same-member-name — a type decides it now; one layer remains
 
 <!-- status: fixed
