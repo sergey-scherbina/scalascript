@@ -25,11 +25,12 @@ Newest first.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: d92def007
      confirmed: yes
      gate: uniml/lint-portable-subset.sh -->
 
