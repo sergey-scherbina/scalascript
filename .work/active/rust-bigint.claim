@@ -5,7 +5,7 @@ started: 2026-08-16T04:45:21Z
 heartbeat: 2026-08-16T04:45:21Z
 status: claimed-before-planning
 items: rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustBackend.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala file:v2/backend/check.sh file:tests/e2e/rust-bigint-gate.sh file:.github/workflows/ci.yml file:v2/BUGS.md
+paths: file:v2/backend/rust/RustBackend.scala file:v2/backend/check.sh file:tests/e2e/rust-bigint-gate.sh file:.github/workflows/ci.yml file:v2/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: add Big to enum V + num-bigint dep + the big.* ops
