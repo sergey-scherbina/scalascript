@@ -1,0 +1,60 @@
+#!/usr/bin/env ssc
+---
+name: rust-serve-dies-permanently-after-one-handler-panic
+description: "one panic in one handler poisons the http runtime mutex, so a served program answers NOTHING afterwards while its process stays up"
+---
+# One handler panic and the server never answers again (rust lane)
+
+Reported from rozum. A handler read a `.jsonl` file line by line and passed each line to
+`jsonParse`. The file's last line was empty — every file written by appending has one — so
+`jsonParse` aborted the thread. That much is arguably fine.
+
+What is not: the process **stayed up and stopped answering everything**, for good. The log shows
+one panic followed by an unbounded run of
+
+```text
+thread 'tokio-rt-worker' panicked at src/runtime/http.rs:224:37:
+called `Result::unwrap()` on an `Err` value: PoisonError { .. }
+```
+
+Every later request on that server — including requests to unrelated routes — fails the same way.
+From outside the service is listening and returning nothing, which is the hardest failure to
+diagnose: healthy port, healthy process, no answers.
+
+Two things would each be enough on their own:
+
+1. **A handler panic must not take the server with it.** Catch it at the route boundary and answer
+   500, or do not hold a lock across handler execution — a poisoned mutex makes one bad request
+   permanent rather than momentary.
+2. **A fallible JSON parse.** There is no `jsonParse` spelling that returns `Option`/`Either`, so a
+   server handling input it did not write has no way to refuse it. The reporter's workaround is to
+   inspect the text first and only hand `jsonParse` something starting with `{` or `[`, which
+   cannot be right for arbitrary input.
+
+To see it: build this, run it, then
+
+```sh
+curl -s localhost:8431/ok            # alive
+curl -s localhost:8431/boom          # nothing — the handler panicked
+curl -s localhost:8431/ok            # nothing, and never again
+```
+
+```scalascript
+[route, serve, Request, Response](std/http.ssc)
+[jsonParse](std/json.ssc)
+
+val TEXT: Map[String, String] = Map("Content-Type" -> "text/plain")
+
+def okRoute(req: Request): Response =
+  Response(200, TEXT, "alive")
+
+// The whole of the defect: ONE handler that panics on input it did not write.
+def boomRoute(req: Request): Response =
+  val v = jsonParse("")
+  Response(200, TEXT, "never reached")
+
+def main(): Unit =
+  route("GET", "/ok", r => okRoute(r))
+  route("GET", "/boom", r => boomRoute(r))
+  serve(8431)
+```

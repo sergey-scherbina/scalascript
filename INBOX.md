@@ -56,6 +56,81 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## rust-type-pattern-on-a-local-val-matches-anything — a Map type pattern matches a JSON ARRAY when the scrutinee is a local val; the same match on a parameter is correct
+<!-- triage: new
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from 539079f43
+     repro: examples/reported/rust-type-pattern-on-a-local-val-matches-anything.ssc
+     kind: bug
+     impact: blocks -->
+
+Porting a small HTTP service from Rust to ScalaScript (rozum's UCC console), a reader that accepts
+either `[...]` or `{"rooms": [...]}` answered "no such room" for every room in a file that plainly
+listed them. Nothing failed — the answer was simply wrong, so it reached a running server and was
+found later by comparing the two implementations byte for byte.
+
+The discriminator turned out to be **where the matched value comes from**, and nothing else. The
+same match expression is correct when it matches a PARAMETER and wrong when it matches a local
+`val`. It does not depend on the JSON's source (a literal and a file behave the same), and it holds
+when the `Map` arm actually uses its binding — `m.get("rooms")` on an array just returns nothing,
+which is what made the wrong answer look plausible.
+
+Measured with `bin/ssc` and `bin/ssc-tools build-rust` from the same tree:
+
+```text
+                       interpreter      rust lane
+array via parameter    catch-all arm    catch-all arm
+array via local val    catch-all arm    MAP arm        <- wrong
+array, binding used    catch-all arm    MAP, no key    <- wrong
+object via parameter   MAP arm          MAP arm
+```
+
+Repro prints exactly those four lines on each lane.
+## rust-serve-dies-permanently-after-one-handler-panic — one panic in one handler poisons the http runtime mutex, so the served program answers NOTHING afterwards while its process stays up
+<!-- triage: new
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from 539079f43
+     repro: examples/reported/rust-serve-dies-permanently-after-one-handler-panic.ssc
+     kind: bug
+     impact: blocks -->
+
+A handler read a `.jsonl` file line by line and passed each line to `jsonParse`. The file's last
+line was empty — every file written by appending has one — so `jsonParse` aborted the thread. That
+much is arguably fine.
+
+What is not: the process **stayed up and stopped answering everything**, permanently. One panic is
+followed by an unbounded run of
+
+```text
+thread 'tokio-rt-worker' panicked at src/runtime/http.rs:224:37:
+called `Result::unwrap()` on an `Err` value: PoisonError { .. }
+```
+
+and every later request — including requests to unrelated routes — fails the same way. From
+outside: healthy port, healthy process, no answers. That is the hardest failure shape to diagnose,
+and one malformed byte from a caller is enough to cause it.
+
+Measured with the attached repro (rust lane):
+
+```text
+curl /ok    -> alive
+curl /boom  -> (nothing; the handler panicked)
+curl /ok    -> (nothing, and never again; the process is still running)
+```
+
+Either of these would be enough on its own:
+
+1. A handler panic must not take the server with it — answer 500 at the route boundary, or do not
+   hold a lock across handler execution. A poisoned mutex turns one bad request into a permanent
+   outage.
+2. A fallible JSON parse. There is no `jsonParse` spelling returning `Option`/`Either`, so a server
+   handling input it did not write cannot refuse it. Our workaround is to inspect the text first
+   and only hand `jsonParse` something starting with `{` or `[`, which cannot be right in general.
+
+On the interpreter the same input ends the program with `ssc: invalid JSON at 0: expected JSON
+value` — a clean refusal rather than a panic, and there is no server left running to poison.
 <!-- inbox-entries:end -->
 
 ## Closed without routing

@@ -1,0 +1,59 @@
+#!/usr/bin/env ssc
+---
+name: rust-type-pattern-on-a-local-val-matches-anything
+description: "on the rust lane a Map type pattern matches a JSON ARRAY when the scrutinee is a local val; the same match on a parameter is correct"
+---
+# A type pattern on a local `val` matches anything (rust lane)
+
+Reported from rozum, where it cost a working server for an afternoon. A reader that accepts
+either `[...]` or `{"rooms": [...]}` took the OBJECT branch for an array, found no key, and
+answered "no such room" for every room in a file that plainly listed them. Nothing failed — the
+answer was simply wrong, so it reached production and was found by comparing two implementations
+byte for byte.
+
+**The discriminator is where the matched value comes from, and nothing else.** The two functions
+below have identical match expressions. `viaParam` matches a parameter and is correct on both
+lanes. `viaLocal` matches a local `val` and, on the rust lane, takes the `Map` arm for an array.
+
+It does not depend on where the JSON came from: a literal and a file behave the same. It also
+holds when the `Map` arm actually USES its binding, which is what made the wrong answer look
+plausible — `m.get("rooms")` on an array simply returns nothing.
+
+```scalascript
+[jsonParse](std/json.ssc)
+
+def viaParam(v: Any): String =
+  v match
+    case m: Map[String, Any] => "MAP arm"
+    case other               => "catch-all arm"
+
+def viaLocal(): String =
+  val parsed = jsonParse("[{\"name\":\"a\"}]")
+  parsed match
+    case m: Map[String, Any] => "MAP arm"
+    case other               => "catch-all arm"
+
+def viaLocalUsingTheBinding(): String =
+  val parsed = jsonParse("[{\"name\":\"a\"}]")
+  parsed match
+    case m: Map[String, Any] => m.get("rooms").map(v => "MAP with key").getOrElse("MAP, no key")
+    case other               => "catch-all arm"
+
+def main(): Unit =
+  println("array via parameter : " + viaParam(jsonParse("[{\"name\":\"a\"}]")))
+  println("array via local val : " + viaLocal())
+  println("array, binding used : " + viaLocalUsingTheBinding())
+  println("object via parameter: " + viaParam(jsonParse("{\"name\":\"a\"}")))
+```
+
+Measured with `bin/ssc` and `bin/ssc-tools build-rust` from the same tree:
+
+```text
+interpreter                      rust lane
+array via parameter : catch-all  array via parameter : catch-all
+array via local val : catch-all  array via local val : MAP arm      ← wrong
+array, binding used : catch-all  array, binding used : MAP, no key  ← wrong
+object via parameter: MAP arm    object via parameter: MAP arm
+```
+
+Expected on every lane: an array never takes the `Map` arm.
