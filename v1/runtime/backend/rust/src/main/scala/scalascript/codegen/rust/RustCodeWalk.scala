@@ -3036,6 +3036,62 @@ object RustCodeWalk:
           s"($q).iter().map(|__e| format!(\"{}\", __e)).collect::<Vec<String>>().join(($sep).as_str())"
         if vs.size == 3 then s"format!(\"{}{}{}\", $pre, $joined, $post)" else joined
 
+  /** `Ctor(field = v, …)` rewritten as a POSITIONAL call in declaration order, with every field the
+   *  caller did not name supplied from its default.
+   *
+   *  WHY A REWRITE RATHER THAN A SECOND EMITTER. The named branch used to build the struct literal
+   *  itself, from the named fields ALONE:
+   *
+   *      ProcessOptions(cwd = Some("/tmp"))   ->   ProcessOptions { cwd: Some("/tmp".to_string()) }
+   *      error[E0063]: missing fields `env`, `inheritEnv`, `stdin` and 1 other field
+   *
+   *  The names were right — a probe on a LATE field emitted `inheritEnv: false`, not `cwd: false`,
+   *  which is what said the defect was the missing fields and not the naming. But the positional
+   *  path had ALREADY learned to fill trailing defaults (`_ctorDefaults`, added for a user whose
+   *  server called `ProcessOptions(None, Map(), None)`), and it also lifts an `Any` field to a
+   *  `Value`, `Box`es a recursive one and wraps a closure field in `Rc`. Two emitters means those
+   *  four behaviours have to be kept in step by hand; desugaring means there is only one.
+   *
+   *  `None` when any unnamed field has no default — the call is genuinely incomplete, and rustc's
+   *  "missing field" is the honest message rather than a literal this walker invented. `None` also
+   *  when a name is not a field of this constructor, for the same reason: guessing which field was
+   *  meant is how a value lands in the wrong slot and compiles. */
+  private def namedCtorAsPositional(ctor: String, args: List[m.Term], ctx: Ctx): Option[m.Term] =
+    ctx.ctorMap.get(ctor).flatMap { ec =>
+      val byName = args.collect { case m.Term.Assign(m.Term.Name(f), v) => f -> v }.toMap
+      if byName.size != args.size then None
+      else if !byName.keySet.subsetOf(ec.fieldNames.toSet) then None
+      else
+        val defaults = _ctorDefaults.getOrElse(ctor, Nil)
+        val slots = ec.fieldNames.zipWithIndex.map { (f, i) =>
+          byName.get(f).orElse(defaults.lift(i).flatten)
+        }
+        if slots.forall(_.isDefined)
+        then Some(m.Term.Apply(m.Term.Name(ctor), m.Term.ArgClause(slots.flatten, None)))
+        else None
+    }
+
+  /** The pre-2026-08-16 named-ctor emitter, kept for the calls `namedCtorAsPositional` declines —
+   *  a name that is not a field, or an unnamed field with no default. Those emit exactly what they
+   *  emitted before, so nothing that compiled stops compiling; what they get is rustc's own
+   *  "missing field", which is the message the caller needs. */
+  private def renderNamedCtor(n: String, args: List[m.Term], ctx: Ctx): Either[List[Diagnostic], String] =
+    val ec = ctx.ctorMap(n)
+    val rendered = args.map {
+      case m.Term.Assign(m.Term.Name(field), value) =>
+        renderTerm(value, ctx).map { v =>
+          val vv = if ec.boxedFields.contains(field) then s"Box::new($v)" else v
+          s"$field: $vv"
+        }
+      case other =>
+        Left(List(unsupported(s"def `${ctx.defName}`: unsupported named-ctor arg ${other.productPrefix}")))
+    }
+    val (errs, ok) = rendered.partitionMap(identity)
+    if errs.nonEmpty then Left(errs.flatten)
+    else
+      val prefix = if ec.enumName == n then n else s"${ec.enumName}::$n"
+      Right(s"$prefix { ${ok.mkString(", ")} }")
+
   private def renderTerm(
       t: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] = t match
@@ -4195,21 +4251,9 @@ object RustCodeWalk:
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args)
         if ctx.ctorMap.contains(n) && args.values.nonEmpty
         && args.values.forall { case _: m.Term.Assign => true; case _ => false } =>
-      val ec = ctx.ctorMap(n)
-      val rendered = args.values.toList.map {
-        case m.Term.Assign(m.Term.Name(field), value) =>
-          renderTerm(value, ctx).map { v =>
-            val vv = if ec.boxedFields.contains(field) then s"Box::new($v)" else v
-            s"$field: $vv"
-          }
-        case other =>
-          Left(List(unsupported(s"def `${ctx.defName}`: unsupported named-ctor arg ${other.productPrefix}")))
-      }
-      val (errs, ok) = rendered.partitionMap(identity)
-      if errs.nonEmpty then Left(errs.flatten)
-      else
-        val prefix = if ec.enumName == n then n else s"${ec.enumName}::$n"
-        Right(s"$prefix { ${ok.mkString(", ")} }")
+      namedCtorAsPositional(n, args.values.toList, ctx) match
+        case Some(desugared) => renderTerm(desugared, ctx)
+        case None            => renderNamedCtor(n, args.values.toList, ctx)
 
     // Application — intrinsic, user-defined fn, or unsupported.
     case m.Term.Apply.After_4_6_0(fn, args) =>

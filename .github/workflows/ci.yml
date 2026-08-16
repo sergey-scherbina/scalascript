@@ -804,6 +804,19 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-exec-options-gate.sh
 
+      # `Ctor(field = v)` built a struct literal from the NAMED fields alone, so the spelling
+      # `std/process.ssc` itself documents — `ProcessOptions(cwd = Some("/tmp"))` — did not compile
+      # (E0063, missing fields). It surfaced right after two rozum requests added fields to that very
+      # record: the features shipped and their documented spelling did not build. A probe on a LATE
+      # field said which half was wrong — it emitted `inheritEnv: false`, not `cwd: false`, so the
+      # names were already right and only the defaults were missing. Row 4 is the one that cannot
+      # pass by accident: `Point(y = 1, x = 2)` names two fields OUT of declaration order and omits a
+      # third, so a wrong reorder, a dropped default and a mis-filled slot are three distinguishable
+      # failures of one row. ~45 s, one cargo build plus one interpreter run.
+      - name: a named constructor argument fills the rest from its defaults
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-named-ctor-args-gate.sh
+
       # `ProcessOptions.stdin`, asked for by rozum (`process-needs-a-stdin-pipe`) because a route
       # handing a bot token to a child could otherwise only pass it in argv, where `ps -axo command`
       # shows it to every local process — the only route of their port blocked for a SECURITY reason
