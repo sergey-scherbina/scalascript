@@ -13,6 +13,83 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## the F front is re-lowered on EVERY run (claim `f-front-lowering-cache`)
+
+**Measured 2026-08-16.** A one-line `println(1)` costs **7.0 s** through F and **3.0 s** through the
+reference front. Interleaved against the same host load, a 121-line program costs the same as the
+one-line one — 10.47 vs 10.54, 7.33 vs 8.75, 13.18 vs 7.64. **The work is not proportional to the
+subject file at all**; compiling the actual program is lost in the noise. Nearly the whole 7 s is
+fixed setup, and F's premium over the reference is that `tower/bin/ssc1-run-fsub.ssc0` imports
+`ssc1-lower.ssc0` (288 KB) *and* then lowers `fsub.ssc` (392 KB) from SOURCE before looking at the
+input.
+
+Note the tempting explanation is wrong and its own numbers refute it: the reference loads 468 KB
+(ssc1-front 180 KB + ssc1-lower 288 KB), *more* source than F's 392 KB, and is still faster. It is
+not bytes-of-source — it is that F's front is a ScalaScript program lowered on top of the reference
+machinery.
+
+**The price.** `f-output-agreement-gate` runs 639 F invocations plus ~416 reference ones (a declined
+file exits after the F run), ≈ 5700 worker-seconds ≈ 50 min at `JOBS=2` — and raising parallelism is
+not available, this host KILLS workers rather than slowing them (`-P 8` measured 107–121 of 639 with
+ZERO timeouts). Every developer F run pays the same premium.
+
+- [ ] stage a PRE-LOWERED front beside `fsub.ssc` and teach the runner to load it. The artifact
+      format already exists (`.scir`, with `emit-ir`/`link`/`info`); what is missing is a load path.
+      Today `RunNativeV2.nativeFrontLayout` passes `--fsub-src <path>` and the tower lowers the
+      source. Three places: the runner, `RunNativeV2`, `install.sh`.
+- [ ] build it at INSTALL time, not run time. `install.sh` already takes minutes, so the lowering is
+      free there, and the artifact is staged by the same step that stages the source — they cannot
+      drift apart, which removes most of the invalidation problem by construction.
+- [ ] **the gate this needs, and the reason this is not a twenty-minute job.** A mis-keyed front
+      cache silently serves the OLD COMPILER. In a repo where the front changes every session that
+      is the exact state in which every measurement becomes a lie, and no output gate can see it —
+      the front still "works". This repo has paid for it twice: a cache keyed on a directory path
+      served the wrong state's classes, and an exclusion in a cache key hid the default front. So:
+      key on the CONTENT hash of `fsub.ssc` + the runner, and a gate that edits `fsub.ssc`, rebuilds,
+      and proves the artifact changed — RED first with the key deliberately wrong.
+- [ ] measure after, on the same one-line probe and on the corpus gate. Expected ≈ 50 min → 25–30,
+      but the split between "lowering the front" and "JVM + VM warmup" has NOT been separated yet, so
+      the first number to report is the one-line probe, not a projection.
+
+### The artifact and the load path ALREADY EXIST — this is wiring, not invention
+
+`specs/v2.2-p6.5-corpus.sh` has bootstrapped F exactly once per run since the p6.5 work:
+
+```sh
+FSUB_SRC="$FSUB" run bin/_p65c_drv.ssc0 > "$WORK/F0.ir"      # lower F ONCE
+java -jar "$JAR" run-ir "$WORK/F0.ir" "$code"                 # then per subject
+```
+
+The driver appends a `main` that takes the path from `#io.args()` and prints
+`compile(readFile(path), dq, bs)`, then emits `#coreir.encode(lowerProg(prog))`. Because that `main`
+reads its input at RUN time, the lowered program is **identical for every subject** — which is the
+whole trick, and it is already proven byte-identical against a fresh-JVM oracle by that harness.
+
+**Why production cannot reuse it as-is.** `ssc1-run-fsub.ssc0:sscFsubIr` splices the user source in
+as a STRING LITERAL — `mkApp(mkVar("compile"), [mkStr(userSrc), …])` — so the program differs per
+input and nothing can be cached. It does that because the driver first assembles a source CLOSURE
+(`sscConcatSources`: imports left-to-right, `package:` namespace, `[x as y]` aliases), which the
+p6.5 harness never needed since it feeds single files.
+
+**So the shape of the change is:** keep the assembly on the driver side, write the assembled source
+to a temp file, and let the cached program read THAT path — the p6.5 `main`, unchanged in spirit.
+The front then lowers once at install time and every run loads it.
+
+**One constraint that rules out the obvious shortcut.** `#coreir.decode` must NOT come back onto this
+path: the D2 note in `ssc1-run-fsub.ssc0` records that the F lane deliberately avoids it so no
+`ssc.Reader` is class-loaded (blocker ③.2 of the front flip), which is why `irTextToData` exists as a
+self-hosted IR-text parser at all. Whether `run-ir` on the JDK side is subject to the same
+constraint is the first thing to check — it runs before the plugin boundary, so it may not be.
+
+**Not yet measured: the prize.** Timing `run-ir F0.ir <code>` against `ssc run` under F is the
+number that decides whether this is worth the risk, and it needs a run-ir-capable kernel jar built in
+this worktree. Do that BEFORE writing any of the above — a projection is not a measurement.
+
+Second, independent and cheaper: **the reference side of the agreement gate is memoizable across
+runs.** Its output depends on (subject, reference front, runtime) and NOT on the F spec, so an
+F-only change reuses all of it — ~416 × 3 s ≈ 21 worker-minutes per rerun. Same keying discipline
+applies, and the same gate shape proves it.
+
 ## `++` answers the wrong SHAPE, once per lane (claims `scljet-tuple4-instrumentation`, `js-v2-sconcat-tuple-chain`)
 
 Four lanes measured on ONE seven-row subject, and each failed a DIFFERENT row. That is the finding,
