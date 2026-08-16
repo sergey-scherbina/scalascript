@@ -90,6 +90,53 @@ breaks callers doing arithmetic on an Int — or the two are declared to be diff
 the difference is documented where the standard library is described. That is a decision about the
 language, not a defect to patch, and it belongs to whoever owns the std spec.
 
+## map-updated-shape-reads-host-load-as-a-regression — its control is sampled ONCE, in a block
+
+<!-- status: open
+     lane: native
+     area: conformance
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/v2-map-updated-shape-gate.sh -->
+
+**`v2-map-updated-shape-gate.sh` failed inside `scripts/smoke-ci` on a change that cannot reach the
+lane it measures** (a v1 `Typer.scala` edit; the v1 typer is not on the v2 native run path at all).
+It reported *"the large map costs 4.2x the small one … copying rather than sharing"* — the signature
+of a defect fixed and closed in `184276c96`.
+
+**Re-run standalone three times, same tree, same binary — it passed all three, and TWICE it declared
+its own result unusable:**
+
+| run | 10 keys | 1000 keys | control spread | verdict |
+|---|---|---|---|---|
+| 1 | 0.8563 ms | **0.4504 ms** | 1.13× | pass |
+| 2 | 0.3065 ms | 0.6503 ms | 1.64× | **NO VERDICT** |
+| 3 | 0.6639 ms | **0.2859 ms** | 3.55× | **NO VERDICT** |
+
+`uptime` at the time: **load average 50.76**, 13 users. In two of the three runs the 1000-key map was
+FASTER than the 10-key one, which is not a thing a copying `updated` can do.
+
+### The hole, and it is in the shape of the measurement rather than in the threshold
+
+The gate does the right thing in principle — it re-runs the small case as a control and refuses a
+verdict when the control spread is too large. But the three measurements are taken **as one block:
+small, large, small-again**. A block sampling gives the control exactly one chance to notice the
+load, and load moves during a 33-second run. So the failing combination is not rare: the control
+lands inside tolerance (1.47× in the smoke run) while the experiment was taken during a spike, and
+the gate then reports a confident, well-formed regression with a slug and a board reference attached
+— the most convincing possible false positive.
+
+**The fix is interleaving, not a bigger tolerance.** `small, large, small, large, small, large`, then
+compare MEDIANS, so a spike lands in both arms instead of one. Raising the tolerance would only make
+the gate blind to the defect it exists for; the run-1 numbers show a real signal is present when the
+host is quiet.
+
+**Second, smaller point:** a `NO VERDICT` currently exits 0, so a contended CI host silently runs this
+check as a no-op. That is the right default over a false red, but it should be counted — a check that
+returns NO VERDICT on most runs is not covering anything, and nothing today would show that.
+
 ## v2-map-updated-copies-the-whole-map — `Map.updated` is O(n), and the cost is 80 % of `map-ops`
 
 <!-- status: fixed
