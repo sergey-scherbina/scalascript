@@ -1,0 +1,17 @@
+// `"ab" * 3` — string repetition. Every other lane of this repository answers it, INCLUDING v3's
+// own bridge, and only the executor refused: `Mul on String ab and Int 3`. That is invariant I-3
+// between the two lanes of one compiler, and it is not hypothetical —
+// `tests/conformance/indent-block-statements.ssc` builds its indentation with `" " * depth` and was
+// the corpus's last exec-side DIFF, correct on the bridge and dead here.
+//
+// THE ZERO AND NEGATIVE ROWS ARE THE POINT OF HAVING MORE THAN ONE. Both give the empty string, and
+// that was measured on the three answering lanes rather than taken from Scala's documentation,
+// because the value the corpus's callers see is the one that matters.
+//
+// This fixture runs on the DEFAULT front through `ssc3 run` — the executor — which is where the
+// defect was; `exec-gate.sh` then runs the same file on both lanes and compares them.
+val neg = -1
+println("ab" * 3)
+println("[" + ("-" * 0) + "]")
+println("[" + ("ab" * neg) + "]")
+println("|" + (" " * 4) + "|")

@@ -1971,6 +1971,24 @@ object Exec:
       if xs.exists(z => eq(z, y)) then Value.VSet(xs) else Value.VSet(xs :+ y)
     case (BinOp.Sub, Value.VSet(xs), y) => Value.VSet(xs.filter(z => !eq(z, y)))
     case (BinOp.Add, Value.VStr(x), y)               => Value.VStr(x + showV(m, y))
+    // `"ab" * 3` IS "ababab" — string repetition, which Scala gives on `StringOps` and which every
+    // other lane of this repository already answers, INCLUDING v3's own bridge:
+    //
+    //     native, interp, v3 --bridge   "ab" * 3  ->  ababab      "ab" * -1  ->  (empty)
+    //     v3 exec, before               Mul on String ab and Int 3
+    //
+    // So this deletes an executor-only refusal rather than inventing a fifth behaviour — invariant
+    // I-3, and the same reasoning the mixed Int/Double widening below was landed on. It is not a
+    // hypothetical: `tests/conformance/indent-block-statements.ssc` builds its indentation with
+    // `" " * depth` and was the corpus's last exec-side DIFF, correct on the bridge and dead here.
+    //
+    // NEGATIVE AND ZERO GIVE THE EMPTY STRING, measured on the three answering lanes rather than
+    // taken from Scala's docs, because that is the value the corpus's callers actually see.
+    //
+    // ONE DIRECTION ONLY. `3 * "ab"` is not written here because Scala does not have it either;
+    // adding it would be a fourth answer to a question nobody asks.
+    case (BinOp.Mul, Value.VStr(x), Value.VInt(n))   =>
+      Value.VStr(if n <= 0L then "" else x * n.toInt)
     // …and the OTHER way round. `1 + "x"` is a string on the reference lane; the executor handled
     // only a string on the LEFT and threw on the right, so `p._1 + p._2` over a mixed tuple failed
     // on one lane and printed on the other.
