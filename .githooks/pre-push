@@ -140,6 +140,58 @@ done
 [ -n "$local_tip" ] || exit 0
 case "$remote_tip" in ""|0000000000000000000000000000000000000000) exit 0 ;; esac
 
+# ── a conformance case and its freezes must move TOGETHER ────────────────────────────────────────
+#
+# `tests/e2e/freeze-consistency-gate.sh` relates the three files that must agree about a case: its
+# `known-red:` front-matter, `corpus-baseline.tsv` and `contract-roster.tsv`. It runs in SMOKE, which
+# is AFTER the push — so when it catches something, the first people to learn are everyone else, and
+# main is red for all of them until the owner notices.
+#
+# TWICE IN ONE DAY, 2026-08-16, both the same shape — a change that had to move two files moved one:
+#
+#   8f04a8729  deleted `known-red: js` from a case on the suite's own STALE instruction and left the
+#              matching row in `corpus-baseline.tsv`. Main was red for SIX consecutive pushes by
+#              four different agents before the other half landed.
+#   6cec41220  added `tests/conformance/math-round-ties.ssc` with no row in `contract-roster.tsv`.
+#              `contract.sc` then refuses to start AT ALL — "for everyone", as the gate puts it.
+#
+# WHY IT IS AFFORDABLE HERE: the gate is ~1s warm and ~10s cold (CI measured 9.6s on a cold
+# scala-cli, which is what dominates it), and it only runs when this push actually touches
+# `tests/conformance/`. A push that does not go near those files pays nothing, which is the rule that
+# keeps a hook from becoming the thing people bypass with `--no-verify`.
+#
+# It is NOT a duplicate of smoke. Smoke tells the repository; this tells the author, before the cost
+# is shared.
+if git merge-base --is-ancestor "$remote_tip" "$local_tip" 2>/dev/null &&
+   git diff --name-only "$remote_tip" "$local_tip" -- 'tests/conformance/' 2>/dev/null | grep -q .
+then
+  # `git rev-parse --show-toplevel`, the same idiom the task-views check below uses — the hook runs
+  # from the repo root today, but a hook that depends on its own cwd breaks the first time it does not.
+  fcg="$(git rev-parse --show-toplevel)/tests/e2e/freeze-consistency-gate.sh"
+  if [ -x "$fcg" ]; then
+    if ! freeze_out="$("$fcg" 2>&1)"; then
+      cat >&2 <<EOF
+
+✋ pre-push: this push touches tests/conformance/ and the freezes disagree about a case.
+
+$(printf '%s\n' "$freeze_out" | grep -E '^\s*(FAIL|✋)' | head -8)
+
+The three files that describe a case must move together — the case's own \`known-red:\` front-matter,
+\`tests/conformance/corpus-baseline.tsv\` and \`tests/conformance/contract-roster.tsv\`. Removing a
+known-red means removing BOTH halves; adding a case means adding its roster row AND refreshing
+\`roster-sha256\` in the header.
+
+Run it yourself for the full report:
+    tests/e2e/freeze-consistency-gate.sh
+
+This check exists because the same mistake turned main red twice on 2026-08-16 (8f04a8729,
+6cec41220) — after the push, so everyone else paid for it first.
+EOF
+      exit 1
+    fi
+  fi
+fi
+
 # ── an orphaned `fixed-in:` must not reach main ──────────────────────────────────────────────────
 #
 # `tests/e2e/bugs-index-gate.sh` already refuses a `fixed-in:` sha that is not an ancestor of HEAD —
