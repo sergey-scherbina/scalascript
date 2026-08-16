@@ -12,7 +12,7 @@ Newest first.
 <!-- status: fixed
      lane: jvm
      area: runtime
-     kind: divergence
+     kind: bug
      gate: tests/conformance/std-fs-failure-raises.ssc
      fixed-in: ad918e80b401828d0f066c525158fb10f0abe268
      reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
@@ -1125,6 +1125,7 @@ compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
 
 ## v1-jvm-coroutine-generic-surface — generated runtime rejects the public typed API
 <!-- status: open
+     kind: bug
      lane: jvm
      area: codegen
      gate: tests/conformance/coroutine-basic.ssc -->
@@ -1299,6 +1300,7 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
 
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
 <!-- status: open
+     kind: feature
      lane: jvm
      area: front
      gate: tests/e2e/v2-swift-cli.sh -->

@@ -54,6 +54,12 @@ STATUS = {"open", "fixed", "wontfix", "duplicate", "unknown"}
 LANE   = {"native","int","js","jvm","v2-jvm","v2-rust","v3","apparatus","multi","n/a"}
 AREA   = {"front","runtime","codegen","cli","conformance","build","docs","plugin","other"}
 
+# `kind` is OPTIONAL (it defaults to `bug` when ranking) but it is NOT free text. Sixteen entries had
+# accumulated invented values — `divergence` x8, `gap` x5, `wrong-output` x2, `wrong-answer`,
+# `defect` — none of which `--kind` can match, so a query for every wrong answer silently missed
+# them. The enum was checked for status, lane and area and not for this one, which is the whole
+# reason it drifted. `specs/bugs-index.md` line 84 is the source.
+KIND = {"bug", "perf", "feature", "regression", "apparatus", "programme"}
 entries, cur, buf = [], None, []
 for ln in lines:
     if ln.startswith("## "):
@@ -104,6 +110,8 @@ for head, body in entries:
         problems.append((slug, f"lane `{fields['lane']}` not in the enum"))
     if fields.get("area") not in (None,) and fields["area"] not in AREA:
         problems.append((slug, f"area `{fields['area']}` not in the enum"))
+    if fields.get("kind") is not None and fields["kind"] not in KIND:
+        problems.append((slug, f"kind `{fields['kind']}` not in {sorted(KIND)} — see specs/bugs-index.md"))
     if st == "fixed":
         sha = fields.get("fixed-in")
         if not sha:
@@ -247,6 +255,12 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
      lane: int
      area: runtime
      fixed-in: 30484689408 -->
+
+## bad-kind — an invented kind that no `--kind` query can match
+<!-- status: open
+     kind: divergence
+     lane: int
+     area: runtime -->
 BAD
   # The STALE-OPEN case, appended rather than inlined because it needs a sha that really IS an
   # ancestor of HEAD — a literal in the heredoc would either dangle or, worse, stop being an ancestor
@@ -298,7 +312,7 @@ STALE
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
-  echo "--- self-test ok (5 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  echo "--- self-test ok (6 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"

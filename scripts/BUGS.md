@@ -1853,6 +1853,7 @@ removed the timeouts.
 ## reaper-dry-run-count-flaps-when-a-sibling-builder-exits — the assertion samples a host-wide count twice
 
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: -
@@ -2115,6 +2116,7 @@ fix is a fresh claim per case, and the failure count went 10 → 14.
 
 ## module-sprint-item-written-by-nobody — two of the three artefacts are automated, so the third is forgotten by construction
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/coord/board-generated.sh -->
@@ -2203,6 +2205,7 @@ can go stale the same way tomorrow.
 
 ## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/coord/claim-scope-hierarchy.sh -->

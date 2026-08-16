@@ -10,6 +10,7 @@ Newest first.
 ## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` is 3 on the shipped lanes and 2 in Core IR
 
 <!-- status: open
+     kind: bug
      lane: multi
      area: runtime
      gate: none
@@ -785,6 +786,7 @@ top-level row stays GREEN in both states, so it cannot be passing merely because
 ## f-placeholder-in-a-call-argument-stays-a-bare-name — `unbound global: (global _)`
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      fixed-in: -
@@ -1194,6 +1196,7 @@ re-run session-roundtrip with the binding enabled and see whether it clears.
 ## f-malformed-import-blamed-on-downstream-constructor — F names an innocent class in another file
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      fixed-in: -
@@ -1445,6 +1448,7 @@ repeats this silently — which is exactly how `forJsonView` went unnoticed from
 ## f-declines-every-non-top-level-def — and a bare import is enough on its own
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      fixed-in: -
@@ -2797,6 +2801,7 @@ the intention. A `fixed` header written in the same commit as the fix cannot be 
 ## native-Response-session-transforms-missing — `withSession` / `clearSession` have no native path
 
 <!-- status: open
+     kind: feature
      lane: native
      area: runtime
      fixed-in: -
@@ -3030,6 +3035,7 @@ surface syntax.
 
 ## f-unbound-loop-is-the-new-top-gap — `loop` replaces `q` as F's largest single decline reason
 <!-- status: open
+     kind: apparatus
      lane: native
      area: front
      fixed-in: -
@@ -3314,6 +3320,7 @@ full corpus contract ran across int/js/v2 afterwards — 1065/1105 PASS, exactly
 
 ## v2-extern-shadowed-by-a-same-named-case-class-method — `cluster.resolveSeeds()` cannot reach its extern
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      fixed-in: -
@@ -3813,6 +3820,7 @@ it was measured on both sides.
 
 ## nfc-platform-string-differs-by-design-so-the-row-cannot-go-green — packaging was necessary, not sufficient
 <!-- status: open
+     kind: apparatus
      lane: native
      area: runtime
      fixed-in: -
@@ -3853,6 +3861,7 @@ its platform string the gate says so rather than silently agreeing again.
 
 ## v2-cluster-capability-needs-source-visible-to-plugins — 3 of 4 externs are easy, the 4th is plumbing
 <!-- status: open
+     kind: feature
      lane: native
      area: runtime
      fixed-in: -
@@ -4122,6 +4131,7 @@ the default front; `List`/`Map`/`Vector` unchanged; the conformance case stops d
 
 ## f-front-coverage-census-0731 — F's hole is 42 files, and half of it is three names
 <!-- status: open
+     kind: apparatus
      lane: native
      area: front
      fixed-in: -
@@ -4323,6 +4333,7 @@ divergence is not this bug and not in v2. Filed separately as
 
 ## v2-eleven-remaining-red-rows-census — what is actually left, by cause and by size
 <!-- status: open
+     kind: programme
      lane: native
      area: runtime
      fixed-in: -
@@ -4865,6 +4876,7 @@ multi-line block. **The first probe alone read as "fixed".**
 
 ## markdown-inline-scanner-duplicated — two inline scanners over the same grammar, one emitting HTML and one emitting nodes
 <!-- status: open
+     kind: bug
      lane: multi
      area: runtime
      gate: tests/conformance/run.sh -->
@@ -4904,6 +4916,7 @@ changed behaviour while looking like a cleanup.
 
 ## content-current-section-native-unavailable — `contentCurrentSection()` throws by design on native, and `content-introspection` is red because of it
 <!-- status: open
+     kind: feature
      lane: native
      area: runtime
      gate: tests/conformance/content-introspection.ssc -->
@@ -5089,6 +5102,7 @@ exists to gate. A fix here should bring its own case.
 
 ## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      gate: tests/e2e/v21-negative-toolchain-release-gate.sh -->
@@ -9560,6 +9574,7 @@ matching the README; the runner is otherwise unaffected (string only).
 
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
 <!-- status: open
+     kind: bug
      lane: native
      area: codegen
      gate: tests/e2e/coreir-roundtrip.sh -->
@@ -9674,6 +9689,7 @@ formatting rather than only against the capsule format.
 
 ## custom-jsemitter-signal-list-literal — `StaticJsEmitter.jsLiteral` can't encode a List-valued signal registered from an event handler
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      gate: tests/e2e/jsliteral-encodes-a-signal-value.sh -->
@@ -10630,6 +10646,7 @@ new user-facing Swift AppCore example, waiting for Sergiy confirmation before
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
 <!-- status: open
+     kind: feature
      lane: native
      area: front
      gate: tests/e2e/v2-swiftui-apple.sh -->

@@ -10,6 +10,7 @@ Newest first.
 ## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` is a TUPLE here and a list everywhere else
 
 <!-- status: open
+     kind: bug
      lane: int
      area: runtime
      gate: none
@@ -326,6 +327,7 @@ wrong — while the other carries the ten-line reduction, the six measured facts
 ## two-fronts-disagree-on-name-resolution — the answer changes with unrelated content in the file
 
 <!-- status: open
+     kind: bug
      lane: multi
      area: front
      fixed-in: -
@@ -1584,6 +1586,7 @@ places and disagree with the reference and with the written design. That is the 
 
 ## v2-nfc-case-runs-only-under-its-provider — `nfc-ndef` fails on EVERY standard lane, including INT
 <!-- status: open
+     kind: bug
      lane: int
      area: front
      gate: tests/conformance/corpus-skip.txt -->

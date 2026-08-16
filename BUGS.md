@@ -368,7 +368,7 @@ unchanged, the Rust row red with the literal symptom.
 <!-- status: fixed
      lane: multi
      area: runtime
-     kind: divergence
+     kind: bug
      gate: v2/conformance/tolong-on-a-string.coreir + tests/e2e/rust-toint-parity-gate.sh
      reported-by: sergiy
      reported-at: 2026-08-15
@@ -3780,7 +3780,7 @@ and the second job green as before. The previous 48 runs had none of that.
 <!-- status: open
      lane: v3
      area: front
-     kind: gap
+     kind: feature
      gate: tests/conformance/run.sh -->
 
 **THE CENSUS IS DONE, 2026-08-12, and it licenses the refusal.** `listOut` was instrumented to
@@ -4254,7 +4254,7 @@ these fixtures.
 <!-- status: fixed
      lane: v3
      area: front
-     kind: defect
+     kind: bug
      gate: v3/front-gate.sh
      fixed-in: fd29eaeb4 -->
 
@@ -4306,7 +4306,7 @@ front-gate GREEN (67), exec-gate GREEN (66).
 <!-- status: fixed
      lane: v3
      area: front
-     kind: gap
+     kind: feature
      gate: v3/front-gate.sh
      fixed-in: 946afab39 -->
 
@@ -4500,7 +4500,7 @@ were named. Pinning it needs an assertion the gate does not have today.
 <!-- status: fixed
      lane: v3
      area: front
-     kind: gap
+     kind: feature
      gate: v3/front-capability-gate.sh
      fixed-in: 1bce01a88 -->
 
@@ -4952,7 +4952,7 @@ Re-measure the acceptance set before writing stage 2b.
 <!-- status: fixed
      lane: v3
      area: codegen
-     kind: gap
+     kind: feature
      gate: v3/front-gate.sh
      fixed-in: 89f6f3e0a -->
 
@@ -5005,7 +5005,7 @@ as 1+2+…+10 = 55 times 300 against the source rather than against itself. Fixt
 <!-- status: fixed
      lane: v3
      area: front
-     kind: gap
+     kind: feature
      gate: v3/extension-gate.sh
      fixed-in: 10024d732 -->
 
@@ -5602,7 +5602,7 @@ is a separate defect and is not touched here.
 <!-- status: fixed
      lane: multi
      area: runtime
-     kind: divergence
+     kind: bug
      gate: v3/exec-gate.sh (catch-binds-the-thrown-value)
      fixed-in: e16ca28e3 -->
 
@@ -5674,7 +5674,7 @@ STRING arrives as a string — a fix that wrapped every payload would have been 
 <!-- status: fixed
      lane: multi
      area: codegen
-     kind: wrong-answer
+     kind: bug
      gate: v3/tests/front/captured-var-mutation.ssc
      fixed-in: b17e7141b -->
 
@@ -5736,7 +5736,7 @@ another lane can distinguish "mutated" from "did not".
 <!-- status: open
      lane: multi
      area: front
-     kind: divergence
+     kind: bug
      gate: tests/e2e/pattern-undefined-name-gate.sh
      fixed-in: - -->
 
@@ -5846,7 +5846,7 @@ settled this week, and the gate's rows stay as they are until someone takes it.
 <!-- status: fixed
      lane: multi
      area: front
-     kind: divergence
+     kind: bug
      gate: tests/e2e/multi-name-val-gate.sh
      fixed-in: 7eb8f1ec1 -->
 
@@ -5963,7 +5963,7 @@ the paired freeze; the cost of doing it alone is recorded under
 <!-- status: fixed
      lane: multi
      area: front
-     kind: divergence
+     kind: bug
      gate: sbt backendInterpreter/testOnly *PackageRootImportTest*
      fixed-in: fa9249f0e -->
 
@@ -6425,6 +6425,7 @@ clause count. Filed separately as `v2-curried-def-partial-application-unsupporte
 ## v2-curried-def-partial-application-unsupported — a curried def cannot be applied one clause at a time
 
 <!-- status: open
+     kind: feature
      lane: native
      area: front
      gate: tests/conformance/run.sh -->

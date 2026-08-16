@@ -45,6 +45,7 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 ## v3-workflow-is-cancelled-before-it-can-report — 5 usable verdicts in 100 runs, so v3's gates protect almost nothing
 
 <!-- status: open
+     kind: apparatus
      lane: v3
      area: build
      gate: .github/workflows/v3.yml
@@ -508,6 +509,7 @@ holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
 ## v3-the-fleet-bridges-one-of-the-registrys-five-tables — tagged handles and plugin globals are invisible to v3
 
 <!-- status: open
+     kind: feature
      lane: v3
      area: runtime
      gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)

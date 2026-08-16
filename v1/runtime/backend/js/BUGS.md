@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: js
      area: runtime
-     kind: divergence
+     kind: bug
      gate: tests/e2e/mixed-numeric-comparison-gate.sh
      reported-by: claude-code
      reported-at: 2026-08-15
@@ -113,7 +113,7 @@ term cases — and is cheap to do once a measurement says it pays.
 <!-- status: fixed
      lane: js
      area: codegen
-     kind: wrong-output
+     kind: bug
      gate: tests/e2e/js-char-is-a-char.sh
      fixed-in: a95f3abda -->
 
@@ -1192,7 +1192,7 @@ code for whichever value suited it — green in both states, the failure this re
 <!-- status: fixed
      lane: js
      area: codegen
-     kind: wrong-output
+     kind: bug
      gate: tests/e2e/char-type-test.sh
      fixed-in: 32613ef58 -->
 
@@ -1703,6 +1703,7 @@ covered — the reproduction tripped each.
 
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
 <!-- status: open
+     kind: bug
      lane: js
      area: conformance
      gate: tests/conformance/run.sh -->
@@ -2120,6 +2121,7 @@ reading the two COMMANDS end to end and finding they take different walkers — 
 retraction had named as the next step.
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
 <!-- status: open
+     kind: bug
      lane: js
      area: conformance
      gate: tests/conformance/run.sh -->
@@ -2148,6 +2150,7 @@ before enabling the live helper.
 
 ## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
 <!-- status: open
+     kind: bug
      lane: js
      area: front
      gate: .github/workflows/ci.yml -->

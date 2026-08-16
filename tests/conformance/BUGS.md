@@ -10,6 +10,7 @@ Newest first.
 ## a-rostered-case-stayed-red-for-two-months-while-the-gate-that-owns-it-was-red-too
 
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: -
@@ -182,6 +183,7 @@ out-of-scope rows, so the two interact and the order matters.
 
 ## update-baseline-under-load-freezes-a-skip — a busy host turns a working case into a PERMANENT SKIP, on every lane
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: conformance
      gate: tests/conformance/run.sh -->
@@ -248,6 +250,7 @@ load beside the freeze, so a suspicious refresh can be re-judged later instead o
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: conformance
      gate: tests/conformance/run.sh -->
@@ -388,6 +391,7 @@ in `9f136e21f`.
 
 ## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 126/402
 <!-- status: open
+     kind: feature
      lane: apparatus
      area: conformance
      gate: .github/workflows/ci.yml -->

@@ -1,6 +1,60 @@
+## kind-was-optional-and-unchecked-so-half-the-board-declared-none — 50 blank, 16 invented
+
+<!-- status: fixed
+     kind: apparatus
+     lane: apparatus
+     area: docs
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/bugs-index-gate.sh --self-test
+     fixed-in: PENDING -->
+
+**`kind:` is optional and was the one header field with no enum check**, and both halves of that
+went wrong at once:
+
+```text
+50 of 82 open entries declared no kind at all
+16 entries carried a value outside the enum — divergence x8, gap x5, wrong-output x2,
+                                              wrong-answer, defect
+```
+
+`status`, `lane` and `area` were each validated against a set; `kind` was not, which is precisely
+where the drift went. A `--kind bug` query silently missed every `divergence`, and
+`scripts/next` — the command that decides what everyone works on next — defaulted the 50 to `bug`
+for ranking AND printed them as `kind:bug`, indistinguishable from a declaration
+(`next-displays-a-defaulted-kind-as-if-declared`, `df09493f9`).
+
+**The 50 were classified by READING each entry's own statement of the defect, not by keyword.** The
+spec says so in as many words — *"Nothing derives `kind` reliably … keyword extraction (**never**)"*
+— and this repository has a 191-entry board-routing debt from exactly that shortcut. Result:
+
+```text
+bug 22 · apparatus 15 · feature 9 · programme 3 · perf 1
+```
+
+The four genuinely ambiguous ones were re-read in full before deciding:
+`markdown-inline-scanner-duplicated` (duplication that can diverge → bug),
+`f-unbound-loop-is-the-new-top-gap` (a census whose headline is now false → apparatus),
+`v2-nfc-case-runs-only-under-its-provider` (FAILS on the golden INT lane → bug),
+`f-validateNoReader-rejects-plugin-externs` (product validator, wrong delegate decision → bug).
+
+**The 16 invented values map without ambiguity**, since each name states its own nature:
+`divergence` / `wrong-answer` / `wrong-output` / `defect` all describe a wrong result → `bug`;
+`gap` describes a missing capability → `feature`.
+
+**Fixed so it cannot drift back**: `bugs-index-gate` now checks `kind` against the enum the way it
+already checked the other three, with a planted `kind: divergence` in its own self-test — which
+reports `6 planted defects all caught` and was observed catching this one. Data alone would have
+regrown the debt; the check is what makes it stick.
+
+**Every entry in the repository now carries a declared kind from the closed enum:**
+`bug 195 · apparatus 41 · feature 17 · perf 10 · programme 3 · regression 2`, off-enum 0.
+
 ## ref-front-injects-the-first-given-for-an-explicit-using-clause — the interpreter disagrees
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      reported-by: claude-code
@@ -184,6 +238,7 @@ push that does not touch `*BUGS.md`, and announces the skip when the tree differ
 ## f-u0-reduction-2026-08-15 — a 327→103 reduction, and the predicate that let it drift
 
 <!-- status: open
+     kind: programme
      lane: native
      area: front
      reported-by: claude-code
@@ -957,6 +1012,7 @@ and the failure did not say so.
 ## f-gap-tail-2026-08-15 — the crash is fixed; three narrowed defects behind it
 
 <!-- status: open
+     kind: programme
      lane: native
      area: front
      reported-by: claude-code
@@ -1378,6 +1434,7 @@ whoever owns that routing.
 ## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      reported-by: claude-code
@@ -3348,6 +3405,7 @@ tryLamDirect would pass a gate built only from the failure.
 ## renderTerm-is-two-and-a-half-times-the-jit-limit
 
 <!-- status: open
+     kind: perf
      lane: v2-rust
      area: codegen
      reported-by: claude-code
@@ -3952,6 +4010,7 @@ the other six do. Filed as `four-skills-have-no-plugin-manifest-and-nothing-noti
 ## four-skills-have-no-plugin-manifest-and-nothing-notices
 
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: other
      reported-by: claude-code
@@ -4433,6 +4492,7 @@ bound). Those now announce themselves by name instead of arriving as rustc error
 ## f-placeholder-u0-reduced-but-not-solved
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      reported-by: claude-code
@@ -4773,6 +4833,7 @@ Fixed to `./studio.ssc`. Both then move `ERROR` → `BOTH-UNBOUND` — they stil
 ## error-bucket-holds-no-F-gaps
 
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: front
      reported-by: claude-code
@@ -4972,6 +5033,7 @@ from).
 ## f-std-ui-gaps-behind-the-curried-def-fix
 
 <!-- status: open
+     kind: bug
      lane: native
      area: front
      reported-by: claude-code
@@ -5371,6 +5433,7 @@ refused, and now names it — before the fix the invented `n__cell` masked the r
 ## build-rust-drops-defs-it-cannot-lower-without-saying-so
 
 <!-- status: open
+     kind: bug
      lane: v2-rust
      area: codegen
      reported-by: rozum (claude-code), meeting room 'scalascript'
@@ -5624,6 +5687,7 @@ Newest first.
 ## both-unbound-is-mostly-plugin-intrinsics-not-user-error — the label blames the program; the names say otherwise
 
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: front
      gate: tests/e2e/f-front-delegation-visible.sh -->
@@ -7895,6 +7959,7 @@ wrong code. **Not being able to answer must not look like answering "no".**
 
 ## shared-main-is-one-working-tree-for-every-agent — bookkeeping pushes from it are flaky, and `git push` can report success while pushing nothing
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: other
      gate: tests/coord/coord-update-rolls-back.sh -->
@@ -8890,6 +8955,7 @@ the standalone build, affected conformance, and renewed independent acceptance a
 
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
 <!-- status: open
+     kind: bug
      lane: apparatus
      area: front
      gate: tests/conformance/scljet-mutate-update.ssc -->
@@ -9022,6 +9088,7 @@ skill should stop restating the number and point at `scripts/coord-status` as th
 
 ## ci-sbt-job-is-28x-the-code-push-interval — the arithmetic no queue policy can fix
 <!-- status: open
+     kind: apparatus
      lane: apparatus
      area: runtime
      gate: .github/workflows/ci.yml -->
@@ -9117,6 +9184,7 @@ SclJet-written file, and gets `PRAGMA integrity_check = ok`.
 
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
 <!-- status: open
+     kind: feature
      lane: apparatus
      area: front
      gate: tests/e2e/scljet-m2-corpus-smoke.sh -->
