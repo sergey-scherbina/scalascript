@@ -92,7 +92,7 @@ private[interpreter] object DispatchRuntime:
     if name == "toString" && args.isEmpty then
       return recv match
         case inst: Value.InstanceV =>
-          val tm = lookupTypeMethod(inst.typeName, "toString", interp)
+          val tm = lookupTypeMethodArity(inst.typeName, "toString", 0, interp)
           if tm != null then invokeTypeMethod(tm, recv, inst.effectiveFields, args, interp)
           else Pure(Value.StringV(Value.show(recv)))
         case _ => Pure(Value.StringV(Value.show(recv)))
@@ -1086,7 +1086,7 @@ private[interpreter] object DispatchRuntime:
       case _ =>
         val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
         if typeMethodMap != null then
-          val fn = typeMethodMap.getOrElse(name, null)
+          val fn = pickArity(typeMethodMap, name, typeMethodMap.getOrElse(name, null), 1)
           // THE SECOND DISPATCH SITE. This single-argument fast path calls `callTypeMethod1`
           // directly and so never reached `invokeTypeMethod`, where sibling binding lives — which is
           // why `Response.withSession(payload)`, one argument, still said `Undefined: withHeader`
@@ -3364,7 +3364,7 @@ private[interpreter] object DispatchRuntime:
     else
       val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
       if typeMethodMap != null then
-        val fn = typeMethodMap.getOrElse(name, null)
+        val fn = pickArity(typeMethodMap, name, typeMethodMap.getOrElse(name, null), args.length)
         if fn != null then
           invokeTypeMethod(fn, recv, fields, args, interp)
         else
@@ -3421,7 +3421,7 @@ private[interpreter] object DispatchRuntime:
       // avoid allocating an Option and eliminate the double-lookup hot path.
       val typeMethodMap = interp.typeMethods.getOrElse(typeName, null)
       if typeMethodMap != null then
-        val fn = typeMethodMap.getOrElse(name, null)
+        val fn = pickArity(typeMethodMap, name, typeMethodMap.getOrElse(name, null), args.length)
         if fn != null then
           invokeTypeMethod(fn, recv, fields, args, interp)
         else
@@ -3465,12 +3465,44 @@ private[interpreter] object DispatchRuntime:
   /** Look up a concrete type method `name`, walking the parent-type chain so a
    *  method inherited from a (sealed-)trait / superclass dispatches on a subtype
    *  instance — `enum case → enum → intermediate trait → trait` (busi seq-121). */
-  private def lookupTypeMethod(typeName: String, name: String, interp: Interpreter): Value.FunV | Null =
+  /** Pick the same-name method whose ARITY fits this call.
+   *
+   *  `StatRuntime.withArityKeys` registers every definition of an overloaded name additionally
+   *  under `name#<arity>`; the primary key still holds what it always held. This is consulted only
+   *  when the primary CANNOT accept `argc` — the path that used to raise
+   *  `missing argument for parameter '...'` — so a call that already fits pays one integer
+   *  comparison and no lookup.
+   *
+   *  Returning `fn` unchanged when no `name#argc` key exists is what keeps partial application and
+   *  curried methods working: alternates exist only for names declared more than once, so a lone
+   *  `def f(a)(b)` called with one argument still reaches its original behaviour rather than being
+   *  redirected to something else. */
+  private def arityFit(fn: Value.FunV, argc: Int): Boolean =
+    val required = fn.params.length - fn.defaults.count(_.nonEmpty)
+    argc >= required && argc <= fn.params.length
+
+  private def pickArity(
+    map: Map[String, Value.FunV], name: String, fn: Value.FunV | Null, argc: Int
+  ): Value.FunV | Null =
+    if fn == null then null
+    else
+      val f = fn.asInstanceOf[Value.FunV]
+      if arityFit(f, argc) then f else map.getOrElse(name + "#" + argc, f)
+
+  /** Every caller now knows the call's argument count, so there is no arity-unknown form: the
+   *  wrapper that stood here was left with no callers once the third site — the INHERITED path,
+   *  which a class taking all its methods from a parent trait reaches and the other sites never
+   *  see — started passing `args.length`. That site is the one the trait case in
+   *  `ClassMethodArityTest` caught after the first three had been patched. */
+  private def lookupTypeMethodArity(
+    typeName: String, name: String, argc: Int, interp: Interpreter
+  ): Value.FunV | Null =
     var t: String | Null = typeName
     while t != null do
       val m = interp.typeMethods.getOrElse(t, null)
       if m != null then
-        val fn = m.getOrElse(name, null)
+        val fn = if argc < 0 then m.getOrElse(name, null)
+                 else pickArity(m, name, m.getOrElse(name, null), argc)
         if fn != null then return fn
       t = interp.parentTypes.getOrElse(t, null)
     null
@@ -3551,7 +3583,7 @@ private[interpreter] object DispatchRuntime:
           // `kind` is defined on a sealed supertype (busi seq-121).  Fields shadow
           // inherited methods (checked above), so this only fires when no field matched.
           val inherited = recv match
-            case inst: Value.InstanceV => lookupTypeMethod(inst.typeName, name, interp)
+            case inst: Value.InstanceV => lookupTypeMethodArity(inst.typeName, name, 0, interp)
             case _                     => null
           if inherited != null && inherited.params.isEmpty then
             invokeTypeMethod(inherited, recv, fields, Nil, interp)
@@ -3571,7 +3603,7 @@ private[interpreter] object DispatchRuntime:
         interp.callValue(fieldV, args, env)
       else
         val inherited = recv match
-          case inst: Value.InstanceV => lookupTypeMethod(inst.typeName, name, interp)
+          case inst: Value.InstanceV => lookupTypeMethodArity(inst.typeName, name, args.length, interp)
           case _                     => null
         if inherited != null then
           invokeTypeMethod(inherited, recv, fields, args, interp)

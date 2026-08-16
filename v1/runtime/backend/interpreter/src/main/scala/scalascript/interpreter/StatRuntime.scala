@@ -483,13 +483,23 @@ private[interpreter] object StatRuntime:
       // refer to them by name (`x`, `y` in `def distanceTo(other) = ...x...`).
       val classEnv = envView
       val methodPairs: List[(String, Value.FunV)] = d.templ.body.stats.collect {
-        case dd: Defn.Def =>
+        // `extern class C:` members are DECLARATIONS: `Parser.preprocessExtern` gives every one of
+        // them `__extern__` as a body, and the real implementation is the plugin's. Registering
+        // them here shadowed that with a FunV that dies at CALL time with `Undefined: __extern__`
+        // — the member worked while UNDECLARED and broke the moment someone declared it, which is
+        // the opposite of what a declaration should do
+        // (interp-declaring-a-plain-extern-class-member-breaks-it).
+        //
+        // This is the same skip, for the same stated reason, that the `Defn.Def` arm above already
+        // performs for extern defs at STATEMENT level — it was simply never applied to class,
+        // trait or object bodies.
+        case dd: Defn.Def if !scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
           val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
           val mparams    = mparamVals.map(_.name.value)
           val mdefaults  = mparamVals.map(_.default)
           (dd.name.value, Value.FunV(mparams, dd.body, classEnv, dd.name.value, mdefaults))
       }
-      val methodDefs: Map[String, Value.FunV] = methodPairs.toMap
+      val methodDefs: Map[String, Value.FunV] = withArityKeys(methodPairs)
       if methodDefs.nonEmpty then interp.typeMethods(typeName) = methodDefs
       // Auto-generate given instances for derived typeclasses
       if d.templ.derives.nonEmpty then
@@ -593,12 +603,13 @@ private[interpreter] object StatRuntime:
       // abstract `Decl.Def`) so they dispatch on instances of subtypes that extend
       // the trait — the parent-chain method lookup walks here (busi seq-121).
       val traitEnv = envView
-      val traitMethodDefs: Map[String, Value.FunV] = d.templ.body.stats.collect {
-        case dd: Defn.Def =>
+      val traitMethodDefs: Map[String, Value.FunV] = withArityKeys(d.templ.body.stats.collect {
+        // Same skip as the class body above — `extern trait` is a parsed surface form too.
+        case dd: Defn.Def if !scalascript.transform.EffectAnalysis.isExternDef(dd.body) =>
           val mparamVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).toList
           dd.name.value -> Value.FunV(mparamVals.map(_.name.value), dd.body, traitEnv,
                                       dd.name.value, mparamVals.map(_.default))
-      }.toMap
+      }.toList)
       if traitMethodDefs.nonEmpty then
         interp.typeMethods(traitName) =
           interp.typeMethods.get(traitName).fold(traitMethodDefs)(_ ++ traitMethodDefs)
@@ -815,6 +826,42 @@ private[interpreter] object StatRuntime:
           SectionRuntime.runImport(scalascript.ast.Content.Import(path, bindings), interp)
         }
     }
+
+  /** Build the type-method table, keeping same-name methods that differ in ARITY reachable.
+   *
+   *  This used to be a plain `.toMap`, which silently kept only the LAST definition: a class
+   *  declaring `f(a)` and `f(a, b)` answered `missing argument for parameter 'b'` for `c.f(7)`,
+   *  because the one-parameter `f` had been dropped on the floor at registration time
+   *  (interp-same-name-class-methods-collapse-to-the-last).
+   *
+   *  The primary key keeps the LAST definition exactly as before, so nothing that works today
+   *  changes. Each definition is ADDITIONALLY registered under `name#<arity>` for every argument
+   *  count it accepts — from its required count (parameters minus those with defaults) up to its
+   *  parameter count. `DispatchRuntime` consults those keys ONLY when the primary cannot accept
+   *  the call's argument count, i.e. on a path that raised an error a moment later anyway.
+   *
+   *  `#` cannot occur in a ScalaScript identifier, so the extra keys cannot collide with a real
+   *  method name. Nothing extra is registered unless a name is genuinely declared more than once,
+   *  and a program with no overloads gets a byte-identical table. */
+  private def withArityKeys(pairs: List[(String, Value.FunV)]): Map[String, Value.FunV] =
+    val primary = pairs.toMap
+    val duplicated = pairs.groupBy(_._1).collect { case (n, ds) if ds.sizeIs > 1 => n }.toSet
+    if duplicated.isEmpty then primary
+    else
+      var out = primary
+      pairs.foreach { case (n, fn) =>
+        if duplicated.contains(n) then
+          val required = fn.params.length - fn.defaults.count(_.nonEmpty)
+          var arity    = math.max(required, 0)
+          while arity <= fn.params.length do
+            val key = n + "#" + arity
+            // FIRST declaration wins per arity: two overloads accepting the same count are
+            // genuinely ambiguous, and picking the earlier one at least makes the choice stable
+            // rather than dependent on statement order at the bottom of the file.
+            if !out.contains(key) then out = out.updated(key, fn)
+            arity += 1
+      }
+      out
 
   private def fieldSchema(typeName: String, param: Term.Param, env: Map[String, Value], interp: Interpreter): TypeFieldSchema =
     val fieldName = param.name.value
