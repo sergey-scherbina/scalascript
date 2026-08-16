@@ -1,0 +1,11 @@
+slug: mcp-v2-registration-members
+branch: feature/mcp-v2-registration-members
+agent: claude-code
+started: 2026-08-16T12:35:06Z
+heartbeat: 2026-08-16T12:35:06Z
+status: claimed-before-planning
+items: mcp-v2-tool-with-schema mcp-v2-resource-template
+paths: file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:std/mcp/server.ssc file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
