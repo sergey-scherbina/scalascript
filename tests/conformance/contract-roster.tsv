@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=2ec5f4e6d17d384113402d9d27b369f0f35887be342b971ceb831d187bb8340d
+# corpus-contract-roster-v1	baseline-sha256=b9408d8f1ad3dbbfad634a51be32e3ecd332c90d9e00c23d296619c0cb79a730	roster-sha256=1c2bc346a3605fe94d62611fe8174bd482372701a5734469b855171000887338
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -223,6 +223,7 @@ map-ops
 maps
 markdown-html
 markdown-toolkit-links
+math-round-ties
 mcp-agent
 mcp-client-discover
 mcp-client-invoke
