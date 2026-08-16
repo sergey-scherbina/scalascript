@@ -8,7 +8,7 @@
      reported-at: 2026-08-16
      confirmed: yes
      gate: scripts/next --self-test
-     fixed-in: PENDING -->
+     fixed-in: df09493f9 -->
 
 **`scripts/next` ranks on `kind:` with `KIND_ORDER.get(r.get("kind") or "bug", 9)` — a sensible
 ranking default — and the same `or "bug"` leaked into the DISPLAY:**
