@@ -138,13 +138,18 @@ private[markdown] object MdChars:
       i += 1
     if !needs then s
     else
-      val out = new StringBuilder(s.length)
+      // `Vector[String]` + `.mkString`, not `StringBuilder`: v2 has no StringBuilder, and this is
+      // the accumulation shape `specs/uniml-portable-gapmap.md` settled on and `JsonLexer` already
+      // ships. `Char.toString` is the portable char→String step — `String.valueOf(c)` is NOT: a
+      // capitalized receiver lowers to an effect operation on v2 and yields
+      // `Op("String.valueOf", B, <closure>)` instead of a string, silently.
+      var out: Vector[String] = Vector.empty
       var k = 0
       while k < s.length do
         val c = s.charAt(k)
-        out.append(if c >= 'A' && c <= 'Z' then (c + 32).toChar else c)
+        out = out :+ (if c >= 'A' && c <= 'Z' then (c + 32).toChar else c).toString
         k += 1
-      out.toString
+      out.mkString
 
   /** CommonMark's link-label fold: Unicode, but NOT locale-dependent.
     *
@@ -158,16 +163,20 @@ private[markdown] object MdChars:
     * i for the one letter where the two disagree) and everything else goes through the
     * locale-independent character fold. */
   def foldCase(s: String): String =
-    val out = new StringBuilder(s.length)
+    // Same portable accumulator as `asciiLower` above. `Character.toLowerCase` stays — it is the
+    // locale-independent fold this doc comment argues for, and it runs on v2 since 2026-08-16
+    // (`v2/src/Runtime.scala`, `characterFold`); before that it silently produced
+    // `Op("Character.toLowerCase", …)` rather than a char.
+    var out: Vector[String] = Vector.empty
     var i = 0
     while i < s.length do
       val c = s.charAt(i)
-      out.append(
+      out = out :+ (
         if c >= 'A' && c <= 'Z' then (c + 32).toChar
         else if c < 128 then c
-        else Character.toLowerCase(c))
+        else Character.toLowerCase(c)).toString
       i += 1
-    out.toString
+    out.mkString
 
   def isAsciiWhitespace(c: Char): Boolean =
     c == ' ' || c == '\t' || c == '\n' || c == VerticalTab || c == FormFeed || c == '\r'

@@ -42,6 +42,7 @@ Confirmed by isolated `.ssc` probes (each a real v2 crash/miss, not a guess):
 | plain (non-case) `class` | crash (compile) | `YamlSemanticParser.Parser`/`FlowParser`, `YamlStructure.BlockFrame` | UniML-side: immutable rewrite (nested defs / case classes) |
 | regex `"…".r` / `.matches` | `no dispatch for .r` | `YamlSemanticParser` scalar typing (7 patterns) | UniML-side: hand-rolled char-scan predicates |
 | `Character.getType`/`isSpaceChar`/`digit` | unresolved `Op(...)` | `MdChars` (CommonMark flanking), `YamlSemanticParser` hex | UniML-side portable Unicode table (**the hard one**) OR v2-side `Character` |
+| `Character.toLowerCase`/`toUpperCase` | unresolved `Op(...)` | `MarkdownLexer.foldCase` (CommonMark link labels) | **FIXED v2-side 2026-08-16** — `characterFold` in `v2/src/Runtime.scala`; see below |
 | mutable `var` field in case class | v2 object-model wall | `JsonStructure.Frame`, similar | UniML-side: immutable state (copy-on-transition) |
 
 Two more v2 collection gaps surfaced probing YamlStructure:
@@ -253,6 +254,42 @@ The v2-compile smoke (`uniml/v2-smoke/`) is currently **RED** on the Array and a
 probes and **GREEN** on the rest; it becomes fully green as the gaps close.
 
 ## Results
+
+### 2026-08-16 — the markdown dialect is back inside the portable subset, and `Character` folds on v2
+
+`uniml/lint-portable-subset.sh` had been **RED and unread**: it is invoked by nothing, so nobody saw
+it. Found by the orphan census, not by a symptom. Four violations, all in the markdown dialect —
+three `StringBuilder` buffers and one `Character.toLowerCase`.
+
+**The three buffers took the decided shape**: `Vector[String]` + `.mkString`, the same accumulator
+`JsonLexer` already ships. The char→String step is `c.toString`. **`String.valueOf(c)` is NOT
+portable and fails silently** — a capitalized receiver lowers to an effect operation, so it yields
+`Op("String.valueOf", B, <closure>)` rather than a string, with no error and a zero exit.
+
+**`Character.toLowerCase`/`toUpperCase` took the v2-side option this document already allowed.** The
+fold is the half nobody can hand-roll: it is defined by the whole Unicode table, unlike `getType`'s
+flanking classes which UniML replaced with a BMP range table. `MarkdownLexer.foldCase`'s own comment
+records why it must be the locale-INDEPENDENT fold — ASCII folding scores the official corpus at 606
+instead of 607.
+
+**IT IS ONE CASE IN ONE FILE, and the first version was five files.** The obvious design — bind a
+`Character` global in the prelude like `math`, add a `__char_obj__` prim, teach the JS and Rust
+backends — was written, and then a control showed it INERT: with the prelude binding removed the
+direct calls still worked. The reason is that `Character.toLowerCase(c)` never evaluates a global at
+all. **The front lowers a capitalized receiver as a nullary constructor**, so it arrives at
+`methodDispatch1` as `DataV("Character", [])` and lands in the EFFECT-TAG case. Answering there —
+before that case, through a `characterFold` helper — is the whole fix. The four other edits were
+reverted.
+
+**Not done, and named rather than implied:** the JS lane. Its dispatch is keyed on the same nullary
+constructor shape and would need the mirrored case in `JsBackend`'s `$method`; a `$charObj` written
+against the `ForeignV` shape would have been dead code, so it was reverted rather than shipped
+unverified. The Rust lane declines by design — `char::to_lowercase` there yields an ITERATOR (U+0130
+lowers to two chars), so a char-to-char fold needs a documented truncation nobody has asked for yet.
+
+Evidence: `uniml/v2-smoke/gap-char.ssc` (self-checking — see its header for why a probe that only
+looks for an exception cannot see this gap), `unimlMarkdown/test` 53/53 on the JVM lane, and
+`uniml/lint-portable-subset.sh` green with a planted `Character.getType` still caught.
 
 ### 2026-07-14 — MILESTONE: the JSON dialect compiles AND runs correctly on v2
 

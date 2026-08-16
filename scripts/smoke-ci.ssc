@@ -818,6 +818,17 @@ val suite = List(
   // are wired. Today's are frozen by name and the list can only shrink.
   // (orphaned-e2e-gates-52.)
   Check(".", "no-orphan-gates", "tests/e2e/no-orphan-gates.sh", List("--self-test"), 120000),
+  // One of the orphans the widened census made visible, drained the same day it was found.
+  // It guards the Scala 3 ∩ ScalaScript-v2 RUNTIME subset across uniml core+dialects, and it had
+  // been RED and unread: `MarkdownLexer`/`MarkdownBlocks` had drifted back to `StringBuilder` and
+  // `Character.toLowerCase`. Fixed on both sides — the buffers took the `Vector[String]` shape
+  // `JsonLexer` already ships, and `Character`'s case fold now runs on v2 — so this lands GREEN
+  // rather than as a known-red, which is the rule orphaned-e2e-gates-52 paid for.
+  // COSTS NOTHING: a `find` plus a `grep` over four directories, no toolchain, no build — measured
+  // at 0 s, which is why it goes on the push path rather than into tier 2.
+  // Checked NOT to be vacuous: a planted `Character.getType` is still caught.
+  // (uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere.)
+  Check(".", "uniml-portable-subset", "uniml/lint-portable-subset.sh", List(), 60000),
   // Three of the 36 frozen orphans, drained. Each was RUN against a fresh launcher (6s, 6s, 7s) and
   // each was checked NOT to be vacuous: re-run with both launcher jars removed, all three go RED.
   // That control found one gate in twenty that stays green with no toolchain at all —

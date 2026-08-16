@@ -1032,17 +1032,20 @@ private[markdown] final class MarkdownBlocks(
     val lexeme = pieceLexeme(piece)
     if isBreakPiece(piece) || lexeme.indexOf('\n') < 0 then (piece, breaksSoFar)
     else
-      val out = new StringBuilder
+      // `Vector[String]` + `.mkString` — the portable accumulator (`specs/uniml-portable-gapmap.md`);
+      // v2 has no StringBuilder. This one appends BOTH single chars and whole segment prefixes, and
+      // a Vector of strings takes either without the two cases needing different code.
+      var out: Vector[String] = Vector.empty
       var k = breaksSoFar
       var i = 0
       while i < lexeme.length do
         val c = lexeme.charAt(i)
-        out.append(c)
+        out = out :+ c.toString
         if c == '\n' then
           k += 1
-          if k < segs.size then out.append(segs(k).prefix)
+          if k < segs.size then out = out :+ segs(k).prefix
         i += 1
-      (withLexeme(piece, out.toString), k)
+      (withLexeme(piece, out.mkString), k)
 
   private def pieceLexeme(piece: InlinePiece): String = piece match
     case InlinePiece.Tok(_, lexeme, _, _)      => lexeme

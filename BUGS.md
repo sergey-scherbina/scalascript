@@ -23,6 +23,83 @@ Newest first.
 
 
 
+## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: uniml/lint-portable-subset.sh -->
+
+`uniml/lint-portable-subset.sh` guards the Scala 3 ∩ ScalaScript-v2 **runtime** subset across
+`uniml/core`, `uniml/json`, `uniml/yaml` and `uniml/markdown` — the constructs UniML was deliberately
+cleaned of so the same sources compile and run on the self-hosted v2 compiler. **It exits 1 today**,
+and it is invoked by nothing, so nobody has seen it:
+
+```
+VIOLATION in uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownLexer.scala:
+    141:      val out = new StringBuilder(s.length)
+    161:    val out = new StringBuilder(s.length)
+    168:        else Character.toLowerCase(c))
+VIOLATION in uniml/markdown/src/main/scala/scalascript/uniml/dialect/markdown/MarkdownBlocks.scala:
+    1035:      val out = new StringBuilder
+== portable-subset lint FAILED: the constructs above do not run on v2 ==
+```
+
+Two files, four lines, both in the **markdown dialect only** — `core`, `json` and `yaml` are clean.
+`StringBuilder` and `Character.toLowerCase` are on the banned list because they do not run on v2, not
+because they are unidiomatic; the script's own header is careful to say it deliberately does NOT flag
+constructs that merely await v2 FRONTEND support.
+
+**Found by census, not by symptom** (`orphan-detector-scans-one-directory-and-misses-real-gates`):
+the gate lives outside `tests/e2e/`, so until 2026-08-16 the orphan detector could not see it either.
+It costs **0 s** to run — a `find` plus a `grep` over four directories, no toolchain, no build.
+
+**NOTHING RAN THE MARKDOWN DIALECT ON v2 — measured, which is exactly why it could drift.**
+`uniml/corpus/markdown/run-strict.sh` takes `<jvm|js>` and has no v2 platform, and `ci.yml`'s `uniml`
+job runs `sbt -batch test`, i.e. the Scala 3 build. Nothing was going to go red.
+
+### Fixed on both sides, and wired
+
+**The three buffers took the shape this project already decided on**: `Vector[String]` + `.mkString`,
+the accumulator `JsonLexer` ships and `specs/uniml-portable-gapmap.md` settled. The char→String step
+is `c.toString`. **`String.valueOf(c)` is NOT portable and fails SILENTLY** — a capitalized receiver
+lowers to an effect operation, so it yields `Op("String.valueOf", B, <closure>)` instead of a string,
+with no error and a zero exit. Probed, not assumed.
+
+**`Character.toLowerCase`/`toUpperCase` took the v2-side option the gap map already allowed**
+(`v2/src/Runtime.scala`, `characterFold`). The fold is the half nobody can hand-roll: it is defined
+by the whole Unicode table, unlike `getType`'s flanking classes which UniML replaced with a BMP range
+table. `foldCase`'s own comment records why it must be the locale-INDEPENDENT fold — ASCII folding
+scores the official corpus at 606 instead of 607.
+
+**ONE CASE IN ONE FILE, and the first version was five files.** The obvious design — bind a
+`Character` global in the prelude like `math`, add a `__char_obj__` prim, teach the JS and Rust
+backends — was written and then a control showed it INERT: with the prelude binding removed, the
+direct calls still worked. `Character.toLowerCase(c)` never evaluates a global at all. **The front
+lowers a capitalized receiver as a nullary constructor**, so it reaches `methodDispatch1` as
+`DataV("Character", [])` and falls into the EFFECT-TAG case. Answering there, ahead of that case and
+through one helper shared with the `ForeignV` shape, is the entire fix; the other four edits were
+reverted.
+
+**Wired, because it lands green.** `uniml/lint-portable-subset.sh` is now a smoke check and is out of
+`no-orphan-gates.sh`'s frozen list (31 → 30) — drained, not exempted. It costs 0 s: a `find` and a
+`grep` over four directories, no toolchain.
+
+**Evidence.** `STRICT CASES=675 PASS=607` on the CommonMark corpus — the exact number `foldCase`'s
+comment predicts, so the rewrite is behaviour-identical where it matters most; `unimlMarkdown/test`
+53/53; `uniml/v2-smoke/gap-char.ssc` green on v2 and SELF-CHECKING, because this gap's failure mode
+is a wrong value with a zero exit and `run.sh` classifies by grepping for exceptions; the lint green
+with a planted `Character.getType` still caught.
+
+**Not done, and named rather than implied: the JS lane.** Its `$method` is keyed on the same nullary
+constructor shape and needs the mirrored case; a `$charObj` written against the `ForeignV` shape
+would have been dead code, so it was reverted rather than shipped unverified. The Rust lane declines
+by design — `char::to_lowercase` yields an ITERATOR there (U+0130 lowers to two chars), so a
+char-to-char fold needs a documented truncation nobody has asked for.
+
 ## rust-map-plus-pair-is-not-lowered — `map + (k -> v)` reaches rustc as an addition, and the `updated` that means the same thing is already lowered three lines away
 
 <!-- status: fixed

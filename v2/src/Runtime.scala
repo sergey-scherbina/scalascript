@@ -2092,6 +2092,31 @@ object Prims:
    *  it again, and no correctness gate can see that. `specs/v2-runtime-perf-vs-v1.md`
    *  carries the javap measurement; `tests/e2e/v2-method-dispatch-jit-size.sh` fails on breach.
    */
+  /** `java.lang.Character`'s case fold, for the UniML dual-compile track.
+    *
+    * THE LOCALE-INDEPENDENT ONE, and that is the whole point of routing to the JVM method instead of
+    * a table in UniML: `String.toLowerCase()` is locale-sensitive (Turkish dotless i) while
+    * `Character.toLowerCase(char)` is defined by the Unicode data alone. CommonMark's link-label
+    * fold needs exactly the second — folding it as ASCII takes the official corpus from 607 passing
+    * cases to 606, which is why `MarkdownLexer.foldCase` calls it at all.
+    * `specs/uniml-portable-gapmap.md` allows either a UniML-side Unicode table ("the hard one") or
+    * this; the fold is the half nobody can hand-roll, unlike `getType`'s flanking classes which
+    * UniML already replaced with a BMP range table.
+    *
+    * BOTH CHAR REPRESENTATIONS, ANSWERING IN THE ONE IT WAS GIVEN. A char reaches here as `CharV`
+    * from `charAt` and as `IntV` from `codeAt` or arithmetic; the caller appends the result straight
+    * back into the text it is building, so normalising the two would print a number where a
+    * character belongs. Returns None for anything else, so callers fall through unchanged. */
+  private def characterFold(name: String, margs: List[Value]): Option[Value] =
+    (name, margs) match
+      case ("toLowerCase", List(CharV(c))) => Some(CharV(Character.toLowerCase(c)))
+      case ("toLowerCase", List(IntV(c)))  => Some(IntV(Character.toLowerCase(c.toInt).toLong))
+      // The fold's twin, added in the same commit on purpose: a case fold is a PAIR, and shipping
+      // one half is how the other half later arrives somewhere else with a different spelling.
+      case ("toUpperCase", List(CharV(c))) => Some(CharV(Character.toUpperCase(c)))
+      case ("toUpperCase", List(IntV(c)))  => Some(IntV(Character.toUpperCase(c.toInt).toLong))
+      case _                               => None
+
   private def methodDispatch1(recv: Value, name: String, margs: List[Value]): Value =
       (recv, name, margs) match
         // Free-monad lifting: a method ON an unresolved effect Op defers itself
@@ -3047,6 +3072,13 @@ object Prims:
             case None =>
               // Effect dispatch: DataV("Logger"/"State"/...) with no method → check effect context
               recv match
+                // `Character.toLowerCase(c)` written directly: the front lowers a capitalized
+                // receiver as a nullary constructor, so it arrives here shaped exactly like an
+                // effect tag and would become `Op("Character.toLowerCase", …)` — a value the
+                // program then prints instead of a char, with no error and a zero exit. Answered
+                // BEFORE the effect-tag case, and by the same helper the `ForeignV` receiver uses.
+                case DataV("Character", IndexedSeq()) if characterFold(name, margs).isDefined =>
+                  characterFold(name, margs).get
                 case DataV(effectTag, IndexedSeq()) =>
                   // Dispatch order: an ACTIVE effect handler (dynamic scope) wins over a
                   // plugin native registered under the same "Tag.method" (static default).

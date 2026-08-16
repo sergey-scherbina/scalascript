@@ -79,7 +79,6 @@ tests/e2e/v21-typeclass-dictionary-smoke.sh
 tests/e2e/v21-unhandled-effect-smoke.sh
 tests/interop-conformance/validation-test.sh
 tests/rust-build-smoke.sh
-uniml/lint-portable-subset.sh
 v1/tools/scripts/v2-scale-bench.sh
 v2/backend/check-handler-markers.sh
 v2/backend/check.sh

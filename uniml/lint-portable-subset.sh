@@ -12,7 +12,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2   # repo root
 DIRS="uniml/core/src/main uniml/json/src/main uniml/yaml/src/main uniml/markdown/src/main"
 # banned RUNTIME-portability patterns (must be absent from code — comments are stripped first)
-PATTERN='scala\.collection\.mutable|[^a-zA-Z]ArrayBuffer|[^a-zA-Z]StringBuilder|\.newBuilder|LinkedHashMap|HashSet|\.matches\(|"[^"]*"\.r[^a-zA-Z]|java\.lang\.Character|[^a-zA-Z]Character\.|\.isWhitespace|\.isSpaceChar|\.isLetter|\.isDigit|\.isLetterOrDigit|new Array|[^a-zA-Z]Array\['
+# `Character.` IS NO LONGER BANNED WHOLESALE — the banned members are listed instead.
+# `Character.toLowerCase`/`toUpperCase` RUN ON v2 since 2026-08-16 (`v2/src/Runtime.scala`,
+# `characterFold`), and they are the pair nobody can hand-roll: the fold is defined by the whole
+# Unicode table, unlike `getType`'s flanking classes which UniML replaced with a BMP range table.
+# Keeping the blanket ban after the gap closed would push `MarkdownLexer.foldCase` back onto ASCII
+# folding, which the official CommonMark corpus scores at 606 cases instead of 607.
+# The FULLY-QUALIFIED spelling stays banned: `java.lang.Character.toLowerCase(c)` is a dotted path,
+# not the bare receiver the runtime case matches, and it has not been probed.
+PATTERN='scala\.collection\.mutable|[^a-zA-Z]ArrayBuffer|[^a-zA-Z]StringBuilder|\.newBuilder|LinkedHashMap|HashSet|\.matches\(|"[^"]*"\.r[^a-zA-Z]|java\.lang\.Character|[^a-zA-Z]Character\.(getType|isSpaceChar|isWhitespace|isLetter|isDigit|isLetterOrDigit|isUpperCase|isLowerCase|digit|toChars|codePointAt)|\.isWhitespace|\.isSpaceChar|\.isLetter|\.isDigit|\.isLetterOrDigit|new Array|[^a-zA-Z]Array\['
 fail=0
 files=$(find $DIRS -name '*.scala' 2>/dev/null)
 for f in $files; do

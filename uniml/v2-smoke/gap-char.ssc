@@ -1,0 +1,22 @@
+// `Character.toLowerCase`/`toUpperCase` on v2 — the locale-independent Unicode case fold that
+// `MarkdownLexer.foldCase` needs and that no UniML-side table can reasonably replace.
+// Closed v2-side 2026-08-16 (`v2/src/Runtime.scala`, `characterFold`); the gap map
+// (`specs/uniml-portable-gapmap.md`) lists this as one of the two admissible fixes.
+//
+// THIS PROBE CHECKS ITS OWN ANSWER, and that is not ceremony. The failure mode of this gap is not a
+// crash: an unbound capitalized receiver lowers to an EFFECT OPERATION, so the program prints
+// `Op("Character.toLowerCase", Α, <closure>)` and exits 0. `run.sh` classifies by grepping for
+// `unbound global|Exception|IndexOutOfBounds`, so a wrong VALUE with a clean exit reads as PASS.
+// Comparing the result and throwing is what makes the probe able to fail at all.
+def need(got: Char, want: Char, what: String): Unit =
+  if got != want then throw new RuntimeException("gap-char: " + what)
+
+// Greek: the case that ASCII folding gets wrong, and the reason the fold is here at all.
+need(Character.toLowerCase('Α'), 'α', "Greek capital alpha did not fold")
+need(Character.toUpperCase('α'), 'Α', "Greek small alpha did not raise")
+// ASCII still answers, so the fix cannot be "only the exotic path works".
+need(Character.toLowerCase('A'), 'a', "ASCII A did not fold")
+// An already-folded char is returned unchanged rather than mangled.
+need(Character.toLowerCase('q'), 'q', "lowercase q did not stay put")
+
+println("gap-char: OK")
