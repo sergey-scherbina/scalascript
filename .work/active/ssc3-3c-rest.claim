@@ -1,0 +1,11 @@
+slug: ssc3-3c-rest
+branch: feature/ssc3-3c-rest
+agent: claude-code
+started: 2026-08-16T00:30:33Z
+heartbeat: 2026-08-16T00:30:33Z
+status: claimed-before-planning
+items: SSC3-3c-rest
+paths: v3/src/BridgeV2.scala v3/src/Main.scala v3/exec-gate.sh v3/bridge-gate.sh v3/tests/bridge v3/SPRINT.md v3/specs/10-ssc-ir.md bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
