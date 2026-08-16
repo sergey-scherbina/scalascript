@@ -1,0 +1,53 @@
+#!/usr/bin/env ssc
+---
+name: process-needs-a-stdin-pipe
+description: "exec has no stdin, so a secret can only reach a child through argv, where every local process can read it"
+---
+# `std/process` cannot write to a child's stdin, so secrets must go in argv
+
+Reported from rozum. One route of our control console installs a Telegram bot, which means handing
+a bot token to a child process. The Rust implementation writes it to the child's **stdin**
+precisely so it never appears in an argument vector:
+
+```text
+let child = Command::new(&exe).args(args).stdin(Stdio::piped()).spawn()?;
+child.stdin.take().write_all(token.as_bytes())?;
+```
+
+`ProcessOptions` has `cwd`, `env`, `timeout` and `inheritEnv` — and no stdin — so the ScalaScript
+port of that route would have to pass the token as an argument. On this machine that is readable by
+any local process:
+
+```sh
+$ ps -axo command | grep bot-add
+rozum-gateway messenger bot-add mybot --token 7712345678:AA…   # every user on the box sees this
+```
+
+So that one route stays in Rust, and it is the only route of the whole port that is blocked for a
+security reason rather than a capability one. It is worth saying that a workaround exists and is
+worse: writing the token to a temp file and passing the path leaves the secret on disk, which is
+the thing the stdin design was avoiding.
+
+## What would be enough
+
+One more field, or one more overload:
+
+```text
+case class ProcessOptions(…, stdin: Option[String] = None)   // written to the child, then closed
+```
+
+A string is enough for this case — the value is short and known before the call. A streaming
+handle would be more, and is not what blocks us.
+
+The program below shows the shape we want and cannot write; it passes the secret on the command
+line instead, which is exactly the thing we will not ship.
+
+```scalascript
+[exec, ProcessOptions](std/process.ssc)
+
+def main(): Unit =
+  // What we want:  exec("cat", [], ProcessOptions(stdin = Some("s3cret")))
+  // What exists:   the value has to become an argument.
+  val r = exec("/bin/echo", ["s3cret-would-be-visible-in-ps"], ProcessOptions(None, Map(), None, true))
+  println("child saw it as an argument: " + r.stdout)
+```

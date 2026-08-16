@@ -1,0 +1,53 @@
+#!/usr/bin/env ssc
+---
+name: process-needs-a-detached-spawn
+description: "exec waits for the child, so a served program cannot start anything that outlives the request"
+---
+# `std/process` can only run children it waits for
+
+Reported from rozum. We ported fifteen HTTP routes of a control console from Rust to ScalaScript.
+Every route that *starts* something — an agent, a coder session, a terminal, a benchmark run —
+stopped at the same wall, and it is not "no process control": it is that the one primitive there is
+**waits**.
+
+```text
+extern def exec(cmd: String, args: List[String], opts: ProcessOptions): ProcessResult
+```
+
+`ProcessResult` carries `stdout`, `stderr` and `exitCode`, so by construction the call cannot return
+until the child is finished. A request handler that starts a five-minute agent run has two options
+today, and both are wrong: hold the HTTP connection open for five minutes, or never start it.
+
+The program below measures the wall it hits: it execs a child that sleeps two seconds and prints
+the elapsed time around the call.
+
+## What would be enough
+
+Not a process supervisor — just a spawn that returns a handle instead of a result:
+
+```text
+case class Child(pid: Int)
+extern def spawn(cmd: String, args: List[String], opts: ProcessOptions): Child
+```
+
+`pid` alone would carry us: the caller records it, and killing is already possible through
+`exec("kill", [pid.toString], …)`. Anything more (`wait`, `isAlive`, streams) is welcome but is not
+what blocks the port. Detaching from the parent's lifetime matters too — the child must survive the
+server that started it, which is what "detached" means here.
+
+## What we do instead
+
+The Rust half of the console keeps every launch route: `std::process::Command::spawn()`, the pid
+into a registry file, and the HTTP handler returns immediately. The ScalaScript half serves the
+fifteen routes that only read files, call HTTP, or run a child to completion — the boundary is
+exactly this primitive.
+
+```scalascript
+[exec, ProcessOptions](std/process.ssc)
+
+def main(): Unit =
+  println("before exec")
+  val r = exec("/bin/sleep", ["2"], ProcessOptions(None, Map(), None, true))
+  println("after exec, child exit " + r.exitCode.toString)
+  println("the handler could not have answered during those two seconds")
+```
