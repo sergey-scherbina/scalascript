@@ -92,6 +92,37 @@ and a planted expectation that cannot appear turns it red.
 This is `an-unwired-gate-rots-against-correct-code` demonstrated inside one day: the migration was
 correct, the gate was correct, and only the fact that nothing ran it let the two drift apart.
 
+## rust-examples-use-a-rust-fence-the-front-does-not-accept
+
+<!-- status: open
+     lane: v2-rust
+     kind: feature
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/rust-build-smoke.sh -->
+
+`examples/rust/effect-runtime.ssc` and `examples/rust/mixed.ssc` fail `build-rust` with
+
+```
+[error] UnknownBlockLanguage(rust)
+```
+
+Both carry a ```` ```rust ```` fence ON PURPOSE — `effect-runtime.ssc` says so in its own prose:
+"exercise the runtime directly from a `rust` block", and again "routed through the `rust` block
+under it". So this is not a stray fence; the examples document a capability the front does not have.
+
+**Which way it should close is a decision.** Either the document model accepts a `rust` block (as
+data for `build-rust`, the way `scalascript` blocks are code and `@doc` blocks are prose), or these
+two examples stop claiming it. The prose is specific enough — "until then, exercise the runtime
+directly from a rust block" — that it reads as a planned feature rather than an accident, which is
+why this is `kind: feature` and not a bug against the examples.
+
+**Never observed before because nothing ran them.** `tests/rust-build-smoke.sh` compiles every
+example under `examples/rust/`, and it is an orphan: it exceeded the census cap on 2026-08-16 and had
+never been run to completion. The examples date from 2026-06.
+
 ## rust-build-lane-binds-runtime-results-to-the-wrong-declared-type — four fixtures, two shapes
 
 <!-- status: open
@@ -104,28 +135,41 @@ correct, the gate was correct, and only the fact that nothing ran it let the two
      gate: tests/rust-build-smoke.sh -->
 
 **Found by measuring an orphan.** `tests/rust-build-smoke.sh` had never been run to completion — it
-exceeded the 120 s cap of the 2026-08-16 orphan census and was recorded as "unmeasured, not green".
-Uncapped it takes **12 min 39 s** and exits 1: most fixtures PASS, four fail with
-`build-rust: cargo build failed (exit 101)`.
+exceeded the 120 s cap of the 2026-08-16 orphan census. Uncapped it takes 12 min 39 s and exits 1,
+with four fixtures failing `build-rust: cargo build failed (exit 101)`.
 
-| fixture | error |
+**MY FIRST FILING BLAMED THE EMITTER AND WAS WRONG.** It read the two E0308 messages —
+
+```
+let canon: String = crate::runtime::_json_parse(&src);   expected `String`, found `Value`
+let greet: String = crate::runtime::_env(&"GREET_NAME".to_string());   expected `String`, found `Option<…>`
+```
+
+— as "the emitter annotates the binding from the source while the runtime returns a wrapper", i.e. a
+codegen defect. The declarations say otherwise, and they are the contract:
+
+| in `std/` | returns |
 |---|---|
-| `json-roundtrip.ssc` | `let canon: String = crate::runtime::_json_parse(&src);` — `expected String, found Value` |
-| `process-env.ssc` | `let greet: String = crate::runtime::_env(&"GREET_NAME".to_string());` — `expected String, found Option<…>` |
-| `effect-runtime.ssc` | `error[E0308]: mismatched types` |
-| `mixed.ssc` | `error[E0308]: mismatched types` |
+| `def jsonParse(s: String): Any` (`std/json.ssc:65`) | **not** a String |
+| `def jsonStringify(v: Any): String` (`std/json.ssc:73`) | String |
+| `extern def env(key: String): Option[String]` (`std/os.ssc:38`) | Option |
+| `extern def envOrElse(key: String, default: String): String` (`std/os.ssc:39`) | String |
 
-**Two shapes, one theme: the emitter declares the binding's type from the SOURCE and the runtime
-function returns a wrapper.** `_json_parse` yields `Value` and `_env` yields an `Option`, while the
-generated `let` annotates `String` in both cases. Whether the fix belongs in the emitter (annotate
-what the runtime actually returns, or unwrap at the binding) or in those runtime signatures is the
-first thing to settle; the two failing pairs make the choice concrete.
+So `val canon: String = jsonParse(src)` and `val greet: String = env("GREET_NAME")` are wrong AT THE
+SOURCE, and the Rust runtime returning `Value`/`Option<String>` is what the language contract says.
+The emitter annotates what the source declared, which is its job.
 
-**NOT the same-day BigInt change.** `4a7746ae8` moved this lane to cargo for `num-bigint`, and the
-neighbouring `check-handler-markers` gate WAS broken by it (see the entry above). These four are
-`E0308` type mismatches on `_json_parse`/`_env`, not `E0433` unresolved-crate errors, and
-`v2/backend/check.sh` — 16 fixtures × 4 backends including rust — is ALL GREEN, so its fixtures do
-not cover these calls.
+**The dates say how it drifted.** Both examples were last touched 2026-06-07/08. `_json_parse` began
+returning `crate::value::Value` on **2026-08-09** (`2fc816b05`, a commit called "wip") — two months
+later — which ALIGNED the Rust lane with `std/json.ssc`. The examples had been relying on a
+Rust-only behaviour and nothing said so, because the gate that compiles them is invoked by nothing.
+
+Fixed in the examples: `jsonStringify(jsonParse(src))` and `envOrElse("GREET_NAME", "")`. Both now
+build (`rc=0`), taking the gate from four failures to two.
+
+**The other two are a different defect and are filed separately** —
+`rust-examples-use-a-rust-fence-the-front-does-not-accept`.
+
 
 ## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` was 3 on the shipped lanes and 2 in Core IR
 

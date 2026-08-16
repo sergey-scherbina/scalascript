@@ -5,7 +5,7 @@ Rust helpers — no extra crate deps.
 
 ```scalascript
 @main def run(): Unit =
-  val greet: String = env("GREET_NAME")
+  val greet: String = envOrElse("GREET_NAME", "")
   val name: String  = if (greet == "") "World" else greet
   println(s"Hello, $name")
 ```

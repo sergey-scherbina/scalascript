@@ -12,7 +12,7 @@ which validates the input.
 ```scalascript
 @main def run(): Unit =
   val src: String = """{ "x": 1, "y": [true, null, "hi"] }"""
-  val canon: String = jsonParse(src)
+  val canon: String = jsonStringify(jsonParse(src))
   println(canon)
 ```
 
