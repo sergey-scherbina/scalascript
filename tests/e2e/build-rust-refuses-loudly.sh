@@ -32,12 +32,21 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/rust-loud.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 failed=0
 
-# NOTE on cost, so the next person does not re-derive it: this gate runs five cargo builds, one of
-# which pulls `serde_json`, and each crate is emitted into its own temp dir — so the dependency tree
-# is compiled more than once. Measured 74.8 s standalone. Setting CARGO_TARGET_DIR to share one
-# target dir cuts it to 60.7 s and BREAKS the gate: `build-rust` computes the produced binary's path
-# as `<crate>/target/<profile>/<name>` itself, so the binary is then not where the CLI looks. The
-# timeout in scripts/smoke-ci.ssc carries the measurement instead.
+# NOTE on cost, so the next person does not re-derive it. THE FIGURE BELOW IS STALE AND KEPT FOR
+# ITS HISTORY: it was written when this gate ran FIVE cargo builds and measured 74.8 s standalone,
+# and it recorded that sharing one target dir cut that to 60.7 s but BROKE the gate, because
+# `build-rust` computed the produced binary's path as `<crate>/target/<profile>/<name>` regardless
+# of `CARGO_TARGET_DIR`.
+#
+# The gate now runs TWENTY-ONE builds and several pull `serde_json`, so the repeated dependency tree
+# stopped being a rounding error. The CLI was fixed instead of the gate: `build-rust` and `run-rust`
+# honour `CARGO_TARGET_DIR`, which is cargo's own switch and which cargo obeyed all along — the
+# mismatch was ours. Measured on two crates sharing serde_json: 18 s in separate target dirs, 8 s in
+# one, and the shared run was under HIGHER host load, so the gap is a floor rather than a ceiling.
+#
+# ONE SHARED DIR FOR THE WHOLE GATE, set here. Cargo namespaces artifacts by crate name and every
+# case here has a distinct stem, so nothing collides; the dir dies with $tmp.
+export CARGO_TARGET_DIR="$tmp/cargo-target"
 
 # ── 1. A bare-file import must reach the crate ───────────────────────────────
 # No prose, no fences — the form this backend used to ignore. `twice` lives in another file and

@@ -95,9 +95,17 @@ final class RunRustCmd extends CliCommand:
 
       // 3) execute.
       val profile = if debug then "debug" else "release"
+      // CARGO_TARGET_DIR IS CARGO'S OWN SWITCH and cargo obeys it whether or not we do — so
+      // computing the path as `<crate>/target/...` regardless meant that setting it made the binary
+      // land somewhere this then failed to find. Every crate paying to compile its own copy of the
+      // dependency tree is the cost that buys: two crates that share `serde_json` take 18s in
+      // separate target dirs and 8s in one, measured on 2026-08-16.
+      val targetRoot = sys.env.get("CARGO_TARGET_DIR").filter(_.trim.nonEmpty) match
+        case Some(d) => os.Path(d.trim, os.pwd)
+        case None    => crateDir / "target"
       val targetSubdir = target match
-        case Some(t) => crateDir / "target" / t / profile
-        case None    => crateDir / "target" / profile
+        case Some(t) => targetRoot / t / profile
+        case None    => targetRoot / profile
       val binExt = if scala.util.Properties.isWin then ".exe" else ""
       val binary = targetSubdir / s"${RustToolchain.sanitizeBinName(stem)}$binExt"
       if !os.exists(binary) then
