@@ -256,6 +256,14 @@ object Cli:
     // arm the structured one is measured against — and the arm that says which of the two rewrites
     // a divergence belongs to, since both touch the same emitted text.
     BridgeV2.useStructuredLoops(!args.contains("--no-structured-loops"))
+    // SSC3-3c-rest stage 1. `--no-invert-cond` restores the `(x == false)` negation the structured
+    // `while` would otherwise emit, which is the OFF arm the comparison inversion is measured
+    // against. (There is no `--no-direct-ops`: the direct `i.*` prims were measured SLOWER than
+    // `__arith__` on two independent instruments and were not kept — see `BridgeV2` §operators.)
+    BridgeV2.useInvertCond(!args.contains("--no-invert-cond"))
+    // SSC3-3c-rest stage 2. `--no-cell-frame` puts the register file back in one mutable array,
+    // which is V-0's representation and the OFF arm the cells are measured against.
+    BridgeV2.useCellFrame(!args.contains("--no-cell-frame"))
     // SSC3-J4. `--no-fuse-cmpbr` restores the plain instruction-at-a-time walk, which is the OFF
     // arm the compare-and-branch fusion is measured against — in one binary, so a ratio cannot be a
     // difference between two builds. `--fuse-cmpbr` is accepted as the explicit ON arm, which the

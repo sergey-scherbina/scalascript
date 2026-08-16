@@ -61,10 +61,31 @@ object BridgeV2:
   // It is NOT the `Let`-binding rewrite the SSC3-3c entry describes, and it does not pretend to be:
   // the frame is still one mutable array and there are still two prim calls per register access. It
   // is the part of that entry's win that costs no SSA and no join analysis.
+  // SSC3-3c-rest stage 2. THE FRAME IS N CELLS, NOT ONE ARRAY — and the whole change fits in these
+  // two functions because of how the cells are bound.
+  //
+  // `(let (b0 b1 … bN-1) body)` puts binding i at `local (N-1-i)`, so binding the cells in REVERSE
+  // register order lands register `r` at `local r` exactly. No frame size in the address, no `cx`
+  // threaded through forty call sites, and `sh` still means what it meant: how many binders sit
+  // between here and the frame.
+  //
+  // Why cells rather than the immutable `Let` bindings SSC3-3c-rest originally proposed: a cell is
+  // MUTABLE, so an `If` arm writes it and the code after reads it — the join problem the entry
+  // wanted lambda parameters for does not arise. Measured on hand-written v2 Core IR before any of
+  // this was written: cells are 10 of 10 rounds faster than the array, median 0.784 = 1.27×, while
+  // the further step to immutable locals is 8 of 10 at 0.910 — 1.10× for a dominance analysis.
+  //
+  // `cell.get` is `asCell(a(0))(0)`; `arr.get` is `asArr(a(0))(int(a, 1).toInt)`, which additionally
+  // pattern-matches the index out of a `Value` and narrows it. That is the difference, per access.
+  private var cellFrame: Boolean = true
+  private[ssc3] def useCellFrame(on: Boolean): Unit = cellFrame = on
+
   private def read(r: Int, sh: Int): String =
-    "(prim arr.get " + frameAt(sh) + " " + int(r) + ")"
+    if cellFrame then "(prim cell.get (local " + (r + sh) + "))"
+    else "(prim arr.get " + frameAt(sh) + " " + int(r) + ")"
   private def write(r: Int, v: String, sh: Int): String =
-    "(prim arr.set " + frameAt(sh) + " " + int(r) + " " + v + ")"
+    if cellFrame then "(prim cell.set (local " + (r + sh) + ") " + v + ")"
+    else "(prim arr.set " + frameAt(sh) + " " + int(r) + " " + v + ")"
 
   private def arith(op: String, a: String, b: String): String =
     "(prim __arith__ " + lit("(str \"" + op + "\")") + " " + a + " " + b + ")"
@@ -125,6 +146,36 @@ object BridgeV2:
   private def isBitwise(o: BinOp): Boolean = o match
     case BinOp.BAnd | BinOp.BOr | BinOp.BXor | BinOp.Shl | BinOp.Shr | BinOp.UShr => true
     case _ => false
+
+  // ── operators, and a result that came out BACKWARDS ─────────────────────────
+  //
+  // v2 has `i.add`/`i.sub`/`i.mul`/`i.lt`/… beside `__arith__`, and `Instr.Bin` carries the
+  // `NumKind` the specializer proved, so emitting the direct prim where the operands are known
+  // `I64` looks like free money. IT WAS MEASURED AND IT IS NOT. Two independent instruments:
+  //
+  //   hand-written v2 Core IR, the operators the ONLY difference, 15 rotated rounds:
+  //     5 of 15, p 0.94, median 1.054 — the direct prims are about 5% SLOWER
+  //   the bridge end to end, ONE binary, 30 alternating pairs, control inside each:
+  //     10 of 30, p 0.98, median 1.067 — the same answer
+  //
+  // AND THE SOURCE SAYS WHY. `i.add` is `liftArith("+", a, numBin(a, _ + _, _ + _))`: two `Op`
+  // type-tests, then `numBin`'s three float-pair tests, then two `asInt` matches, then TWO CLOSURE
+  // CALLS through the function arguments. `__arith__` is `arithFast(str(a, 0), a(1), a(2))`: pull
+  // the string out, two type matches, a string switch the JIT turns into a hash lookup, add. The
+  // "direct" prim does strictly more work. There is deliberately no `intPrim` here, and this
+  // comment is the record of why adding one back would be a repeat rather than an idea.
+  //
+  // HOW IT READ AS A WIN THE FIRST TIME, because that is the reusable part: the ceiling study that
+  // said 1.15× compared a variant changing the operators AND dropping the `(x == false)` negation
+  // from the loop condition. One variant, two changes, and I credited the wrong one. Split apart,
+  // the negation removal alone is 12 of 15, p 0.018, median 0.863 — THAT is the win, it is kept,
+  // and the operators cancel most of it.
+  private var invertCond: Boolean = true
+  private[ssc3] def useInvertCond(on: Boolean): Unit = invertCond = on
+
+  private def opText(o: BinOp, k: NumKind, a: String, b: String): String =
+    if isBitwise(o) then "(prim " + bitPrim(o) + " " + a + " " + b + ")"
+    else arith(binName(o), a, b)
 
   // ── control ─────────────────────────────────────────────────────────────────
   //
@@ -359,23 +410,41 @@ object BridgeV2:
     * the arm's value. Inside `(lam 1 …)` the argument is `local 0` and the enclosing frame has moved
     * to `local (sh+1)`; inside the `let` the clone is `local 0` and the arguments `local 1`, which is
     * why the body is translated at shift 0 — the frame it means IS the clone. */
+  /** The frame COPY an arm activation runs in, and where the `lam`'s own argument ends up behind it.
+    *
+    * ARRAY: one `arr.slice`, so the copy is `local 0` and the argument moves to `local 1`.
+    *
+    * CELLS: N fresh cells, each initialised from the corresponding outer one — and every single
+    * initialiser reads `local (sh + n)`. That is not a typo and it is the same sequential-`let`
+    * property `MkClos` documents: binding `i` runs with `i` binders already in scope, and binding
+    * `i` is register `r = n-1-i` whose outer cell sat at `local (r + sh + 1)`, so it has moved to
+    * `local (r + sh + 1 + i)` = `local (sh + n)` — constant, while naming a different cell each
+    * time. Afterwards the copy occupies `local 0 … local (n-1)` in register order and the argument
+    * has moved to `local n`. */
+  private def cloneFrame(cx: Ctx, sh: Int): (List[String], String) =
+    val n = cx.frameSize
+    if cellFrame then
+      (List.fill(n)("(prim cell.new (prim cell.get (local " + (sh + n) + ")))"), "(local " + n + ")")
+    else (List(cloneOf("(local " + (sh + 1) + ")")), "(local 1)")
+
   private def armClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
+    val (cl, argsAt) = cloneFrame(cx, sh)
     val binds =
-      arm.params.zipWithIndex.map((p, i) => aset("(local 0)", int(p), aget("(local 1)", int(i)))) ++
-        List(aset("(local 0)", int(arm.k), aget("(local 1)", int(arm.params.length))),
-             aset("(local 0)", int(cx.ctl), int(0)))
-    "(lam 1 (let (" + cloneOf("(local " + (sh + 1) + ")") + ") " +
-      sq(binds ++ List(seqOf(arm.body, cx, 0), aget("(local 0)", int(cx.retVal)))) + "))"
+      arm.params.zipWithIndex.map((p, i) => write(p, aget(argsAt, int(i)), 0)) ++
+        List(write(arm.k, aget(argsAt, int(arm.params.length)), 0), write(cx.ctl, int(0), 0))
+    "(lam 1 (let (" + cl.mkString(" ") + ") " +
+      sq(binds ++ List(seqOf(arm.body, cx, 0), read(cx.retVal, 0))) + "))"
 
   /** The `case x => …` clause, likewise a one-argument closure — but it takes the VALUE, not an
     * argument array, because that is how `Exec.applyRet` calls it. `retVal` is seeded with that value
     * so a clause body that falls off its end answers the value unchanged, which is the `case _ => v`
     * arm of `applyRet` written in the target. */
   private def retClos(cx: Ctx, arm: HandlerArm, sh: Int): String =
-    val pre = arm.params.headOption.toList.map(p => aset("(local 0)", int(p), "(local 1)")) ++
-      List(aset("(local 0)", int(cx.ctl), int(0)), aset("(local 0)", int(cx.retVal), "(local 1)"))
-    "(lam 1 (let (" + cloneOf("(local " + (sh + 1) + ")") + ") " +
-      sq(pre ++ List(seqOf(arm.body, cx, 0), aget("(local 0)", int(cx.retVal)))) + "))"
+    val (cl, valAt) = cloneFrame(cx, sh)
+    val pre = arm.params.headOption.toList.map(p => write(p, valAt, 0)) ++
+      List(write(cx.ctl, int(0), 0), write(cx.retVal, valAt, 0))
+    "(lam 1 (let (" + cl.mkString(" ") + ") " +
+      sq(pre ++ List(seqOf(arm.body, cx, 0), read(cx.retVal, 0))) + "))"
 
   /** THE SECOND ENCODING, and it is not a fallback — it is what the lowering emits whenever it
     * cannot split a performing function, most often because the `perform` is inside a `while`.
@@ -420,15 +489,17 @@ object BridgeV2:
         "tail-resumptive — its last act must be a single `resume`. This is the same shape v3's " +
         "own executor refuses, and for the same reason: capturing the continuation here needs a " +
         "reified stack neither lane has")
-    val fr = "(local " + (sh + 2) + ")"
+    // NO CLONE HERE, so this is written in terms of `read`/`write` and is the same text in both
+    // representations: inside `(lam 1 …)` the frame is one binder deeper, and inside the `let` that
+    // saves `ctl` it is two. The argument array is `local 1` there, and `local 0` is the saved `ctl`.
     val binds =
-      arm.params.zipWithIndex.map((p, i) => aset(fr, int(p), aget("(local 1)", int(i)))) ++
-        List(aset(fr, int(arm.k), lit("unit")), aset(fr, int(cx.ctl), int(0)))
+      arm.params.zipWithIndex.map((p, i) => write(p, aget("(local 1)", int(i)), sh + 2)) ++
+        List(write(arm.k, lit("unit"), sh + 2), write(cx.ctl, int(0), sh + 2))
     // Read the answer, put `ctl` back, hand the answer over — in that order, because restoring
     // first would overwrite `retVal`'s guard and reading after would read the restored frame.
-    val restore = "(let (" + aget(fr, int(cx.retVal)) + ") " +
-      sq(List(aset("(local " + (sh + 3) + ")", int(cx.ctl), "(local 1)"), "(local 0)")) + ")"
-    "(lam 1 (let (" + aget("(local " + (sh + 1) + ")", int(cx.ctl)) + ") " +
+    val restore = "(let (" + read(cx.retVal, sh + 2) + ") " +
+      sq(List(write(cx.ctl, "(local 1)", sh + 3), "(local 0)")) + ")"
+    "(lam 1 (let (" + read(cx.ctl, sh + 1) + ") " +
       sq(binds ++ List(seqOf(deResume(arm.body), cx, sh + 2), restore)) + "))"
 
   /** Which of the two encodings this arm is reached by — decided from the MODULE, because the arm
@@ -512,10 +583,7 @@ object BridgeV2:
   private def stmt(i: Instr, cx: Ctx, sh: Int): String = i match
     case Instr.Const(d, k)        => write(d, litOf(cx.m.consts(k)), sh)
     case Instr.Move(d, a)         => write(d, read(a, sh), sh)
-    case Instr.Bin(o, _, d, a, b) =>
-      if isBitwise(o) then
-        write(d, "(prim " + bitPrim(o) + " " + read(a, sh) + " " + read(b, sh) + ")", sh)
-      else write(d, arith(binName(o), read(a, sh), read(b, sh)), sh)
+    case Instr.Bin(o, k, d, a, b) => write(d, opText(o, k, read(a, sh), read(b, sh)), sh)
     case Instr.Un(UnOp.Neg, _, d, a) => write(d, arith("-", int(0), read(a, sh)), sh)
     // `not x` as `x == false`, built from operators already proven on this lane rather than from a
     // guessed `__arith__` spelling for `!`. A wrong operator name lowers to a runtime miss far from
@@ -710,7 +778,11 @@ object BridgeV2:
       // Inside the `let` the record is `local 0` and the frame has moved to `local (sh+1)`. The
       // record's closures were built in the binding expression, one env shallower — which is why
       // `armClos` is passed `sh` and looks for the frame at `sh+1` from inside its own `lam`.
-      val fr = "(local " + (sh + 1) + ")"
+      // THE FRAME IS ADDRESSED WITH `read`/`write`, NOT `aget`/`aset`, and this line is where that
+      // went wrong once: with the cell representation the frame is no longer an array, and
+      // `arr.get` on a cell dies inside v2 as `expected Array, got <foreign>`. The RECORD below is
+      // a genuine array and keeps `aget`. Only `handle-return` reaches here — it is the one fixture
+      // with a `case x => …` clause — which is why the effects gate caught it and nothing else did.
       // `__tryFinally__`, not a plain `seq`: the pop has to happen even when the body throws, or one
       // escaping exception leaves a dead handler on the stack and the NEXT perform answers to it.
       // `Exec` spells this `try … finally handlers = handlers.tail`.
@@ -722,10 +794,10 @@ object BridgeV2:
       val lift = ret match
         case None => lit("unit")
         case Some(_) =>
-          ifThen(arith("==", aget(fr, int(cx.ctl)), int(0)),
+          ifThen(arith("==", read(cx.ctl, sh + 1), int(0)),
                  ifThen(arith("==", aget(aget("(local 0)", int(R_PERFORMS)), int(0)), int(0)),
-                        aset(fr, int(d),
-                             "(app " + aget("(local 0)", int(R_RET)) + " " + aget(fr, int(d)) + ")"),
+                        write(d, "(app " + aget("(local 0)", int(R_RET)) + " " + read(d, sh + 1) + ")",
+                              sh + 1),
                         lit("unit")),
                  lit("unit"))
       "(let (" + rec + ") " + sq(List("(prim arr.push " + glob(effStack) + " (local 0))", run, lift)) + ")"
@@ -735,13 +807,26 @@ object BridgeV2:
       write(d, "(app " + glob(effPerform) + " " + int(op) + " " + mkarr(as.map(r => read(r, sh))) + ")", sh)
 
     // Resuming IS calling: after `Cps.split` the continuation is an ordinary closure, so this is an
-    // application with the return-clause rule wrapped round it. The `let` is what makes `before` a
-    // reading taken BEFORE the continuation runs; inside it the frame is one binder deeper.
+    // application with the return-clause rule wrapped round it.
+    //
+    // NO `let` HERE, AND THAT IS NOT A SIMPLIFICATION FOR ITS OWN SAKE. `before` has to be read
+    // BEFORE the continuation runs, and an argument list already gives that: `(app f a b)` evaluates
+    // `a` then `b`. The `let` that used to name it put the operand reads ONE BINDER DEEPER than the
+    // statement, and with the cell frame — where a register's address is `local (r + sh)` — a read
+    // of register k at `sh+1` is textually identical to a read of register k+1 at `sh`. The
+    // temporary fold matches on text, so it substituted into what it thought was its own register
+    // and was in fact the CONTINUATION: `multi-shot` died with `app: not a function: 1`. Keeping
+    // every operand at the statement's own shift removes the ambiguity at the source.
     case Instr.Resume(d, k, v) =>
-      write(d, "(let ((app " + glob(effPerforms) + ")) (app " + glob(effAfter) + " (local 0) (app " +
-              read(k, sh + 1) + " " + read(v, sh + 1) + ")))", sh)
+      write(d, "(app " + glob(effAfter) + " (app " + glob(effPerforms) + ") (app " +
+              read(k, sh) + " " + read(v, sh) + "))", sh)
 
-    case other => throw Unsupported(Text.opcode(other))
+    // EVERY `Instr` NOW HAS AN ARM, so this is unreachable — and the compiler said so, on every
+    // build, as `Unreachable case except for null`. A warning in a build is not free: this repo has
+    // had one land in a gate's captured stderr and read as a program producing different output.
+    // It is spelled `case null` rather than deleted because the match is over a Java-visible enum
+    // and a null reaching here should still be a named refusal, not a `MatchError`.
+    case null => throw Unsupported("a null instruction")
 
   /** `__cell` rather than the bare name: the cell is a DEF holding a mutable box, and a program may
     * also have a function of the same name. Colliding them would be silent. */
@@ -844,6 +929,26 @@ object BridgeV2:
     case Instr.Prim(_, _, as)      => as
     case _                         => Nil
 
+  /** Does this instruction emit its OWN operand reads at the statement's shift, or deeper?
+    *
+    * THE FOLD MATCHES ON TEXT, and the pattern it looks for is `read(d, sh)`. With the cell frame a
+    * register's address is `local (r + sh)`, which means register `r` at shift `sh+1` and register
+    * `r+1` at shift `sh` are THE SAME STRING. Any reader that binds something before reading its
+    * operands therefore offers the fold a target that looks right and is not — `multi-shot` died
+    * with `app: not a function: 1` when a `const` was folded over a `resume`'s continuation.
+    *
+    * `Resume` was fixed at the source by dropping its `let`. `MkClos` cannot be: `(let (c0 c1 …) …)`
+    * binds SEQUENTIALLY, so capture `i` is genuinely read at `sh + i` and that is what makes closure
+    * capture correct in the first place. So it is excluded, and the exclusion costs one folding
+    * opportunity per closure rather than a class of wrong answers.
+    *
+    * The array frame was immune and that is worth saying, because it is why this was invisible until
+    * the representation changed: there the text carries the register index literally,
+    * `(prim arr.get (local sh) (lit (int r)))`, so shift and register cannot be confused. */
+  private def readsAtOwnShift(i: Instr): Boolean = i match
+    case _: Instr.MkClos => false
+    case _               => true
+
   private def occurrences(hay: String, needle: String): Int =
     var n = 0
     var i = hay.indexOf(needle)
@@ -858,9 +963,17 @@ object BridgeV2:
       if ds.length == 1 then
         val d = ds.head
         if d >= cx.f.nparams && d < cx.f.nregs && writes(d) == 1 && reads(d) == 1 &&
-           readsOf(arr(p + 1)).count(_ == d) == 1
+           readsOf(arr(p + 1)).count(_ == d) == 1 && readsAtOwnShift(arr(p + 1))
         then
-          val pfx = "(prim arr.set " + frameAt(sh) + " " + int(d) + " "
+          // THE PREFIX IS ASKED OF `write`, NOT SPELLED AGAIN HERE. It used to read
+          // `"(prim arr.set " + frameAt(sh) + …`, and when the frame became cells that string
+          // stopped matching anything — so the fold silently stopped firing in the representation
+          // it was written for, with no test able to notice: `ifloop` emitted 765 bytes with the
+          // fold on and 765 with it off. Identical output across an on/off pair is what a dead
+          // optimisation looks like, and it reads as "this buys nothing" rather than "this did not
+          // run". `write(d, "", sh)` is `<prefix>)`, so dropping the last character IS the prefix,
+          // and it can never drift from what `write` emits because it is what `write` emits.
+          val pfx = write(d, "", sh).dropRight(1)
           val t = texts(p)
           if t != null && t.startsWith(pfx) && t.endsWith(")") then
             val pat = read(d, sh)
@@ -879,10 +992,36 @@ object BridgeV2:
     * it nothing, so it can never be mistaken for a definition. No guards: `pre` is known not to
     * divert, which is what let this shape be structured at all. */
   private def condOf(pre: List[Instr], c: Int, cx: Ctx, sh: Int): String =
-    val arr = (pre :+ Instr.Ret(c)).toArray
-    val texts = (pre.map(i => stmt(i, cx, sh)) :+ arith("==", read(c, sh), lit("false"))).toArray
-    if foldTemps then fold(arr, texts, cx, sh)
-    sq(texts.filter(_ != null).toList)
+    // `brif c 1` exits when `c` holds, so the loop runs while it does NOT — and when the thing that
+    // computed `c` is a comparison, the negation is free, because a comparison has an inverse.
+    //
+    // `Optimize.invertible` is consulted rather than re-stated: on floats a NaN compares false BOTH
+    // ways, so `!(a >= b)` is not `a < b` there, and that rule must have one definition. It is the
+    // same predicate `Optimize.invert` used to turn `lt` + `not` into `ge` in the first place, so
+    // this is undoing a rewrite under exactly the condition that permitted it.
+    val (reads, writes) = cx.census
+    val inverted = pre.lastOption match
+      case Some(Instr.Bin(o, k, d, a, b))
+          if d == c && d >= cx.f.nparams && d < cx.f.nregs &&
+             writes(d) == 1 && reads(d) == 1 && invertCond && Optimize.invertible(o, k) =>
+        Some((pre.init, opText(Optimize.inverseOf(o), k, read(a, sh), read(b, sh)), a, b))
+      case _ => None
+    inverted match
+      case Some((head, cmp, a, b)) =>
+        // The comparison IS the condition now — the instruction that produced `c` is GONE rather
+        // than folded. Its operands still want the fold, so the virtual reader reads both of them.
+        val arr = (head :+ Instr.TailCall(0, List(a, b))).toArray
+        val texts = (head.map(i => stmt(i, cx, sh)) :+ cmp).toArray
+        if foldTemps then fold(arr, texts, cx, sh)
+        sq(texts.filter(_ != null).toList)
+      case None =>
+        // The general form: compute `c`, then compare it against `false`. The trailing `Instr.Ret(c)`
+        // is a VIRTUAL READER, never emitted — it exists so `fold` can see that the comparison reads
+        // `c` and fold the statement computing it into the comparison.
+        val arr = (pre :+ Instr.Ret(c)).toArray
+        val texts = (pre.map(i => stmt(i, cx, sh)) :+ arith("==", read(c, sh), lit("false"))).toArray
+        if foldTemps then fold(arr, texts, cx, sh)
+        sq(texts.filter(_ != null).toList)
 
   /** Statements in one region. Everything after an instruction that may divert is wrapped in a
     * guard; everything before it is not, so straight-line code pays nothing. */
@@ -903,20 +1042,42 @@ object BridgeV2:
       p += 1
     sq(out.reverse)
 
+  /** The frame's bindings, innermost-last, for whichever representation is on.
+    *
+    * CELLS: one binding per register, in REVERSE register order so that register `r` ends up at
+    * `local r`. A parameter goes straight into its cell rather than being copied in by a prologue —
+    * and the address it sits at is arithmetic worth doing once here rather than trusting twice.
+    * Binding `r` is at index `i = N-1-r`, so `i` binders are already in scope when its initialiser
+    * runs; parameter `r` starts at `local (P-1-r)` in the `lam` body, so it is at `local (P-1-r+i)`
+    * = `local (P+N-2-2r)`. Registers at or above `nparams` start at 0, which is what `Array.fill`
+    * gave them before. */
+  private def frameBinds(cx: Ctx, f: Func): List[String] =
+    val n = cx.frameSize
+    if cellFrame then
+      (0 until n).toList.reverse.map { r =>
+        val init = if r < f.nparams then "(local " + (f.nparams + n - 2 - 2 * r) + ")" else int(0)
+        "(prim cell.new " + init + ")"
+      }
+    else
+      // `Array.fill(n)(0)` — the frame. This is why SSC3-1 was on the critical path rather than
+      // beside it: V-0 stands on a working mutable array, and `new Array[T](n)` was building one slot.
+      List("(prim __method__ " + lit("(str \"fill\")") + " (ctor Array) " + int(n) + " " + int(0) + ")")
+
   private def func(m: Module, f: Func): String =
     val cx = Ctx(m, f)
-    // `Array.fill(n)(0)` — the frame. This is why SSC3-1 was on the critical path rather than
-    // beside it: V-0 stands on a working mutable array, and `new Array[T](n)` was building one slot.
-    val alloc =
-      "(prim __method__ " + lit("(str \"fill\")") + " (ctor Array) " + int(cx.frameSize) + " " + int(0) + ")"
     // Parameters arrive as lam binders, innermost LAST: inside `(lam P …)` param i is `local (P-1-i)`,
     // and the frame's `let` shifts every one of them by one. Measured against the oracle, not
     // reasoned about: `(lam 2 …)` puts the FIRST parameter at `local 1`.
+    //
+    // With cells there is no prologue at all — the parameters ARE the initialisers, and `ctl` starts
+    // at 0 because every non-parameter cell does.
     val prologue =
-      (0 until f.nparams).toList.map(i => write(i, "(local " + (f.nparams - i) + ")", 0)) :+
-        write(cx.ctl, int(0), 0)
+      if cellFrame then Nil
+      else (0 until f.nparams).toList.map(i => write(i, "(local " + (f.nparams - i) + ")", 0)) :+
+             write(cx.ctl, int(0), 0)
     val whole = sq(prologue :+ seqOf(f.body, cx, 0) :+ read(cx.retVal, 0))
-    "(def " + f.name + " (lam " + f.nparams + " (let (" + alloc + ") " + whole + ")))"
+    "(def " + f.name + " (lam " + f.nparams + " (let (" + frameBinds(cx, f).mkString(" ") + ") " +
+      whole + ")))"
 
   /** The Core IR program text v2's Reader accepts. Verify BEFORE calling this — translating an
     * unverified module would hand v2 something no one has checked (invariant I-4). */

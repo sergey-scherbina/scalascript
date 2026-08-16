@@ -109,10 +109,10 @@ for f in v3/tests/front/*.ssc; do
   # as far as any gate is concerned: `--no-structured-loops` restores the CTL-flag form of every
   # loop, nothing else runs it, and a fallback nobody exercises is a fallback that has stopped
   # working. Both arms must print the same bytes as the executor.
-  vioff="$(v3/ssc3 run --bridge "$f" --no-structured-loops --no-fold-temps 2>/dev/null)"
+  vioff="$(v3/ssc3 run --bridge "$f" --no-structured-loops --no-fold-temps --no-invert-cond --no-cell-frame 2>/dev/null)"
   want="$(cat "$exp")"
   if [ "$own" != "$vioff" ] && [ "$own" = "$via" ]; then
-    echo "  FAIL $name — the bridge's OFF arm disagrees: executor [$(printf '%s' "$own" | tr '\n' '/')] --no-structured-loops --no-fold-temps [$(printf '%s' "$vioff" | tr '\n' '/')]"
+    echo "  FAIL $name — the bridge's OFF arm disagrees: executor [$(printf '%s' "$own" | tr '\n' '/')] all rewrites off [$(printf '%s' "$vioff" | tr '\n' '/')]"
     fail=1
   fi
   if [ "$own" = "$via" ] && [ "$own" = "$want" ]; then

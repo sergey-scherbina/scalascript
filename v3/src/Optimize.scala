@@ -97,7 +97,14 @@ object Optimize:
       all = all.tail
     (reads, writes)
 
-  private def inverseOf(op: BinOp): BinOp = op match
+  /** `private[ssc3]`, not `private`, and the reason is a rule that must have ONE definition.
+    *
+    * `BridgeV2` needs the same pair: the structured `while` it emits negates the loop condition, and
+    * negating a comparison by inverting it is ILLEGAL on floats — a NaN compares false both ways, so
+    * `!(a >= b)` is not `a < b` there. That is the whole content of `invertible`, and a second copy
+    * of it in the emitter would be a copy of a rule that is wrong in a way no fixture notices.
+    * Nothing else about these two functions is shared; only the rule is. */
+  private[ssc3] def inverseOf(op: BinOp): BinOp = op match
     case BinOp.Lt => BinOp.Ge
     case BinOp.Le => BinOp.Gt
     case BinOp.Gt => BinOp.Le
@@ -107,7 +114,7 @@ object Optimize:
     case other    => other
 
   /** `Eq`/`Ne` invert on any kind; the ordering four need a kind with no NaN in it. */
-  private def invertible(op: BinOp, kind: NumKind): Boolean = op match
+  private[ssc3] def invertible(op: BinOp, kind: NumKind): Boolean = op match
     case BinOp.Eq | BinOp.Ne => true
     case BinOp.Lt | BinOp.Le | BinOp.Gt | BinOp.Ge =>
       kind == NumKind.I64 || kind == NumKind.Big

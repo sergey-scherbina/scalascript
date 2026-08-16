@@ -180,11 +180,91 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       reads `List(List(11, 21, 12, 22))`, lifted one level too many. `multi-shot` does NOT move under
       the first plant, so the fixture that catches re-entrancy is specifically the two-performs one.
 
-- [ ] **SSC3-3c-rest — `V-1` proper: raise registers to `Let` bindings.** Each assignment becomes a fresh
-      de Bruijn binding, with joins at the ends of `If`/`Loop` bodies expressed as lambda
-      parameters. Strictly a performance follow-up to `V-0`, and only where a measurement says it
-      pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
-      one is not.
+- [~] **SSC3-3c-rest — `V-1` proper: get the register file out of a mutable array.** The entry used
+      to read "each assignment becomes a fresh de Bruijn binding, with joins at the ends of
+      `If`/`Loop` bodies expressed as lambda parameters", and it said the work should happen **only
+      where a measurement says it pays**. The measurement was taken first, and it moved the plan.
+
+      *THE CEILING, measured before any compiler code was written.* Five hand-written v2 Core IR
+      programs computing the SAME 3,000,000-iteration loop, differing only in how `i`, `sum`, `n`
+      and `step` are stored and which operators are used, rotated over 10 rounds so no arm always
+      runs first, compared PAIRED within each round:
+
+      | variant | median ms | vs A, paired |
+      |---|---|---|
+      | **A** array frame + `__arith__` — what the bridge emits today | 515 | — |
+      | **B** cells + `__arith__` | 410 | 10/10, 0.784 = **1.27×** |
+      | **C** cells, invariants as immutable locals, + `__arith__` | 378 | 9/10, 0.726 = 1.38× |
+      | **D** cells + locals + direct `i.*` prims | 298 | 10/10, 0.576 = **1.74×** |
+      | **E** array frame unchanged + direct `i.*` prims | 426 | 10/10, 0.873 = **1.15×** |
+
+      **TWO FINDINGS, AND BOTH CHANGE THE ENTRY.**
+
+      1. *There are no joins to express.* The entry proposed SSA with joins at region ends. A CELL is
+         mutable, so an `If` arm writes it and the code after reads it — the join problem does not
+         arise. Variant B is the whole frame win (1.27×) with no dominance analysis, no join
+         lambdas, and no SSA. The extra step the entry described — write-once registers as immutable
+         `let` bindings — is C over B, and it is worth **1.10× for all of that machinery.**
+      2. ⚠️ *The second finding was WRONG, and the correction is the more useful half.* Variant E
+         above reads as "direct `i.*` prims are worth 1.15×". **It is not measuring the operators.**
+         E changes two things against A — the operators AND dropping the `(x == false)` negation
+         from the loop condition — and I credited the wrong one. Split apart with a twin (**F**:
+         array frame, inverted condition, operators still on `__arith__`), 15 rotated rounds:
+
+         | isolated change | result |
+         |---|---|
+         | **the operators alone** (E vs F) | 5 of 15, p 0.94, median **1.054 — SLOWER** |
+         | **the negation removal alone** (F vs A) | 12 of 15, p 0.018, median **0.863 = 1.16×** |
+         | both, as E measured them (E vs A) | 10 of 15, p 0.15, median 0.962 |
+
+         The bridge end-to-end agreed once it was given enough pairs: direct prims alone were
+         **10 of 30, p 0.98, median 1.067** — the wrong direction, with a well-behaved control. And
+         v2's source says why: `i.add` is `liftArith("+", a, numBin(a, _+_, _+_))` — two `Op`
+         type-tests, three float-pair tests, two `asInt` matches and TWO CLOSURE CALLS — while
+         `__arith__` is `arithFast`, which pulls the string out, matches two types, and hits a
+         string switch the JIT compiles to a hash lookup. **The "direct" prim does strictly more
+         work.** So the direct prims were removed and the negation removal kept.
+
+      *So the order is cells first, the comparison inversion beside them, and the immutable-locals
+      refinement DEFERRED on its own measurement* — 1.10× does not buy a dominance analysis.
+
+      - [x] **stage 1 — drop the `(x == false)` negation by inverting the comparison.** `brif c 1`
+            exits when `c` holds, so the structured `while` runs while it does not, and a comparison
+            has an inverse — one `__arith__` per iteration instead of two. `--no-invert-cond` is the
+            OFF arm. `Optimize.invertible` is `private[ssc3]` now rather than copied: on floats a NaN
+            compares false both ways, and that rule must have ONE definition.
+            *WHAT WAS BUILT AND THEN REMOVED, on measurement:* direct `i.*` prims guarded by the
+            specializer's `I64`. Written, gated, reach-censused at **27.0%** of arithmetic sites
+            (182 of 673, in 47 of 109 programs), guard proven load-bearing by removing it (string
+            `+` dies — `concat` prints `4/6` where the answer is `4/6/abcd`) — and then measured to
+            be **SLOWER** on two independent instruments and deleted. The census and the guard were
+            not wasted: they are what made the negative result trustworthy rather than a shrug. See
+            the ⚠️ above for why the ceiling study said otherwise.
+      - [x] **stage 2 — the frame is one cell per register,** bound by a single `let` at function
+            entry. Binding them in REVERSE register order lands register `r` at `local r`, so the
+            whole representation change fits inside `read`/`write` and no frame size is threaded
+            through forty call sites. A parameter goes straight into its cell — no prologue — at
+            `local (P+N-2-2r)`, which an off-by-one plant showed is load-bearing (27 differential
+            failures). Effect-handler arms clone by building N fresh cells, every initialiser reading
+            `local (sh+n)`: constant, and naming a different cell each time, because a `let` binds
+            sequentially.
+            *TWO DEFECTS THE GATES FOUND, and which gate found which is the point.*
+            (a) The `Handle` return-clause lift still addressed the frame as an array. Only
+            `handle-return` reaches it, so the EFFECTS gate caught what 87 exec-gate fixtures could
+            not.
+            (b) **The cell address `local (r + sh)` conflates the register with the shift**, and the
+            temporary fold matches on TEXT — so a read of register `k` at `sh+1` is the same string
+            as a read of register `k+1` at `sh`, and a `const` was folded over a `resume`'s
+            CONTINUATION (`app: not a function: 1`). The array form was immune because it carries the
+            register index literally. Fixed at the source for `Resume` — its `let` was never needed,
+            an argument list already sequences the reads — and `MkClos` is excluded by name, since
+            its `sh + i` shift is exactly what makes closure capture correct.
+            *And the fold had SILENTLY STOPPED FIRING in the new representation* because it
+            hand-spelled the array prefix: `ifloop` emitted 765 bytes with the fold on and 765 with
+            it off. The prefix is asked of `write` now and cannot drift from it again.
+      - [ ] **deferred — write-once registers as immutable `let` bindings.** 1.10× measured against
+            cells; needs dominance analysis and would reintroduce the join question stage 2 removed.
+            Re-measure before starting: stage 2 changed its baseline.
 
 - [x] **SSC3-3d — a clock prim, so v3 can be timed by the same harness as everything else.**
       DONE 2026-08-09. `nanoTime()` in the language, `io.nanoTime` as the prim — **v2's own name for
