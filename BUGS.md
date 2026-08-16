@@ -5151,43 +5151,53 @@ same as "it does not happen" — the entry was written the same day, and the dif
 state I no longer have.
 
 
-## v3-no-handler-error-has-no-position, and no NAME either — the IR carries neither
+## v3-no-handler-error-has-no-position, and no NAME either — the IR carries neither, so the refusal moved
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 6f28bc820
      lane: v3
      area: runtime
      kind: bug
      gate: v3/effects-gate.sh -->
 
-`v3/tests/effects/perform-no-handler.ssc` fails with
+**FIXED by moving the refusal to LOWERING, which is the cheaper of the two shapes this entry
+proposed.** The measurement that filed it still holds — `Instr` has no position field, `Module` is
+`(consts, types, globals, prims, funcs, entry)` with no operation-name table — so the executor
+genuinely could not print either thing. What it could not know at run time, the lowering still has:
 
-    ssc3: v3/tests/effects/perform-no-handler.ssc: no handler for effect operation 0
+    before  ssc3: v3/tests/effects/perform-no-handler.ssc: no handler for effect operation 0
+    after   ssc3: v3/tests/effects/perform-no-handler.ssc:4:23: no handler for the effect
+            operation 'Bump.tick' — nothing in this program handles it
 
-**Two things are wrong with that line and the second is worse.** There is no `line:col`, so
-`corpus-report.sh` classifies it as a CRASH rather than an honest refusal — that rule is what
-separates "the reader can act on this" from "the reader cannot". And the operation is named by its
-INDEX: `0` is what the lowering assigned, and nothing in the program is called that.
+**WHY IT IS SOUND, stated because a refusal that fires too early is worse than a bad message.**
+`handle` is the only construct that installs a handler; the module at that point is the MERGED
+import closure; and `resolveHandles` has already run. So "no arm anywhere names this op" is a fact
+about the whole program, not about the current call path. **A handler that exists but is not on the
+path stays a run-time error, correctly** — this check never sees it, which is exactly the boundary
+the entry drew.
 
-**MEASURED 2026-08-09, and the measurement says this cannot be fixed in the executor.** `Instr` has
-no position field and neither does `Func`; `Module` is
-`(consts, types, globals, prims, funcs, entry)` — `prims` is the primitive table, and there is no
-effect-operation table at all. So the executor has nothing to print: not a position, not a name.
+It rides inside the `try` that attaches `p.origin`, because the passes there run before the body
+lowering that sets it and a message without an origin names the file the USER typed rather than the
+file the `perform` is in — P-2 of `v3/PRELUDE-CORRECTNESS.md`.
 
-**Two shapes it could take, both outside `Exec.scala`:**
+**`KNOWN_UNPOSITIONED` IN THE GATE IS NOW EMPTY, in the same commit.** A fixture belongs there only
+while its refusal genuinely cannot carry a position; that stopped being true the moment the failure
+moved out of the executor, and leaving the declaration behind would have made the gate green about a
+rule it no longer tests.
 
-  * an operation-NAME table in `Module`, which is a format change — `Ir.scala`, `Lower.scala`,
-    `BridgeV2`, and the text codec all have to agree, and the codec has a checked-in golden;
-  * a LOWERING-time refusal, which is the cheaper one and covers this fixture exactly: a `Perform`
-    of an operation that NO `handle` in the merged module handles can never find one at run time,
-    so it can be refused where positions still exist. It does NOT cover a handler installed by a
-    caller that simply is not on the path — that stays a run-time error, correctly.
+**CONTROL, in the same tree rather than against an older measurement:** with the refusal removed and
+`corpus-report.sh` re-run, the corpus is identical cell by cell — PASS 233, DIFF 4, UNSUPPORTED 129,
+CRASH 1, same crash set. So nothing that used to run is refused, and the corpus cannot see this
+defect in either direction; the fixture that motivated it lives in `v3/tests/effects`. (N had moved
+229 → 233 since my previous measurement two hours earlier, and the control is what says that belongs
+to other people's commits and not to this one.)
 
-The gate declares this fixture in `KNOWN_UNPOSITIONED` rather than weakening its rule for
-everything else; the line comes out when either shape lands.
+**Gates:** effects-gate OK, 13 fixtures on both lanes, with `perform-no-handler` now listed as
+"refused on both"; front-gate GREEN 91, exec-gate GREEN 87, parity GREEN 65.
 
-**Filed late, and that is its own small lesson**: `effects-gate.sh` cited this slug the day it was
-written and the entry did not exist. A dangling reference in a gate reads as "someone looked at
-this" when nobody had.
+**The other shape stays unbuilt and is still the better message for the on-the-path case:** an
+operation-name table in `Module`, which `Ir.scala`, `Lower.scala`, `BridgeV2` and the text codec
+must agree on, with a checked-in golden to update.
 
 ## selfhost-front-given-with-swallows-the-rest-of-the-file — an anonymous `given … with` ate the statement after its body
 
