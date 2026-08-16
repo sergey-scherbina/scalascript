@@ -1,4 +1,4 @@
-# generation: 2420
+# generation: 2421
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v1-typer-gaps	claude-code	2026-08-15T22:34:24Z	v1-typer-has-14-corpus-visible-gaps-hidden-by-the-println-escape	file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:v1/lang/core/src/main/scala/scalascript/typer/Types.scala file:tests/BUGS.md file:tests/e2e/declared-type-is-a-constraint.sh file:tests/e2e/v1-check-sees-what-it-runs.sh file:.github/workflows/ci.yml file:tests/SPRINT.md
