@@ -473,6 +473,13 @@ val suite = List(
   // guessing when the argument type is genuinely unknowable. Two rows are F-only — the reference
   // front loses the bound across a call and answers from the given table.
   Check("v2", "f-context-bounds", "tests/e2e/f-context-bounds-gate.sh", List(), 400000),
+  // The F front is lowered ONCE and cached, not once per invocation — measured, that took a run from
+  // ~7.6s to ~3.3s, and `f-output-agreement-gate` pays it 639 times. The rows that matter are not the
+  // timing: `invalidates-on-front-change` fails if the cache key stops covering the front's content,
+  // which is the failure whose symptom in the wild is "my fix did nothing" rather than any error, and
+  // `no-textual-reader` fails if the artifact is ever read with `#coreir.decode` — that would
+  // class-load ssc.Reader and take `v21-native-plugin-boundary` down with it.
+  Check("v2", "f-front-cache", "tests/e2e/f-front-cache-gate.sh", List(), 600000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`

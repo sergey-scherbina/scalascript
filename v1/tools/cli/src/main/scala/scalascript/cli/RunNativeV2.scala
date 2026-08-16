@@ -198,8 +198,11 @@ object RunNativeV2:
       // checks below surface the correct message. Runtime-only F gaps (e.g. tagless-multi-file's arity
       // error) pass this pre-check and are a DOCUMENTED known-gap (see specs/v2.2-p6.5-dualrun.expected):
       // a static pre-check on untyped IR can't see them, and a run-time rerun would duplicate side effects.
+      // The cached front travels with `fsub`, never without it: the delegate-fallback call below runs
+      // the DEFAULT runner with no F at all, and handing it an F artifact would be meaningless.
       def lowerWith(runner: java.io.File, fsub: Option[java.io.File]): NativeStructuralFrontend =
-        lowerNative(runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, fsub)
+        lowerNative(runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag,
+          fsub, if fsub.isDefined then layout.fsubIr else None)
       // Walked once for both call sites below: the check is per-program but the closure is the same.
       val closureExterns = declaredExterns(canonicalFiles, layout.stdRoot)
       val structural = layout.fsubSrc match
@@ -400,10 +403,12 @@ object RunNativeV2:
       sourceFiles: List[String],
       canonicalFiles: List[java.io.File],
       mutableFlag: List[String],
-      fsubSrc: Option[java.io.File]): NativeStructuralFrontend =
+      fsubSrc: Option[java.io.File],
+      fsubIr: Option[java.io.File]): NativeStructuralFrontend =
     // SSC_FRONT=F: point the F runner at F's staged source; harmless flag order (the runner's arg
     // parser accepts flags in any order before the file paths). Absent in the default lane.
-    val fsubFlag = fsubSrc.toList.flatMap(f => List("--fsub-src", portablePath(f.getCanonicalFile)))
+    val fsubFlag = fsubSrc.toList.flatMap(f => List("--fsub-src", portablePath(f.getCanonicalFile))) ++
+      fsubIr.toList.flatMap(f => List("--fsub-ir", portablePath(f.getAbsoluteFile)))
     val result = runTower(
       runner,
       mutableFlag ++ fsubFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) ::
@@ -879,6 +884,9 @@ object RunNativeV2:
       stdRoot: java.io.File,
       installRoot: java.io.File,
       fsubSrc: Option[java.io.File],
+      // Where the PRE-LOWERED front is cached. The runner writes it on a miss and reads it on a hit;
+      // this side only decides the path, and the path is content-addressed (see fsubIrCache).
+      fsubIr: Option[java.io.File],
       // The default runner (ssc1-front + ssc1-lower) — the delegate-fallback target when F cannot fully
       // lower a program. Equals `runner` in the default lane; the ssc1-run.ssc0 path in F-mode.
       defaultRunner: java.io.File)
@@ -912,6 +920,7 @@ object RunNativeV2:
     val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
     val stdRoot = new java.io.File(base, "runtime")
     val fsubSrc = if useF then Some(new java.io.File(base, "tower/bin/fsub.ssc")) else None
+    val fsubIr = fsubSrc.flatMap(f => fsubIrCache(f, runner, new java.io.File(base, "tower/lib/ssc1-lower.ssc0")))
     if !runner.isFile || !defaultRunner.isFile || !checker.isFile || !stdRoot.isDirectory then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
@@ -919,7 +928,39 @@ object RunNativeV2:
       if !f.isFile then throw new IllegalStateException(
         s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")
     }
-    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc, defaultRunner)
+    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc, fsubIr, defaultRunner)
+
+  /** Where the pre-lowered front lives, keyed on the CONTENT of everything that determines it.
+   *
+   *  The key covers three files, not one. `fsub.ssc` is the obvious input; `ssc1-lower.ssc0` is what
+   *  LOWERS it, so a change there changes the artifact while `fsub.ssc` is untouched; and the runner
+   *  itself decides how the artifact is built and applied. Keying on `fsub.ssc` alone would serve a
+   *  front lowered by a compiler that no longer exists — and a stale front cache is the one failure
+   *  mode no output gate can see, because the front still "works", it is just the OLD one.
+   *
+   *  Returns None when no cache directory can be established, and None means the runner falls back to
+   *  lowering the front per run: slower, never different. `SSC_FRONT_CACHE=off` disables it outright,
+   *  which is what a bisect or a suspicious measurement should reach for. */
+  private def fsubIrCache(
+      fsubSrc: java.io.File,
+      runner: java.io.File,
+      lowerer: java.io.File): Option[java.io.File] =
+    if sys.env.get("SSC_FRONT_CACHE").exists(_.equalsIgnoreCase("off")) then None
+    else
+      try
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        List(fsubSrc, runner, lowerer)
+          .filter(_.isFile)
+          .foreach(f => digest.update(java.nio.file.Files.readAllBytes(f.toPath)))
+        val key = digest.digest().take(10).map(b => f"$b%02x").mkString
+        val dir = sys.env.get("SSC_CACHE_DIR").filter(_.nonEmpty).map(new java.io.File(_)).getOrElse {
+          new java.io.File(new java.io.File(System.getProperty("user.home"), ".cache"), "ssc")
+        }
+        val frontDir = new java.io.File(dir, "front")
+        frontDir.mkdirs()
+        if frontDir.isDirectory && frontDir.canWrite then Some(new java.io.File(frontDir, s"fsub-$key.ir"))
+        else None
+      catch case _: Throwable => None
 
   /** The self-hosted resolver uses `/` as its target-independent separator;
    *  `java.nio.file.Path` accepts that spelling on Windows as well. */
