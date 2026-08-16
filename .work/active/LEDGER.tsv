@@ -1,7 +1,8 @@
-# generation: 2470
+# generation: 2471
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 map-updated-shape-interleave	claude-code	2026-08-16T03:47:51Z	map-updated-shape-reads-host-load-as-a-regression	tests/e2e/v2-map-updated-shape-gate.sh v2/BUGS.md
 v3-stale-r1-and-build-warnings	claude-code	2026-08-16T04:03:34Z	R1	v3/SPRINT.md v3/src/Ast.scala
 rust-bigint	claude-code	2026-08-16T04:45:21Z	rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist	file:v2/backend/rust/RustBackend.scala file:v2/backend/check.sh file:tests/e2e/rust-bigint-gate.sh file:.github/workflows/ci.yml file:v2/BUGS.md
 prepush-conformance-freeze	claude-code	2026-08-16T05:06:25Z	freeze-consistency-not-checked-before-push	.githooks/pre-push tests/BUGS.md
+mcp-v2-descriptor-and-elicit	claude-code	2026-08-16T10:30:05Z	std-mcp-server-descriptor-says-not-available-on-interpreter mcp-elicit-on-v2	file:std/mcp/server.ssc file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md
