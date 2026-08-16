@@ -5411,102 +5411,60 @@ asserted there against the v1 oracle's own message. Both, because the entry meas
 that pins one leaves the other free to diverge. The anti-case is already the gate's design: a
 program v1 accepts must still run on F.
 
-## v3-trait-extension-member-refused — an `extension` inside a trait is called "not a `def`", and seven std modules stop
+## v3-trait-extension-member-refused — an `extension` inside a trait was called "not a `def`"; seven std modules are down to zero
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: b8379d21f
      lane: multi
      area: front
      kind: bug
-     gate: v3/front-gate.sh
-     fixed-in: - -->
+     gate: v3/front-capability-gate.sh (v3/tests/front-capability/externqual.ssc) -->
 
-**Measured 2026-08-12.** `std/functor-applicative-monad.ssc:38` is refused on both fronts with
-`a 'trait' member that is not a 'def'`. The member is
+**THE ENTRY WAS STALE, AND ITS OWN CENSUS IS WHAT SAYS SO.** Re-run 2026-08-16 — the seven modules
+it named, both fronts, one import apiece:
 
-    trait Functor[F[_]]:
-      extension [A](fa: F[A]) def map[B](f: A => B): F[B]
+    bifunctor  foldable-traversable  functor-applicative-monad  index  monaderror  selective
+      -> all six build on BOTH fronts
+    streams-bridge
+      -> still failed, for a DIFFERENT reason on each front
 
-which is a `def` — wrapped in an `extension`, the ordinary way a typeclass gives its operations a
-receiver.
+`tagless-multi-file`, the G2 acceptance row this entry said "cannot run for this reason and this
+reason only", runs and prints its two lines. The `extension`-inside-a-trait refusal is gone; the
+extensions work landed in `10024d732` / `57c8164fe` and this entry was not re-measured against it.
+A `not fixable` or `blocked` verdict is dated evidence — this one aged out in four days.
 
-**Seven standard-library modules are blocked**, measured by running each: `bifunctor`,
-`foldable-traversable`, `functor-applicative-monad`, `index`, `monaderror`, `selective`,
-`streams-bridge`. Downstream, `tagless-multi-file` — one of G2's five acceptance rows — cannot run
-for this reason and this reason only.
+**WHAT WAS LEFT WAS A DIFFERENT DEFECT WEARING THE SAME NUMBER, and it is fixed here.**
+`std/streams-bridge.ssc:46` declares
 
-**The refusal is right about the thing it was written for and wrong about this one.** It was added
-so a trait carrying ABSTRACT STATE (`val id: String`) is refused by name instead of silently
-dropped, which follows `20-core-language.md`: v3's traits carry methods, not state. An `extension`
-member carries methods too. The predicate tests the WRAPPER and concludes about the content.
+    extern def Source[A].distributed(partitions: Int = 1): DStream[A]
 
-**Two sites, both fronts** — `v3/uniml/UniFront.scala:237` and `v3/src/Parser.scala:1539`. Fixing
-one would make the default lane accept what the other refuses, which is the failure the 15b work
-itself called out when it added them.
+and v3's own parser died on it with `expected an expression, found .` while UniML read it — so the
+module parsed on the default front and not on v3's, which is invariant I-3 again. Isolated by
+probe: BOTH `extern def Source.plain(…)` and `extern def Source[A].typed(…)` were refused, so the
+gap was the QUALIFIED NAME and not the type parameters.
 
-**The shape of the fix already exists in the same file.** `U.Extension(recv, ds, s)` at
-`UniFront.scala:326` lifts a top-level extension into ordinary `Def`s with the receiver prepended as
-the first parameter; a trait member wants the same projection.
+**Scope decided by counting, not by caution:** of every qualified `def` name in `std/` and the
+conformance corpus, ZERO appear without `extern` and SIX appear with it (`Bench.opaque`,
+`Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `Source[A].remote`,
+`DStream[A].remote`). So the dot is accepted only on the extern path; an ordinary `def` still
+refuses it.
 
-**ATTEMPTED 2026-08-12 AND NOT LANDED — three things measured, all of them useful.**
+**GATED WHERE THE DEFECT LIVES, which is not `front-gate.sh`** — that runs the DEFAULT front, so a
+fixture there would have been green without the fix and would have measured nothing. The probe went
+into `v3/tests/front-capability/`, the directory built for the two-front axis, and the control is
+decisive: with the parser change reverted the gate FAILS `externqual NEW divergence — accepted only
+by uniml`.
 
-**THERE IS A THIRD SITE.** `v3/src/Parser.scala:1520`, inside `parseMembers`, with its own wording:
-`only \`def\` members are supported in a … at Tier 0, found extension` — a refusal arguing with
-itself, since an extension IS defs. It had been visible all day as nine rows in the corpus
-histogram and read as "the front cannot do extensions" rather than "the front refuses what it can
-do". So the count is three, not the two named above.
+Before reaching for a bigger change — widening that gate over all the front fixtures — the cost was
+measured: of the 89 fixtures that are not `.uniml-only`, ZERO diverge today. The hole was in what is
+COMPARED, and one probe in the right directory closes it for this construct.
 
-**THE FIX MUST NOT GO IN `parseMembers`.** That helper serves a trait, an object and other carriers
-and knows which only as a string in its error message, so teaching it `extension` changes behaviour
-for callers this entry never measured. It belongs in `parseTrait`, where the carrier is known. This
-is the opposite of the rule that applied to `isAssignHead` earlier the same day — there, every one
-of seven call sites asked the SAME question and the shared point was right; here they ask different
-ones. The two cases look identical and are not.
+**`streams-bridge` still does not run, and that is now the same honest answer on both fronts:**
+`the host function 'remoteSourceLocal' is not implemented on this lane`, positioned. A host gap is
+not a front defect.
 
-**BOTH FRONTS MUST LAND TOGETHER, proven rather than assumed.** With the UniFront projection alone
-and v3's own parser still refusing, `front-gate` and `exec-gate` both go RED — the two fronts
-disagree about the same program, which is what that gate exists to catch. Baseline on the same tree
-with neither edit: both gates GREEN. So a partial fix is worse than none.
-
-**What the attempt did establish:** with both edits in place all SEVEN std modules stop refusing,
-and `tagless-multi-file` advances past this blocker to a genuinely different one
-(`std/functor-applicative-monad.ssc:56:11: expected a name`). The corpus was not usable as evidence
-in that state because the gates were red.
-
-**THE ORACLE WAS ASKED 2026-08-12, AND IT CHANGES WHERE THIS BELONGS.** One program, three lanes:
-
-    trait Doubler[A]:
-      extension (x: A) def dbl(): A
-    given Doubler[N] with
-      extension (x: N) def dbl(): N = N(x.v * 2)
-    println(N(21).dbl().v)
-
-    v1            42          correct
-    v2 / front F  (nothing)   SILENT — no output, no diagnostic
-    v3            refused
-
-**v1's answer says what the construct MEANS, and it is not a plain trait method.** `dbl` is declared
-on `A`, called on a VALUE (`N(21)`), and its implementation comes from a `given` instance. That is
-typeclass dispatch — resolving which instance a call needs — which is exactly what G2 is for.
-
-**So accepting the syntax alone is not a fix, it is the trade this session spent the day refusing.**
-A program that parses and then cannot dispatch is worse than one refused by name, and the red gates
-from the earlier attempt are that outcome measured. My projection lifted the receiver into the first
-parameter — right for a TOP-LEVEL extension, wrong here, because the receiver is the value and the
-implementation is selected by type.
-
-**This item therefore moves under G2 stage 2 rather than standing before it.** Of v3's three
-behaviours the refusal is the least bad; it should stay until instance resolution can back it.
-
-**AND FRONT F HAS ITS OWN DEFECT HERE, filed by this measurement:** it prints NOTHING and exits 0 on
-a program v1 answers `42` — no diagnostic, no partial output. Same shape as
-`selfhost-front-while-with-an-assignment-body-runs-nothing`, fixed on that front this morning, and
-it is not covered by the gate added with it.
-
-**A note for whoever takes G2 next:** its stages are written against a state that has moved. Three
-of the five acceptance rows already run today (`tagless-context-bounds` prints `haha`,
-`tagless-program` prints `Some(done:Dave)`, `tagless-resolution` prints `99`), `v3-method-as-a-value`
-is fixed, and the fourth row was blocked by THIS refusal rather than by anything about typing.
-Re-measure the acceptance set before writing stage 2b.
+**Gates:** front-gate GREEN 92, exec-gate GREEN 88, capability gate OK, corpus N = 233/370
+unchanged.
 
 ## v3-method-as-a-value — `obj.m` passed as a function lowers to a CALL with no arguments
 
