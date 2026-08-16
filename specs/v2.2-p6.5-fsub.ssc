@@ -1426,7 +1426,7 @@ def selfArg1(i) = if i >= 0 then " (local " ++ i ++ ")" else ""
 // G4: a using-sig call collects args as a LIST so the count + first-arg type are recoverable. An explicit
 // `(using x)` second clause merges positionally (no injection); otherwise inject one given per using TC.
 def parseCallU(nm, ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => callU2(nm, es, r, env, cx) }
-def callU2(nm, es, r, env, cx) = if isUsingClause(r) then parseArgL(tl(tl(r)), env, cx) match { case (ues, r2) => (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ joinArgs(ues)), r2) } else (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ injectUsing(nm, es, cx)), r)
+def callU2(nm, es, r, env, cx) = if isUsingClause(r) then parseArgL(tl(tl(r)), env, cx) match { case (ues, r2) => (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ joinArgs(ues)), r2) } else (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ injectUsing(nm, es, env, cx)), r)
 // `raw(x)` is the trusted-markup escape hatch of the html interpolator, and legacy lowers it
 // to DATA — `(ctor _Raw x)` — not a global call, so every native target sees the same marker
 // and __htmlEscape__ can tell it apart from a plain string (ssc1-lower htmlRawCall :2052).
@@ -2344,7 +2344,31 @@ def emitDef(ts, cx) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), cx)
 // name and its `(params)`. Without skipping it, hd was `[` (not `(`) → 0 params, and the real params leaked
 // as unbound globals (the `def map (lam 0 ..)` typed-data divergence). Type params are erased. Non-generic
 // defs are byte-unchanged (skipGen is a no-op when hd is not `[`).
-def emitDef1(nm, ts, cx) = emitDef1G(nm, skipGen(ts), cx)
+// CONTEXT BOUNDS. `def combineAll[A: Monoid](xs: List[A])` is a def of TWO parameters: the oracle
+// desugars each bound into a real dictionary param (ssc1-front mkCtxParam, read back by
+// ssc1-lower isCtxParam/ctxParamTC as `__tc_<TC>`), and the per-call behaviour everyone observes
+// comes from the CALL SITE injecting the right dictionary — not from any runtime dispatcher.
+//
+// F threw the bounds away with skipGen, so `summon[Monoid[A]]` in the body had nothing to resolve
+// to and emitted `(global summon)`. Here the bounds become the INITIAL env for parseParams, which
+// pushes the regular params on top — leaving the dictionaries deepest, exactly the order the oracle
+// gets by prepending them, and making the arity come out right without a second count.
+//
+// LIMIT, stated because it is invisible from the outside: ctxB does not track bracket depth, so a
+// bound whose type class is itself applied — `[A: M[B], C: P]` — stops at the INNER `]` and the
+// bounds after it are not seen. That degrades to the pre-2026-08-16 behaviour for the ones it misses
+// (their `summon` falls through to the given table) and cannot produce a wrong dictionary, because
+// `collectUSCtx` and `emitDef1C` read the same function and therefore agree on the arity.
+def ctxBounds(ts) = if isTok(hd(ts), 2, 50) then ctxB(tl(ts), Nil) else Nil
+def ctxB(ts, acc) = if isEmpty(ts) then acc else (if isTok(hd(ts), 2, 51) then acc else (if isTok(hd(ts), 2, 34) then ctxB(tl(tl(ts)), Cons("__tc_" ++ snd(hd(tl(ts))), acc)) else ctxB(tl(ts), acc)))
+def emitDef1(nm, ts, cx) = emitDef1C(nm, ctxBounds(ts), skipGen(ts), cx)
+// THE DICTIONARY IS THE LAST PARAMETER HERE, not the first. The oracle PREPENDS its `__tc_` param;
+// F's call-site injection APPENDS the given after the regular arguments (buildUsingArgs), and params
+// bind left-to-right so the FIRST argument gets the HIGHEST local index. Prepending the dictionary
+// to the env would therefore hand the body the LIST where it expects the instance — measured as
+// "`Cons.empty` was called but does not exist", which is the shape of an off-by-one in the env, not
+// of a missing lookup.
+def emitDef1C(nm, cb, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefU(nm, appEnv(cb, env), r, cx) } else emitDefBody(nm, dlen(cb), cb, skipToEq(ts), cx)
 def emitDef1G(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefU(nm, env, r, cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
 // G4: a `(using p: TC[..], ..)` clause after the regular params (ssc1-front parseUsingParams :1736) becomes
 // trailing real params (arity N+M), appended to env so `s.show(a)` dispatches on the param (local). The
@@ -2572,7 +2596,11 @@ def findGivenF1(h, r, tc, tn) = h match { case (gtype, gname) => gtype match { c
 // `summon[TC[T]]` → the resolved given `(global gname)` (then postSel/emitMethodCall objReg-dispatches the
 // following `.m`/`.m(..)`). Unresolved (abstract type param / no active-ctx yet) keeps the bare `(global
 // summon)` fallback = the prior __method__ behaviour (no regression; the deep active-ctx form is G4).
-def parseSummon(ts, env, cx) = summonEmit(findGivenF(givenTabOf(cx), fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts)))), skipGen(ts), cx)
+// A `summon[TC[A]]` inside a context-bound def resolves to that def's DICTIONARY PARAM — the local
+// the bound desugared into — before any table lookup. Without this the abstract type `A` matches no
+// given and summonEmit fell through to the bare `(global summon)`.
+def parseSummon(ts, env, cx) = summonCtx(lookup("__tc_" ++ fst(parseTCTypeD(tl(ts))), env), ts, env, cx)
+def summonCtx(i, ts, env, cx) = if i >= 0 then ("(local " ++ i ++ ")", skipGen(ts)) else summonEmit(findGivenF(givenTabOf(cx), fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts)))), skipGen(ts), cx)
 // bareCtor: a resolved given that is a top-level VAL (derived `__derived_TC_T`) reads via cell.get; a DEF
 // (given_obj/given-val/`__mirror_T`) reads as a bare global — exactly the oracle's `(var gname)` resolution.
 def summonEmit(gopt, rest, cx) = gopt match { case Some(g) => (bareCtor(g, cx), rest) case None => ("(global summon)", rest) }
@@ -2580,12 +2608,23 @@ def summonEmit(gopt, rest, cx) = gopt match { case Some(g) => (bareCtor(g, cx), 
 // `Csv[Person]` -> ("Csv", "Person"). parseTCType alone stops at the `.` and mis-keys dotted TCs.
 def parseTCTypeD(ts) = parseTCTypeD1(snd(hd(ts)), tl(ts))
 def parseTCTypeD1(acc, ts) = if isTok(hd(ts), 2, 31) then parseTCTypeD1(acc ++ "." ++ snd(hd(tl(ts))), tl(tl(ts))) else (acc, innerTypeStr(ts))
-def findAnyGivenF(tab, tc) = tab match { case Nil => None case h :: r => h match { case (gtype, gname) => gtype match { case (gtc, gt) => if gtc == tc then Some(gname) else findAnyGivenF(r, tc) } } }
 // G4: pre-pass building the named-`using` signature registry [(defName, (usingTCs, fullCount))]. Scans
 // def heads; a def with a trailing `(using ..)` clause records its using TC heads (source order) + the
 // full arity (regular+using). fullCount gates call-site injection (only under-applied calls inject).
 def collectUsingSig(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 1) then collectUS1(tl(ts)) else collectUsingSig(tl(ts)))
-def collectUS1(ts) = collectUS2(snd(hd(ts)), skipGen(tl(ts)))
+// A context bound registers here exactly as a `(using …)` clause does — same registry, same
+// injection — because that is what it desugars to.
+def collectUS1(ts) = collectUS1C(snd(hd(ts)), ctxBounds(tl(ts)), skipGen(tl(ts)))
+def collectUS1C(nm, cb, ts) = if isEmpty(cb) then collectUS2(nm, ts) else collectUSCtx(nm, cb, ts)
+def collectUSCtx(nm, cb, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => Cons((nm, (ctxTCs(cb), dlen(env) + dlen(cb))), collectUsingSig(r)) } else collectUsingSig(ts)
+// ctxTCs REVERSES, and that is load-bearing for two bounds. `ctxBounds` accumulates by prepending,
+// so `[A: Monoid: Pretty]` yields the env ["__tc_Pretty", "__tc_Monoid", xs] — while the call site
+// APPENDS one given per TC and the first argument takes the highest local index, so the injection
+// list has to run in SOURCE order to line up. Getting this backwards swaps the two dictionaries and
+// each is asked for the other's method: the observed error was "no method 'empty'" on the Pretty
+// instance. A single bound is symmetric, which is exactly why it cannot catch this.
+def ctxTCs(cb) = ctxTCs1(cb, Nil)
+def ctxTCs1(cb, acc) = cb match { case Nil => acc case h :: t => ctxTCs1(t, Cons(h.substring(5, h.length), acc)) }
 def collectUS2(nm, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => collectUS3(nm, dlen(env), r) } else collectUsingSig(ts)
 // THE THIRD SITE with the same test, and it decides given INJECTION at the call site. A `(using …)`
 // clause on a continuation line was invisible here for the same reason it was invisible to emitDefU
@@ -2602,11 +2641,36 @@ def hasUsingSig(nm, cx) = usSigLookup(nm, usingSigOf(cx)) match { case None => f
 // G4: call-site given injection. `f(a)` where f has a using sig and the call under-applies (fewer args
 // than fullCount) appends one given per using TC, chosen by the FIRST arg's type (mirrors ssc1-lower
 // buildUsingGivenArgs :992 + injectGivens :1010). An explicit `f(a)(using x)` clause merges positionally.
-def injectUsing(nm, es, cx) = usSigLookup(nm, usingSigOf(cx)) match { case None => "" case Some(info) => injectUsing2(info, es, cx) }
-def injectUsing2(info, es, cx) = info match { case (tcs, full) => if dlen(es) < full then buildUsingArgs(givenTabOf(cx), tcs, argTypeOfEs(es)) else "" }
-def buildUsingArgs(tab, tcs, at) = tcs match { case Nil => "" case tc :: rest => " " ++ usingGivenFor(tab, tc, at) ++ buildUsingArgs(tab, rest, at) }
-def argTypeOfEs(es) = es match { case Nil => "?" case h :: t => typeOfArg(h) }
-def usingGivenFor(tab, tc, at) = findGivenF(tab, tc, at) match { case Some(g) => "(global " ++ g ++ ")" case None => findAnyGivenF(tab, tc) match { case Some(g) => "(global " ++ g ++ ")" case None => "(global __missing_using_" ++ tc ++ ")" } }
+def injectUsing(nm, es, env, cx) = usSigLookup(nm, usingSigOf(cx)) match { case None => "" case Some(info) => injectUsing2(info, es, env, cx) }
+def injectUsing2(info, es, env, cx) = info match { case (tcs, full) => if dlen(es) < full then buildUsingArgs(givenTabOf(cx), tcs, argTypesOf(es), env) else "" }
+def buildUsingArgs(tab, tcs, ats, env) = tcs match { case Nil => "" case tc :: rest => " " ++ usingGivenFor(tab, tc, ats, env) ++ buildUsingArgs(tab, rest, ats, env) }
+// SELECTION IS STRICT, AND THAT IS THE POINT. The old rule was "exact type match, else the FIRST
+// instance of the type class" — and the first instance is a coin flip that never announces itself:
+// `combineAll(List("hello", ", ", "world"))` picked `intSum` and printed `0hello, world` where the
+// oracle prints `hello, world`. A wrong ANSWER is strictly worse than a decline, because a decline
+// falls back to the reference and stays correct.
+//
+// The order below is by how much each step can be trusted, not by how often it fires:
+//   1. a `__tc_<TC>` DICTIONARY IN SCOPE wins outright — inside `f[A: TC]`, `A` is abstract and no
+//      global given can be right; the caller's dictionary is the only correct answer. This is what
+//      makes a bound propagate through `combineAll(xs)` in a context-bound body.
+//   2. exactly ONE instance matches an argument type — unambiguous.
+//   3. the type class has exactly ONE instance — there is nothing to get wrong.
+//   4. otherwise DECLINE via an unbound marker, which makes F refuse the module and the reference
+//      compile it. Coverage lost, correctness kept.
+def usingGivenFor(tab, tc, ats, env) = usingPick(lookup("__tc_" ++ tc, env), tab, tc, ats)
+def usingPick(i, tab, tc, ats) = if i >= 0 then "(local " ++ i ++ ")" else usingPick1(tcAll(tab, tc), ats, tc)
+def usingPick1(gs, ats, tc) = usingPick2(tcMatch(gs, ats), gs, tc)
+def usingPick2(cands, gs, tc) = if dlen(cands) == 1 then "(global " ++ hd(cands) ++ ")" else (if dlen(gs) == 1 then "(global " ++ snd(hd(gs)) ++ ")" else (if isEmpty(gs) then "(global __missing_using_" ++ tc ++ ")" else "(global __ambiguous_using_" ++ tc ++ ")"))
+def tcAll(tab, tc) = tab match { case Nil => Nil case h :: r => h match { case (gtype, gname) => gtype match { case (gtc, gt) => if gtc == tc then Cons((gt, gname), tcAll(r, tc)) else tcAll(r, tc) } } }
+def tcMatch(gs, ats) = gs match { case Nil => Nil case h :: r => h match { case (gt, gname) => if gt == "*" then Cons(gname, tcMatch(r, ats)) else (if strIn(gt, ats) then Cons(gname, tcMatch(r, ats)) else tcMatch(r, ats)) } }
+def strIn(s, xs) = xs match { case Nil => false case h :: t => if h == s then true else strIn(s, t) }
+// A list argument contributes BOTH "List" and its element type, because which one is the bound type
+// depends on the callee's declared parameter — `xs: List[A]` means the element, `a: A` means the list
+// itself. Offering both cannot pick the wrong instance: if the type class has one for each, the
+// candidate count reaches two and rule 4 declines instead of guessing.
+def argTypesOf(es) = es match { case Nil => Nil case h :: t => appEnv(typesOfArg(h), argTypesOf(t)) }
+def typesOfArg(a) = if startsW(a, "(ctor Cons ") then Cons("List", typesOfArg(a.substring(11, a.length))) else (if startsW(a, "(ctor Nil)") then Cons("List", Nil) else (if typeOfArg(a) == "?" then Nil else Cons(typeOfArg(a), Nil)))
 def typeOfArg(a) = if startsW(a, "(lit (int ") then "Int" else (if startsW(a, "(lit (str ") then "String" else (if startsW(a, "(lit true)") then "Bool" else (if startsW(a, "(lit false)") then "Bool" else "?")))
 // -- ARC 2: extension methods -------------------------------------------------------------------
 // `extension [T] (r: R)` ⏎ <indented def members> — each member gets the receiver prepended as its FIRST
