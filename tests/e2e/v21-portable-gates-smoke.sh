@@ -24,7 +24,15 @@ set -e
   cd "$tmp"
   "$ROOT/scripts/bc-parity-sweep" --only hello.ssc --timeout 20 \
     --report "$tmp/bytecode.tsv" --strict
-  "$ROOT/scripts/native-front-corpus" --only hello.ssc --timeout 20 \
+  # `--standard`, and it is not a preference. Without it `native-front-corpus` takes its
+  # non-standard path, which is DEAD: it requires `scalascript-v2-frontend-bridge_*.jar` and then
+  # runs `ssc.bridge.bridgeCli`, and `v2/frontend-bridge` — the scalameta FrontendBridge tier — was
+  # REMOVED once every `run --v2`/`run-js --v2`/`--bytecode` path moved to the native ssc1 front
+  # (build.sbt says so beside the deleted module). The refusal even advised `scripts/sbtc
+  # "installBin"`, which cannot help: no task builds a deleted module — installBin succeeds in 61 s
+  # and the jar is still absent. So this gate exited 2 forever, and nothing noticed because nothing
+  # invokes it. `--standard` reads `bin/lib/standard`, the layout that actually ships, and passes.
+  "$ROOT/scripts/native-front-corpus" --standard --only hello.ssc --timeout 20 \
     --report "$tmp/native.tsv" --strict
   "$ROOT/scripts/bc-parity-sweep" --only distributed-word-count.ssc \
     --report "$tmp/nondeterministic.tsv" --strict

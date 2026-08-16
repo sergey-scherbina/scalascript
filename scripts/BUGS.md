@@ -39,6 +39,44 @@ actually missing — nobody could see there was a debt.
 (`got 'bug', wanted 'bug?'` and `declared bug and assumed bug differ: got False`), then passing —
 because a row that has only ever been seen green is not a check.
 
+## native-front-corpus-non-standard-mode-needs-a-module-that-was-deleted
+
+<!-- status: open
+     lane: apparatus
+     kind: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/v21-portable-gates-smoke.sh -->
+
+`scripts/native-front-corpus` has two modes. The `--standard` one reads `bin/lib/standard` and works.
+**The default one is dead**, and it fails in a way that tells the reader to do something that cannot
+help:
+
+```
+native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")
+```
+
+It requires `scalascript-v2-frontend-bridge_*.jar`, and then — past that check — runs
+`ssc.bridge.bridgeCli`. **`v2/frontend-bridge`, the scalameta FrontendBridge tier, was REMOVED**
+when every `run --v2` / `run-js --v2` / `--bytecode` path moved to the native ssc1 front; `build.sbt`
+records the removal in a comment where the module used to be. No task can rebuild it, so the advice
+in the refusal is unfollowable: **`scripts/sbtc "installBin"` succeeds in 61 s and the jar is still
+absent** — measured, because the message deserved to be taken at its word once.
+
+Removing the precondition does not fix it; it only moves the failure one step later, to
+`Error: Could not find or load main class ssc.bridge.bridgeCli` with `strict-fail rows: 1`. The whole
+non-standard path depends on the deleted tier.
+
+`tests/e2e/v21-portable-gates-smoke.sh` is repaired by asking for `--standard`, and now PASSES in
+26 s (wired to tier 2). **This entry is the residue**: the default mode of the script is still there,
+still broken, and still advertising `installBin`. Either delete the non-standard branch or make it
+an alias for `--standard`; whichever, the refusal must stop naming a task that cannot help.
+
+Found by draining an orphan: the gate that exposed this is invoked by nothing, so the dead mode had
+no way to be noticed.
+
 ## sbt-test-shard-enumeration-produces-zero-suites — all four shards refuse, and the refusal could not say why
 
 <!-- status: fixed

@@ -476,6 +476,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: v3/toolchain-gate.sh
 
+      # The triage's one "setup refusal" row, and the setup could never be satisfied. It exited 2
+      # with `native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")`, and
+      # running installBin does NOT produce the jar it wants: `v2/frontend-bridge` was REMOVED when
+      # every `run --v2`/`--bytecode` path moved to the native ssc1 front. The gate now asks for the
+      # `--standard` layout, which is the one that ships.
+      #
+      # NOT VACUOUS: in the old non-standard mode it reaches a real verdict and FAILS —
+      # `strict-fail rows: 1`, `Could not find or load main class ssc.bridge.bridgeCli`. It passes
+      # only against the standard layout.
+      #
+      # TIER 2: 26 s and it needs the staged install.
+      - name: v21 portable gates — native front corpus on the shipped layout
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/v21-portable-gates-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
