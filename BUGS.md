@@ -23,6 +23,64 @@ Newest first.
 
 
 
+## v3-handler-arm-value-dropped-when-the-perform-is-a-statement — `effects-handler` answers `List()`
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/corpus-report.sh (effects-handler, a standing DIFF)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**A SILENT WRONG ANSWER ON BOTH v3 LANES, and it explains a corpus DIFF nobody had diagnosed.**
+`tests/conformance/effects-handler.ssc` prints `List()` on `ssc3 run` and `ssc3 run --bridge`, where
+int, native and js all print `List(first, second, third)` — the checked-in expectation. Exit 0, a
+plausible-looking empty list.
+
+    val lines = handle { program(); List() } {
+      case Console.writeLine(msg, resume) => msg :: resume(())
+    }
+
+**REDUCED TO ONE LINE OF DIFFERENCE — the perform's POSITION, not the handler and not the effect.**
+
+    def prog(): Unit ! C = C.w("a")
+
+    handle { prog() }          { case C.w(msg, resume) => "H:" + msg + "|" + resume(()) }
+      v3   H:a|()      correct
+    handle { prog(); "END" }   { same arm }
+      v3   END         WRONG — native, int and js all say H:a|END
+
+In value position the arm's result flows out; in STATEMENT position it is dropped and the body
+carries on. Same program otherwise.
+
+**THE ARM RUNS — this is not a swallowed perform.** With `var seen` assigned inside the arm, every
+lane reports `seen=a`, including v3. The side effects happen, the resume happens, and only the arm's
+VALUE is lost, so v3 answers as if the arm had been written `resume(())`.
+
+**A TAIL-RESUMPTIVE ARM IN THE SAME POSITION IS CORRECT on all three** (`END seen=a` everywhere),
+which is why the corpus caught this in exactly one case and why it reads as an effects bug rather
+than a lowering one.
+
+**WHERE IT IS NOT: v2's runtime.** `bin/ssc-tools run` — the v2 native lane — answers `H:a|END`,
+and v3's bridge is the same v2 VM answering `END` on the same program. The runtime is not what
+differs; what differs is what v3's lowering hands it. That narrows the search to v3's IR and the
+bridge, and rules out the obvious suspect.
+
+**WHY IT IS FILED RATHER THAN FIXED, with the mechanism named.** `Cps.scala` splits a function at a
+`Perform` so the rest of that FUNCTION becomes the continuation, and `Exec` returns the arm's value
+as the perform's. That is enough when the perform's value is the handled expression's value. It is
+not enough here: between the perform and the `handle` there is a CALLER frame — the handle body —
+whose remaining statements are not part of any split, so the arm's value lands in a discarded
+register and the body runs on. Making the continuation cross a call frame is the reified stack the
+executor's own message says v3 does not have (`Exec.scala`, "not tail-resumptive").
+
+**THE CHEAPER HALF, if the real fix is not wanted yet:** REFUSE this shape instead of answering it,
+the way the executor already refuses a non-tail-resumptive arm it cannot run. It needs a call-graph
+pass — which functions perform, transitively — plus a tail-resumptive test on the AST arm, and it
+turns one silent wrong answer into an attributed refusal. That is a decision about capability, not a
+typo, which is why it is written down rather than taken.
+
 ## rust-type-pattern-on-a-local-val-matches-anything — a Map type pattern matches a JSON ARRAY when the scrutinee is a local val; the same match on a parameter is correct
 
 <!-- status: fixed
