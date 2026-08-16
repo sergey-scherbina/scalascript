@@ -2,10 +2,10 @@ slug: classify-the-50-kindless
 branch: feature/classify-the-50-kindless
 agent: claude-code
 started: 2026-08-16T00:27:45Z
-heartbeat: 2026-08-16T00:31:28Z
+heartbeat: 2026-08-16T00:34:43Z
 status: claimed-before-planning
 items: next-displays-a-defaulted-kind-as-if-declared
-paths: file:BUGS.md file:scripts/BUGS.md file:tests/BUGS.md file:v2/BUGS.md file:v3/BUGS.md file:tests/conformance/BUGS.md file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/jvm/BUGS.md file:tests/e2e/bugs-index-gate.sh
+paths: file:BUGS.md file:scripts/BUGS.md file:tests/BUGS.md file:v2/BUGS.md file:v3/BUGS.md file:tests/conformance/BUGS.md file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/jvm/BUGS.md file:tests/e2e/bugs-index-gate.sh file:TASK/v2-perfomance.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
