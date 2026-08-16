@@ -2457,6 +2457,50 @@ re-running the matrix — all eight now answer, and the MCP gate drives them end
 
 ---
 
+## mcp-v2-auth-cannot-be-ported-until-v2-serves-http — the members would set state nothing reads
+
+<!-- status: open
+     lane: v2-jvm
+     area: runtime
+     kind: feature
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16
+     repro: read the two call sites named below
+     confirmed: yes -->
+
+The last seven `srv` members missing from v2 are the auth group — `authEnabled`, `currentAuth`,
+`setAuthRealm`, `setProtectedResourceMetadata`, `setTokenValidator`, `useHmacValidator`,
+`useAuthServer`. They are NOT a porting task, and the difference matters because porting them is
+the obvious thing to do and it would produce seven members that do nothing.
+
+TWO INDEPENDENT BLOCKERS, both read off the code rather than inferred:
+
+1. **AUTH IS ENFORCED ON THE HTTP ROUTE ONLY.** The single place the registered validator runs is
+   `McpServerCore.authorizeHttp`, called from `handleHttpRequest`. The stdio loop —
+   `McpServerCore.serve`, the one v2 uses — never consults `tokenValidator`.
+
+2. **v2 SERVES STDIO AND NOTHING ELSE.** `McpNativePlugin`'s `serveMcp` handles `Transport.Stdio`
+   and refuses everything else by name: *"the native provider supports Transport.Stdio, not
+   'Http'"*. So on v2 there is no route on which auth could take effect.
+
+Implemented today, all six setters would resolve, accept their arguments, mutate builder state, and
+have ZERO observable effect on any transport v2 can serve — and no gate could be written for them,
+because there is no wire to read. That is the exact failure shape three defects in this file were
+just fixed for (`mcp-v2-resource-body-is-show-output`, and the census lesson in BACKLOG): a member
+that RESOLVES is not a member that WORKS.
+
+`useAuthServer` carries a SECOND, independent blocker: it resolves its argument through
+`OAuthBridge.authServers`, a registry the v1 oauth-plugin owns. `v2/runtime/providers/` contains
+graph-rdf4j, mcp, nfc, pdf and swift — there is no oauth plugin on that lane at all.
+
+SO THE ORDER IS: v2 gains an HTTP transport first; the six validator/metadata members follow and
+are gateable the day it exists; `useAuthServer` additionally waits on a v2 oauth plugin. Recorded
+as a FEATURE gap rather than a bug: nothing is broken, and the six members are absent for a reason that
+would not be improved by adding them.
+
+---
+
 ## mcp-elicit-deadlocks-the-serve-loop — the answer can only arrive through the loop `elicit` blocks
 
 <!-- status: open

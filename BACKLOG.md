@@ -732,7 +732,16 @@ that does, proven in both directions.
       roots/sampling — **DONE**, notifications and progress — **DONE**, registration — **DONE**,
       completions — **DONE**, paging — **DONE**, subscriptions — **DONE**, `currentLogLevel` —
       **DONE**. Counted by running the two member lists against each other rather than by reading
-      §11.1: 40 members on v1, 33 on v2, **7 left — all of them auth**.
+      §11.1: 40 members on v1, 33 on v2, **7 left — all of them auth, and all BLOCKED**, not
+      merely unported. Auth runs in `McpServerCore.authorizeHttp`, reached only from
+      `handleHttpRequest`; the stdio loop `serve(...)` — the one v2 uses — never consults the
+      validator, and v2's `serveMcp` refuses every transport except `Transport.Stdio` by name.
+      Implemented today the six setters would resolve, accept arguments, set builder state and have
+      no observable effect anywhere, with no wire for a gate to read: the exact shape this project
+      spent the week removing. `useAuthServer` waits on a second thing — it resolves through
+      `OAuthBridge.authServers`, and `v2/runtime/providers/` has no oauth plugin at all.
+      Filed as `mcp-v2-auth-cannot-be-ported-until-v2-serves-http`. **The next MCP item is
+      therefore an HTTP transport for the v2 provider, not seven more members.**
       ✓ 2026-08-16 — roots and the raw request: `clientSupportsRoots`, `onRootsListChanged`,
       `listRoots`, `request`, plus `Root(uri, name)` DECLARED in std/mcp/types.ssc — the same
       undeclared-record shape `ElicitationResult` had. `clientSupportsRoots` is driven BOTH WAYS
