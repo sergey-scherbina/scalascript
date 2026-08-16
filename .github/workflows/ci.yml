@@ -341,6 +341,19 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/v21-native-doc-render-smoke.sh
 
+      # Third orphan drained from the same triage, and the third one whose red was the GATE.
+      # It asserts that an unhandled plugin/effect Op is REJECTED rather than silently ignored, on
+      # the native VM, the native ASM and the bridge ASM lanes. Its third case used to drive a
+      # `target: js` example through a bytecode lane while also depending on an opt-in plugin, so it
+      # could never pass; it now runs the same fixture as the other two, one lane further.
+      #
+      # NOT VACUOUS: replacing the fixture with a plain `println` turns all three cases red.
+      #
+      # TIER 2: 25 s and it needs the built toolchain.
+      - name: Unhandled effect Ops are rejected on all three lanes
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/v21-unhandled-effect-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

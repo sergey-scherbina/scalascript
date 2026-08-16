@@ -74,7 +74,6 @@ tests/e2e/serve-view-frontend-v2-smoke.sh
 tests/e2e/v21-native-content-smoke.sh
 tests/e2e/v21-portable-gates-smoke.sh
 tests/e2e/v21-typeclass-dictionary-smoke.sh
-tests/e2e/v21-unhandled-effect-smoke.sh
 tests/interop-conformance/validation-test.sh
 tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh

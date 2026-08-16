@@ -129,7 +129,7 @@ these scripts are invoked by nothing, so nothing has reported them.
 | `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
 | `tests/e2e/v21-native-content-smoke.sh` | 51 | binding output keeps its placeholders: `missing=${missing.path}; invalid=${bad-path}` |
 | ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |
-| `tests/e2e/v21-unhandled-effect-smoke.sh` | 25 | `ssc: unbound global: Network`, where the gate expects a rejection naming `Wallets.metaMask` — **the gate's third case is mis-specified; see below** |
+| ~~`tests/e2e/v21-unhandled-effect-smoke.sh`~~ | 25 | **RESOLVED — the gate's third case was mis-specified. See below.** |
 
 ### One of the five was the GATE being stale, and the dates prove it
 
@@ -174,10 +174,18 @@ auto-loads it from the `import scalascript.x402.*` … load it manually only in 
 `bin/lib/tools/x402/`, which `bin/ssc-tools run` does not put on the classpath. So `unbound global:
 Network` is the documented answer, and the gate is asking `run` for something only `check` does.
 
-Two things for whoever fixes it, and they are separable: the third case needs to load the plugin (or
-be dropped, since the first two already cover the unhandled-effect invariant on the native lanes),
-AND `run-jvm` failing this example with three compilation errors is its own defect that the sibling
-gate does not cover.
+**FIXED, and the third row above turned out NOT to be a defect — I was wrong about it.** Reading the
+`run-jvm` errors settles everything: `value Network is not a member of scalascript.x402.client`,
+`value metaMask is not a member of object scalascript.x402.client.Wallets`. Those members live in
+**`payments/x402/client-js`** (`BrowserWallets.scala`), and the example declares `target: js` in its
+own front-matter. **A JVM/bytecode lane refusing a browser-only example is correct behaviour**, so
+the "separate `run-jvm` defect" I recorded here first does not exist.
+
+The case's INTENT was "the bridge ASM path surfaces an unhandled effect Op", and that needs no x402
+at all: `tests/fixtures/v21-native/unhandled-effect.ssc` — already used by the two native cases —
+produces `unhandled runtime effect: MissingRuntime.call` on that lane too. The case now runs it,
+the gate is green on all three lanes, and it is wired into tier 2. Not vacuous: replacing the
+fixture with a plain `println` turns all three cases red.
 
 **AGE UNKNOWN FOR THE REMAINING THREE, AND THAT IS THE POINT — not a claim of regression.** An
 unwired gate has no history:
