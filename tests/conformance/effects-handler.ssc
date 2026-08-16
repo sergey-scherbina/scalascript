@@ -22,7 +22,7 @@ not implement them, so they cannot share one expected file.
 effect Console:
   def writeLine(s: String): Unit
 
-def program(): Unit =
+def program(): Unit ! Console =
   Console.writeLine("first")
   Console.writeLine("second")
   Console.writeLine("third")

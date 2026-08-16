@@ -21,7 +21,7 @@ def program(): Int ! NonDet =
   val b = NonDet.choose(List(10, 20))
   a + b
 
-def workload(): Long =
+def workload(): Long ! NonDet =
   var total = 0L
   var i = 0
   while i < 2 do

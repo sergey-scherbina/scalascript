@@ -35,7 +35,7 @@ def runSimGigSource[A](body: () => A): A =
     case GigSource.fetch(resume) => resume(simGigs())
   }
 
-def scoutGigs(): List[Gig] = scoredGigs(GigSource.fetch())
+def scoutGigs(): List[Gig] ! GigSource = scoredGigs(GigSource.fetch())
 
 def gigsText(gigs: List[Gig]): String =
   gigs.map(g => g.id + ":" + scoreGig(g).toString).mkString(",")

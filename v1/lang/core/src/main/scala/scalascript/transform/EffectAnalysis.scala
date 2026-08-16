@@ -196,19 +196,53 @@ object EffectAnalysis:
         case _             => ()
       }
     }
-    val leaking = mutable.Set.empty[String]
-    funBodies.foreach { (fname, body) =>
-      if leakedOps(body, effectOps, Set.empty).nonEmpty then leaking += fname
+    leakedEffectsByFun(trees, effectOps).keySet
+
+  /** The same fixed point as [[leakingFuns]], but keeping WHICH effects each function leaks
+    * instead of only whether it leaks any.
+    *
+    * `leakedOps` already computed this set and it was thrown away for a `.nonEmpty` — which is why
+    * the effect-row verifier could only ask "is a row declared" and not "does the row say the
+    * truth". `! Nonsense` type-checked. Effect NAMES, not ops: `Console.readLine` contributes
+    * `Console`, because a row names effects.
+    *
+    * Only leaking functions appear, so `keySet` is exactly [[leakingFuns]] and the two cannot drift.
+    */
+  def leakedEffectsByFun(trees: List[Tree], effectOps: Set[String]): Map[String, Set[String]] =
+    val funBodies = mutable.Map.empty[String, Term]
+    def collect(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def => funBodies(d.name.value) = d.body
+      case _           => ()
     }
+    trees.foreach {
+      case Source(stats)     => collect(stats)
+      case Term.Block(stats) => collect(stats)
+      case other             => other.children.foreach {
+        case s: Source     => collect(s.stats)
+        case b: Term.Block => collect(b.stats)
+        case _             => ()
+      }
+    }
+    val leaked = mutable.Map.empty[String, Set[String]]
+    funBodies.foreach { (fname, body) =>
+      val ops = leakedOps(body, effectOps, Set.empty)
+      if ops.nonEmpty then leaked(fname) = ops.map(_.takeWhile(_ != '.'))
+    }
+    // A caller inherits what its callees leak — the same fixed point, now unioning sets rather
+    // than propagating a flag, so a wrapper's required row is its callees' rows.
     var changed = true
     while changed do
       changed = false
       funBodies.foreach { (fname, body) =>
-        if !leaking.contains(fname) && callees(body).exists(leaking.contains) then
-          leaking += fname
-          changed = true
+        val inherited = callees(body).flatMap(c => leaked.get(c).toList.flatten)
+        if inherited.nonEmpty then
+          val before = leaked.getOrElse(fname, Set.empty)
+          val after  = before ++ inherited
+          if after != before then
+            leaked(fname) = after
+            changed = true
       }
-    leaking.toSet
+    leaked.toMap
 
   /** Verifier mode: compare the type-system's declared effect set against the
    *  name-reachability analysis.  Returns diagnostic messages for divergences.
@@ -227,20 +261,69 @@ object EffectAnalysis:
   def verify(
     typedEffects:   Map[String, Set[String]],
     analysisResult: Result,
-    asErrors:       Boolean = true
+    asErrors:       Boolean = true,
+    /** Per-function leaked effect NAMES, from [[leakedEffectsByFun]]. Empty means "not supplied",
+     *  and the two content checks below simply do not run — the emptiness check is unchanged, so an
+     *  old caller keeps its old behaviour exactly. */
+    leakedByFun:    Map[String, Set[String]] = Map.empty,
+    /** Effect names actually declared in scope, from [[declaredEffectNames]]. Empty means "not
+     *  supplied" and the unknown-name check does not run — never "no effects exist", which would
+     *  reject every row in the file. */
+    knownEffects:   Set[String] = Set.empty
   ): List[String] =
     val tag = if asErrors then "[effect-error]" else "[effect-verifier]"
     val warnings = scala.collection.mutable.ListBuffer.empty[String]
-    // Build a set of effect object names reachable from analysisResult.effectOps
-    // e.g. "Logger.log" → "Logger"
+    // Every effect name reachable in the BLOCK — `Logger.log` → `Logger`. Kept only as the fallback
+    // wording: it is not the flagged function's own set, and saying so was misleading (`greet`
+    // "reaches Console, Choose, Fail" when it touches only Console).
     val reachableEffectNames: Set[String] =
       analysisResult.effectOps.map(op => op.takeWhile(_ != '.'))
     typedEffects.foreach { (funName, declared) =>
       val funIsEffectful = analysisResult.effectfulFuns.contains(funName)
-      // Only flag functions that ARE effectful but declare no effect row.
-      // The reverse (declared but no performs in body) is valid: a function
-      // may sub-effect and never actually perform an operation. No error.
+      val leaked         = leakedByFun.getOrElse(funName, Set.empty)
+      // 1. Effectful with NO row. Unchanged rule; the message now names the function's OWN leaked
+      //    effects when they are available.
+      // The reverse (declared but no performs in body) is valid: a function may sub-effect and
+      // never actually perform an operation. No error.
       if funIsEffectful && declared.isEmpty then
-        warnings += s"$tag '$funName' appears effectful (reaches ${reachableEffectNames.mkString(", ")}) but declares no effect row (!)"
+        val what = if leaked.nonEmpty then s"leaks ${leaked.toList.sorted.mkString(", ")}"
+                   else s"reaches ${reachableEffectNames.mkString(", ")}"
+        warnings += s"$tag '$funName' appears effectful ($what) but declares no effect row (!)"
+      else if declared.nonEmpty then
+        // 2. A row that names an effect nothing declares. `! Nonsense` used to type-check: the row
+        //    was read for its emptiness and never for its contents.
+        val unknown = declared -- knownEffects
+        if knownEffects.nonEmpty && unknown.nonEmpty then
+          warnings += s"$tag '$funName' declares effect row (! ${unknown.toList.sorted.mkString(", ")}) " +
+                      s"naming no effect in scope — declared effects here are ${knownEffects.toList.sorted.mkString(", ")}"
+        // 3. A row that is TRUE but not the whole truth. `! Fail` on a function performing
+        //    `Console.readLine` used to pass, so a row could be true, partial, or fiction.
+        val missing = leaked -- declared
+        if missing.nonEmpty then
+          warnings += s"$tag '$funName' declares (! ${declared.toList.sorted.mkString(", ")}) " +
+                      s"but also leaks ${missing.toList.sorted.mkString(", ")} — the row must cover what escapes the function"
     }
     warnings.toList
+
+  /** Effect names DECLARED in these trees.
+    *
+    * `effect Console:` is desugared by the parser into `object Console { private type
+    * __effectDecl__ = true; … }` (`Parser.scala`, the `effectLine` rewriter), so a declaration is an
+    * object carrying that sentinel. Read from the trees rather than from the ops that happen to be
+    * performed, because an effect may be declared and never performed — using the performed set
+    * would reject a legitimate row on a sub-effecting function.
+    */
+  def declaredEffectNames(trees: List[Tree]): Set[String] =
+    val names = mutable.Set.empty[String]
+    def isEffectObject(o: Defn.Object): Boolean =
+      o.templ.body.stats.exists {
+        case t: Defn.Type => t.name.value == "__effectDecl__"
+        case _            => false
+      }
+    def walk(t: Tree): Unit =
+      t match
+        case o: Defn.Object if isEffectObject(o) => names += o.name.value
+        case _                                   => ()
+      t.children.foreach(walk)
+    trees.foreach(walk)
+    names.toSet

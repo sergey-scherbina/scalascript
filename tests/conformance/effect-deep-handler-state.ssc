@@ -13,7 +13,7 @@ INT/JS always ran this; run-jvm now compiles + runs it too.
 effect Cnt:
   def tick(n: Int): Unit
 
-def prog(): Int =
+def prog(): Int ! Cnt =
   Cnt.tick(5)
   Cnt.tick(3)
   100

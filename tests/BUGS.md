@@ -1,6 +1,7 @@
 ## effect-row-verifier-demands-a-declaration-it-never-checks — `! Nonsense` satisfies it
 
 <!-- status: open
+     gate: tests/e2e/effect-row-says-what-it-means.sh
      kind: bug
      lane: apparatus
      area: front
@@ -66,6 +67,34 @@ blocks deciding whether `run --v1` type-checks at all (`tests/SPRINT.md` TYPES M
 
 And annotating those five today would be **ceremony, not correctness**: the measurement above says
 any token satisfies the gate. Fixing the verifier first is what makes the annotations mean something.
+
+### FIXED 2026-08-16 — the row is now read, and the five cases are annotated truthfully
+
+`leakedEffectsByFun` returns what `leakingFuns` was computing and discarding; `leakingFuns` is now
+derived from it (`keySet`), so the two cannot drift. `verify` gained two checks, both opt-in
+parameters defaulting to off so an old caller's behaviour is unchanged:
+
+| row on a function that leaks `Console` | before | after |
+|---|---|---|
+| `! Console` | OK | OK |
+| `! Fail` | OK | `declares (! Fail) but also leaks Console — the row must cover what escapes the function` |
+| `! Nonsense` | OK | `declares effect row (! Nonsense) naming no effect in scope — declared effects here are Console, Fail` |
+| none | `appears effectful (reaches Console, Choose, Fail)` | `appears effectful (leaks Console)` — its OWN set, not the block's |
+
+`declaredEffectNames` reads the `effect Foo:` declarations from the trees (the parser desugars them
+to an object carrying a `__effectDecl__` sentinel) rather than from the ops that happen to be
+performed — an effect may be declared and never performed, and using the performed set would reject
+a legitimate row on a sub-effecting function.
+
+**Measured, and the strictness cost nothing:** conformance **5 rejections, 0 new, 0 lost** with the
+content checks on and the annotations off; `check examples/*.ssc` exit 0 over 211 files.
+
+**Then the five were annotated** — `greet ! Console`, `program ! Console`, `prog ! Cnt`,
+`scoutGigs ! GigSource`, `workload ! NonDet`, each taken from the verifier's own message — and the
+corpus contract re-run on them: **14/14 PASS cells across int, js and v2**, so the rows are
+behaviour-preserving and not merely accepted. That is what makes the annotation meaningful: under
+the old verifier any token passed, so annotating would have reported a clean corpus on five
+declarations that said nothing.
 
 **Related:** `durable-save-run-verifier-red` (`af46212c3`) added the discharge-aware `leakingFuns`
 this builds on, and its entry predicted `effects.ssc` would not be flagged because its effect

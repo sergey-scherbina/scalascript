@@ -1227,6 +1227,19 @@ jobs:
       - name: the checker's prelude comes from the runtime (25s)
         run: tests/e2e/typer-prelude-from-runtime-names.sh
 
+      # …and what a declared effect row has to MEAN. The verifier demanded a row and read only its
+      # emptiness — `! Nonsense`, an effect existing nowhere, type-checked, and so did `! Fail` on a
+      # function performing Console ops. The data to do better was already computed and thrown away:
+      # `leakingFuns` kept `.nonEmpty` of each function's leaked op set.
+      #
+      # Every rejection here is PAIRED with an acceptance, because a verifier that rejects every row
+      # would pass a rejection-only gate perfectly. The load-bearing pair is the self-DISCHARGING
+      # function (durable-save-run-verifier-red, af46212c3): it handles its own effect and correctly
+      # declares nothing, and this change rewrote the function that decides that.
+      # (tests/BUGS.md effect-row-verifier-demands-a-declaration-it-never-checks.)
+      - name: an effect row must be true and complete (20s)
+        run: tests/e2e/effect-row-says-what-it-means.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

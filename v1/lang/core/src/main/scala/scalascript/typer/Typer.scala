@@ -577,7 +577,11 @@ class Typer(
         // `analyze.effectfulFuns` is a coarse name-reachability set that would mis-flag
         // such a function; the verifier consults the handle-scoped `leakingFuns` instead.
         // (`effectfulFuns` itself is left intact — the codegens consume it as-is.)
-        val leaking = scalascript.transform.EffectAnalysis.leakingFuns(trees, analysisResult0.effectOps)
+        // The per-function leaked EFFECT NAMES, not just which functions leak. `leakedEffectsByFun`
+        // is what `leakingFuns` is derived from, so the two cannot disagree — and it is what lets
+        // the verifier ask whether a declared row says the truth rather than merely exists.
+        val leakedByFun = scalascript.transform.EffectAnalysis.leakedEffectsByFun(trees, analysisResult0.effectOps)
+        val leaking     = leakedByFun.keySet
         val analysisResult = analysisResult0.copy(
           effectfulFuns = analysisResult0.effectfulFuns intersect leaking
         )
@@ -588,8 +592,11 @@ class Typer(
             name -> ops.map(_.name)
         }.toMap
         if declaredEffects.nonEmpty || analysisResult.effectfulFuns.nonEmpty then
-          scalascript.transform.EffectAnalysis.verify(declaredEffects, analysisResult, asErrors = false)
-            .foreach(msg => errors += TypeError(msg, None))
+          scalascript.transform.EffectAnalysis.verify(
+            declaredEffects, analysisResult, asErrors = false,
+            leakedByFun  = leakedByFun,
+            knownEffects = scalascript.transform.EffectAnalysis.declaredEffectNames(trees)
+          ).foreach(msg => errors += TypeError(msg, None))
       }
     }
     summaries.toList

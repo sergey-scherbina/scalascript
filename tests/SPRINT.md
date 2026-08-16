@@ -260,13 +260,31 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          today would trade a known-permissive checker for a red CI step on a program that is not
          wrong.
 
-      **7. [ ] Whether `run --v1` type-checks at all — BLOCKED on step 6, and now for a measured
-         reason rather than a suspected one.** The native lane already refuses to run a file its
-         checker rejects (`RunNativeV2` requires `OK` from `ssc1-check`). `run --v1` checks nothing.
-         Turning it on today would break **9 working conformance programs**, because that is how many
-         `check` still rejects — 4 of them step 6's problem, 5 of them the effect verifier
-         (`'greet' appears effectful`). Both counts are from the same sweep as step 5's differential,
-         so the number is comparable rather than remembered.
+      **7. [~] Whether `run --v1` type-checks at all — THE BLOCKER IS GONE; the decision is now the
+         only thing left.** The native lane already refuses to run a file its checker rejects
+         (`RunNativeV2` requires `OK` from `ssc1-check`). `run --v1` checks nothing.
+
+         The reason it could not be turned on was arithmetic: `check` rejected **9 working
+         conformance programs**. Both causes are now closed and the count is **0** —
+
+         | | rejections | what closed it |
+         |---|---|---|
+         | 2026-08-15 baseline | 9 | — |
+         | after the runtime prelude (`a42310890`) | 5 | 4 were names the checker did not know |
+         | after the effect-row content checks + truthful annotations | **0** | the last 5 |
+
+         **And the second half mattered more than the count.** The five were rejected for declaring
+         no effect row — and under the old verifier ANY row satisfied it, `! Nonsense` included. So
+         annotating them first would have produced a clean corpus resting on five declarations that
+         meant nothing. The verifier now reads the row (`effect-row-verifier-demands-a-declaration-it-never-checks`),
+         each annotation was taken from its own diagnostic, and the corpus contract re-ran 14/14
+         across int/js/v2 to show the rows are behaviour-preserving rather than merely accepted.
+
+         **What remains is a DECISION, not a blocker:** should `run --v1` refuse a file `check`
+         rejects, the way the native lane does? Arguments both ways belong to Sergiy — it changes
+         when a program is allowed to run, not merely what a tool reports. Note the one thing that
+         must be settled with it: `check-accepts-names-the-v1-runtime-does-not-have` means `check` is
+         still permissive in the OTHER direction, so gating `run` on it would not be symmetric yet.
 
       **What I will not promise:** I cannot decide the contract, and I will not flip a language rule
       because a corpus number looked acceptable. What I can do is make the disagreement visible,

@@ -16,7 +16,7 @@ multi effect Choose:
   def pick(opts: List[Int]): Int
 
 // One-shot: Console routing
-def greet(): String =
+def greet(): String ! Console =
   val name = Console.readLine()
   Console.writeLine(s"Hello, $name!")
   name
