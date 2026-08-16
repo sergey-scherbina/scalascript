@@ -7,40 +7,47 @@ grepping for status.
 
 Newest first.
 
-## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` is a TUPLE here and a list everywhere else
+## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` was a TUPLE here and a list everywhere else
 
-<!-- status: open
-     kind: bug
+<!-- status: fixed
+     fixed-in: 3a95a474e
      lane: int
      area: runtime
-     gate: none
+     gate: tests/conformance (int lane) + backendInterpreter/testFast
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**MEASURED on `bin/ssc-tools run --v1`**, while converging the other lanes on the owner's decision
-that a non-list right operand of `++` is one element:
+**FIXED.** A list `++` a non-list appends that one element, which is what every lane that answers at
+all already did. The binary-operator table had arms for (List, List), (Set, Set), (Map, Map) and the
+tuple shapes, and no (List, anything-else) — so the pair fell to the final `case _`, which builds
+`TupleV(lhs :: rhs :: Nil)`.
 
-    println((List(1,2) ++ n).mkString(","))   // n = 5
+**IT IS THE SAME TRAP AS `int-string-concat-operator-builds-a-pair`, ONE TYPE DOWN.** That entry
+added the `String ++ String` arm to this very table, and its comment warns that a fix in method
+dispatch never fires for the infix operator. The table's fall-through is a pair-builder, so every
+combination nobody thought of becomes a tuple silently rather than an error.
 
-    --v1 (this lane)   [ERROR] No method 'mkString' on TupleV((List(1, 2), 5))
-    native             1,2,5
-    v2 VM / bridge     1,2,5      (since 2026-08-16)
-    v3 exec            1,2,5      (since 2026-08-16)
+**EVERY CELL MEASURED against the reference lane, because the new arm is broad:**
 
-**It is not a refusal — it BUILDS something.** `List(1,2) ++ 5` evaluates to `TupleV((List(1,2), 5))`
-on this lane, so the program fails later and somewhere else, at whatever method the caller tries on
-the result. A program that never calls a method on it gets a tuple where every other lane gives a
-list, and nothing reports anything.
+    rhs        reference (bin/ssc-tools run)   this lane, before      after
+    5          List(1, 2, 5)                   (List(1, 2), 5)        List(1, 2, 5)
+    (3, 4)     List(1, 2, (3, 4))              (List(1, 2), 3, 4)     List(1, 2, (3, 4))
+    "ab"       List(1, 2, ab)                  (List(1, 2), ab)       List(1, 2, ab)
+    ()         List(1, 2, ())                  List(1, 2)             List(1, 2, ())
+    Set(7)     List(1, 2, Set(7))              (List(1, 2), Set(7))   List(1, 2, Set(7))
+    Map(…)     List(1, 2, Map(a -> 1))         (List(1, 2), Map(…))   List(1, 2, Map(a -> 1))
 
-**WHY IT IS FILED RATHER THAN FIXED IN THE SAME BREATH.** The decision that was taken —
-`v3-concat-nonlist-splits-three-ways` — was about the Core IR runtimes and their disagreement with
-the reference lane. This is a fourth behaviour in a lane the decision did not name, and changing
-what `++` builds here changes a shipped answer, not an error path. That is worth its own entry and
-its own owner, especially since `TupleV` suggests `++` is reaching a generic pair-forming arm rather
-than a list one — so the fix is a routing question, not a one-line semantics tweak.
+Two rows were worse than the headline: a TUPLE right operand was SPLICED, so `++ (3,4)` produced a
+three-element tuple rather than either sensible answer, and `()` was SWALLOWED by the generic
+`(_, UnitV) => Pure(lhs)` arm. Both now match the reference.
 
-**Where to start:** `DispatchRuntime`/`BuiltinsRuntime` in this module, the `++` arm — and the
-control that says the shape is right is `List(1,2) ++ List(5)`, which already answers `1,2,5` here.
+**The jvm lane is deliberately untouched.** It compiles to real Scala, and its answer is a COMPILE
+error — `Found: Int, Required: IterableOnce[Int]` — which is the strictest of the five lanes and not
+a wrong answer. A census was run before the fix: native, bytecode and js all wrap, int built a
+tuple, jvm refuses at compile time.
+
+**Regression:** the conformance corpus 367 passed / 0 failed (the int lane is 238 of those cases),
+and `backendInterpreter/testFast` — 1615 tests, 0 failures.
 
 ## int-a-double-in-a-signature-falls-off-the-jit — 250×, and the `Long` twin is the control
 
