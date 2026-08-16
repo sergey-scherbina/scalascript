@@ -108,6 +108,45 @@ extern class McpServer:
   // on both. `timeoutMs = 0` means "the builder's own default".
   def elicit(message: String, schema: Map[String, Any], timeoutMs: Long = 0): ElicitationResult
 
+  // ── Notifications, progress and logging ──────────────────────────────────
+  //
+  // THREE of these are CONDITIONAL, and the condition is not visible at the call site — say so
+  // here rather than let a caller conclude the member is broken:
+  //   * `log` drops anything ranked below the level the client set via `logging/setLevel`;
+  //     `currentLogLevel` reports that floor.
+  //   * `notifyResourceUpdate` emits only for a uri the client actually subscribed to.
+  //   * `notifyProgress` emits only inside a request that carried `_meta.progressToken` — outside
+  //     one there is no token to attach the progress to, so it is a silent no-op by design.
+
+  // FIVE MEMBERS ARE DELIBERATELY NOT DECLARED HERE, and they work anyway:
+  //
+  //     srv.notifyToolsListChanged()      srv.notifyResourcesListChanged()
+  //     srv.notifyPromptsListChanged()    srv.notifyResourceUpdate(uri)
+  //     srv.currentLogLevel()
+  //
+  // All five are implemented on every lane and reachable TODAY, undeclared. Declaring them is what
+  // breaks them: on the interpreter a declared extern-class member whose parameters are all plain
+  // scalars and which carries no default is served by the `__extern__` stub instead of the plugin,
+  // and the call dies with `Undefined: __extern__`. Two-sided control — undeclared, all five answer
+  // on the wire; declared, all five die; the members declared just below, which DO carry a default,
+  // are unaffected. Filed as `interp-declaring-a-plain-extern-class-member-breaks-it`.
+  //
+  // So this is not an oversight and not a lane gap: it is a declaration that has to wait for that
+  // fix. Adding a throwaway default parameter to dodge it would put a lie in the public signature.
+
+  // ONE signature with a default, not two arities — the same constraint `elicit` documents above.
+  // `total <= 0` means "no total known", which is how an omitted total reaches the wire (the frame
+  // simply carries no `total` field).
+  def notifyProgress(progress: Double, total: Double = 0): Unit
+
+  // `level` is an MCP severity name — "debug", "info", "notice", "warning", "error", "critical",
+  // "alert", "emergency". `data` is any JSON-shaped value.
+  // `logger` is the optional emitting-component name; "" means none.
+  def log(level: String, data: Any, logger: String = ""): Unit
+
+  // Broadcast a raw JSON-RPC notification to every active subscriber.
+  def notify(method: String, params: Map[String, Any] = Map()): Unit
+
   // Lifecycle hooks — called once per client connect / disconnect.
   def onConnected(handler: () => Unit): Unit
   def onDisconnected(handler: () => Unit): Unit

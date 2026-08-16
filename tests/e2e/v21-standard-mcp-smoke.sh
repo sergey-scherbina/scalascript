@@ -329,4 +329,61 @@ cmp "$tmp/reg.v1.cmp" "$tmp/reg.v2.cmp" || {
   cat "$tmp/reg.v1.cmp" >&2; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate)'
+# ── notifications, progress and logging: eight members, on the wire ──────────
+#
+# THREE of these are CONDITIONAL, and a case that ignores the condition passes against a member
+# that does nothing. The preconditions are set up here on purpose:
+#   * `resources/subscribe` first, or `notifyResourceUpdate` is a no-op for that uri.
+#   * `logging/setLevel debug` first, or `log` is dropped by the level floor.
+#   * `_meta.progressToken` on the call, or `notifyProgress` has no token to attach to.
+# `currentLogLevel` is read back INTO the tool result, so the setLevel above must have taken
+# effect for the row to pass — `level=debug`, not the `info` default.
+cat > "$tmp/notif.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, ToolResult, ResourceResult, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.resource("mem://a", "a")(uri => ResourceResult(uri, List(Content.Text("A"))))
+    srv.tool("go")(args =>
+      srv.notifyProgress(0.5, 1.0)
+      srv.log("error", "LOGLINE")
+      srv.notifyResourceUpdate("mem://a")
+      srv.notifyToolsListChanged()
+      srv.notifyResourcesListChanged()
+      srv.notifyPromptsListChanged()
+      srv.notify("notifications/custom", Map("k" -> "v"))
+      ToolResult(List(Content.Text("level=" + srv.currentLogLevel()))))
+  )
+  serveMcp(Transport.Stdio)
+SSC
+notif_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"resources/subscribe","params":{"uri":"mem://a"}}
+{"jsonrpc":"2.0","id":3,"method":"logging/setLevel","params":{"level":"debug"}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"go","arguments":{},"_meta":{"progressToken":"T1"}}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$notif_in" | "$bin" run $lane "$tmp/notif.ssc" >"$tmp/notif$lane.out" 2>"$tmp/notif$lane.err" || true
+  for want in \
+    '"method":"notifications/progress","params":{"progressToken":"T1","progress":0.5,"total":1}' \
+    '"method":"notifications/message","params":{"level":"error","data":"LOGLINE"}' \
+    '"method":"notifications/resources/updated","params":{"uri":"mem://a"}' \
+    '"method":"notifications/tools/list_changed"' \
+    '"method":"notifications/resources/list_changed"' \
+    '"method":"notifications/prompts/list_changed"' \
+    '"method":"notifications/custom","params":{"k":"v"}' \
+    '"text":"level=debug"'
+  do
+    grep -qF "$want" "$tmp/notif$lane.out" || {
+      echo "v21-standard-mcp-smoke: missing on $lane -> $want" >&2
+      tail -4 "$tmp/notif$lane.out" "$tmp/notif$lane.err" >&2; exit 1
+    }
+  done
+done
+grep -v '"serverInfo"' "$tmp/notif--v1.out" >"$tmp/notif.v1.cmp"
+grep -v '"serverInfo"' "$tmp/notif--v2.out" >"$tmp/notif.v2.cmp"
+cmp "$tmp/notif.v1.cmp" "$tmp/notif.v2.cmp" || {
+  echo 'v21-standard-mcp-smoke: notifications differ between the lanes' >&2
+  diff "$tmp/notif.v1.cmp" "$tmp/notif.v2.cmp" >&2 || true; exit 1
+}
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members)'

@@ -533,8 +533,8 @@ that does, proven in both directions.
       to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
       the one caller that does not use it.
 - [~] **The remaining `srv` members on v2**, in groups that stand alone: auth (7),
-      roots/sampling (6), notifications and progress (7), registration — **DONE**, completions (2),
-      paging (2),
+      roots/sampling (6), notifications and progress — **DONE**, registration — **DONE**,
+      completions (2), paging (2),
       subscriptions (2), `currentLogLevel`. The census is `specs/mcp-2026-07-28.md` §11.1.
       ✓ 2026-08-16 — `prompt` done, and it was the one member on this list that was already
       DECLARED in `std/mcp/server.ssc`: the declared surface and the default lane disagreed, so a
@@ -557,6 +557,21 @@ that does, proven in both directions.
       than as `mem://note/{id}`. Two controls, one per byte: discarding the schema reds the first
       and leaves the template correct; passing the template instead of the uri reds the third and
       leaves the schema and the template LISTING correct — so the assertions are independent.
+      ✓ 2026-08-16 — notifications, progress and logging CLOSED on v2: all eight
+      (`notifyToolsListChanged`, `notifyResourcesListChanged`, `notifyPromptsListChanged`,
+      `notifyResourceUpdate`, `notifyProgress`, `notify`, `log`, `currentLogLevel`) implemented and
+      driven on BOTH lanes. THREE of them are CONDITIONAL and the gate sets each precondition up,
+      because without them the row would pass against a member that does nothing: subscribe before
+      `notifyResourceUpdate`, `logging/setLevel` before `log`, `_meta.progressToken` on the call
+      before `notifyProgress`. Control: dropping one member on v2 reds that frame on `--v2` only.
+      **Only THREE of the eight are DECLARED**, and that is a blocker, not an omission —
+      `interp-declaring-a-plain-extern-class-member-breaks-it`. Declaring a member whose parameters
+      are empty or all plain scalars, with no default, makes the interpreter serve the `__extern__`
+      stub instead of the plugin: the member works UNDECLARED and dies DECLARED, two-sided control
+      in the entry. The five affected declarations wait for that fix rather than dodging it with a
+      throwaway default. Filed alongside it: same-name non-curried declarations COLLAPSE to the
+      last one on the interpreter, so every remaining group must use one signature with a default —
+      the constraint `elicit` already documents.
 - [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
       answered by it; none has been re-read against the code. A review, not a build.
 - [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the

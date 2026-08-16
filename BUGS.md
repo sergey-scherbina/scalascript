@@ -1645,6 +1645,66 @@ independent.
 
 ---
 
+## interp-declaring-a-plain-extern-class-member-breaks-it — a member works UNDECLARED and dies the moment you declare it
+
+<!-- status: open
+     lane: int
+     area: runtime
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16
+     repro: the two-sided control in the body
+     confirmed: yes -->
+
+Declaring a member in an `extern class` breaks it on the interpreter — the opposite direction from
+every "declared but unimplemented" defect on this board.
+
+TWO-SIDED CONTROL, same five members, same program, same lane, one variable:
+
+```
+UNDECLARED in std/mcp/server.ssc          DECLARED in std/mcp/server.ssc
+  notifications/tools/list_changed          [line 72, col 44] Undefined: __extern__
+  notifications/resources/list_changed      [line 73, col 48] Undefined: __extern__
+  notifications/prompts/list_changed        [line 74, col 46] Undefined: __extern__
+  notifications/resources/updated           [line 76, col 53] Undefined: __extern__
+  level=info  (from currentLogLevel)        [line 87, col 39] Undefined: __extern__
+```
+
+THE PARTITION NAMES THE SHAPE, and it is why this was not obvious. Declaring these is fine:
+
+  * `tool(name)(handler)`, `resource(uri)(handler)`, `prompt(name)(handler)` — CURRIED
+  * `elicit(msg, schema, timeoutMs = 0)`, `notifyProgress(p, total = 0)`,
+    `log(level, data, logger = "")`, `notify(method, params = Map())` — carry a DEFAULT
+  * `onConnected(handler: () => Unit)` — FUNCTION-typed parameter
+
+and declaring these breaks them:
+
+  * `notifyToolsListChanged()`, `notifyResourcesListChanged()`, `notifyPromptsListChanged()`,
+    `currentLogLevel(): String` — niladic
+  * `notifyResourceUpdate(uri: String): Unit` — one plain scalar parameter
+
+So: a declared extern-class member whose parameter list is empty or all plain scalars, with no
+default, is served by the `__extern__` stub instead of the plugin binding. One with a default, a
+function parameter, or a second parameter list is not. `Parser.preprocessExtern` rewrites EVERY
+extern-class member body to `__extern__` alike, so the divergence is downstream of the rewrite, in
+how a call on the plugin object chooses between the declaration and the plugin's own member.
+`StatRuntime.scala:276` skips extern defs at STATEMENT level and is the only `isExternDef` consumer
+on this lane — there is no equivalent for class members, which is the place to look.
+
+HOW IT WAS FOUND, because the first reading was wrong: five members failed at once and I read it as
+five separate defects. Two of them — `notifyProgress` and `log` — were a DIFFERENT bug: I had
+declared them as two arities each, the interpreter collapsed same-name non-curried declarations to
+the LAST one (`missing argument for parameter 'total'` on a one-argument call), and collapsing each
+to a single signature with a default fixed those two and left the other five. A bisect over one
+member per program, re-run after each fix, is what separated them.
+
+CONSEQUENCE TODAY: five members of `std.mcp.McpServer` are implemented on every lane, reachable
+from `.ssc`, and deliberately NOT declared, with the reason written where the declarations would
+go. Adding a throwaway default parameter would dodge it and put a lie in the public signature.
+
+---
+
 ## mcp-elicit-deadlocks-the-serve-loop — the answer can only arrive through the loop `elicit` blocks
 
 <!-- status: open

@@ -418,6 +418,55 @@ final class McpNativePlugin extends NativePlugin:
         case "clientSupportsElicitation" =>
           Some(closure(0) { _ => Value.BoolV(builder.clientSupportsElicitation) })
 
+        // ── notifications, progress and logging ──────────────────────────
+        //
+        // All eight are thin over `McpServerBuilder`, but THREE of them are CONDITIONAL and that
+        // is the part worth stating, because it decides what a gate has to set up:
+        //   * `log` drops anything ranked below the client's current level (`logging/setLevel`).
+        //   * `notifyResourceUpdate` emits only for a uri the client actually SUBSCRIBED to.
+        //   * `notifyProgress` emits only inside a request that carried `_meta.progressToken`.
+        // A case that calls them without those preconditions passes against a no-op.
+        case "notifyToolsListChanged" =>
+          Some(closure(0) { _ => builder.notifyToolsListChanged(); Value.UnitV })
+        case "notifyResourcesListChanged" =>
+          Some(closure(0) { _ => builder.notifyResourcesListChanged(); Value.UnitV })
+        case "notifyPromptsListChanged" =>
+          Some(closure(0) { _ => builder.notifyPromptsListChanged(); Value.UnitV })
+        case "notifyResourceUpdate" => Some(closure(1) { args =>
+          builder.notifyResourceUpdate(text(args.head, "srv.notifyResourceUpdate(uri)"))
+          Value.UnitV
+        })
+        case "notifyProgress" => Some(closure(-1) { args =>
+          // Int and Float both spell a progress value in `.ssc`; accepting only one would make
+          // `srv.notifyProgress(1)` a type error for no reason the caller can see.
+          def num(value: Value, label: String): Double = value match
+            case Value.IntV(result)   => result.toDouble
+            case Value.FloatV(result) => result
+            case _ => throw new IllegalArgumentException(s"srv.notifyProgress: $label must be a number")
+          if args.isEmpty then
+            throw new IllegalArgumentException("srv.notifyProgress(progress[, total])")
+          // `total <= 0` is the declared spelling of "no total known" — std/mcp/server.ssc gives the
+          // parameter a default of 0 rather than a second arity, because a v2 member is resolved by
+          // getField(name) before arguments exist and cannot carry two.
+          val total = args.lift(1).map(v => num(v, "total")).filter(_ > 0)
+          builder.notifyProgress(num(args.head, "progress"), total)
+          Value.UnitV
+        })
+        case "notify" => Some(closure(-1) { args =>
+          val method = text(args.head, "srv.notify(method[, params])")
+          builder.notify(method, args.lift(1).map(json).getOrElse(ujson.Obj()))
+          Value.UnitV
+        })
+        case "log" => Some(closure(-1) { args =>
+          if args.length < 2 then
+            throw new IllegalArgumentException("srv.log(level, data[, logger])")
+          val level  = text(args.head, "srv.log level")
+          val logger = args.lift(2).collect { case Value.StrV(l) if l.nonEmpty => l }
+          builder.log(level, json(args(1)), logger)
+          Value.UnitV
+        })
+        case "currentLogLevel" => Some(closure(0) { _ => Value.StrV(builder.loggingLevel) })
+
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head
           builder.setOnConnected(() => { context.invoke(cb, Nil); () })
