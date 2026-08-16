@@ -308,6 +308,28 @@ is left as one.
 **The two reds are why "over the cap" was not written as "probably fine".** A gate nobody has run to
 completion has no verdict at all, and half of these turned out to have something to say.
 
+### 2026-08-16, later the same day — five more drained, 21 -> 16
+
+| gate | outcome |
+|---|---|
+| `tests/interop-conformance/validation-test.sh` | wired, 35 s. Plant: `validate_vector_catalog` stubbed -> "malformed catalog was accepted" |
+| `v2/backend/check-handler-markers.sh` | had gone RED the same day — its sibling moved to cargo for `num-bigint` and it did not. Fixed, wired, 95 s |
+| `v2/conformance/portable-capsule.sh` | wired, 23 s. Plant: the digest comparison disabled -> "tampered resume admitted" |
+| `v3/toolchain-gate.sh` | wired, 31 s. Plant: `//> using scala` drifted to 3.9.9 -> "could not fetch the Scala 3.9.9 toolchain" |
+| `tests/e2e/v21-portable-gates-smoke.sh` | the setup refusal could never be satisfied — see below. Repaired with `--standard`, PASS in 26 s |
+
+**THE SETUP REFUSAL NAMED A TASK THAT CANNOT HELP.** It exited 2 with `staged v2 jars missing (run
+scripts/sbtc "installBin")`. Taking that at its word once was the whole diagnosis: **installBin
+succeeds in 61 s and the jar is still absent**, because `v2/frontend-bridge` was REMOVED when the
+`--bytecode` paths moved to the native ssc1 front. Removing the precondition only moves the failure
+to `Could not find or load main class ssc.bridge.bridgeCli`; the mode is dead, not merely guarded.
+The gate asks for `--standard` now — the layout that ships. Residue filed as `scripts/BUGS.md
+native-front-corpus-non-standard-mode-needs-a-module-that-was-deleted`.
+
+**Two "blocked on a sibling claim" notes expired between the morning and the evening**, and one of
+the two gates was no longer green when the claim cleared. A blocked note is dated evidence, like a
+not-fixable verdict.
+
 ## orphan-debt-triage-31-frozen-gates — the census the ratchet was built to make possible
 
 <!-- status: fixed
