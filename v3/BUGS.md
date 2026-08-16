@@ -11,6 +11,7 @@ Query: `scripts/bugs-report --module v3`.
 <!-- status: open
      kind: bug
      lane: v3
+     kind: feature
      area: front
      gate: v3/corpus-report.sh (std-content and four more)
      found-by: claude-code
