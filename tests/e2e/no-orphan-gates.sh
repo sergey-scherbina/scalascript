@@ -79,7 +79,6 @@ tests/e2e/v21-portable-gates-smoke.sh
 tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh
 v2/conformance/check.sh
-v2/conformance/portable-capsule.sh
 v3/plugin-classpath.sh
 v3/toolchain-gate.sh
 EOF

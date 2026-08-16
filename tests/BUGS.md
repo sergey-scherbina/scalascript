@@ -372,14 +372,17 @@ self-test now restores the function before falling through, and both modes are a
 `v21-typeclass-dictionary-smoke` (30 s) is wired to tier 2 — it was already green, it simply ran
 nowhere; a `println` replaced in its fixture turns it red.
 
-**Three green ones stay frozen, and the reason is the same for all three: their non-vacuity cannot
-be shown without editing a file a sibling claim holds.**
+**The three "blocked on a sibling claim" ones: two are now done and the claims had cleared.**
 
-| gate | s | what a plant would have to touch |
+| gate | then | now |
 |---|---|---|
-| `v2/backend/check-handler-markers.sh` | 53 | `FrontendBridge`'s handler-decision markers |
-| `v2/conformance/portable-capsule.sh` | 54 | the capsule machinery it exercises |
-| `v3/toolchain-gate.sh` | 67 | `v3/src` — the gate builds v3 with `scala-cli` removed from `PATH` |
+| `v2/backend/check-handler-markers.sh` | frozen, "needs a plant in FrontendBridge" | **it had gone RED the same day** — its sibling moved to cargo for `num-bigint` and it did not. Fixed, wired, 95 s. See `v2/BUGS.md check-handler-markers-was-left-on-bare-rustc-when-its-sibling-moved-to-cargo` |
+| `v2/conformance/portable-capsule.sh` | frozen, "needs a plant in the capsule machinery" | green in 23 s (the 54 s was load), wired to tier 2. Plant: the digest comparison in `Capsule.scala` disabled → `FAIL tamper rejected — tampered resume admitted` |
+| `v3/toolchain-gate.sh` | 67 s | still frozen — `v3/src` is claimed, and its header's own non-vacuity argument (it removes `scala-cli` from `PATH` and requires the build to work) is a design argument this triage has learned not to accept in place of a plant |
+
+**And the blocker itself was worth re-checking rather than believing.** Two of the three were only
+ever blocked by a claim that had since cleared; one of those turned out to be RED, not green, by a
+change that landed hours after the census measured it. A "blocked" note is dated evidence.
 
 `v3/toolchain-gate.sh` is the interesting one: its header already argues its own non-vacuity, and
 the argument is good — it does not grep for an absence, it REMOVES the tool from `PATH` and requires

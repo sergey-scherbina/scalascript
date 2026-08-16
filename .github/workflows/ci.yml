@@ -441,6 +441,20 @@ jobs:
         if: always()          # see the block above this job's steps
         run: v2/backend/check-handler-markers.sh
 
+      # Orphan drained. It freezes a Portable-CodeMode capsule and resumes it in a SEPARATE JVM that
+      # holds no machine — the cross-host-resume foundation (control-interoperability §14.3 items
+      # 10-11): a run needs neither the original process nor the original artifact. It also carries
+      # its own negative, a tampered resume that must be REFUSED.
+      #
+      # NOT VACUOUS: with the digest comparison in `v2/src/Capsule.scala` disabled it reports
+      # `FAIL tamper rejected — tampered resume admitted` and exits 1.
+      #
+      # TIER 2 rather than smoke at 23 s, for the reason the smoke budget work of 2026-08-16 set:
+      # things come OFF the push path, not onto it, while the suite sits near its cap.
+      - name: A portable capsule resumes in a fresh process and refuses tampering
+        if: always()          # see the block above this job's steps
+        run: v2/conformance/portable-capsule.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
