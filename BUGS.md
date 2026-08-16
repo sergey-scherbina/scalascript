@@ -443,12 +443,12 @@ the arm there is now two lines and the body lives in `namedCtorAsPositional`. `r
 
 ## rust-exec-ignores-processoptions-timeout — `timeout` is accepted by the type and never enforced
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/rust-exec-options-gate.sh
+     fixed-in: fc666eda6
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 6dce987e5
@@ -473,6 +473,49 @@ Until then the type accepts a field the lane ignores — the same silent shape t
 about, kept only because the alternative is refusing `exec` outright for every caller that passes a
 `ProcessOptions` with a timeout set, which would break working programs to fix a not-yet-supported
 one.
+
+### Fixed — and the measurement was worse than "unenforced"
+
+The entry said the field was accepted and not applied. Measured, with the clock as part of the
+evidence:
+
+```text
+                        exit code   wall time
+run                     -1          killed at 600 ms
+build-rust (before)      0          returned after the FULL 5 s
+build-rust (after)      -1          killed at 600 ms
+```
+
+So a caller who bounded a request handler got neither the bound nor the signal: `exec` blocked for
+the child's whole life AND reported SUCCESS. "Accepted and ignored" undersells it — the answer was
+wrong, not merely absent.
+
+**-1 on expiry is READ OFF THE OTHER LANES, not invented.** The v1 plugin and the jvm runtime both
+answer -1 after `destroyForcibly`, so this closes a divergence instead of opening a fourth. Whatever
+the child managed to write is still returned, which is also what they do.
+
+**`.output()` cannot be used on this path** — it blocks until the child is done and hands back no
+handle, so there is nothing to interrupt. The timeout path spawns, polls `try_wait` every 10 ms
+against a deadline, then `kill`s. Polling rather than a channel keeps it dependency-free, and the
+granularity that matters is "did it beat the deadline", not the exact millisecond of the kill.
+
+**The pipes are drained on THREADS, and the gate has a row that fails only if they are not.** Reading
+either stream to EOF on the polling thread blocks until the child exits — which deadlocks past a
+pipe buffer AND defeats the very timeout being implemented, since the read cannot return before the
+process it is timing has finished. Both JVM lanes carry that lesson in their own comments; row 8
+(300 KB of child output, several times a pipe buffer) is what keeps the rust one honest, and it
+would HANG rather than fail, which is why every lane in that gate now runs under a `timeout`.
+
+**One matrix cell was nearly left behind.** The `stdin` path added last week also spawns and returns,
+so the first version of this fix silently dropped the timeout whenever BOTH were set. The stdin
+branch is now guarded on `timeout_ms.is_none()` and the timeout branch writes stdin itself; row 7
+asserts the pair.
+
+**Verified:** `tests/e2e/rust-exec-options-gate.sh` PASS, 8 rows compared against `run` row by row
+plus an oracle row that now pins the timeout answer too. Negative control with the runtime template
+reverted and the launcher rebuilt: FAIL on exactly one row, `timeout expired: rust '0', interpreter
+'-1'`. Sibling gates re-run green (`process-stdin-gate`, `process-spawn-gate`);
+`rust-std-survey-gate` 77 REFUSED / 55 COMPILES, BADRUST not grown; `v1-jit-size` PASS.
 
 ## uniml-reads-an-identifier-and-a-later-string-as-an-interpolator — the adjacency test never tested adjacency
 
