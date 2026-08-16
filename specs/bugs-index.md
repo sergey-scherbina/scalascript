@@ -81,7 +81,7 @@ on "status is open but the gate passes" would flag those thirty-three and find n
 staleness signal is that the entry's stated REPRODUCTION no longer reproduces, which is not
 mechanical — five entries went stale that way in a single day, three of them written by the agent
 that later corrected them, and every one was caught by re-running the repro rather than by a query.
-| `kind` | optional, defaults to `bug` | `bug` · `perf` · `feature` · `regression` · `apparatus` · `programme` |
+| `kind` | **required** (since 2026-08-16) | `bug` · `perf` · `feature` · `regression` · `apparatus` · `programme` |
 | `duplicate-of` | when `status: duplicate` | the slug this duplicates |
 | `confirmed` | optional | `no` — fixed but the reporter has not confirmed. **Not a separate status.** |
 | `reported-by` | when the entry came from the inbound queue | the reporter — a handle, address or URL |
@@ -114,12 +114,34 @@ scripts/bugs-report --kind perf --module v2 --status open
 scripts/task-views --check                      # the TASK/ documents, regenerated and diffed
 ```
 
-**Why it is optional and defaults to `bug`.** Back-filling 635 entries automatically would repeat
-the mistake `area:` already made: its values were extracted from prose word frequency, and 256 of
-621 came out `front` because `parse`, `_err` and `front` appear in almost any report. Ordering of
+**Why it WAS optional, and why it is not any more.** Back-filling automatically would repeat the
+mistake `area:` already made: its values were extracted from prose word frequency, and 256 of 621
+came out `front` because `parse`, `_err` and `front` appear in almost any report. Ordering of
 authority, agreed in the room 2026-07-30: `fixed-in` (a resolvable sha) > a human-declared field >
-keyword extraction (**never**). Nothing derives `kind` reliably, so it is declared when an entry is
-written or next touched, and the default is stated rather than guessed.
+keyword extraction (**never**). Nothing derives `kind` reliably — which is an argument against
+DERIVING it, and it was read for two weeks as an argument for leaving it blank.
+
+Blank lost. By 2026-08-16 **779 of 1052 entries declared no kind**, so `--kind` answered a quarter
+of the board and looked complete doing it. They were filled by READING each entry's own statement
+of the defect (82267dd82, 8fc69b993) — one at a time, with no keyword extraction — and the field is
+required from that date, checked by `tests/e2e/bugs-index-gate.sh`.
+
+**Required, not defaulted, because the default is what hid the deficit.** `bug` as an implicit
+answer is right often enough to be invisible and wrong often enough to matter: of the 779, 179 were
+`apparatus` and 21 `feature`, i.e. **a quarter would have been silently mis-answered** by the
+default. And an enum check alone does not close it — a check that fires only WHEN THE FIELD IS
+PRESENT is no guard against absence. While the backfill was running, four new entries arrived with
+no kind and a sibling commit dropped the kind from an existing one while rewriting its header.
+
+The classification rule, so the next writer applies the same one: **the SUBJECT decides.** A defect
+in the harness, CI, coordination tooling or a measurement is `apparatus`; a defect in
+compiler/runtime/std/CLI behaviour is `bug`; an explicitly unimplemented capability is `feature`;
+product speed or memory is `perf`; a container naming several defects is `programme`. The trap to
+know about: **an entry names its GATE far more often than its cause.**
+`conformance-jvm-cps-local-unit-effect-cast` is a JVM codegen defect FOUND BY conformance, not a
+conformance defect; a blind re-read of 40 random entries agreed 38/40 and both misses were exactly
+this shape — `v21-explicit-lanes-gate-swift-em-dash-red` (the JVM launcher's stdout is
+locale-dependent) and `durable-save-run-verifier-red` (the effect verifier mis-flags a valid def).
 
 **The deficit this field does not fix, and which the tool now prints.** `--kind perf` over `BUGS.md`
 alone answered 3 of 12 known performance items — the other 9 are prose in a `BACKLOG.md`, which has

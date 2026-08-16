@@ -54,11 +54,17 @@ STATUS = {"open", "fixed", "wontfix", "duplicate", "unknown"}
 LANE   = {"native","int","js","jvm","v2-jvm","v2-rust","v3","apparatus","multi","n/a"}
 AREA   = {"front","runtime","codegen","cli","conformance","build","docs","plugin","other"}
 
-# `kind` is OPTIONAL (it defaults to `bug` when ranking) but it is NOT free text. Sixteen entries had
-# accumulated invented values — `divergence` x8, `gap` x5, `wrong-output` x2, `wrong-answer`,
+# `kind` is REQUIRED since 2026-08-16, and it is not free text. Both halves were learned the same
+# week. It had no enum check while status, lane and area all had one, and sixteen entries had
+# drifted to invented values — `divergence` x8, `gap` x5, `wrong-output` x2, `wrong-answer`,
 # `defect` — none of which `--kind` can match, so a query for every wrong answer silently missed
-# them. The enum was checked for status, lane and area and not for this one, which is the whole
-# reason it drifted. `specs/bugs-index.md` line 84 is the source.
+# them. That half was fixed in 82267dd82.
+#
+# OPTIONAL WAS THE OTHER HALF, and checking the enum alone does not close it: a check that only
+# fires WHEN THE FIELD IS PRESENT is no guard against absence. 779 entries carried no kind at all
+# and were backfilled by hand (8fc69b993); while that pass was running FOUR new entries arrived
+# without one and a sibling commit DROPPED the kind from `int-concat-nonlist-builds-a-tuple` while
+# rewriting its header to close it. Data alone regrows in days. `specs/bugs-index.md` is the source.
 KIND = {"bug", "perf", "feature", "regression", "apparatus", "programme"}
 entries, cur, buf = [], None, []
 for ln in lines:
@@ -110,7 +116,9 @@ for head, body in entries:
         problems.append((slug, f"lane `{fields['lane']}` not in the enum"))
     if fields.get("area") not in (None,) and fields["area"] not in AREA:
         problems.append((slug, f"area `{fields['area']}` not in the enum"))
-    if fields.get("kind") is not None and fields["kind"] not in KIND:
+    if fields.get("kind") is None:
+        problems.append((slug, "no `kind:` — required since 2026-08-16; see specs/bugs-index.md"))
+    elif fields["kind"] not in KIND:
         problems.append((slug, f"kind `{fields['kind']}` not in {sorted(KIND)} — see specs/bugs-index.md"))
     if st == "fixed":
         sha = fields.get("fixed-in")
@@ -227,11 +235,13 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
 ## good-entry — fine
 <!-- status: open
+     kind: bug
      lane: native
      area: front -->
 
 ## bad-unterminated-header — the `-->` is missing, so the header runs into the prose
 <!-- status: open
+     kind: bug
      lane: int
      area: front
 
@@ -242,16 +252,19 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
 
 ## bad-status — bogus status
 <!-- status: banana
+     kind: bug
      lane: native
      area: front -->
 
 ## bad-fixed-no-sha — fixed without fixed-in
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime -->
 
 ## bad-fixed-not-a-sha — fixed-in is a CI run id, not a sha
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 30484689408 -->
@@ -261,6 +274,11 @@ Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: th
      kind: divergence
      lane: int
      area: runtime -->
+
+## bad-no-kind — no kind at all, which every other planted entry now avoids on purpose
+<!-- status: open
+     lane: int
+     area: runtime -->
 BAD
   # The STALE-OPEN case, appended rather than inlined because it needs a sha that really IS an
   # ancestor of HEAD — a literal in the heredoc would either dangle or, worse, stop being an ancestor
@@ -268,6 +286,7 @@ BAD
   cat >> "$TMP" <<STALE
 ## stale-open-entry — its fix landed and it still says otherwise
 <!-- status: open
+     kind: bug
      lane: int
      area: runtime -->
 
@@ -285,7 +304,11 @@ STALE
   # it and the plain shape failure. This assertion caught the message change the moment it landed,
   # which is what a self-test is for; loosening it to match is correct here, deleting it would not
   # be.
-  for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated"; do
+  # "no \`kind:\`" is asserted BY ITS OWN STRING rather than folded into "not in": the enum message
+  # and the absence message are different checks, and an entry with no kind at all used to trip
+  # NEITHER. Asserting only the shared substring would let the required-kind check be deleted while
+  # this self-test stayed green.
+  for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated" "no \`kind:\`"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
@@ -312,7 +335,7 @@ STALE
   elif ! printf '%s' "$out" | grep -q "STALE? \[stale-open-entry\]"; then
     echo "SELF-TEST FAILED: the stale-open report did not name an entry whose fix has landed"; exit 1
   fi
-  echo "--- self-test ok (6 planted defects all caught); checking ${#FILES[@]} file(s) ---"
+  echo "--- self-test ok (7 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
 run_check "${FILES[@]}"
