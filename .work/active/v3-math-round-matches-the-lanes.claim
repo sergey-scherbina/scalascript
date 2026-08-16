@@ -2,10 +2,10 @@ slug: v3-math-round-matches-the-lanes
 branch: feature/v3-math-round-matches-the-lanes
 agent: claude-code
 started: 2026-08-16T00:52:31Z
-heartbeat: 2026-08-16T00:52:31Z
-status: claimed-before-planning
+heartbeat: 2026-08-16T00:54:53Z
+status: in-progress
 items: math-round-and-f-round-disagree-at-a-tie
-paths: file:v3/prelude/index.ssc file:v2/BUGS.md file:v3/tests/parity/math-round-neg.ssc
+paths: file:v3/prelude/index.ssc file:v2/BUGS.md file:v3/tests/parity/math-round-neg.ssc file:tests/conformance/math-round-ties.ssc file:tests/conformance/expected/math-round-ties.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: build the worktree, run the new case on four lanes + v3's corpus report
