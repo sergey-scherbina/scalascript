@@ -1,0 +1,11 @@
+slug: interp-extern-class-member-registry
+branch: feature/interp-extern-class-member-registry
+agent: claude-code
+started: 2026-08-16T14:05:35Z
+heartbeat: 2026-08-16T14:05:35Z
+status: claimed-before-planning
+items: interp-declaring-a-plain-extern-class-member-breaks-it interp-same-name-class-methods-collapse-to-the-last
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:std/mcp/server.ssc file:tests/e2e/v21-standard-mcp-smoke.sh file:BUGS.md file:BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
