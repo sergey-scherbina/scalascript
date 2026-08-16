@@ -5,7 +5,7 @@ started: 2026-08-16T03:21:44Z
 heartbeat: 2026-08-16T03:21:44Z
 status: claimed-before-planning
 items: rust-ui-form-six-shapes-behind-one-refusal rust-string-matches-is-not-rust-str-matches
-paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala file:tests/e2e/rust-matches-regex-gate.sh file:.github/workflows/ci.yml file:BUGS.md
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustRuntimeTemplates.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/RuntimeModRs file:tests/e2e/rust-matches-regex-gate.sh file:tests/rust-std-survey-baseline.tsv file:.github/workflows/ci.yml file:BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: regex lowering + the four shapes it exposed; survey 77/55
