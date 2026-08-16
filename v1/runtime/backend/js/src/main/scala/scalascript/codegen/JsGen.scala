@@ -6156,6 +6156,15 @@ class JsGen(
       intFunctions.contains(n) ||
         (ac.values.lengthCompare(1) == 0 && listElemType.get(n).exists(e => e == "Int" || e == "Long"))
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toInt" | "toLong")), _) => true
+    // `math.round(x)` IS INT-VALUED — Scala's returns a Long, and every other lane divides its
+    // result as an integer. Without this arm `math.round(5.0) / 2` emitted a floating divide and
+    // printed `2.5` here against `2` on int, jvm and v2, while `(5.0).toInt / 2` — the arm right
+    // above — already printed `2`. So the lane knew about one Int-producing call and not its
+    // neighbour, and the divergence showed up only where the value was USED rather than printed.
+    // Measured 2026-08-16 by `tests/conformance/math-round-ties.ssc`, which is the case that
+    // failed here and passed everywhere else. `math.abs` is deliberately NOT in this arm: it is
+    // polymorphic, Int -> Int and Double -> Double, so its result type follows its argument.
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name("math"), Term.Name("round")), _) => true
     case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toDouble" | "toFloat")), _) => false
     // js-collection-perf: bare-select `.toInt` / `.toLong` (no parens) is Int regardless of the
     // receiver (numeric → Math.trunc, String → parseInt) — recognise it so surrounding arithmetic

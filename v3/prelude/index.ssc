@@ -215,7 +215,28 @@ object math:
   def sqrt(x: Double): Double = __mathSqrt(x.toDouble)
   def floor(x: Double): Double = __mathFloor(x.toDouble)
   def ceil(x: Double): Double = __mathCeil(x.toDouble)
-  def round(x: Double): Double = __mathRound(x.toDouble)
+  // `round` IS NOT THE `f.round` PRIM, and this line is where the two are kept apart.
+  //
+  // The prim breaks a tie to EVEN (IEEE-754 `rint`, the Core IR contract in
+  // `v2/specs/10-core-ir.md`). Scala's `math.round` breaks it UP and returns an integer, and so do
+  // all five other lanes of this repository — measured 2026-08-16 on `math.round(2.5 / 3.5 / -2.5 /
+  // -3.5)`: `--v1`, native, `--bytecode`, `run-js` and `run-jvm` every one printed `3 4 -2 -3`,
+  // against `2 4 -2 -4` here. Delegating to `__mathRound` imported the PRIM's rule into a LANGUAGE
+  // function, which is how one program got two answers.
+  //
+  // TWO DIFFERENCES, NOT ONE, and the second is easy to miss: the result TYPE. `math.round(5.0) / 2`
+  // printed `2` on the other lanes (integer division) and `2.5` here, so the divergence survived
+  // anywhere the value was used rather than printed. Hence `Int`, not `Double`.
+  //
+  // `floor(x + 0.5)` IS the half-up rule, including for negatives — `-2.5` gives `floor(-2.0)` =
+  // `-2` and `-3.5` gives `floor(-3.0)` = `-3`, which is what the five lanes print. `.toDouble`
+  // before the add for the reason the `sqrt` comment above gives: v2's `flt` refuses an Int.
+  //
+  // `__mathFloor` AND NOT `floor`, which is the member two lines up: a bare member name does not
+  // resolve inside its own object here — `call to unknown function 'floor'` — and the delegating
+  // members all reach the top-level hook for the same reason.
+  // (v2/BUGS.md `math-round-and-f-round-disagree-at-a-tie`.)
+  def round(x: Double): Int = __mathFloor(x.toDouble + 0.5).toInt
 
   // `abs` is written over `Any` because Tier 0 has no overloading — two `def`s of one name leave
   // the first winning — and the corpus calls it on an Int (`math.abs(-7)` is 7, an Int, not 7.0).

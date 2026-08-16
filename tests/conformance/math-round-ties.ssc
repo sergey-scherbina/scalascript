@@ -1,0 +1,35 @@
+---
+name: math-round-ties
+description: math.round breaks a tie UP and returns an integer — on every lane, and not the f.round prim's rule
+backends: [int, js, jvm, v2]
+---
+
+# `math.round` at exactly `.5`
+
+**This case exists because a repository can hold two right answers and no way to notice.** The Core
+IR prim `f.round` breaks a tie to EVEN — IEEE-754's default, the contract in
+`v2/specs/10-core-ir.md`. Scala's `math.round` breaks it UP and returns an integer. They are two
+different functions in Scala too (`math.round` vs `math.rint`), and v3's prelude used to define the
+language function by delegating straight to the prim, so `math.round(2.5)` was **2** there and
+**3** on the five other lanes.
+
+Measured 2026-08-16 before the fix: `--v1`, native, `--bytecode`, `run-js` and `run-jvm` all printed
+`3 4 -2 -3`; v3 printed `2 4 -2 -4`.
+
+**The last row is the half that is easy to miss.** The divergence was also in the result TYPE, so it
+survived anywhere the value was used instead of printed: `math.round(5.0) / 2` was `2` on the other
+lanes (integer division) and `2.5` on v3.
+
+**A case pinning this was written on 2026-08-15 and WITHDRAWN**, because the lanes disagreed and it
+would have been red for a rule nobody had chosen yet. They agree now, so it goes in — and v3 is
+covered too, since `v3/corpus-report.sh` runs any case that has an `expected/` file.
+
+```scalascript
+println(math.round(2.5))
+println(math.round(3.5))
+println(math.round(-2.5))
+println(math.round(-3.5))
+println(math.round(2.4))
+println(math.round(2.6))
+println(math.round(5.0) / 2)
+```
