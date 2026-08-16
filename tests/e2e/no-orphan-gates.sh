@@ -60,7 +60,6 @@ cd "$ROOT"
 read -r -d '' FROZEN <<'EOF' || true
 examples/run-wasm.sh
 scripts/bundle-size.sh
-specs/coreir-inventory-gate.sh
 specs/newfront-diff-multi.sh
 specs/newfront-diff.sh
 specs/v2-f5b-method-census.sh
@@ -83,7 +82,6 @@ v1/tools/scripts/v2-scale-bench.sh
 v2/backend/check-handler-markers.sh
 v2/backend/check.sh
 v2/conformance/check.sh
-v2/conformance/coreir-name-guard.sh
 v2/conformance/portable-capsule.sh
 v3/extension-gate.sh
 v3/plugin-classpath.sh

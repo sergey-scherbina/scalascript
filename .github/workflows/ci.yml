@@ -309,6 +309,22 @@ jobs:
         if: always()          # see the block above this job's steps
         run: .githooks/pre-push --self-test
 
+      # An orphan drained by the 2026-08-16 triage: it was invoked by nothing, and it is the gate
+      # that keeps a caller-influenced name from being emitted VERBATIM into Core IR, where a
+      # delimiter makes the decoder stop early and re-parse the remainder as structure. Core IR is
+      # the persisted SavedContinuation capsule format, so that boundary is reachable from outside.
+      #
+      # TIER 2, NOT SMOKE, and the reason is measured rather than assumed: it runs the REAL Writer
+      # and Reader through scala-cli against v2/src — 14 s here on a warm build, a cold compile on a
+      # runner. Its sibling `specs/coreir-inventory-gate.sh` needs no toolchain at all (0 s) and went
+      # on the push path instead.
+      #
+      # NOT VACUOUS: with the Writer's delimiter check disabled the gate reports
+      # `NOT-REFUSED space in prim op :: and decoding it FAILS: not a term: Atom(b)` and exits 1.
+      - name: Core IR Writer refuses a name that would not survive a decode
+        if: always()          # see the block above this job's steps
+        run: v2/conformance/coreir-name-guard.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

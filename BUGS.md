@@ -95,11 +95,15 @@ comment predicts, so the rewrite is behaviour-identical where it matters most; `
 is a wrong value with a zero exit and `run.sh` classifies by grepping for exceptions; the lint green
 with a planted `Character.getType` still caught.
 
-**Not done, and named rather than implied: the JS lane.** Its `$method` is keyed on the same nullary
-constructor shape and needs the mirrored case; a `$charObj` written against the `ForeignV` shape
-would have been dead code, so it was reverted rather than shipped unverified. The Rust lane declines
-by design — `char::to_lowercase` yields an ITERATOR there (U+0130 lowers to two chars), so a
-char-to-char fold needs a documented truncation nobody has asked for.
+**The JS lane — and this note's FIRST version was wrong, corrected the same day.** It said the lane
+needs "the mirrored case in `$method`". It does not: `run-js --v2` never reaches `$method`, dying one
+layer earlier on the char LITERAL (`println('a')` → `unimplemented primitive: char`). **That lane has
+no Char value at all**, and giving it one is a representation decision, not two lines — filed as
+`v2/BUGS.md js-v2-lane-has-no-Char-at-all`. Writing the mirrored case would have put dead code above
+an unreachable path, which is exactly what the wrong note invited.
+
+The Rust lane declines by design — `char::to_lowercase` yields an ITERATOR there (U+0130 lowers to
+two chars), so a char-to-char fold needs a documented truncation nobody has asked for.
 
 ## rust-map-plus-pair-is-not-lowered — `map + (k -> v)` reaches rustc as an addition, and the `updated` that means the same thing is already lowered three lines away
 

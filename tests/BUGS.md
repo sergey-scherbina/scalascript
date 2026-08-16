@@ -50,6 +50,105 @@ regrown the debt; the check is what makes it stick.
 
 **Every entry in the repository now carries a declared kind from the closed enum:**
 `bug 195 · apparatus 41 · feature 17 · perf 10 · programme 3 · regression 2`, off-enum 0.
+## orphan-debt-triage-31-frozen-gates — the census the ratchet was built to make possible
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/no-orphan-gates.sh --self-test -->
+
+`orphan-detector-scans-one-directory-and-misses-real-gates` widened the census from 217 subjects to
+292 and froze 31 orphans without triaging them — deliberately, because a sweep is what the
+predecessor entry showed does not hold. This is the triage. **All 31 were RUN** against a freshly
+built toolchain, 120 s cap each.
+
+| outcome | n | what it means |
+|---|---|---|
+| green | 9 | candidates for wiring, one vacuity check each |
+| red | 5 | five different product defects — `five-frozen-orphan-gates-are-red-and-each-names-a-different-defect` |
+| over the 120 s cap | 4 | `rust-build-smoke`, `v2/backend/check.sh`, `v2/conformance/check.sh`, `v3/plugin-classpath.sh` — unmeasured, not green |
+| refuse on entry | 12 | parameterised harnesses, not gates: they want `SSC_JAR` or an argument and exit in 0 s |
+| setup refusal | 1 | `v21-portable-gates-smoke` wants staged v2 jars (`scripts/sbtc installBin`) |
+
+**THE 12 "REFUSALS" ARE THE MOST USEFUL ROW, and they are not failures.** `specs/newfront-diff*.sh`,
+`specs/v2-f5b-method-census.sh`, `specs/v2.2-p6.*`, `examples/run-wasm.sh` and
+`v1/tools/scripts/v2-scale-bench.sh` all exit non-zero in 0 s with a usage line
+(`SSC_JAR: set SSC_JAR to a run-ir-capable v2 kernel jar`). They are TOOLS the orphan detector counts
+as gates because it selects by extension. Wiring them would be wrong; deleting them would be wrong;
+they simply are not the thing the ratchet is about, and the frozen list should say so rather than
+let the next reader re-run them to find out.
+
+### Drained: 31 → 28
+
+* `uniml/lint-portable-subset.sh` → smoke. Was RED; fixed on both sides first
+  (`uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere`). 0 s.
+* `specs/coreir-inventory-gate.sh` → smoke. Reconciles SIX sources for the Core IR node/const
+  inventory; 0 s and no toolchain at all.
+* `v2/conformance/coreir-name-guard.sh` → tier 2 in `ci.yml`. Runs the real Writer and Reader through
+  scala-cli — 14 s warm here, a cold compile on a runner, so it stays off the push path.
+
+Each was checked NOT to be vacuous by a plant, and **one of those plants was invalid first**:
+renaming the first `LetRec` in `10-core-ir.md` hit a PROSE mention and the inventory gate stayed
+green. Scoped to the parsed block it fails as it should. A plant has to land where the gate reads.
+
+### Not wired, and the reason is specific
+
+`v3/extension-gate.sh` is green in 0 s and checks a real invariant (`Lower`'s vocabulary covers the
+123 names `Exec` answers to). **It is not wired because its non-vacuity cannot be shown right now:**
+proving it needs a plant in `v3/src/Lower.scala` or `Exec.scala`, and a sibling claim holds both.
+Wiring a gate whose ability to fail has not been demonstrated is how a suite fills up with green
+that means nothing — so it waits for the claim to clear, rather than being wired on the strength of
+its output looking convincing.
+
+The five remaining green ones cost 30–67 s (`v21-typeclass-dictionary-smoke`,
+`check-handler-markers`, `portable-capsule`, `v3/toolchain-gate`) and belong in tier 2 after the same
+treatment.
+
+## five-frozen-orphan-gates-are-red-and-each-names-a-different-defect
+
+<!-- status: open
+     lane: multi
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: none — the gates below ARE the reproducers -->
+
+All 31 orphans frozen by `no-orphan-gates.sh` were RUN on 2026-08-16 against a freshly built
+toolchain (`./install.sh --dev` at `7247261bc`), 120 s cap each. Nine are green, five are red, four
+time out past the cap, and the rest refuse on entry because they are parameterised harnesses rather
+than gates. **The five reds are five different product defects**, none of them previously visible —
+these scripts are invoked by nothing, so nothing has reported them.
+
+| gate | s | first failure |
+|---|---|---|
+| `tests/e2e/render-smoke.sh` | 14 | `[FAIL] headless render differs from served output` — the two disagree on generated CSS class names (`.root__Alert.error__Alert`) |
+| `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
+| `tests/e2e/v21-native-content-smoke.sh` | 51 | binding output keeps its placeholders: `missing=${missing.path}; invalid=${bad-path}` |
+| `tests/e2e/v21-native-doc-render-smoke.sh` | 71 | `standard run loaded a forbidden compatibility/parser class` — a TIER violation, not a rendering one |
+| `tests/e2e/v21-unhandled-effect-smoke.sh` | 25 | `ssc: unbound global: Network`, where the gate expects a rejection naming `Wallets.metaMask` |
+
+**AGE UNKNOWN, AND THAT IS THE POINT — not a claim of regression.** An unwired gate has no history:
+nothing ran it, so no commit can be blamed and no bisect is meaningful without first wiring it.
+Whoever picks one up should wire it as the first step of the fix, not the last.
+
+**A sixth was misfiled by the census and is corrected here:** `tests/e2e/v21-portable-gates-smoke.sh`
+exits 2 with `native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")`. That is a
+SETUP REFUSAL, not a failure — the gate declined to judge. Counting it as red would have inflated
+the number with a gate that never ran, which is the same error the `orphaned-e2e-gates-52` entry had
+to correct twice in its own tables.
+
+**Four more are unmeasured, not green:** `tests/rust-build-smoke.sh`, `v2/backend/check.sh`,
+`v2/conformance/check.sh` and `v3/plugin-classpath.sh` each hit the 120 s cap. `v2/backend/check.sh`
+compiles a Rust crate and a wasm module per fixture, so minutes are expected; the cap is a
+classifier for "can this go on the push path", not a verdict.
+
+**The nine green ones are wired or wiring**, which is the other half of this sweep — see
+`orphan-debt-triage-31-frozen-gates`. Wiring a red gate is what turns a suite into noise people
+learn to ignore, so these five stay frozen with this entry named as the reason.
 
 ## ref-front-injects-the-first-given-for-an-explicit-using-clause — the interpreter disagrees
 

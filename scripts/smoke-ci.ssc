@@ -829,6 +829,19 @@ val suite = List(
   // Checked NOT to be vacuous: a planted `Character.getType` is still caught.
   // (uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere.)
   Check(".", "uniml-portable-subset", "uniml/lint-portable-subset.sh", List(), 60000),
+  // A second orphan drained. It reconciles SIX sources for the Core IR node/const inventory — the
+  // spec's pinned ```coreir-inventory``` block, `enum Term`, the Reader's accepted heads, the
+  // Writer's emitted heads, IrEncode's tags and the ssc0 lowerer — and 10-core-ir.md had already
+  // rotted once into claiming "11 nodes" and "Seq is dropped", which is why the gate exists.
+  // ZERO TOOLCHAIN (`grep -cE 'scala-cli|bin/ssc|sbt'` = 0) and 0 s, so it belongs on the push path.
+  // Its sibling `v2/conformance/coreir-name-guard.sh` does NOT: that one runs the real Writer and
+  // Reader through scala-cli, 14 s warm here and a cold compile in CI, so it is tier 2 in ci.yml.
+  // NOT VACUOUS, and the first attempt to show that was invalid: renaming the FIRST `LetRec` in the
+  // file changed a PROSE mention and the gate stayed green. Scoped to the parsed block —
+  // `node  LetRec  letrec  IrLetRec` -> `LetRecXX` — it fails with
+  // "10-core-ir.md's node inventory has drifted from CoreIR.scala".
+  // (orphan-debt-triage-31-frozen-gates.)
+  Check(".", "coreir-inventory", "specs/coreir-inventory-gate.sh", List(), 60000),
   // Three of the 36 frozen orphans, drained. Each was RUN against a fresh launcher (6s, 6s, 7s) and
   // each was checked NOT to be vacuous: re-run with both launcher jars removed, all three go RED.
   // That control found one gate in twenty that stays green with no toolchain at all —

@@ -281,11 +281,18 @@ all. **The front lowers a capitalized receiver as a nullary constructor**, so it
 before that case, through a `characterFold` helper — is the whole fix. The four other edits were
 reverted.
 
-**Not done, and named rather than implied:** the JS lane. Its dispatch is keyed on the same nullary
-constructor shape and would need the mirrored case in `JsBackend`'s `$method`; a `$charObj` written
-against the `ForeignV` shape would have been dead code, so it was reverted rather than shipped
-unverified. The Rust lane declines by design — `char::to_lowercase` there yields an ITERATOR (U+0130
-lowers to two chars), so a char-to-char fold needs a documented truncation nobody has asked for yet.
+**The JS lane, and the first note about it was WRONG — measured the same day.** It said the lane
+"needs the mirrored case in `JsBackend`'s `$method`". It does not: `run-js --v2` never reaches
+`$method`, because it dies one layer earlier on the char LITERAL —
+`println('a')` → `Error: unimplemented primitive: char`, `s.charAt(1)` → `unimplemented primitive:
+scharAt`. **There is no Char value on that lane at all**, and giving it one is a representation
+decision (BigInt code prints `97` for `'a'`; a 1-char string makes `'a' + 32` be `"a32"`), not two
+missing lines. Filed as `v2/BUGS.md js-v2-lane-has-no-Char-at-all`. A mirrored `Character` case would
+have been dead code above an unreachable path — which is what the first note would have had someone
+write.
+
+The Rust lane declines by design — `char::to_lowercase` there yields an ITERATOR (U+0130 lowers to
+two chars), so a char-to-char fold needs a documented truncation nobody has asked for yet.
 
 Evidence: `uniml/v2-smoke/gap-char.ssc` (self-checking — see its header for why a probe that only
 looks for an exception cannot see this gap), `unimlMarkdown/test` 53/53 on the JVM lane, and

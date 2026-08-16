@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## js-v2-lane-has-no-Char-at-all — `println('a')` dies on `unimplemented primitive: char`
+
+<!-- status: open
+     lane: js
+     area: codegen
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: none — two-line reproducers below -->
+
+The v2 JS backend implements no char primitives. Two one-line programs, both via
+`bin/ssc-tools run-js --v2`:
+
+```
+println('a')                          →  Error: unimplemented primitive: char
+val s = "aBc"; println(s.charAt(1))   →  Error: unimplemented primitive: scharAt
+```
+
+`grep -n "Char" v2/backend/js/JsBackend.scala` returns only `charCodeAt`/`fromCharCode` string
+helpers: **there is no Char value on this lane**, not a partial one. The VM has `char` (`IntV` →
+`CharV`) and `scharAt` (`CharV`); the JS emitter has neither.
+
+**THIS IS A REPRESENTATION DECISION, NOT TWO MISSING LINES**, which is why it is filed rather than
+patched. Both obvious encodings break something, and each breaks it SILENTLY on the lane that is
+already the quiet one:
+
+| encoding | works | breaks |
+|---|---|---|
+| BigInt code (what `charAt` already returns as a METHOD) | comparisons, `(c + 32).toChar`, indexing | `println('a')` prints `97` — a char is indistinguishable from its code |
+| 1-char JS string | printing, `c >= 'A'` comparisons for the BMP | arithmetic: `'a' + 32` is `"a32"` in JS, so `$arith` needs char-awareness |
+
+So it wants either a tagged char value, or char-awareness in `$arith` and `$show` — a change that
+cascades through every holder and renderer, which this repo has paid for before. Note the trap in
+the first row: `charAt` as a METHOD already returns a BigInt today, so the lane is half-committed to
+the code encoding without having decided it.
+
+**Found while closing a different gap.** `Character.toLowerCase` was made to work on the VM
+(`uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere`) and the follow-up note said
+the JS lane "needs the mirrored case in `$method`". That was wrong, and the correction is the useful
+part: the JS lane never reaches `$method` — it dies on the char LITERAL, one layer earlier. A
+mirrored `Character` case would have been dead code sitting above an unreachable path.
+
 ## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` is 3 on the shipped lanes and 2 in Core IR
 
 <!-- status: open
