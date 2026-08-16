@@ -564,14 +564,16 @@ that does, proven in both directions.
       because without them the row would pass against a member that does nothing: subscribe before
       `notifyResourceUpdate`, `logging/setLevel` before `log`, `_meta.progressToken` on the call
       before `notifyProgress`. Control: dropping one member on v2 reds that frame on `--v2` only.
-      **Only THREE of the eight are DECLARED**, and that is a blocker, not an omission —
-      `interp-declaring-a-plain-extern-class-member-breaks-it`. Declaring a member whose parameters
-      are empty or all plain scalars, with no default, makes the interpreter serve the `__extern__`
-      stub instead of the plugin: the member works UNDECLARED and dies DECLARED, two-sided control
-      in the entry. The five affected declarations wait for that fix rather than dodging it with a
-      throwaway default. Filed alongside it: same-name non-curried declarations COLLAPSE to the
-      last one on the interpreter, so every remaining group must use one signature with a default —
-      the constraint `elicit` already documents.
+      ALL EIGHT ARE NOW DECLARED. They were not, for a day: declaring a member whose parameters are
+      empty or all plain scalars, with no default, made the interpreter serve the `__extern__` stub
+      instead of the plugin, so the member worked UNDECLARED and died DECLARED. Both that
+      (`interp-declaring-a-plain-extern-class-member-breaks-it`) and the second defect the same work
+      surfaced (`interp-same-name-class-methods-collapse-to-the-last` — a `.toMap` kept only the
+      last of two same-name methods, so `c.f(7)` answered `missing argument for parameter 'b'`) are
+      FIXED, and the declarations went back. The constraint that survives for the remaining groups
+      is narrower than it looked: one signature with a default is still the right shape for a v2
+      member, because `getField(name)` produces the value BEFORE arguments exist and every `ClosV`
+      carries a fixed arity — that is about the v2 plugin protocol, not about the interpreter.
 - [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
       answered by it; none has been re-read against the code. A review, not a build.
 - [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the

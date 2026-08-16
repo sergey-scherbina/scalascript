@@ -1808,7 +1808,48 @@ independent.
 
 ---
 
-## interp-declaring-a-plain-extern-class-member-breaks-it — a member works UNDECLARED and dies the moment you declare it
+## interp-same-name-class-methods-collapse-to-the-last — a discarded DECLARATION reported at the call site
+
+<!-- status: fixed
+     lane: int
+     area: runtime
+     kind: bug
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/ClassMethodArityTest.scala
+     found-by: claude-code
+     found-at: 2026-08-16
+     fixed-at: 2026-08-16
+     fixed-in: 37f7dbb9b
+     repro: the body
+     confirmed: yes -->
+
+`StatRuntime` built the type-method table with a plain `.toMap`. Two definitions of one name
+collapsed to the LAST; the other was dropped at REGISTRATION time and the loss surfaced as a
+complaint about the CALL:
+
+```
+class Calc:
+  def f(a: Int): Int = a * 10
+  def f(a: Int, b: Int): Int = a + b
+
+c.f(7)   ->  [line 6, col 27] missing argument for parameter 'b'
+c.f(1,2) ->  3
+```
+
+FIXED by additionally registering each definition under `name#<arity>` for every argument count it
+accepts — its required count (parameters minus those carrying defaults) through its parameter
+count — and consulting those keys at resolution ONLY when the primary cannot accept the call's
+count. The primary key is unchanged, `#` cannot occur in an identifier, and nothing is registered
+unless a name is declared more than once, so a program without overloads gets a byte-identical
+table.
+
+FIVE RESOLUTION SITES, NOT FOUR. Three inline lookups, the parent-walking resolver, and — the one
+the trait case in the test caught after the others were done — the INHERITED path in
+`dispatchInstanceAfterMethods`, which is the only one a class taking all its methods from a parent
+trait reaches.
+
+---
+
+## interp-curried-class-method-cannot-be-applied — `c.h(3)(4)` on `def h(a)(b)` asks for the second argument twice
 
 <!-- status: open
      lane: int
@@ -1817,6 +1858,68 @@ independent.
      gate: none
      found-by: claude-code
      found-at: 2026-08-16
+     repro: the body
+     confirmed: yes -->
+
+```
+class Calc:
+  def h(a: Int)(b: Int): Int = a * b
+
+c.h(3)(4)  ->  [line 5, col 26] missing argument for parameter 'b'
+```
+
+`StatRuntime` FLATTENS a method's parameter clauses (`paramClauseGroups.flatMap(_.paramClauses)`),
+so `h` is registered as a two-parameter method and the first application is one argument short.
+
+MEASURED AS PRE-EXISTING, not inherited from a neighbouring change: the same program fails
+identically — same message, same position — with `interp-same-name-class-methods-collapse-to-the-last`
+reverted. Recorded because that fix was landing in the same file and "it was already broken" is a
+claim that has to be shown, not asserted.
+
+---
+
+## v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing — `Calc7` where `70` was asked for
+
+<!-- status: open
+     lane: v2-jvm
+     area: runtime
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16
+     repro: the body
+     confirmed: yes -->
+
+The same overload program the interpreter answered with an error is answered by the standard
+launcher with a WRONG VALUE and no diagnostic:
+
+```
+class Calc:
+  def f(a: Int): Int = a * 10
+  def f(a: Int, b: Int): Int = a + b
+
+println("two-arg: " + c.f(1, 2).toString)   ->  two-arg: 3        (correct)
+println("one-arg: " + c.f(7).toString)      ->  one-arg: Calc7    (expected 70)
+```
+
+Worse than the interpreter's failure, which at least named a parameter. Filed rather than fixed:
+the interpreter half is `interp-same-name-class-methods-collapse-to-the-last`, this is a different
+lane and belongs in its own claim. The two were found by one program run on both lanes — a habit
+worth keeping, since the interpreter's version was loud and this one is silent.
+
+---
+
+## interp-declaring-a-plain-extern-class-member-breaks-it — a member works UNDECLARED and dies the moment you declare it
+
+<!-- status: open
+     lane: int
+     area: runtime
+     kind: bug
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     found-by: claude-code
+     found-at: 2026-08-16
+     fixed-at: 2026-08-16
+     fixed-in: 37f7dbb9b
      repro: the two-sided control in the body
      confirmed: yes -->
 
@@ -1865,6 +1968,13 @@ member per program, re-run after each fix, is what separated them.
 CONSEQUENCE TODAY: five members of `std.mcp.McpServer` are implemented on every lane, reachable
 from `.ssc`, and deliberately NOT declared, with the reason written where the declarations would
 go. Adding a throwaway default parameter would dodge it and put a lie in the public signature.
+
+FIXED — `StatRuntime` no longer registers extern members as class or trait methods, so the plugin's
+binding is what a call reaches, declared or not. The skip is the one the `Defn.Def` arm above
+already performed for extern defs at statement level. `Defn.Object` needed no change: it routes
+members through `execStat`, which already had it. Verified by re-declaring all five members and
+re-running the matrix — all eight now answer, and the MCP gate drives them end-to-end on both lanes.
+
 
 ---
 
