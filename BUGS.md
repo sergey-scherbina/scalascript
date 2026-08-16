@@ -23,6 +23,53 @@ Newest first.
 
 
 
+## uniml-treats-a-hole-in-a-plain-string-as-interpolation — `"${" + x + "}"` collapses into one literal
+
+<!-- status: fixed
+     fixed-in: 94f0fb04c
+     lane: v3
+     area: front
+     kind: bug
+     gate: v3/front-diff.sh -->
+
+**MEASURED — two lines:**
+
+    val s = "<code>${" + x + "}</code>"
+
+    native, int, v3's own front   <code>${X}</code>
+    uniml (the DEFAULT front)     <code>${" + x + "}</code>       a WRONG ANSWER, exit 0
+
+The whole expression collapses into ONE string literal: the scan takes the `${…}` hole branch, so
+the closing quote of `"<code>${"` is read as content and everything up to the `}` is swallowed. A
+well-formed tree of the wrong program.
+
+**`${` IS SPECIAL ONLY IN AN INTERPOLATED STRING**, in Scala and here; in a plain one it is the two
+characters `$` and `{`. The distinction is not structural — no amount of scanning tells the two
+apart, since a nested string inside a real hole is legal — it is the character BEFORE the opening
+quote: `s"…"`, `html"…"`, `f"…"` have an identifier there and a plain `"…"` does not. The fix gates
+the hole branch on that.
+
+**THE GUARD WAS ALREADY THERE AND MISSED BY ONE CONDITION.** `holeCloses` was added for this exact
+failure and its comment describes it — "`"${"` followed by `"}"` two lines down SILENTLY SWALLOWED
+the code between them" — but it stops its look-ahead at a NEWLINE, so the same swallow inside ONE
+LINE still went through. A guard written against the case that was observed, not against the rule.
+
+**HOW IT SURFACED, which is the part worth keeping.** `04d9e88e6` (the interpolator-adjacency fix)
+moved `tests/conformance/markdown-html.ssc` from *refused by uniml* to *compiled by both fronts*.
+`v3/front-diff.sh` compares the two fronts' AST OUTPUT with a ceiling of ZERO disagreements — and
+what had been hiding behind the refusal was this: one `def`, one arm, a string that was not a
+string. The gate went RED on `main` and named the file and the line.
+
+**THE GATE THAT CAUGHT IT IS ONE I HAD NOT RUN.** I ran front, exec, capability and the corpus
+report; `front-diff.sh` and `prelude-gate.sh` are also in the v3 workflow and I skipped both. The
+capability gate compares ACCEPT/REFUSE and was green — it cannot see two fronts that both accept and
+disagree, which is precisely what `front-diff` exists for. Unblocking a construct puts new files in
+front of gates that had nothing to say about them before, so the gate set to run after a front fix
+is the workflow's, not the one that looks related.
+
+**Fixed** with all six green: front-diff (corpus 307 both print, agree 307, differ 0), front-gate 92,
+exec-gate 88, capability OK, prelude GREEN, corpus N 234 → 235.
+
 ## v3-an-escaped-continuation-resumes-without-the-return-clause — `effect-deep-handler-state` calls 7 as a function
 
 <!-- status: open
