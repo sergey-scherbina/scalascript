@@ -33,21 +33,21 @@ file exits after the F run), ≈ 5700 worker-seconds ≈ 50 min at `JOBS=2` — 
 not available, this host KILLS workers rather than slowing them (`-P 8` measured 107–121 of 639 with
 ZERO timeouts). Every developer F run pays the same premium.
 
-- [ ] stage a PRE-LOWERED front beside `fsub.ssc` and teach the runner to load it. The artifact
+- [x] stage a PRE-LOWERED front beside `fsub.ssc` and teach the runner to load it. The artifact
       format already exists (`.scir`, with `emit-ir`/`link`/`info`); what is missing is a load path.
       Today `RunNativeV2.nativeFrontLayout` passes `--fsub-src <path>` and the tower lowers the
       source. Three places: the runner, `RunNativeV2`, `install.sh`.
-- [ ] build it at INSTALL time, not run time. `install.sh` already takes minutes, so the lowering is
+- [x] build it at INSTALL time, not run time. `install.sh` already takes minutes, so the lowering is
       free there, and the artifact is staged by the same step that stages the source — they cannot
       drift apart, which removes most of the invalidation problem by construction.
-- [ ] **the gate this needs, and the reason this is not a twenty-minute job.** A mis-keyed front
+- [x] **the gate this needs, and the reason this is not a twenty-minute job.** A mis-keyed front
       cache silently serves the OLD COMPILER. In a repo where the front changes every session that
       is the exact state in which every measurement becomes a lie, and no output gate can see it —
       the front still "works". This repo has paid for it twice: a cache keyed on a directory path
       served the wrong state's classes, and an exclusion in a cache key hid the default front. So:
       key on the CONTENT hash of `fsub.ssc` + the runner, and a gate that edits `fsub.ssc`, rebuilds,
       and proves the artifact changed — RED first with the key deliberately wrong.
-- [ ] measure after, on the same one-line probe and on the corpus gate. Expected ≈ 50 min → 25–30,
+- [x] measure after, on the same one-line probe and on the corpus gate. Expected ≈ 50 min → 25–30,
       but the split between "lowering the front" and "JVM + VM warmup" has NOT been separated yet, so
       the first number to report is the one-line probe, not a projection.
 
@@ -144,6 +144,24 @@ which is why the self-hosted `irTextToData` exists at all. So the load has to ha
       the assembly work (fences, multi-file closure, front-matter, structural projection), or
   (b) in the tower through a path that does not reintroduce the Reader.
 Settle which BEFORE writing anything: (a) moves a boundary, (b) may not exist.
+
+
+### DONE 2026-08-16 — landed as fd94c91d9
+
+```
+cache off (old path)   8.05 / 7.22 s        corpus agreement gate: 66 min (was ~140)
+cold (writes)          7.47 s               F-wrong 0, agree 313, measured 349
+warm                   2.99 / 3.31 / 3.52 s 24 of 24 corpus files identical on/off
+```
+
+Built at RUN time, not install time — the runner writes the artifact on a miss, so nothing in
+`install.sh` had to change and a cold cache costs one slow run rather than a staging step that can
+drift from the source it describes. `tests/e2e/f-front-cache-gate.sh` (7 rows) guards the key and
+the Reader contract; `invalidates-on-front-change` was red first and caught its own first draft
+editing the wrong staged tree.
+
+The second item in this section — memoizing the REFERENCE side of the agreement gate — is untouched
+and still worth ~21 worker-minutes per rerun.
 
 Second, independent and cheaper: **the reference side of the agreement gate is memoizable across
 runs.** Its output depends on (subject, reference front, runtime) and NOT on the F spec, so an

@@ -2242,6 +2242,46 @@ bucket where it previously reported agreement. That bucket is not a failure — 
 `F contradicted by BOTH other lanes` — but a reader who assumes "disagreement = F regressed" will
 misread it, which is why it is written down here rather than left to be rediscovered.
 
+## two-fronts-number-generated-ui-signals-differently — same refusal, different counter
+
+<!-- status: open
+     lane: native
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: none — surfaced by f-output-agreement-gate's DISAGREE bucket -->
+
+Three corpus files refuse on BOTH fronts with the same diagnostic and a different generated number:
+
+```
+examples/frontend/busi-home-demo/busi-home-demo.ssc
+  F    duplicate native UI signal '__computed__d346:fieldErr…
+  ref  duplicate native UI signal '__computed__d364:fieldErr…
+examples/frontend/form-demo/form-demo.ssc          F d342  /  ref d360
+examples/frontend/std-ui/styled-primitives.ssc     F d263  /  ref d272
+```
+
+The refusal is the same defect on both lanes — a duplicate UI signal — so neither front is answering
+wrongly. What differs is the COUNTER baked into the synthesized name, which means the two fronts walk
+a different number of declarations before reaching the same one. That is a real divergence and it is
+the kind that hides: as long as both lanes refuse, no output gate can see it, and the moment the
+duplicate-signal defect is fixed the two fronts will start emitting differently-named globals for the
+same program.
+
+**Not the front cache**, checked rather than assumed: `SSC_FRONT_CACHE=off` reproduces F's number
+exactly, on all three. Two further files joined the same bucket in the same run
+(`tests/conformance/tkv2-busi-home.ssc`, `tkv2-tri-state.ssc`) and are also cache-neutral — their
+first lines agree across all three lanes, so they diverge deeper than `head -1` and want their own
+look.
+
+**Where it came from.** The agreement gate's DISAGREE bucket went 4 -> 9 between two runs of mine.
+The runs straddle ~80 sibling commits, and the five new rows are all cache-neutral, so they arrived
+with that work rather than with the cache. Recorded here because the next person to read that bucket
+will otherwise re-derive it: the ceiling the gate enforces is `F contradicted by BOTH other lanes`
+(still 0), and DISAGREE is "both fail, different message" — informative, not failing.
+
 ## ref-front-loses-a-context-bound-across-a-call — the dictionary is re-resolved, not passed
 
 <!-- status: open
