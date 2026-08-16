@@ -2,7 +2,7 @@ slug: f-context-bounds
 branch: feature/f-context-bounds
 agent: claude-code
 started: 2026-08-15T23:08:25Z
-heartbeat: 2026-08-15T23:48:19Z
+heartbeat: 2026-08-16T02:58:34Z
 status: in-progress
 items: f-summon-and-context-bounds-are-unresolved
 paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-context-bounds-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md
@@ -12,4 +12,4 @@ scope: |
   one instance matching an argument type, else a type class with exactly one instance, else DECLINE.
   The deleted rule — first instance of the type class — printed `0hello, world` for
   `combineAll(List("hello", ", ", "world"))`: a wrong ANSWER, not a refusal.
-next: corpus agreement gate + F gate batch running; land when both green
+next: corpus gate running (493/639, F-WRONG 0 so far); after it: rebase onto origin/main, re-apply tests/BUGS.md patch (parked - branch was 80 behind and the board moved), add fixed-in sha, land
