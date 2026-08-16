@@ -23,6 +23,104 @@ Newest first.
 
 
 
+## js-exec-import-is-a-syntax-error — `[exec, …](std/process.ssc)` emits a bundle that does not PARSE
+
+<!-- status: fixed
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/e2e/js-std-process-gate.sh
+     fixed-in: d24a37f02
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     ssc-version: c314e871e
+     repro: inline below
+     impact: blocks -->
+
+Found by CHECKING A CLAIM I HAD MADE WITHOUT MEASURING. I filed
+`js-exec-ignores-every-processoptions-field-but-stdin` from READING `JsRuntimeFs.scala` — the js
+`exec` takes `opts` and never touches it — and wrote in two gates that the js lane could not be
+exercised here. Node is on this machine and `run-js` exists, so I tried it. The lane never got as
+far as ignoring anything:
+
+```text
+[exec, ProcessOptions](std/process.ssc)
+SyntaxError: Identifier 'exec' has already been declared
+```
+
+`JsRuntimeFs.source` defines `function exec` in the preamble; the import shim emitted
+`const exec = std.process.exec` beside it, and a SyntaxError aborts the file before a line of it
+runs. So `std/process` was not partly supported on this lane — it was UNUSABLE, and the first thing
+a program using it saw was a node parse error naming a line the author never wrote.
+
+**`JsGen.declaredBindings` exists for precisely this**, and its comment describes the failure in
+advance: it lists every std/fs name so that importing `readFile` does not redeclare the preamble
+function. `exec` was simply missing. `__spawnPid` was missing too, and is newer — the detached-spawn
+work added it to the preamble without adding it here, which is this trap biting a second time inside
+one week. `spawn` is deliberately NOT listed: it is an ordinary def in `std/process.ssc`, not a
+preamble function, so its `const` is the real definition.
+
+**What the fix made measurable, which is the part worth having.** With the bundle parsing, the js
+lane runs `std/process` and the three pieces added this week work there: `exec`, `stdin` reaching a
+child, and `spawn` returning a pid. The `stdin` implementation had been written BLIND — the lane
+could not run when it landed — so this is the first evidence it was right.
+
+**And it confirmed the sibling entry by measurement rather than by reading.** `cwd` answers `true` on
+`run` and `false` on js, so `js-exec-ignores-every-processoptions-field-but-stdin` is now a measured
+divergence instead of an inference from source. It stays open, and the gate here names it rather
+than adding a row that would fail forever.
+
+**THE WEAKNESS IS THE HAND-MAINTAINED LIST, not the two missing names.** Every function added to the
+preamble that a user can import is another SyntaxError waiting for whoever imports it, and I created
+one of the two myself. Filed as `js-preamble-binding-list-is-hand-maintained`. Deriving the set by
+scanning the preamble for `function name(` is the obvious fix and is NOT done here: it would also
+suppress a user module's own definition of a name the preamble happens to use, and that blast radius
+wants measuring rather than guessing.
+
+**Verified:** `tests/e2e/js-std-process-gate.sh` PASS — three rows compared against `run`, plus an
+explicit check that the output carries no `SyntaxError` and an oracle row. Negative control with
+`JsGen.scala` reverted and the launcher rebuilt: the parse check fires and all three rows go red with
+empty js output, which is what a bundle that never ran looks like.
+
+## js-preamble-binding-list-is-hand-maintained — every new preamble function is a SyntaxError waiting for whoever imports it
+
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: apparatus
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     ssc-version: c314e871e
+     repro: none — see the two instances in `js-exec-import-is-a-syntax-error`
+     impact: workaround -->
+
+`JsGen.declaredBindings` is a hand-written set of names the js preamble already defines, so that an
+import of the same name does not emit `const X = …` beside `function X` and break the bundle with a
+SyntaxError. It works, and its comment explains itself well. The problem is that it must be updated
+by hand every time `JsRuntimeFs.source` (or any other preamble source) gains a function a user can
+import — and nothing checks that it was.
+
+Measured cost so far: TWO instances, both found in one sitting.
+`exec` had been missing for as long as `std/process` has existed on this lane, and `__spawnPid` was
+missing because I added it to the preamble days earlier and did not know this list existed. Neither
+produced a diagnostic anyone could act on — both produced `SyntaxError: Identifier 'x' has already
+been declared`, pointing at generated code.
+
+**The obvious fix is to derive the set** by scanning the preamble sources for `function name(`
+instead of listing names. It is NOT obviously safe, which is why this is an entry rather than a
+patch: `declaredBindings` does not merely prevent a redeclaration, it makes the import RESOLVE to the
+preamble function. Seeding it from every preamble function would therefore also suppress a user
+module's own definition of any name the preamble happens to use — `platform`, `cwd`, `exit`, `env`
+are all preamble functions — and silently bind a user's `cwd` to the runtime's. That is a worse
+failure than the one being fixed, because it compiles.
+
+**Measure before choosing.** The question to answer first: how many names does the preamble define
+that a `.ssc` module in this repository also defines at top level? If the answer is zero, deriving is
+safe and the list can go. If it is not zero, the fix is a CHECK — a gate that fails when a preamble
+function is not in the list — rather than a derivation.
+
 ## v3-extension-vocab-gate-reads-a-comment-as-vocabulary — a prose example turned main RED
 
 <!-- status: fixed
@@ -299,9 +397,30 @@ environment and rebuilding it from `env`, which needs `{ env: {...} }` composed 
 through, and getting that half-right is how a "scrubbed" child keeps its secrets.
 
 **Not gated, and the reason is worth stating**: `tests/e2e/process-stdin-gate.sh` covers run, --v1
-and build-rust and deliberately claims nothing about js, because exercising the js lane needs a node
-harness this script does not have. A gate that "covers" a lane it cannot run is worse than an
-uncovered lane, because the coverage is believed.
+and build-rust and deliberately claims nothing about js.
+
+### CONFIRMED BY MEASUREMENT 2026-08-17, and my reason for not measuring was wrong
+
+I wrote above that exercising the js lane "needs a node harness this script does not have". Node is
+on the machine and `run-js` exists, so that was an assumption, not a fact — and checking it turned up
+something bigger: the lane could not run `std/process` AT ALL. `[exec, …](std/process.ssc)` emitted
+`const exec` beside the preamble's `function exec` and the bundle failed to PARSE
+(`js-exec-import-is-a-syntax-error`, fixed). So this entry described options being ignored by code
+that never executed.
+
+With that fixed, the divergence is now measured rather than inferred:
+
+```text
+                 run     js
+cwd honoured     true    false
+stdin reaches    piped   piped
+spawn pid > 0    true    true
+```
+
+`stdin` and `spawn` work; `cwd` — and by the same reading of the source, `env`, `timeout` and
+`inheritEnv` — do not, because `spawnSync` is called with no options object. That half is what stays
+open here. `tests/e2e/js-std-process-gate.sh` now covers the lane and deliberately asserts only the
+working rows, naming this entry for the rest rather than adding a row that would fail forever.
 
 ## rust-exec-silently-ignores-every-processoptions-field — `cwd`, `env` and `inheritEnv` were obeyed under `run` and dropped under `build-rust`, with no diagnostic
 
