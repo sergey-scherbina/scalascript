@@ -2863,7 +2863,7 @@ object RustCodeWalk:
         case other => Left(List(unsupported(
           s"def `${ctx.defName}` body tail is a non-expression: ${other.productPrefix}")))
     case mt: m.Term.Match =>
-      renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx, arm => s"crate::value::Value::from($arm)")
+      renderMatch(mt.expr, mt.casesBlock.cases.toList, ctx, identity, armTail = true)
     case other =>
       renderTerm(other, ctx).map(r => s"crate::value::Value::from($r)")
 
@@ -4758,6 +4758,16 @@ object RustCodeWalk:
     // all until this list knew what produces an Option.
     case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("find" | "headOption" | "lastOption" | "get")), _) => true
     case m.Term.Select(_, m.Term.Name("headOption" | "lastOption"))                                      => true
+    // A CALL TO A DEF DECLARED `: Option[T]`. Read off the declaration — nothing is inferred here,
+    // the signature already says it. Without this, `_normSegments(…).map(revParts => …)` in
+    // std/fs.ssc took the LIST lowering (`.into_iter().map(…).collect::<Vec<_>>()`) inside a
+    // function declared `-> Option<String>`, and rustc answered `expected Option<String>, found
+    // Vec<String>`. Every Option-returning helper meets this the moment something maps over it.
+    case m.Term.Apply.After_4_6_0(m.Term.Name(n), _) =>
+      _defBodies.get(n).flatMap(_.decltpe).exists {
+        case m.Type.Apply.After_4_6_0(m.Type.Name("Option"), _) => true
+        case _                                                  => false
+      }
     // A NAME bound to any of the above. The pre-pass records it; see `collectLocalOptions`.
     case m.Term.Name(n) => ctx.localOptions.contains(n)
     case _ => false
@@ -5742,8 +5752,19 @@ object RustCodeWalk:
    * chain rather than a `match` with guards, because each arm binds different things and a guard
    * cannot introduce bindings. */
   private def renderAnyMatch(
-      subject: m.Term, cases: List[m.Case], ctx: Ctx, wrapArm: String => String
+      subject: m.Term, cases: List[m.Case], ctx: Ctx, wrapArm: String => String,
+      // WRAPPING A RENDERED ARM IS NOT THE SAME AS RENDERING IT IN A TAIL POSITION, and the
+      // difference is a whole class of errors here. An arm whose body is `if p then Err{…} else
+      // <call returning Any>` has two branches of DIFFERENT Rust types; `Value::from(<that if>)`
+      // never gets a chance, because the `if` itself does not typecheck first — rustc says
+      // `expected JsonCoreErr, found Value`. With this flag the arm body goes through
+      // `renderValueTail`, which pushes the lift INTO each branch, where it can do its job.
+      // No default: this method has exactly one caller and it always says which it wants, so a
+      // default would be an unused private member — which `-Werror` refuses, correctly.
+      armTail: Boolean
   ): Either[List[Diagnostic], String] =
+    def armBody(t: m.Term, c: Ctx): Either[List[Diagnostic], String] =
+      if armTail then renderValueTail(t, c) else renderTerm(t, c).map(wrapArm)
     val subj = renderTerm(subject, ctx)
     val arms = cases.map { c =>
       c.pat match
@@ -5782,8 +5803,8 @@ object RustCodeWalk:
               guard <- c.cond match
                          case Some(g) => renderTerm(g, armCtx).map(gr => s" && ($gr)")
                          case None    => Right("")
-              body  <- renderTerm(c.body, armCtx)
-            yield (s"""crate::value::ssc_is(&__any, "$ctor")$guard""", bOk.mkString + wrapArm(body))
+              body  <- armBody(c.body, armCtx)
+            yield (s"""crate::value::ssc_is(&__any, "$ctor")$guard""", bOk.mkString + body)
         // `case x: T` — test the variant, then bind the value itself. The binding stays a `Value`
         // on purpose: `Value` answers `len`/`get`/`iter` (landed with the dynamic accessors), so a
         // body written against the narrowed type reaches its contents without this having to decide
@@ -5795,17 +5816,17 @@ object RustCodeWalk:
                 guard <- c.cond match
                            case Some(g) => renderTerm(g, ctx).map(gr => s" && ($gr)")
                            case None    => Right("")
-                body  <- renderTerm(c.body, ctx)
-              yield (test + guard, s"let $n = __any.clone(); ${wrapArm(body)}")
+                body  <- armBody(c.body, ctx)
+              yield (test + guard, s"let $n = __any.clone(); $body")
             case None =>
               Left(List(unsupported(
                 s"def `${ctx.defName}`: `case ${n}: ${tpe.syntax}` against an `Any` has no runtime " +
                 s"test on this lane — a bind-all here would make the arm match everything")))
         case m.Pat.Var(m.Term.Name(n)) =>
-          for body <- renderTerm(c.body, ctx)
-          yield ("true", s"let $n = __any.clone(); ${wrapArm(body)}")
+          for body <- armBody(c.body, ctx)
+          yield ("true", s"let $n = __any.clone(); $body")
         case m.Pat.Wildcard() =>
-          renderTerm(c.body, ctx).map(body => ("true", wrapArm(body)))
+          armBody(c.body, ctx).map(body => ("true", body))
         case other =>
           Left(List(unsupported(
             s"def `${ctx.defName}`: an `Any` match supports constructor, binder and `_` patterns, not ${other.productPrefix} (${other.syntax})")))
@@ -5829,7 +5850,10 @@ object RustCodeWalk:
       subject: m.Term, cases: List[m.Case], ctx: Ctx,
       // Applied to each arm's BODY. Identity everywhere except when the match sits in a tail
       // position that must produce a `Value` — see `renderValueTail`.
-      wrapArm: String => String = identity
+      wrapArm: String => String = identity,
+      // See `renderAnyMatch`: in a tail position the arm is RENDERED as a tail, not wrapped after
+      // the fact, so an `if` inside it lifts per branch instead of as a whole.
+      armTail: Boolean = false
   ): Either[List[Diagnostic], String] =
     val subjRendered = renderTerm(subject, ctx)
     // An identity catch-all (`case x => x`, no guard) trailing a sealed-enum match is the
@@ -5861,7 +5885,7 @@ object RustCodeWalk:
       // typed path below drops the ascription, which makes the first such arm irrefutable.
       case m.Pat.Typed(_, _)                               => true
       case _                                               => false)
-    if subjectIsAny && hasStructCtorArm then return renderAnyMatch(subject, cases1, ctx, wrapArm)
+    if subjectIsAny && hasStructCtorArm then return renderAnyMatch(subject, cases1, ctx, wrapArm, armTail)
     // A `String` subject must be matched as `&str` for string-literal patterns
     // (`match s.as_str() { "x" => … }`) — Rust won't match `String` against `&str`.
     val hasStringPat = cases1.exists(c => c.pat match
@@ -5906,9 +5930,9 @@ object RustCodeWalk:
                    val all = typedBinders.map(_._3) ++ userGuards
                    if all.isEmpty then "" else s" if ${all.mkString(" && ")}"
                  }
-        bod   <- renderTerm(c.body, ctx)
+        bod   <- if armTail then renderValueTail(c.body, ctx) else renderTerm(c.body, ctx)
       yield
-        val bodW = wrapArm(bod)
+        val bodW = if armTail then bod else wrapArm(bod)
         if prefix.isEmpty then s"$pat$guard => $bodW,"
         else s"$pat$guard => { $prefix$bodW },"
     }
@@ -6152,7 +6176,18 @@ object RustCodeWalk:
   private def bareNameOrNiladicCtor(n: String, ctx: Ctx): String =
     ctx.ctorMap.get(n) match
       case Some(c) if c.fieldNames.isEmpty && !c.isStruct => s"${c.enumName}::$n"
-      case _                                              => n
+      // `Nil` in an EXPRESSION — `loop(source, offset, Nil)` — emitted the bare word and rustc said
+      // `cannot find value Nil in this scope`, 12 times in std/yaml-core and 3 in std/json-core.
+      // The PATTERN side has had `Nil` since the list vocabulary landed; the term side never did,
+      // and the two positions are written by the same author in the same file. A `List` is a `Vec`
+      // here, so the empty list is `Vec::new()` — the element type comes from the parameter it is
+      // passed to, which is where an empty literal gets its type in Rust anyway.
+      //
+      // Placed in this helper rather than as a `renderTerm` arm because that method is frozen past
+      // HugeMethodLimit and `v1-jit-size` refuses growth; the helper is already on the Name path.
+      // The ctorMap is consulted FIRST, so a program that declares its own `Nil` keeps it.
+      case _ if n == "Nil" && !ctx.ctorMap.contains("Nil")  => "Vec::new()"
+      case _                                                => n
 
   /** `Shape.Dot` — a QUALIFIED NILADIC enum constructor, and the THIRD twin in this family.
    *
