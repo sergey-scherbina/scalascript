@@ -6,6 +6,39 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not — the same feature, two spellings, one broken
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/corpus-report.sh (parameterless-def-local)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**A LOCAL `def` THAT ASSIGNS TO AN ENCLOSING `var` LOSES THE WRITE, and the lambda spelling of the
+same thing is correct** — which is what makes this precise rather than a design question:
+
+    def main(): Unit =
+      var n = 0
+      def bump(x: Int): Int =
+        n = n + x
+        n
+      println(bump(1)); println(bump(1)); println(n)     ->  1  1  0     WRONG
+
+      val f = (x: Int) =>
+        n = n + x
+        n
+      println(f(1)); println(f(1)); println(n)           ->  1  2  2     right
+
+**BOTH LANES AGREE ON THE WRONG ANSWER**, so this is a shared lowering defect and not a divergence —
+and a wrong answer is worse than a refusal. `parameterless-def-local` is the corpus case: it prints
+`loc 1 1` where the oracle says `loc 1 2`, and it is one of only five DIFFs on the bridge.
+
+**THE TWIN IS THE FIX'S SPECIFICATION.** Whatever the lambda path does to make an enclosing `var`
+mutable through a closure, the local-`def` path does not do — so the question is not how mutable
+capture should work here, only why one of the two spellings skips it.
+
 ## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — eta-expansion, one instruction
 
 <!-- status: fixed
