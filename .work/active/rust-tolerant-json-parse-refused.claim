@@ -1,0 +1,11 @@
+slug: rust-tolerant-json-parse-refused
+branch: feature/rust-tolerant-json-parse-refused
+agent: claude-code
+started: 2026-08-16T14:29:12Z
+heartbeat: 2026-08-16T14:29:12Z
+status: claimed-before-planning
+items: rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds
+paths: file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-tolerant-json-parse-gate.sh file:.github/workflows/ci.yml file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
