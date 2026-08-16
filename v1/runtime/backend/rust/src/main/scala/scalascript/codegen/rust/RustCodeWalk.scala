@@ -213,8 +213,15 @@ object RustCodeWalk:
     // Signatures, for the `Any` boundary. Unresolvable types fall back to the empty string, which
     // reads as "no opinion" at the call site and leaves the argument untouched.
     _paramTypes = defs.map { d =>
+      // A parameter typed by the def's OWN type parameter is a `Value` here for the same reason it
+      // is one in `renderParams`, and the two must agree: this map is what the call site coerces
+      // against, so a signature saying `Value` while this said `i64` lifts nothing and rustc reports
+      // the argument instead. That is exactly what `ctxSignal(ctx, name, "")` did.
+      val tps = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
       d.name.value -> d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map { p =>
-        p.decltpe.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
+        p.decltpe match
+          case Some(m.Type.Name(tn)) if tps.contains(tn) => "crate::value::Value"
+          case other => other.flatMap(ty => mapType(ty, d.name.value, userTypeNames).toOption).getOrElse("")
       }
     }.toMap
     // Populated BEFORE `_returnTypes`, because a return type may name a variant.
@@ -367,44 +374,10 @@ object RustCodeWalk:
             s"(no `@rust(...)`, no intrinsic); called from ${from.map(f => s"`$f`").mkString(", ")}"
           )
         }
-    // `s.matches(regex)` — a NAME COLLISION WITH OPPOSITE MEANINGS, refused for the whole lane.
-    // Scala's `String.matches` is a full-match REGEX test returning Boolean; Rust's `str::matches`
-    // returns an ITERATOR over occurrences of a literal pattern. With no arm for it, it fell
-    // through the generic member path and emitted the Rust member of the same name.
-    //
-    // CAUGHT BY LUCK, which is the argument for refusing rather than leaving it: the only site in
-    // std negates the result, so rustc said `error[E0600]: cannot apply unary operator ! to
-    // Matches<'_, String>` and the module failed loudly. In any context that consumes an iterator,
-    // or discards the result, the same emission COMPILES and is silently wrong — the outcome this
-    // backend treats as worse than not lowering. A correct lowering needs a regex engine this crate
-    // does not depend on.
-    //
-    // IT LIVES HERE, BESIDE THE OTHER WHOLE-LANE REFUSALS, RATHER THAN AS AN ARM IN `renderTerm`,
-    // and that placement was measured rather than preferred: as an arm it cost +96 bytecodes in a
-    // method frozen at 2.5x the JIT limit whose ratchet has been raised three times in two days.
-    // Sharing an existing arm's dispatch recovered 8, moving the body out recovered 8, both
-    // together 36 — none of it enough. This is also its right home: a member this lane will never
-    // lower is a property of the lane, like an unimplemented extern, not a rendering decision.
-    // (rust-string-matches-is-not-rust-str-matches, tests/e2e/v1-jit-size.sh.)
-    val regexErrs: List[Diagnostic] =
-      val callers = scala.collection.mutable.SortedSet.empty[String]
-      defsToRender.foreach { d =>
-        def walkT(t: m.Tree): Unit =
-          t match
-            case m.Term.Apply.After_4_6_0(m.Term.Select(_, m.Term.Name("matches")), args)
-                if args.values.size == 1 => callers += d.name.value
-            case _ => ()
-          t.children.foreach(walkT)
-        walkT(d.body)
-      }
-      callers.toList.map { from =>
-        unsupported(
-          s"def `$from` calls `matches`, which in Scala is a full-match REGEX test and in Rust is " +
-          s"an iterator over literal occurrences; this lane has no regex engine and will not emit " +
-          s"the Rust member of the same name"
-        )
-      }
-    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs ++ regexErrs
+    // The `matches` refusal that used to live here is gone: the lane now depends on `regex` and
+    // lowers `s.matches(p)` to `_str_matches` (see `applyNonListCtor`). The dependency is added only
+    // for a program that uses it, the way `ureq` and `tokio` already are.
+    val allErrs = extensionErrs ++ overloadErrs ++ enumErrs.flatten ++ structErrs.flatten ++ errors.flatten ++ methodErrors.flatten ++ externErrs
     if allErrs.nonEmpty then Left(allErrs)
     else
       // One `impl` per owner, members in source order. Emitted next to the struct rather than among
@@ -2814,8 +2787,17 @@ object RustCodeWalk:
       _extensionOf.get(d.name.value).toList.map { (rn, rt) =>
         mapType(rt, ctx.defName, ctx.enumNames).map(r => s"$rn: ${paramType(r)}")
       }
+    // A PARAMETER TYPED BY THE DEF'S OWN TYPE PARAMETER IS AN `Any`, not an `i64`.
+    // `def ctxSignal[T](ctx: Ctx, name: String, default: T)` had `T` fall through `mapType`'s
+    // unknown-name default — the one meant for a type parameter — and became `i64`, so every call
+    // passing anything else was `expected i64, found String` (std/ui/form.ssc). `Value` is what the
+    // lane already uses for "a value whose type this backend does not track", and the argument side
+    // needs no new machinery: `needsAnyCoercion` lifts an argument at a `Value` parameter today.
+    val tparamNames = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
     val rendered = recvParam ++ params.map { p =>
       p.decltpe match
+        case Some(m.Type.Name(tn)) if tparamNames.contains(tn) =>
+          Right(s"${p.name.value}: crate::value::Value")
         case Some(t) => mapType(t, ctx.defName, ctx.enumNames).map(r => s"${p.name.value}: ${paramType(r)}")
         case None    => Left(List(unsupported(
           s"def `${ctx.defName}` parameter `${p.name.value}` has no type annotation; R.2 requires explicit param types"
@@ -3458,7 +3440,7 @@ object RustCodeWalk:
         q <- renderTerm(qual, ctx)
         k <- renderTerm(args.values(0), ctx)
         v <- renderTerm(args.values(1), ctx)
-      yield s"{\n    let mut m2 = $q.clone();\n    m2.insert($k, $v);\n    m2\n  }"
+      yield s"{\n    let mut m2 = $q.clone();\n    m2.${insertOwning(k, v)};\n    m2\n  }"
     case m.Term.Apply.After_4_6_0(
       m.Term.Select(qual, m.Term.Name("getOrElse")),
       args
@@ -4717,6 +4699,17 @@ object RustCodeWalk:
    *  `Value` rather than a concrete type? The use sites coerce on this answer. */
   private def isValueRead(t: m.Term, ctx: Ctx): Boolean = t match
     case m.Term.Apply.After_4_6_0(m.Term.Name(n), args) => args.values.isEmpty && ctx.valueLocals.contains(n)
+    // A SIGNAL READ ON A MAP APPLY — `drafts(s.name)()`, where `drafts` is a `Map[_, Any]` local or
+    // field. The receiver is not a NAME, so the arm above cannot see it, and the argument went to a
+    // `String` parameter uncoerced: `expected String, found Value` in std/ui/form.ssc. The map apply
+    // hands back a `Value` and reading it as a signal hands back a `Value` again, so the nesting
+    // does not change the answer — only whether it can be asked.
+    case m.Term.Apply.After_4_6_0(inner, args) if args.values.isEmpty => inner match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(n), a) =>
+        a.values.size == 1 && ctx.localMaps.contains(n)
+      case m.Term.Apply.After_4_6_0(m.Term.Select(m.Term.Name(r), m.Term.Name(f)), a) =>
+        a.values.size == 1 && ctx.mapFields.get(r).exists(_.contains(f))
+      case _ => false
     case _ => false
 
   private def isKnownVecReceiver(term: m.Term, ctx: Ctx): Boolean = term match
@@ -4891,6 +4884,26 @@ object RustCodeWalk:
       // what the handler declares, and that question cannot be answered from rendered Rust.
       argTerms:     List[m.Term]
   ): Either[List[Diagnostic], String] =
+    // `s.matches(p)` — ONE NAME, TWO LANGUAGES, OPPOSITE MEANINGS. Scala's is a full-match REGEX
+    // test returning Boolean; Rust's `str::matches` returns an ITERATOR over occurrences of a
+    // LITERAL pattern. With no arm it fell through the generic member path and emitted the Rust
+    // member of the same name — which compiles wherever the result is consumed as an iterator or
+    // discarded, and is silently wrong there. It was refused for the whole lane until now; the
+    // project chose to depend on `regex`, so it lowers.
+    //
+    // The work is a RUNTIME function, not an expression built here, for two reasons that both
+    // matter: the anchoring (`^(?:…)$`, because Scala matches the WHOLE string) and the failure
+    // behaviour (an invalid pattern stops the program, as `run` does) belong in one place rather
+    // than at every call site; and `renderTerm` is frozen past HugeMethodLimit, so the emission
+    // being a single call is what lets this live at all — an arm there was measured at +96
+    // bytecodes and refused by the ratchet.
+    // (rust-string-matches-is-not-rust-str-matches, rust-ui-form-six-shapes-behind-one-refusal.)
+    val matchesCall = fn match
+      case m.Term.Select(_, m.Term.Name("matches")) if renderedArgs.size == 1 => true
+      case _                                                                  => false
+    if matchesCall then
+      val recv = fn.asInstanceOf[m.Term.Select].qual
+      return renderTerm(recv, ctx).map(r => s"crate::runtime::_str_matches(&$r, &${renderedArgs.head})")
     val intr = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
     intr match
       case Some((_, RuntimeCall(target0))) =>
@@ -5199,7 +5212,11 @@ object RustCodeWalk:
           // directly — unlike `find`, whose predicate gets a reference.
           case "exists"   => s"$q.iter().cloned().any(|$p0| { $b })"
           case "forall"   => s"$q.iter().cloned().all(|$p0| { $b })"
-          case "filter"   => s"$q.iter().cloned().filter(|$p0| { $b }).collect::<Vec<_>>()"
+          // `filter` hands the predicate a REFERENCE too, exactly like `find` three lines above —
+          // and the same rebinding was missing here, so a body written `e != ""` came out as
+          // `&String == String` and did not compile (std/ui/form.ssc). A fix that lands on one of a
+          // pair and not the other is how this stayed broken while `find` worked.
+          case "filter"   => s"$q.iter().cloned().filter(|__f| { let $p0 = __f.clone(); $b }).collect::<Vec<_>>()"
           case "foldLeft" => s"$q.iter().cloned().fold(${zero.getOrElse("0")}, |$p0, $p1| { $b })"
           case other      => s"$q.$other(|$p0| { $b })"
       }
@@ -6357,6 +6374,16 @@ object RustCodeWalk:
    *  Extracted from `renderTerm` rather than copied beside it: `renderTerm` is frozen by
    *  `tests/e2e/v1-jit-size.sh` past HugeMethodLimit, so moving this out makes it SMALLER, and one
    *  renderer for one shape is what keeps the two call sites from drifting. */
+  /** `m.insert(k, v)` where the VALUE mentions the key. Rust evaluates arguments left to right, so
+   *  the key moves first and the value expression then borrows it — `error[E0382]: borrow of moved
+   *  value: s.name`, seen in std/ui/form.ssc as `insert(s.name, ctxSignal(…, s.name.clone(), …))`.
+   *  Cloning the key exactly when the value mentions it leaves every other emitted insert
+   *  byte-identical; reordering so the value binds first would change evaluation order, which is
+   *  observable and not this backend's to change. */
+  private def insertOwning(kr: String, vr: String): String =
+    val k = if vr.contains(kr) then s"$kr.clone()" else kr
+    s"insert($k, $vr)"
+
   private def renderMapLiteral(
       entries: List[m.Term], ctx: Ctx, liftValues: Boolean
   ): Either[List[Diagnostic], String] =
@@ -6365,7 +6392,15 @@ object RustCodeWalk:
         for
           kr <- renderTerm(k, ctx)
           vr <- renderTerm(vArgs.values.head, ctx)
-        yield s"__m.insert($kr, ${if liftValues then s"crate::value::Value::from($vr)" else vr});"
+        yield
+          // THE KEY MOVES FIRST. Rust evaluates arguments left to right, so `insert(s.name, f(…
+          // s.name.clone() …))` moves the key and then the value expression borrows it —
+          // `error[E0382]: borrow of moved value: s.name` in std/ui/form.ssc. Cloning the key
+          // exactly when the VALUE mentions it keeps every other literal byte-identical; the
+          // alternative, reordering so the value is bound first, would change evaluation order,
+          // which is observable and not ours to change.
+          val v = if liftValues then s"crate::value::Value::from($vr)" else vr
+          s"__m.${insertOwning(kr, v)};"
       case _ =>
         Left(List(unsupported(s"def `${ctx.defName}`: `Map` entry is not `k -> v`")))
     }

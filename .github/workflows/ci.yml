@@ -737,6 +737,17 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-member-qualify-gate.sh
 
+      # `String.matches` is a full-match REGEX test in Scala and an iterator over a LITERAL in Rust
+      # — one name, two languages, opposite meanings. It was refused for the whole lane until the
+      # project chose to depend on `regex`; it lowers now, anchored as `^(?:…)$` so a full match is
+      # a full match, with an invalid pattern panicking as `run` does. The last rows are about the
+      # DEPENDENCY: the helper references the crate, so both must be emitted under the same
+      # condition — emitting the helper always turned twenty-odd std modules from COMPILES into
+      # BADRUST with E0433. ~40 s, two cargo builds.
+      - name: String.matches is a full-match regex test, and carries its own dependency
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-matches-regex-gate.sh
+
       # WIRED 2026-08-13, having been invoked by NOTHING since it was written. The only reference to
       # it was a sentence in a sibling gate, which `no-orphan-gates` counted as a caller until that
       # was fixed — and `scljet-jdbc-facade-bytecode-class-too-large` names this script in its `gate:`

@@ -57,6 +57,10 @@ object RustGen:
     // Outbound HTTP client — independent of the http SERVER scan above, so a
     // pure-client program pulls only `ureq` (not hyper/tokio).
     val httpClientUsage = scanHttpClientUsage(astModule)
+    // `.matches(` anywhere in a code block. A textual scan like the effect one above: the member is
+    // not an intrinsic name, so there is nothing to look up — and over-including costs one unused
+    // dependency line in a crate that mentions the word, never a wrong lowering.
+    val regexUsage  = scanRegexUsage(astModule)
     // rust-tui-toolkit (S1): `uiTarget=tui` renders the View to ratatui instead of
     // HTML/SSR — `serve` routes to a ratatui run (not a hyper server), so the http
     // server runtime + deps are suppressed and a `tui.rs` + ratatui deps are emitted.
@@ -65,7 +69,7 @@ object RustGen:
     // program may use no bare View primitive the scan recognises — so the tui target
     // always emits the `ui` module.
     val uiUsage     = scanUiUsage(astModule) || tuiTarget
-    val cargoToml   = renderCargoToml(crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
+    val cargoToml   = renderCargoToml(regexUsage, crateName, version, descr, hasMain, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
 
     val importedDefs =
       opts.extra.get("importedDefs").map(_.split(",").filter(_.nonEmpty).toSet).getOrElse(Set.empty)
@@ -80,7 +84,7 @@ object RustGen:
         // annotated def, fall back to [lib].
         val cargoTomlFinal =
           if effectiveBin == hasMain then cargoToml
-          else renderCargoToml(crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
+          else renderCargoToml(regexUsage, crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
         val generatedMod = renderGeneratedMod(crateName)
         val rootFile     =
           if effectiveBin then renderMainRs(crateName, entry.get)
@@ -108,6 +112,11 @@ object RustGen:
           if httpClientUsage.nonEmpty then
             sb.append("\n// ── outbound HTTP client runtime ──\n")
             sb.append("pub mod http_client;\n")
+          // `String.matches` — the helper references the `regex` crate, and that dependency is added
+          // only for a program that uses the member, so the helper must be too. Emitting it always
+          // put `regex::Regex::new` into every crate and turned twenty-odd std modules that never
+          // mention `matches` from COMPILES into BADRUST.
+          if regexUsage then sb.append(RustRuntimeTemplates.StrMatchesRs)
           if authUsage.nonEmpty then
             sb.append("\n// ── R.6 — auth runtime ──\n")
             sb.append("pub mod auth;\n")
@@ -227,6 +236,15 @@ object RustGen:
   /** R.5 — detect `serve` / `route` calls anywhere in the module source.
    *  Triggers the hyper + tokio dep emit and the `src/runtime/http.rs`
    *  asset. */
+  /** `String.matches(p)` — a full-match regex test, lowered to `_str_matches`. Keyed on the MEMBER
+   *  name rather than on an intrinsic, because it is a member and there is nothing to look up; the
+   *  dependency it drives is added only for a program that uses it. Over-including would cost one
+   *  unused line in `Cargo.toml`, never a wrong lowering. */
+  private[rust] def scanRegexUsage(astModule: scalascript.ast.Module): Boolean =
+    val found = scala.collection.mutable.Set.empty[String]
+    astModule.sections.foreach(s => scanSectionForNames(s, Set("matches"), found))
+    found.nonEmpty
+
   private[rust] def scanHttpUsage(astModule: scalascript.ast.Module): Boolean =
     val found = scala.collection.mutable.Set.empty[String]
     astModule.sections.foreach(s => scanSectionForNames(s, Set("serve", "route", "requestCookie"), found))
@@ -395,6 +413,10 @@ object RustGen:
    *  a single `[[bin]]` entry when `hasMain` is true, or a `[lib]` entry
    *  otherwise.  Format is fixed so goldens stay stable across builds. */
   private[rust] def renderCargoToml(
+      // `String.matches` drives a `regex` dependency, added only for a program that uses it — the
+      // same rule the http-client and server deps follow. Threaded rather than re-scanned: the scan
+      // belongs where every other one already happens.
+      regexUsage:  Boolean,
       crateName:   String,
       version:     String,
       descr:       Option[String],
@@ -465,6 +487,10 @@ object RustGen:
     // server; dedup with the tui path which also adds ureq.
     if httpClientUsage.nonEmpty && !depLines.exists(_.startsWith("ureq")) then
       depLines += "ureq = \"2\""
+    // `String.matches` is a full-match REGEX test, lowered to `_str_matches` in the runtime. The
+    // dependency is added only for a program that uses it — the same rule `ureq` and the http server
+    // deps follow, so a hello-world crate does not pay for a regex engine it never calls.
+    if regexUsage then depLines += "regex = \"1\""
     val deps = if depLines.isEmpty then "" else depLines.mkString("\n") + "\n"
     val target =
       if hasMain then

@@ -19,6 +19,28 @@ object RustRuntimeTemplates:
   /** `src/runtime/mod.rs` — the helpers `RustIntrinsics` references by
    *  the `crate::runtime::_*` symbol names.  Keeping the names stable
    *  is part of the SPI between the emitter and the runtime. */
+  /** `String.matches` — emitted ONLY for a program that uses it, because it references the `regex`
+   *  crate and that dependency is added the same way. Emitting it unconditionally put
+   *  `regex::Regex::new` into every crate and broke twenty-odd std modules that never mention the
+   *  member: `error[E0433]: use of unresolved module or unlinked crate regex`. The runtime pieces
+   *  around it (`http_client`, `auth`, `effects`) are all conditional for exactly this reason. */
+  val StrMatchesRs: String =
+    """|
+       |// `s.matches(p)` — Scala's FULL-match regex test. Two decisions live here rather than at the
+       |// call site: the anchoring, because Scala matches the WHOLE string while `regex::is_match`
+       |// searches, and the failure behaviour — an invalid pattern PANICS naming the pattern, which
+       |// is what `run` does (it throws PatternSyntaxException) rather than answering false and
+       |// letting a broken validator pass everything.
+       |#[allow(dead_code)]
+       |pub fn _str_matches(s: &str, pat: &str) -> bool {
+       |    let anchored = format!("^(?:{})$", pat);
+       |    match regex::Regex::new(&anchored) {
+       |        Ok(re) => re.is_match(s),
+       |        Err(e) => panic!("String.matches: invalid regex {:?}: {}", pat, e),
+       |    }
+       |}
+       |""".stripMargin
+
   val RuntimeModRs: String =
     RustRuntimeResource.load("RuntimeModRs")
 

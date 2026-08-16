@@ -185,6 +185,7 @@
       |impl SscToDouble for &f64    { fn ssc_to_double(self) -> f64 { *self } }
       |#[allow(dead_code)]
       |pub fn _to_double<T: SscToDouble>(x: T) -> f64 { x.ssc_to_double() }
+
       |
       |// A Char on the Rust lane. Rust has no inheritance, so the property `CharV extends IntV` gives
       |// the v2 kernel for free is spelled out here: Display prints the CHARACTER, and every numeric
