@@ -142,6 +142,31 @@ extern class McpServer:
   // Broadcast a raw JSON-RPC notification to every active subscriber.
   def notify(method: String, params: Map[String, Any] = Map()): Unit
 
+  // ── Resource subscriptions ───────────────────────────────────────────────
+  //
+  // Fire when the CLIENT sends `resources/subscribe` / `resources/unsubscribe`. Start a watcher in
+  // the subscribe hook and call `notifyResourceUpdate(uri)` from its callback — which is also why
+  // `notifyResourceUpdate` above stays silent for a uri nobody subscribed to.
+  def onResourceSubscribe(handler: String => Unit): Unit
+  def onResourceUnsubscribe(handler: String => Unit): Unit
+
+  // ── Paging ───────────────────────────────────────────────────────────────
+  //
+  // `0` or less disables pagination and is the default. With a positive size, every `*/list` answer
+  // carries a `nextCursor` while rows remain.
+  def setPageSize(n: Int): Unit
+  def currentPageSize(): Int
+
+  // ── Completions ──────────────────────────────────────────────────────────
+  //
+  // Autocomplete for one ARGUMENT of one prompt or resource template. The handler receives what the
+  // user has typed so far and returns suggestions; the dispatcher trims the list and sets
+  // `hasMore`. A prompt/argument pair with no handler answers an EMPTY list rather than an error —
+  // graceful degradation is what the spec asks for, so a missing completion is invisible to a
+  // client rather than a failure.
+  def completionForPrompt(promptName: String, argName: String, handler: String => List[String]): Unit
+  def completionForResource(uriTemplate: String, argName: String, handler: String => List[String]): Unit
+
   // Lifecycle hooks — called once per client connect / disconnect.
   def onConnected(handler: () => Unit): Unit
   def onDisconnected(handler: () => Unit): Unit

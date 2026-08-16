@@ -238,6 +238,19 @@ final class McpNativePlugin extends NativePlugin:
   // `Message(role, content)` -> `{role, content}`. The role NAMES are the wire's, not the enum's:
   // `Role.User` is `"user"`. Matched positionally because v2's value model is positional — the
   // field ORDER in std/mcp/types.ssc is the contract, and `Message(role, content)` is that order.
+  /** A completion handler's result: a `.ssc` `List[String]`. Non-string elements are rendered
+   *  rather than dropped, and a handler that returns something which is not a list at all yields
+   *  no suggestions — the same graceful-degradation the dispatcher applies to a missing handler,
+   *  since a completion is a hint and a wrong shape must not fail the request. */
+  private def stringList(value: Value): List[String] = value match
+    case data @ Value.DataV("Nil" | "Cons", _) =>
+      Prims.unlistPub(data).map {
+        case Value.StrV(s) => s
+        case other         => Show.show(other)
+      }.toList
+    case Value.StrV(s) => List(s)
+    case _             => Nil
+
   private def messageJson(value: Value): ujson.Value = value match
     case Value.DataV("Message", IndexedSeq(role, content)) =>
       val r = role match
@@ -466,6 +479,60 @@ final class McpNativePlugin extends NativePlugin:
           Value.UnitV
         })
         case "currentLogLevel" => Some(closure(0) { _ => Value.StrV(builder.loggingLevel) })
+
+        // ── resource subscriptions ───────────────────────────────────────
+        //
+        // These fire when the CLIENT sends `resources/subscribe` / `unsubscribe`. Typical wiring is
+        // to start a watcher in the subscribe hook and call `srv.notifyResourceUpdate(uri)` from
+        // its callback — which is also why `notifyResourceUpdate` only emits for a SUBSCRIBED uri.
+        case "onResourceSubscribe" => Some(closure(1) { args =>
+          val cb = args.head
+          builder.setOnResourceSubscribe(uri => { context.invoke(cb, List(Value.StrV(uri))); () })
+          Value.UnitV
+        })
+        case "onResourceUnsubscribe" => Some(closure(1) { args =>
+          val cb = args.head
+          builder.setOnResourceUnsubscribe(uri => { context.invoke(cb, List(Value.StrV(uri))); () })
+          Value.UnitV
+        })
+
+        // ── paging ───────────────────────────────────────────────────────
+        //
+        // `<= 0` disables pagination, which is the default; with a positive size every `*/list`
+        // answer carries a `nextCursor` while more rows remain.
+        case "setPageSize" => Some(closure(1) { args =>
+          val n = args.head match
+            case Value.IntV(v)   => v.toInt
+            case Value.FloatV(v) => v.toInt
+            case _ => throw new IllegalArgumentException("srv.setPageSize(n): n must be a number")
+          builder.setPageSize(n)
+          Value.UnitV
+        })
+        case "currentPageSize" => Some(closure(0) { _ => Value.IntV(builder.currentPageSize.toLong) })
+
+        // ── completions ──────────────────────────────────────────────────
+        //
+        // The handler is `String => List[String]`: it receives what the user has typed so far and
+        // returns suggestions. A MISSING handler answers an empty `values` list rather than an
+        // error (graceful degradation, per spec) — which is exactly why the gate for these asserts
+        // the VALUES and not merely that `completion/complete` succeeded. An unimplemented member
+        // would have passed a success check.
+        case "completionForPrompt" => Some(closure(3) { args =>
+          val promptName = text(args.head, "srv.completionForPrompt(promptName, argName, handler)")
+          val argName    = text(args(1), "srv.completionForPrompt argName")
+          val handler    = args(2)
+          builder.completionForPrompt(promptName, argName,
+            partial => stringList(context.invoke(handler, List(Value.StrV(partial)))))
+          Value.UnitV
+        })
+        case "completionForResource" => Some(closure(3) { args =>
+          val uriTemplate = text(args.head, "srv.completionForResource(uriTemplate, argName, handler)")
+          val argName     = text(args(1), "srv.completionForResource argName")
+          val handler     = args(2)
+          builder.completionForResource(uriTemplate, argName,
+            partial => stringList(context.invoke(handler, List(Value.StrV(partial)))))
+          Value.UnitV
+        })
 
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head

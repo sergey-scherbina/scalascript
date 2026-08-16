@@ -681,9 +681,10 @@ that does, proven in both directions.
       to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
       the one caller that does not use it.
 - [~] **The remaining `srv` members on v2**, in groups that stand alone: auth (7),
-      roots/sampling (6), notifications and progress — **DONE**, registration — **DONE**,
-      completions (2), paging (2),
-      subscriptions (2), `currentLogLevel`. The census is `specs/mcp-2026-07-28.md` §11.1.
+      roots/sampling (4 left), notifications and progress — **DONE**, registration — **DONE**,
+      completions — **DONE**, paging — **DONE**, subscriptions — **DONE**, `currentLogLevel` —
+      **DONE**. Counted by running the two member lists against each other rather than by reading
+      §11.1: 40 members on v1, 29 on v2, 11 left — all of them auth (7) and roots/sampling (4).
       ✓ 2026-08-16 — `prompt` done, and it was the one member on this list that was already
       DECLARED in `std/mcp/server.ssc`: the declared surface and the default lane disagreed, so a
       conforming program died on `ssc run` with `no field 'prompt'` while the interpreter served it.
@@ -705,6 +706,17 @@ that does, proven in both directions.
       than as `mem://note/{id}`. Two controls, one per byte: discarding the schema reds the first
       and leaves the template correct; passing the template instead of the uri reds the third and
       leaves the schema and the template LISTING correct — so the assertions are independent.
+      ✓ 2026-08-16 — subscriptions, paging and completions CLOSED: `onResourceSubscribe`,
+      `onResourceUnsubscribe`, `setPageSize`, `currentPageSize`, `completionForPrompt`,
+      `completionForResource`, all declared and driven on both lanes. The completions assertion is
+      the one worth copying: `completion/complete` answers `{"values":[]}` for a MISSING handler by
+      design (graceful degradation, per spec), so a success check would pass on a member that does
+      not exist — the row derives the suggestions FROM what the client typed instead.
+      **A control that removes a member entirely proves less than it looks.** The first three
+      controls all reported the SAME first assertion, because a missing member kills the builder
+      block before the server starts, so nothing reaches the wire. Re-run as NO-OP controls — member
+      present, effect removed — each named its own assertion (`nextCursor`, `values`,
+      `notifications/subbed`). That is the version that shows the assertions are independent.
       ✓ 2026-08-16 — notifications, progress and logging CLOSED on v2: all eight
       (`notifyToolsListChanged`, `notifyResourcesListChanged`, `notifyPromptsListChanged`,
       `notifyResourceUpdate`, `notifyProgress`, `notify`, `log`, `currentLogLevel`) implemented and

@@ -386,4 +386,74 @@ cmp "$tmp/notif.v1.cmp" "$tmp/notif.v2.cmp" || {
   diff "$tmp/notif.v1.cmp" "$tmp/notif.v2.cmp" >&2 || true; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members)'
+# ── subscriptions, paging and completions ────────────────────────────────────
+#
+# Six members, and each assertion below is chosen so an UNIMPLEMENTED member fails it:
+#
+#   * PAGING — three tools registered with `setPageSize(2)`. The row wants exactly `t1`,`t2` and a
+#     `nextCursor`. A `setPageSize` that did nothing would list all three and pass any
+#     "did tools/list answer" check.
+#   * COMPLETIONS — the suggestions are DERIVED from what the client typed (`x` -> `x-ann`), so a
+#     handler that was never registered cannot produce them. This matters more than usual here:
+#     `completion/complete` answers `{"values":[]}` for a MISSING handler rather than an error,
+#     by design (graceful degradation, per spec), so asserting success would pass on a member that
+#     does not exist.
+#   * SUBSCRIPTIONS — both hooks put a distinct notification on the wire, so a hook that was
+#     registered but never called, and a hook that was never registered, both fail.
+#   * `currentPageSize` is read back INTO a tool result: `size=2` proves the setter took effect
+#     rather than the getter merely returning a default.
+#
+# `completionForPrompt(name, arg, handler)` is NOT curried — three arguments in one call, which is
+# what v1's intrinsic accepts. Writing it curried is what made the first draft of this row red.
+cat > "$tmp/spc.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, ToolResult, ResourceResult, PromptResult, Message, Role, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.setPageSize(2)
+    srv.tool("t1")(args => ToolResult(List(Content.Text("1"))))
+    srv.tool("t2")(args => ToolResult(List(Content.Text("2"))))
+    srv.tool("t3")(args => ToolResult(List(Content.Text("3"))))
+    srv.resource("mem://a", "a")(uri => ResourceResult(uri, List(Content.Text("A"))))
+    srv.prompt("greet", "g")(args => PromptResult(List(Message(Role.User, Content.Text("hi")))))
+    srv.completionForPrompt("greet", "who", partial => List(partial + "-ann", partial + "-bo"))
+    srv.onResourceSubscribe(uri => srv.notify("notifications/subbed", Map("uri" -> uri)))
+    srv.onResourceUnsubscribe(uri => srv.notify("notifications/unsubbed", Map("uri" -> uri)))
+    srv.tool("page")(args => ToolResult(List(Content.Text("size=" + srv.currentPageSize().toString)))))
+  serveMcp(Transport.Stdio)
+SSC
+spc_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"completion/complete","params":{"ref":{"type":"ref/prompt","name":"greet"},"argument":{"name":"who","value":"x"}}}
+{"jsonrpc":"2.0","id":4,"method":"resources/subscribe","params":{"uri":"mem://a"}}
+{"jsonrpc":"2.0","id":5,"method":"resources/unsubscribe","params":{"uri":"mem://a"}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"page","arguments":{}}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$spc_in" | "$bin" run $lane "$tmp/spc.ssc" >"$tmp/spc$lane.out" 2>"$tmp/spc$lane.err" || true
+  for want in \
+    '"nextCursor":"2"' \
+    '"values":["x-ann","x-bo"]' \
+    '"method":"notifications/subbed","params":{"uri":"mem://a"}' \
+    '"method":"notifications/unsubbed","params":{"uri":"mem://a"}' \
+    '"text":"size=2"'
+  do
+    grep -qF "$want" "$tmp/spc$lane.out" || {
+      echo "v21-standard-mcp-smoke: missing on $lane -> $want" >&2
+      tail -4 "$tmp/spc$lane.out" "$tmp/spc$lane.err" >&2; exit 1
+    }
+  done
+  # The page must be SHORT: three tools registered, two listed.
+  grep -qF '"name":"t3"' "$tmp/spc$lane.out" && {
+    echo "v21-standard-mcp-smoke: setPageSize(2) did not bound the page on $lane — t3 was listed" >&2
+    exit 1
+  }
+done
+grep -v '"serverInfo"' "$tmp/spc--v1.out" >"$tmp/spc.v1.cmp"
+grep -v '"serverInfo"' "$tmp/spc--v2.out" >"$tmp/spc.v2.cmp"
+cmp "$tmp/spc.v1.cmp" "$tmp/spc.v2.cmp" || {
+  echo 'v21-standard-mcp-smoke: subscriptions/paging/completions differ between the lanes' >&2
+  diff "$tmp/spc.v1.cmp" "$tmp/spc.v2.cmp" >&2 || true; exit 1
+}
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions)'
