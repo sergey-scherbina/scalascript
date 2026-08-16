@@ -1,3 +1,77 @@
+## effect-row-verifier-demands-a-declaration-it-never-checks — `! Nonsense` satisfies it
+
+<!-- status: open
+     kind: bug
+     lane: apparatus
+     area: front
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes -->
+
+**Measured 2026-08-16.** `ssc-tools check` rejects `tests/conformance/effects.ssc` — a case that runs
+correctly on every lane — with
+
+```text
+[effect-verifier] 'greet' appears effectful (reaches Console, Choose, Fail) but declares no effect row (!)
+```
+
+Declaring a row makes it pass. **Any row.** Same file, one line changed, four runs:
+
+| declared on `greet` | `check` |
+|---|---|
+| `! Console` — the effect it actually leaks | `OK` |
+| `! Choose` — a different effect in the file | `OK` |
+| `! Fail` — another one | `OK` |
+| **`! Nonsense`** — **an effect that does not exist anywhere** | **`OK`** |
+
+So the verifier demands a declaration and then reads nothing but its emptiness. The whole rule is one
+line of `EffectAnalysis.verify`:
+
+```scala
+if funIsEffectful && declared.isEmpty then warnings += …
+```
+
+Two separate holes, and neither is a judgement call:
+
+* **A declared effect NAME is never checked against the `effect` blocks in scope.** `! Nonsense`
+  type-checks. `declaredEffects` in `Typer.scala` is built as `name -> ops.map(_.name)` and used
+  only for that emptiness test.
+* **A declared row is never checked to COVER what the function leaks.** `! Fail` on a function that
+  performs `Console.readLine` is accepted, so the row can be true, partial, or fiction.
+
+Note the message is misleading too: it says `greet` "reaches Console, Choose, Fail" when `greet`
+touches only `Console`. `reachableEffectNames` is built from `analysisResult.effectOps` — every op in
+the BLOCK — not from the function being flagged.
+
+### Why this is fixable now, and cheap
+
+`leakingFuns` already computes the per-function leaked set and throws it away:
+
+```scala
+if leakedOps(body, effectOps, Set.empty).nonEmpty then leaking += fname
+```
+
+`leakedOps` returns the fully-qualified ops (`Console.readLine`) that escape a discharging `handle` —
+exactly what "declared must cover leaked" needs. It is discarded for a boolean. Returning
+`Map[String, Set[String]]` instead, and propagating it along the same call-graph fixed point already
+there, makes both checks precise.
+
+### Why it matters beyond tidiness
+
+**These five are the entire remaining gap between `ssc-tools check` and a corpus it fully accepts** —
+`effects.ssc`, `effects-handler.ssc`, `effect-deep-handler-state.ssc`, `head-field-effect-shadow.ssc`,
+`js-effect-multishot-long-fold.ssc`. Conformance rejections went 9 → 5 when the checker started
+asking the runtime which names exist (`a42310890`); these five are what is left, and they are what
+blocks deciding whether `run --v1` type-checks at all (`tests/SPRINT.md` TYPES MUST BE RIGHT step 7).
+
+And annotating those five today would be **ceremony, not correctness**: the measurement above says
+any token satisfies the gate. Fixing the verifier first is what makes the annotations mean something.
+
+**Related:** `durable-save-run-verifier-red` (`af46212c3`) added the discharge-aware `leakingFuns`
+this builds on, and its entry predicted `effects.ssc` would not be flagged because its effect
+declaration and its defs sat in different fenced blocks. They are in ONE block today, which is why
+it is flagged now.
+
 ## kind-was-optional-and-unchecked-so-half-the-board-declared-none — 50 blank, 16 invented
 
 <!-- status: fixed
