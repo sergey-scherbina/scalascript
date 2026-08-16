@@ -7,6 +7,7 @@ exports:
   - ToolResult
   - ResourceResult
   - ElicitationResult
+  - Root
   - PromptResult
   - Content
   - Message
@@ -54,6 +55,13 @@ case class ResourceResult(uri: String, contents: List[Content])
 // by accident. The declaration is the contract; the field ORDER below is what a positional lane
 // builds against.
 case class ElicitationResult(action: String, content: Option[Map[String, Any]])
+
+// A workspace root the CLIENT exposes to the server — `srv.listRoots()` returns these.
+//
+// DECLARED HERE FOR THE SAME REASON `ElicitationResult` was: v1's plugin built a record it called
+// `Root` with these two field NAMES and nothing described it, so a second lane had nothing to agree
+// with. v2's value model is POSITIONAL, so the field ORDER below is the contract.
+case class Root(uri: String, name: Option[String])
 
 case class PromptResult(messages: List[Message])
 

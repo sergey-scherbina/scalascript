@@ -534,6 +534,46 @@ final class McpNativePlugin extends NativePlugin:
           Value.UnitV
         })
 
+        // ── roots, and the raw server-initiated request ──────────────────
+        //
+        // `listRoots` and `request` are server->CLIENT round trips, so over stdio they block the
+        // very loop that would deliver their answer — the shape `elicit` above documents
+        // (mcp-elicit-deadlocks-the-serve-loop). Implemented anyway because the defect is in the
+        // transport wiring, not in these members, and because a duplex client can use them today.
+        case "clientSupportsRoots" =>
+          Some(closure(0) { _ => Value.BoolV(builder.clientSupportsRoots) })
+        case "onRootsListChanged" => Some(closure(1) { args =>
+          val cb = args.head
+          builder.setOnRootsListChanged(() => { context.invoke(cb, Nil); () })
+          Value.UnitV
+        })
+        case "listRoots" => Some(closure(-1) { args =>
+          val result = args.headOption match
+            case Some(Value.IntV(ms)) if ms > 0 => builder.listRoots(ms)
+            case _                              => builder.listRoots()
+          result match
+            case Left(e)      => sys.error(s"srv.listRoots: ${e.message}")
+            case Right(roots) =>
+              // `Root(uri, name)` — POSITIONAL, matching the declaration in std/mcp/types.ssc.
+              list(roots.iterator.map(r =>
+                Value.DataV("Root", Vector(
+                  Value.StrV(r.uri),
+                  r.name.fold(Value.DataV("None", Vector.empty))(n =>
+                    Value.DataV("Some", Vector(Value.StrV(n))))))))
+        })
+        case "request" => Some(closure(-1) { args =>
+          if args.isEmpty then
+            throw new IllegalArgumentException("srv.request(method[, params[, timeoutMs]])")
+          val method  = text(args.head, "srv.request method")
+          val params  = args.lift(1).map(json).getOrElse(ujson.Obj())
+          val timeout = args.lift(2) match
+            case Some(Value.IntV(ms)) if ms > 0 => ms
+            case _                              => 30_000L
+          builder.request(method, params, timeout) match
+            case Left(e)     => sys.error(s"srv.request($method): ${e.message}")
+            case Right(js)   => json(js)
+        })
+
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head
           builder.setOnConnected(() => { context.invoke(cb, Nil); () })

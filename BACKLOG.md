@@ -729,10 +729,18 @@ that does, proven in both directions.
       to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
       the one caller that does not use it.
 - [~] **The remaining `srv` members on v2**, in groups that stand alone: auth (7),
-      roots/sampling (4 left), notifications and progress — **DONE**, registration — **DONE**,
+      roots/sampling — **DONE**, notifications and progress — **DONE**, registration — **DONE**,
       completions — **DONE**, paging — **DONE**, subscriptions — **DONE**, `currentLogLevel` —
       **DONE**. Counted by running the two member lists against each other rather than by reading
-      §11.1: 40 members on v1, 29 on v2, 11 left — all of them auth (7) and roots/sampling (4).
+      §11.1: 40 members on v1, 33 on v2, **7 left — all of them auth**.
+      ✓ 2026-08-16 — roots and the raw request: `clientSupportsRoots`, `onRootsListChanged`,
+      `listRoots`, `request`, plus `Root(uri, name)` DECLARED in std/mcp/types.ssc — the same
+      undeclared-record shape `ElicitationResult` had. `clientSupportsRoots` is driven BOTH WAYS
+      from one program, with and without `roots` in the client's initialize capabilities, because a
+      member hard-wired to either answer passes a one-sided case; the control that returns a
+      constant `true` reds exactly the second half. `listRoots` and `request` BLOCK over stdio for
+      the reason `elicit` does (mcp-elicit-deadlocks-the-serve-loop), so the row asserts the
+      REQUEST on the wire with `timeoutMs = 1`, not its answer.
       ✓ 2026-08-16 — `prompt` done, and it was the one member on this list that was already
       DECLARED in `std/mcp/server.ssc`: the declared surface and the default lane disagreed, so a
       conforming program died on `ssc run` with `no field 'prompt'` while the interpreter served it.

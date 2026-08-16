@@ -29,6 +29,7 @@ exports:
   - requireDouble
   - requireBool
   - ElicitationResult
+  - Root
 ---
 
 # `std.mcp.server`
@@ -49,7 +50,7 @@ driven for this note.
 
 ```scalascript
 [ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
- Tool, Resource, Prompt, ElicitationResult, requireString, requireInt, requireDouble,
+ Tool, Resource, Prompt, ElicitationResult, Root, requireString, requireInt, requireDouble,
  requireBool](./types.ssc)
 
 // ─── McpServer trait ─────────────────────────────────────────────────────────
@@ -166,6 +167,27 @@ extern class McpServer:
   // client rather than a failure.
   def completionForPrompt(promptName: String, argName: String, handler: String => List[String]): Unit
   def completionForResource(uriTemplate: String, argName: String, handler: String => List[String]): Unit
+
+  // ── Roots, and the raw server-initiated request ──────────────────────────
+  //
+  // `roots` are the workspace folders the CLIENT chose to expose. `clientSupportsRoots` says
+  // whether it advertised the capability at all; calling `listRoots` on a client that did not is a
+  // round trip that can only fail.
+  //
+  // BOTH `listRoots` AND `request` BLOCK, and over stdio they block the loop that would deliver
+  // their own answer — the same shape `elicit` documents above
+  // (mcp-elicit-deadlocks-the-serve-loop). They are useful from a client that drives the server on
+  // a real duplex transport; from a stdio tool handler they will time out.
+  //
+  // `timeoutMs = 0` means "the builder's own default" for both.
+  def clientSupportsRoots(): Boolean
+  def onRootsListChanged(handler: () => Unit): Unit
+  def listRoots(timeoutMs: Long = 0): List[Root]
+
+  // The escape hatch under `listRoots` and `elicit`: send ANY JSON-RPC request to the connected
+  // client and return its parsed result. Use it for methods this surface has not grown a name for
+  // yet — `sampling/createMessage`, for one.
+  def request(method: String, params: Map[String, Any] = Map(), timeoutMs: Long = 0): Any
 
   // Lifecycle hooks — called once per client connect / disconnect.
   def onConnected(handler: () => Unit): Unit

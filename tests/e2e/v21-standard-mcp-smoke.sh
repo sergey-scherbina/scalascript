@@ -456,4 +456,56 @@ cmp "$tmp/spc.v1.cmp" "$tmp/spc.v2.cmp" || {
   diff "$tmp/spc.v1.cmp" "$tmp/spc.v2.cmp" >&2 || true; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions)'
+# ── roots, and the raw server-initiated request ──────────────────────────────
+#
+# `clientSupportsRoots` is driven BOTH WAYS from the same program — once with `roots` in the
+# client's initialize capabilities and once without. A member hard-wired to either answer passes a
+# one-sided case; only the pair pins it.
+#
+# `request` is asserted on the WIRE and not on its answer, for the reason `elicit` above documents:
+# a server->client round trip over stdio blocks the loop that would deliver its own reply
+# (mcp-elicit-deadlocks-the-serve-loop). `timeoutMs` is 1 so the row costs a millisecond rather
+# than the builder's 30 s. `listRoots` is the same shape and is left to `request`'s coverage here
+# rather than doubling the wait.
+cat > "$tmp/roots.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, ToolResult, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.onRootsListChanged(() => srv.notify("notifications/roots-changed", Map()))
+    srv.tool("caps")(args =>
+      ToolResult(List(Content.Text("roots=" + srv.clientSupportsRoots().toString))))
+    srv.tool("ask")(args =>
+      val r = srv.request("sampling/createMessage", Map("k" -> "v"), 1)
+      ToolResult(List(Content.Text("unreachable")))))
+  serveMcp(Transport.Stdio)
+SSC
+roots_yes='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"roots":{}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"caps","arguments":{}}}
+{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
+roots_no='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"caps","arguments":{}}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$roots_yes" | "$bin" run $lane "$tmp/roots.ssc" >"$tmp/roots$lane.yes" 2>&1 || true
+  printf '%s\n' "$roots_no"  | "$bin" run $lane "$tmp/roots.ssc" >"$tmp/roots$lane.no"  2>&1 || true
+  grep -qF '"text":"roots=true"' "$tmp/roots$lane.yes" || {
+    echo "v21-standard-mcp-smoke: clientSupportsRoots did not see the advertised capability on $lane" >&2
+    tail -3 "$tmp/roots$lane.yes" >&2; exit 1
+  }
+  grep -qF '"text":"roots=false"' "$tmp/roots$lane.no" || {
+    echo "v21-standard-mcp-smoke: clientSupportsRoots answered true for a client that advertised nothing on $lane" >&2
+    tail -3 "$tmp/roots$lane.no" >&2; exit 1
+  }
+  grep -qF '"method":"notifications/roots-changed"' "$tmp/roots$lane.yes" || {
+    echo "v21-standard-mcp-smoke: onRootsListChanged did not fire on $lane" >&2
+    tail -3 "$tmp/roots$lane.yes" >&2; exit 1
+  }
+  grep -qF '"method":"sampling/createMessage","params":{"k":"v"}' "$tmp/roots$lane.yes" || {
+    echo "v21-standard-mcp-smoke: srv.request did not reach the wire with its params on $lane" >&2
+    tail -3 "$tmp/roots$lane.yes" >&2; exit 1
+  }
+done
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request)'
