@@ -1,0 +1,11 @@
+slug: native-object-values
+branch: feature/native-object-values
+agent: claude-code
+started: 2026-08-16T03:01:40Z
+heartbeat: 2026-08-16T03:01:40Z
+status: claimed-before-planning
+items: collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native
+paths: file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
