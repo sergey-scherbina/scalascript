@@ -6,39 +6,38 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not — the same feature, two spellings, one broken
+## v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not — fixed; the analysis had to move, not the rule
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
+     fixed-in: e87d7d703
      gate: v3/corpus-report.sh (parameterless-def-local)
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**A LOCAL `def` THAT ASSIGNS TO AN ENCLOSING `var` LOSES THE WRITE, and the lambda spelling of the
-same thing is correct** — which is what makes this precise rather than a design question:
+**FIXED IN e87d7d703, and the DIFF floor FALLS on both lanes rather than merely holding:**
 
-    def main(): Unit =
-      var n = 0
-      def bump(x: Int): Int =
-        n = n + x
-        n
-      println(bump(1)); println(bump(1)); println(n)     ->  1  1  0     WRONG
+    bridge  control PASS 250  DIFF 5  CRASH 1   ->  PASS 251  DIFF 4  CRASH 1
+    exec    control PASS 252  DIFF 2  CRASH 8   ->  PASS 253  DIFF 1  CRASH 8
 
-      val f = (x: Int) =>
-        n = n + x
-        n
-      println(f(1)); println(f(1)); println(n)           ->  1  2  2     right
+`parameterless-def-local` was a wrong answer, not a refusal, and it is gone from both lists.
 
-**BOTH LANES AGREE ON THE WRONG ANSWER**, so this is a shared lowering defect and not a divergence —
-and a wrong answer is worse than a refusal. `parameterless-def-local` is the corpus case: it prints
-`loc 1 1` where the oracle says `loc 1 2`, and it is one of only five DIFFs on the bridge.
+**THE RULE WAS ALREADY WRITTEN AND ALREADY RIGHT — only its reach was wrong.** `assignedFree` and
+`boxLocals` were built for the lambda half of this exact defect on 2026-08-08
+(`v3-loses-a-mutation-to-a-captured-var`), and the comment there describes this mechanism word for
+word: lifting passes captures as leading PARAMETERS, so an assignment inside mutates a copy. The
+collector simply matched `Expr.Lambda` and nothing else.
 
-**THE TWIN IS THE FIX'S SPECIFICATION.** Whatever the lambda path does to make an enclosing `var`
-mutable through a closure, the local-`def` path does not do — so the question is not how mutable
-capture should work here, only why one of the two spellings skips it.
+**THE FIRST ATTEMPT WAS DEAD CODE, and why is the part worth keeping.** Adding a `Stmt.LocalDef` arm
+to `boxedNames` changed nothing, because boxing runs LAST — deliberately, since `expandPlaceholders`
+creates lambdas late — while `liftLocals` runs early and REMOVES the very nodes the new arm reads.
+The analysis had to move before the lifting; the rewriting stayed where it was.
 
+**IT SURVIVED BECAUSE BOTH LANES AGREED ON THE WRONG ANSWER.** Neither the parity gate nor the front
+differential can see a defect the executor and the bridge share — only the corpus oracle can, which
+is exactly how the lambda half was found.
 ## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — eta-expansion, one instruction
 
 <!-- status: fixed
