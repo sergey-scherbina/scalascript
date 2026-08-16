@@ -2690,11 +2690,12 @@ This was the last error in rozum's `public-matrix.ssc`: 33 at the start of 2026-
 the end.
 
 ## rust-ui-form-six-shapes-behind-one-refusal — SIX gaps closed; the module still refuses, on regex
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: tests/e2e/rust-std-survey-gate.sh -->
+     gate: tests/e2e/rust-matches-regex-gate.sh
+     fixed-in: 117ef187a -->
 
 `std/ui/form.ssc` sat at `sites = 2` in `--roadmap` and was **nine rustc errors in six shapes** deep
 once its refusal was lifted. Six are now fixed; the module is still REFUSED, and the reason is
@@ -2728,6 +2729,22 @@ it. **That decision is not made here.**
 An investigation hatch (`SSC_RUST_ALLOW_MATCHES`) was used to see past the refusal and has been
 REMOVED: shipping an environment variable that disables a guard against silently-wrong output is how
 the guard stops meaning anything.
+
+**CLOSED 2026-08-16 — `std/ui/form.ssc` COMPILES.** The survey moved REFUSED 78 / COMPILES 54 to
+**77 / 55**, and that single module is the difference; the baseline is updated in the same commit.
+
+`matches` lowering was the named blocker and it was not the last one. Lifting it exposed four more
+rustc errors, each fixed here and each a shape any module can hit:
+
+| | |
+|---|---|
+| `.filter(|e| e != "")` | `filter` hands the predicate a REFERENCE, so the body compared `&String` with `String`. `find` three lines above already rebound its parameter by clone; the twin did not — a fix that lands on one of a pair and not the other is how this survived. |
+| `vf(s, drafts(k)())` | a signal read whose RECEIVER is a map apply is still a `Value`, and `needsAnyCoercion` could not see the nesting — `expected String, found Value`. |
+| `ctxSignal(ctx, name, "")` | a parameter typed by the def's OWN type parameter fell through `mapType`'s unknown-name default and became `i64`. It is a `Value` now, in the signature AND in the map the call site coerces against — those two disagreeing is what turned `expected i64` into `expected Value` mid-fix. |
+| `m.insert(s.name, f(… s.name …))` | Rust evaluates arguments left to right, so the key MOVED and the value then borrowed it. The key is cloned exactly when the value mentions it. |
+
+The six shapes this entry was opened for were already fixed; these four were behind the one refusal
+that remained, which is why the entry could not close until the refusal did.
 
 ## coord-release-note-executes-backticks — FIXED: `--note-file`, because a workaround everyone must know is not a fix
 <!-- status: fixed
@@ -2787,6 +2804,27 @@ at all.
 A correct lowering needs a regex engine this crate does not depend on. Refused by NAME, the same
 device as `CollectionOnlyMembers`. One site in std, so the blast radius was checked before the rule
 was written rather than after.
+
+**SUPERSEDED 2026-08-16 — it LOWERS now, on the project owner's decision to depend on `regex`.**
+The refusal was right for as long as the lane had no regex engine; the decision changed the
+premise, not the analysis. What the analysis got right is now in the lowering: Scala matches the
+WHOLE string, so the pattern is anchored as `^(?:…)$` — `"abcd".matches("abc")` is FALSE, where
+Rust's `is_match` alone would say true — and an invalid pattern PANICS naming the pattern rather
+than answering false, which is what `run` does.
+
+The work is a runtime function `_str_matches`, not an expression built at the call site: the
+anchoring and the failure behaviour belong in one place, and `renderTerm` is frozen past
+HugeMethodLimit — an arm there was measured at +96 bytecodes and refused by the ratchet, which is
+why the lowering hangs off `applyNonListCtor` instead.
+
+THE DEPENDENCY AND THE HELPER ARE BOTH CONDITIONAL, and getting that wrong is recorded because it
+cost twenty-odd modules: the first version emitted `_str_matches` into every crate while adding
+`regex` only to crates that use `matches`, so every module that never mentions the member failed
+with `error[E0433]: use of unresolved module or unlinked crate regex` — COMPILES → BADRUST across
+std. The helper is now emitted under the same condition as the dependency, and the gate asserts
+both halves agree.
+
+Gate: `tests/e2e/rust-matches-regex-gate.sh`.
 
 ## rust-local-val-bound-to-a-def-is-not-callable — FIXED: the call-site guard had no set that could hold it
 <!-- status: fixed
