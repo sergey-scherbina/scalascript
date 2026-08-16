@@ -23,6 +23,64 @@ Newest first.
 
 
 
+## v3-extension-vocab-gate-reads-a-comment-as-vocabulary — a prose example turned main RED
+
+<!-- status: fixed
+     lane: v3
+     area: build
+     kind: apparatus
+     gate: v3/extension-gate.sh --self-test
+     fixed-in: 754aff67a
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: cb740ecd3
+     repro: inline below
+     impact: blocks -->
+
+Found because it turned my own push RED and I went looking for what I had broken. I had broken
+nothing: `v3/extension-gate.sh` reads COMMENTS as vocabulary.
+
+`f77b5c46f` documented the new String×Int lowering the obvious way:
+
+```scala
+// `"ab" * 3` IS "ababab" — string repetition, which Scala gives on `StringOps` …
+```
+
+Two quoted runs on one comment line. `exec_vocab` selects the `invoke` range, `grep -oE '"[^"]+"'`
+takes `ab` and then `ababab`, and the identifier filter passes both — so the gate decided `Exec`
+answers to a method called `ababab` and demanded `Lower` list it:
+
+```text
+RED  v3/src/Lower.scala's vocabulary is missing name(s) that v3/src/Exec.scala answers to:
+       ababab
+```
+
+Nothing was wrong with the code, and nothing was wrong with the comment. The READER was wrong, and
+the cost lands on everybody: main goes red, and the next person's green push reports a failure in a
+file they never touched.
+
+**Fixed by dropping whole-line `//` before extraction, on BOTH sides.** Deliberately narrow: a
+trailing comment after real code would take the code with it if stripped naively, and a `//` inside a
+string literal is exactly what this gate exists to read. Block comments are not stripped either —
+`/* … */` does not appear in these ranges, and guessing at a shape that is not there is how the next
+false positive arrives.
+
+**Measured, both directions, because a filter that removes things must be shown to remove only the
+right things.** On the Exec side it drops 8 names, every one of them example text from explanatory
+prose — `A`, `ab`, `ababab`, `alice`, `any`, `carol`, `cd`, `x` — and adds none. 124 → 116.
+
+**The LOWER side was the one worth fixing even though it changes nothing today**, and that asymmetry
+is the finding. The check is `Lower ⊇ Exec`, so a quoted example in an Exec comment produces a false
+ALARM, while one in a Lower comment SILENTLY SATISFIES the check for a name Lower does not handle —
+the failure that does not announce itself. Measured before adding the filter: that block holds 17
+comment lines and the vocabulary is 152 names with or without them, so nothing is masked today and
+no name is lost. The filter is there for the comment somebody writes next. Fixing only the noisy
+side would have left the dangerous twin.
+
+**Verified:** `v3/extension-gate.sh --self-test` — baseline GREEN *and* a planted missing name
+(`'++'`) still goes RED, which is the row that proves the filter did not blind the gate rather than
+fix it. `scripts/smoke-ci` 112/112 (it was 111/112 with this red).
+
 ## v3-exec-has-no-string-repetition — `"ab" * 3` was `Mul on String ab and Int 3` on one lane of two
 
 <!-- status: fixed
