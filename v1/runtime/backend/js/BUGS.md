@@ -1858,12 +1858,13 @@ drove an `if`. A gate keying on exit status sees success.
 
 
 ## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: front
      kind: bug
      confirmed: yes
-     gate: tests/conformance/native-import-in-fence.ssc -->
+     gate: tests/conformance/native-import-in-fence.ssc
+     fixed-in: 15c79c7d4 -->
 
 **THE EMIT PATH IS FIXED ON ALL FOUR LANES; `run-js` IS NOT, AND THAT IS WHY THIS IS STILL OPEN.**
 `tests/conformance/native-import-in-fence.ssc` prints `25 / 27 / 720` on int, js, jvm and v2 —
@@ -2073,6 +2074,50 @@ overlay is the site; if they agree, the loss is after `compile`, in how `run-js`
 the fix, and the four negative results are the expensive part — each one is a hypothesis the next
 reader would otherwise re-form.
 
+
+### FIXED 2026-08-16 — `genSections`, the ONESHOT walker, never looked inside a fence
+
+**One line, and the hunt for it is the useful part.** `JsGen` has two walkers:
+
+```text
+genModuleSegmented   line 2242   Parser.inlineImports(cb.source).foreach(genImport)   ← had it
+genSection(s)        line 2330   (nothing)                                            ← did not
+```
+
+`0796774ad` taught the SEGMENTED walker to read both import surfaces and left the oneshot one. And
+the two commands take different walkers:
+
+```text
+emit-js   -> compileJsSegments   -> JsBackend "segmented" -> generateSegmented   worked
+run-js    -> compileViaBackend   -> JsBackend "oneshot"   -> generate            broken
+```
+
+**Measured before the edit, one module, one `baseDir`:**
+
+```text
+generate (run-js path)         defines square = false   len 508
+generateSegmented (emit-js)    defines square = true    len 569
+```
+
+**And after:** `run-js`, `emit-js | node` and `int` all print `25 27 720 49`.
+
+**THIS IS WHY TWO HARNESSES DISAGREED ABOUT ONE CASE.** `contract.sc:669` drives the js lane with
+`run-js`; `run.sc` drives it with `emit-js` piped to node. A defect in one command was invisible to
+the other suite, so no single `known-red: js` could be correct for both — one suite called it a real
+red, the other called the same declaration STALE. Both now agree: contract.sc 3/3 PASS contract
+GREEN, run.sc `--no-memo` PASS on INT/JS/JVM/V2.
+
+**The declaration is gone from both halves** — a sibling had already removed it from the case's
+front-matter on run.sc's advice, which left the `corpus-baseline.tsv` row orphaned and
+`freeze-consistency-gate` red; that row is removed here with the paired digest recomputed after
+reconstructing the current one byte-exact.
+
+**What made this expensive, recorded because it was my own doing.** I first blamed the CLI's import
+discovery from a grep, then produced four in-process "negative results" that were void twice over —
+the predicate matched a REFERENCE (`_call(square, 5)`) rather than a definition, and the harness
+returned 508 bytes where the CLI emits 148 KB. Both were retracted. What finally located it was
+reading the two COMMANDS end to end and finding they take different walkers — the CLI-level diff the
+retraction had named as the next step.
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
 <!-- status: open
      lane: js
