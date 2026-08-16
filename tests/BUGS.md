@@ -81,7 +81,7 @@ it is flagged now.
      reported-at: 2026-08-16
      confirmed: yes
      gate: tests/e2e/std-ui-forms-smoke.sh + tests/e2e/request-validation-family-gate.sh
-     fixed-in: a31cfbefe -->
+     fixed-in: 456531fd8 -->
 
 **`std-ui-forms` and `request-validation-family` both failed in an ordinary `scripts/smoke-ci` run
 and both passed standalone minutes later at the same load.** Three agents were running their own
