@@ -293,7 +293,7 @@ red.**
 | `v2/backend/check.sh` | 17 m 55 s | ALL GREEN — 16 fixtures × 4 backends, 57 ok / 7 skip / 0 fail |
 | `v2/conformance/check.sh` | 11 m 21 s loaded, 7 m 09 s quiet | GREEN — 645 checks |
 | `tests/rust-build-smoke.sh` | 12 m 39 s | **RED** — four fixtures, filed as `v2/BUGS.md rust-build-lane-binds-runtime-results-to-the-wrong-declared-type` |
-| `tests/e2e/negtc-shard-gate.sh` | 22 m 10 s | **RED** — `✗ the refusal does not point at the backlog item, so the reader is left stuck`, with `run-timeout: 8` and `run-error: 12` in the sweep it compares |
+| `tests/e2e/negtc-shard-gate.sh` | 22 m 10 s / 14 m 55 s | **RED, and not from load — measured twice.** See below |
 
 **`v3/plugin-classpath.sh` is a fifth, and it is not a gate.** rc=0 in 8 m 19 s, but its own header
 says what it is: "the v2 PLUGIN FLEET's classpath, built once and cached". It BUILDS an artifact
@@ -304,6 +304,34 @@ the gates.
 cap, and the cheapest of these is 11 min. The two green ones want a schedule or a subset; both
 already accept a fixture pattern, so the subset needs no new flag. That is a CI-budget decision and
 is left as one.
+
+### negtc-shard-gate: the load hypothesis is REFUTED, and cleanly
+
+The first run showed `run-timeout: 8` alongside the failure, at host load ~40, so the obvious guess
+was that a contended host had turned a slow sweep into a red. Re-run at load ~32:
+
+| | run-ok | run-timeout | run-error | verdict |
+|---|---|---|---|---|
+| load ~40, 22 m 10 s | 13 | **8** | 12 | FAILED |
+| load ~32, 14 m 55 s | 17 | **1** | 16 | FAILED |
+
+**The timeouts move with load and the verdict does not.** Both runs fail on the same two assertions,
+and the first one is not about timing at all:
+
+```
+✗ the release gate did not refuse --shard: expected=exit 2 + explanation  got=exit 1
+✗ the refusal does not point at the backlog item, so the reader is left stuck
+```
+
+So the negtc RELEASE gate does not honour its refusal contract: asked for `--shard` it exits 1 (an
+ordinary failure) instead of 2 with an explanation, and whatever it does print does not name the
+backlog item. That matters more than an ordinary red, because this gate exists for one reason its
+own header states: **a sharded release gate's catastrophic failure mode is that it fails GREEN** —
+a scheme that drops cases reports success over less than it claims, and the release ships.
+
+Not fixed here: the fix belongs to whoever owns the negtc release gate's exit contract, and the two
+numbers above are what a fix has to keep separate — a busy host changes the timeout column and
+nothing else.
 
 **The two reds are why "over the cap" was not written as "probably fine".** A gate nobody has run to
 completion has no verdict at all, and half of these turned out to have something to say.
