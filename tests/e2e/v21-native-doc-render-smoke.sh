@@ -67,10 +67,24 @@ if printf '%s\n' "$deps" | grep -E \
   exit 1
 fi
 
+# `ujson.`/`upickle.` ARE NO LONGER FORBIDDEN AT RUNTIME, and the dates are the whole argument.
+# This list was written 2026-07-11 (44f2c227e). On 2026-07-31 (f154c0ccb) MCP joined the standard
+# graph by decision — `build.sbt` stages `scalascript-v2-native-mcp-plugin` plus its managed
+# classpath into `bin/lib/standard/jars/`, and that classpath is ujson/upickle/upack/geny. So a
+# standard run loads `ujson.Readable` and `ujson.Value` immediately after
+# `ssc.plugin.mcp.McpNativePlugin`, and this gate has been RED against a correct build for twenty
+# days — unnoticed, because the gate is invoked by nothing. It is the failure mode the gate itself
+# is about, one level up.
+#
+# THE JDEPS CHECK ABOVE KEEPS ITS ujson BAN, and the asymmetry is deliberate: the host PROVIDER jar
+# must not itself depend on a JSON parser (it does not), while the standard RUN may legitimately
+# load one that a standard-surface plugin brought. Banning the class load conflates "the tier stays
+# compiler-free" with "the tier contains no third-party library at all", and only the first is the
+# invariant this gate was written for.
 PATH="$clean_path" JAVA_TOOL_OPTIONS=-verbose:class SSC_NO_CDS=1 \
   "$ROOT/bin/ssc-standard" run "$FIXTURE" >"$sandbox/classload.out" 2>&1
 if grep -E \
-    'scala[.]meta[.]|scalascript[.]parser[.]Parser|ssc[.]bridge[.]PluginBridge|org[.]commonmark|com[.]vladsch[.]flexmark|ujson[.]|upickle[.]' \
+    'scala[.]meta[.]|scalascript[.]parser[.]Parser|ssc[.]bridge[.]PluginBridge|org[.]commonmark|com[.]vladsch[.]flexmark' \
     "$sandbox/classload.out" >/dev/null; then
   echo 'v21-native-doc-render-smoke: standard run loaded a forbidden compatibility/parser class' >&2
   exit 1

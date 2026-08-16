@@ -128,10 +128,36 @@ these scripts are invoked by nothing, so nothing has reported them.
 | `tests/e2e/render-smoke.sh` | 14 | `[FAIL] headless render differs from served output` — the two disagree on generated CSS class names (`.root__Alert.error__Alert`) |
 | `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
 | `tests/e2e/v21-native-content-smoke.sh` | 51 | binding output keeps its placeholders: `missing=${missing.path}; invalid=${bad-path}` |
-| `tests/e2e/v21-native-doc-render-smoke.sh` | 71 | `standard run loaded a forbidden compatibility/parser class` — a TIER violation, not a rendering one |
+| ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |
 | `tests/e2e/v21-unhandled-effect-smoke.sh` | 25 | `ssc: unbound global: Network`, where the gate expects a rejection naming `Wallets.metaMask` |
 
-**AGE UNKNOWN, AND THAT IS THE POINT — not a claim of regression.** An unwired gate has no history:
+### One of the five was the GATE being stale, and the dates prove it
+
+`v21-native-doc-render-smoke` refuses a standard run that loads a forbidden compatibility/parser
+class. Reproduced by hand under `-verbose:class`: it loads **`ujson.Readable` and `ujson.Value`,
+immediately after `ssc.plugin.mcp.McpNativePlugin`**.
+
+Then the two dates settle it:
+
+| | when | what |
+|---|---|---|
+| the gate and its forbidden list | **2026-07-11** (`44f2c227e`) | bans `ujson.`/`upickle.` from a standard run |
+| MCP joins the standard graph | **2026-07-31** (`f154c0ccb`) | `build.sbt` stages the MCP plugin *and its managed classpath* — ujson/upickle/upack/geny — into `bin/lib/standard/jars/`, with the decision written in the comment |
+
+**So the gate was RED against a correct build for twenty days, and nothing noticed, because the gate
+is invoked by nothing.** That is this entry's own subject happening one level up: an unwired gate
+does not merely fail to catch things, it also fails to notice when the thing it guards was
+deliberately changed.
+
+Reconciled rather than reverted: the runtime class-load ban drops `ujson.`/`upickle.`, naming the
+decision. **The jdeps check above it KEEPS its ujson ban** — the host provider jar must not itself
+depend on a JSON parser (it does not), while a standard RUN may load one a standard-surface plugin
+brought. Banning both conflates "the tier stays compiler-free" with "the tier contains no
+third-party library", and only the first is the invariant. The gate now passes and is wired into
+tier 2; no plant was needed to show it can fail, because it already had.
+
+**AGE UNKNOWN FOR THE OTHER FOUR, AND THAT IS THE POINT — not a claim of regression.** An unwired
+gate has no history:
 nothing ran it, so no commit can be blamed and no bisect is meaningful without first wiring it.
 Whoever picks one up should wire it as the first step of the fix, not the last.
 

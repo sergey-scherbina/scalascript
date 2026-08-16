@@ -325,6 +325,22 @@ jobs:
         if: always()          # see the block above this job's steps
         run: v2/conformance/coreir-name-guard.sh
 
+      # Another orphan drained, and this one was RED against a correct build for twenty days.
+      # It asserts the standard tier stays compiler-free by running `bin/ssc-standard` under
+      # `-verbose:class` and refusing a forbidden class load. Its forbidden list was written
+      # 2026-07-11; on 2026-07-31 MCP joined the standard graph by decision, bringing ujson/upickle
+      # with it, and nothing noticed because the gate is invoked by nothing. The list is now
+      # reconciled with that decision and the gate passes.
+      #
+      # NOT VACUOUS, and by the best evidence there is: it FAILED on a real condition
+      # (`ujson.Readable` loaded after `ssc.plugin.mcp.McpNativePlugin`) and passes only after the
+      # reconciliation — no plant needed to show it can go red, because it already had.
+      #
+      # TIER 2: 71 s measured, and it needs the built toolchain.
+      - name: Standard tier loads no compatibility/parser class
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/v21-native-doc-render-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
