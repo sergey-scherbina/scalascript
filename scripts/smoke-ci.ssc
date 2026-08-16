@@ -466,6 +466,13 @@ val suite = List(
   // `paren-generator` is the row that fails if that distinction is lost again, since it is the shape
   // the old code was written for.
   Check("v2", "f-for-tuple", "tests/e2e/f-for-tuple-gate.sh", List(), 300000),
+  // `def f[A: TC](…)` is a def of TWO parameters, the second a dictionary the call site supplies.
+  // The rows that matter are not the ones proving it compiles: `type-directed-choice` is the line
+  // that used to print `0hello, world` instead of `hello, world` because selection fell back to the
+  // FIRST instance of the type class, and `ambiguous-declines` proves F now refuses instead of
+  // guessing when the argument type is genuinely unknowable. Two rows are F-only — the reference
+  // front loses the bound across a call and answers from the given table.
+  Check("v2", "f-context-bounds", "tests/e2e/f-context-bounds-gate.sh", List(), 400000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
