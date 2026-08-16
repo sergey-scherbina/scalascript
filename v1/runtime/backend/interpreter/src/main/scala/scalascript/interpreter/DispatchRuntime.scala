@@ -3878,6 +3878,29 @@ private[interpreter] object DispatchRuntime:
           if b.isEmpty then Pure(lhs)
           else if a.isEmpty then Pure(rhs)
           else Pure(Value.ListV(a ++ b))
+        // A LIST ++ ANYTHING ELSE APPENDS THAT ONE ELEMENT — the same trap the `String ++ String`
+        // arm above was added for, one type down. Without it the pair matched none of the shapes
+        // below and fell to the final `case _`, which builds `TupleV(lhs :: rhs :: Nil)`: this lane
+        // answered `(List(1, 2), 5)` where every other lane answers `List(1, 2, 5)`. It is not a
+        // refusal — it BUILDS something — so the program failed later, at whatever method the
+        // caller tried on the result, and a program that never calls one gets a tuple silently.
+        //
+        // EVERY CELL WAS MEASURED against the reference lane rather than reasoned about, because
+        // this arm is broad and the arms it now precedes were not all wrong:
+        //
+        //     rhs        reference (bin/ssc-tools run)   this lane, before
+        //     5          List(1, 2, 5)                   (List(1, 2), 5)
+        //     (3, 4)     List(1, 2, (3, 4))              (List(1, 2), 3, 4)   tuple SPLICED
+        //     "ab"       List(1, 2, ab)                  (List(1, 2), ab)
+        //     ()         List(1, 2, ())                  List(1, 2)           unit SWALLOWED
+        //     Set(7)     List(1, 2, Set(7))              (List(1, 2), Set(7))
+        //     Map(…)     List(1, 2, Map(a -> 1))         (List(1, 2), Map(…))
+        //
+        // The `()` row is the one worth pausing on: the generic `(_, Value.UnitV) => Pure(lhs)` arm
+        // below swallowed it, and appending it is what the reference does. (BUGS
+        // `int-concat-nonlist-builds-a-tuple`; the Core IR lanes settled the same question in
+        // `v3-concat-nonlist-splits-three-ways`.)
+        case (Value.ListV(a), other)              => Pure(Value.ListV(a :+ other))
         case (Value.SetV(a), Value.SetV(b))       => Pure(Value.SetV(a ++ b))
         case (Value.SetV(a), Value.ListV(b))      => Pure(Value.SetV(a ++ b.toSet))
         case (Value.MapV(a),    Value.MapV(b))    => Pure(Value.MapV(a ++ b))
