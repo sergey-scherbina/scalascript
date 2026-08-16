@@ -458,6 +458,38 @@ the build to succeed anyway, so it cannot pass by looking at nothing. That is a 
 a measurement, and this triage has now watched three plants land outside what a gate reads. Wire it
 when `v3/src` frees up and a plant can confirm the argument.
 
+### 2026-08-16, the end of it — the debt number finally means something: TWO
+
+The list had fourteen entries and could never reach zero, because **twelve of them were not gates**.
+The detector selects subjects by EXTENSION — every tracked `*.sh` — so a harness that wants
+`SSC_JAR`, a script that wants an argument, and a build step that asserts nothing all counted as
+"gates nobody runs". Held in `FROZEN` they were undrainable, and every reader had to re-run them to
+find that out.
+
+Split into two lists, each with the same ratchet rules, exactly as `GREEN_WITHOUT_LAUNCHER` already
+does for the vacuity axis:
+
+```
+no-orphan-gates: 307 scripts, 2 GATES invoked by nothing, 2 frozen, 12 not gates
+```
+
+`MANUAL_TOOLS` carries a REASON per entry — `needs-an-argument`, `needs-SSC_JAR`,
+`builds-an-artifact` — and the reasons were verified mechanically rather than recalled.
+
+**What is left in `FROZEN` is real, and it is two:** `serve-view-frontend-v2-smoke.sh`, red on the
+filed `content-current-section-native-unavailable`; and `v2/conformance/check.sh`, GREEN with 645
+checks in 11 min, wanting a CI-budget decision between a schedule and a fixture-pattern subset.
+
+Three plants, all firing: a `MANUAL_TOOLS` entry naming a file that does not exist; a declared tool
+that something starts invoking; and a new `*.sh` with no caller, which must still be caught as debt.
+An exemption that outlives its need is the same rot as a stale known-red, and both lists are guarded
+against it.
+
+**The day's arc, for whoever reads this next.** The census opened at 217 subjects and 8 orphans,
+scoped to one directory. It closes at 307 subjects, TWO orphan gates, twelve declared non-gates —
+and of the five gates that were RED, four were the apparatus disagreeing with decisions the project
+had already taken and written down. Only one was the product.
+
 ## five-frozen-orphan-gates-are-red-and-each-names-a-different-defect
 
 <!-- status: fixed

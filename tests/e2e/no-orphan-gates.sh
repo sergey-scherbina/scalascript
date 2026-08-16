@@ -19,6 +19,13 @@
 # Same shape as `v1-jit-size.sh`'s frozen debt and the negtc release gate: freeze the hard invariant,
 # derive the rest.
 #
+# TWO LISTS SINCE 2026-08-16, and the split is what makes the number mean something. `FROZEN` is
+# DEBT: gates nobody runs, which can and should drain to zero. `MANUAL_TOOLS` is everything the
+# extension filter sweeps up that is not a gate at all — a harness wanting `SSC_JAR`, a script
+# wanting an argument, a build step that asserts nothing. Twelve of the fourteen entries were the
+# second kind, and while they sat in FROZEN the count could never reach zero and every reader had to
+# re-run them to discover why. Both lists obey the same ratchet rules; only the first is a backlog.
+#
 # WHAT COUNTS AS "INVOKED". A reference to the script's PATH — or to a segment-boundary suffix or
 # prefix of it — from a file that can execute something: `.github/workflows/`, `scripts/`, another
 # script, a `build.sbt`, or a `.tsv` manifest a runner reads. Prose does NOT count, whether it lives
@@ -47,6 +54,12 @@ cd "$ROOT"
 # you wire or remove one — the gate fails if a frozen entry stops being an orphan, so the list cannot
 # rot into a permanent exemption.
 #
+# WHAT IS LEFT HERE IS DEBT, and as of 2026-08-16 it is TWO entries: `serve-view-frontend-v2-smoke`
+# (red on the filed `content-current-section-native-unavailable`) and `v2/conformance/check.sh`
+# (GREEN, 645 checks, 11 min — it wants a CI-budget decision between a schedule and a fixture-pattern
+# subset, which is not an agent's to take). Everything else that was here is either wired or declared
+# a non-gate below.
+#
 # REPO-RELATIVE PATHS since 2026-08-16, not basenames: the scan now covers the whole repository, and
 # 291 scripts there carry only 284 distinct names. Widening took the census from 217 subjects / 8
 # orphans to 291 / 31 — the 23 new ones were never wired and were never VISIBLE either, which is a
@@ -63,20 +76,42 @@ cd "$ROOT"
 # `v3/corpus-report.sh`, `v1/tools/scripts/v2-scale-bench.sh`, `specs/*-demo.sh`) — triaging which is
 # which is the work this list exists to make visible, and it is NOT done here.
 read -r -d '' FROZEN <<'EOF' || true
-examples/run-wasm.sh
-scripts/bundle-size.sh
-specs/newfront-diff-multi.sh
-specs/newfront-diff.sh
-specs/v2-f5b-method-census.sh
-specs/v2.2-p6.0-spike-verify.sh
-specs/v2.2-p6.18-capstone.sh
-specs/v2.2-p6.5-corpus.sh
-specs/v2.2-p6.6-fixpoint.sh
-specs/v2.2-p6.6-selfcompile-demo.sh
 tests/e2e/serve-view-frontend-v2-smoke.sh
-v1/tools/scripts/v2-scale-bench.sh
 v2/conformance/check.sh
-v3/plugin-classpath.sh
+EOF
+
+# ── NOT GATES AT ALL: tools the extension filter sweeps up ───────────────────────────────────────
+#
+# This detector selects subjects by EXTENSION — every tracked `*.sh` — so it counts a parameterised
+# harness or a build helper as a gate that nobody runs. Twelve of the 2026-08-16 census's fourteen
+# frozen entries were that: they exit non-zero in 0 s with a usage line, because they want an
+# argument or `SSC_JAR`, or they build an artifact and assert nothing.
+#
+# THEY WERE MAKING THE DEBT NUMBER MEANINGLESS. Held in FROZEN they can never drain — there is
+# nothing to wire — so the ratchet's count could not reach zero and every reader of the list had to
+# re-run them to find that out. Split out here WITH A REASON EACH, exactly as
+# `GREEN_WITHOUT_LAUNCHER` does for the other axis. What is left in FROZEN is real debt.
+#
+# The rules are the ratchet's, unchanged: an entry that stops existing, or that something starts
+# invoking, must be DELETED from this list. An exemption that outlives its need is the same rot as a
+# stale known-red.
+#
+#   needs-an-argument   refuses in 0 s with a usage line; there is no argument-free run to wire
+#   needs-SSC_JAR       refuses in 0 s: `SSC_JAR: set SSC_JAR to a run-ir-capable v2 kernel jar`
+#   builds-an-artifact  produces a file and asserts nothing — a build step, not a check
+read -r -d '' MANUAL_TOOLS <<'EOF' || true
+examples/run-wasm.sh	needs-an-argument	Usage: ./run-wasm.sh <file.ssc>
+scripts/bundle-size.sh	builds-an-artifact	reports JS/JVM bundle sizes and WRITES bench/BUNDLE_SIZES.md
+specs/newfront-diff-multi.sh	needs-SSC_JAR	multi-file corpus byte-identity harness
+specs/newfront-diff.sh	needs-SSC_JAR	corpus byte-identity harness
+specs/v2-f5b-method-census.sh	needs-SSC_JAR	census of untyped __method__ sites
+specs/v2.2-p6.0-spike-verify.sh	needs-SSC_JAR	P6.0/P6.1/P6.2 end-to-end verifier
+specs/v2.2-p6.18-capstone.sh	needs-SSC_JAR	P6.18 capstone driver
+specs/v2.2-p6.5-corpus.sh	needs-SSC_JAR	P6.5 real-corpus acceptance driver
+specs/v2.2-p6.6-fixpoint.sh	needs-SSC_JAR	P6.6 self-compilation fixpoint driver
+specs/v2.2-p6.6-selfcompile-demo.sh	needs-SSC_JAR	P6.6a self-compile demo
+v1/tools/scripts/v2-scale-bench.sh	needs-an-argument	usage: v2-scale-bench.sh [path-to-ssc.jar]
+v3/plugin-classpath.sh	builds-an-artifact	builds and caches v3/.jars/plugin.cp; asserts nothing
 EOF
 
 # ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────
@@ -519,10 +554,16 @@ observed="$(mktemp)"; trap 'rm -f "$observed"' EXIT
 orphans_of "$ROOT" > "$observed"
 
 frozen="$(mktemp)"; printf '%s\n' "$FROZEN" | grep -v '^$' | LC_ALL=C sort > "$frozen"
-trap 'rm -f "$observed" "$frozen"' EXIT
+tools="$(mktemp)";  printf '%s\n' "$MANUAL_TOOLS" | grep -v '^$' | cut -f1 | LC_ALL=C sort > "$tools"
+debt="$(mktemp)"
+trap 'rm -f "$observed" "$frozen" "$tools" "$debt"' EXIT
 
-n_obs="$(wc -l < "$observed" | tr -d ' ')"
-echo "no-orphan-gates: $(subjects_of "$ROOT" | wc -l | tr -d ' ') scripts, $n_obs invoked by nothing, $(wc -l < "$frozen" | tr -d ' ') frozen"
+# The tools are subtracted BEFORE anything is compared: they are not gates, so they are not debt.
+# Everything below therefore talks about gates only, and the number it prints can reach zero.
+LC_ALL=C comm -23 "$observed" "$tools" > "$debt"
+
+n_obs="$(wc -l < "$debt" | tr -d ' ')"
+echo "no-orphan-gates: $(subjects_of "$ROOT" | wc -l | tr -d ' ') scripts, $n_obs GATES invoked by nothing, $(wc -l < "$frozen" | tr -d ' ') frozen, $(wc -l < "$tools" | tr -d ' ') not gates"
 
 fail=0
 while read -r p; do
@@ -534,7 +575,7 @@ while read -r p; do
     echo "        that job's \`if:\` and the workflow's \`on:\` — v1-jit-size.sh was once wired into a" >&2
     echo "        workflow_dispatch-only job and still ran essentially never. Or delete it." >&2
     fail=1; }
-done < "$observed"
+done < "$debt"
 
 while read -r p; do
   [[ -n "$p" ]] || continue
@@ -549,5 +590,20 @@ while read -r p; do
   fi
 done < "$frozen"
 
+# The tools list obeys the same ratchet rules as FROZEN, for the same reason: an exemption that
+# outlives its need is a stale known-red. A tool that something starts invoking is no longer swept up
+# by the extension filter and does not need the entry; a tool that stops existing never did.
+while read -r p; do
+  [[ -n "$p" ]] || continue
+  if [[ ! -f "$p" ]]; then
+    echo "FAIL  MANUAL_TOOLS names a file that no longer exists — DELETE it: $p" >&2
+    fail=1
+  elif ! grep -qxF "$p" "$observed"; then
+    echo "FAIL  MANUAL_TOOLS entry is now INVOKED by something — DELETE it: $p" >&2
+    echo "        The extension filter no longer sweeps it up, so the exemption does nothing." >&2
+    fail=1
+  fi
+done < "$tools"
+
 [[ $fail -eq 0 ]] || { echo "" >&2; echo "no-orphan-gates: FAIL" >&2; exit 1; }
-echo "no-orphan-gates: PASS ($n_obs known orphans, none new, none stale)"
+echo "no-orphan-gates: PASS ($n_obs known orphan gates, none new, none stale; $(wc -l < "$tools" | tr -d ' ') non-gates declared)"
