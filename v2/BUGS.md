@@ -125,12 +125,13 @@ never been run to completion. The examples date from 2026-06.
 
 ## rust-build-lane-binds-runtime-results-to-the-wrong-declared-type — four fixtures, two shapes
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      kind: bug
      area: codegen
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: a0706c94d
      confirmed: yes
      gate: tests/rust-build-smoke.sh -->
 
@@ -166,6 +167,12 @@ Rust-only behaviour and nothing said so, because the gate that compiles them is 
 
 Fixed in the examples: `jsonStringify(jsonParse(src))` and `envOrElse("GREET_NAME", "")`. Both now
 build (`rc=0`), taking the gate from four failures to two.
+
+**Confirmed by the gate, not just by the two builds:** `tests/rust-build-smoke.sh` went from
+FOUR failures to TWO (13 min 06 s). The gate is STILL RED, and deliberately so — the remaining two
+are the sibling entry below, and closing this one does not claim the gate is green. A `gate:` field
+naming a script that is red for a different reason is worth saying out loud rather than leaving the
+next reader to infer.
 
 **The other two are a different defect and are filed separately** —
 `rust-examples-use-a-rust-fence-the-front-does-not-accept`.
