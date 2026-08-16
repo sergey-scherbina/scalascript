@@ -5,7 +5,7 @@ started: 2026-08-16T12:39:30Z
 heartbeat: 2026-08-16T12:39:30Z
 status: claimed-before-planning
 items: orphan-debt-triage-31-frozen-gates
-paths: file:tests/e2e/no-orphan-gates.sh file:.github/workflows/ci.yml file:tests/BUGS.md
+paths: file:tests/e2e/no-orphan-gates.sh file:.github/workflows/ci.yml file:tests/BUGS.md file:scripts/native-front-corpus file:scripts/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
