@@ -6,7 +6,7 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-a-val-bound-to-another-val-does-not-type-the-receiver — `flatMap` stops one link short
+## v3-a-val-bound-to-another-val-does-not-type-the-receiver — the collector never reaches those bindings
 
 <!-- status: open
      lane: v3
@@ -16,27 +16,33 @@ Query: `scripts/bugs-report --module v3`.
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**The typed extension arm (dcc8e98f6) types a receiver from a CALL's declared result type, and
+**The typed extension arm (dcc8e98f6) types a receiver from a CALL's result type, and
 `std/parsing/layout.ssc:275` binds one from a NAME:**
 
+    val itemAtCurrentIndent: Parser[Any] = Parser.readCtx { … }.flatMap(_ => p)
     val firstItem: Parser[Any] = itemAtCurrentIndent
     firstItem.flatMap(first => …)
 
-`itemAtCurrentIndent` types, `firstItem` does not, so `.flatMap` falls through to the built-in and
-the two remaining `indent-*` cases die on it — one as a DIFF on the bridge, one as a CRASH on the
-executor.
+`Parser.readCtx{…}` types, so the inner `.flatMap` resolves; `firstItem` does not, so the outer one
+falls through to the built-in. `indent-config-format` (DIFF) and `indent-block-statements` (CRASH on
+the executor) both die exactly there.
 
-**ONE LINK, NOT A NEW MECHANISM.** `bindingTypes` types each binding by asking `receiverHead` with an
-EMPTY map, so a binding whose initialiser is another binding's name can never resolve. Iterating that
-map to a fixed point — a name types from what it was bound to, which may itself have just typed —
-is the whole of it.
+**THE OBVIOUS FIX IS NOT THE FIX, and this is what a probe established rather than reading.** Making
+`bindingTypes` iterate to a fixed point — a name typing from what it was bound to — changes nothing,
+because the map is EMPTY at those call sites: `binds=0` at every `flatMap` in the file. The collector
+reports exactly ONE initialiser per body and its names are `c`, `end`, `items`, `message`, `n` — never
+`itemAtCurrentIndent` or `firstItem`. So the chain logic was never the obstacle; `mapDeep` does not
+reach the bindings in question, which are nested inside a block passed as an argument.
 
-**THE DECLARED TYPE IS RIGHT THERE AND UNREACHABLE, which is the other half worth recording.**
+**SO THE NEXT STEP IS TO FIND WHERE THOSE `Stmt.Val`s GO, not to write more typing.** Either the
+walker does not descend through a lambda's body into its block, or those vals stop being `Stmt.Val`
+before this pass runs. One probe on the walker answers it.
+
+**AND THE DECLARED TYPE IS RIGHT THERE, UNREACHABLE, which would make the whole question moot.**
 `val firstItem: Parser[Any]` says so in the source, but `Stmt.Val` carries no type field
-(`Ast.scala:151`) — the fronts drop it exactly as they used to drop a `def`'s result type. Adding it
-is the same two-front change that landed for `Def.retType`, and it would make this case direct rather
-than inferred.
-
+(`Ast.scala:151`) — the fronts drop it exactly as they used to drop a `def`'s result type until
+dcc8e98f6. Adding it is the same two-front change that already worked once, and it would type these
+receivers directly instead of inferring them through a chain that has to be reached first.
 ## v3-an-extension-is-disabled-by-a-prelude-class-of-the-same-member-name — a type decides it now; one layer remains
 
 <!-- status: fixed
