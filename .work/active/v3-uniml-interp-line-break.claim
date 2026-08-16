@@ -1,0 +1,11 @@
+slug: v3-uniml-interp-line-break
+branch: feature/v3-uniml-interp-line-break
+agent: claude-code
+started: 2026-08-16T19:30:45Z
+heartbeat: 2026-08-16T19:30:45Z
+status: claimed-before-planning
+items: v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
