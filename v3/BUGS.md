@@ -6,38 +6,33 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — `xs.map(f)` where `f` is a `def`
+## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — eta-expansion, one instruction
 
-<!-- status: open
-     kind: bug
+<!-- status: fixed
      lane: v3
      kind: feature
      area: front
-     gate: v3/corpus-report.sh (std-content and four more)
+     fixed-in: bf4220b5b
+     gate: v3/corpus-report.sh
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**TWO LINES:**
+**FIXED IN bf4220b5b.** A bare name that is a top-level function lowers to `MkClos(d, idx, Nil)` — a
+closure over no captures is exactly what a top-level function is. It sits AFTER the zero-arity arm on
+purpose: `def empty: List[A] = Nil` referenced as `empty` is a CALL, and swapping the order would
+turn every parameterless def into a function value nobody asked for.
 
-    def inc(x: Int): Int = x + 1
-    println(List(1, 2, 3).map(inc))
+    bridge  control PASS 246  DIFF 5  CRASH 1   ->  PASS 249  DIFF 5  CRASH 1
+    exec    control PASS 248  DIFF 2  CRASH 8   ->  PASS 251  DIFF 2  CRASH 8
 
-    ssc3: /tmp/eta.ssc:2:27: unknown name 'inc'
+Both floors held on both lanes and the DIFF lists are identical name for name.
 
-**BOTH LANES REFUSE IDENTICALLY**, so this is an honest uniform gap and not a divergence — v3 has no
-eta-expansion: a top-level `def` is a function INDEX and only a `MkClos` turns one into a value, and
-the name-as-value path never reaches that.
-
-**FIVE CORPUS CASES SIT BEHIND IT and the count is a LOWER BOUND**, because a refusal short-circuits:
-`contentBindValueText` leads the `unknown name` histogram with 5, and it is not a plugin name or a
-missing import — it is `std/content.ssc:134`, a `def` in the same file, used one line down as
-`values.map(contentBindValueText)`. The name is right there; what is missing is the ability to pass
-it.
-
-**FOUND BY RE-MEASURING, WHICH IS THE ONLY REASON IT SURFACED.** Before today's plugin work the
-`unknown name` bucket was led by names that no longer refuse; the census that named this one is the
-third of the day, and each earlier one was a lower bound taken behind a different first failure.
-
+**IT COST TWO PROVIDERS, AND THAT IS THE FINDING RATHER THAN A FOOTNOTE.** With the fleet as it was,
+the same change read PASS 251 / DIFF 10 on the bridge and CRASH 14 on the executor — five `content-*`
+cases and `json-self-hosted-import` went from an honest refusal to a wrong answer, because the
+refusal upstream had been keeping them out of providers v3 cannot actually serve. See
+`v3-the-content-provider-has-no-root-document` and `v3-has-no-decimal-so-the-json-core-cannot-cross`.
+Unwiring both keeps every floor and still leaves +3 on each lane.
 ## v3-the-content-provider-has-no-root-document — every entry point answers "no explicit root content"
 
 <!-- status: open
