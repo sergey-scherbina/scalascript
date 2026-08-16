@@ -1323,11 +1323,12 @@ past any timeout I had been giving it.
 
 ## rust-anonymous-given-emits-one-name-for-all-of-them — two anonymous `given` instances are both `UnknownGiven`, which is E0428
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
+     fixed-in: 830d836c6
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
      ssc-version: febd37e88
@@ -1388,11 +1389,12 @@ Not investigated further — the interpreter is outside the claim this was found
 
 ## rust-summon-lowers-to-an-empty-expression — `val x = summon[T]` emits `let x = ;`
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: none
+     fixed-in: 830d836c6
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
      ssc-version: febd37e88
