@@ -23,6 +23,55 @@ Newest first.
 
 
 
+## uniml-reads-an-identifier-and-a-later-string-as-an-interpolator — the adjacency test never tested adjacency
+
+<!-- status: fixed
+     fixed-in: 04d9e88e6
+     lane: v3
+     area: front
+     kind: bug
+     gate: v3/front-capability-gate.sh (markdown-html, a row this closed) -->
+
+**MEASURED — a two-line body, `a` on one line and `"b"` on the next:**
+
+    native, int, v3's own front   b
+    uniml (the DEFAULT front)     ssc3: …:4:3: the `a"…"` interpolator is outside SSC3 core Tier 0
+
+One language, two answers, and the wrong one is on the front a user gets (invariant I-3). It is a
+REFUSAL rather than a wrong answer, so it is the honest half of the failure spectrum — but the
+program it refuses is ordinary Scala that three other lanes run.
+
+**THE PREDICATE COMPARED THE IDENTIFIER WITH WHITESPACE.** `peekAbutsNext` took `toks(p + 1)` — the
+RAW next token — and whitespace is a token in this lexer, so an identifier's neighbour is normally
+the space or newline after it, which begins exactly where the identifier ends. The offsets matched
+every time, so the test answered TRUE for an identifier followed by a string ANYWHERE in the file.
+Its own doc comment said `foo "bar"` is not an interpolation, describing a rule it did not
+implement.
+
+`isInterpPrefix` accepts ANY word on purpose — `html"…"`, `uri"…"` are custom interpolators the
+corpus writes — so adjacency was the only thing separating an interpolator from two statements.
+
+**Fixed** by walking to the next SIGNIFICANT token, the same walk `peek2Kind` already does, before
+comparing offsets.
+
+**FOUND BY A PROBE THAT WAS SUPPOSED TO BE ABOUT SOMETHING ELSE.** Reducing
+`v3-handler-arm-value-dropped-when-the-perform-is-a-statement`, my handler arm was
+
+    seen = msg
+    "H:" + msg + "|" + resume(())
+
+and uniml refused it naming an interpolator `msg"…"` I had not written. A diagnostic that names a
+construct absent from the source is worth chasing on the spot: it says the reader and the writer
+disagree about what the text IS.
+
+**THE GATE FOUND WHAT THE PROBE COULD NOT.** `front-capability-gate.sh` went RED on `markdown-html`
+— a DECLARED divergence that this fix CLOSED — so its row came out in the same commit, which is
+exactly what a self-maintaining list is for. Corpus N 233 → 234, UNSUPPORTED 129 → 128: a real
+conformance file was being refused over this, and nobody had connected the two.
+
+**Not affected, checked rather than assumed:** `s"x is $x"` still interpolates, and `html"…"` is
+still RECOGNISED — refused by name as outside Tier 0 rather than silently becoming two statements.
+
 ## v3-handler-arm-value-dropped-when-the-perform-is-a-statement — `effects-handler` answers `List()`
 
 <!-- status: open
