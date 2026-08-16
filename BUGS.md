@@ -36,7 +36,7 @@ Newest first.
      ssc-version: bin/ssc-tools built from 539079f43
      repro: examples/reported/rust-type-pattern-on-a-local-val-matches-anything.ssc
      impact: blocks
-     confirmed: no -->
+     confirmed: yes -->
 
 Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
 
@@ -113,7 +113,7 @@ not trade one wrong answer for another. Corpus unmoved: `rust-std-survey-gate` 7
      ssc-version: bin/ssc-tools built from 539079f43
      repro: examples/reported/rust-serve-dies-permanently-after-one-handler-panic.ssc
      impact: blocks
-     confirmed: no -->
+     confirmed: yes -->
 
 Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
 
