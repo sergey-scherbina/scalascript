@@ -1,0 +1,11 @@
+slug: server-gates-bind-fixed-ports
+branch: feature/server-gates-bind-fixed-ports
+agent: claude-code
+started: 2026-08-16T02:54:29Z
+heartbeat: 2026-08-16T02:54:29Z
+status: claimed-before-planning
+items: server-gates-bind-fixed-ports
+paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/no-leaked-servers.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
