@@ -1,3 +1,151 @@
+## process-needs-a-detached-spawn — std/process can only run children it WAITS for, so a served program cannot start anything that outlives the request
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: -
+     fixed-in: -
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from bad74ecdf
+     repro: examples/reported/process-needs-a-detached-spawn.ssc
+     impact: blocks -->
+
+Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
+
+We ported fifteen HTTP routes of a control console (rozum's UCC) from Rust to ScalaScript. Every
+route that STARTS something — an agent run, a coder session, a terminal, a benchmark — stopped at
+the same wall, and it is not "no process control": `std/process` has exactly one primitive and it
+WAITS.
+
+    extern def exec(cmd, args, opts): ProcessResult      // stdout, stderr, exitCode
+
+By construction that cannot return before the child is finished. A request handler starting a
+five-minute agent run can hold the connection for five minutes or not start it. Measured with the
+attached repro, built with `build-rust`:
+
+    before exec
+    after exec, child exit 0
+    real 2.14        # a /bin/sleep 2 the handler had to sit through
+
+**What would be enough:** a spawn that returns a handle instead of a result.
+
+    case class Child(pid: Int)
+    extern def spawn(cmd, args, opts): Child
+
+`pid` alone carries us — the caller records it, and killing already works through
+`exec("kill", [pid], …)`. `wait`/`isAlive`/streams are welcome but are not what blocks the port.
+Detaching from the parent's lifetime is part of the ask: the child must survive the server that
+started it.
+
+**What we do instead:** the Rust half keeps every launch route (`Command::spawn()`, pid into a
+registry file, handler returns immediately). The ScalaScript half serves the routes that read
+files, call HTTP, or run a child to completion — the boundary between the two halves is exactly
+this primitive, not a preference.
+
+### Measured 2026-08-16 while sizing this: the lane it is wanted on ignored ProcessOptions entirely
+
+Both this and its sibling `process-needs-a-stdin-pipe` want to EXTEND `ProcessOptions` on the rust
+lane. Sizing that turned up something neither report could have seen: `_exec` took `_opts: O` and
+threw it away, so `cwd`, `env` and `inheritEnv` were obeyed under `run` and silently dropped under
+`build-rust`. Adding a field to a record the lane ignores would have been write-only metadata that
+passed every check. Fixed first (`rust-exec-silently-ignores-every-processoptions-field`, BUGS.md,
+gated), which is the prerequisite for either ask here.
+
+**Two more findings, both filed and both in the way of this entry:**
+
+* `rust-exec-ignores-processoptions-timeout` — `timeout` is still accepted and NOT enforced on this
+  lane. `std::process::Command` has none, so honouring it means spawn/poll/kill — which is very
+  nearly the machinery this entry asks for, so the two should be implemented together rather than
+  twice.
+* `rust-named-ctor-args-drop-the-defaulted-fields` — `ProcessOptions(cwd = Some("/tmp"))`, the
+  spelling anyone would write, does not build at all (E0063, the defaulted fields are not filled in).
+  Whatever field this entry adds will be unusable in named form until that is fixed.
+
+**On the shape of the ask itself, unmeasured and worth deciding before implementing.** The report
+says `pid` alone carries them and that killing already works through `exec("kill", [pid], …)`. That
+is true on a POSIX host and has no meaning on the JS or JVM lanes in the same form, so `Child(pid)`
+as the whole surface makes this a native-only primitive by construction. Deciding that consciously
+is cheaper than discovering it when the second lane is attempted.
+## process-needs-a-stdin-pipe — exec cannot write to a child's stdin, so a secret can only reach it through argv where every local process can read it
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: -
+     fixed-in: -
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from bad74ecdf
+     repro: examples/reported/process-needs-a-stdin-pipe.ssc
+     impact: blocks -->
+
+Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
+
+One route of our control console installs a Telegram bot, which means handing a bot token to a
+child process. The Rust implementation writes it to the child's STDIN precisely so it never appears
+in an argument vector:
+
+    let child = Command::new(&exe).args(args).stdin(Stdio::piped()).spawn()?;
+    child.stdin.take().write_all(token.as_bytes())?;
+
+`ProcessOptions` has `cwd`, `env`, `timeout`, `inheritEnv` — and no stdin — so a ScalaScript port of
+that route would have to pass the token as an argument, where any local process can read it:
+
+    $ ps -axo command | grep bot-add
+    rozum-gateway messenger bot-add mybot --token 7712345678:AA…
+
+That route is the ONLY one of the whole port blocked for a security reason rather than a capability
+one — everything else either moved or is blocked by the detached-spawn gap. A workaround exists and
+is worse: writing the token to a temp file and passing the path leaves the secret on disk, which is
+what the stdin design was avoiding.
+
+**What would be enough:** one field, or one overload.
+
+    case class ProcessOptions(…, stdin: Option[String] = None)   // written to the child, then closed
+
+A string is enough here — the value is short and known before the call. A streaming handle would be
+more, and is not what blocks us.
+
+The attached repro shows the shape we want beside the one that exists; it passes the secret on the
+command line, which is exactly what we will not ship.
+
+### The prerequisite is done; the ask itself is not
+
+`ProcessOptions` was INERT on the rust lane until 2026-08-16 — `_exec` accepted it and threw it away
+— so a `stdin` field added then would have been accepted, ignored, and the token would have reached
+the child through nothing at all. That is fixed and gated
+(`rust-exec-silently-ignores-every-processoptions-field`, BUGS.md); `cwd`, `env` and `inheritEnv`
+are now read from the record, which is the machinery a fifth field plugs into.
+
+**The field goes LAST in the declaration, and that is not cosmetic.** Every backend reads
+`ProcessOptions` POSITIONALLY — the v2 os-plugin by `field(3)`, the rust runtime by `f.get(0..3)`,
+because `Value::Obj` carries no field names by design. Appending keeps indices 0–3 valid; inserting
+anywhere else silently re-points every existing reader at the wrong field, on lanes whose tests
+would still pass.
+
+**Implementation sites, counted rather than assumed** — six, and a fix in one is worth nothing in
+the others:
+
+```text
+v1/runtime/plugins/os-plugin/…/OsIntrinsics.scala          run --v1
+v1/runtime/backend/interpreter/…/BuiltinsRuntime.scala     interpreter
+v1/runtime/backend/js/…/JsRuntimeFs.scala                  js
+v1/runtime/backend/jvm/…/JvmGenRuntimeSources.scala        jvm
+v1/runtime/backend/rust/…/RuntimeModRs                     build-rust
+v2/runtime/std/os-plugin/…/OsNativePlugin.scala            bin/ssc run
+```
+
+**The security argument in this report should survive into the gate.** A row asserting only "the
+child received the value on stdin" passes on an implementation that ALSO leaves it in argv. The
+gate that closes this must assert the secret is absent from the child's own `/proc`-visible command
+line (or the platform equivalent), because that absence is the whole point of the request.
+
+Blocked on nothing else. Sized ahead of `process-needs-a-detached-spawn` because it is one field
+rather than a new primitive, and because it is the only route of that port blocked for a security
+reason.
 ## sbt-plugin-build-tool-parity — make it an sbt plugin first, then widen it
 
 <!-- status: open

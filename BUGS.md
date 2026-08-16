@@ -23,6 +23,145 @@ Newest first.
 
 
 
+## rust-exec-silently-ignores-every-processoptions-field — `cwd`, `env` and `inheritEnv` were obeyed under `run` and dropped under `build-rust`, with no diagnostic
+
+<!-- status: fixed
+     lane: native
+     area: runtime
+     kind: bug
+     gate: tests/e2e/rust-exec-options-gate.sh
+     fixed-in: fa59b3493
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 6dce987e5
+     repro: inline below
+     impact: blocks -->
+
+Found while sizing two rozum feature reports — `process-needs-a-detached-spawn` and
+`process-needs-a-stdin-pipe` (BACKLOG.md) — which both want to EXTEND `ProcessOptions` on this lane.
+Sizing them first is what turned this up, and it is the reason neither could have been implemented
+honestly before it: a new field on a record the lane ignores is write-only metadata that passes
+every check.
+
+`_exec` took its options and threw them away:
+
+```rust
+// `_opts` is the std/process `ProcessOptions` (cwd/env/timeout) — accepted to match the
+// 3-arg `exec(cmd, args, opts)` surface; cwd/env/timeout aren't applied yet.
+pub fn _exec<O>(cmd: String, args: Vec<String>, _opts: O) -> ProcessResult {
+```
+
+That comment is why it survived: from inside the repository it reads as a known gap. From outside
+it is nothing at all — no refusal, no warning, no `Unsupported`. Measured before the fix, the same
+source on two lanes:
+
+```text
+                       run          build-rust
+cwd honoured           true         false          <- compiled, ran, wrong answer
+env honoured           true         false
+inheritEnv=false       [][only]     [/Users/sergiy][]
+```
+
+The third row is the worst of the three and shows BOTH halves failing at once: the parent's `HOME`
+leaked into a child the caller had asked to be scrubbed, AND the variable the caller did list never
+arrived.
+
+**Fixed.** The options are read through `Into<Value>` rather than by naming the struct — the struct
+is GENERATED into the crate from the `case class`, and the runtime template cannot name it. Fields
+are positional, in declaration order, the same access the v2 os-plugin already uses on this same
+type and for the reason `Value::Obj`'s own comment gives. A shape the match does not recognise
+leaves every option unset, which is exactly the old behaviour, so no unrelated caller can be broken
+by this.
+
+**`inheritEnv` scrubs BEFORE `env` is applied**, and the order is the implementation's only real
+decision: the point of `inheritEnv = false` is that the child sees only what the caller listed, and
+clearing afterwards would throw those away too. The gate's fourth row pins `[][only]` rather than
+just "HOME is gone", because a clear-after implementation also passes the weaker check.
+
+**`timeout` is still NOT enforced, deliberately.** `std::process::Command` has no timeout, so
+honouring it means spawn, poll and kill — a different shape and a different failure contract. It is
+filed as `rust-exec-ignores-processoptions-timeout` rather than half-done, because a timeout that is
+accepted and not enforced is the same silent lie this entry is about. The gate asserts no row for
+it, for the same reason.
+
+**Verified:** `tests/e2e/rust-exec-options-gate.sh` PASS — four rows compared against `run` row by
+row rather than against literals, plus a row asserting the oracle still answers `[][only]`. Negative
+control with the runtime template reverted and the launcher rebuilt: FAIL on exactly the three rows
+in the table above. Corpus unmoved: `rust-std-survey-gate` 77 REFUSED / 55 COMPILES, BADRUST not
+grown; `v1-jit-size` PASS.
+
+## rust-named-ctor-args-drop-the-defaulted-fields — `ProcessOptions(cwd = Some("/tmp"))` does not build; the positional form does
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 6dce987e5
+     repro: inline below
+     impact: workaround -->
+
+Found while writing the probe for `rust-exec-silently-ignores-every-processoptions-field`. The
+natural spelling of a case class with defaults does not compile on this lane:
+
+```scalascript
+exec("pwd", List(), ProcessOptions(cwd = Some("/tmp")))
+```
+
+```text
+error[E0063]: missing fields `env`, `inheritEnv` and `timeout` in initializer of `ProcessOptions`
+```
+
+The positional form `ProcessOptions(Some("/tmp"), Map(), None, true)` builds. So a named argument
+emits a struct literal carrying ONLY the named field, and the defaults are not filled in.
+
+`RustCodeWalk` already carries a note about the neighbouring case — a positional call with FEWER
+arguments than fields, `ProcessOptions(None, Map(), None)`, which was reported by a user and fixed
+by filling the trailing defaults. Named arguments are the other cell of the same feature and were
+left; this is the shape a `case class` with defaults is actually used with, and it is the shape the
+std documentation shows.
+
+The fix fills every unmentioned field from its declared default, exactly as the trailing-positional
+path already does — not a refusal, since the program is legal and every other lane runs it. The gate
+that closes this needs BOTH cells: a named argument for a middle field and one for the last, because
+filling only the tail is what the existing code already does and would pass a one-row check.
+
+## rust-exec-ignores-processoptions-timeout — `timeout` is accepted by the type and never enforced
+
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 6dce987e5
+     repro: none
+     impact: workaround -->
+
+Split out of `rust-exec-silently-ignores-every-processoptions-field` when that entry was fixed:
+`cwd`, `env` and `inheritEnv` are now read from the record, `timeout` is not. It is left explicitly
+unapplied, with the reason written at the site, rather than quietly rounded into "fixed".
+
+`std::process::Command` has no timeout. Honouring one means `spawn()`, then polling `try_wait()` or
+waiting on a channel, then `kill()` — which changes the function's shape and its failure contract
+(what does a timed-out `exec` return? the partial stdout? a non-zero code? a panic?). That question
+is unanswered here and must be answered against what `run` does before any code is written, or the
+lanes will diverge in a new place while closing an old one.
+
+**Implement this together with `process-needs-a-detached-spawn`** (BACKLOG.md), not separately: that
+report asks for a spawn returning a handle, which is the same spawn/poll/kill machinery. Doing them
+twice would leave two implementations of the same primitive on one lane.
+
+Until then the type accepts a field the lane ignores — the same silent shape the parent entry was
+about, kept only because the alternative is refusing `exec` outright for every caller that passes a
+`ProcessOptions` with a timeout set, which would break working programs to fix a not-yet-supported
+one.
+
 ## uniml-reads-an-identifier-and-a-later-string-as-an-interpolator — the adjacency test never tested adjacency
 
 <!-- status: fixed
