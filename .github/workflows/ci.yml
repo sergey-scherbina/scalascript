@@ -819,6 +819,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/process-stdin-gate.sh
 
+      # `spawn`, the other half of the rozum std/process pair (`process-needs-a-detached-spawn`):
+      # `exec` WAITS by construction, so an HTTP handler starting a five-minute agent run could hold
+      # the connection for five minutes or not start it — every launch route of their port stopped
+      # there. Row 4 is the expensive one and the one they asked for by name: the child must SURVIVE
+      # the process that started it, which cannot be checked from inside the program (the program is
+      # the parent), so the child writes a marker three seconds later and the gate looks for it AFTER
+      # the parent has exited. An implementation that inherits the parent's pipes or process group
+      # passes rows 1-3 and fails that one. Row 3 asserts "returned before the child finished" by a
+      # FACT (the marker is not there yet) rather than by a stopwatch, which on a contended runner
+      # would measure JVM startup as much as the primitive. ~60 s, one cargo build plus deliberate
+      # sleeping.
+      - name: spawn returns at once and the child outlives the parent
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/process-spawn-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:

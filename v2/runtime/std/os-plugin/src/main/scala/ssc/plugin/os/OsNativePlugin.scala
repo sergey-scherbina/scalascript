@@ -62,6 +62,69 @@ final class OsNativePlugin extends NativePlugin:
    *  stream to EOF inline blocks until the child exits, which deadlocks on >64 KB of output and
    *  defeats `opts.timeout` (the read cannot return before the process it is timing has finished).
    */
+  /** The `ProcessOptions` half of `exec` and `spawn`, in ONE place.
+   *
+   *  Written as a shared helper rather than copied because the two entry points must not drift: a
+   *  `cwd` honoured by `exec` and dropped by `spawn` is exactly the silent divergence this file's
+   *  neighbours have been fixed for twice this week. Returns the stdin text, which the callers hand
+   *  to the pipe differently (`exec` drains, `spawn` walks away).
+   *
+   *  `timeout` is deliberately NOT read here: `exec` applies it and `spawn` has nothing to time. */
+  private def configure(builder: ProcessBuilder, fields: IndexedSeq[Value]): Option[String] =
+    def field(index: Int): Option[Value] = fields.lift(index)
+    field(0) match
+      case Some(Value.DataV("Some", Seq(Value.StrV(dir)))) => builder.directory(new java.io.File(dir))
+      case _                                               => ()
+    // inheritEnv (3) is scrubbed BEFORE env (1) is applied — the flag means the child sees only what
+    // the caller listed, so clearing afterwards would throw those away too.
+    field(3) match
+      case Some(Value.BoolV(false)) => builder.environment().clear()
+      case _                        => ()
+    field(1) match
+      case Some(Value.MapV(entries)) =>
+        val target = builder.environment()
+        entries.foreach {
+          case (Value.StrV(key), Value.StrV(value)) => target.put(key, value)
+          case _                                    => ()
+        }
+      case _ => ()
+    field(4) match
+      case Some(Value.DataV("Some", Seq(Value.StrV(text)))) => Some(text)
+      case _                                                => None
+
+  /** `std.process.spawn` — start a child and return its pid WITHOUT waiting.
+   *
+   *  Reported from rozum (`process-needs-a-detached-spawn`): `exec` waits by construction, so an
+   *  HTTP handler starting a five-minute job could hold the connection for five minutes or not start
+   *  it. Every launch route of their port stopped here.
+   *
+   *  THE CHILD MUST OUTLIVE THIS PROCESS, which is the half a naive implementation gets wrong. On a
+   *  JVM that means not inheriting this process's stdout/stderr pipes — a child holding them keeps
+   *  file descriptors alive and can be killed with the parent's process group — so the standard
+   *  streams are redirected to DISCARD. A caller who wants the output wants `exec`, or a child that
+   *  writes its own file; capturing here would mean staying to drain it, which is the thing `spawn`
+   *  exists not to do. */
+  private def spawn(args: List[Value]): Value = args match
+    case cmdV :: argsV :: rest =>
+      val cmd = cmdV match
+        case Value.StrV(value) => value
+        case _ => throw new RuntimeException("spawn argument 1 must be String")
+      val argv = strings(argsV, "spawn")
+      val fields = rest.headOption match
+        case Some(Value.DataV("ProcessOptions", fs)) => fs
+        case _                                       => IndexedSeq.empty[Value]
+      val builder = new ProcessBuilder((cmd :: argv)*)
+      val stdinText = configure(builder, fields)
+      builder.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+      builder.redirectError(ProcessBuilder.Redirect.DISCARD)
+      val process = builder.start()
+      // Same contract as `exec`: write what was given, then CLOSE, so a child reading to EOF sees
+      // one. Closing matters more here — nobody is coming back to this process.
+      val pipe = process.getOutputStream
+      try stdinText.foreach(text => pipe.write(text.getBytes("UTF-8"))) finally pipe.close()
+      Value.IntV(process.pid())   // the .ssc wrapper builds `Child` — see std/process.ssc
+    case _ => throw new RuntimeException("__spawnPid(cmd: String, args: List[String], opts: ProcessOptions)")
+
   private def exec(args: List[Value]): Value =
     def result(stdout: String, stderr: String, code: Long): Value =
       // Positional, in `case class ProcessResult(stdout, stderr, exitCode)` declaration order —
@@ -78,33 +141,17 @@ final class OsNativePlugin extends NativePlugin:
         val fields = rest.headOption match
           case Some(Value.DataV("ProcessOptions", fs)) => fs
           case _                                       => IndexedSeq.empty[Value]
-        def field(index: Int): Option[Value] = fields.lift(index)
-        val cwd = field(0) match
-          case Some(Value.DataV("Some", Seq(Value.StrV(dir)))) => Some(dir)
-          case _                                               => None
-        val env = field(1) match
-          case Some(Value.MapV(entries)) => entries.collect {
-            case (Value.StrV(key), Value.StrV(value)) => key -> value
-          }.toMap
-          case _ => Map.empty[String, String]
-        val timeoutMs = field(2) match
+        // `timeout` is read HERE and not in `configure`, because it is the one option only `exec`
+        // can honour — `spawn` returns before there is anything to time.
+        val timeoutMs = fields.lift(2) match
           case Some(Value.DataV("Some", Seq(Value.IntV(ms)))) => Some(ms)
           case _                                              => None
-        val inheritEnv = field(3) match
-          case Some(Value.BoolV(value)) => value
-          case _                        => true
-        // field(4) — `stdin`, appended to the record so indices 0..3 above keep their meaning.
-        val stdinText = field(4) match
-          case Some(Value.DataV("Some", Seq(Value.StrV(text)))) => Some(text)
-          case _                                                => None
 
         val builder = new ProcessBuilder((cmd :: argv)*)
         builder.redirectErrorStream(false)
-        cwd.foreach(dir => builder.directory(new java.io.File(dir)))
-        if !inheritEnv then builder.environment().clear()
-        if env.nonEmpty then
-          val target = builder.environment()
-          env.foreach { case (key, value) => target.put(key, value) }
+        // cwd / env / inheritEnv / stdin come from the SHARED helper, so `exec` and `spawn` cannot
+        // drift apart on them. They did not drift here; the helper exists so they never can.
+        val stdinText = configure(builder, fields)
         val process = builder.start()
         // `opts.stdin` is written and then the pipe is CLOSED — the close is the load-bearing half
         // and was already here for the no-stdin case: a child reading to EOF blocks forever on an
@@ -165,6 +212,7 @@ final class OsNativePlugin extends NativePlugin:
   def install(context: NativePluginContext): Unit =
     context.registerValue("sys", sysObject())
     native(context, "exec")(exec)
+    native(context, "__spawnPid")(spawn)
     native(context, "env") { args =>
       Option(System.getenv(text(args, 0, "env"))) match
         case Some(value) => Value.DataV("Some", Vector(Value.StrV(value)))

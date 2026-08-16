@@ -61,6 +61,10 @@ val RustIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("hostname")         -> RuntimeCall("crate::runtime::_hostname"),
   // std.process — exec via std::process::Command (no extra crate deps).
   QualifiedName("exec")             -> RuntimeCall("crate::runtime::_exec"),
+  // `__spawnPid` returns an Int. `spawn` itself is an ordinary def in std/process.ssc that wraps it
+  // in `Child`, because the struct is GENERATED into the crate and this runtime template — emitted
+  // verbatim, knowing no user type — cannot name it.
+  QualifiedName("__spawnPid")       -> RuntimeCall("crate::runtime::_spawn_pid"),
   // R.5 — HTTP server.  Pulls tokio + hyper + http-body-util + bytes +
   // hyper-util into Cargo.toml only when reached.
   QualifiedName("serve")            -> RuntimeCall("crate::runtime::http::_http_serve"),

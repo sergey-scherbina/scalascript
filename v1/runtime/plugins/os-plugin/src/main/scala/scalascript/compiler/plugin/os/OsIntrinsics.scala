@@ -203,4 +203,46 @@ object OsIntrinsics:
       ))
     },
 
+    // `spawn(cmd, args, opts): Child` — start a child and return its pid WITHOUT waiting.
+    //
+    // Reported from rozum (`process-needs-a-detached-spawn`): `exec` waits by construction, so an
+    // HTTP handler starting a five-minute agent run could hold the connection for five minutes or
+    // not start it. Every launch route of their port stopped here, and the boundary between the
+    // Rust half and the ScalaScript half of that port was exactly this primitive.
+    //
+    // THE CHILD MUST OUTLIVE THIS PROCESS. On a JVM that means NOT inheriting this process's
+    // stdout/stderr — a child holding them keeps file descriptors alive and dies with the parent's
+    // process group — so both are redirected to DISCARD. Nothing captures the output, which is the
+    // point: reading a pipe means staying to drain it, and staying is what `spawn` exists not to do.
+    // A caller who wants output wants `exec`, or a child that writes its own file.
+    //
+    // `timeout` is the one option this cannot honour and does not pretend to: the call returns
+    // before there is anything to time.
+    QualifiedName("__spawnPid") -> native {
+      case List(c, a, o) =>
+        val cmd  = Str.unapply(c).getOrElse(c.toString)
+        val args = Lst.unapply(a).getOrElse(Nil).flatMap(Str.unapply)
+        val f: Map[String, PluginValue] = o match { case Inst(_, fs) => fs; case _ => Map.empty }
+        val cwd        = f.get("cwd").flatMap(Opt.unapply).flatten.flatMap(Str.unapply)
+        val env        = f.get("env").flatMap(MapVal.unapply).getOrElse(Map.empty).flatMap {
+                           case (Str(k), Str(v)) => Some(k -> v); case _ => None }
+        val inheritEnv = f.get("inheritEnv").flatMap(Bool.unapply).getOrElse(true)
+        val stdinText  = f.get("stdin").flatMap(Opt.unapply).flatten.flatMap(Str.unapply)
+        val pb = new ProcessBuilder((cmd :: args)*)
+        cwd.foreach(d => pb.directory(new java.io.File(d)))
+        if !inheritEnv then pb.environment().clear()
+        if env.nonEmpty then { val e = pb.environment(); env.foreach { case (k, v) => e.put(k, v) } }
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        val proc = pb.start()
+        // Same contract as `exec`: write what was given, then CLOSE so a child reading to EOF sees
+        // one. It matters more here — nobody is coming back to this process.
+        val pipe = proc.getOutputStream
+        try stdinText.foreach(t => pipe.write(t.getBytes("UTF-8"))) finally pipe.close()
+        PluginValue.int(proc.pid())   // the .ssc wrapper builds `Child` — see std/process.ssc
+      case _ =>
+        throw new IllegalArgumentException(
+          "__spawnPid(cmd: String, args: List[String], opts: ProcessOptions): Int")
+    },
+
   )

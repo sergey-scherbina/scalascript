@@ -416,6 +416,64 @@
       |    pub exitCode: i64,
       |}
       |
+      |/// `spawn(cmd, args, opts): Child` — start a child and return its pid WITHOUT waiting.
+      |///
+      |/// Reported from rozum (`process-needs-a-detached-spawn`): `exec` waits by construction, so an
+      |/// HTTP handler starting a five-minute job could hold the connection for five minutes or not
+      |/// start it. Every launch route of their port stopped here.
+      |///
+      |/// RETURNS AN i64, NOT A `Child`. The `Child` struct is GENERATED into the crate from the
+      |/// `case class`, so this template — which is emitted verbatim and knows no user types — cannot
+      |/// name it. The call site wraps the pid, exactly as it wraps every other generated struct.
+      |///
+      |/// THE CHILD OUTLIVES THIS PROCESS, which on Unix is what `Command::spawn` already does: the
+      |/// `Child` handle is DROPPED here without `wait`, and Rust's drop does not kill or reap it.
+      |/// stdio is null rather than inherited so the child holds none of this process's descriptors —
+      |/// a child writing to an inherited pipe blocks once nobody reads it.
+      |///
+      |/// `timeout` is the one option this cannot honour and does not pretend to: the call returns
+      |/// before there is anything to time.
+      |#[allow(dead_code, unused_variables)]
+      |pub fn _spawn_pid<O: Into<crate::value::Value>>(cmd: String, args: Vec<String>, opts: O) -> i64 {
+      |    use std::io::Write;
+      |    let mut command = std::process::Command::new(&cmd);
+      |    command.args(&args);
+      |    let mut stdin_text: Option<String> = None;
+      |    if let crate::value::Value::Obj("ProcessOptions", f) = opts.into() {
+      |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(0) {
+      |            if let Some(crate::value::Value::Str(dir)) = inner.get(0) { command.current_dir(dir); }
+      |        }
+      |        if let Some(crate::value::Value::Bool(false)) = f.get(3) { command.env_clear(); }
+      |        if let Some(crate::value::Value::Map(entries)) = f.get(1) {
+      |            for (k, v) in entries {
+      |                if let crate::value::Value::Str(s) = v { command.env(k, s); }
+      |            }
+      |        }
+      |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(4) {
+      |            if let Some(crate::value::Value::Str(text)) = inner.get(0) {
+      |                stdin_text = Some(text.clone());
+      |            }
+      |        }
+      |    }
+      |    command.stdout(std::process::Stdio::null());
+      |    command.stderr(std::process::Stdio::null());
+      |    command.stdin(if stdin_text.is_some() {
+      |        std::process::Stdio::piped()
+      |    } else {
+      |        std::process::Stdio::null()
+      |    });
+      |    let mut child = command.spawn().unwrap_or_else(|e| panic!("spawn({}): {}", cmd, e));
+      |    if let Some(text) = stdin_text {
+      |        // Written and then DROPPED, which is what closes the pipe and gives the child its EOF.
+      |        // It matters more here than in `exec`: nobody comes back to this handle.
+      |        if let Some(mut pipe) = child.stdin.take() {
+      |            pipe.write_all(text.as_bytes())
+      |                .unwrap_or_else(|e| panic!("spawn({}): writing stdin: {}", cmd, e));
+      |        }
+      |    }
+      |    child.id() as i64
+      |}
+      |
       |// `opts` is the std/process `ProcessOptions`, and until 2026-08-16 this function DROPPED IT.
       |// The signature took `_opts: O` and the comment here said "cwd/env/timeout aren't applied
       |// yet", which made it look like a known gap rather than what it was from the outside: a

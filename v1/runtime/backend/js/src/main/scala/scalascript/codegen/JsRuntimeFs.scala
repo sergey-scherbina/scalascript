@@ -211,4 +211,29 @@ function exec(cmd, argsList, opts) {
   }
   throw new Error('ProcessNotSupported: exec is not available in the browser');
 }
+
+// `spawn(cmd, args, opts): Child` — start a child and return its pid WITHOUT waiting
+// (rozum `process-needs-a-detached-spawn`).
+//
+// `detached: true` + `unref()` is the pair that makes the child OUTLIVE this process, and both are
+// needed: `detached` puts it in its own process group so it does not die with the parent's, and
+// `unref()` releases node's event-loop reference so this process can exit while the child runs.
+// stdio is 'ignore' for the same reason the JVM lanes redirect to DISCARD — a child holding this
+// process's pipes keeps its descriptors alive, and capturing would mean staying to drain.
+//
+// `stdin` cannot be written here and is REFUSED rather than dropped: with stdio 'ignore' there is no
+// pipe, and wiring one back would mean holding the handle open across a call that has already
+// returned. Refusing is the honest half — the alternative is a token that silently never arrives,
+// which is the failure `process-needs-a-stdin-pipe` exists to prevent.
+function __spawnPid(cmd, argsList, opts) {
+  if (_nodeProc) {
+    if (opts && opts.stdin && opts.stdin._type === '_Some') {
+      throw new Error('spawn: opts.stdin is not supported on the js lane — use exec, or have the child read a file');
+    }
+    var child = _nodeProc.spawn(cmd, argsList, { detached: true, stdio: 'ignore', shell: false });
+    child.unref();
+    return child.pid;   // the .ssc wrapper builds `Child` — see std/process.ssc
+  }
+  throw new Error('ProcessNotSupported: spawn is not available in the browser');
+}
 """

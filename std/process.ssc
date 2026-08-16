@@ -5,6 +5,8 @@ description: Process management — exec, spawn
 package: std.process
 exports:
   - exec
+  - spawn
+  - Child
   - ProcessOptions
   - ProcessResult
 ---
@@ -45,5 +47,48 @@ case class ProcessResult(
   exitCode: Int
 )
 
+/** A child that is RUNNING. `spawn` returns one of these instead of waiting for a result.
+ *
+ *  Reported from rozum (`process-needs-a-detached-spawn`): every HTTP route of their control console
+ *  that STARTS something — an agent run, a coder session, a terminal, a benchmark — hit the same
+ *  wall, and it was not "no process control". `exec` WAITS by construction, so a handler starting a
+ *  five-minute job could hold the connection for five minutes or not start it. The boundary between
+ *  the Rust half of their port and the ScalaScript half was exactly this primitive.
+ *
+ *  `pid` alone is the whole surface, which is what the report asked for: the caller records it, and
+ *  killing already works through `exec("kill", List(pid.toString), ProcessOptions())`. `wait`,
+ *  `isAlive` and streams are deliberately absent — they were named as welcome and not blocking, and
+ *  a surface invented ahead of a use is a surface nobody can change later.
+ *
+ *  A pid is NOT POSIX-only, which is worth stating because it looks like it: `Process.pid()` (Java 9)
+ *  and Node's `child.pid` both give one. Killing BY SHELLING OUT to `kill` is the POSIX part, and
+ *  that is the caller's idiom, not this type's. */
+case class Child(pid: Int)
+
 extern def exec(cmd: String, args: List[String], opts: ProcessOptions): ProcessResult
+
+/** Start a child and return IMMEDIATELY, without waiting for it.
+ *
+ *  The child is DETACHED: it survives the process that started it, which the report names as part of
+ *  the ask ("the child must survive the server that started it"). A served program can therefore
+ *  start a long job from a request handler and answer the request.
+ *
+ *  `opts` is the same `ProcessOptions` — `cwd`, `env` and `inheritEnv` apply. `timeout` does NOT and
+ *  cannot: there is nothing here to time, since the call returns before the child does. `stdin` is
+ *  written and the pipe closed exactly as `exec` does it, so a secret can still reach a spawned child
+ *  without passing through argv.
+ *
+ *  There is no `ProcessResult`, and that is the point: stdout and stderr are NOT captured. A caller
+ *  who needs the output wants `exec`; a caller who needs both wants to redirect to a file the child
+ *  writes, because reading a pipe means staying to drain it. */
+extern def __spawnPid(cmd: String, args: List[String], opts: ProcessOptions): Int
+
+/** WHY THE EXTERN RETURNS AN Int AND THE WRAPPER BUILDS THE `Child`, rather than the extern
+ *  returning `Child` directly: on the rust lane the struct is GENERATED into the crate from the
+ *  `case class` above, and the runtime template — emitted verbatim, knowing no user type — cannot
+ *  name it. Every backend can return an Int. Constructing `Child` HERE means all five lanes build
+ *  the same value from the same source, instead of five hand-written constructions that can
+ *  disagree about a field. */
+def spawn(cmd: String, args: List[String], opts: ProcessOptions): Child =
+  Child(__spawnPid(cmd, args, opts))
 ```

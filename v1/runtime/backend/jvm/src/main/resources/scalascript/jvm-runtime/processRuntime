@@ -49,3 +49,29 @@
        |  _sscErrThread.join(1000)
        |  ProcessResult(_sscOutBuf.get(), _sscErrBuf.get(), _sscCode.toLong)
        |
+       |case class Child(pid: Int)
+       |
+       |// `spawn` — start a child and return its pid WITHOUT waiting (rozum
+       |// `process-needs-a-detached-spawn`; `exec` waits by construction, so a handler starting a
+       |// long job could hold the connection or not start it).
+       |//
+       |// THE CHILD MUST OUTLIVE THIS PROCESS, so stdout/stderr go to DISCARD rather than being
+       |// inherited: a child holding this process's pipes keeps its descriptors alive and shares its
+       |// fate. Nothing is captured, which is the point — draining a pipe means staying.
+       |//
+       |// `timeout` is the one option this cannot honour: the call returns before there is anything
+       |// to time.
+       |def __spawnPid(cmd: String, args: List[String], opts: ProcessOptions): Int =
+       |  val _sscPb = new java.lang.ProcessBuilder((cmd :: args)*)
+       |  opts.cwd.foreach(_d => _sscPb.directory(new java.io.File(_d)))
+       |  if !opts.inheritEnv then _sscPb.environment().clear()
+       |  if opts.env.nonEmpty then
+       |    val _sscEnv = _sscPb.environment()
+       |    opts.env.foreach { case (_k, _v) => _sscEnv.put(_k, _v) }
+       |  _sscPb.redirectOutput(java.lang.ProcessBuilder.Redirect.DISCARD)
+       |  _sscPb.redirectError(java.lang.ProcessBuilder.Redirect.DISCARD)
+       |  val _sscProc = _sscPb.start()
+       |  val _sscIn = _sscProc.getOutputStream
+       |  try opts.stdin.foreach(_t => _sscIn.write(_t.getBytes("UTF-8"))) finally _sscIn.close()
+       |  _sscProc.pid().toInt
+       |
