@@ -81,9 +81,27 @@ path: the D2 note in `ssc1-run-fsub.ssc0` records that the F lane deliberately a
 self-hosted IR-text parser at all. Whether `run-ir` on the JDK side is subject to the same
 constraint is the first thing to check — it runs before the plugin boundary, so it may not be.
 
-**Not yet measured: the prize.** Timing `run-ir F0.ir <code>` against `ssc run` under F is the
-number that decides whether this is worth the risk, and it needs a run-ir-capable kernel jar built in
-this worktree. Do that BEFORE writing any of the above — a projection is not a measurement.
+**MEASURED 2026-08-16, and the prize is bigger than the projection.** Kernel jar built with
+`scala-cli --power package v2/src --assembly`; F bootstrapped once with the p6.5 driver:
+
+```
+bootstrap F -> F0.ir            8.74 s   (532,220 bytes)
+run-ir F0.ir <file>             1.31 / 1.08 / 0.90 s
+```
+
+So the front-lowering share is ~7.7 s per invocation and a cached front leaves ~1.0 s — not the
+"halve it" I projected from the 7.0 vs 3.0 s split, closer to an order of magnitude on that term.
+That also explains the earlier puzzle: F's 4 s premium over the REFERENCE is not the whole lowering
+cost, because the reference pays its own large share for `ssc1-front` + `ssc1-lower`.
+
+**THE BLOCKING DESIGN QUESTION, unresolved.** `run-ir` loads encoded IR on the JDK side. The tower
+runner cannot do the same with `#coreir.decode` — the D2 note in `ssc1-run-fsub.ssc0` records that
+the F lane deliberately avoids it so no `ssc.Reader` is class-loaded (blocker ③.2 of the front flip),
+which is why the self-hosted `irTextToData` exists at all. So the load has to happen either
+  (a) on the JDK side, with `RunNativeV2` calling the F0 program directly and the tower keeping only
+      the assembly work (fences, multi-file closure, front-matter, structural projection), or
+  (b) in the tower through a path that does not reintroduce the Reader.
+Settle which BEFORE writing anything: (a) moves a boundary, (b) may not exist.
 
 Second, independent and cheaper: **the reference side of the agreement gate is memoizable across
 runs.** Its output depends on (subject, reference front, runtime) and NOT on the F spec, so an
