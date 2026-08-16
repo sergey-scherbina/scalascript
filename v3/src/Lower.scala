@@ -1602,10 +1602,77 @@ object Lower:
     val builtins = builtinMethods.toSet
     def eligible(m: String): Boolean =
       topLevel.contains(m) && !classMembers.contains(m) && !builtins.contains(m)
-    if !defs.exists(d => eligible(d.name)) then defs
+
+    // ── THE TYPED ARM: an extension whose name a built-in also has ────────────────────────────────
+    //
+    // `std/parsing` declares `extension [A](p: Parser[A]) def map`, and NO call to it was ever
+    // rewritten: `map` is in the built-in vocabulary, so the test above refused it for every
+    // receiver. The built-in then ran on a parser value — the executor refused with
+    // `method 'map' on #42(-?[0-9]+)` and the BRIDGE printed `unknown parser node`, a wrong answer
+    // out of shared IR.
+    //
+    // A NAME CANNOT DECIDE THIS AND A TYPE CAN. `map` must stay the built-in for a `List` and become
+    // the extension for a `Parser`, which is what the receiver's type says and nothing else does. So
+    // this arm fires only when the receiver's declared type EQUALS the type the extension declares
+    // its own receiver to be — never on a guess, and never when the type is unknown.
+    //
+    // IT IS ALSO WHY THE CLASS TEST IS NOT REPEATED HERE. A class member of ANOTHER type is not a
+    // competitor once the receiver is typed; a class member of the SAME type is, and wins, which the
+    // last condition says.
+    val retHead: Map[String, String] =
+      defs.flatMap(d => d.retType.map(t => (d.name, typeHead(t)))).toMap
+    val extRecvHead: Map[String, String] =
+      defs.flatMap(d => d.params.headOption.flatMap(_.tpe).map(t => (d.name, typeHead(t)))).toMap
+    val classesDeclaring: Map[String, Set[String]] =
+      classes.flatMap(c => (c.methods.map(_.name) ++ c.fields.map(_.name)).map(n => (n, c.name)))
+        .groupBy(_._1).map((n, ps) => (n, ps.map(_._2).toSet))
+    // The receiver's type from what is DECLARED, never inferred: a call answers its callee's result
+    // type, and an un-rewritten method call answers the same when that method is a known def. A
+    // receiver this cannot type is left to the built-in, which is the behaviour that was already
+    // there.
+    def receiverHead(e: Expr, binds: Map[String, String]): Option[String] = e match
+      case Expr.Call(fn, _, _)          => retHead.get(fn)
+      // AN OBJECT MEMBER IS A DOTTED DEF. `Parser.regex("…")` reaches this pass as a `MethodCall`
+      // on the NAME `Parser`, while the def it calls is `Parser.regex` — flattened that way long
+      // before. Looking up the bare method name missed every one of them.
+      case Expr.MethodCall(Expr.Name(o, _), m, _, _)
+          if retHead.contains(o + "." + m) => retHead.get(o + "." + m)
+      case Expr.MethodCall(_, m, _, _)  => retHead.get(m)
+      case Expr.Name(n, _)              => binds.get(n)
+      case _                            => None
+    // WHAT A NAME IS BOUND TO, within the body being rewritten. A top-level `val bareValue:
+    // Parser[Any] = …` has become `Expr.Assign` by the time this pass runs — the declared type is
+    // gone and the INITIALISER is what remains, which is enough: it is a call whose callee's result
+    // type is known. `Stmt.Val` covers the same inside a def.
+    def bindingTypes(e: Expr): Map[String, String] =
+      var out = Map.empty[String, String]
+      mapDeep(e, x => {
+        x match
+          case Expr.Assign(n, v, _) => receiverHead(v, Map.empty).foreach(t => out = out.updated(n, t))
+          case Expr.Block(sts, _, _) =>
+            sts.foreach {
+              case Stmt.Val(n, v, _, _) => receiverHead(v, Map.empty).foreach(t => out = out.updated(n, t))
+              case _                    => ()
+            }
+          case _ => ()
+        x
+      })
+      out
+    def eligibleTyped(recv: Expr, m: String, binds: Map[String, String]): Boolean =
+      topLevel.contains(m) && builtins.contains(m) &&
+        (for
+          want <- extRecvHead.get(m)
+          got  <- receiverHead(recv, binds)
+          if want == got
+        yield !classesDeclaring.getOrElse(m, Set.empty).contains(got)).getOrElse(false)
+
+    if !defs.exists(d => eligible(d.name)) && !defs.exists(d => extRecvHead.contains(d.name) && builtins.contains(d.name)) then defs
     else
-      def fix(e: Expr): Expr = mapDeep(e, x => x match
-        case Expr.MethodCall(recv, m, args, p) if eligible(m) => Expr.Call(m, recv :: args, p)
+      def fix(e: Expr): Expr =
+        val binds = bindingTypes(e)
+        mapDeep(e, x => x match
+        case Expr.MethodCall(recv, m, args, p) if eligible(m) || eligibleTyped(recv, m, binds) =>
+          Expr.Call(m, recv :: args, p)
         // AN INFIX USE ARRIVES AS `Bin`, not as a `MethodCall`. `3 ~ 4` parses as a binary operator
         // — that is what `prec` is for — so an extension named `~` is reached here and nowhere
         // else. Missing this arm left the def parsing, the use parsing, and the LOWERING refusing
@@ -1616,7 +1683,22 @@ object Lower:
         // list this arm would have to keep.
         case Expr.Bin(op, l, r, p) if eligible(op) => Expr.Call(op, List(l, r), p)
         case other => other)
-      defs.map(d => d.copy(body = fix(d.body)))
+      // ITERATED TO A FIXED POINT, and it has to be. The typed arm reads the receiver's type from
+      // the callee of a CALL, so `p.many().map(f)` can only be decided after `many()` has itself
+      // become a call — and one top-down pass sees the outer `.map` first, with a receiver that is
+      // still a `MethodCall` and therefore untyped. Measured on `indent-config-format`: eight of
+      // nineteen `.map` calls resolved on the first pass and eight more had a `MethodCall` receiver
+      // waiting on exactly this. Bounded, because each round can only turn method calls into calls
+      // and there are finitely many.
+      var out = defs.map(d => d.copy(body = fix(d.body)))
+      var rounds = 0
+      var again = true
+      while again && rounds < 8 do
+        val next = out.map(d => d.copy(body = fix(d.body)))
+        again = next != out
+        out = next
+        rounds = rounds + 1
+      out
 
   /** `xs.map(f)` on a `given … with` INSTANCE — the call-site half of a typeclass extension.
     *

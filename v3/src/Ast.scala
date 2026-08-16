@@ -209,7 +209,15 @@ final case class TraitDef(name: String, methods: List[Def], parents: List[String
   * here — that is `BUGS.md v3-uniml-def-has-no-type-parameters`, declared in the capability gate —
   * but the difference belongs in ONE place, not in every tree the differential compares. */
 final case class Def(name: String, params: List[Param], body: Expr, pos: Pos,
-                     tparams: List[String] = Nil, givenParams: List[Param] = Nil)
+                     tparams: List[String] = Nil, givenParams: List[Param] = Nil,
+                     /** The DECLARED result type, as text, exactly as `Param.tpe` keeps a
+                       * parameter's — and kept for the same narrow reason: to DECIDE something, never
+                       * to check it. `Parser.regex("…").map(f)` cannot be resolved without knowing
+                       * that `regex` answers a `Parser`, and invariant I-2 is about there being no
+                       * checker at Tier 0, not about the front being forbidden to read what a
+                       * declaration says. `None` when the program did not write one, which is the
+                       * common case and costs nothing. */
+                     retType: Option[String] = None)
 /** A `.ssc` file is a SCRIPT: `def`s are declarations and everything else is the program body,
   * executed in order. That is the project's model, not a v3 invention — measured on the corpus,
   * top-level statements were the single largest reason v3 could not read a case. */

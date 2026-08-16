@@ -1631,6 +1631,16 @@ object Parser:
     * Joined WITHOUT spaces, so `Map[String, Int]` reads `Map[String,Int]` — the text is only ever
     * compared with another built the same way, never shown, so what matters is that one spelling
     * cannot produce two strings. A comma keeps its place because it distinguishes arities. */
+  /** The declared type at `ts`, if there is one — `: T` read as TEXT and otherwise left alone.
+    *
+    * Built on the same `skipType`/`typeTextOf` pair a parameter's type already uses, so one spelling
+    * cannot produce two strings across the two sites. */
+  private def declaredType(ts: List[Tok]): Option[String] =
+    if !isPunct(peek(ts), ":") then None
+    else
+      val txt = typeTextOf(ts.tail, skipType(ts.tail))
+      if txt.isEmpty then None else Some(txt)
+
   private def typeTextOf(ts0: List[Tok], stop: List[Tok]): String =
     val n = ts0.length - stop.length
     ts0.take(if n > 0 then n else 0).map {
@@ -1750,14 +1760,15 @@ object Parser:
     // both parse to zero parameters here. The difference lives in the LOWERING, where a bare name
     // that resolves to a zero-arity def becomes a call.
     if !isPunct(peek(afterName), "(") then
+      val retTy = declaredType(afterName)
       var ts0 = skipTypeAnn(afterName)
       // ABSTRACT: no `=`, so no body. Only meaningful inside a trait, and given a placeholder body
       // rather than an Option because every later phase then keeps ONE shape of `Def` to handle.
       if !isOp(peek(ts0), "=") then
-        return (Def(name, Nil, Expr.Name("__abstract__", p), p, tparams, boundGivens), ts0)
+        return (Def(name, Nil, Expr.Name("__abstract__", p), p, tparams, boundGivens, retTy), ts0)
       ts0 = expectOp(ts0, "=")
       val (body0, tEnd) = parseBody(ts0)
-      return (Def(name, Nil, body0, p, tparams, boundGivens), tEnd)
+      return (Def(name, Nil, body0, p, tparams, boundGivens, retTy), tEnd)
     var params: List[Param] = Nil
     var ts = afterName
     // EVERY parameter list, not the first. `def display[A](a: A)(using s: Show[A])` is two, and a
@@ -1795,13 +1806,14 @@ object Parser:
       moreLists = isPunct(peek(ts), "(")
     // A context bound's parameter does NOT go into `params` here — see `Ast.Def.givenParams` for
     // why. `Lower` appends it, and until then the printed tree is the same one UniML prints.
+    val retTy2 = declaredType(ts)
     ts = skipTypeAnn(ts)
     if !isOp(peek(ts), "=") then
-      (Def(name, params.reverse, Expr.Name("__abstract__", p), p, tparams, boundGivens), ts)
+      (Def(name, params.reverse, Expr.Name("__abstract__", p), p, tparams, boundGivens, retTy2), ts)
     else
       ts = expectOp(ts, "=")
       val (body, t3) = parseBody(ts)
-      (Def(name, params.reverse, body, p, tparams, boundGivens), t3)
+      (Def(name, params.reverse, body, p, tparams, boundGivens, retTy2), t3)
 
   def parse(src: String): Program =
     var ts = Lexer.lex(src)

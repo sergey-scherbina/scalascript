@@ -154,11 +154,17 @@ object UniFront:
     // is that an `extern` v3 cannot implement IS NOT A FUNCTION at Tier 0. `Lower` drops it from
     // the table, so the declaration still costs nothing and a CALL to it is refused at the call
     // site, with a position, exactly as a call to any name that does not exist.
-    case d @ U.Def(n, ps, _, U.NotImplemented(bs), s, _, _) =>
+    // THE RESULT TYPE WAS ALREADY IN THIS AST AND THIS PROJECTION THREW IT AWAY — the `_` in the
+    // third position. `Param.tpe` had been carried since 2026-08-08 for exactly the same reason and
+    // the same way; the result type is what lets `Parser.regex("…").map(f)` resolve, because only a
+    // callee's declared type says what its call is a receiver OF. Mapped identically to a
+    // parameter's, spaces removed, so one spelling cannot produce two strings across the two fronts.
+    case d @ U.Def(n, ps, rt, U.NotImplemented(bs), s, _, _) =>
       Sorted.D(Def(n, ps.toList.map(param), hostGap(n, pos(bs)), pos(s),
-                   d.tparams.toList, boundParams(d)))
-    case d @ U.Def(n, ps, _, b, s, _, _) =>
-      Sorted.D(Def(n, ps.toList.map(param), expr(b), pos(s), d.tparams.toList, boundParams(d)))
+                   d.tparams.toList, boundParams(d), retText(rt)))
+    case d @ U.Def(n, ps, rt, b, s, _, _) =>
+      Sorted.D(Def(n, ps.toList.map(param), expr(b), pos(s), d.tparams.toList, boundParams(d),
+                   retText(rt)))
     case U.CaseClass(n, fs, parent, ms, s) =>
       // A class method with no body is ABSTRACT, exactly as a trait's is — the same rule, applied
       // at the other declaration site. Only a TOP-LEVEL bodyless def is an `extern`.
@@ -207,7 +213,11 @@ object UniFront:
             val body = dd.body match
               case U.NotImplemented(bs) => hostGap(dd.name, pos(bs))
               case b                    => expr(b)
-            ds = ds :+ Def(dd.name, dd.params.toList.map(param), body, pos(dd.span))
+            // The result type here as well: an object's members are FLATTENED to `Owner.member`
+            // defs, and `Parser.regex` is one of them — the receiver whose type decides whether
+            // `.map` after it means the built-in or the extension.
+            ds = ds :+ Def(dd.name, dd.params.toList.map(param), body, pos(dd.span), Nil, Nil,
+                           retText(dd.ret))
           case U.TopExpr(U.ValDef(vn, rhs, isVar, vsp), _) =>
             vs = vs :+ Stmt.Val(vn, expr(rhs), isVar, pos(vsp))
           // A `case class` declared INSIDE the object is HOISTED to the top level under its plain
@@ -244,7 +254,7 @@ object UniFront:
           val b = dd.body match
             case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
             case other                => expr(other)
-          List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span)))
+          List(Def(dd.name, dd.params.toList.map(param), b, pos(dd.span), Nil, Nil, retText(dd.ret)))
         // NOT `case _ => Nil`. A trait member that is not a `def` used to be DROPPED here, silently,
         // and that made the two fronts disagree without either saying anything: `trait Named:` with
         // `val id: String` is refused by name on v3's own front and accepted-minus-the-member on
@@ -262,7 +272,7 @@ object UniFront:
                     d.body match
                       case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
                       case other                => expr(other),
-                    pos(d.span), d.tparams.toList, boundParams(d)))
+                    pos(d.span), d.tparams.toList, boundParams(d), retText(d.ret)))
         case other => no("a `trait` member that is not a `def`", other.span)
       }
       Sorted.T(TraitDef(n, defs, parents.toList, pos(s)))
@@ -316,7 +326,7 @@ object UniFront:
                         d.body match
                           case U.NotImplemented(bs) => Expr.Name("__abstract__", pos(bs))
                           case other                => expr(other),
-                        pos(d.span), d.tparams.toList, boundParams(d)))
+                        pos(d.span), d.tparams.toList, boundParams(d), retText(d.ret)))
             case other => no("a non-`def`, non-`val` member of a `given … with`", other.span)
           }
           // The HEAD of the declared type, so `summon` has something to match against — the same
@@ -370,8 +380,12 @@ object UniFront:
         case None => no("an `extension` with no receiver parameter", s)
         case Some(r) =>
           Sorted.Ds(ds.toList.map(d =>
+            // THE TOP-LEVEL `extension` — where `~`, `map` and the rest of `std/parsing`'s
+            // combinators come from. Its result type is what tells a following `.map` that the
+            // receiver is still a `Parser`, so an extension chain resolves the same as its first
+            // link did.
             Def(d.name, param(r) :: d.params.toList.map(param), expr(d.body), pos(d.span),
-                d.tparams.toList, boundParams(d))))
+                d.tparams.toList, boundParams(d), retText(d.ret))))
     case U.UnsupportedDecl(k, s)   => no("the declaration '" + k + "'", s)
 
   /** A 64-bit literal, or a POSITIONED refusal. `ssc` integers are 64-bit, so a literal outside
@@ -429,6 +443,10 @@ object UniFront:
     d.bounds.toList.zipWithIndex.map { case ((tv, bound), i) =>
       Param("__given" + i, pos(d.span), None, false, Some(bound + "[" + tv + "]"), true)
     }
+
+  /** A declared result type as v3 keeps one: text, spaces removed, `None` when absent. */
+  private def retText(rt: Option[U.TypeRef]): Option[String] =
+    rt.map(_.text.replace(" ", "")).filter(_.nonEmpty)
 
   private def param(p: U.Param): Param =
     // BY-NAME, carried since 2026-08-08, and one field only because the grammar was fixed first.
