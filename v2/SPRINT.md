@@ -115,10 +115,26 @@ run-ir              ssc.Reader loaded 23×
   `ssc1-run-fsub.ssc0`, written for exactly this reason. It is contract-compatible by construction
   because it is already on the F path today, parsing F's OUTPUT every run.
 
-**So the remaining question is speed, not legality**: is `irTextToData` over the 532 KB `F0.ir`
-cheaper than `parse` + `lowerProg` over the 392 KB source? It is not obvious — a self-hosted parser
-over a larger artifact could easily lose. THAT is the next measurement, and it decides the whole
-task. If it loses, the honest outcome is to close this as not-worth-it and say so, with the number.
+**ANSWERED 2026-08-16 — the one legal route wins, and the whole design is validated end to end.**
+
+```
+irTextToData(532 KB F0.ir) + re-encode      0.98 / 0.93 s   round-trip BYTE-IDENTICAL
+cached front applied as a closure           1.80 / 2.56 / 2.70 s   output byte-identical to run-ir
+today: parse + lowerProg of 392 KB source   8.74 s
+```
+
+**How the source reaches the cached front — no temp file, no args plumbing.** Bootstrap F0 with its
+entry as `def main = () => compile`, so `#coreir.eval` returns F's `compile` CLOSURE; the tower then
+applies it directly: `f(userSrc, dq, bs)`. Verified: the emitted user IR is `cmp`-identical to what
+the uncached path produces (7,343 bytes on the probe). This sidesteps the reason production could not
+reuse the p6.5 artifact — that F0's `main` read a PATH from `#io.args()`, which the tower does not
+control.
+
+So the shape is settled and measured:
+  * install time: bootstrap F0 once, stage it beside `fsub.ssc`;
+  * `sscFsubIr`: `irTextToData` the staged artifact, `#coreir.eval` it, apply the closure;
+  * keep today's parse+lowerProg as the fallback when the artifact is absent, so a stale or missing
+    stage degrades to correct-but-slow rather than to wrong.
 
 **Superseded question (kept because the reasoning is reusable):** `run-ir` loads encoded IR on the JDK side. The tower
 runner cannot do the same with `#coreir.decode` — the D2 note in `ssc1-run-fsub.ssc0` records that
