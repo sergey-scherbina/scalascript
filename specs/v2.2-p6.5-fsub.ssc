@@ -2486,7 +2486,17 @@ def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), c
 // `n` inside them resolves to `O_n__cell` instead of the top-level `n__cell` (OBJ-SCOPE, see
 // curObjOf). Only the bodies: the surrounding program keeps the outer cx.
 def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then objectItem2(name, collectObjMembers(tl(ts)), ts, cx) else (("", ""), ts)
-def objectItem2(name, ms, ts, cx) = ((objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), ""), skipBrace(tl(ts), 1))
+// …plus the OBJECT ITSELF as a value, the twin of `givenObjEmit` (:2544) one screen below, which has
+// always emitted `givenMethodObj` beside its members. Without it `object A: val css = "…"` lowers to
+// `A_css` alone and the bare name `A` is bound to nothing: `A.css` answers, `take(A)` dies with
+// `unbound global: A`. Cause of `v2/BUGS.md collect-css-and-collect-js-…-not-on-native`, where
+// `collectCss(Page, Button)` passes objects as VALUES and this lane had no value to pass.
+// `givenMethodObj`/`givenObjArgs` are REUSED rather than copied: the payload is the same
+// `(lit (str m)) (global <prefix>_m)` pairs, and `givenObjArg1` already SKIPS `var` members — which
+// is required here, because an object's `var` lives as `O_v__cell` and a naive `(global O_v)` would
+// be unbound. Same change as `ssc1-lower.ssc0`'s `object` arm; the two fronts are twins and this is
+// the pair that `tests/BUGS.md two-front-bug-pairs` exists to catch.
+def objectItem2(name, ms, ts, cx) = ((join2(objDefsStr(name, ms, withCurObj((name, (objVarMemberNames(ms), objDefMemberNames(ms))), cx)), givenMethodObj(name, ms, cx)), ""), skipBrace(tl(ts), 1))
 def objDefMemberNames(ms) = ms match { case Nil => Nil case h :: t => objDefMemName(h, objDefMemberNames(t)) }
 def objDefMemName(m, rest) = m match { case (kind, nt) => if kind == "def" then Cons(fst(nt), rest) else rest }
 // One match per function, mirroring objMemName: a match nested inside a match ARM does not lower

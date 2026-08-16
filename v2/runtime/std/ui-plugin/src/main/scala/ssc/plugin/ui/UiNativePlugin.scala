@@ -120,6 +120,23 @@ final class UiNativePlugin extends NativePlugin:
   private def native(context: NativePluginContext, name: String)(fn: List[Value] => Value): Unit =
     register(context, name)(fn)
 
+  /** One member read across a `collectCss`/`collectJs` argument list, joined with newlines.
+    *
+    * A module object arrives as the `__mk_method_obj__` dictionary — `ForeignV(Map[String, Value])`
+    * keyed by member name — so `css` is a map lookup rather than the JVM lane's reflective
+    * `getClass.getMethod("css")`. A bare `StrV` passes through, because `collectCss(Page.css, …)`
+    * is the spelling that already works on every lane and must not start failing here.
+    *
+    * SILENTLY SKIPS anything else, matching the JVM preamble's documented behaviour: a page that
+    * lists a component with no styles should render without them, not fail. */
+  private def collectMember(parts: List[Value], field: String): String =
+    parts.flatMap {
+      case Value.ForeignV(m: collection.Map[?, ?]) =>
+        m.asInstanceOf[collection.Map[String, Value]].get(field).collect { case Value.StrV(s) => s }
+      case Value.StrV(s) => Some(s)
+      case _             => None
+    }.mkString("\n")
+
   private def sourceRef(operation: String): Value =
     Value.DataV("NativeUiSourceRef", Vector(
       Value.StrV("<entry>"), Value.IntV(0), Value.IntV(0), Value.StrV(operation)))
@@ -478,6 +495,29 @@ final class UiNativePlugin extends NativePlugin:
       "NativeUiRowAction" -> Vector("kind", "label", "request", "payload", "refresh", "options"),
       "NativeUiRowPayload" -> Vector("kind", "names"))
     fields.foreach(context.registerFields)
+
+    // ── `collectCss(comp1, comp2, …)` / `collectJs(…)` ─────────────────────────────────────────
+    //
+    // The page-level convention helpers from SPEC §8.4: concatenate each argument's `css` (or `js`)
+    // member for one <style>/<script>. Present on the interpreter, js and jvm lanes since the v1
+    // era and absent here — `v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-
+    // native`, found because `examples/components-demo.ssc` served a 54-byte error page.
+    //
+    // THE INTRINSIC WAS THE SYMPTOM. Its real blocker was that `collectCss(Page, Button, Card)`
+    // passes module OBJECTS as values and this lane had no value for one: `object A` lowered to
+    // `A_css` with the bare name `A` bound to nothing. That is fixed in the lowerer (a plain
+    // `object` now emits the `__mk_method_obj__` dictionary the `given_obj` arm always did), so
+    // there is finally something to hand these.
+    //
+    // ARITY -1 — `native` registers variadic (`registerGlobal(name, -1)`), which is what these need.
+    //
+    // SKIPPING RATHER THAN THROWING on an argument with no such member is deliberate and copied
+    // from the JVM lane, whose comment says so: "Anything without a no-arg `css` method that
+    // returns a String is silently skipped." A page that lists a component without styles must not
+    // fail to render. Strings are accepted straight through as well, so `collectCss(Page.css, …)`
+    // — the spelling every lane can already express — keeps working.
+    native(context, "collectCss") { parts => Value.StrV(collectMember(parts, "css")) }
+    native(context, "collectJs")  { parts => Value.StrV(collectMember(parts, "js")) }
 
     native(context, "scope") {
       case Value.StrV(name) :: Nil => Value.DataV("Scope", Vector(Value.StrV(name)))
