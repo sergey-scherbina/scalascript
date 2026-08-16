@@ -1,0 +1,11 @@
+slug: v3-no-handler-refused-at-lowering
+branch: feature/v3-no-handler-refused-at-lowering
+agent: claude-code
+started: 2026-08-16T12:43:38Z
+heartbeat: 2026-08-16T12:43:38Z
+status: claimed-before-planning
+items: v3-no-handler-error-has-no-position
+paths: file:v3/src/Lower.scala file:v3/effects-gate.sh file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
