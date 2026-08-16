@@ -292,7 +292,7 @@ red.**
 |---|---|---|
 | `v2/backend/check.sh` | 17 m 55 s | ALL GREEN — 16 fixtures × 4 backends, 57 ok / 7 skip / 0 fail |
 | `v2/conformance/check.sh` | 11 m 21 s loaded, 7 m 09 s quiet | GREEN — 645 checks |
-| `tests/rust-build-smoke.sh` | 12 m 39 s | **RED** — four fixtures, filed as `v2/BUGS.md rust-build-lane-binds-runtime-results-to-the-wrong-declared-type` |
+| ~~`tests/rust-build-smoke.sh`~~ | 12 m 39 s → 12 m 54 s | **RESOLVED** — four failures, two causes, both fixed. Now `all rust smoke fixtures green (17 fixture(s))` and wired to tier 2 |
 | `tests/e2e/negtc-shard-gate.sh` | 22 m 10 s / 14 m 55 s | **RED, and not from load — measured twice.** See below |
 
 **`v3/plugin-classpath.sh` is a fifth, and it is not a gate.** rc=0 in 8 m 19 s, but its own header

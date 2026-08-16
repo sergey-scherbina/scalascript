@@ -491,6 +491,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/v21-portable-gates-smoke.sh
 
+      # The last RED orphan from the 2026-08-16 triage, now green: `all rust smoke fixtures green
+      # (17 fixture(s))`. It compiles every `examples/rust/*.ssc` through `build-rust` and runs the
+      # binary against a registered stdout. Two of its four failures were EXAMPLES annotating
+      # `String` against `jsonParse: Any` / `env: Option[String]`; the other two carried a ```rust
+      # fence the front rejected until `mod inline_native` was implemented.
+      #
+      # NOT VACUOUS by the best evidence there is: it had four failures this morning and reports
+      # green only after both fixes, and `mixed.ssc` prints a line that can only come from its
+      # inline Rust block.
+      #
+      # TIER 2, and it is the most expensive step here: 12 m 54 s, a cargo build per fixture.
+      - name: Rust build smoke — every examples/rust fixture builds and runs
+        if: always()          # see the block above this job's steps
+        run: tests/rust-build-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

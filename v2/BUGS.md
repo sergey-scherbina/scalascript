@@ -94,12 +94,13 @@ correct, the gate was correct, and only the fact that nothing ran it let the two
 
 ## rust-examples-use-a-rust-fence-the-front-does-not-accept
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      kind: feature
      area: front
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: b98c453e3
      confirmed: yes
      gate: tests/rust-build-smoke.sh -->
 

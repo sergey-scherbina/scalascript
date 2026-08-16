@@ -75,7 +75,6 @@ specs/v2.2-p6.6-fixpoint.sh
 specs/v2.2-p6.6-selfcompile-demo.sh
 tests/e2e/negtc-shard-gate.sh
 tests/e2e/serve-view-frontend-v2-smoke.sh
-tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh
 v2/conformance/check.sh
 v3/plugin-classpath.sh
