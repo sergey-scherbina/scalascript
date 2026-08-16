@@ -4678,7 +4678,25 @@ def lowerStmtToList = (stmt) =>
             let _clearOwnerPrefix = #cell.set(kc7bOwnerPrefixCell, "") in
             let _clearOwnerMembers = #cell.set(kc7bOwnerMembersCell, Nil) in
             let _clearOwnerVars = #cell.set(kc7bOwnerVarsCell, Nil) in
-            loweredMembers
+            -- …and the OBJECT ITSELF as a value, exactly as `given_obj` below already does.
+            --
+            -- Without this, `object A: val css = "…"` lowers to `A_css` alone and the bare name `A`
+            -- is bound to NOTHING: `A.css` answers, `take(A)` dies with `unbound global: A`. That is
+            -- the cause under `v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-
+            -- on-native` — `collectCss(Page, Button, Card)` passes objects as VALUES, and on this
+            -- lane there was no value to pass. The missing intrinsic was the symptom.
+            --
+            -- NOTHING NEW WAS INVENTED FOR THIS. `__mk_method_obj__` is the portable primitive that
+            -- already builds a member record, `staticMemberObjectArgs` already collects BOTH `def`
+            -- and `val` members, and `given_obj` has emitted exactly this line since KC5+KC7b. The
+            -- feature existed on one arm of this `match` and not on the arm beside it — the shape
+            -- `tests/BUGS.md two-front-bug-pairs` records, here between two arms rather than two
+            -- fronts.
+            --
+            -- The prefixed members stay: direct `A.css` still resolves through `A_css`, so this only
+            -- ADDS a binding and changes no existing resolution.
+            let dictionary = IrPrim("__mk_method_obj__", staticMemberObjectArgs(prefix, stmts)) in
+            appendL(loweredMembers, Cons(IrDef(name, dictionary), Nil))
         }
       else if #seq(tag, "given_obj") then
         -- KC5+KC7b: given name: T with { defs } → emit prefixed defs plus the
