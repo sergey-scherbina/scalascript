@@ -192,4 +192,65 @@ for lane in --v1 --v2; do
   }
 done
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire)'
+# ── prompts and resource BODIES, compared on the wire ────────────────────────
+#
+# Two defects this row was written against, both measured before the fix and both invisible to
+# every case above, because those assert stdout and this asserts what a CLIENT receives:
+#
+#   * `srv.prompt` is DECLARED in std/mcp/server.ssc and v2 did not implement it: the interpreter
+#     served `prompts/list`, the DEFAULT lane died with `no field 'prompt'`.
+#   * `srv.resource` on v2 never decoded its handler's result. Reading `mem://a` answered
+#     `{"uri":"mem://a","text":"ResourceResult(\"mem://a\", List(Text(\"BODY-42\")))"}` — the
+#     rendered VALUE as the resource body — where the interpreter answered `BODY-42`.
+#
+# The second is why this compares BODIES rather than checking that a member resolves: `resource`
+# resolved fine on v2 the whole time and served nonsense. A resolution check cannot see that.
+#
+# `Role.Assistant` and a distinctive body are deliberate: `user` is the role a defaulting
+# implementation returns, so a case using `Role.User` would pass against one that ignores the field.
+cat > "$tmp/pr.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, PromptResult, ResourceResult, Message, Role, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.prompt("greet", "say hi")(args =>
+      PromptResult(List(Message(Role.Assistant, Content.Text("hi")))))
+    srv.resource("mem://a", "a")(uri =>
+      ResourceResult(uri, List(Content.Text("BODY-42")))))
+  serveMcp(Transport.Stdio)
+SSC
+pr_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"prompts/get","params":{"name":"greet","arguments":{}}}
+{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"mem://a"}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$pr_in" | "$bin" run $lane "$tmp/pr.ssc" >"$tmp/pr$lane.out" 2>"$tmp/pr$lane.err" || true
+  grep -q '"role":"assistant"' "$tmp/pr$lane.out" || {
+    echo "v21-standard-mcp-smoke: prompts/get did not answer with the handler's message on $lane" >&2
+    tail -3 "$tmp/pr$lane.out" "$tmp/pr$lane.err" >&2; exit 1
+  }
+  grep -q '"text":"BODY-42"' "$tmp/pr$lane.out" || {
+    echo "v21-standard-mcp-smoke: resources/read did not answer with the resource BODY on $lane" >&2
+    echo '  a `ResourceResult(...)` here means the handler result was rendered, not decoded' >&2
+    tail -3 "$tmp/pr$lane.out" >&2; exit 1
+  }
+done
+# Whatever they answer, they must answer it identically — the same differential the rows above use,
+# MINUS `serverInfo`, which is the one field the two lanes are SUPPOSED to disagree about: each
+# names itself (`ssc-mcp-int` 1.0.0 vs `ssc-mcp-native` 2.1). Excluding it by name rather than by
+# line number, so the row keeps working if another response is ever added ahead of it. A plain `cmp`
+# here fails on that line alone — which is how this exclusion came to be written, not a guess.
+grep -v '"serverInfo"' "$tmp/pr--v1.out" >"$tmp/pr.v1.cmp"
+grep -v '"serverInfo"' "$tmp/pr--v2.out" >"$tmp/pr.v2.cmp"
+cmp "$tmp/pr.v1.cmp" "$tmp/pr.v2.cmp" || {
+  echo 'v21-standard-mcp-smoke: prompts/resources answer DIFFERENTLY on the two lanes' >&2
+  diff "$tmp/pr.v1.cmp" "$tmp/pr.v2.cmp" >&2 || true; exit 1
+}
+# ...and the exclusion must not have eaten everything: three answers remain (ids 2, 3, 4).
+[[ $(wc -l <"$tmp/pr.v1.cmp") -eq 3 ]] || {
+  echo "v21-standard-mcp-smoke: expected 3 non-initialize answers, got $(wc -l <"$tmp/pr.v1.cmp")" >&2
+  cat "$tmp/pr.v1.cmp" >&2; exit 1
+}
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies)'

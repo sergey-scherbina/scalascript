@@ -2,7 +2,8 @@ package ssc.plugin.mcp
 
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.jdk.CollectionConverters.*
-import scalascript.mcp.{McpClientCore, McpProtocol, McpServerBuilder, McpServerCore, ToolHandlerResult}
+import scalascript.mcp.{McpClientCore, McpProtocol, McpServerBuilder, McpServerCore,
+                        PromptHandlerResult, ResourceHandlerResult, ToolHandlerResult}
 import ssc.{Done, Prims, Runtime, Show, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 import ssc.plugin.json.NativeJsonCodec
@@ -234,6 +235,42 @@ final class McpNativePlugin extends NativePlugin:
       ujson.Obj("type" -> "resource", "resource" -> ujson.Obj("uri" -> uri))
     case other => ujson.Obj("type" -> "text", "text" -> Show.show(other))
 
+  // `Message(role, content)` -> `{role, content}`. The role NAMES are the wire's, not the enum's:
+  // `Role.User` is `"user"`. Matched positionally because v2's value model is positional — the
+  // field ORDER in std/mcp/types.ssc is the contract, and `Message(role, content)` is that order.
+  private def messageJson(value: Value): ujson.Value = value match
+    case Value.DataV("Message", IndexedSeq(role, content)) =>
+      val r = role match
+        case Value.DataV("User", _)      => "user"
+        case Value.DataV("Assistant", _) => "assistant"
+        case Value.DataV("System", _)    => "system"
+        case _                           => "user"
+      ujson.Obj("role" -> r, "content" -> contentJson(content))
+    case _ => ujson.Obj("role" -> "user", "content" -> ujson.Obj("type" -> "text", "text" -> ""))
+
+  private def promptHandlerResult(value: Value): PromptHandlerResult = value match
+    case Value.DataV("PromptResult", IndexedSeq(messages)) =>
+      PromptHandlerResult(None, Prims.unlistPub(messages).map(messageJson))
+    case other =>
+      // Same choice `handlerResult` makes: a handler returning the wrong shape is a user error, and
+      // answering with it beats throwing inside the serve loop and dropping the connection.
+      PromptHandlerResult(None, List(ujson.Obj("role" -> "user",
+        "content" -> ujson.Obj("type" -> "text", "text" -> Show.show(other)))))
+
+  // `ResourceResult(uri, contents)` -> the `contents` array. Split out and made TOTAL because the
+  // previous inline version never decoded it at all: it ran `Show.show` on whatever the handler
+  // returned, so a client reading `mem://a` got the literal text
+  // `ResourceResult("mem://a", List(Text("BODY-42")))` as the resource BODY. Measured against the
+  // interpreter, which answers `{"type":"text","text":"BODY-42"}` for the same program.
+  private def resourceHandlerResult(requested: String, value: Value): ResourceHandlerResult =
+    value match
+      case Value.DataV("ResourceResult", IndexedSeq(Value.StrV(uri), contents)) =>
+        ResourceHandlerResult(uri, Prims.unlistPub(contents).map(contentJson))
+      case Value.StrV(text) =>
+        ResourceHandlerResult(requested, List(ujson.Obj("type" -> "text", "text" -> text)))
+      case other =>
+        ResourceHandlerResult(requested, List(ujson.Obj("type" -> "text", "text" -> Show.show(other))))
+
   private def handlerResult(value: Value): ToolHandlerResult = value match
     case Value.DataV("ToolResult", IndexedSeq(content, Value.BoolV(isError))) =>
       ToolHandlerResult(Prims.unlistPub(content).map(contentJson), isError)
@@ -265,9 +302,22 @@ final class McpNativePlugin extends NativePlugin:
           closure(1) { rest =>
             val handler = rest.head
             builder.resource(uri, nm, mime, requested =>
-              scalascript.mcp.ResourceHandlerResult(requested,
-                List(ujson.Obj("uri" -> requested, "text" ->
-                  Show.show(context.invoke(handler, List(Value.StrV(requested))))))))
+              resourceHandlerResult(requested, context.invoke(handler, List(Value.StrV(requested)))))
+            Value.UnitV
+          }
+        })
+        // `srv.prompt` is DECLARED in std/mcp/server.ssc and was missing here — so a program that
+        // compiles against the declared surface died on the DEFAULT lane with
+        // `no field 'prompt'`, while the interpreter served it. Curried and variadic-first for the
+        // same reason `tool` is: `srv.prompt(name)(h)` and `srv.prompt(name, desc)(h)` are one
+        // member. `Nil` arguments matches v1, which also registers prompts with no argument list.
+        case "prompt" => Some(closure(-1) { first =>
+          val promptName = text(first.head, "srv.prompt name")
+          val desc       = first.lift(1).collect { case Value.StrV(d) => d }
+          closure(1) { rest =>
+            val handler = rest.head
+            builder.prompt(promptName, desc, Nil,
+              args => promptHandlerResult(context.invoke(handler, List(scalaToValue(args)))))
             Value.UnitV
           }
         })
