@@ -1818,7 +1818,7 @@ independent.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-16
-     fixed-in: 37f7dbb9b
+     fixed-in: bdd48657d
      repro: the body
      confirmed: yes -->
 
@@ -1919,7 +1919,7 @@ worth keeping, since the interpreter's version was loud and this one is silent.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-16
-     fixed-in: 37f7dbb9b
+     fixed-in: bdd48657d
      repro: the two-sided control in the body
      confirmed: yes -->
 
