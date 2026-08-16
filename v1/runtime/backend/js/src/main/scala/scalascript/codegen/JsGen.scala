@@ -385,6 +385,27 @@ class JsGen(
       mutable.Set("Left", "Right", "Some", "None", "Nil",
         "readFile", "writeFile", "appendFile", "readBytes", "writeBytes", "exists",
         "isFile", "isDir", "mkdir", "mkdirs", "listDir", "deleteFile", "copyFile", "moveFile",
+        // std/process has exactly the same shape as the fs names above and was MISSING from this
+        // list, so `[exec, ProcessOptions](std/process.ssc)` emitted `const exec = std.process.exec`
+        // beside the preamble's `function exec` and the bundle failed to PARSE:
+        //   SyntaxError: Identifier 'exec' has already been declared
+        // A SyntaxError aborts the file before a line of it runs, so `std/process` was not "partly
+        // supported" on this lane — it was unusable, and the first thing a program using it saw was
+        // a node parse error naming a line it did not write.
+        //
+        // `__spawnPid` is here for the same reason and is newer: the detached-spawn work added it to
+        // the preamble (`process-needs-a-detached-spawn`) without adding it here, which is this trap
+        // biting a second time within a week. `spawn` itself is NOT listed — it is an ordinary def in
+        // `std/process.ssc`, not a preamble function, so its `const` is the real definition.
+        //
+        // THIS SET IS HAND-MAINTAINED AGAINST THE PREAMBLE, which is the weakness rather than the
+        // omission: every function added to `JsRuntimeFs.source` that a user can import is another
+        // SyntaxError waiting for whoever imports it. Filed as
+        // `js-preamble-binding-list-is-hand-maintained`; deriving it by scanning the preamble is the
+        // obvious fix and is NOT done here, because seeding from every `function name(` would also
+        // suppress a user module's own definition of a name the preamble happens to use, and that
+        // blast radius wants measuring rather than guessing.
+        "exec", "__spawnPid",
         // `Signal` is std/ui/primitives' opaque TYPE; its runtime value is the signals.mjs
         // preamble `function Signal`. Importing it (`[Signal, …](std/ui/primitives.ssc)`)
         // must not emit `const Signal = std.ui.primitives.Signal` — that redeclares the

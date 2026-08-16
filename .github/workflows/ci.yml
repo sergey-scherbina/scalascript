@@ -804,6 +804,17 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-exec-options-gate.sh
 
+      # `[exec, ProcessOptions](std/process.ssc)` made the js bundle fail to PARSE —
+      # `SyntaxError: Identifier 'exec' has already been declared` — because the preamble defines
+      # `function exec` and the import shim emitted `const exec` beside it. `declaredBindings` exists
+      # to suppress exactly that and lists every std/fs name for the same reason; `exec` was missing,
+      # and `__spawnPid` was missing too because the detached-spawn work added it to the preamble
+      # without adding it here. A SyntaxError aborts before a line runs, so std/process was not
+      # partly supported on this lane — it was unusable. Needs node, not cargo: ~10 s.
+      - name: importing std/process on the js lane produces a bundle that parses
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/js-std-process-gate.sh
+
       # `Ctor(field = v)` built a struct literal from the NAMED fields alone, so the spelling
       # `std/process.ssc` itself documents — `ProcessOptions(cwd = Some("/tmp"))` — did not compile
       # (E0063, missing fields). It surfaced right after two rozum requests added fields to that very
