@@ -2059,6 +2059,27 @@ object Lower:
     val local = declaredLocals(e)
     out.distinct.filter(n => local.contains(n))
 
+  /** Locals that a LOCAL `def` ASSIGNS TO from the outside — `boxedNames`' twin, and it exists
+    * separately only because of WHEN each can run. The lambda analysis runs last, on the tree every
+    * other pass has finished with; this one has to run before `liftLocals`, which is the pass that
+    * removes the `Stmt.LocalDef` nodes it reads. Same rule otherwise: assigned AND free inside the
+    * def, and declared as a local here, so a top-level `var` — already a module global, already a
+    * cell — is left alone. */
+  private def localDefBoxNames(e: Expr): List[String] =
+    var out: List[String] = Nil
+    mapDeep(e, x => {
+      x match
+        case Expr.Block(sts, _, _) =>
+          sts.foreach {
+            case Stmt.LocalDef(d) => out = out ++ assignedFree(d.body, d.params.map(_.name))
+            case _                => ()
+          }
+        case _ => ()
+      x
+    })
+    val local = declaredLocals(e)
+    out.distinct.filter(n => local.contains(n))
+
   /** A boxed local becomes a ONE-ELEMENT ARRAY, and its reads and writes become element access.
     *
     * `Array(v)`, `n(0)` and `n(0) = v` are all shapes both lanes already have — `NewArr`, an
@@ -3185,7 +3206,19 @@ object Lower:
       if d.givenParams.isEmpty then d else d.copy(params = d.params ++ d.givenParams))
     val sigs: List[(String, List[Param])] =
       bounded.map(d => (d.name, d.params)) ++ resolved.map(c => (c.name, c.fields))
-    val allDefsEager = liftLocals(bounded, bounded.map(_.name) ++ resolved.map(_.name))
+    // BOXED BEFORE LIFTING, because lifting is what destroys the evidence. `liftLocals` turns a
+    // local `def` into a top-level function whose captures are leading PARAMETERS — the same
+    // mechanism the lambda half of this problem had, and fixed on 2026-08-08 — so an assignment to
+    // a captured `var` wrote to a copy: `def bump(x) = { n = n + x; n }` called twice answered
+    // `1 1` and left `n` at 0, while `val f = (x) => …` over the identical body answered `1 2` and
+    // left 2. BOTH LANES agreed on the wrong answer, so no differential could see it.
+    //
+    // It cannot ride along with the boxing pass that runs last: by then there is no `Stmt.LocalDef`
+    // left to read. So the analysis happens here, on the tree that still has them, and the ordinary
+    // `boxLocals` does the rewriting — one box, at the declaration, which the lifted function then
+    // receives by reference like any other parameter.
+    val preBoxed = bounded.map(d => d.copy(body = boxLocals(d.body, localDefBoxNames(d.body))))
+    val allDefsEager = liftLocals(preBoxed, bounded.map(_.name) ++ resolved.map(_.name))
     // BY-NAME is applied HERE, at the one place `allDefs` is bound, so every consumer downstream —
     // the gap check, `zeroArityNames`, the lowering itself — sees the rewritten program and none of
     // them needs to know this feature exists. Applying it later meant threading a second list, and a
