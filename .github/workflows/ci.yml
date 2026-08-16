@@ -370,6 +370,17 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/v21-native-content-smoke.sh
 
+      # Fifth orphan drained, and this one was already GREEN — it just ran nowhere. It puts the same
+      # two typeclass programs through the native VM and the native ASM lane and requires them to
+      # agree, which is the check that catches a dictionary-passing divergence between the two.
+      #
+      # NOT VACUOUS: replacing a `println` in the fixture with a literal turns it red.
+      #
+      # TIER 2: 30 s and it needs the built toolchain.
+      - name: Typeclass dictionaries agree on the native VM and ASM lanes
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/v21-typeclass-dictionary-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

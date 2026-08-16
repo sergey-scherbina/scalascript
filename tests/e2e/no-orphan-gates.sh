@@ -72,7 +72,6 @@ tests/e2e/negtc-shard-gate.sh
 tests/e2e/render-smoke.sh
 tests/e2e/serve-view-frontend-v2-smoke.sh
 tests/e2e/v21-portable-gates-smoke.sh
-tests/e2e/v21-typeclass-dictionary-smoke.sh
 tests/interop-conformance/validation-test.sh
 tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh

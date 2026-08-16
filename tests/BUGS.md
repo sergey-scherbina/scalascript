@@ -109,9 +109,23 @@ the rehearsal and never the answer to what the gate guards. Making it fall throu
 never undone**: the check inherited the narrowed `lower_vocab` and reported RED on a GREEN tree. The
 self-test now restores the function before falling through, and both modes are asserted.
 
-The four remaining green ones cost 30–67 s (`v21-typeclass-dictionary-smoke`,
-`check-handler-markers`, `portable-capsule`, `v3/toolchain-gate`) and belong in tier 2 after the same
-treatment.
+`v21-typeclass-dictionary-smoke` (30 s) is wired to tier 2 — it was already green, it simply ran
+nowhere; a `println` replaced in its fixture turns it red.
+
+**Three green ones stay frozen, and the reason is the same for all three: their non-vacuity cannot
+be shown without editing a file a sibling claim holds.**
+
+| gate | s | what a plant would have to touch |
+|---|---|---|
+| `v2/backend/check-handler-markers.sh` | 53 | `FrontendBridge`'s handler-decision markers |
+| `v2/conformance/portable-capsule.sh` | 54 | the capsule machinery it exercises |
+| `v3/toolchain-gate.sh` | 67 | `v3/src` — the gate builds v3 with `scala-cli` removed from `PATH` |
+
+`v3/toolchain-gate.sh` is the interesting one: its header already argues its own non-vacuity, and
+the argument is good — it does not grep for an absence, it REMOVES the tool from `PATH` and requires
+the build to succeed anyway, so it cannot pass by looking at nothing. That is a design argument, not
+a measurement, and this triage has now watched three plants land outside what a gate reads. Wire it
+when `v3/src` frees up and a plant can confirm the argument.
 
 ## five-frozen-orphan-gates-are-red-and-each-names-a-different-defect
 
@@ -132,7 +146,7 @@ these scripts are invoked by nothing, so nothing has reported them.
 | gate | s | first failure |
 |---|---|---|
 | `tests/e2e/render-smoke.sh` | 14 | headless 4076 bytes vs served **54** — `native HTTP handler failed: unbound global: collectCss`. **Already filed**: `v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native` |
-| `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
+| `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v1: http=200`, `--v2: http=000`. The v2 server exits on `contentCurrentSection() is unavailable on native 2.1`. **Already filed**: `v2/BUGS.md content-current-section-native-unavailable` |
 | ~~`tests/e2e/v21-native-content-smoke.sh`~~ | 51 | **RESOLVED — a stale golden. See below.** |
 | ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |
 | ~~`tests/e2e/v21-unhandled-effect-smoke.sh`~~ | 25 | **RESOLVED — the gate's third case was mis-specified. See below.** |
@@ -223,10 +237,25 @@ claimed coverage from a script nothing runs, which is the exact shape `no-orphan
 warns about. The gate stays frozen with that entry as the reason: it is a correct gate for an open
 defect, and wiring a known-red gate is what turns a suite into noise.
 
-**AGE UNKNOWN FOR THE ONE THAT REMAINS, AND THAT IS THE POINT — not a claim of regression.** An
-unwired gate has no history:
-nothing ran it, so no commit can be blamed and no bisect is meaningful without first wiring it.
-Whoever picks one up should wire it as the first step of the fix, not the last.
+### All five are now accounted for, and the split is the finding
+
+**Three were GATE defects** — a forbidden-list that a documented decision outdated, a case driving a
+`target: js` example through a bytecode lane, and a golden nineteen days behind the renderer. All
+three are fixed, wired and drained.
+
+**Two are filed product gaps**, and both entries pre-date this triage:
+`v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native` (open, confirmed) and
+`v2/BUGS.md content-current-section-native-unavailable` (open, `kind: feature`, a deliberate throw on
+native). Their gates stay frozen with those entries as the reason — a correct gate for an open defect
+is not something to wire.
+
+**So an unwired gate rots against correct code at least as readily as it catches bad code.** Three of
+five reds were the apparatus disagreeing with decisions the project had already taken and written
+down. Nobody was careless; nothing ran the gates, so nothing could tell them.
+
+A note on age, since none of it is a regression claim: an unwired gate has no history. Nothing ran
+it, so no commit can be blamed and no bisect is meaningful without first wiring it. Whoever picks one
+up should wire it as the first step of the fix, not the last.
 
 **A sixth was misfiled by the census and is corrected here:** `tests/e2e/v21-portable-gates-smoke.sh`
 exits 2 with `native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")`. That is a
