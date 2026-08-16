@@ -1905,6 +1905,30 @@ class Interpreter(
   // clock-/env-/state-effect-plugin) — core-minimization, §2d.
 
 object Interpreter:
+
+  /** Every name this lane makes available WITHOUT an import — the ambient globals.
+    *
+    * WHY THIS EXISTS, AND WHY IT IS HERE RATHER THAN IN THE TYPER. `ssc-tools check` decides whether
+    * a name exists; this runtime decides what a name IS. They must agree, and until 2026-08-16 they
+    * agreed by someone maintaining a copy of this table by hand in `Typer.scala` — which had drifted
+    * to **77 of 111 missing**, `coroutineCreate` `readFile` `exec` `Http` `Random` `Response`
+    * `Logger` `Stream` among them. A checker that calls those undefined rejects working programs,
+    * which is exactly what it did: 11 of the examples CI type-checks, and 3 of the 9 conformance
+    * cases it still refuses.
+    *
+    * So the checker asks the runtime instead of copying it. `BuiltinsRuntime` is `private[interpreter]`
+    * on purpose and stays that way; this is the one thing the outside is allowed to know.
+    *
+    * The probe registers builtins into a throwaway interpreter and reads the keys — no module, no
+    * user code, nothing evaluated. Plugin intrinsics are NOT included: `initBuiltins` registers them
+    * as deferred stubs resolved at call time, and `check` learns those from `BackendRegistry`
+    * instead. Memoized because `check` runs over hundreds of files in one process.
+    */
+  lazy val ambientGlobalNames: Set[String] =
+    val probe = new Interpreter(out = new java.io.PrintStream(java.io.OutputStream.nullOutputStream))
+    BuiltinsRuntime.initBuiltins(probe)
+    probe.globalsView.keySet.toSet
+
   def run(
       module:   Module,
       out:      java.io.PrintStream = System.out,

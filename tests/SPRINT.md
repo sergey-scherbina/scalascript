@@ -187,6 +187,87 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          by `check`; the four reverted cases and the whole corpus must keep today's verdict count
          (9 rejections, 0 new, 0 lost). Both numbers, or it did not land.
 
+      **6. [~] THE PRELUDE THE CHECKER KNOWS MUST COME FROM THE RUNTIME, NOT FROM A LIST.**
+         **Source A (interpreter globals) is DONE**; source B turned out to be a different question
+         entirely and is filed separately — see the two paragraphs at the end of this step.
+         Opened 2026-08-16 as the direct consequence of step 5's landing, and it is what blocks the
+         LAST two pieces of this programme.
+
+         **The measurement, taken before any code.** `Typer.scala` decides whether a name exists from
+         a hand-maintained `pluginBuiltins` list. The interpreter decides from its own global table.
+         Extracting both and diffing them:
+
+         > **111 ambient interpreter globals; the typer does not know 77 of them.**
+         > `coroutineCreate` `readFile` `writeFile` `exec` `Http` `Random` `Response` `Logger`
+         > `Stream` `Env` `Files` `Cache` `Clock` `Retry` `Window` `attr` `oauth` …
+
+         These are not exotic. They are what a program is made of, and `ssc-tools check` believes
+         every one of them is an undefined name.
+
+         **What it already cost, twice, in one night:**
+         * Turning argument inference on rejected **11 of the examples CI checks on every push** —
+           `Node`, `Transport`, `vstack`, `__ssc_quote__` — so undefined-name reporting had to be
+           switched OFF inside a variadic argument to land step 5 at all.
+         * **4 of the 9 conformance cases `check` still rejects** are this: three `coroutine-*`
+           (`coroutineCreate`, an interpreter global AND a `std/coroutine.ssc` export) and
+           `html-dsl` (`div`). Those 9 rejections are exactly what stops `run --v1` from
+           type-checking at all — so **this step is the blocker for step 7 as well.**
+
+         **TWO sources, and conflating them is how the list got into this state.**
+         | source | example | how `check` should learn it |
+         |---|---|---|
+         | interpreter globals | `coroutineCreate`, `suspend`, `__ssc_quote__` | ask a probe `Interpreter` — `BuiltinsRuntime.initBuiltins(p)` then `p.globalsView.keySet` |
+         | std module `exports:` | `Node`, `vstack`, `Transport` | the module's own front-matter, for the modules the runtime loads FOR THIS FILE |
+
+         The second is per-file: `examples/fetch-auth.ssc` gets `vstack` because its front-matter says
+         `frontend: react`, not because it imports anything. `check` already resolves EXPLICIT
+         imports (`check-stdlib-interface-load`); the ambient selection is the missing half.
+
+         **The gate must check BOTH directions**, or a generated list that still needs its manual copy
+         has replaced nothing: (a) a program using an ambient global type-checks, (b) `pluginBuiltins`
+         no longer lists what the probe supplies, (c) a genuinely undefined name is STILL rejected.
+
+         **Cost to measure before committing to the design:** constructing a probe `Interpreter` runs
+         the plugin ServiceLoader. `check` runs over 399 files in CI, so this is memoized once per
+         process or it is not viable — and "viable" means a measured number, not an assumption.
+
+         **DONE for source A, 2026-08-16.** `Interpreter.ambientGlobalNames` — a probe interpreter
+         with its builtins installed, its keys read — feeds a new `ambientNames` Typer parameter.
+         The four conformance cases it was costing pass (`coroutine-*` ×3, `html-dsl`); examples
+         211/211; corpus rejections **9 → 5**, all five now the effect verifier alone. Guarded by
+         `tests/e2e/typer-prelude-from-runtime-names.sh` (15 checks), which asserts BOTH that the
+         names are known AND that they are not string literals in `Typer.scala`.
+
+         **The ordering bug worth remembering:** folded into `extraBuiltins` — i.e. defined LAST, at
+         the variadic `Any => Any` sentinel — the ambient names CLOBBERED the prelude's real types.
+         `None` became `Any => Any` and seven examples failed with `expected Option[String], found
+         Any => Any`. They are now defined FIRST, at `SType.Any`. **A source that knows only a name
+         must never outrank one that knows a type.**
+
+         **Source B is not a missing list, it is a LANE MISMATCH, and it stopped this step.** With
+         reporting turned on inside variadic arguments, exactly ONE example fails —
+         `examples/fetch-auth.ssc` on `text`/`textField`/`actionButton`. Those are `std/ui` exports
+         of a `frontend: react` program, and **`run --v1` cannot run it either** (`Undefined:
+         vstack`). So CI is asking a v1 typer to check a js-lane program, and the only reason such
+         programs pass today is ten names I hand-added on 2026-08-16 that make `check` ACCEPT what
+         `run --v1` refuses — `ssc-tools check` says OK on `vstack("a")`, the runtime says
+         `Undefined: vstack`. That is this programme's own defect pointing the other way; filed as
+         `check-accepts-names-the-v1-runtime-does-not-have` with the three options and their
+         consequences, and frozen by the gate's ratchet so the list can only shrink.
+
+         **So `variadicArgDepth` STAYS**, with its reason rewritten: it is no longer "the list is
+         incomplete" but "one example belongs to a lane this checker does not model". Removing it
+         today would trade a known-permissive checker for a red CI step on a program that is not
+         wrong.
+
+      **7. [ ] Whether `run --v1` type-checks at all — BLOCKED on step 6, and now for a measured
+         reason rather than a suspected one.** The native lane already refuses to run a file its
+         checker rejects (`RunNativeV2` requires `OK` from `ssc1-check`). `run --v1` checks nothing.
+         Turning it on today would break **9 working conformance programs**, because that is how many
+         `check` still rejects — 4 of them step 6's problem, 5 of them the effect verifier
+         (`'greet' appears effectful`). Both counts are from the same sweep as step 5's differential,
+         so the number is comparable rather than remembered.
+
       **What I will not promise:** I cannot decide the contract, and I will not flip a language rule
       because a corpus number looked acceptable. What I can do is make the disagreement visible,
       priced, and impossible to reintroduce quietly.

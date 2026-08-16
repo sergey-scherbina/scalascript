@@ -5888,6 +5888,19 @@ private val stdIfaceCache = collection.mutable.Map.empty[os.Path, scalascript.ir
 // once per process (scanning every .sscpkg is not free) and unioned into the check's builtins so
 // `ssc check` resolves advanced-plugin intrinsic calls the same way it resolves essential ones.
 private var availIntrinsicsMemo: Option[Set[String]] = None
+/** The names the interpreter makes ambient, ASKED of it rather than copied into the typer.
+  *
+  * The hand-kept copy in `Typer.pluginBuiltins` had drifted to 77 of 111 missing —
+  * `coroutineCreate`, `readFile`, `exec`, `Http`, `Random`, `Logger`, `Stream` — so `check` called
+  * them undefined and rejected programs its own runtime runs. It is a `lazy val` on the
+  * interpreter's companion, so the probe is built once per process; measured against a 5s JVM start
+  * it is not visible above the host's noise.
+  * (tests/BUGS.md typer-prelude-list-should-be-generated-from-std-exports.)
+  */
+private def runtimeAmbientNames: Set[String] =
+  try scalascript.interpreter.Interpreter.ambientGlobalNames
+  catch case _: Throwable => Set.empty   // never fail a check because the probe could not be built
+
 private def availableIntrinsicNames(): Set[String] =
   availIntrinsicsMemo.getOrElse {
     val s = BackendRegistry.availableIntrinsicNames(pluginAvailableDirs)
@@ -5953,15 +5966,22 @@ private def checkOneFile(
           catch case _: Throwable => None
         }.toMap
       val effIfaces = interfaces ++ stdIfaces
+      // The names the INTERPRETER makes ambient, asked of the interpreter rather than copied into
+      // the typer. See `Interpreter.ambientGlobalNames`: the hand-kept copy had drifted to 77 of 111
+      // missing, and a checker that calls `readFile` or `coroutineCreate` an undefined name rejects
+      // programs its own runtime runs. (tests/BUGS.md typer-prelude-list-should-be-generated-from-std-exports.)
       val allBuiltins = pluginBuiltins ++ availableIntrinsicNames()
       val typed = CompileStats.time("typer") {
         if effIfaces.isEmpty then
-          Typer(Map.empty, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude)
+          Typer(Map.empty, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude,
+            ambientNames = runtimeAmbientNames)
             .typeCheck(module)
         else if strictNamespaces then
-          Typer(effIfaces, strictNamespaces = true, preludeSymbols = pluginPrelude).typeCheck(module)
+          Typer(effIfaces, strictNamespaces = true, preludeSymbols = pluginPrelude,
+            ambientNames = runtimeAmbientNames).typeCheck(module)
         else
-          Typer(effIfaces, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude)
+          Typer(effIfaces, strict = true, extraBuiltins = allBuiltins, preludeSymbols = pluginPrelude,
+            ambientNames = runtimeAmbientNames)
             .typeCheck(module)
       }
       // declarative-ui Scope B.7 — warn on @ui=toolkit ids that reference no

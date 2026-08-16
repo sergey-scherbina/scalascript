@@ -29,7 +29,17 @@ class Typer(
     /** Typed prelude symbols contributed by plugins (core-min-prelude-spi). Each defines a
      *  prelude `Symbol` with the declared `tpe` (parsed via `InterfaceScope.parseSType`) instead
      *  of the untyped `variadic`, so `ssc check` can type-check calls to plugin intrinsics. */
-    preludeSymbols: List[scalascript.ir.ExportedSymbol] = Nil
+    preludeSymbols: List[scalascript.ir.ExportedSymbol] = Nil,
+    /** Names the RUNTIME makes ambient, asked of it rather than copied — the caller passes
+     *  `Interpreter.ambientGlobalNames`. These say only "this name exists", so they are defined
+     *  FIRST, at `SType.Any`, and every typed source below overwrites them.
+     *
+     *  THE ORDER IS THE WHOLE POINT and getting it wrong is not subtle. Folded into
+     *  `extraBuiltins` instead — i.e. defined LAST, at the variadic `Any => Any` sentinel — they
+     *  clobbered the prelude's real types: `None` became `Any => Any`, and seven examples that had
+     *  type-checked for years failed with `expected Option[String], found Any => Any`. A source
+     *  that knows only a name must never outrank one that knows a type. */
+    ambientNames: Set[String] = Set.empty
 ):
   private val errors      = ListBuffer[TypeError]()
 
@@ -219,6 +229,10 @@ class Typer(
 
   private def createPrelude(): Scope =
     val s = Scope()
+    // FIRST, so everything typed below wins: the names the runtime makes ambient. `SType.Any` and
+    // not the variadic sentinel — "this name exists" is all this source knows, and `Any => Any`
+    // would be a claim about shape that is wrong for every ambient OBJECT (`Env`, `Files`, `Http`).
+    ambientNames.foreach(n => s.define(Symbol(n, SType.Any, SymbolKind.Val)))
     // I/O / assertions — variadic, single Any param sentinel
     s.define(Symbol("println", SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
     s.define(Symbol("print",   SType.Function(List(SType.Any), SType.Unit),  SymbolKind.Def))
@@ -1273,24 +1287,27 @@ class Typer(
       // inner arrows take Function's DEFAULT (empty) row rather than naming one
       case head :: rest  => SType.Function(head, curriedFnType(rest, result), effects)
 
-  // ── WHY UNDEFINED-NAME REPORTING STOPS AT A VARIADIC ARGUMENT ───────────────────────────────
+  // ── WHY UNDEFINED-NAME REPORTING STILL STOPS AT A VARIADIC ARGUMENT ─────────────────────────
   //
-  // Turning on argument inference switched on THREE checks at once inside `println(...)` and every
-  // other variadic call: arity, argument type, and undefined name. The first two are ready. The
-  // third is not, and the measurement says so plainly.
+  // Narrowed 2026-08-16, not removed, and the reason changed — which is the point of writing it down.
   //
-  // This typer's model of what names exist is a HAND-MAINTAINED list (`pluginBuiltins` above) plus
-  // whatever plugins contribute. Reporting undefined names inside arguments rejected **11 of the
-  // examples CI already checks** — `Node`, `MapOp`, `Transport`, `vstack`, `__ssc_quote__` — all of
-  // them real exports of `std/` modules that simply were not on the list. Adding the ones that
-  // failed brought it to one file, whose next names (`text`, `textField`, `actionButton`) are three
-  // of the ~250 that `std/ui` alone exports. Hand-maintaining that is not a task, it is a treadmill.
+  // It went in because the typer's model of what names exist was a hand-kept list that had drifted
+  // to 77 of 111 interpreter globals missing. That half is FIXED: the checker now asks the runtime
+  // (`Interpreter.ambientGlobalNames`), and the four conformance cases it was costing —
+  // three `coroutine-*` and `html-dsl` — pass at statement position, where reporting has always
+  // been on.
   //
-  // So the two checks that are ready are on, and the one that is not stays off in this position
-  // until the prelude is GENERATED from the `exports:` front-matter those modules already declare
-  // (`tests/BUGS.md typer-prelude-list-should-be-generated-from-std-exports`). Statement position is
-  // unaffected — it has always reported, and still does — and so are non-variadic arguments, which
-  // were already being inferred before this change and keep every diagnostic they had.
+  // What is left is not a missing list, it is a LANE MISMATCH, and it must be decided rather than
+  // patched. Removing this leaves exactly one failing example, `examples/fetch-auth.ssc`, on
+  // `text` / `textField` / `actionButton`. Those are `std/ui` exports of a `frontend: react`
+  // program, and **`run --v1` cannot run it either** — it dies with `Undefined: vstack` at the line
+  // above. So this is CI asking a v1 typer to check a js-lane program, and the only reason such
+  // programs pass today is a hand-added list that makes `check` ACCEPT names v1 does not have
+  // (`tests/BUGS.md check-accepts-names-the-v1-runtime-does-not-have`) — the same defect this
+  // programme exists to remove, pointing the other way.
+  //
+  // Removing this line without answering that question would trade a known-permissive checker for
+  // a red CI step, which is not an improvement.
   private var variadicArgDepth: Int = 0
 
   private def withinVariadicArg[A](body: => A): A =

@@ -1192,6 +1192,21 @@ jobs:
       - name: check sees what it runs — println escape + the clause model (35s)
         run: tests/e2e/v1-check-sees-what-it-runs.sh
 
+      # …and where that checker learns which names EXIST. It used to be a hand-kept list in
+      # Typer.scala; diffing it against the interpreter's own global table found 111 ambient globals
+      # of which the typer knew 34 — `coroutineCreate`, `readFile`, `exec`, `Http`, `Random`,
+      # `Logger`, `Stream` all missing, so `check` called them undefined and rejected four
+      # conformance cases outright. It now asks the runtime (`Interpreter.ambientGlobalNames`).
+      #
+      # The gate checks BOTH directions on purpose: that the names are known, AND that they are not
+      # string literals in Typer.scala — otherwise the next gap gets closed by typing a name into the
+      # list again and this goes green while meaning nothing. It also freezes the ten hand-added
+      # std-module names that remain, which make `check` ACCEPT names `run --v1` refuses
+      # (tests/BUGS.md check-accepts-names-the-v1-runtime-does-not-have): that list may shrink,
+      # never grow.
+      - name: the checker's prelude comes from the runtime (25s)
+        run: tests/e2e/typer-prelude-from-runtime-names.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

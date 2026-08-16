@@ -570,6 +570,60 @@ constraints) — the second front change to land under one of my claims today. T
 rebuilt and re-run on the rebased tree, 8/8, rather than trusting a verdict taken against the older
 one.
 
+## check-accepts-names-the-v1-runtime-does-not-have — the hand list papers over a LANE mismatch
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes -->
+
+**This is the defect the whole `TYPES MUST BE RIGHT` programme exists to remove, pointing the other
+way — and I introduced it myself on 2026-08-16 while fixing the first direction.**
+
+```scalascript
+val page = vstack("a")
+println(page)
+```
+
+```text
+ssc-tools check   →  OK
+ssc-tools run --v1 →  [ERROR] [line 1, col 12] Undefined: vstack
+```
+
+`vstack` is `OK` only because it is one of ten names I hand-added to `Typer.pluginBuiltins` to stop
+`check examples/*.ssc` going red. They were real `std/` exports, so adding them looked correct — but
+**the v1 interpreter does not bind them either**, and a name that no lane the checker models provides
+should not be a name the checker knows. Same for `Transport`, `hstack`, `divider`, `spacer`, `Node`,
+`MapOp`, `FilterOp`, `FlatMapOp`, `PureMarkupCodec`.
+
+### What is actually underneath, and why deleting the names is not the fix
+
+`examples/fetch-auth.ssc` declares `frontend: react`. **`run --v1` cannot run it at all** — it dies
+on `Undefined: vstack` — so CI is asking a v1 typer to type-check a js-lane program, and the hand
+list is what makes that appear to work. Delete the names and the CI step goes red on programs that
+are not wrong; keep them and `check` lies about a whole family of names.
+
+**So the question to answer first is what `check` should DO with a lane-specific program**, and it is
+a design question rather than a patch:
+
+| option | consequence |
+|---|---|
+| teach `check` the js/react lane's names too | a third name source, same probe pattern as `Interpreter.ambientGlobalNames` |
+| check each example against the lane its front-matter declares | `check` becomes lane-aware; today it is v1-only and silent about that |
+| exclude lane-specific examples from the v1 `check` step | honest, but stops checking them at all |
+
+**Measured 2026-08-16**, with the runtime probe in place and undefined-name reporting turned on
+inside variadic arguments: **exactly one example fails** — `fetch-auth.ssc`, on `text`, `textField`
+and `actionButton`. So the blast radius of answering this is one file, which is the best time to
+answer it.
+
+**Related:** `typer-prelude-list-should-be-generated-from-std-exports` (the source-of-truth half,
+now fixed for interpreter globals), and `Typer.scala`'s `variadicArgDepth`, which stays only because
+of this entry.
+
 ## typer-prelude-list-should-be-generated-from-std-exports — a hand-kept copy of something machine-readable
 
 <!-- status: open
@@ -579,6 +633,59 @@ one.
      reported-by: claude-code
      reported-at: 2026-08-16
      confirmed: yes -->
+
+### SOURCE A FIXED 2026-08-16 — the checker asks the interpreter instead of copying it
+
+`Interpreter.ambientGlobalNames` (a probe interpreter, builtins installed, keys read) feeds a new
+`ambientNames` parameter on `Typer`. Measured:
+
+| | before | after |
+|---|---|---|
+| ambient interpreter globals the typer knows | 34 of 111 | **111 of 111** |
+| conformance cases `check` rejects | 9 | **5** — `coroutine-*` ×3 and `html-dsl` fixed, the five left are the effect verifier alone |
+| `check examples/*.ssc` | exit 0 | exit 0, 211 files |
+| cost per `check` process | — | median 6.1s vs 5.4s against a 4.8–7.5s noise band at load 41: **nothing above the floor**, and it is a `lazy val` paid once |
+
+Gate: `tests/e2e/typer-prelude-from-runtime-names.sh`, 15 checks, which asserts BOTH that the names
+are known AND that they are **not string literals in `Typer.scala`** — otherwise the next gap gets
+closed by typing a name into the list again and the gate goes green while meaning nothing.
+
+**The ordering bug, kept because it is the general lesson.** Folded into `extraBuiltins` — i.e.
+defined LAST, at the variadic `Any => Any` sentinel — the ambient names CLOBBERED the prelude's real
+types: `None` became `Any => Any`, and seven examples that had type-checked for years failed with
+`expected Option[String], found Any => Any`. They are now defined FIRST, at `SType.Any`.
+**A source that knows only a name must never outrank one that knows a type.**
+
+**Source B is NOT this entry's problem after all**, which is the other thing the measurement
+changed. The remaining names (`text`, `textField`, `actionButton`) belong to a `frontend: react`
+example that **`run --v1` cannot run either**. That is a lane mismatch, not a missing list, and it is
+filed as `check-accepts-names-the-v1-runtime-does-not-have`.
+
+### 2026-08-16 — the census, and the title undersells it: there are TWO sources, not one
+
+Extracting both name sets and diffing them, rather than reasoning about the list:
+
+> **111 ambient interpreter globals. The typer does not know 77 of them.**
+>
+> `coroutineCreate` `coroutineResume` `coroutineCancel` `readFile` `writeFile` `deleteFile`
+> `listDir` `mkdir` `exists` `isDir` `exec` `Env` `Files` `System` `Http` `Response` `Random`
+> `Logger` `Clock` `Cache` `Retry` `Stream` `Source` `Sink` `Window` `Flow` `Graph` `GraphQL`
+> `Jdbc` `Kafka` `Pulsar` `Kinesis` `Dataset` `Pipeline` `Tx` `Using` `attr` `oauth` `oidc` …
+
+These are not exotic names. They are what a program is made of, and `ssc-tools check` calls every
+one of them undefined. Both sets are mechanically extractable, which is the point: the drift was
+never visible because nobody could see the two lists side by side.
+
+**The two sources are different in kind, and conflating them is how the hand list got here:**
+
+| source | example | how `check` should learn it |
+|---|---|---|
+| interpreter globals — ambient, no import | `coroutineCreate`, `suspend`, `__ssc_quote__` | ask the runtime: `Interpreter.ambientGlobalNames` |
+| std module `exports:` — loaded per file | `Node`, `vstack`, `Transport` | the module's own front-matter, for the modules the runtime loads FOR THIS FILE |
+
+The second is genuinely per-file: `examples/fetch-auth.ssc` gets `vstack` because its front-matter
+says `frontend: react`, not because it imports anything. `check` already resolves EXPLICIT imports
+(`check-stdlib-interface-load`, `Main.scala` `stdIfaces`); the ambient selection is the missing half.
 
 **`Typer.scala`'s `pluginBuiltins` is a hand-maintained list of names that exist**, and every module
 under `std/` already declares its own in machine-readable front-matter:
