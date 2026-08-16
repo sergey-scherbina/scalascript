@@ -1714,10 +1714,33 @@ object Parser:
         throw ParseFail(p, "an `extension` member that is not a `def` is outside SSC3 core Tier 0")
       (ms.map(lift), t3)
 
-  private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
+  /** `qualified` — accept `Q.member` and `Q[A].member` as the NAME, producing the dotted global
+    * `Q.member`. Only the `extern` caller passes it, and the scope is a measurement rather than
+    * caution: of every qualified `def` name in `std/` and the conformance corpus, ZERO appear
+    * without `extern` in front of them, and six appear with it — `Bench.opaque`,
+    * `Source[A].distributed`, `DStream[A].local`, `DStream[A].localBounded`, `Source[A].remote`,
+    * `DStream[A].remote`. An ordinary `def` keeps refusing a dot, which is what it should do.
+    *
+    * UniML has read this form since before v3's front did, so `std/streams-bridge.ssc` parsed on
+    * the default front and not on v3's own — one language, two answers (invariant I-3), and the
+    * module is one of the seven the typeclass tower needs.
+    * (BUGS.md `v3-trait-extension-member-refused`, whose remaining half this is.) */
+  private def parseDef(ts0: List[Tok], qualified: Boolean = false): (Def, List[Tok]) =
     val p = posOf(ts0)
     val t0 = expectKw(ts0, "def")
-    val (name, _, t1) = expectDefName(t0)
+    val (name0, _, t1a) = expectDefName(t0)
+    // The qualifier's OWN type params are consumed and discarded like every other type at Tier 0 —
+    // `Source[A].distributed` says which `Source`, and there is no checker to say it to. If the
+    // brackets turn out NOT to be a qualifier's (`def f[A](x: A)`), `t1a` is restored untouched and
+    // `parseTypeParams` below reads them as the def's own.
+    val (name, t1) =
+      if !qualified then (name0, t1a)
+      else
+        val afterQualTps = if isPunct(peek(t1a), "[") then skipBrackets(t1a) else t1a
+        if isPunct(peek(afterQualTps), ".") && afterQualTps.tail.nonEmpty then
+          val (member, _, t1b) = expectDefName(afterQualTps.tail)
+          (name0 + "." + member, t1b)
+        else (name0, t1a)
     val (tparams, boundGivens, afterName) = parseTypeParams(t1, p)
     // A PARAMETERLESS `def` — `def empty: List[A] = Nil` — has no parameter clause at all. It was
     // 116 of 333 remaining refusals, the single largest cause, and every one of them came from the
@@ -1807,7 +1830,13 @@ object Parser:
       // that follows already becomes `__abstract__`, which `Lower` reads at top level as "a host
       // function this lane does not implement" and drops.
       else if isId(peek(ts), "extern") && ts.tail.nonEmpty && isId(peek(ts.tail), "def") then
-        ts = ts.tail
+        // PARSED HERE rather than skipped, so the name may be QUALIFIED. Dropping the keyword and
+        // letting the `def` branch below take over was enough while every extern had a plain name;
+        // `extern def Source[A].distributed(…)` — six of them in `std/` — died with
+        // `expected an expression, found .` on this front while UniML read them.
+        val (d, t) = parseDef(ts.tail, qualified = true)
+        defs = d :: defs
+        ts = t
       // `effect Bump:` followed by indented operation signatures. Parsed with `parseTrait`, because
       // the SHAPE is identical — a name, a `:`, and a block of body-less `def`s — and kept in its
       // own list because the MEANING is not: a trait's methods are dispatched on a receiver, an

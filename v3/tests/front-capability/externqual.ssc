@@ -1,0 +1,5 @@
+```scalascript
+extern def Source.plain(x: Int): Int
+extern def Source[A].distributed(partitions: Int): Int
+println(1)
+```

@@ -1,0 +1,17 @@
+// A QUALIFIED `extern` NAME — `extern def Q.member(…)` and `extern def Q[A].member(…)`. UniML has
+// read this since before v3's own parser did, so `std/streams-bridge.ssc` parsed on the default
+// front and died on v3's with `expected an expression, found .` — one language, two answers,
+// decided by which front is registered (invariant I-3).
+//
+// The form is not exotic: `std/` declares six of them — `Bench.opaque`, `Source[A].distributed`,
+// `DStream[A].local`, `DStream[A].localBounded`, `Source[A].remote`, `DStream[A].remote` — and
+// ZERO qualified `def` names appear WITHOUT `extern` in `std/` or the conformance corpus, which is
+// why the parser accepts the dot only on the extern path.
+//
+// Declared and NOT called on purpose: an extern no lane implements is refused at its CALL, so
+// calling one here would test that refusal instead of this parse. The type params on the qualifier
+// are consumed and discarded like every other type at Tier 0.
+extern def Source.plain(x: Int): Int
+extern def Source[A].distributed(partitions: Int): Int
+
+def main() = println("qualified extern parsed")
