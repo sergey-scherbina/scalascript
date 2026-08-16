@@ -96,14 +96,47 @@ tie added.
 
 ## map-updated-shape-reads-host-load-as-a-regression — its control is sampled ONCE, in a block
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: conformance
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-16
      confirmed: yes
-     gate: tests/e2e/v2-map-updated-shape-gate.sh -->
+     gate: tests/e2e/v2-map-updated-shape-gate.sh
+     fixed-in: d674c0e4a -->
+
+**FIXED 2026-08-16 in `d674c0e4a`.** Three rounds now, both arms adjacent inside each round with the
+order rotated (`small large` / `large small` / `small large`), reduced with MEDIANS — so a spike
+lands in both arms and the median discards the round it ruined. `RESULT=` is greppable, which is the
+entry's second point: a run of no-verdicts can be COUNTED from CI logs instead of passing silently.
+
+**The control statistic took three tries and the third was decided by measurement, not argument.**
+The defect this gate exists for is already fixed, so every RED it reports is a false positive — which
+makes an A/A over ten runs a direct measurement of each candidate:
+
+| control statistic | false reds | no verdict | pass |
+|---|---|---|---|
+| the original (one pair, sampled in a block) | 0 | 7 | 3 |
+| the closest ADJACENT gap of three | **1** | 3 | 6 |
+| max/min across all three | 0 | 10 | 0 |
+
+The middle row was written as a "correction", on the reasoning that three samples spread wider than
+two so a limit calibrated for two had silently become stricter. That reasoning is true and the
+conclusion was wrong: discarding the outlier lets two lucky-close readings authorise a verdict while
+the median is still bimodal, and it produced a false red **the original did not have**. Ignoring the
+extreme is exactly what you must not do when the extreme IS the noise you are testing for.
+
+**Two things beyond what this entry asked for**, both found while in the file: BOTH arms gate the
+verdict now (the large arm is identical work across its three readings too, and guarding only the
+control arm is a floor on the good number), and `--self-test` no longer requires the launcher — it is
+pure arithmetic, and demanding a built toolchain made it unrunnable in a fresh worktree, which is the
+one place someone changing this file wants it.
+
+**On the tolerance:** untouched at 2.5×, deliberately. On the dev host at load ~45 the gate now
+renders 0 verdicts in 10 runs — that is the gate saying something true, not failing, and CI at
+04:45 ran it in 42.3 s and rendered `ok`. Raising the limit until verdicts appear would be fixing the
+thermometer.
 
 **`v2-map-updated-shape-gate.sh` failed inside `scripts/smoke-ci` on a change that cannot reach the
 lane it measures** (a v1 `Typer.scala` edit; the v1 typer is not on the v2 native run path at all).
