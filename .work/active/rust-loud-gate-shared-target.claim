@@ -1,0 +1,11 @@
+slug: rust-loud-gate-shared-target
+branch: feature/rust-loud-gate-shared-target
+agent: claude-code
+started: 2026-08-16T01:13:26Z
+heartbeat: 2026-08-16T01:13:26Z
+status: claimed-before-planning
+items: build-rust-refuses-loudly-recompiles-every-dependency-tree
+paths: file:tests/e2e/build-rust-refuses-loudly.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
