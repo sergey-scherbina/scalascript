@@ -1,0 +1,11 @@
+slug: negtc-shard-guard
+branch: feature/negtc-shard-guard
+agent: claude-code
+started: 2026-08-16T18:45:09Z
+heartbeat: 2026-08-16T18:45:09Z
+status: claimed-before-planning
+items: the-four-uncapped-orphans-are-measured-and-two-of-them-are-red
+paths: file:tests/e2e/v21-negative-toolchain-release-gate.sh file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
