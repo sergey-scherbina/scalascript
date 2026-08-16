@@ -129,7 +129,7 @@ these scripts are invoked by nothing, so nothing has reported them.
 | `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
 | `tests/e2e/v21-native-content-smoke.sh` | 51 | binding output keeps its placeholders: `missing=${missing.path}; invalid=${bad-path}` |
 | ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |
-| `tests/e2e/v21-unhandled-effect-smoke.sh` | 25 | `ssc: unbound global: Network`, where the gate expects a rejection naming `Wallets.metaMask` |
+| `tests/e2e/v21-unhandled-effect-smoke.sh` | 25 | `ssc: unbound global: Network`, where the gate expects a rejection naming `Wallets.metaMask` — **the gate's third case is mis-specified; see below** |
 
 ### One of the five was the GATE being stale, and the dates prove it
 
@@ -156,8 +156,31 @@ brought. Banning both conflates "the tier stays compiler-free" with "the tier co
 third-party library", and only the first is the invariant. The gate now passes and is wired into
 tier 2; no plant was needed to show it can fail, because it already had.
 
-**AGE UNKNOWN FOR THE OTHER FOUR, AND THAT IS THE POINT — not a claim of regression.** An unwired
-gate has no history:
+### A second one is also the GATE, and its third case cannot pass as invoked
+
+`v21-unhandled-effect-smoke`'s first two cases pass. The third runs
+`ssc-tools run --bytecode examples/x402-metamask.ssc` and expects
+`unhandled runtime effect: Wallets.metaMask`. Three measurements, all against a fresh toolchain:
+
+| invocation | result |
+|---|---|
+| `ssc-tools check examples/x402-metamask.ssc` | **OK** — `check` auto-loads the plugin's prelude SYMBOLS for the typer (`BackendRegistry.availablePreludeSymbols`) |
+| `ssc-tools run --bytecode …` (what the gate runs) | `ssc: unbound global: Network` |
+| `ssc-tools run-jvm …` (the lane its sibling `v21-explicit-x402-tools-smoke` uses) | **3 compilation errors** — not a drop-in substitute |
+
+**The example's own documentation says the first two rows are correct behaviour:** "`ssc check`
+auto-loads it from the `import scalascript.x402.*` … load it manually only in a non-staged checkout
+**or to *run* the example**." `payments` is bundled-but-opt-in and is staged under
+`bin/lib/tools/x402/`, which `bin/ssc-tools run` does not put on the classpath. So `unbound global:
+Network` is the documented answer, and the gate is asking `run` for something only `check` does.
+
+Two things for whoever fixes it, and they are separable: the third case needs to load the plugin (or
+be dropped, since the first two already cover the unhandled-effect invariant on the native lanes),
+AND `run-jvm` failing this example with three compilation errors is its own defect that the sibling
+gate does not cover.
+
+**AGE UNKNOWN FOR THE REMAINING THREE, AND THAT IS THE POINT — not a claim of regression.** An
+unwired gate has no history:
 nothing ran it, so no commit can be blamed and no bisect is meaningful without first wiring it.
 Whoever picks one up should wire it as the first step of the fix, not the last.
 
