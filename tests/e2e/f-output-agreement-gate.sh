@@ -89,12 +89,29 @@ if [ "${1:-}" = "--self-test" ]; then
 
   # A REAL tracked corpus file, since the claim is about what `git ls-files` sweeps — the temp probe
   # above is untracked and would prove nothing here.
+  # `>>` CREATES the file when the path is wrong, and an earlier draft of this block computed the
+  # path from the temp probe and so appended a newline into `tests/conformance/agree-selftest.*.ssc`
+  # — a file that then became a CORPUS SUBJECT for every later run of this gate (641 subjects where
+  # there are 640). Hence the existence check, and hence the restore-on-kill trap: a self-test that
+  # mutates the tree must not be able to leave anything behind, INCLUDING when it is killed.
   victim="$ROOT/$(cd "$ROOT" && git ls-files 'tests/conformance/*.ssc' | head -1)"
+  if [ ! -f "$victim" ]; then
+    echo "  ✗ cannot resolve a tracked corpus file to mutate — refusing to create one"
+    exit 1
+  fi
+  fsub="$ROOT/specs/v2.2-p6.5-fsub.ssc"
   bak=$(mktemp); cp "$victim" "$bak"
+  fbak=$(mktemp); cp "$fsub" "$fbak"
+  st_restore() {
+    [ -f "$bak" ] && cp "$bak" "$victim"
+    [ -f "$fbak" ] && cp "$fbak" "$fsub"
+    rm -f "$bak" "$fbak" "$probe"
+  }
+  trap st_restore EXIT HUP INT TERM
   printf '\n' >> "$victim"
   if [ "$(digest)" != "$base" ]; then echo "  ✓ a changed corpus file invalidates the key"
   else echo "  ✗ a changed corpus file did NOT invalidate the key"; st_fail=$((st_fail+1)); fi
-  cp "$bak" "$victim"; rm -f "$bak"
+  cp "$bak" "$victim"
   [ "$(digest)" = "$base" ] || { echo "  ✗ restoring the corpus file did not restore the key"; st_fail=$((st_fail+1)); }
 
   fsub="$ROOT/specs/v2.2-p6.5-fsub.ssc"
@@ -102,12 +119,10 @@ if [ "${1:-}" = "--self-test" ]; then
   # run measures the launcher's STALE BUILD warning instead of the reference front. Measured — that
   # is exactly how this row failed on its first draft, accusing a sound exclusion.
   before=$(SSC_NO_BUILD_CHECK=1 SSC_FRONT=legacy timeout "$CAP" "$ssc" run "$probe" < /dev/null 2>&1 | head -8)
-  fbak=$(mktemp); cp "$fsub" "$fbak"
   printf '\n// agree-gate self-test probe\n' >> "$fsub"
   if [ "$(digest)" = "$base" ]; then echo "  ✓ a changed F source does NOT invalidate the key"
   else echo "  ✗ a changed F source invalidated the key — the exclusion is not in effect"; st_fail=$((st_fail+1)); fi
   after=$(SSC_NO_BUILD_CHECK=1 SSC_FRONT=legacy timeout "$CAP" "$ssc" run "$probe" < /dev/null 2>&1 | head -8)
-  cp "$fbak" "$fsub"; rm -f "$fbak"
   if [ "$before" = "$after" ]; then echo "  ✓ and the reference's ANSWER is unchanged by it — the exclusion is sound"
   else
     echo "  ✗ the reference front's answer CHANGED when F's source changed:"
@@ -117,7 +132,6 @@ if [ "${1:-}" = "--self-test" ]; then
     st_fail=$((st_fail+1))
   fi
 
-  rm -f "$probe"
   if [ $st_fail -eq 0 ]; then echo "✓ f-output-agreement-gate --self-test PASSED"; exit 0; fi
   echo "✗ f-output-agreement-gate --self-test: $st_fail failure(s)"; exit 1
 fi
