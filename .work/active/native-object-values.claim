@@ -5,7 +5,7 @@ started: 2026-08-16T03:01:40Z
 heartbeat: 2026-08-16T03:01:40Z
 status: claimed-before-planning
 items: collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native
-paths: file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/BUGS.md
+paths: file:v2/lib/ssc1-lower.ssc0 file:v2/BUGS.md file:tests/BUGS.md file:v2/runtime/std/ui-plugin/src/main/scala/ssc/plugin/ui/UiNativePlugin.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
