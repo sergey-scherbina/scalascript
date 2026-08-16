@@ -1,9 +1,8 @@
-# generation: 2494
+# generation: 2495
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-ref-cache	claude-code	2026-08-16T10:37:02Z	agree-gate-reference-side-is-recomputed-every-run	file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md
 rust-type-pattern-local-val	claude-code	2026-08-16T12:16:08Z	rust-type-pattern-on-a-local-val-matches-anything	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-type-pattern-local-val-gate.sh file:.github/workflows/ci.yml file:BUGS.md file:INBOX.md file:BACKLOG.md
 mcp-v2-registration-members	claude-code	2026-08-16T12:35:06Z	mcp-v2-tool-with-schema mcp-v2-resource-template	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:std/mcp/server.ssc file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md
 orphan-debt-3	claude-code	2026-08-16T12:39:30Z	orphan-debt-triage-31-frozen-gates	file:tests/e2e/no-orphan-gates.sh file:.github/workflows/ci.yml file:tests/BUGS.md
-v3-prelude-class-blocks-extension	claude-code	2026-08-16T12:42:07Z	v3-an-extension-is-disabled-by-a-prelude-class-of-the-same-member-name	file:v3/src/Lower.scala file:v3/src/Loader.scala file:v3/BUGS.md
 v3-no-handler-refused-at-lowering	claude-code	2026-08-16T12:43:38Z	v3-no-handler-error-has-no-position	file:v3/src/Lower.scala file:v3/effects-gate.sh file:BUGS.md
