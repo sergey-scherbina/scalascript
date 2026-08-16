@@ -624,14 +624,15 @@ and the question could not be asked. See `v1-typer-flattens-parameter-clauses`.
 
 ## v1-typer-flattens-parameter-clauses — so a curried def and an over-application have the SAME type
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: front
      kind: bug
      reported-by: claude-code
      reported-at: 2026-08-16
      confirmed: yes
-     gate: tests/e2e/v1-check-sees-what-it-runs.sh -->
+     gate: tests/e2e/v1-check-sees-what-it-runs.sh
+     fixed-in: 35e6d6683 -->
 
 **Asked for by Sergiy 2026-08-16** — *"Сделай модель клауз чтобы тайпер правильно работал для
 каррированых функций"* — after the previous slice measured it and could not close it.
@@ -718,12 +719,13 @@ one sweep.
 
 ## v1-check-never-looks-inside-a-println — one escape hides its arity and argument checks from every program
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: front
      kind: bug
      confirmed: yes
-     gate: tests/e2e/v1-check-sees-what-it-runs.sh -->
+     gate: tests/e2e/v1-check-sees-what-it-runs.sh
+     fixed-in: 35e6d6683 -->
 
 **Measured 2026-08-15.** `ssc-tools check` has working arity and argument-type checks. They simply
 never see anything a program writes inside `println(...)`:
