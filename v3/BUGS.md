@@ -6,43 +6,44 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-a-val-bound-to-another-val-does-not-type-the-receiver — the collector never reaches those bindings
+## v3-a-val-bound-to-another-val-does-not-type-the-receiver — two gaps, and neither half worked alone
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
-     gate: v3/corpus-report.sh (indent-config-format, indent-block-statements)
+     fixed-in: e053c165f
+     gate: v3/corpus-report.sh (indent-config-format)
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**The typed extension arm (dcc8e98f6) types a receiver from a CALL's result type, and
-`std/parsing/layout.ssc:275` binds one from a NAME:**
+**FIXED IN e053c165f.**
 
-    val itemAtCurrentIndent: Parser[Any] = Parser.readCtx { … }.flatMap(_ => p)
-    val firstItem: Parser[Any] = itemAtCurrentIndent
-    firstItem.flatMap(first => …)
+    bridge  control PASS 252  DIFF 4  CRASH 1   ->  PASS 254  DIFF 2  CRASH 1
+    exec    control PASS 254  DIFF 1  CRASH 7   ->  PASS 255  DIFF 1  CRASH 6
 
-`Parser.readCtx{…}` types, so the inner `.flatMap` resolves; `firstItem` does not, so the outer one
-falls through to the built-in. `indent-config-format` (DIFF) and `indent-block-statements` (CRASH on
-the executor) both die exactly there.
+Both floors FALL. `indent-config-format` was a wrong answer and passes now, and the bridge's DIFF
+list is down to the two effects cases, which belong to another claim.
 
-**THE OBVIOUS FIX IS NOT THE FIX, and this is what a probe established rather than reading.** Making
-`bindingTypes` iterate to a fixed point — a name typing from what it was bound to — changes nothing,
-because the map is EMPTY at those call sites: `binds=0` at every `flatMap` in the file. The collector
-reports exactly ONE initialiser per body and its names are `c`, `end`, `items`, `message`, `n` — never
-`itemAtCurrentIndent` or `firstItem`. So the chain logic was never the obstacle; `mapDeep` does not
-reach the bindings in question, which are nested inside a block passed as an argument.
+**TWO GAPS, NOT ONE, and that is why the obvious half changed nothing:**
 
-**SO THE NEXT STEP IS TO FIND WHERE THOSE `Stmt.Val`s GO, not to write more typing.** Either the
-walker does not descend through a lambda's body into its block, or those vals stop being `Stmt.Val`
-before this pass runs. One probe on the walker answers it.
+    val itemAtCurrentIndent: Parser[Any] =
+      Parser.readCtx { … }.flatMap(_ => p)             // a BLOCK, whose result is the call
+    val firstItem: Parser[Any] = itemAtCurrentIndent   // a NAME bound to that block
 
-**AND THE DECLARED TYPE IS RIGHT THERE, UNREACHABLE, which would make the whole question moot.**
-`val firstItem: Parser[Any]` says so in the source, but `Stmt.Val` carries no type field
-(`Ast.scala:151`) — the fronts drop it exactly as they used to drop a `def`'s result type until
-dcc8e98f6. Adding it is the same two-front change that already worked once, and it would type these
-receivers directly instead of inferring them through a chain that has to be reached first.
+A block's type is its result's — the receiver typer stopped at the block — and a binding types from
+what it was bound to, which may itself have just typed, so the map iterates to a fixed point. Fixing
+only the name chain left `itemAtCurrentIndent` untyped and therefore `firstItem` untyped as well.
+
+**THE PREVIOUS VERSION OF THIS ENTRY NAMED THE WRONG CAUSE, and the correction is the lesson.** It
+said the collector never reaches those bindings — read off a probe piped through
+`sort -u | head -5`, in which `inits=1` sorts before `inits=3`. Re-run whole, the walker finds all
+four bindings including both names; what it could not do was look inside a block or follow a name. A
+conclusion from a truncated sample reads exactly like a conclusion from data, and it went into a
+shared board before it was checked.
+
+**WHAT IS LEFT.** `indent-block-statements` now runs and prints its first line before stopping — no
+longer a crash, and no longer this defect.
 ## v3-an-extension-is-disabled-by-a-prelude-class-of-the-same-member-name — a type decides it now; one layer remains
 
 <!-- status: fixed
