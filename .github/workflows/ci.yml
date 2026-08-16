@@ -766,6 +766,17 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-type-pattern-local-val-gate.sh
 
+      # `mkString` lowered to Rust's `join`, which exists for `Vec<String>` and nothing else, so
+      # `List(1,2,3).mkString(",")` — five lines, `1,2,3` under `run` — did not build. Invisible in
+      # the programs people write first, because the String case works. The second half is the one
+      # that mattered more: the THREE-argument form read its separator with `headOption`, so
+      # `mkString("[", ",", "]")` emitted `join("[")` and PRINTED `a[b[c` — it compiled, so a
+      # build-only check passes on it, which is why every row here compares output against `run`
+      # rather than asserting a literal. ~40 s, one cargo build plus one interpreter run.
+      - name: mkString answers the same on both lanes, for every element type
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-mkstring-parity-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:

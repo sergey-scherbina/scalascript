@@ -2998,6 +2998,44 @@ object RustCodeWalk:
       s"def `${ctx.defName}` body contains an unsupported statement: ${other.productPrefix}"
     )))
 
+  /** `xs.mkString` in its three spellings.
+   *
+   *  IT USED TO BE `xs.join(sep)`, WHICH IS DEFINED FOR `Vec<String>` AND FOR NOTHING ELSE. So
+   *  `List(1,2,3).mkString(",")` — five lines, printing `1,2,3` under `run` — did not build:
+   *  `error[E0599]: the method 'join' exists for struct 'Vec<i64>', but its trait bounds were not
+   *  satisfied`. Invisible in the programs people write first, because the `String` case works.
+   *  (rust-mkstring-on-a-non-string-list-emits-join.)
+   *
+   *  Rendering each element through `format!("{}", …)` produces the SAME string for a `Vec<String>`,
+   *  so nothing that compiled before changes; and it is what `"x = " + v` already emits for every
+   *  other value, which is the property that matters — two spellings of "show me this value" must
+   *  not disagree. `Value` implements `Display`, so a `List[Any]` joins too, which `join` never
+   *  could.
+   *
+   *  THE THREE-ARGUMENT FORM WAS SILENTLY WRONG, not merely unsupported: the old code took
+   *  `headOption` as the separator, so `xs.mkString("[", ",", "]")` emitted `join("[")` and printed
+   *  `a[b[c` with no diagnostic. Arity is read explicitly now; any other arity refuses rather than
+   *  guessing which argument was meant. */
+  private def renderMkString(
+      qual: m.Term, vs: List[m.Term], ctx: Ctx
+  ): Either[List[Diagnostic], String] =
+    if vs.size != 0 && vs.size != 1 && vs.size != 3 then
+      Left(List(unsupported(
+        s"def `${ctx.defName}` calls `mkString` with ${vs.size} arguments; this lane lowers the " +
+        s"0-, 1- and 3-argument forms"
+      )))
+    else
+      for
+        q    <- renderTerm(qual, ctx)
+        sep  <- (if vs.size == 3 then renderTerm(vs(1), ctx)
+                 else vs.headOption.map(renderTerm(_, ctx)).getOrElse(Right("\"\".to_string()")))
+        pre  <- (if vs.size == 3 then renderTerm(vs(0), ctx) else Right(""))
+        post <- (if vs.size == 3 then renderTerm(vs(2), ctx) else Right(""))
+      yield
+        val joined =
+          s"($q).iter().map(|__e| format!(\"{}\", __e)).collect::<Vec<String>>().join(($sep).as_str())"
+        if vs.size == 3 then s"format!(\"{}{}{}\", $pre, $joined, $post)" else joined
+
   private def renderTerm(
       t: m.Term, ctx: Ctx
   ): Either[List[Diagnostic], String] = t match
@@ -3683,12 +3721,12 @@ object RustCodeWalk:
         children <- renderTerm(a(3), ctx)
       yield s"crate::runtime::ui::_ui_element($tag, $attrs, $events, $children)"
 
-    // `xs.mkString(sep)` / `xs.mkString` on a `Vec<String>` → Rust `xs.join(sep)`.
+    // `xs.mkString(sep)` / `xs.mkString` / `xs.mkString(pre, sep, post)` — see `renderMkString`.
+    // The BODY lives there, not here: `renderTerm` is frozen by `tests/e2e/v1-jit-size.sh` at a size
+    // already past HotSpot's HugeMethodLimit, so every byte added to it is a byte the interpreter
+    // walks forever.
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("mkString")), args) =>
-      for
-        q   <- renderTerm(qual, ctx)
-        sep <- args.values.headOption.map(renderTerm(_, ctx)).getOrElse(Right("\"\".to_string()"))
-      yield s"$q.join(($sep).as_str())"
+      renderMkString(qual, args.values, ctx)
     // `opt.getOrElse(default)` (one arg → native Option) → `opt.unwrap_or(default)`.  Map.getOrElse
     // takes two args (key, default) and is excluded by the arity guard. (rust-option-consumption)
     case m.Term.Apply.After_4_6_0(m.Term.Select(qual, m.Term.Name("getOrElse")), a) if a.values.size == 1 =>
