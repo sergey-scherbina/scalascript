@@ -1,0 +1,11 @@
+slug: v3-extern-qualified-name
+branch: feature/v3-extern-qualified-name
+agent: claude-code
+started: 2026-08-16T14:10:46Z
+heartbeat: 2026-08-16T14:10:46Z
+status: claimed-before-planning
+items: v3-trait-extension-member-refused
+paths: file:v3/src/Parser.scala file:BUGS.md file:v3/tests/front/extern-qualified-name.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
