@@ -2,10 +2,14 @@ slug: server-gates-bind-fixed-ports
 branch: feature/server-gates-bind-fixed-ports
 agent: claude-code
 started: 2026-08-16T02:54:29Z
-heartbeat: 2026-08-16T02:54:29Z
-status: claimed-before-planning
-items: server-gates-bind-fixed-ports
-paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/no-leaked-servers.sh file:tests/BUGS.md
+heartbeat: 2026-08-16T03:05:00Z
+status: in-progress
+items: server-gates-bind-fixed-ports kind-declared-but-still-optional
+paths: file:tests/e2e/lib/own-server.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/no-leaked-servers.sh file:tests/BUGS.md file:tests/e2e/bugs-index-gate.sh file:specs/bugs-index.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Two gates ALLOCATE their port instead of hard-coding one, and stop killing processes they did
+  not start (a `pkill -f` on a relative path reached into sibling worktrees). Landed a31cfbefe.
+  WIDENED to tests/e2e/bugs-index-gate.sh + specs/bugs-index.md: with all 1052 entries now
+  carrying a kind, the field can stop being OPTIONAL — today the enum check only fires when it is
+  present, so a new entry with none silently reintroduces the debt that was just paid off.
+next: require kind:, then smoke and push
