@@ -1105,9 +1105,15 @@ def sscNativeArgs = (args) =>
             let z = #cell.set(sscFsubSrcCell, sscNormalize(p)) in sscNativeArgs(paths)
           case Nil => Nil
         }
+      else (if #seq(flag, "--fsub-ir") then
+        match rest {
+          case Cons(p, paths) =>
+            let z = #cell.set(sscFsubIrCell, sscNormalize(p)) in sscNativeArgs(paths)
+          case Nil => Nil
+        }
       else (if #seq(flag, "--structural") then
         let z = #cell.set(sscStructuralCell, true) in sscNativeArgs(rest)
-      else args))
+      else args)))
     case Nil => Nil
   }
 
@@ -1126,6 +1132,9 @@ def sscNativeArgs = (args) =>
 -- F splices into its output (P6.6b escape-free design), built via #sfromCodes so this driver has no
 -- `"`-in-a-string.
 def sscFsubSrcCell = #cell.new("")
+-- Path of the PRE-LOWERED front (`--fsub-ir`). Empty = no cache; the runner then behaves exactly
+-- as it did before this existed.
+def sscFsubIrCell = #cell.new("")
 def sscConcatSources = (paths) =>
   match paths {
     case Nil => ""
@@ -1286,16 +1295,58 @@ def irTextToData = (t) =>
   let entryP = d2entry(t, d2snd(defsP), n) in
   IrProg(d2fst(defsP), d2fst(entryP))
 
-def sscFsubIr = (userSrc) =>
+-- THE FRONT IS LOWERED ONCE, NOT ONCE PER RUN.
+--
+-- Measured 2026-08-16: `parse` + `lowerProg` of F's 392 KB source costs 8.74 s, and it ran on EVERY
+-- invocation before this — a one-line `println(1)` and a 121-line program cost the same, because the
+-- work was never proportional to the subject file. Reading a pre-lowered F0 back with the
+-- self-hosted `irTextToData` costs ~0.95 s for the same 532 KB, round-tripping byte-identical.
+--
+-- THE ARTIFACT IS A CLOSURE, WHICH IS WHY THIS WORKS AT ALL. The obvious cache — F0 with a `main`
+-- that reads a PATH from `#io.args()`, as `specs/v2.2-p6.5-corpus.sh` has bootstrapped for years —
+-- is unusable here: the driver assembles a source CLOSURE (imports, `package:` namespace, `[x as y]`
+-- aliases) that exists only as a string in this process, and the tower does not control the args the
+-- evaluated program sees. Bootstrapping with `def main = () => compile` instead makes `#coreir.eval`
+-- hand back F's `compile` FUNCTION, which is then applied directly. Verified: the emitted user IR is
+-- byte-identical to the uncached path.
+--
+-- `#coreir.decode` is deliberately NOT used, here or anywhere on this lane — it would class-load
+-- `ssc.Reader`, and `v21-native-plugin-boundary-smoke` fails on exactly that, by name. Measured:
+-- today's F path loads it 0 times, `run-ir` loads it 23. `irTextToData` is the Reader-free reader
+-- D2 wrote for this and it is what both halves below use.
+--
+-- COLD IS CORRECT, NOT JUST SLOW. With no artifact staged the runner lowers the front as before and
+-- writes it out for next time; with no `--fsub-ir` at all it does exactly what it always did. A
+-- missing or unwritable cache degrades to the old cost, never to a different answer — and the JDK
+-- side keys the path on the CONTENT of `fsub.ssc`, so a changed front cannot be served from a stale
+-- artifact.
+def sscFsubIr = (userSrc) => sscFsubIrPick(#cell.get(sscFsubIrCell), userSrc)
+def sscFsubIrPick = (irPath, userSrc) =>
+  if #i.eq(slen(irPath), 0) then sscFsubIrSlow(userSrc)
+  else (if #io.exists(irPath) then sscFsubIrWarm(irPath, userSrc) else sscFsubIrCold(irPath, userSrc))
+def sscFsubIrWarm = (irPath, userSrc) =>
+  sscFsubApply(#coreir.eval(irTextToData(#utf8->str(#io.readFile(irPath)))), userSrc)
+def sscFsubIrCold = (irPath, userSrc) =>
+  let lowered = lowerProg(sscFsubProg()) in
+  let z = #io.writeFile(irPath, #str->utf8(#coreir.encode(lowered))) in
+  sscFsubApply(#coreir.eval(lowered), userSrc)
+def sscFsubProg = () =>
+  let fSrc = #utf8->str(#io.readFile(#cell.get(sscFsubSrcCell))) in
+  sscApp(parse(fSrc), Cons(mkDef("main", Nil, mkVar("compile")), Nil))
+def sscFsubApply = (f, userSrc) =>
+  let dq = #sfromCodes(Cons(34, Nil)) in
+  let bs = #sfromCodes(Cons(92, Nil)) in
+  irTextToData(f(userSrc, dq, bs))
+-- The pre-cache path, kept verbatim as the no-`--fsub-ir` behaviour. D2: F's `compile` emits the
+-- user IR as canonical TEXT; `irTextToData` parses it into the IrProg Data tree WITHOUT
+-- `#coreir.decode`, so the F native path class-loads no ssc.Reader. callExpr stays `compile(...)` —
+-- F still emits text, so the X1 fixpoint is byte-identical.
+def sscFsubIrSlow = (userSrc) =>
   let fSrc = #utf8->str(#io.readFile(#cell.get(sscFsubSrcCell))) in
   let dq = #sfromCodes(Cons(34, Nil)) in
   let bs = #sfromCodes(Cons(92, Nil)) in
   let callExpr = mkApp(mkVar("compile"), Cons(mkStr(userSrc), Cons(mkStr(dq), Cons(mkStr(bs), Nil)))) in
   let fProg = sscApp(parse(fSrc), Cons(Pair("expr", callExpr), Nil)) in
-  -- D2: F's `compile` emits the user IR as canonical TEXT (via #coreir.eval running F0); the
-  -- self-hosted irTextToData parses that text into the IrProg Data tree WITHOUT #coreir.decode,
-  -- so the F native path class-loads no ssc.Reader. callExpr stays `compile(...)` — F still emits
-  -- text, so the X1 fixpoint is byte-identical.
   irTextToData(#coreir.eval(lowerProg(fProg)))
 
 def main = () =>
