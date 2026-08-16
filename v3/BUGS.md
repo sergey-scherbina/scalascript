@@ -6,6 +6,52 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-an-extension-is-disabled-by-a-prelude-class-of-the-same-member-name — two blockers, both proven, one needs types
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: front
+     gate: v3/corpus-report.sh (indent-config-format, js-parser-combinator-choice, indent-block-statements)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**`std/parsing` declares `extension [A](p: Parser[A]) def map`, and NO call to it is ever rewritten**,
+so every `.map` on a parser falls through to the built-in list `map`. The executor refuses with
+`method 'map' on #42(-?[0-9]+)`; the BRIDGE does something worse — it runs the built-in on a parser
+value and the program prints `unknown parser node`, a wrong answer rather than a refusal. Three
+corpus cases: `indent-config-format`, `js-parser-combinator-choice` (both would PASS) and
+`indent-block-statements` (would get further).
+
+**`Lower.rewriteExtensionCalls` requires `topLevel && !classMembers && !builtins`, and TWO of those
+three block this call. Each was proven by removing it alone, not reasoned about:**
+
+1. **`classMembers`** — the PRELUDE's `Dataset.map`. One ambient class member disables the extension
+   for every receiver in every program. Removing the class test alone did NOT unblock it (the
+   builtin test still did), which is what made the second blocker visible at all.
+2. **`builtins`** — `map` is in the built-in vocabulary, and the exclusion is unconditional.
+
+Removing BOTH makes `indent-config-format` and `js-parser-combinator-choice` produce their expected
+output exactly.
+
+**THE FIRST BLOCKER HAS A CLEAN FIX AND IT IS WRITTEN DOWN RATHER THAN LANDED, because on its own it
+changes no observable behaviour.** `Program.origin` records `name -> unit path` for DEFS ONLY
+(`Loader.scala:506`); adding `u.program.classes.foreach(...)` beside it lets
+`rewriteExtensionCalls` take `fromPrelude: String => Boolean` and filter the class list, and a probe
+confirmed `Dataset` then reads `origin=Some(v3/prelude/index.ssc) isPrelude=true`. The rule is the
+owner's own, already written in `Driver.moduleOf`: a module you imported is nearer than an ambient
+library.
+
+**THE SECOND BLOCKER NEEDS RECEIVER TYPES AND THE AST DOES NOT CARRY THEM.** `map` must stay
+built-in for a `List` receiver and become the extension for a `Parser` one, which is a decision only
+the receiver's type can make. `Def` has no return-type field at all (`Ast.scala:211`), so
+`Parser.regex("…")` — the receiver in most of these calls — cannot be typed today. Adding one is a
+TWO-FRONT change: v3's own parser and the uniml projection both have to carry it.
+
+**Do not "fix" this by dropping the builtin test.** It would send `List(1,2,3).map(f)` to a
+program-declared `map` extension in any program that has one, which is a wrong answer of exactly the
+kind this entry is about.
+
 ## v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not — fixed; the analysis had to move, not the rule
 
 <!-- status: fixed
