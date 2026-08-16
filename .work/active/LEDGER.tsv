@@ -1,7 +1,6 @@
-# generation: 2498
+# generation: 2499
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
-agree-gate-ref-cache	claude-code	2026-08-16T10:37:02Z	agree-gate-reference-side-is-recomputed-every-run	file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md
 mcp-v2-registration-members	claude-code	2026-08-16T12:35:06Z	mcp-v2-tool-with-schema mcp-v2-resource-template	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:std/mcp/server.ssc file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md
 orphan-debt-3	claude-code	2026-08-16T12:39:30Z	orphan-debt-triage-31-frozen-gates	file:tests/e2e/no-orphan-gates.sh file:.github/workflows/ci.yml file:tests/BUGS.md file:tests/e2e/v21-portable-gates-smoke.sh file:scripts/BUGS.md
 v3-no-handler-refused-at-lowering	claude-code	2026-08-16T12:43:38Z	v3-no-handler-error-has-no-position	file:v3/src/Lower.scala file:v3/effects-gate.sh file:BUGS.md
