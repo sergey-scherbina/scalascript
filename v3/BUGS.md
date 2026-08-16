@@ -6,43 +6,36 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
-## v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator — four lines, default front
+## v3-uniml-reads-a-line-ending-name-and-the-next-line-string-as-an-interpolator — fixed; front-diff is green
 
-<!-- status: open
+<!-- status: fixed
      lane: v3
      kind: bug
      area: front
-     gate: v3/front-diff.sh (corpus ONE-SIDED, markdown-html)
+     fixed-in: 347672d38
+     gate: v3/front-diff.sh
      found-by: claude-code
      found-at: 2026-08-16 -->
 
-**FOUR LINES, AND THE DEFAULT FRONT REFUSES THEM:**
+**FIXED IN 347672d38.** An interpolator now needs the same LINE as well as the same offset.
+`peekAbutsNext` compared offsets alone and that did not reject a line break — established by probe,
+not by reading: a blank line between the two did NOT help while parenthesising the first expression
+DID, which says the test was passing rather than the tokens being genuinely adjacent.
 
-    def f(level: Int): String =
-      val tag = "h" + level
-      "<" + tag + ">"
+**THE PREFIX LIST WAS DELIBERATELY LEFT ALONE.** `isInterpPrefix` accepts any word — that is what
+makes the accident reachable — but narrowing it to `s`/`f`/`raw`/`md`, as its own comment claims, would
+break `html"…"`: genuinely adjacent, genuinely an interpolator, and it must keep its honest
+`outside SSC3 core Tier 0` refusal instead of falling apart into two tokens.
 
-    v3     OK
-    uniml  ssc3: 2:19: the `level"…"` interpolator is outside SSC3 core Tier 0
+**IT BUYS A GATE, NOT A CASE, and that is stated because the numbers say so.** The corpus is
+IDENTICAL with and without the fix — bridge 255 DIFF 2 CRASH 1, exec 256 DIFF 1 CRASH 6 — since
+`markdown-html` does not change bucket. What moves is `v3/front-diff.sh`: one-sided files 78 -> 77,
+at the ceiling, GREEN. It had been RED on main.
 
-An identifier ENDING a line and a string literal OPENING the next are read as one interpolator. In
-Scala `level"…"` is interpolator syntax only when the two are adjacent; a newline between them makes
-them two tokens, which is what v3's own parser does and what every reader assumes.
-
-**THIS IS NOT A CAPABILITY GAP AND MUST NOT BE DECLARED AS ONE.** It is the single file over the
-one-sided ceiling — `markdown-html`, 78 against a declared 77 — so `v3/front-diff.sh` is RED on main
-because of it. Adding the file to `KNOWN_CONF_V3_ONLY` would turn the gate green while leaving the
-default front unable to read an ordinary line break.
-
-**THE SHAPE IS COMMON, WHICH IS WHAT MAKES IT WORTH THE ENTRY RATHER THAN THE LIST.** `std/markdown-html.ssc:206`
-is `val tag = "h" + level` followed by a line that starts with `"<"` — string-building code hits it
-constantly. One corpus file shows it today because most files put an operator or a paren at the line
-break instead.
-
-**WHERE IT LIVES:** the ScalaSpike lexer under `uniml/`, not in `v3/` — the projection only reports
-what it was handed. `v3/uniml/UniFront.scala` refusing the interpolator is correct behaviour for a
-node that should never have been built.
-
+**AND THE ALTERNATIVE WOULD HAVE HIDDEN IT.** `markdown-html` was the one file over the declared
+capability list, so adding it to `KNOWN_CONF_V3_ONLY` turns the same gate green in one line — while
+leaving the default front unable to read a line break between a name and a literal. The list is for
+capabilities the fronts do not share, not for defects.
 ## v3-a-val-bound-to-another-val-does-not-type-the-receiver — two gaps, and neither half worked alone
 
 <!-- status: fixed
