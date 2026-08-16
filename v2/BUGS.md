@@ -5251,6 +5251,36 @@ rewrite: a `contentCurrentSection()` inside section `S` becomes `contentSection(
 front change, not a runtime one — the plugin cannot recover the answer at runtime because the information
 is gone by then.
 
+> **MEASURED 2026-08-16 — the rewrite needs a SLUG the front does not have, and re-deriving it is the
+> trap this repository keeps paying for.**
+>
+> The shape above is right about WHERE (the front, not the runtime) and about WHEN (the enclosing
+> heading is still known: `v2/bin/ssc1-run.ssc0`'s `sscFenceSource(lang, source, heading, …)` receives
+> it, and line 78 says so). It is wrong about the ARGUMENT.
+>
+> `contentSection(id)` resolves against the CONTENT MODEL's id, which is a lowercase hyphenated slug.
+> The front's `heading` is an IDENTIFIER — `sscHeadingId` shapes it for `val __yaml_<heading>`. Probed
+> directly on `## Template Section`:
+>
+> ```text
+> contentSection("template-section").isDefined  -> true
+> contentSection("TemplateSection").isDefined   -> false
+> contentSection("Template Section").isDefined  -> false
+> ```
+>
+> So a naive `contentCurrentSection()` -> `contentSection("<heading>")` rewrite compiles, runs, and
+> silently returns None. Making the front compute the slug means a SECOND implementation of the
+> content model's slug rule — the hand-written-copy-of-another-file's-table shape that
+> `v3/extension-gate.sh` exists to catch, and it would drift in the direction nobody notices.
+>
+> Two shapes that avoid the duplication, and the choice is a real one:
+> * the front emits the heading TEXT and a new intrinsic resolves it (`contentSectionByTitle`), so
+>   the slug rule stays in one place — the content plugin;
+> * or the content plugin exposes the mapping and the front asks for it.
+>
+> Not chosen here. What is settled is that the one-line version does not work and would fail
+> silently, which is worse than the current honest throw.
+
 > **SIZED 2026-08-15, and it is now the LAST blocker of a chain whose other two are fixed.**
 > `bin/ssc-tools --v2 examples/content-introspection.ssc` today gets to
 >
