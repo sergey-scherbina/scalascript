@@ -50,46 +50,48 @@ the JS lane "needs the mirrored case in `$method`". That was wrong, and the corr
 part: the JS lane never reaches `$method` — it dies on the char LITERAL, one layer earlier. A
 mirrored `Character` case would have been dead code sitting above an unreachable path.
 
-## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` is 3 on the shipped lanes and 2 in Core IR
+## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` was 3 on the shipped lanes and 2 in Core IR
 
-<!-- status: open
-     kind: bug
+<!-- status: fixed
+     fixed-in: 6cec41220
      lane: multi
      area: runtime
-     gate: none
+     gate: tests/conformance/math-round-ties.ssc (+ v3 via corpus-report)
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**MEASURED, not read** — `bin/ssc-tools run` on `println(math.round(2.5))` and three more ties:
+**FIXED BY MOVING v3, NOT THE OTHER FIVE, and the census is the argument.** Measured 2026-08-16 on
+`math.round(2.5 / 3.5 / -2.5 / -3.5)`:
 
-    lane                       2.5   3.5   -2.5   -3.5
-    --v1 (interpreter)          3     4     -2     -3      half UP, integer-valued
-    native                      3     4     -2     -3      half UP, integer-valued
-    Core IR `f.round` (v2 VM)   2     4     -2     -4      half to EVEN, float-valued
+    --v1, native, --bytecode, run-js, run-jvm     3  4  -2  -3     half UP, integer
+    v3                                            2  4  -2  -4     half to EVEN, Float
 
-**The disagreement is at 2.5 and -3.5, and it is two differences, not one:** the tie rule AND the
-result type. v1's `math.round` is `Computation.pureIntV(math.round(d))` —
-`DispatchRuntime.scala:3154` — which is Scala's `math.round`, defined as "half up" and returning a
-`Long`. The Core IR prim is `math.rint`, half to even, returning a Float. v3's prelude reaches the
-prim (`__mathRound` → `f.round`), so `math.round(2.5)` is **2** there and **3** here.
+Five lanes against one, and the five agree with **Scala**, whose `math.round` is half-up and returns
+a `Long`. Scala also has `math.rint` for the other rule — they are two functions there too. v3's
+prelude defined the LANGUAGE function by delegating straight to the Core IR prim, and so imported
+the prim's rule into it. The prim keeps the contract the owner chose
+(`v2-f-round-is-three-different-roundings-across-the-backends`, half to even); `math.round` is now
+`floor(x + 0.5)` and `Int`-valued.
 
-**THIS IS NOT THE ENTRY THAT WAS JUST CLOSED.** `v2-f-round-is-three-different-roundings-across-the-backends`
-was about five implementations of the PRIM disagreeing, and it is fixed: every backend now breaks a
-tie to even, per the owner's decision recorded in `v2/specs/10-core-ir.md`. What that decision did
-NOT cover is the language-level `math.round`, which on v1 and native is a different function with
-the opposite rule.
+**TWO DIFFERENCES, NOT ONE — the second is invisible where the value is printed.** The result TYPE
+diverged too: `math.round(5.0) / 2` was `2` on the other lanes (integer division) and `2.5` on v3,
+so the disagreement survived anywhere the value was USED. Hence `Int` and not `Double`.
 
-**Found because a conformance case was written for the prim and WITHDRAWN.** A case declaring
-`backends: [int, js, jvm, v2]` would have gone red on three of the four for a rule they never
-agreed to, which is how this got measured instead of assumed. The Core IR fixture
-(`v2/conformance/float-round-ties.coreir`) tests the prim directly and is the right instrument for
-the decision that was taken.
+**THE GATE FOUND A SIXTH LANE-DIVERGENCE WHILE BEING WRITTEN.** `tests/conformance/math-round-ties.ssc`
+pins six rounding rows plus the dividing one, and that last row failed on **js alone** — its emitter
+decides integer division from a syntactic predicate that knew `.toInt` and not `math.round`. Filed
+and fixed as `js-mathround-is-not-in-isIntExpr` in `v1/runtime/backend/js/BUGS.md`. A case that only
+printed would have been green on all four lanes and would have said nothing.
 
-**WHAT IT WOULD TAKE, and why it is not done here.** Either v1's `math.round` becomes `rint` — a
-change to a shipped language function's answer, and to its RESULT TYPE, which is the part that
-breaks callers doing arithmetic on an Int — or the two are declared to be different functions and
-the difference is documented where the standard library is described. That is a decision about the
-language, not a defect to patch, and it belongs to whoever owns the std spec.
+**The case was written on 2026-08-15 and WITHDRAWN then**, because the lanes disagreed and it would
+have been red for a rule nobody had chosen. That is why it exists now rather than then: the
+withdrawal was recorded with its reason, so the day the reason expired the case could be brought
+back instead of re-derived.
+
+**Coverage:** the four v1/v2 lanes through the conformance suite, and v3 through
+`v3/corpus-report.sh`, which runs any case that has an `expected/` file. v3's own two lanes are
+pinned against each other by `v3/tests/parity/math-round*.ssc`, now three probes with the negative
+tie added.
 
 ## map-updated-shape-reads-host-load-as-a-regression — its control is sampled ONCE, in a block
 

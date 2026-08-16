@@ -7,6 +7,37 @@ grepping for status.
 
 Newest first.
 
+## js-mathround-is-not-in-isIntExpr — `math.round(x) / 2` divided as a FLOAT here and as an integer everywhere else
+
+<!-- status: fixed
+     fixed-in: 6cec41220
+     lane: js
+     area: codegen
+     gate: tests/conformance/math-round-ties.ssc
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**`isIntExpr` knew `.toInt` and not `math.round`, one arm apart.** JS has one number type, so the
+emitter decides integer division from a syntactic Int-ness predicate. `math.round(x)` was not in it:
+
+    5 / 2                     2      2      2      2     (int / js / jvm / v2)
+    math.round(5.0)           5      5      5      5
+    math.round(5.0) / 2       2    **2.5**  2      2     <- js alone
+    (5.0).toInt / 2           2      2      2      2     <- the arm right above the gap
+
+**IT ONLY SHOWS WHERE THE VALUE IS USED, not where it is printed**, which is why nothing had caught
+it: every `println(math.round(…))` in the corpus agrees on all four lanes, and the divergence needs
+an arithmetic operation on the result.
+
+**FOUND BY A CASE WRITTEN FOR A DIFFERENT DEFECT.** `math-round-ties` was added to pin the tie rule
+(`math-round-and-f-round-disagree-at-a-tie` in `v2/BUGS.md`); its last row divides, and that row
+failed on js alone while the six rounding rows passed. A case that only printed would have been
+green and would have said nothing.
+
+**Fixed** by adding `math.round` to `isIntExpr` beside the `toInt`/`toLong` arm. `math.abs` is
+deliberately NOT added: it is polymorphic — Int -> Int and Double -> Double — so its result type
+follows its argument rather than being Int by construction.
+
 ## js-refuses-a-decimal-against-a-fractional-double — and its `true` on the integer case hid that
 <!-- status: fixed
      lane: js
