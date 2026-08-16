@@ -293,7 +293,7 @@ red.**
 | `v2/backend/check.sh` | 17 m 55 s | ALL GREEN — 16 fixtures × 4 backends, 57 ok / 7 skip / 0 fail |
 | `v2/conformance/check.sh` | 11 m 21 s loaded, 7 m 09 s quiet | GREEN — 645 checks |
 | ~~`tests/rust-build-smoke.sh`~~ | 12 m 39 s → 12 m 54 s | **RESOLVED** — four failures, two causes, both fixed. Now `all rust smoke fixtures green (17 fixture(s))` and wired to tier 2 |
-| `tests/e2e/negtc-shard-gate.sh` | 22 m 10 s / 14 m 55 s | **RED, and not from load — measured twice.** See below |
+| ~~`tests/e2e/negtc-shard-gate.sh`~~ | 22 m 10 s / 14 m 55 s | **RESOLVED** — a guard that dissolved when its replacement landed. See below. Wired to tier 2 |
 
 **`v3/plugin-classpath.sh` is a fifth, and it is not a gate.** rc=0 in 8 m 19 s, but its own header
 says what it is: "the v2 PLUGIN FLEET's classpath, built once and cached". It BUILDS an artifact
@@ -329,9 +329,27 @@ backlog item. That matters more than an ordinary red, because this gate exists f
 own header states: **a sharded release gate's catastrophic failure mode is that it fails GREEN** —
 a scheme that drops cases reports success over less than it claims, and the release ships.
 
-Not fixed here: the fix belongs to whoever owns the negtc release gate's exit contract, and the two
-numbers above are what a fix has to keep separate — a busy host changes the timeout column and
-nothing else.
+**FIXED, and the cause was a guard that dissolved when its replacement landed.** `--shard` used to be
+refused outright by the release gate, for the reason its own header still gives: after the sweeps it
+runs the taxonomy and the freeze, which compare WHOLE-CORPUS counts by exact equality, so a sharded
+FULL run is red however healthy the tree is. When the map/reduce split landed
+(`negtc-gate-shard-reduce`) the outright refusal went with it, and only one direction of the pair was
+kept:
+
+```sh
+if [[ $mode == sweeps ]]; then [[ -n $shard ]] || …   # --sweeps-only needs --shard   ✓ kept
+                                                      # --shard needs --sweeps-only   ✗ lost
+```
+
+So a bare `--shard` was silently accepted on the full gate and produced exactly the confident wrong
+red the refusal existed to prevent. Restored as the mirror check: exit 2, an explanation, and the
+backlog item named. Verified both ways — `--shard 0/4` is refused with both strings the shard gate
+greps for, and `--sweeps-only --shard 0/4` is NOT intercepted (it fails on its own missing
+`--native-out`, as it should).
+
+The remaining `run-error` rows in the sweep are a separate question from this contract, and the two
+load rows above are what any future reading has to keep apart: a busy host changes the timeout column
+and nothing else.
 
 **The two reds are why "over the cap" was not written as "probably fine".** A gate nobody has run to
 completion has no verdict at all, and half of these turned out to have something to say.

@@ -56,6 +56,26 @@ if [[ $mode == sweeps ]]; then
   [[ -n $native_out && -n $parity_out ]] || {
     echo 'v21-negative-toolchain-release-gate: --sweeps-only needs --native-out and --parity-out' >&2; exit 2; }
 fi
+# `--shard` WITHOUT `--sweeps-only` is refused, and the check is deliberately the mirror of the one
+# above. The pair used to be symmetric by accident: `--shard` was refused outright, because after the
+# sweeps this gate runs `v21-sentinel-taxonomy` and the freeze, which compare WHOLE-CORPUS counts by
+# exact equality — a partial report drifts every metric, so a sharded FULL run is red no matter how
+# healthy the tree is. When the map/reduce split landed (negtc-gate-shard-reduce) the outright
+# refusal went with it and only the `--sweeps-only needs --shard` direction was kept, so the
+# dangerous combination — a bare `--shard` on the full gate — became silently accepted and produced
+# exactly the confident wrong red the refusal existed to prevent.
+#
+# Nothing reported that for as long as it lasted, because the gate that asserts this contract
+# (tests/e2e/negtc-shard-gate.sh) is invoked by nothing. Restored 2026-08-16.
+if [[ -n $shard && $mode != sweeps ]]; then
+  echo 'v21-negative-toolchain-release-gate: sharding the FULL gate is not supported here, on purpose.' >&2
+  echo '  After the sweeps this gate runs the taxonomy and the freeze, which compare whole-corpus' >&2
+  echo '  counts by exact equality; a partial report drifts every metric and the run is red however' >&2
+  echo '  healthy the tree is. Shard the MAP phase instead:' >&2
+  echo '    --sweeps-only --shard i/N --native-out A --parity-out B   then --reduce over the merged' >&2
+  echo '  reports (scripts/negtc-merge-reports). Tracked as negtc-gate-shard-reduce.' >&2
+  exit 2
+fi
 if [[ $mode == reduce ]]; then
   [[ -n $native_in && -n $parity_in ]] || {
     echo 'v21-negative-toolchain-release-gate: --reduce needs --native-in and --parity-in' >&2; exit 2; }

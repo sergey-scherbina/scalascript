@@ -506,6 +506,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/rust-build-smoke.sh
 
+      # The last RED orphan of the 2026-08-16 triage. It proves the negtc RELEASE gate's sharding
+      # cannot drop cases — union(shard 0/N … N-1/N) == no-shard, byte-compared — and it also asserts
+      # that a bare `--shard` on the FULL gate is REFUSED. That refusal had dissolved: it was removed
+      # when the map/reduce split landed and only the `--sweeps-only needs --shard` half was kept, so
+      # the dangerous direction became silently accepted. Restored, and this gate is why we know.
+      #
+      # NOT VACUOUS: it was RED on that exact assertion at two different host loads, and the
+      # assertion set is otherwise byte-identical between the failing and passing runs.
+      #
+      # COST VARIES BY AN ORDER OF MAGNITUDE — 11 s when the sweep inputs are present, 15-22 min when
+      # it runs the two real sweeps. Budget for the larger number on a cold runner.
+      - name: negtc shard partition — sharding drops no cases, and the full gate refuses --shard
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/negtc-shard-gate.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
