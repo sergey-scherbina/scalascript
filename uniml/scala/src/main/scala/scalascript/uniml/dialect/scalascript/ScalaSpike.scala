@@ -254,7 +254,21 @@ object SpikeLex:
               val e = text.charAt(i + 1)
               sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
               advance('\\'); advance(e)
+            // AND ONLY IN AN INTERPOLATION, which is what the character BEFORE the opening quote
+            // says: `s"…"`, `html"…"`, `f"…"` have an identifier there, a plain `"…"` does not.
+            // `${` is special ONLY in an interpolated string — in a plain one it is the two
+            // characters `$` and `{`, exactly as in Scala.
+            //
+            // `holeCloses` alone was not enough and the miss was narrow: it stops the look-ahead at
+            // a NEWLINE, so a plain string whose `${` and a later `}` sit on ONE LINE still took
+            // this branch. `"<code>${" + escapeHtml(s) + "}</code>"` — real code, in
+            // `tests/conformance/markdown-html.ssc` — collapsed into a SINGLE string literal
+            // holding `<code>${" + escapeHtml(s) + "}</code>`, a well-formed tree of the wrong
+            // program, printing `<code>${" + x + "}</code>` where every other lane prints
+            // `<code>${X}</code>`. The comment below already described this failure for the
+            // across-lines case; this is the same one, inside a line.
             else if text.charAt(i) == '$' && i + 1 < n && text.charAt(i + 1) == '{' &&
+                    strStart > 0 && isSpikeIdPart(text.charAt(strStart - 1)) &&
                     holeCloses(text, i + 2, n) then
               // copy a balanced `${ … }` verbatim so its inner quotes don't end the string
               // (matches ssc1-front scanStr → scanInterpEnd); the parts split later, in projection.
