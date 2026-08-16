@@ -38,6 +38,18 @@ LOWER="v3/src/Lower.scala"
 # extension may be named `~` as `tests/conformance/f-tilde-arrow-ext.ssc` is.
 exec_vocab() {
   awk '/private def invoke\(/,/private def constOf/' "$EXEC" |
+    # COMMENTS ARE NOT VOCABULARY, and this gate learned that by going red on main. `f77b5c46f`
+    # documented the new String*Int lowering with `` // `"ab" * 3` IS "ababab" — … ``; two quoted
+    # runs on one comment line, so the extractor below took `ababab` for a method `Exec` answers to
+    # and the gate demanded `Lower` list it. Nothing was wrong with the code or the comment — the
+    # reader was. A gate that parses prose will keep inventing names, and the alternative (reword
+    # every comment that quotes an example) puts the burden on everyone who ever explains a lowering.
+    #
+    # Whole-line `//` only, deliberately narrow: a trailing comment after real code would take the
+    # code with it if stripped naively, and a `//` inside a string literal is exactly the shape this
+    # gate exists to read. Block comments are not stripped either — `/* … */` does not appear in this
+    # range today, and guessing at a shape that is not there is how the next false positive gets in.
+    grep -vE '^[[:space:]]*//' |
     grep -oE '"[^"]+"' | sed 's/^"//; s/"$//' |
     # A method name is an identifier or an operator, and nothing else. Without this the fragments of
     # diagnostics come through — `invoke`'s refusal is built as `"method '" + name + "' on "`, so a
@@ -52,6 +64,16 @@ exec_vocab() {
 # list has one home and this script does not have to parse Scala.
 lower_vocab() {
   sed -n '/BUILTIN-VOCABULARY-BEGIN/,/BUILTIN-VOCABULARY-END/p' "$LOWER" |
+    # Same comment filter as `exec_vocab`, and on THIS side it guards the dangerous direction. The
+    # check is "Lower ⊇ Exec", so a quoted example in a comment here does not add a false alarm — it
+    # SILENTLY SATISFIES the check for a name Lower does not actually handle. Fixing only the Exec
+    # side would have left that twin.
+    #
+    # MEASURED before adding, because a filter that changes nothing still has to be shown to change
+    # nothing: this block holds 17 comment lines, and the vocabulary is 152 names with or without
+    # them. Nothing is masked today and no name is lost — the filter is here for the comment somebody
+    # writes next, not for one already written.
+    grep -vE '^[[:space:]]*//' |
     grep -oE '"[^"]+"' | sed 's/^"//; s/"$//' |
     LC_ALL=C sort -u
 }

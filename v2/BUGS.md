@@ -5280,7 +5280,7 @@ is gone by then.
 >
 > Not chosen here. What is settled is that the one-line version does not work and would fail
 > silently, which is worse than the current honest throw.
-
+>
 > **SIZED 2026-08-15, and it is now the LAST blocker of a chain whose other two are fixed.**
 > `bin/ssc-tools --v2 examples/content-introspection.ssc` today gets to
 >
