@@ -1925,7 +1925,7 @@ poor guide to its cause.
 rule, so an interpolated literal ended at its inner quote. Fixed by the reference's three-way split;
 the plain-string rows in the gate guard behaviour F already had right. See `f-gap-tail-gate.sh`.
 
-### OPEN 1 — a guarded tuple-of-cons arm drops its binders
+### FIXED 2026-08-16 — a guarded tuple-of-cons arm dropped its binders, and its TWIN answered wrongly
 
 ```scalascript
 (List(5), List(2)) match
@@ -1945,6 +1945,39 @@ Fixing it means giving the nested-arm machinery the guard treatment `parseGenCto
 (parse the guard on the arm scope, then the rest TWICE — once as the default, once on a failed
 scope). That machinery carries the obligation/fail-scope logic, and a mistake there is a silent
 wrong answer rather than a decline, which is why this is filed rather than rushed.
+
+**FIXED, and the caution in the paragraph above was right about the wrong cell.** The mistake was
+not made in the machinery — it was already there, in the SPELLING NEXT DOOR:
+
+```scalascript
+Some(List(1, 2)) match
+  case Some(h :: t) if h > 0 => println("pos " + h)
+  case _ => println("no")
+```
+
+`F: no` · `ref: pos 1`. A guarded NESTED ctor arm went to `dispNested`, which handed it to
+`parseGenCtor` — a function that understands guards but not nesting — and the arm silently lost.
+Exit 0, no diagnostic, a plausible answer. **The tuple-first cell declined; the ctor-first cell
+lied**, and only the second is the kind of failure no output gate can see. Found by probing the twin
+after fixing the filed cell, not by anything that was watching.
+
+**A guard is an OBLIGATION, which is why no second copy of `parseGenCtorGuard` was needed.** `ah` and
+`at` are bound by the nested cons pattern, and `dischargeF` binds them only INSIDE the match it
+emits — so the guard is parsed at the innermost success scope (the one the body is already lowered
+at, `accScopeF(obs, armScope)`) and wraps the body BEFORE discharge. Its false branch re-lowers the
+remaining arms at the FAIL scope of that same depth, which needed `accFailF` — the exact dual of
+`accScopeF`, counting `dummyBinders` where that one counts binders, because `dischargeF` grows the
+fail scope by one set per nesting level and the outer scope would give wrong local indices inside.
+With that, `dispNested`'s guarded branch could be deleted outright: both spellings now take one route.
+
+**Every gate row comes as a TRUE/FALSE pair, and the ctor-first cell is why.** A front that ignores
+the guard passes every FALSE row; a front that treats it as always-false passes every TRUE row. On
+`ctor-guard-false` the broken and the fixed front both answer `no` — so the row that caught the
+silent wrong answer is `ctor-guard-true`, and nothing symmetric could have. `guard-reads-the-tail`
+covers the scope depth specifically: `at` is the binder the original defect reported unbound.
+
+Gate: `tests/e2e/f-guarded-arm-gate.sh`, 13 rows. `tests/conformance/standard-scala-multifence.ssc`
+now agrees with the reference.
 
 ### OPEN 2 — a placeholder in a CONSTRUCTOR application
 

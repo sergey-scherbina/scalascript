@@ -2293,16 +2293,51 @@ def litPatF(ty, v, cx) = if ty == "int" then emitInt(v) else (if ty == "unit" th
 // the ordered default (rest arms re-lowered on menv). Dispatched from parseGenArm (ctor branch).
 def parseGenCtorDisp(ts, menv, cx) = parseGenCtorDisp1(parsePatF(ts), ts, menv, cx)
 def parseGenCtorDisp1(pr, ts, menv, cx) = pr match { case (p, r) => if patNested(p) then dispNested(p, r, ts, menv, cx) else parseGenCtor(ts, menv, cx) }
-def dispNested(p, r, ts, menv, cx) = if isTok(hd(r), 2, 2) then parseGenCtor(ts, menv, cx) else parseNestedArm(p, r, menv, cx)
+// THE SAME DEFECT ONE CELL OVER, and it was the worse half. A guarded NESTED ctor arm — `case
+// Some(h :: t) if h > 0 =>` — used to be handed to parseGenCtor, which understands guards but not
+// nesting, and the arm silently lost: F answered `no` where the oracle answers `pos 1`. A WRONG
+// ANSWER, not a decline, so no output gate could see it, and the false-guard case cannot detect it
+// either since both spellings answer `no` there. Now that parseNestedCtorArm handles the guard, both
+// spellings take the same route and the branch that discriminated them is gone.
+def dispNested(p, r, ts, menv, cx) = parseNestedArm(p, r, menv, cx)
 // A tuple-first arm in the ordered resolver (`case (a, Some(x)) => ..` / `case (w: String, _: Int) => ..`)
 // -> parse structurally (cpat Pair/TupleN) and route through the nested-arm machinery, which handles both
 // flat and nested tuples (dischargeObsOr with 0 obligations = a plain ctor arm). Only reached inside a
 // nested match (hasNestedArms). Non-cpat/guarded -> keep the old var fallback (no corpus need, no regression).
 def parseGenTupDisp(ts, menv, cx) = parseGenTupDisp1(parsePatF(ts), ts, menv, cx)
 def parseGenTupDisp1(pr, ts, menv, cx) = pr match { case (p, r) => if isTupArmOk(p, r) then parseNestedArm(p, r, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx) }
-def isTupArmOk(p, r) = if fst(p) == "cpat" then isTok(hd(r), 2, 30) else false
+// A GUARD is accepted here now, not only `=>`. It used to send the arm to the var fallback, which
+// reads the leading `(` as a variable NAME — so `case (ah :: at, bh :: _) if ah <= bh =>` reported
+// `unbound global: (global at)` and the whole file declined. Removing the guard made it compile,
+// which is the tell that the guard was the trigger and not the nesting.
+def isTupArmOk(p, r) = if fst(p) == "cpat" then isTupArmTail(r) else false
+def isTupArmTail(r) = if isTok(hd(r), 2, 30) then true else isTok(hd(r), 2, 2)
 def parseNestedArm(p, ts, menv, cx) = parseNestedCtorArm(fst(snd(p)), snd(snd(p)), ts, menv, cx)
-def parseNestedCtorArm(nm, fields, ts, menv, cx) = nestA1(nm, fields, dlen(fields), menv, tl(ts), cx)
+def parseNestedCtorArm(nm, fields, ts, menv, cx) = if isTok(hd(ts), 2, 2) then nestG1(nm, fields, dlen(fields), menv, splitArrow(tl(ts)), cx) else nestA1(nm, fields, dlen(fields), menv, tl(ts), cx)
+// THE GUARD BELONGS AT THE INNERMOST SCOPE, and that is the whole difficulty. `ah` and `at` are bound
+// by the nested cons pattern, which `dischargeF` only binds INSIDE the match it emits — so a guard
+// wrapped around the discharged expression would read names that are not in scope there. The body is
+// already lowered at `accScopeF(obs, armScope)` (nestA2 does exactly that), so the guard is parsed in
+// the same scope and wraps the body BEFORE discharge.
+//
+// Its false branch is the remaining arms, re-lowered at the FAIL scope of that same depth — which is
+// why `accFailF` exists: `dischargeF` grows the fail scope by `dummyBinders(m)` at every nesting
+// level, so the outer `failScope` would give wrong local indices inside. accFailF is the exact dual
+// of accScopeF, counting dummies where that one counts binders.
+//
+// A guard is therefore an OBLIGATION like any other, discharged into the same fallback — no second
+// copy of `parseGenCtorGuard`'s parse-the-rest-twice machinery. The rest is still parsed twice, but
+// by the two functions that already did it: once here for the guard-false branch, once in nestA4 for
+// the match default.
+def nestG1(nm, fields, arity, menv, split, cx) = split match { case (gToks, bodyTs) => nestG2(nm, fields, arity, appEnv(revL(fldBindersF(fields)), menv), refinedObligsF(fields, arity), menv, gToks, bodyTs, cx) }
+def nestG2(nm, fields, arity, armScope, obs, menv, gToks, bodyTs, cx) = nestG3(nm, arity, armScope, obs, appEnv(dummyBinders(arity), menv), menv, accScopeF(obs, armScope), gToks, bodyTs, cx)
+def nestG3(nm, arity, armScope, obs, failScope, menv, inner, gToks, bodyTs, cx) = parseExpr(gToks, 0, inner, cx) match { case (g, gr) => nestG4(nm, arity, armScope, obs, failScope, menv, erase(g, cx), armBodyExpr(bodyTs, inner, cx), cx) }
+def nestG4(nm, arity, armScope, obs, failScope, menv, g, bodyPr, cx) = bodyPr match { case (bodyStr, restTs) => nestG5(nm, arity, armScope, obs, failScope, menv, g, erase(bodyStr, cx), restTs, cx) }
+def nestG5(nm, arity, armScope, obs, failScope, menv, g, bodyStr, restTs, cx) = nestA4(nm, arity, dischargeF(obs, armScope, failScope, guardWrapF(g, bodyStr, fst(parseGenArms(restTs, accFailF(obs, failScope), cx))), restTs, cx), restTs, menv, cx)
+def guardWrapF(g, body, fb) = "(if " ++ g ++ " " ++ body ++ " " ++ fb ++ ")"
+def accFailF(obs, fail) = obs match { case Nil => fail case h :: t => accFail1(snd(h), t, fail) }
+def accFail1(sp, rest, fail) = if fst(sp) == "cpat" then accFailCpat(snd(snd(sp)), rest, fail) else accFailF(rest, fail)
+def accFailCpat(subs, rest, fail) = accFailF(appEnv(refinedObligsF(subs, dlen(subs)), rest), appEnv(dummyBinders(dlen(subs)), fail))
 def nestA1(nm, fields, arity, menv, bodyTs, cx) = nestA2(nm, fields, arity, appEnv(revL(fldBindersF(fields)), menv), refinedObligsF(fields, arity), menv, bodyTs, cx)
 def nestA2(nm, fields, arity, armScope, obs, menv, bodyTs, cx) = nestA3(nm, arity, armScope, obs, appEnv(dummyBinders(arity), menv), menv, armBodyExpr(bodyTs, accScopeF(obs, armScope), cx), cx)
 def nestA3(nm, arity, armScope, obs, failScope, menv, bodyPr, cx) = bodyPr match { case (bodyStr, restTs) => nestA4(nm, arity, dischargeF(obs, armScope, failScope, erase(bodyStr, cx), restTs, cx), restTs, menv, cx) }

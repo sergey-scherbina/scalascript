@@ -480,6 +480,13 @@ val suite = List(
   // `no-textual-reader` fails if the artifact is ever read with `#coreir.decode` — that would
   // class-load ssc.Reader and take `v21-native-plugin-boundary` down with it.
   Check("v2", "f-front-cache", "tests/e2e/f-front-cache-gate.sh", List(), 600000),
+  // A nested pattern may carry a GUARD, in both spellings, and the two cells failed differently: the
+  // tuple-first one DECLINED (`unbound global: (global at)`) while the ctor-first one answered
+  // WRONGLY — `no` where the oracle says `pos 1`, exit 0, no diagnostic. Every guard row comes in a
+  // TRUE/FALSE pair because each direction alone is satisfied by a different bug, and for the
+  // ctor-first cell only the TRUE row can see the difference: both the broken and the fixed front
+  // answer `no` on the false one.
+  Check("v2", "f-guarded-arm", "tests/e2e/f-guarded-arm-gate.sh", List(), 400000),
   // An `extern def`'s declared DEFAULT reaches the call site — and nothing else about an extern
   // call is rewritten. The front skipped an extern whole (it is a signature), so its parameter list
   // was never parsed and `f(x)` on `extern def f(a, b = d)` died `arity: 2 expected, 1 given`
