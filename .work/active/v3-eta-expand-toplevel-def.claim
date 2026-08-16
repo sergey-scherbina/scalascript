@@ -1,0 +1,11 @@
+slug: v3-eta-expand-toplevel-def
+branch: feature/v3-eta-expand-toplevel-def
+agent: claude-code
+started: 2026-08-16T03:48:26Z
+heartbeat: 2026-08-16T03:48:26Z
+status: claimed-before-planning
+items: v3-a-toplevel-def-used-as-a-value-is-an-unknown-name
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
