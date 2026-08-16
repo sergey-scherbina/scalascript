@@ -2337,10 +2337,11 @@ lanes and requires one verdict — all reject, or all accept with the same value
 
 ## collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
      kind: bug
+     fixed-in: 13fe16620
      confirmed: yes
      gate: tests/e2e/render-smoke.sh -->
 
