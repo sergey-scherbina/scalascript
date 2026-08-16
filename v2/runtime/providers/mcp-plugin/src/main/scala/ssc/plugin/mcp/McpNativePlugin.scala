@@ -311,6 +311,40 @@ final class McpNativePlugin extends NativePlugin:
         // `no field 'prompt'`, while the interpreter served it. Curried and variadic-first for the
         // same reason `tool` is: `srv.prompt(name)(h)` and `srv.prompt(name, desc)(h)` are one
         // member. `Nil` arguments matches v1, which also registers prompts with no argument list.
+        // `srv.toolWithSchema(name[, description], schema)(handler)` — the SCHEMA is what separates
+        // this from `tool`, which registers `{"type":"object"}` and accepts anything. Read as
+        // LAST-argument-is-the-schema rather than by arity alone, because that is the one position
+        // it occupies in both spellings; the optional description sits between.
+        case "toolWithSchema" => Some(closure(-1) { first =>
+          if first.length < 2 then
+            sys.error("srv.toolWithSchema(name[, description], schema)(handler): schema is required")
+          val toolName = text(first.head, "srv.toolWithSchema name")
+          val schema   = json(first.last)
+          val desc     = if first.length >= 3 then first.lift(1).collect { case Value.StrV(d) => d }
+                         else None
+          closure(1) { rest =>
+            val handler = rest.head
+            builder.tool(toolName, desc, schema,
+              args => handlerResult(context.invoke(handler, List(scalaToValue(args)))))
+            Value.UnitV
+          }
+        })
+        // `srv.resourceTemplate(template[, name[, description[, mimeType]]])(handler)`. The core
+        // turns `{...}` segments into a match and serves the template both from
+        // `resources/templates/list` and as the `resources/read` fallback when no exact resource
+        // matches — so the handler receives the CONCRETE uri that was asked for, not the template.
+        case "resourceTemplate" => Some(closure(-1) { first =>
+          val tpl  = text(first.head, "srv.resourceTemplate template")
+          val nm   = first.lift(1).collect { case Value.StrV(d) => d }
+          val desc = first.lift(2).collect { case Value.StrV(d) => d }
+          val mime = first.lift(3).collect { case Value.StrV(d) => d }
+          closure(1) { rest =>
+            val handler = rest.head
+            builder.resourceTemplate(tpl, nm, desc, mime, requested =>
+              resourceHandlerResult(requested, context.invoke(handler, List(Value.StrV(requested)))))
+            Value.UnitV
+          }
+        })
         case "prompt" => Some(closure(-1) { first =>
           val promptName = text(first.head, "srv.prompt name")
           val desc       = first.lift(1).collect { case Value.StrV(d) => d }

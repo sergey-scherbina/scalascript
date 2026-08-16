@@ -533,8 +533,8 @@ that does, proven in both directions.
       to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
       the one caller that does not use it.
 - [~] **The remaining `srv` members on v2**, in groups that stand alone: auth (7),
-      roots/sampling (6), notifications and progress (7), registration —
-      `toolWithSchema`/`resourceTemplate` (2 left of 3), completions (2), paging (2),
+      roots/sampling (6), notifications and progress (7), registration — **DONE**, completions (2),
+      paging (2),
       subscriptions (2), `currentLogLevel`. The census is `specs/mcp-2026-07-28.md` §11.1.
       ✓ 2026-08-16 — `prompt` done, and it was the one member on this list that was already
       DECLARED in `std/mcp/server.ssc`: the declared surface and the default lane disagreed, so a
@@ -548,6 +548,15 @@ that does, proven in both directions.
       compares the WIRE on both lanes, since stdout and resolution checks are blind to it.
       The remaining members should be taken the same way: implement, then drive against the
       interpreter as the oracle, not against the fact that the call returns.
+      ✓ 2026-08-16 — registration group CLOSED: `toolWithSchema` and `resourceTemplate` implemented
+      on v2 and DECLARED in `std/mcp/server.ssc`, which neither was. Taken the way the line above
+      asks for, and the gate row asserts the two bytes a resolution check cannot see: the SCHEMA
+      GIVEN reaches `tools/list` (a member that discarded its schema argument would still list a
+      tool and still answer calls — `properties.a.type` is what separates them), and the template
+      SUBSTITUTES, so `resources/read mem://note/7` reaches the handler as the concrete uri rather
+      than as `mem://note/{id}`. Two controls, one per byte: discarding the schema reds the first
+      and leaves the template correct; passing the template instead of the uri reds the third and
+      leaves the schema and the template LISTING correct — so the assertions are independent.
 - [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
       answered by it; none has been re-read against the code. A review, not a build.
 - [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the

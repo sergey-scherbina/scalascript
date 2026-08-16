@@ -64,12 +64,27 @@ extern class McpServer:
 
   // Register a resource handler.
   // handler receives the requested URI as String.
+  // `tool` registers `{"type":"object"}` — it accepts anything and validates nothing. Use this when
+  // the arguments have a shape worth publishing: the schema reaches the client in `tools/list`, so
+  // it is what an agent reads to decide how to call the tool.
+  def toolWithSchema(name: String, schema: Map[String, Any])(handler: Map[String, Any] => ToolResult): Unit
+  def toolWithSchema(name: String, description: String, schema: Map[String, Any])(handler: Map[String, Any] => ToolResult): Unit
+
   def resource(uri: String)(handler: String => ResourceResult): Unit
   def resource(uri: String, name: String)(handler: String => ResourceResult): Unit
   def resource(uri: String, name: String, mimeType: String)(handler: String => ResourceResult): Unit
 
   // Register a prompt handler.
   // handler receives template args as Map[String, Any].
+  // One registration serving a FAMILY of uris. `{...}` segments in the template match one path
+  // segment each, and the handler receives the CONCRETE uri the client asked for — not the
+  // template. Listed via `resources/templates/list`, and used as the `resources/read` fallback when
+  // no exact `resource` matches.
+  def resourceTemplate(template: String)(handler: String => ResourceResult): Unit
+  def resourceTemplate(template: String, name: String)(handler: String => ResourceResult): Unit
+  def resourceTemplate(template: String, name: String, description: String)(handler: String => ResourceResult): Unit
+  def resourceTemplate(template: String, name: String, description: String, mimeType: String)(handler: String => ResourceResult): Unit
+
   def prompt(name: String)(handler: Map[String, Any] => PromptResult): Unit
   def prompt(name: String, description: String)(handler: Map[String, Any] => PromptResult): Unit
 

@@ -253,4 +253,80 @@ cmp "$tmp/pr.v1.cmp" "$tmp/pr.v2.cmp" || {
   cat "$tmp/pr.v1.cmp" >&2; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies)'
+# ── toolWithSchema and resourceTemplate ──────────────────────────────────────
+#
+# The last two registration members. Both were absent from v2 AND undeclared in std/mcp/server.ssc,
+# the shape `elicit` had: reachable on the interpreter, described nowhere, so a second lane had no
+# contract to implement against. Declared and implemented together.
+#
+# What this asserts is the part a resolution check cannot see, which is the lesson the `resource`
+# defect on this same file cost:
+#   * the SCHEMA GIVEN reaches `tools/list`. `tool` registers `{"type":"object"}`, so a
+#     `toolWithSchema` that ignored its schema argument would still list a tool and still answer
+#     calls — `properties.a.type` is the byte that distinguishes them.
+#   * the template SUBSTITUTES: `resources/read mem://note/7` must reach the handler as the
+#     CONCRETE uri, not as `mem://note/{id}`. The body carries it back, so a template registered
+#     but never matched, or matched but passed the template string, both fail here.
+cat > "$tmp/reg.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, ToolResult, ResourceResult, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.toolWithSchema("add", "adds", Map(
+      "type" -> "object",
+      "properties" -> Map("a" -> Map("type" -> "number"))
+    ))(args => ToolResult(List(Content.Text("ok"))))
+    srv.resourceTemplate("mem://note/{id}", "note", "a note")(uri =>
+      ResourceResult(uri, List(Content.Text("NOTE-" + uri))))
+    // The SHORTEST spelling of each, driven because declaring an arity nobody calls is how a
+    // declared-but-unimplemented member gets shipped — the exact shape `prompt` was in.
+    srv.toolWithSchema("bare", Map("type" -> "object"))(args =>
+      ToolResult(List(Content.Text("ok"))))
+    srv.resourceTemplate("mem://bare/{id}")(uri =>
+      ResourceResult(uri, List(Content.Text("BARE-" + uri)))))
+  serveMcp(Transport.Stdio)
+SSC
+reg_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"resources/templates/list","params":{}}
+{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"mem://note/7"}}
+{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"mem://bare/3"}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$reg_in" | "$bin" run $lane "$tmp/reg.ssc" >"$tmp/reg$lane.out" 2>"$tmp/reg$lane.err" || true
+  grep -q '"properties":{"a":{"type":"number"}}' "$tmp/reg$lane.out" || {
+    echo "v21-standard-mcp-smoke: toolWithSchema did not publish its schema on $lane" >&2
+    echo '  a bare {"type":"object"} here means the schema argument was ignored' >&2
+    tail -3 "$tmp/reg$lane.out" "$tmp/reg$lane.err" >&2; exit 1
+  }
+  grep -q '"uriTemplate":"mem://note/{id}"' "$tmp/reg$lane.out" || {
+    echo "v21-standard-mcp-smoke: resourceTemplate was not listed on $lane" >&2
+    tail -3 "$tmp/reg$lane.out" "$tmp/reg$lane.err" >&2; exit 1
+  }
+  grep -q '"text":"NOTE-mem://note/7"' "$tmp/reg$lane.out" || {
+    echo "v21-standard-mcp-smoke: the template did not serve the CONCRETE uri on $lane" >&2
+    tail -3 "$tmp/reg$lane.out" >&2; exit 1
+  }
+  # The short arities: `toolWithSchema(name, schema)` and `resourceTemplate(template)`, both
+  # DECLARED in std/mcp/server.ssc. Asserted here so that no declared spelling goes undriven.
+  grep -q '"name":"bare"' "$tmp/reg$lane.out" || {
+    echo "v21-standard-mcp-smoke: toolWithSchema(name, schema) — the 2-arg spelling — failed on $lane" >&2
+    tail -3 "$tmp/reg$lane.out" "$tmp/reg$lane.err" >&2; exit 1
+  }
+  grep -q '"text":"BARE-mem://bare/3"' "$tmp/reg$lane.out" || {
+    echo "v21-standard-mcp-smoke: resourceTemplate(template) — the 1-arg spelling — failed on $lane" >&2
+    tail -3 "$tmp/reg$lane.out" "$tmp/reg$lane.err" >&2; exit 1
+  }
+done
+grep -v '"serverInfo"' "$tmp/reg--v1.out" >"$tmp/reg.v1.cmp"
+grep -v '"serverInfo"' "$tmp/reg--v2.out" >"$tmp/reg.v2.cmp"
+cmp "$tmp/reg.v1.cmp" "$tmp/reg.v2.cmp" || {
+  echo 'v21-standard-mcp-smoke: registration members answer DIFFERENTLY on the two lanes' >&2
+  diff "$tmp/reg.v1.cmp" "$tmp/reg.v2.cmp" >&2 || true; exit 1
+}
+[[ $(wc -l <"$tmp/reg.v1.cmp") -eq 4 ]] || {
+  echo "v21-standard-mcp-smoke: expected 4 non-initialize answers, got $(wc -l <"$tmp/reg.v1.cmp")" >&2
+  cat "$tmp/reg.v1.cmp" >&2; exit 1
+}
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate)'
