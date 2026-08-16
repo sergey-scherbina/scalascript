@@ -1220,13 +1220,14 @@ constructor suppressed the gate fails and names the case.
 
 ## rust-import-wrapper-depth-hides-an-owner — an imported module's objects sit shallower than the merged manifest describes, so they are not recognised as owners
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
      gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
+     fixed-in: 8b5a0336b
      ssc-version: febd37e88
      repro: std/agent-mcp.ssc
      confirmed: yes -->
@@ -1351,6 +1352,40 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## interp-summon-over-an-anonymous-given — the reference lane answers `unbound global` where Scala 3 resolves
+
+<!-- status: open
+     lane: int
+     area: runtime
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16
+     ssc-version: c77678ed6
+     repro: the six-line program in the body
+     confirmed: yes -->
+
+    trait Combiner[A]:
+      def combine(a: A, b: A): A
+    given Combiner[Int] with
+      def combine(a: Int, b: Int): Int = a + b
+    def main(): Unit =
+      val c = summon[Combiner[Int]]
+      println(c.combine(2, 3))
+
+    ssc: unbound global: c
+
+The NAMED form — `given intCombiner: Combiner[Int] with` — works on the interpreter and answers 5.
+So the gap is the anonymous spelling, which is the idiomatic one in Scala 3 and the one every
+typeclass module in `std/` uses.
+
+**Found because the Rust lane now does this correctly and I needed an oracle.** The MCP-era rule
+here is to compare lanes; when the reference lane is the one that is wrong, the honest move is to
+say so rather than to weaken the case or match the gap. The Rust gate therefore asserts its own
+output for this shape and explains why, and this entry is the other half of that explanation.
+
+Not investigated further — the interpreter is outside the claim this was found under.
+
 ## rust-summon-lowers-to-an-empty-expression — `val x = summon[T]` emits `let x = ;`
 
 <!-- status: open
@@ -1373,6 +1408,23 @@ knows about `summon` and this is the path where resolution produced nothing and 
 the nothing out rather than refusing.
 
 Found the same way as the entry above, in the same discarded probe draft.
+
+**FIXED — AND THE HEADING NAMES THE NARROWER HALF OF IT.** `summon` did not work on this lane AT
+ALL. With an anonymous given it emitted `let x = ;`, which is what this entry saw; with a NAMED
+given it emitted `let c = intCombiner;` and no binding — E0425, one error later and equally broken.
+I filed from the anonymous symptom and assumed the named case was fine. It was not, and only
+running it said so.
+
+**THE CAUSE IS REACHABILITY, NOT RESOLUTION.** `topValsReferencedBy` decides which
+`let name = …Given;` bindings a def needs by scanning its body for names THE USER TYPED. A summoned
+instance name is supplied by the resolver and appears nowhere in the source, so the binding was
+dropped as unreachable while the reference to it was still emitted. The scan now also collects what
+each `summon` in the body resolves to.
+
+Both spellings now answer `i=5`, matching the interpreter for the named one. Gate:
+`tests/e2e/build-rust-refuses-loudly.sh`, both shapes; the named case is differential against the
+default lane and the anonymous one is not, because the interpreter answers `unbound global` there —
+filed as its own gap rather than used as an oracle.
 
 ## rust-absolute-import-path-inlines-nothing — `[names](/abs/path.ssc)` resolves to no declarations at all, silently, and the program still builds
 

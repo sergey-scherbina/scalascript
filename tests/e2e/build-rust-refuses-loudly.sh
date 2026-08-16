@@ -832,6 +832,77 @@ SSC
     failed=1
   fi
 
+  # `summon` AND ANONYMOUS GIVENS.
+  #
+  # `summon[Trait[A]]` never worked on this lane. The resolver mapped the trait to an instance NAME,
+  # and the call site emitted that name — but `topValsReferencedBy` decides which `let name = …;`
+  # bindings a def needs by scanning the body for names THE USER TYPED, and a summoned instance name
+  # is supplied by the resolver and appears nowhere in the source. So the binding was dropped as
+  # unreachable while the reference to it was emitted: `let c = intCombiner;` with nothing bound.
+  #
+  # An ANONYMOUS `given Combiner[Int] with` made it worse in a second way: with no name at all,
+  # `givenStructName("")` answered `UnknownGiven` for EVERY instance (two of them is E0428) and the
+  # resolver handed back the empty string, which emitted as `let x = ;`. The instance name is now
+  # derived from the trait and its type arguments, which is also what distinguishes the instances.
+  #
+  # BOTH SPELLINGS ARE HERE because the named one is the case I nearly missed: I filed the defect
+  # from the anonymous symptom and assumed named givens were fine. They were broken too, one error
+  # later.
+  #
+  # THE NAMED CASE IS DIFFERENTIAL, THE ANONYMOUS ONE IS NOT, and that asymmetry is deliberate: the
+  # interpreter answers `unbound global` for `summon` over an anonymous given, so it cannot serve as
+  # the oracle there. Comparing against it would have meant either weakening this case or
+  # "fixing" Rust to match a gap. Filed as interp-summon-over-an-anonymous-given.
+  cat > "$tmp/summon-named.ssc" <<'SSC'
+trait Combiner[A]:
+  def combine(a: A, b: A): A
+
+given intCombiner: Combiner[Int] with
+  def combine(a: Int, b: Int): Int = a + b
+
+def main(): Unit =
+  val c = summon[Combiner[Int]]
+  println("i=" + c.combine(2, 3))
+SSC
+  cat > "$tmp/summon-anon.ssc" <<'SSC'
+trait Combiner[A]:
+  def combine(a: A, b: A): A
+
+given Combiner[Int] with
+  def combine(a: Int, b: Int): Int = a + b
+
+given Combiner[String] with
+  def combine(a: String, b: String): String = a + b
+
+def main(): Unit =
+  val c = summon[Combiner[Int]]
+  println("i=" + c.combine(2, 3))
+SSC
+  set +e
+  snb=$("$SSC" build-rust "$tmp/summon-named.ssc" -o "$tmp/snbin" 2>&1); snrc=$?
+  sn_rust=$("$tmp/snbin" 2>&1)
+  sn_ref=$("$ROOT/bin/ssc" run "$tmp/summon-named.ssc" 2>/dev/null)
+  sab=$("$SSC" build-rust "$tmp/summon-anon.ssc" -o "$tmp/sabin" 2>&1); sarc=$?
+  sa_rust=$("$tmp/sabin" 2>&1)
+  set -e
+  if [[ $snrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — summon over a named given does not build" >&2
+    echo "--- output: $(printf '%s' "$snb" | tail -6)" >&2
+    failed=1
+  elif [[ "$sn_rust" != "$sn_ref" || -z "$sn_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree on summon" >&2
+    echo "--- rust: $(printf '%s' "$sn_rust" | tr '\n' '|')   ssc: $(printf '%s' "$sn_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+  if [[ $sarc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — two anonymous givens do not build" >&2
+    echo "--- output: $(printf '%s' "$sab" | tail -6)" >&2
+    failed=1
+  elif [[ "$sa_rust" != "i=5" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — summon over an anonymous given gave '$sa_rust', wanted i=5" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather

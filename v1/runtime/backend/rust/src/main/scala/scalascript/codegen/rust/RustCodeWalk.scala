@@ -479,14 +479,33 @@ object RustCodeWalk:
       node.tree.collect {
         case g: m.Defn.Given if g.templ.body.stats.nonEmpty =>
           // Extract trait name from the first init (e.g. `Monoid[Int]` → "Monoid").
+          val init0 = g.templ.inits.headOption
           val traitName: Option[String] = g.templ.inits.headOption.flatMap { init =>
             init.tpe match
               case m.Type.Name(n)                                => Some(n)
               case m.Type.Apply.After_4_6_0(m.Type.Name(n), _)   => Some(n)
               case _                                              => None
           }
+          // AN ANONYMOUS `given Eq[Int] with` HAS NO NAME, and this whole machinery is name-keyed:
+          // `givenStructName("")` answered `UnknownGiven` for every one of them (two anonymous
+          // instances = E0428, "defined multiple times"), and `resolveSummon` handed back the empty
+          // string, which the call site emitted verbatim as `let x = ;` — invalid Rust rather than a
+          // refusal, the worse direction. ONE root, two symptoms.
+          //
+          // The derived name is the trait plus its type arguments, which is what distinguishes the
+          // instances from each other and is also what a reader would call them. Two anonymous
+          // instances of the SAME trait at the SAME argument still collide — but that is ambiguous
+          // in Scala too, so rustc's complaint is then the honest one.
+          val derivedName: String =
+            if g.name.value.nonEmpty then g.name.value
+            else
+              val argPart = init0.map(_.tpe).collect {
+                case m.Type.Apply.After_4_6_0(_, argClause) =>
+                  argClause.values.map(t => t.syntax.filter(_.isLetterOrDigit)).mkString
+              }.getOrElse("")
+              traitName.map(t => s"${t.head.toLower}${t.tail}$argPart").getOrElse("")
           GivenInstance(
-            instanceName = g.name.value,
+            instanceName = derivedName,
             traitName    = traitName,
             methods      = g.templ.body.stats.collect { case d: m.Defn.Def => d }
           )
@@ -2018,8 +2037,24 @@ object RustCodeWalk:
     val topValNames = topVals.map(_._1).toSet
     val referenced =
       body.collect { case m.Term.Name(n) if topValNames.contains(n) => n }.toSet
-    if referenced.isEmpty then Nil
-    else topVals.filter { case (n, _) => referenced.contains(n) }
+    // A `summon[Trait[A]]` REFERENCES A GIVEN INSTANCE BY A NAME THAT IS NOT IN THE SOURCE — the
+    // resolver supplies it, and this scan only ever looked at names the user typed. So the
+    // instance's `let name = …Given;` binding was judged unreachable and dropped, while the call
+    // site still emitted the name: `let c = intCombiner;` with nothing bound. THAT is why summon
+    // never worked on this lane, for a NAMED given as much as an anonymous one — the entry that
+    // filed this described the anonymous symptom (`let x = ;`, from the empty instance name) and
+    // missed that the named case was equally broken one error later.
+    val summoned = body.collect {
+      case m.Term.ApplyType.After_4_6_0(m.Term.Name("summon"), argClause) =>
+        argClause.values.headOption.flatMap {
+          case m.Type.Name(n)                              => Some(n)
+          case m.Type.Apply.After_4_6_0(m.Type.Name(n), _) => Some(n)
+          case _                                            => None
+        }.flatMap(resolveSummon)
+    }.flatten.toSet
+    val all = referenced ++ summoned
+    if all.isEmpty then Nil
+    else topVals.filter { case (n, _) => all.contains(n) }
 
   /** collection-rust-array: scan a def body for local `val/var x = Array(...)/Vector(...)/List(...)`
    *  bindings. Returns (allIndexableSeqLocals, mutableArrayLocals). A local seq lowers `x(i)` to
