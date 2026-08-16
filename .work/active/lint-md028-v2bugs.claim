@@ -1,0 +1,11 @@
+slug: lint-md028-v2bugs
+branch: feature/lint-md028-v2bugs
+agent: claude-code
+started: 2026-08-16T20:29:39Z
+heartbeat: 2026-08-16T20:29:39Z
+status: claimed-before-planning
+items: lint-markdown-red-on-v2-bugs-md028
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
