@@ -361,7 +361,8 @@ learn to ignore, so these five stay frozen with this entry named as the reason.
      confirmed: yes
      gate: none — open defect -->
 
-**The REFERENCE front is the wrong one here, and F inherits it by agreeing.**
+**The REFERENCE front is the wrong one here. F used to inherit it by agreeing; since 2026-08-16 it
+does not** — see the update at the end of this entry.
 
 ```scalascript
 given intM: M[Int] with    def empty: Int = 0
@@ -372,7 +373,7 @@ z(List("a", "b"))   then   z(List(1, 2))
 
 ```
 reference front   0 | 0     <- injects intM for BOTH calls
-F                 0 | 0     <- agrees with the reference
+F                 0 | 0     <- agreed with the reference WHEN FILED; now answers x | 0
 v1 interpreter    x | 0     <- correct
 ```
 
@@ -2057,16 +2058,86 @@ hidden pile; it restores 25 checks and leaves the one red that is already visibl
 board-ownership backlog is the current OCCUPANT of the first slot, not this defect, and is left to
 whoever owns that routing.
 
-## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
+### UPDATE 2026-08-16 — F no longer inherits this, and the arbiter backs F
+
+Fixing `f-summon-and-context-bounds-are-unresolved` replaced given selection with a strict rule, and
+the explicit-`using` path goes through the same code. Re-measured on the probe above:
+
+```
+F                 x | 0
+reference front   0 | 0
+v1 interpreter    x | 0
+```
+
+**The reference is now alone.** That is the useful state for this entry: the disagreement is
+arbitrated rather than two-against-one, and whoever fixes the reference has a lane that already
+demonstrates the right answer on the same input.
+
+It also means the corpus agreement gate will start reporting rows in its `reference contradicted`
+bucket where it previously reported agreement. That bucket is not a failure — the failure ceiling is
+`F contradicted by BOTH other lanes` — but a reader who assumes "disagreement = F regressed" will
+misread it, which is why it is written down here rather than left to be rediscovered.
+
+## ref-front-loses-a-context-bound-across-a-call — the dictionary is re-resolved, not passed
 
 <!-- status: open
      kind: bug
      lane: native
      area: front
      reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/f-context-bounds-gate.sh (bound-propagation, list-element-type — F-only rows) -->
+
+**The same failure as the entry above, on the other path.** There the reference ignores the argument
+type when injecting into an explicit `using` clause; here it ignores the caller's DICTIONARY when a
+context bound is passed on to another context-bound def.
+
+```scalascript
+given intM: M[Int] with    def empty: Int = 0 ; def combine(x: Int, y: Int): Int = x + y
+given strM: M[String] with def empty: String = "" ; def combine(x: String, y: String): String = x + y
+
+def inner[A: M](a: A): A = summon[M[A]].combine(a, summon[M[A]].empty)
+def outer[A: M](a: A): A = inner(a)
+println(outer("q"))
+```
+
+```
+F                 q       <- passes outer's dictionary through to inner
+reference front   q0      <- re-resolves from the table, gets intM, empty = 0
+v1 interpreter    (refuses: "No given instance found for 'M[A]'")
+```
+
+Inside `outer`, `A` is abstract — **no global given can be the right answer**, so re-resolving from
+the table is not a heuristic that sometimes misses, it is a category error. The recursive form is the
+same defect and the one that shows up in real code: `fold1(List("a","b"))` over a `case Nil =>
+summon[M[A]].empty` base case gives `ab0` instead of `ab`, because the recursive call loses the
+dictionary and the base case reaches `intM`.
+
+**`combine` cannot detect this and `empty` can.** Both instances implement `combine` as `x + y`,
+which concatenates strings whichever dictionary is used — the first version of the gate row was green
+with the dictionary being chosen at random. Only `empty` differs between the instances. Any probe
+written for this defect must go through `empty` or an equivalently discriminating member.
+
+**No arbiter.** v1 refuses the program outright, so this is F against the reference with the third
+lane absent. The reason to believe F is that Scala's rule is not in doubt — a context bound is a
+parameter, and a parameter is passed — and that the reference's own answer is self-evidently wrong:
+it uses `Int`'s zero as the empty value of a `String`.
+
+Not filed as a blocker for F: F is the correct lane, and the two F-only gate rows print what the
+reference said on every run, so the day it changes is visible.
+
+## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
+
+<!-- status: fixed
+     lane: native
+     area: front
+     reported-by: claude-code
      reported-at: 2026-08-15
      confirmed: yes
-     gate: none — open defect -->
+     fixed-at: 2026-08-16
+     fixed-in: 1ce60a564
+     gate: tests/e2e/f-context-bounds-gate.sh -->
 
 **Filed, not fixed, deliberately.** The obvious fix is already half-written in the file and it
 produces silent wrong answers. This entry exists mainly to say so before somebody ships it.
@@ -2144,6 +2215,58 @@ That makes this a bounded slice on the scale of the effects port, not a new runt
 **Not verified**: I have not read how `__summon_value_TC` is constructed, only established from
 three lanes that the behaviour is per-call. Whoever takes this should start there, and should keep
 the two-instance probe above as the acceptance test — it is the one that fails for the tempting fix.
+
+### FIXED 2026-08-16 — and the acceptance test above did its job on the first build
+
+**The trap fired exactly as this entry predicted.** The first working build compiled
+`tagless-context-bounds.ssc` and printed
+
+```
+15
+0hello, world      <- reference: hello, world
+```
+
+`combineAll(List("hello", ", ", "world"))` reached `intSum`, folded from `0`, and produced a
+plausible string. Nothing about that run looks like a failure: exit 0, no diagnostic, output that
+reads like output. It was caught because this entry named the probe to run, not because anything in
+the pipeline objected.
+
+**What the fix is.** `[A: TC]` now becomes a real dictionary parameter, matching the oracle:
+
+* `ctxBounds` extracts the bounds instead of letting `skipGen` erase them, and they become the
+  INITIAL env for `parseParams`. Three orderings had to agree and each was wrong once:
+  the dictionary is the LAST parameter here (F's injection APPENDS givens and the first argument
+  takes the highest local index — prepending handed the body the LIST and produced ``Cons.empty` was
+  called but does not exist`); with two bounds the injection list runs in SOURCE order while the env
+  runs reversed, so `ctxTCs` reverses (getting it backwards swaps the dictionaries and each is asked
+  for the other's method); and a single bound is symmetric under both mistakes, which is why it
+  cannot catch either.
+* `parseSummon` resolves `summon[TC[A]]` against `__tc_<TC>` in scope before consulting the table.
+* selection is now STRICT, and this is the part that matters: a dictionary in scope wins outright,
+  else exactly ONE instance matching an argument type, else a type class with exactly ONE instance,
+  else DECLINE via an unbound `__ambiguous_using_<TC>` marker. `findAnyGivenF` — "the first instance
+  of that type class" — is deleted, because it is a coin flip that never announces itself.
+
+**The prediction in this entry that a sound partial "fixes at most one of the five" was wrong**, and
+worth recording as an estimate that undershot for a specific reason. Single-instance-only would have
+fixed one. Adding TYPE-DIRECTED choice (a list argument contributes both `List` and its element type,
+so `combineAll(List(1,2,3))` reaches `intSum` and `combineAll(List("a"))` reaches `stringConcat`) and
+DICTIONARY PROPAGATION (inside `f[A: TC]` the caller's dictionary is the only correct answer) fixed
+all five. The partial looked narrow because I costed it as one rule; it was three, and the other two
+are what a context bound actually means.
+
+Measured after: every corpus file with a context bound or a `summon` reports `F` —
+`std/semigroup-monoid.ssc`, `bench/corpus/typeclass-fold.ssc`, `tests/conformance/tagless-context-bounds.ssc`,
+`tests/fixtures/v21-native/typeclass-dictionary.ssc`, `examples/typeclass.ssc` among them. The only
+non-`F` rows left in that set are `exact-summon-missing.ssc` (BOTH-UNBOUND by design — the given is
+genuinely absent) and a v3-tree file. **Strictness cost no corpus coverage**: the cases it declines
+are the ones that were being guessed.
+
+`ambiguous-declines` in the gate is the row that keeps this honest — an argument whose type cannot be
+known, with two instances in the table, must refuse rather than answer. Its companion
+`ambiguous-still-runs` asserts the program is nonetheless correct, because a decline hands the module
+to the reference. Either row alone is satisfiable by a broken front: one passes if F declines
+everything, the other if F guesses.
 
 ## f-front-exit-code-replaces-the-real-diagnostic — and the defect it hid
 
