@@ -3,9 +3,9 @@ branch: feature/effect-row-content
 agent: claude-code
 started: 2026-08-16T03:18:16Z
 heartbeat: 2026-08-16T03:18:16Z
-status: claimed-before-planning
+status: in-progress
 items: effect-row-verifier-demands-a-declaration-it-never-checks
-paths: file:v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/BUGS.md file:tests/SPRINT.md file:tests/e2e/effect-row-says-what-it-means.sh file:.github/workflows/ci.yml
+paths: file:v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/BUGS.md file:tests/SPRINT.md file:tests/e2e/effect-row-says-what-it-means.sh file:.github/workflows/ci.yml file:tests/conformance/effects.ssc file:tests/conformance/effects-handler.ssc file:tests/conformance/effect-deep-handler-state.ssc file:tests/conformance/head-field-effect-shadow.ssc file:tests/conformance/js-effect-multishot-long-fold.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
