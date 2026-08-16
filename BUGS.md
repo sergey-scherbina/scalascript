@@ -23,6 +23,66 @@ Newest first.
 
 
 
+## v3-an-escaped-continuation-resumes-without-the-return-clause — `effect-deep-handler-state` calls 7 as a function
+
+<!-- status: open
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/corpus-report.sh (effect-deep-handler-state, a standing DIFF)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**The second of the two effect DIFFs, and a DIFFERENT defect from
+`v3-handler-arm-value-dropped-when-the-perform-is-a-statement`** — same corner of the machinery,
+different line, so it is filed separately rather than folded in.
+
+`tests/conformance/effect-deep-handler-state.ssc` expects `108`. v3's executor says
+`calling a non-function: 7` with no position, and the bridge dies with a Java stack trace; int and
+native answer correctly. Two lanes, two failures, neither of them the answer.
+
+**REDUCED to one perform and one line of state:**
+
+    def prog(): Int ! C =
+      C.w(1)
+      7
+
+    val f = handle(prog()) {
+      case C.w(n, resume) => (s: Int) => resume(())(s + n)
+      case Return(x)      => (s: Int) => x + s
+    }
+    println(f(0))              // native 8; v3 `calling a non-function: 7`
+
+**THE MECHANISM, and it is one line.** `Exec.scala`'s `Resume` applies the return clause through
+`handlers.headOption` — the DYNAMIC handler stack. That is right while the continuation is called
+inside the `handle`, and wrong the moment it escapes: this handler's arm RETURNS a closure, the
+`handle` finishes, and `f(0)` calls the continuation when no frame is on the stack any more. With
+`headOption` empty the code takes its `getOrElse(raw)` branch, so `resume(())` gives back the
+computation's bare `7` instead of the return clause's `(s: Int) => 7 + s`, and the program then calls
+`7` as a function.
+
+**CONTROLLED, so the diagnosis is not just a plausible reading of the code.** The same arm, the same
+lambda, applied INSIDE the handler's extent —
+
+    case C.w(n, resume) =>
+      val g = (s: Int) => resume(())(s + n)
+      g(0)
+
+— answers **8** on v3, exactly like native. Escaping the extent is the whole difference.
+
+**WHY THE OBVIOUS FIX IS NOT ONE LINE.** The return clause has to be found from the CONTINUATION,
+not from the current stack, so the continuation value would have to carry its handler frame — the
+executor activates the arm knowing `h`, but `k` itself is an ordinary `VClos` built by `Cps`/`MkClos`
+in the lowering, and the executor has nowhere to put the frame today. The comment above that code
+records why it reads the dynamic head at all: a `resume` inside a lambda runs in the LAMBDA's frame,
+and the arm's registers are the HANDLING function's, so an earlier version indexed out of bounds.
+Any fix has to keep that case working.
+
+**The same design explains the full case's other symptom.** With two ticks, the second one performs
+while no frame is on the stack and the executor says `no handler for effect operation 0` — the
+unpositioned message `v3-no-handler-error-has-no-position` describes, in the one shape its
+lowering-time refusal deliberately cannot see.
+
 ## rust-exec-silently-ignores-every-processoptions-field — `cwd`, `env` and `inheritEnv` were obeyed under `run` and dropped under `build-rust`, with no diagnostic
 
 <!-- status: fixed
