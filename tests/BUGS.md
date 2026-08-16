@@ -6023,6 +6023,47 @@ the rest are single-site shapes (a `val` bound to two different case classes, `V
 `Vec<Value>` at a nested position). rozum cannot rebuild `clients/meeting` yet. What changed is
 that the remaining work is now a list of individual sites rather than a design question.
 
+**2026-08-16 — THE NUMBER WAS STALE AND THE SHAPE IS DIFFERENT.** The "41 errors" above cannot be
+reproduced, because `std/json-core.ssc` no longer REACHES rustc at all: the walker refuses it on
+`reverse` read without parentheses, so cargo never runs. The remaining work is not a 41-item list —
+it is behind a refusal, and lifting that refusal is what makes it visible.
+
+Measured by lifting it (a `SscSeqRead` trait settles the three parenless members without any
+receiver type, which is what the `wontfix` entry `rust-no-paren-member-needs-receiver-type` said it
+would take):
+
+| module | rustc errors once the refusal is lifted |
+|---|---|
+| `std/fs.ssc` | 2 |
+| `std/litdoc.ssc` | 24 |
+| `std/json-core.ssc` | 47 |
+| `std/yaml-core.ssc` | 98 |
+| `std/content-core.ssc` | 209 |
+| **total** | **380** |
+
+**THE UNBLOCK IS NOT LANDED, DELIBERATELY.** On its own it moves those five modules from REFUSED to
+BADRUST, and `rust-std-survey-gate.sh` refuses that in as many words: *a refusal is a message the
+user can act on; bad generated code is not*. So the trait stays out until the modules it exposes
+compile.
+
+**Three shared classes fixed and landed instead**, each measured on its own program rather than on
+std, and each cutting the number above:
+
+| fix | what it was | cleared |
+|---|---|---|
+| an Option-returning def is an Option | `f(x).map(…)` took the LIST lowering because the recogniser knew literals and locals but not a call to a def declared `: Option[T]` | `std/fs.ssc` reaches **0** |
+| `Nil` is a value, not only a pattern | `loop(s, i, Nil)` emitted the bare word — `cannot find value Nil` | 48 |
+| a match arm in a `Value` tail | wrapping a rendered arm in `Value::from` is not rendering it AS a tail: an arm that is `if p then Err{…} else <Any-returning call>` fails to typecheck before any wrapper applies | 20 |
+
+380 → **312**, and `std/fs.ssc` is the first of the five to compile. Gate:
+`tests/e2e/rust-json-core-gate.sh`, three programs on three lanes compared by ANSWER; the revert
+control reds each row with its own distinct error (`E0308` mismatched, `E0425` Nil, `E0308` if/else).
+
+**What is left is a per-module campaign, not a class.** The biggest remaining shape in
+`std/litdoc.ssc` is a case-class field whose declared type fell to the `i64` default, and
+`std/content-core.ssc` alone holds 170. Whoever takes this next should lift the refusal locally
+first — the errors are invisible until they do.
+
 ## scaffolded-projects-cannot-load-their-build
 
 <!-- status: fixed
