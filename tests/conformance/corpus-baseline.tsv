@@ -51,7 +51,6 @@ mcp-server-resource	js	FAIL
 mcp-server-tool	js	FAIL
 mcp-server-tools	js	FAIL
 middleware-demo	*	SKIP
-native-import-in-fence	js	KNOWN-RED
 node-fs-read	*	SKIP
 oauth-as-standalone	*	SKIP
 oauth-demo	*	SKIP

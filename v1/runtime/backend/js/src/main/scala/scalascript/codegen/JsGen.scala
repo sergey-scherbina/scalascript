@@ -2329,6 +2329,18 @@ class JsGen(
       case cb: Content.CodeBlock if cb.isProgramCode && cb.attrs.get("side").contains("server") =>
         ()
       case cb: Content.CodeBlock if cb.isProgramCode =>
+        // BOTH IMPORT SURFACES, exactly as `genModuleSegmented` does. A `[names](path.ssc)` line
+        // INSIDE a fence is read by commonmark as literal text, so it never becomes a
+        // `Content.Import` and the arm further down never fires. `0796774ad` taught the segmented
+        // walker to look here and left this one — the ONESHOT walker, which is what
+        // `compileViaBackend` and therefore `ssc-tools run-js` use.
+        //
+        // The two halves diverged silently for a week: `emit-js | node` printed the right answer
+        // while `run-js` on the same file, same launcher and same build died with
+        // `ReferenceError: square is not defined`, far from the import. Two conformance harnesses
+        // disagreed about "the js lane" for the same reason — run.sc drives emit-js, contract.sc
+        // drives run-js — so no single `known-red:` could be correct for both.
+        scalascript.parser.Parser.inlineImports(cb.source).foreach(genImport)
         withContentCurrentSection(sectionIndex) {
           cb.tree.foreach(genScalaNode)
         }
