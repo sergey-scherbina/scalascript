@@ -52,12 +52,13 @@ mirrored `Character` case would have been dead code sitting above an unreachable
 
 ## check-handler-markers-was-left-on-bare-rustc-when-its-sibling-moved-to-cargo
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      kind: apparatus
      area: build
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: b17a28e57
      confirmed: yes
      gate: v2/backend/check-handler-markers.sh -->
 
