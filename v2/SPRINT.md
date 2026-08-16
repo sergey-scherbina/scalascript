@@ -94,7 +94,33 @@ So the front-lowering share is ~7.7 s per invocation and a cached front leaves ~
 That also explains the earlier puzzle: F's 4 s premium over the REFERENCE is not the whole lowering
 cost, because the reference pays its own large share for `ssc1-front` + `ssc1-lower`.
 
-**THE BLOCKING DESIGN QUESTION, unresolved.** `run-ir` loads encoded IR on the JDK side. The tower
+### RESOLVED 2026-08-16: the contract rules out three of the four routes, and names the fourth
+
+Not a judgement call — `tests/e2e/v21-native-plugin-boundary-smoke.sh` runs the probe itself
+(`JAVA_TOOL_OPTIONS=-verbose:class`, grep for `ssc\.Reader`) and fails with "loaded a retired host
+parser or textual CoreIR reader". Measured against that:
+
+```
+today's F path      ssc.Reader loaded 0×      (IrDecode IS loaded — #coreir.eval calls it on a
+                                               DATA TREE, which needs no textual reader)
+#coreir.decode      Str AND Bytes both go through Reader.parseProgram  -> would load it
+run-ir              ssc.Reader loaded 23×
+```
+
+* **decode in the tower** — forbidden, both arms of the primitive hit `Reader.parseProgram`.
+* **JDK-side in-process load** — same, `run-ir` loads it 23×.
+* **JDK-side in a CHILD process** — still fails as the smoke is written: `JAVA_TOOL_OPTIONS` is
+  inherited, so the child's `-verbose:class` output lands in the same captured log.
+* **THE ONE ROUTE LEFT: `irTextToData`** — the self-hosted IR-text parser already in
+  `ssc1-run-fsub.ssc0`, written for exactly this reason. It is contract-compatible by construction
+  because it is already on the F path today, parsing F's OUTPUT every run.
+
+**So the remaining question is speed, not legality**: is `irTextToData` over the 532 KB `F0.ir`
+cheaper than `parse` + `lowerProg` over the 392 KB source? It is not obvious — a self-hosted parser
+over a larger artifact could easily lose. THAT is the next measurement, and it decides the whole
+task. If it loses, the honest outcome is to close this as not-worth-it and say so, with the number.
+
+**Superseded question (kept because the reasoning is reusable):** `run-ir` loads encoded IR on the JDK side. The tower
 runner cannot do the same with `#coreir.decode` — the D2 note in `ssc1-run-fsub.ssc0` records that
 the F lane deliberately avoids it so no `ssc.Reader` is class-loaded (blocker ③.2 of the front flip),
 which is why the self-hosted `irTextToData` exists at all. So the load has to happen either
