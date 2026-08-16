@@ -7999,6 +7999,19 @@ still a proxy for it.
 > smoke budget this project already treats as a cap. It wants either its own scheduled workflow or a
 > `--fast` subset — a decision, not an oversight. Recorded so the next person counting orphans knows
 > the number is scoped to one directory.
+>
+> **MEASURED 2026-08-16, so the decision no longer rests on "takes minutes": `v2/backend/check.sh` is
+> ALL GREEN — 16 fixtures × 4 backends, 57 ok / 7 skip / 0 fail, rc=0 — in 17 min 55 s wall clock**
+> (on a host at load ~48, `96 s user / 10% cpu`, so it is mostly waiting; a quiet host would be
+> faster but still minutes). The whole smoke suite is ~18 min against a 30-min cap, so this cannot go
+> on the push path — the paragraph above was right, and now it has a number.
+>
+> The `--fast` half of that decision needs no new flag: the script's own usage line is
+> `v2/backend/check.sh [fixture-name-pattern]`, so a representative subset is already expressible.
+> What remains is choosing between a subset in tier 2 and the full run on a schedule, and that is a
+> CI-budget decision rather than an agent's — `corpus-contract.yml`'s header records what happened
+> the last time a nightly's budget was estimated instead of measured (13 runs, zero green, and a
+> `cancelled` that read as benign).
 
 **Measured 2026-08-02.** `tests/e2e` holds 126 scripts. 52 of them are referenced by no workflow, no
 suite, and no other script — only, at most, by prose in a `.md`. Running all 52 with a built
