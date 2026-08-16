@@ -1,0 +1,11 @@
+slug: content-current-section
+branch: feature/content-current-section
+agent: claude-code
+started: 2026-08-16T19:00:18Z
+heartbeat: 2026-08-16T19:00:18Z
+status: claimed-before-planning
+items: content-current-section-native-unavailable
+paths: file:v2/bin/ssc1-run.ssc0 file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
