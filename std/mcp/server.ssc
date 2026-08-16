@@ -1,7 +1,7 @@
 ---
 name: std-mcp-server
 version: 0.2.0
-description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa. Transport.Http (SSE) supported on JS since v0.2.0.
+description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM; the interpreter and the native lane implement the protocol directly. Not available on scalajs-spa. Transport.Http (SSE) supported on JS since v0.2.0.
 package: std.mcp
 exports:
   # Every name this module imports from ./types.ssc is re-exported. The list used to carry only
@@ -28,6 +28,7 @@ exports:
   - requireInt
   - requireDouble
   - requireBool
+  - ElicitationResult
 ---
 
 # `std.mcp.server`
@@ -35,11 +36,21 @@ exports:
 MCP server API. Same shape as the REST stack: `mcpServer { srv => ... }` registers
 handlers; `serveMcp(transport)` starts listening.
 
-Requires `Feature.McpServer` — available on `jvm` and `js` (Node) backends only.
+Requires `Feature.McpServer` — available on `jvm`, `js` (Node), the interpreter and the native
+lane. NOT on `scalajs-spa`, which declares only `Feature.McpClient`.
+
+The interpreter is not a lesser lane here. Driving a `.ssc` server over stdio, it answers
+`initialize` with `protocolVersion 2025-06-18` and advertises `tools`, `resources` (with
+`subscribe`), `prompts`, `logging` and `completions` — byte-identical capabilities to the native
+lane, differing only in `serverInfo` (`ssc-mcp-int` vs `ssc-mcp-native`). Measured, because the
+line this replaced said "not available on interpreter" for months and a capability DECLARATION is
+not a running server. NOT compared against `jvm`/`js` here: those wrap the vendor SDKs and were not
+driven for this note.
 
 ```scalascript
 [ToolResult, ResourceResult, PromptResult, Content, Message, Role, Transport, McpError,
- Tool, Resource, Prompt, requireString, requireInt, requireDouble, requireBool](./types.ssc)
+ Tool, Resource, Prompt, ElicitationResult, requireString, requireInt, requireDouble,
+ requireBool](./types.ssc)
 
 // ─── McpServer trait ─────────────────────────────────────────────────────────
 
@@ -61,6 +72,26 @@ extern class McpServer:
   // handler receives template args as Map[String, Any].
   def prompt(name: String)(handler: Map[String, Any] => PromptResult): Unit
   def prompt(name: String, description: String)(handler: Map[String, Any] => PromptResult): Unit
+
+  // ── Elicitation ──────────────────────────────────────────────────────────
+  //
+  // Ask the connected client for structured input mid-handler. `schema` is a JSON Schema object;
+  // the answer's `action` is "accept", "decline" or "cancel", and `content` is present only for
+  // "accept".
+  //
+  // DECLARED NOW, HAVING BEEN REACHABLE WITHOUT A DECLARATION. The v1 plugin exposes
+  // `McpServer.elicit` and builds an undeclared `ElicitationResult` record; nothing in `.ssc` said
+  // either existed, so a second lane had no contract to implement against. That is what this
+  // declaration is for — see the type in ./types.ssc.
+  //
+  // Requires the client to have advertised `elicitation` in its initialize capabilities;
+  // `clientSupportsElicitation` says whether it did.
+  // ONE declaration with a DEFAULT rather than two arities. A v2 plugin member is resolved by
+  // `getField(name)` — a value handed back before any argument exists — and every `Value.ClosV`
+  // carries a FIXED declared arity, so one name cannot serve two arities there. v1's plugin
+  // protocol can (its native matches on the argument list), but the surface has to be expressible
+  // on both. `timeoutMs = 0` means "the builder's own default".
+  def elicit(message: String, schema: Map[String, Any], timeoutMs: Long = 0): ElicitationResult
 
   // Lifecycle hooks — called once per client connect / disconnect.
   def onConnected(handler: () => Unit): Unit

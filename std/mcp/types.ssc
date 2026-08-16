@@ -6,6 +6,7 @@ package: std.mcp
 exports:
   - ToolResult
   - ResourceResult
+  - ElicitationResult
   - PromptResult
   - Content
   - Message
@@ -43,6 +44,16 @@ enum Content:
 case class ToolResult(content: List[Content], isError: Boolean = false)
 
 case class ResourceResult(uri: String, contents: List[Content])
+
+// The answer to `srv.elicit(...)`. `action` is one of "accept", "decline", "cancel"; `content` is
+// present only for "accept".
+//
+// DECLARED HERE BECAUSE IT WAS NOT DECLARED ANYWHERE. v1's plugin built a record it called
+// `ElicitationResult` with these two field NAMES and nothing described it, so a second lane had
+// nothing to agree with — v2's value model is positional, and two undeclared shapes cannot line up
+// by accident. The declaration is the contract; the field ORDER below is what a positional lane
+// builds against.
+case class ElicitationResult(action: String, content: Option[Map[String, Any]])
 
 case class PromptResult(messages: List[Message])
 

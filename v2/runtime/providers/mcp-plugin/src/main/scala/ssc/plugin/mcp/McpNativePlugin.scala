@@ -12,6 +12,19 @@ import ssc.plugin.json.NativeJsonCodec
 final class McpNativePlugin extends NativePlugin:
   def id: String = "90-mcp-explicit"
 
+  /** `ElicitationResult(action, content)` in the DECLARED field order. `content` is an Option, and
+   *  only "accept" carries one — the other two carry None, which is what the declaration says. */
+  private def elicitationValue(r: scalascript.mcp.McpProtocol.ElicitationResult): Value = r match
+    case scalascript.mcp.McpProtocol.ElicitationResult.Accept(content) =>
+      Value.DataV("ElicitationResult", Vector(
+        Value.StrV("accept"), Value.DataV("Some", Vector(json(content)))))
+    case scalascript.mcp.McpProtocol.ElicitationResult.Decline =>
+      Value.DataV("ElicitationResult", Vector(
+        Value.StrV("decline"), Value.DataV("None", Vector.empty)))
+    case scalascript.mcp.McpProtocol.ElicitationResult.Cancel =>
+      Value.DataV("ElicitationResult", Vector(
+        Value.StrV("cancel"), Value.DataV("None", Vector.empty)))
+
   private def closure(arity: Int)(fn: List[Value] => Value): Value =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
 
@@ -290,6 +303,36 @@ final class McpNativePlugin extends NativePlugin:
           Value.UnitV
         })
         case "isCancelled" => Some(closure(0) { _ => Value.BoolV(builder.isCancelled) })
+
+        // ── elicit ────────────────────────────────────────────────────────
+        //
+        // Builds `ElicitationResult(action, content)` — the type now DECLARED in std/mcp/types.ssc,
+        // whose field ORDER is the contract a positional value model builds against. v1 answers the
+        // same shape with named fields; before the declaration existed there was nothing for the two
+        // to agree with, which is what kept this off v2.
+        //
+        // THE CONTROL SIGNAL SURVIVES THIS BOUNDARY — measured, not assumed: a Throwable raised
+        // inside a v2 handler propagates out through `context.invoke` and reaches the shared core,
+        // which answered `isError: true` with the message. So an MRTR `InputRequiredSignal` raised
+        // by `elicit` is caught by `withRequestTracking` in the core exactly as it is on v1.
+        // ONE ARITY, because that is what this protocol can express: `getField(name)` hands back a
+        // value before any argument exists, and every `Value.ClosV` carries a FIXED declared arity,
+        // so a name cannot serve two of them. The `.ssc` declaration was therefore collapsed to one
+        // signature with `timeoutMs = 0` defaulted — v1's variadic native still serves it, and both
+        // lanes now implement the same shape instead of one lane carrying an overload the other
+        // cannot express.
+        case "elicit" => Some(closure(3) { args =>
+          val message = text(args.head, "srv.elicit(message, schema, timeoutMs)")
+          val schema  = args.lift(1).map(json).getOrElse(ujson.Obj())
+          val result  = args.lift(2) match
+            case Some(Value.IntV(ms)) if ms > 0 => builder.elicit(message, schema, ms)
+            case _                              => builder.elicit(message, schema)
+          result match
+            case Left(e)  => sys.error(s"srv.elicit: ${e.message}")
+            case Right(r) => elicitationValue(r)
+        })
+        case "clientSupportsElicitation" =>
+          Some(closure(0) { _ => Value.BoolV(builder.clientSupportsElicitation) })
 
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head

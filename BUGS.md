@@ -1353,6 +1353,49 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## mcp-elicit-deadlocks-the-serve-loop — the answer can only arrive through the loop `elicit` blocks
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-16
+     ssc-version: c5615f9ca
+     repro: the driver in the body
+     confirmed: yes -->
+
+`srv.elicit(...)` sends `elicitation/create` and then BLOCKS the calling handler waiting for the
+answer. The serve loop is single-threaded: it reads a line, dispatches it, and only then reads the
+next one. So while the handler waits, nothing is reading stdin — and the answer it waits for can
+only arrive on stdin.
+
+    srv.tool("ask")(args =>
+      val r = srv.elicit("name?", Map("type" -> "object"))
+      Tool.text("action=" + r.action))
+
+    → {"jsonrpc":"2.0","method":"elicitation/create",…,"id":1}      the request DOES go out
+    → 60 s later: {"content":[{"text":"srv.elicit: … timed out after 60000ms"}],"isError":true}
+
+**ON BOTH LANES, identically** — the same program, the same driver, the same message on `ssc run`
+and on `ssc run --v2`. This is not a v2 gap.
+
+**IT IS THE LOOP, NOT THE DRIVER.** A client that answers the elicitation gets nothing; and a client
+that instead sends an ordinary `tools/list` while the handler is blocked gets NO reply for the full
+60 s, then only the `tools/call` answer. The server is deaf for the whole window, which is the
+discriminator: a driver bug cannot make the server stop answering unrelated requests.
+
+**THE MACHINERY TO FIX IT ALREADY EXISTS AND IS NOT BEING USED.** MRTR parks a request on a virtual
+thread precisely so the loop keeps reading — `withRequestTracking` catches an `InputRequiredSignal`,
+parks, and resumes when the reply lands. `elicit` waits synchronously instead of raising that signal,
+so it never reaches the path built for it.
+
+Found while implementing `elicit` on v2, which is why the backlog asked for the second measurement
+there. That measurement came out positive on its own terms — a Throwable raised inside a v2 handler
+DOES propagate through `context.invoke` to the shared core — so the park path is reachable from v2;
+`elicit` simply does not take it on either lane.
+
 ## interp-summon-over-an-anonymous-given — the reference lane answers `unbound global` where Scala 3 resolves
 
 <!-- status: open

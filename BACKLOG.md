@@ -508,12 +508,30 @@ that does, proven in both directions.
 
 - [x] **v2 MRTR core.** `setMrtrMode`, `asTask`, `clientSupportsTasks`, `requestState`,
       `setRequestState`, `isCancelled` reach the default lane, plus the boundary-crossing gate.
-- [ ] **`elicit` on v2.** Deliberately NOT in the slice above: two things need MEASURING rather
-      than assuming, and carrying v1's answers across is the mistake this migration punished
-      repeatedly. (1) The return shape — v1 hands back a record with `action`/`content` fields
-      and v2's value model is positional, so agreeing by accident is not available. (2) Whether
-      the MRTR control signal survives v2's `context.invoke`; that was measured for v1 by test
-      and never for v2.
+- [x] **`elicit` on v2.** ✓ 2026-08-16. Both measurements taken before any code, and both changed
+      what the work was.
+      **(1) The return shape.** v1 builds `PluginValue.instance("ElicitationResult", …)` with NAMED
+      fields — and NOTHING DECLARED IT. Neither `ElicitationResult` nor `elicit` appeared in any
+      `.ssc`; v1 reached them because its records answer field access by name. So the problem was
+      not that the two lanes might disagree, it is that there was no contract to agree WITH. Both
+      are now declared in `std/mcp/types.ssc` and `std/mcp/server.ssc`, and the declared FIELD ORDER
+      is what a positional lane builds against.
+      **(2) The MRTR signal through `context.invoke`.** It survives — measured, not assumed: a
+      Throwable raised inside a v2 handler propagates out and reaches the shared core, which answered
+      `isError: true` carrying the message. The park path is therefore reachable from v2.
+      **The `.ssc` surface lost an overload, deliberately.** `elicit` was declared at two arities;
+      a v2 plugin member is resolved by `getField(name)` — a value handed back before any argument
+      exists — and every `Value.ClosV` carries a FIXED arity, so one name cannot serve two. v1's
+      variadic native could, which is how the overload survived unnoticed. It is now ONE declaration
+      with `timeoutMs = 0` defaulted, which both protocols can express. Verified that the default is
+      filled at the call site rather than assumed: a two-argument call reaches the arity-3 closure.
+      **AND IT CANNOT SUCCEED ON EITHER LANE, for a reason that is not v2's.** `elicit` blocks the
+      handler waiting for an answer that can only arrive through the single-threaded serve loop it
+      is blocking. Same program, same driver, same 60 s timeout on `ssc run` and `ssc run --v2`; a
+      client sending an ordinary `tools/list` during the window gets nothing for the full 60 s,
+      which is what rules out the driver. Filed as `mcp-elicit-deadlocks-the-serve-loop`. The fix is
+      to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
+      the one caller that does not use it.
 - [ ] **The remaining ~30 `srv` members on v2**, in groups that stand alone: auth (7),
       roots/sampling (6), notifications and progress (7), registration —
       `toolWithSchema`/`resourceTemplate`/`prompt` (3), completions (2), paging (2),
@@ -529,10 +547,14 @@ that does, proven in both directions.
       document, with `Tool.text(...)` and `requireString(args, ...)`. It was discarded rather
       than landed. Ordering matters here too: a guide teaching `srv.asTask()` while the default
       lane errors on it is worse than no guide, so this follows the v2 items.
-- [ ] **`std/mcp/server.ssc` says "Not available on interpreter"** in its descriptor. The
-      interpreter is exactly where the full surface DOES work — `McpSscApiTest` runs `.ssc`
-      through it. Prose, nothing reads it as a capability, but it points a reader away from the
-      one lane that has everything.
+- [x] **`std/mcp/server.ssc` says "Not available on interpreter"** ✓ 2026-08-16 — and the line was
+      HALF wrong, which is why it was checked rather than just corrected. The interpreter part is
+      false: it declares `Feature.McpServer` and, driven over stdio, answers `initialize` with
+      `2025-06-18` advertising tools, resources, prompts, logging and completions — the fullest
+      surface of any lane. The `scalajs-spa` part is TRUE: that backend declares only
+      `Feature.McpClient`. Both the descriptor and a second sentence in the prose said the same
+      false thing; both now name the interpreter and the native lane and keep the scalajs-spa
+      exclusion.
 
 Not a goal: removing the legacy era. Not until legacy traffic is measurably zero.
 

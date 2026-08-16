@@ -154,4 +154,42 @@ grep -q 'surface-ok' "$tmp/mrtr.v2" || {
   echo 'v21-standard-mcp-smoke: the 2026 surface case did not run to completion' >&2; exit 1
 }
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes)'
+# ── elicit: the REQUEST must go out, on both lanes, identically ──────────────
+#
+# `srv.elicit` cannot SUCCEED over stdio on either lane — it blocks the handler waiting for an answer
+# that only the single-threaded serve loop it is blocking could deliver
+# (mcp-elicit-deadlocks-the-serve-loop). So this asserts what is actually true: the member RESOLVES
+# on both lanes and puts `elicitation/create` on the wire with the message and schema it was given.
+#
+# ASSERTING THE REQUEST RATHER THAN THE ANSWER IS THE POINT. A case demanding the answer would have
+# to be deleted or weakened the moment it ran, and a case asserting only that the member exists would
+# pass on a member that resolves and sends nothing. `timeoutMs` is 1 so the row costs a second rather
+# than the builder's 60.
+cat > "$tmp/elicit.ssc" <<'SSC'
+[mcpServer, serveMcp, Transport, Tool](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.tool("ask")(args =>
+      val r = srv.elicit("name?", Map("type" -> "object"), 1)
+      Tool.text("action=" + r.action)))
+  serveMcp(Transport.Stdio)
+SSC
+elicit_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"elicitation":{}}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":{}}}'
+# The interpreter lane goes through ssc-tools and the standard launcher through $LAUNCHER — the
+# same split the rows above use; taking one binary for both is what made the first draft of this
+# case red on --v1.
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$elicit_in" | "$bin" run $lane "$tmp/elicit.ssc" >"$tmp/elicit$lane.out" 2>/dev/null || true
+  grep -q '"method":"elicitation/create"' "$tmp/elicit$lane.out" || {
+    echo "v21-standard-mcp-smoke: elicit did not reach the wire on $lane" >&2
+    tail -3 "$tmp/elicit$lane.out" >&2; exit 1
+  }
+  grep -q '"message":"name?"' "$tmp/elicit$lane.out" || {
+    echo "v21-standard-mcp-smoke: elicit sent a request without its message on $lane" >&2; exit 1
+  }
+done
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire)'
