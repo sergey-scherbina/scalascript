@@ -492,6 +492,7 @@
       |    let mut command = std::process::Command::new(&cmd);
       |    command.args(&args);
       |    let mut stdin_text: Option<String> = None;
+      |    let mut timeout_ms: Option<u64> = None;
       |    if let crate::value::Value::Obj("ProcessOptions", f) = opts.into() {
       |        // cwd — field 0, an Option lowered as `Obj("Some", [v])` / `Obj("None", [])`.
       |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(0) {
@@ -514,11 +515,12 @@
       |                stdin_text = Some(text.clone());
       |            }
       |        }
-      |        // timeout — field 2, and it is NOT applied here. `std::process::Command` has no
-      |        // timeout, so honouring it means spawning, polling and killing, which changes this
-      |        // function's shape and its failure contract. Left unapplied DELIBERATELY and recorded
-      |        // in `rust-exec-ignores-processoptions-timeout` rather than half-done, because a
-      |        // timeout that is accepted and not enforced is the same silent lie this change fixes.
+      |        // timeout — field 2, in MILLISECONDS. Applied below, where there is a child to time.
+      |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(2) {
+      |            if let Some(crate::value::Value::Int(ms)) = inner.get(0) {
+      |                if *ms > 0 { timeout_ms = Some(*ms as u64); }
+      |            }
+      |        }
       |    }
       |    // stdin — field 4, appended to the record so 0..3 above keep their meaning.
       |    //
@@ -529,7 +531,11 @@
       |    // every existing caller is emitted and runs exactly as before.
       |    // (rozum `process-needs-a-stdin-pipe`: the alternative is argv, where `ps` shows a secret
       |    // to every local process.)
-      |    if let Some(text) = stdin_text {
+      |    // `stdin_text.is_some() && timeout_ms.is_none()` — NOT just `is_some()`. The timeout path
+      |    // below writes stdin itself, and without this guard a call setting BOTH would take this
+      |    // branch, return here, and silently lose its timeout: one cell of the matrix fixed and its
+      |    // neighbour left, which is the shape this repository keeps paying for.
+      |    if let (Some(text), None) = (stdin_text.clone(), timeout_ms) {
       |        use std::io::Write;
       |        command.stdin(std::process::Stdio::piped());
       |        command.stdout(std::process::Stdio::piped());
@@ -547,6 +553,72 @@
       |            stdout:   String::from_utf8_lossy(&out.stdout).into_owned(),
       |            stderr:   String::from_utf8_lossy(&out.stderr).into_owned(),
       |            exitCode: out.status.code().unwrap_or(-1) as i64,
+      |        };
+      |    }
+      |    // A TIMEOUT NEEDS A CHILD TO WATCH, so this path spawns instead of calling `.output()`,
+      |    // which blocks until the child is done and can therefore never be interrupted. Measured
+      |    // before the change, `exec("sleep 5", timeout = 600ms)` on this lane returned after the
+      |    // FULL five seconds with exit code 0, while `run` killed at 600 ms and returned -1: not
+      |    // merely unenforced, but reporting success for a call the caller had bounded.
+      |    //
+      |    // -1 ON EXPIRY IS READ OFF THE OTHER LANES, not invented — the v1 plugin and the jvm
+      |    // runtime both answer -1 after `destroyForcibly`, and a fourth answer here would be a new
+      |    // divergence closing an old one. Whatever the child managed to write is still returned;
+      |    // partial output is what the other lanes hand back too.
+      |    //
+      |    // THE PIPES ARE DRAINED ON THREADS for the reason both JVM lanes carry in their own
+      |    // comments: reading either stream to EOF on this thread blocks until the child exits,
+      |    // which deadlocks on more than a pipe-buffer of output AND defeats the very timeout being
+      |    // implemented — the read could not return before the process it is timing had finished.
+      |    if let Some(limit) = timeout_ms {
+      |        use std::io::Read;
+      |        command.stdout(std::process::Stdio::piped());
+      |        command.stderr(std::process::Stdio::piped());
+      |        if stdin_text.is_some() { command.stdin(std::process::Stdio::piped()); }
+      |        let mut child = command.spawn().unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
+      |        if let Some(text) = stdin_text {
+      |            use std::io::Write;
+      |            if let Some(mut pipe) = child.stdin.take() {
+      |                let _ = pipe.write_all(text.as_bytes());
+      |            }
+      |        }
+      |        let mut co = child.stdout.take();
+      |        let mut ce = child.stderr.take();
+      |        let out_t = std::thread::spawn(move || {
+      |            let mut buf = Vec::new();
+      |            if let Some(h) = co.as_mut() { let _ = h.read_to_end(&mut buf); }
+      |            buf
+      |        });
+      |        let err_t = std::thread::spawn(move || {
+      |            let mut buf = Vec::new();
+      |            if let Some(h) = ce.as_mut() { let _ = h.read_to_end(&mut buf); }
+      |            buf
+      |        });
+      |        // Polling rather than a channel: no extra crate, and the granularity that matters is
+      |        // "did it beat the deadline", not the exact millisecond it was killed on.
+      |        let started = std::time::Instant::now();
+      |        let mut code: i64 = -1;
+      |        loop {
+      |            match child.try_wait() {
+      |                Ok(Some(status)) => { code = status.code().unwrap_or(-1) as i64; break; }
+      |                Ok(None) => {
+      |                    if started.elapsed() >= std::time::Duration::from_millis(limit) {
+      |                        let _ = child.kill();
+      |                        let _ = child.wait();
+      |                        code = -1;
+      |                        break;
+      |                    }
+      |                    std::thread::sleep(std::time::Duration::from_millis(10));
+      |                }
+      |                Err(e) => panic!("exec({}): {}", cmd, e),
+      |            }
+      |        }
+      |        let ob = out_t.join().unwrap_or_default();
+      |        let eb = err_t.join().unwrap_or_default();
+      |        return ProcessResult {
+      |            stdout:   String::from_utf8_lossy(&ob).into_owned(),
+      |            stderr:   String::from_utf8_lossy(&eb).into_owned(),
+      |            exitCode: code,
       |        };
       |    }
       |    let out = command
