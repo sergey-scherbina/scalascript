@@ -163,10 +163,30 @@ editing the wrong staged tree.
 The second item in this section — memoizing the REFERENCE side of the agreement gate — is untouched
 and still worth ~21 worker-minutes per rerun.
 
-Second, independent and cheaper: **the reference side of the agreement gate is memoizable across
-runs.** Its output depends on (subject, reference front, runtime) and NOT on the F spec, so an
-F-only change reuses all of it — ~416 × 3 s ≈ 21 worker-minutes per rerun. Same keying discipline
-applies, and the same gate shape proves it.
+### DONE 2026-08-16 — the reference side is memoized across runs (claim `agree-gate-ref-cache`)
+
+`reference cache: 275 reused, 61 computed` on the first run with a partly-warm cache; the sampled
+re-verification (1 hit in 12, recomputed and compared) found no mismatch, and a mismatch fails the
+gate before any threshold is read.
+
+**The key is a whole-world digest** of every tracked `.ssc`/`.ssc0` plus the build digest — 1501
+files, 0.28 s, once — because a subject's answer depends on its transitive imports and this gate has
+no import graph. Coarse on purpose: too broad wastes a run, too narrow reports a stale answer as a
+measurement. **The one exclusion is F's own source**, without which the common case (edit F, rerun)
+would invalidate everything, and `--self-test` proves it rather than asserting it: a changed corpus
+file invalidates, a changed F source does not, and the reference's ANSWER is byte-identical across
+that same F edit. The third row is the claim; the first two are the optimisation it buys.
+
+**Stated honestly: the wall clock does not show it.** 73 min with the cache against 66 min without,
+on a host whose run-to-run spread is larger than the effect. The arithmetic is 275 reference runs at
+~3 s ≈ 14 worker-minutes ≈ 7 min at `JOBS=2`, about a tenth of the run — so the evidence is the
+COUNTER and the sampled verification, not the clock. Two full runs cannot resolve a 10% effect on
+this host, which is the expected outcome rather than a disappointment.
+
+Also found, and not a compiler question: `examples/v2-http-sql-demo.ssc` makes a real HTTP request,
+so it lands in whichever bucket the network gives it — it reached `all three lanes differ` once, with
+F seeing `HTTP GET failed: request timed out` and the reference seeing `HTTP status: 200`. Checked
+that the cache was not the cause: the stored reference answer is byte-identical to a fresh run.
 
 ## `++` answers the wrong SHAPE, once per lane (claims `scljet-tuple4-instrumentation`, `js-v2-sconcat-tuple-chain`)
 
