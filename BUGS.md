@@ -23,6 +23,33 @@ Newest first.
 
 
 
+## v3-exec-has-no-string-repetition — `"ab" * 3` was `Mul on String ab and Int 3` on one lane of two
+
+<!-- status: fixed
+     fixed-in: f77b5c46f
+     lane: v3
+     area: runtime
+     kind: bug
+     gate: v3/front-gate.sh (v3/tests/front/string-repeat.ssc) -->
+
+**THE CENSUS IS WHY THIS IS A DELETION AND NOT AN INVENTION:**
+
+    native, interp, v3 --bridge   "ab" * 3  ->  ababab      "ab" * -1  ->  (empty)
+    v3 exec, before               Mul on String ab and Int 3
+
+Every lane that answers gives the same answer, and v3's OWN BRIDGE is among them — so the executor
+was the only refusal, and the two lanes of one compiler disagreed (invariant I-3).
+
+**NOT HYPOTHETICAL.** `tests/conformance/indent-block-statements.ssc` builds its indentation with
+`" " * depth`. It was the corpus's last exec-side DIFF — correct on the bridge, dead on the
+executor — and it now matches its expectation on both lanes. The corpus DIFF list is down to the two
+effects cases (`v3-handler-arm-value-dropped-when-the-perform-is-a-statement`,
+`v3-an-escaped-continuation-resumes-without-the-return-clause`), and N moved 235 → 237.
+
+Zero and negative give the empty string, measured on the three answering lanes rather than taken
+from Scala's documentation. One direction only: `3 * "ab"` is not written here, because Scala does
+not have it either — a fourth answer to a question nobody asks.
+
 ## uniml-treats-a-hole-in-a-plain-string-as-interpolation — `"${" + x + "}"` collapses into one literal
 
 <!-- status: fixed
@@ -4886,105 +4913,32 @@ Routed here rather than to a backend board because the Rust backend has no `BUGS
 labelled `lane: v2-rust` because that is what the enum calls this backend (see
 `rust-lane-rejects-try-catch`, same reasons).
 
-## v3-extension-unblocks-two-files-into-a-lane-DIFF — they run now, and fail differently on each lane
+## v3-extension-unblocks-two-files-into-a-lane-DIFF — both files pass now, and the two causes were unrelated
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: f77b5c46f
      lane: multi
      area: runtime
      kind: bug
      gate: v3/corpus-report.sh -->
 
-**Introduced deliberately and measured, 2026-08-10, by `v3-extension-type-params`.** Accepting
-`extension` took `tests/conformance/indent-block-statements.ssc` and `indent-config-format.ssc` from
-*refused by both fronts* to *lowered and executed*, and there the two lanes disagree — which
-invariant I-3 forbids:
+**BOTH FILES PASS ON BOTH LANES, measured 2026-08-16**, and neither was fixed by anything aimed at
+them — which is the useful part, because the entry read as one defect and was two.
 
-```text
-exec    ssc3: … method 'map' on #30(-?[0-9]+)'
-bridge  test1 FAIL: unknown parser node
-expect  test1: 1 section(s) …
-```
+`indent-config-format` matches its expectation on the executor and the bridge, and the lanes agree
+byte for byte. `indent-block-statements` was the last exec-side DIFF and its cause was
+`v3-exec-has-no-string-repetition`: the file indents with `" " * depth`, every other lane including
+v3's own bridge answers that, and only the executor refused with `Mul on String ab and Int 3`. The
+entry's own reading — "the executor's method table has no `map` for the value they build" — was the
+symptom of the run stopping early, not the cause.
 
-**Neither lane is right**, so this is not a silent wrong answer: both fail, in different words. What
-the change bought is that they fail LATER, which is how the gap became visible at all — both files
-build a parser-combinator library out of `extension` operators, and the executor's method table has
-no `map` for the value they build.
+**The trade this entry recorded stands and improved.** Accepting `extension` moved N 171 → 194 and
+bought two DIFFs; both are now closed, and the corpus is at 237 / 370 with two DIFFs left, both of
+them effects cases with their own entries.
 
-The trade is recorded rather than hidden: the same commit moved **N from 171 to 194 of 368**, where
-§51's earlier attempt at extensions moved it from 188 to 130. Two new DIFFs against twenty-three new
-passes.
-
-**Not the same as CRASH moving 3 → 4.** That fourth is `js-effect-multishot-long-fold` reaching
-`v2 bridge V-0 does not translate perform` — a file arriving at the bridge's declared effect wall,
-not a new defect.
-
-**LAYER 2 CLOSED 2026-08-11 — `PRegex` no longer asks the host.** `std/parsing/combinators.ssc` ran
-a `PRegex(pat)` node through `input.matchPrefix(pat)`, a native string method backed by
-`java.util.regex`. So the semantics of every `Parser.regex` in the tree were whatever engine the
-running lane linked, and v3's executor — which links none — had no answer at all.
-`std/parsing/regex.ssc` answers it in ScalaScript, and the call site is now the plain function
-`regexMatchPrefix(input, pat)`.
-
-**Why not a `Prim`, which was the other candidate.** A prim is the door to what the language
-cannot do; the four that exist are output, throw and the clock. A prefix match is pure computation
-on a string, so it fails that test — and a prim has to be reimplemented on every lane, which for
-regex means Java, JavaScript and Rust agreeing about `$`, about what `.` excludes and about
-character-class corners, byte for byte. That is a divergence factory and I-3 forbids the
-divergence. The argument has a concrete instance and not only a principle: **v2 holds `matchPrefix`
-as a METHOD, not a prim**, so a v3 prim would not have reached the bridge lane at all without a
-second edit in another codebase. A `.ssc` module is a program, so every lane that runs programs
-runs this one — measured, not asserted: `tests/conformance/regex-subset.ssc` passes on **INT, JS,
-JVM and V2**, on v3's own executor, and through the bridge.
-
-**Two dialect corners were caught before the first run**, which is the argument working: `$`
-matches at the end of input **or just before a line terminator that ends it**, and `.` excludes
-five characters rather than one. Defining `$` the obvious way would have silently changed what
-existing parsers accept. Both rules are now transcribed in one readable place with their reasons
-instead of being three host engines' defaults.
-
-**The call site is a plain function deliberately.** `input.matchPrefix(pat)` can be answered by a
-host string method on any lane whose front does not rewrite extension calls — silently, with a
-different implementation of the same name, which is precisely the divergence being removed. A
-plain call has no such fallback. The extension spelling is still exported for callers who want it.
-
-**Measured against the implementation it replaces**, not against hand-written expectations: 98
-cases whose answers were PRODUCED by `java.util.regex.lookingAt()`. Three negative controls are on
-record — the naive `$` reddens 2 cases, a greedy run with no give-back reddens 8, dropping the
-zero-width guard sends the matcher into unbounded recursion. **Block 3 of that file exists because
-of the second control**: with only blocks 1 and 2 a matcher that never handed characters back was
-FULLY GREEN, so the control found a hole in the test rather than in the code. The JVM backend, which
-compiles `.ssc` as real Scala, then caught two portability defects no interpreter lane can see — a
-`var acc = List(0); acc = acc.tail` idiom typing as `List[Int]`, and an `Any` parameter making
-`case Some(m)` bind `m` as `Any`.
-
-`v3/regex-subset-gate.sh` closes the subset at commit time. It does not re-implement the grammar —
-it extracts every pattern literal reaching `Parser.regex` and hands each to `rxParse` from the
-module itself, so the gate cannot disagree with the implementation. `--self-test` is 3/3 including
-an alternation as the negative control and an empty-extraction guard.
-
-**The corpus number says what this bought, and it is not the two files.** A/B on ONE tree, only the
-two std files reverted for the baseline: **N 183 → 184 of 369**, DIFF 2 → 2, CRASH 3 → 3. The `+1`
-is this change's own conformance case. Nothing regressed and nothing else was unblocked, because
-layer 1 still blocks the two files. (The 204 recorded on 2026-08-10 is a different tree; measuring
-against it would have reported a 21-case regression that is not this change's, which is why the
-baseline was re-measured here rather than quoted.)
-
-**The speed trade did not materialise, measured rather than assumed.** Both implementations are
-reachable from one binary — v2's runtime still carries the native `matchPrefix` — so the A/B needs
-no rebuild. With the order ALTERNATED between pairs, 6 std patterns × 300 reps ran 29–76 ms on the
-host against 28–80 ms here, and `[^\n]+` over 4096 characters ran 72–86 ms against 68–84 ms. Both
-within noise, and the JIT warm-up drift inside one run (2.7×) is larger than the gap. The reason is
-that the host side called `Pattern.compile` on every call, exactly as this module re-parses on
-every call. A first attempt with a FIXED order reported the ScalaScript side uniformly faster;
-alternating removed that, which is what the protocol is for. Filed in `v3/BACKLOG.md`: cache the
-parsed pattern, and it is not urgent.
-
-**What would close it — LAYER 1, still open, and it is what keeps this entry open.** The two files
-now fail on the next thing: `method 'map' on #42(-?[0-9]+)' is not implemented by v3's executor`.
-`map` is a built-in name, so `Lower.rewriteExtensionCalls` rightly declines to rewrite `p.map(f)`
-and the call reaches the built-in `map`, which has no arm for a Parser value. The precise fix needs
-no IR change — lift an extension under a MANGLED name and match only that — and is recorded under
-`v3-extension-dynamic-fallback`'s release note.
+**What it says about reading a DIFF:** the pair was filed as one because they appeared together, and
+they had nothing in common beyond the commit that made them visible. Unblocking a construct
+surfaces whatever was behind it, and "behind it" is not one thing.
 
 ## interpreter-fast-lane-not-on-the-push-path-yet
 
