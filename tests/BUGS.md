@@ -52,11 +52,12 @@ regrown the debt; the check is what makes it stick.
 `bug 195 · apparatus 41 · feature 17 · perf 10 · programme 3 · regression 2`, off-enum 0.
 ## orphan-debt-triage-31-frozen-gates — the census the ratchet was built to make possible
 
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: e90cfa42d
      confirmed: yes
      gate: tests/e2e/no-orphan-gates.sh --self-test -->
 
@@ -129,11 +130,12 @@ when `v3/src` frees up and a plant can confirm the argument.
 
 ## five-frozen-orphan-gates-are-red-and-each-names-a-different-defect
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
      reported-by: claude-code
      reported-at: 2026-08-16
+     fixed-in: e90cfa42d
      confirmed: yes
      gate: none — the gates below ARE the reproducers -->
 
