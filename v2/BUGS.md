@@ -50,6 +50,47 @@ the JS lane "needs the mirrored case in `$method`". That was wrong, and the corr
 part: the JS lane never reaches `$method` — it dies on the char LITERAL, one layer earlier. A
 mirrored `Character` case would have been dead code sitting above an unreachable path.
 
+## check-handler-markers-was-left-on-bare-rustc-when-its-sibling-moved-to-cargo
+
+<!-- status: open
+     lane: v2-rust
+     kind: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: v2/backend/check-handler-markers.sh -->
+
+`4a7746ae8` (2026-08-16) made the Rust lane's `BigInt` arbitrary precision and moved
+`v2/backend/check.sh` from `rustc gen.rs` to a cargo crate, with the reason in its own comment: the
+generated code now says `num_bigint::BigInt`, and "a crate is the only way rustc takes a dependency".
+
+**Its sibling gate in the same directory was not moved.** `check-handler-markers.sh` kept
+`rustc -Awarnings "$1" -o …` and started failing:
+
+```
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `num_bigint`
+   --> selected.rs:341:29
+        V::Int(n) => V::Big(num_bigint::BigInt::from(n)),
+```
+
+**MEASURED GREEN AT 53 s HOURS BEFORE THAT COMMIT AND RED AFTER IT** — the orphan census of
+2026-08-16 ran it in the morning, and this triage ran it again in the evening. Nothing in between
+reported anything, because the gate is invoked by nothing.
+
+**The failure was SILENT, which is why the before/after mattered.** Under `set -euo pipefail` the
+script died at `run_rust` and printed two `ok` lines and nothing else: rc=1, no diagnostic, and its
+`trap` deleted the temp dir holding the generated `.rs`. The error above came from re-running with
+the trap disabled and compiling the leftover file by hand.
+
+Fixed by giving it the same crate shape as `check.sh` — one `$TMP/crate` built once, `num-bigint`
+declared. ALL GREEN (jvm, js, rust) in 95 s, and wired to tier 2 so the next such migration cannot
+skip it quietly. Not vacuous twice over: it failed on a real cause and passes only after the fix,
+and a planted expectation that cannot appear turns it red.
+
+This is `an-unwired-gate-rots-against-correct-code` demonstrated inside one day: the migration was
+correct, the gate was correct, and only the fact that nothing ran it let the two drift apart.
+
 ## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` was 3 on the shipped lanes and 2 in Core IR
 
 <!-- status: fixed

@@ -25,9 +25,38 @@ generate_rust() { scli run "$DIR/rust" -q < "$1" > "$2"; }
 
 run_jvm()  { scli run "$1" -q; }
 run_js()   { node "$1"; }
+# A CARGO CRATE, NOT A BARE `rustc`, and the date is the whole story. `4a7746ae8` (2026-08-16)
+# made the Rust lane's BigInt arbitrary precision and moved `check.sh` beside this file to cargo,
+# because the generated code now says `num_bigint::BigInt` and "a crate is the only way rustc takes
+# a dependency". THIS gate was not moved with it, so `rustc -Awarnings gen.rs` started failing with
+# `E0433: use of unresolved module or unlinked crate num_bigint` — and nothing noticed, because this
+# gate is invoked by nothing. Measured green at 53 s a few hours BEFORE that commit and red after it.
+# Same crate shape as `check.sh`: built once in `$TMP/crate`, so the dependency compiles once.
+crate_init() {
+  [ -f "$TMP/crate/Cargo.toml" ] && return 0
+  mkdir -p "$TMP/crate/src"
+  cat > "$TMP/crate/Cargo.toml" <<'TOML'
+[package]
+name = "gen"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+num-bigint = "0.4"
+
+[profile.release]
+overflow-checks = false
+
+[[bin]]
+name = "gen"
+path = "src/main.rs"
+TOML
+}
 run_rust() {
-  rustc -Awarnings "$1" -o "$TMP/marker-rust"
-  "$TMP/marker-rust"
+  crate_init
+  cp "$1" "$TMP/crate/src/main.rs"
+  (cd "$TMP/crate" && cargo build --release --quiet)
+  "$TMP/crate/target/release/gen"
 }
 
 for backend in jvm js rust; do

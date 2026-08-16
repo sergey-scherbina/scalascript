@@ -414,6 +414,33 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/render-smoke.sh
 
+      # Orphan drained. It is the NEGATIVE half of the interop catalog contract: nine mutations of a
+      # copied catalog — duplicate vector, missing pending record, and so on — each of which
+      # `run.sh --validate` must REFUSE. The positive half runs elsewhere; a validator that accepts
+      # everything passes that half and only this one catches it.
+      #
+      # NOT VACUOUS: with `validate_vector_catalog` stubbed to `return 0` it reports
+      # `FAIL duplicate-vector: malformed catalog was accepted` and exits 1.
+      #
+      # TIER 2: 35 s.
+      - name: Interop catalog validator refuses nine malformed catalogs
+        if: always()          # see the block above this job's steps
+        run: tests/interop-conformance/validation-test.sh
+
+      # Orphan drained, and it was RED when this triage reached it — by a change that had landed the
+      # SAME DAY. `4a7746ae8` made the Rust lane's BigInt arbitrary precision and moved
+      # `v2/backend/check.sh` to a cargo crate, because the generated code now says
+      # `num_bigint::BigInt` and a crate is the only way rustc takes a dependency. Its SIBLING gate
+      # in the same directory was not moved, so it failed with `E0433: unresolved crate num_bigint`.
+      # Measured green at 53 s hours before that commit and red after it — nothing noticed, because
+      # nothing invoked it. Now on the same crate shape; ALL GREEN in 95 s.
+      #
+      # NOT VACUOUS twice over: it failed on a real cause and passes only after the fix, AND a
+      # planted expectation that cannot appear turns it red.
+      - name: FrontendBridge handler markers agree on jvm, js and rust
+        if: always()          # see the block above this job's steps
+        run: v2/backend/check-handler-markers.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
