@@ -6,6 +6,36 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — `xs.map(f)` where `f` is a `def`
+
+<!-- status: open
+     lane: v3
+     area: front
+     gate: v3/corpus-report.sh (std-content and four more)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**TWO LINES:**
+
+    def inc(x: Int): Int = x + 1
+    println(List(1, 2, 3).map(inc))
+
+    ssc3: /tmp/eta.ssc:2:27: unknown name 'inc'
+
+**BOTH LANES REFUSE IDENTICALLY**, so this is an honest uniform gap and not a divergence — v3 has no
+eta-expansion: a top-level `def` is a function INDEX and only a `MkClos` turns one into a value, and
+the name-as-value path never reaches that.
+
+**FIVE CORPUS CASES SIT BEHIND IT and the count is a LOWER BOUND**, because a refusal short-circuits:
+`contentBindValueText` leads the `unknown name` histogram with 5, and it is not a plugin name or a
+missing import — it is `std/content.ssc:134`, a `def` in the same file, used one line down as
+`values.map(contentBindValueText)`. The name is right there; what is missing is the ability to pass
+it.
+
+**FOUND BY RE-MEASURING, WHICH IS THE ONLY REASON IT SURFACED.** Before today's plugin work the
+`unknown name` bucket was led by names that no longer refuse; the census that named this one is the
+third of the day, and each earlier one was a lower bound taken behind a different first failure.
+
 ## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
 
 <!-- status: fixed
