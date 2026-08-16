@@ -223,14 +223,177 @@ not available to anyone on this lane, and the refusal names an internal helper r
 function the user actually imported, which is why it does not read as "jsonValue is unavailable".
 
 The refusal itself is honest and is the kind this walker is supposed to make: a parenthesis-less
-`reverse` would be emitted as a Rust field access. The fix is to LOWER it — `reverse` on a
-collection is a member call, and the walker already lowers the same shape for other members — not
-to weaken the refusal. Both sites are in `std/json.ssc`'s tolerant path; there may be more behind
-them, since a refusal short-circuits and every count from one is a lower bound.
+`reverse` would be emitted as a Rust field access. Both sites are in `std/json.ssc`'s tolerant path;
+there may be more behind them, since a refusal short-circuits and every count from one is a lower
+bound.
+
+### Measured 2026-08-16, and the sentence above about "the fix is to LOWER it" was wrong
+
+I wrote that the fix is to lower `reverse`. I then wrote that lowering, measured it, and REVERTED
+it. What the experiment bought is the real shape of this entry, so it is recorded here rather than
+discarded.
+
+**The lowering itself is correct and small.** The refusing receiver is a CONS —
+`(value :: reversed).reverse`, the accumulate-then-reverse idiom every recursive parser in `std/` is
+written with — and the walker's is-this-a-Vec test asked only about names and applies. Teaching it
+that `x :: xs` is a sequence exactly when `xs` is one (plus the same fact for a local BOUND to a
+cons, which is a second spelling the first patch left behind and only probing found) makes three
+ordinary programs build and agree with `run` byte for byte:
+
+```text
+("top" :: acc).reverse            cons receiver
+val a = "a" :: "b" :: Nil; a.reverse   local bound to a cons
+val base = Nil; ("x" :: base).reverse  chain rooted in a local Nil
+```
+
+**It cannot land, for two independent reasons, and either alone is enough.**
+
+1. **It does not reach the goal.** With the refusal gone, a `jsonValue` program does not build — it
+   stops at the NEXT blocker: `` `__jsonCoreWrap` is declared `extern` and the rust backend has no
+   implementation for it (no `@rust(...)`, no intrinsic); called from `jsonValue` ``. `jsonParse`
+   never meets that boundary because it is an INTRINSIC on this lane
+   (`RustIntrinsics: jsonParse -> crate::runtime::_json_parse`, serde_json, panics on error), so it
+   bypasses `std/json.ssc` entirely. The tolerant path has no intrinsic and needs the provider
+   boundary — `__jsonCoreWrap`, `__jsonCoreWrapStrict`, `__jsonCoreRawStrict`,
+   `__jsonCoreEncodeValue` — of which this lane implements none.
+2. **It trades an actionable refusal for unreadable output.** `rust-std-survey-gate` goes red:
+   `std/json-core.ssc` and `std/yaml-core.ssc` move REFUSED -> BADRUST. json-core alone then emits
+   **43 rustc errors** — 22 × E0308, 5 × E0599, 4 × E0271, 2 × E0277, 2 × E0004. The gate's own rule
+   applies and is right: "a refusal is a message the user can act on; bad generated code is not."
+
+**Two of those 43 are not type errors — they are INVALID RUST SYNTAX**, and that is new information
+this entry did not have. A match arm whose body is more than one statement is emitted with no braces:
+
+```rust
+JsonCoreOk { value, next } => let separator = jsonCoreSkipWhitespace(source.clone(), next);
+//                            ^^^ error: expected expression, found `let` statement
+```
+
+It does NOT reproduce standalone — a case-class match with a `val` + `if` arm body builds and runs
+correctly on this lane — so it needs a narrower repro before it can be fixed, and it is filed
+separately as `rust-multi-statement-match-arm-emitted-without-braces`.
+
+**So the true shape is a chain of at least three, not one defect:** the cons refusal, then 43
+codegen errors in json-core (two of them syntactic), then an unimplemented provider boundary. The
+2026-08-13 note in `RustCodeWalk.scala` — "of the 16 modules refusing on these three names, zero
+reach COMPILES" — was measuring the corpus and is confirmed here from the other direction.
+
+Whoever takes this should land the cons lowering TOGETHER with the json-core work, not before it.
+The patch is 12 lines in `isKnownVecReceiver` and `collectLocalSeqs`; re-deriving it is cheaper than
+carrying it, so it is described rather than parked.
 
 Not gated: no gate is filed with an open entry here. The gate that closes this asserts a
 `jsonValue` program BUILDS and answers `isNull` for `""` — a compile-only row would pass on a
 binary that then panics.
+## rust-mkstring-on-a-non-string-list-emits-join — `List(1,2,3).mkString(",")` does not build, in five lines
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 315059ad7
+     repro: inline below — five lines
+     impact: workaround -->
+
+Found while probing the cons work in
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`: my first probe used a
+`List[Int]` and failed for a reason that had nothing to do with what I was measuring. Reduced, it is
+its own defect and a small one:
+
+```scalascript
+def main(): Unit =
+  val ints = List(1, 2, 3)
+  println("ints: " + ints.mkString(","))
+  val strs = List("a", "b")
+  println("strs: " + strs.mkString(","))
+
+main()
+```
+
+```text
+bin/ssc run       ints: 1,2,3   strs: a,b
+build-rust        error[E0599]: the method `join` exists for struct `Vec<i64>`,
+                  but its trait bounds were not satisfied
+```
+
+`mkString` lowers to Rust's `.join(sep)`, which is defined for `Vec<String>`/`Vec<&str>` and for
+nothing else. The `String` case works, so the defect is invisible in exactly the programs people
+write first — and `mkString` on a list of numbers is what a CSV line, a debug print or a joined id
+list is written with.
+
+The fix is to render each element before joining
+(`…iter().map(|e| e.to_string()).collect::<Vec<_>>().join(sep)`) rather than to refuse; the element
+rendering must agree with what `println` produces for the same value, or the lane will print
+`1,2,3` here and something else one line down. The gate that closes this compares BOTH lanes'
+output for a list of Int, Double, Boolean and String — not just that it compiles, because a join
+that stringifies differently compiles fine and prints the wrong thing.
+
+## rust-multi-statement-match-arm-emitted-without-braces — the walker emits Rust that does not PARSE, and only behind a refusal that hides it
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 315059ad7
+     repro: none — see "what I could not reduce" below
+     impact: workaround -->
+
+Found by removing the `reverse` refusal in
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds` and looking at what came
+out from behind it. `std/json-core.ssc` then produced 43 rustc errors, and two of them are not type
+errors at all — the generated crate does not PARSE:
+
+```text
+error: expected expression, found `let` statement
+   --> src/generated/json_core.rs:305:39
+    |
+305 |         JsonCoreOk { value, next } => let separator = jsonCoreSkipWhitespace(source.clone(), next);
+    |                                       ^^^
+    = note: only supported directly in conditions of `if` and `while` expressions
+```
+
+A match arm whose body is more than one statement (`val` then `if`) is emitted with no braces around
+it. Two sites, `json_core.rs:305` and `:341`, both the same shape.
+
+**This is worse than the type errors around it, and worth its own entry for that reason.** A type
+error names a line the user can look at; an unparseable crate means the walker produced something
+that is not Rust, and every other diagnostic in the file becomes noise behind it.
+
+### What I could NOT reduce, and that is the finding
+
+The obvious repro does not reproduce. A case class matched with a multi-statement arm body —
+
+```scalascript
+case class Ok(value: Int, next: Int)
+def step(r: Any): String =
+  r match {
+    case Ok(value, next) =>
+      val sum = value + next
+      if sum > 3 then "big " + sum else "small " + sum
+    case Err(message) => "err " + message
+    case _ => "other"
+  }
+```
+
+— builds on this lane and prints the same three lines as `run`. So the defect needs something else
+json-core does: the arm sits inside a def that is itself the tail of a recursive parse, the scrutinee
+is a call result rather than a parameter, and the match has a struct-ctor arm that routes it through
+`renderAnyMatch` rather than `renderMatch`. Which of those is load-bearing is unmeasured.
+
+**Do not take this entry by editing the brace emission until the repro exists.** The path is
+currently unreachable behind a refusal, so a fix here cannot be falsified by anything that runs
+today — a change would be tested against nothing. Reduce first: start from `jsonCoreParseArrayItems`
+and cut DOWN toward a minimum, since building UP from the passing probe above reproduces only my own
+guess about the cause.
+
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
