@@ -1,6 +1,7 @@
 ## kind-required-only-after-the-push — three main-reds in one night, each one word
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: ae55289d9
      kind: apparatus
      lane: apparatus
      area: docs
