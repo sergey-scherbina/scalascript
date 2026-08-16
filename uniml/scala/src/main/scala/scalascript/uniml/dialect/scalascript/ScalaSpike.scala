@@ -560,10 +560,28 @@ object SpikeParse:
       while q >= 0 && toks(q).kind == "spike.ws" do q -= 1
       if q >= 0 then toks(q).span.end.line else -1
     /** true when the next token ENDS exactly where the one after it begins — no
-      * whitespace, no comment. `html"""…"""` is an interpolation; `foo "bar"` is not. */
+      * whitespace, no comment. `html"""…"""` is an interpolation; `foo "bar"` is not.
+      *
+      * THE SECOND TOKEN IS THE NEXT SIGNIFICANT ONE, not `toks(p + 1)`. Whitespace IS a token
+      * here, so the raw neighbour of an identifier is usually the space or newline after it — and
+      * that always begins exactly where the identifier ends, which made this predicate answer TRUE
+      * for every identifier followed by a string ANYWHERE. `isInterpPrefix` accepts any word (that
+      * is deliberate: `html"…"`, `uri"…"`), so the adjacency test is the ONLY thing separating a
+      * custom interpolator from two unrelated statements, and it was not testing adjacency at all.
+      *
+      * Measured: a two-line body `a` ⏎ `"b"` was read as the interpolator `a"…"` and REFUSED by the
+      * projection, on the DEFAULT front, while v3's own front, native and the interpreter all ran
+      * it and printed `b`. (BUGS.md `uniml-reads-an-identifier-and-a-later-string-as-an-interpolator`.)
+      *
+      * The walk is the same one `peek2Kind` does, and it is spelled out rather than shared because
+      * this is the ONE place that then compares OFFSETS — a helper returning the token would be
+      * used by both and is the change to make if a third caller appears. */
     def peekAbutsNext: Boolean =
       val a = peek
-      val b = { skipTrivia(); if p + 1 < toks.length then Some(toks(p + 1)) else None }
+      skipTrivia()
+      var q = p + 1
+      while q < toks.length && toks(q).kind == "spike.ws" do q += 1
+      val b = if q < toks.length then Some(toks(q)) else None
       a.isDefined && b.isDefined && a.get.span.end.offset == b.get.span.start.offset
 
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(SpikeOp.meaning(peekLexeme)) else 0

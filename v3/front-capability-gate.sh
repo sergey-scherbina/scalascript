@@ -160,12 +160,17 @@ check_set "uniml" "${KNOWN_UNIML_ONLY[*]}" "$uniml_only"
 # UniML's dialect now keeps a definition's type parameters and every parameter's type ARGUMENTS,
 # so the projection resolves the instances v3's own front resolves and both fronts accept them.
 # The gate demanded this removal in the same commit, which is what these lists are for.
+# `markdown-html` CAME OUT 2026-08-16, and the gate is what noticed. UniML was refusing it over an
+# identifier followed by a string on a LATER LINE, which its adjacency test read as a custom
+# interpolator — `peekAbutsNext` compared the identifier against the raw next token, and whitespace
+# is a token here, so the test always said "adjacent". Fixing that made the two fronts agree on this
+# file, and this list going red in the same run is the difference between a closed gap and a
+# permanent exemption for a fixed bug.
 declare -a KNOWN_CONF_V3_ONLY=(
   content
   direct-syntax
   enum-shared-casename
   lenses
-  markdown-html
   optic-polish
   optics-index-at
   optional
