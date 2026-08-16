@@ -1,0 +1,11 @@
+slug: rust-serve-panic-poison
+branch: feature/rust-serve-panic-poison
+agent: claude-code
+started: 2026-08-16T11:45:53Z
+heartbeat: 2026-08-16T11:45:53Z
+status: claimed-before-planning
+items: rust-serve-dies-permanently-after-one-handler-panic
+paths: file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:tests/e2e/rust-serve-panic-gate.sh file:.github/workflows/ci.yml file:BUGS.md file:INBOX.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
