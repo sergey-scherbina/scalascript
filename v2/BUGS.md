@@ -92,6 +92,41 @@ and a planted expectation that cannot appear turns it red.
 This is `an-unwired-gate-rots-against-correct-code` demonstrated inside one day: the migration was
 correct, the gate was correct, and only the fact that nothing ran it let the two drift apart.
 
+## rust-build-lane-binds-runtime-results-to-the-wrong-declared-type — four fixtures, two shapes
+
+<!-- status: open
+     lane: v2-rust
+     kind: bug
+     area: codegen
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/rust-build-smoke.sh -->
+
+**Found by measuring an orphan.** `tests/rust-build-smoke.sh` had never been run to completion — it
+exceeded the 120 s cap of the 2026-08-16 orphan census and was recorded as "unmeasured, not green".
+Uncapped it takes **12 min 39 s** and exits 1: most fixtures PASS, four fail with
+`build-rust: cargo build failed (exit 101)`.
+
+| fixture | error |
+|---|---|
+| `json-roundtrip.ssc` | `let canon: String = crate::runtime::_json_parse(&src);` — `expected String, found Value` |
+| `process-env.ssc` | `let greet: String = crate::runtime::_env(&"GREET_NAME".to_string());` — `expected String, found Option<…>` |
+| `effect-runtime.ssc` | `error[E0308]: mismatched types` |
+| `mixed.ssc` | `error[E0308]: mismatched types` |
+
+**Two shapes, one theme: the emitter declares the binding's type from the SOURCE and the runtime
+function returns a wrapper.** `_json_parse` yields `Value` and `_env` yields an `Option`, while the
+generated `let` annotates `String` in both cases. Whether the fix belongs in the emitter (annotate
+what the runtime actually returns, or unwrap at the binding) or in those runtime signatures is the
+first thing to settle; the two failing pairs make the choice concrete.
+
+**NOT the same-day BigInt change.** `4a7746ae8` moved this lane to cargo for `num-bigint`, and the
+neighbouring `check-handler-markers` gate WAS broken by it (see the entry above). These four are
+`E0308` type mismatches on `_json_parse`/`_env`, not `E0433` unresolved-crate errors, and
+`v2/backend/check.sh` — 16 fixtures × 4 backends including rust — is ALL GREEN, so its fixtures do
+not cover these calls.
+
 ## math-round-and-f-round-disagree-at-a-tie — `math.round(2.5)` was 3 on the shipped lanes and 2 in Core IR
 
 <!-- status: fixed

@@ -273,6 +273,41 @@ regrown the debt; the check is what makes it stick.
 
 **Every entry in the repository now carries a declared kind from the closed enum:**
 `bug 195 · apparatus 41 · feature 17 · perf 10 · programme 3 · regression 2`, off-enum 0.
+## the-four-uncapped-orphans-are-measured-and-two-of-them-are-red
+
+<!-- status: open
+     lane: apparatus
+     kind: apparatus
+     area: build
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/no-orphan-gates.sh --self-test -->
+
+The 2026-08-16 triage left four gates recorded as "over the 120 s cap — unmeasured, NOT green". All
+four have now been run without a cap, and the caveat earned its wording: **two are green and two are
+red.**
+
+| gate | wall clock | verdict |
+|---|---|---|
+| `v2/backend/check.sh` | 17 m 55 s | ALL GREEN — 16 fixtures × 4 backends, 57 ok / 7 skip / 0 fail |
+| `v2/conformance/check.sh` | 11 m 21 s loaded, 7 m 09 s quiet | GREEN — 645 checks |
+| `tests/rust-build-smoke.sh` | 12 m 39 s | **RED** — four fixtures, filed as `v2/BUGS.md rust-build-lane-binds-runtime-results-to-the-wrong-declared-type` |
+| `tests/e2e/negtc-shard-gate.sh` | 22 m 10 s | **RED** — `✗ the refusal does not point at the backlog item, so the reader is left stuck`, with `run-timeout: 8` and `run-error: 12` in the sweep it compares |
+
+**`v3/plugin-classpath.sh` is a fifth, and it is not a gate.** rc=0 in 8 m 19 s, but its own header
+says what it is: "the v2 PLUGIN FLEET's classpath, built once and cached". It BUILDS an artifact
+(`v3/.jars/plugin.cp`); it asserts nothing. It belongs with the tools in the frozen list, not with
+the gates.
+
+**None of the four can go on the push path** — the whole smoke suite is ~18 min against a 30-min
+cap, and the cheapest of these is 11 min. The two green ones want a schedule or a subset; both
+already accept a fixture pattern, so the subset needs no new flag. That is a CI-budget decision and
+is left as one.
+
+**The two reds are why "over the cap" was not written as "probably fine".** A gate nobody has run to
+completion has no verdict at all, and half of these turned out to have something to say.
+
 ## orphan-debt-triage-31-frozen-gates — the census the ratchet was built to make possible
 
 <!-- status: fixed
