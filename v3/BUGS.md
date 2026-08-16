@@ -9,6 +9,7 @@ Query: `scripts/bugs-report --module v3`.
 ## v3-a-toplevel-def-used-as-a-value-is-an-unknown-name — `xs.map(f)` where `f` is a `def`
 
 <!-- status: open
+     kind: bug
      lane: v3
      area: front
      gate: v3/corpus-report.sh (std-content and four more)

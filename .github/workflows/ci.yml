@@ -381,6 +381,26 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/v21-typeclass-dictionary-smoke.sh
 
+      # The last of the five reds from the 2026-08-16 orphan triage, and the only one that was a
+      # PRODUCT defect rather than a stale gate. It served a 54-byte error page — `native HTTP
+      # handler failed: unbound global: collectCss` — because `collectCss(Page, Button, …)` passes
+      # module OBJECTS as values and the native lane had no value for one. Both fronts now emit the
+      # object dictionary and the two intrinsics exist, so headless and served are byte-identical.
+      # This gate is the entry's own "Done when".
+      #
+      # NOT VACUOUS by the strongest evidence available: it was RED on a real cause and goes green
+      # only with the fix. 15 s.
+      #
+      # TIER 2 rather than smoke because it starts a SERVER. It no longer races one: the gate used a
+      # constant 8768 and cleaned up with `pkill -f` on a relative path plus `lsof … | kill -9`,
+      # which is `tests/BUGS.md server-gates-bind-fixed-ports` — one gate killing a sibling agent's
+      # server, with the damage landing as a defect in the innocent run. It now allocates a port,
+      # works in a private temp dir and kills only its own descendants. Two copies run concurrently
+      # both PASS; before the change that pattern is what the entry watched fail.
+      - name: Headless render matches served output
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/render-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

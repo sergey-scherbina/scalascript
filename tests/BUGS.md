@@ -289,7 +289,7 @@ these scripts are invoked by nothing, so nothing has reported them.
 
 | gate | s | first failure |
 |---|---|---|
-| `tests/e2e/render-smoke.sh` | 14 | headless 4076 bytes vs served **54** — `native HTTP handler failed: unbound global: collectCss`. **Already filed**: `v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native` |
+| ~~`tests/e2e/render-smoke.sh`~~ | 14 | **RESOLVED 2026-08-16** — the one genuine product defect of the five. `collectCss` needed module objects to be VALUES on native; both fronts now emit the dictionary. headless 4076 = served 4076. |
 | `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v1: http=200`, `--v2: http=000`. The v2 server exits on `contentCurrentSection() is unavailable on native 2.1`. **Already filed**: `v2/BUGS.md content-current-section-native-unavailable` |
 | ~~`tests/e2e/v21-native-content-smoke.sh`~~ | 51 | **RESOLVED — a stale golden. See below.** |
 | ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |

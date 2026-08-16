@@ -69,7 +69,6 @@ specs/v2.2-p6.5-corpus.sh
 specs/v2.2-p6.6-fixpoint.sh
 specs/v2.2-p6.6-selfcompile-demo.sh
 tests/e2e/negtc-shard-gate.sh
-tests/e2e/render-smoke.sh
 tests/e2e/serve-view-frontend-v2-smoke.sh
 tests/e2e/v21-portable-gates-smoke.sh
 tests/interop-conformance/validation-test.sh
