@@ -50,3 +50,21 @@ object Plugins:
     * to a `Prim` or to a positioned refusal, which is why registration has to happen before a
     * program is lowered and not lazily at the first call. */
   def registered: Set[String] = table.keySet.toSet
+
+  /** A METHOD ON A VALUE THE HOST OWNS — the second door, and it is a single function rather than a
+    * table because the KEY is not a name the kernel can compute.
+    *
+    * v2 dispatches `xs.next` on a foreign handle through an interface the handle implements, and
+    * `r.exitCode` on host data through a `(tag, method)` table. Both keys are v2's, so a table here
+    * would have to mirror v2's tags — two registries answering the same question in two shapes,
+    * which is the drift `V2PluginRegistry`'s comment above warns about. One dispatcher keeps the
+    * knowledge on the side that has it.
+    *
+    * `None` means "not mine", and the executor then refuses exactly as it did before — so a value
+    * no provider claims still gets v3's own diagnostic rather than a wrapped host error. */
+  type MethodFn = (Module, Value, String, List[Value]) => Option[Value]
+
+  private var methods: Option[MethodFn] = None
+  def registerMethods(fn: MethodFn): Unit = methods = Some(fn)
+  def method(m: Module, recv: Value, name: String, args: List[Value]): Option[Value] =
+    methods.flatMap(f => f(m, recv, name, args))

@@ -230,4 +230,20 @@ object math:
   // approximation would have disagreed with the reference lane in the last bits — the loop and its
   // refusal are gone with the reason for them.
   def pow(b: Double, e: Double): Double = __mathPow(b.toDouble, e.toDouble)
+
+// ── What a coroutine answers ──────────────────────────────────────────────────────────────────
+//
+// DECLARED HERE BECAUSE v3's TYPE TABLE IS CLOSED AND v2's IS NOT. `coroutineResume` is a host
+// function from generator-plugin and it answers `DataV("Yielded", …)`; v2 names a constructor with a
+// STRING, so a tag the program never declared prints and matches there without ceremony. v3 numbers
+// its constructors — a `VData` is an INDEX into this program's type table — so a tag with no entry
+// cannot be represented at all, and the adapter refused it at run time with no position: six corpus
+// cases went from an honest refusal to a CRASH, which is the worse half of the floor.
+//
+// Declaring the three constructors is what makes them ordinary: `Yielded(1)` prints, and
+// `case Errored(_) =>` matches, through exactly the same machinery as any other case class. No
+// executor change and no new value kind — the host's data is v3's data once v3 knows the name.
+case class Yielded[A](value: A)
+case class Returned[A](value: A)
+case class Errored[A](error: A)
 ```

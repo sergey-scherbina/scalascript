@@ -46,6 +46,7 @@ object V2Fleet:
         if !selfHosted(name) then Plugins.register(name, (m, args) => call(m, fn, args))
       }
       installGlobals()
+      Plugins.registerMethods(methodOn)
 
   /** THE SECOND TABLE, and the one with the corpus cases behind it.
     *
@@ -115,6 +116,63 @@ object V2Fleet:
       case _ => throw ssc3.ExecError(
         "a plugin global did not answer immediately, which this bridge does not drive")
 
+  /** A METHOD ON A HOST-OWNED RECEIVER, resolved through v2's OWN tables rather than a mirror of
+    * them here.
+    *
+    * TWO MECHANISMS, because v2 has two. A foreign HANDLE — `<handle GeneratorValue>` — carries its
+    * methods on the object itself through `NamedMethodObj`, which is the same interface
+    * `NativePluginHost.invoke` consults for a callback. Host DATA carries them in the registry's
+    * `(tag, method)` table, which is what `registerTaggedMethod` fills and what `r.exitCode` on a
+    * `ProcessResult` needs.
+    *
+    * `None` FOR ANYTHING UNCLAIMED, so the executor's own refusal is what a program sees when no
+    * provider owns the receiver. Wrapping a miss in a host error would replace a v3 diagnostic that
+    * names the lane to retry on with one that names a Java class. */
+  private def methodOn(m: Module, recv: Value, name: String, args: List[Value]): Option[Value] =
+    val v2recv = toV2(m, recv)
+    // EACH ARM BINDS ITS OWN ARGUMENT LIST, and that is not tidiness. v2's TABLES take the receiver
+    // as the first argument (`fn(value :: args)` is how its own dispatch calls them) while a
+    // handle's MEMBER is an ordinary closure that takes only what the caller wrote. A single
+    // `v2recv :: as` for every path gave `Generator.foreach(callback)` two arguments where its
+    // `case fn :: Nil` expects one, so it fell into its own error arm and the program printed the
+    // provider's complaint instead of doing the work.
+    val fn: Option[List[ssc.Value] => ssc.Value] = v2recv match
+      // A function the host returned, called back. `apply` is the name `Exec.hostApply` uses.
+      case c: ssc.Value.ClosV if name == "apply" => Some(as => applyClosDriven(c, as))
+      // The exception shape this adapter itself builds, when the program has no declared
+      // `RuntimeException` to carry it — `message` is the prelude's field and `getMessage` its
+      // accessor, so both spellings answer the same field.
+      case ssc.Value.DataV("RuntimeException", fs)
+          if fs.length == 1 && (name == "getMessage" || name == "message") =>
+        Some(_ => fs(0))
+      // A FIELD IS A METHOD WITH NO ARGUMENTS on this side, and it is a table of its own: a provider
+      // that answers a record declares its field names with `registerFieldNames`. Read BY ARITY,
+      // because the registry's own comment says the flat map is last-registered-wins.
+      case ssc.Value.DataV(tag, fs) if args.isEmpty &&
+          ssc.V2PluginRegistry.lookupFieldNames(tag, fs.length).exists(_.contains(name)) =>
+        val ix = ssc.V2PluginRegistry.lookupFieldNames(tag, fs.length).get.indexOf(name)
+        Some(_ => fs(ix))
+      // CALLING host data — v2's `taggedApply`, keyed by the tag alone, and called WITH the receiver
+      // exactly as `Runtime`'s own `app` does.
+      case ssc.Value.DataV(tag, _) if name == "apply" =>
+        ssc.V2PluginRegistry.lookupTaggedApply(tag).map(f => as => f(v2recv :: as))
+      case ssc.Value.DataV(tag, _) =>
+        ssc.V2PluginRegistry.lookupTaggedMethod(tag, name).map(f => as => f(v2recv :: as))
+      // A HANDLE carries its methods on the object, through the same interface
+      // `NativePluginHost.invoke` consults. The member is an ordinary closure: NO receiver.
+      case ssc.Value.ForeignV(o: ssc.Value.NamedMethodObj) =>
+        o.getField(name) match
+          case Some(c: ssc.Value.ClosV) => Some(as => applyClosDriven(c, as))
+          case _                        => None
+      case _ => None
+    fn.map(f => call(m, f, args))
+
+  /** Like `applyClos`, but for a closure that is NOT a plugin global and may take more than one
+    * trampoline step — a `NamedMethodObj`'s member is ordinary v2 code. `Runtime.run` is v2's own
+    * driver, so this is v2 running v2 rather than v3 imitating it. */
+  private def applyClosDriven(c: ssc.Value.ClosV, args: List[ssc.Value]): ssc.Value =
+    ssc.Runtime.run(c.code, if args.isEmpty then c.env else ssc.Runtime.extend(c.env, args.toArray))
+
   private var installed = false
 
   /** Invoke a provider and TRANSLATE WHAT IT THROWS, because an exception is part of a host
@@ -140,9 +198,39 @@ object V2Fleet:
       // let it surface as a JVM stack trace from a `try` the program never wrote, and would let a
       // program CATCH a limitation of the adapter as though it were a failure of the host call.
       case e: ssc3.ExecError => throw e
+      // AN EXCEPTION THE PROGRAM ITSELF RAISED KEEPS ITS OWN IDENTITY. A host function that takes a
+      // callback runs v3 code inside it — `generator-callback-user-throw` throws from the callback —
+      // and the provider catches that and rethrows with a message of its own
+      // (`Generator.foreach(callback)`). Re-labelling the program's exception with the host's is a
+      // wrong answer, not a lost detail: the program prints the message it threw. So the cause chain
+      // is walked and the original is rethrown unchanged if it is in there.
+      case e: Throwable if cause(e).isDefined => throw cause(e).get
       case e: Throwable     =>
         val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
-        throw ssc3.ExecThrow(Value.VStr(msg), msg)
+        // THROWN AS THE SHAPE A PROGRAM CATCHES, not as a bare string. `generator-callback-user-throw`
+        // catches a host failure and asks it for `getMessage`; with a `VStr` there is nothing to ask,
+        // and the program died with `method 'getMessage' on <the text>`. Built through `toV3` rather
+        // than as a literal so it picks up the program's OWN `RuntimeException` when the prelude is
+        // in scope — then `getMessage` is the prelude's method and nothing here is involved.
+        throw ssc3.ExecThrow(
+          toV3(m, ssc.Value.DataV("RuntimeException", collection.immutable.ArraySeq(ssc.Value.StrV(msg)))),
+          msg)
+
+  /** The program's own throw, if the host wrapped one. Walks the JVM cause chain and stops at the
+    * first exception that came FROM v3 — bounded by the chain's length, and `null`-safe because a
+    * cause chain can end in a self-reference on some JDK exceptions. */
+  private def cause(t: Throwable): Option[ssc3.ExecThrow] =
+    var cur: Throwable = t
+    var out: Option[ssc3.ExecThrow] = None
+    var guard = 0
+    while cur != null && out.isEmpty && guard < 32 do
+      cur match
+        case x: ssc3.ExecThrow => out = Some(x)
+        case _ => ()
+      val nxt = cur.getCause
+      cur = if nxt eq cur then null else nxt
+      guard += 1
+    out
 
   /** v3 -> v2. Total on the shapes a program can pass to a host function.
     *
@@ -181,7 +269,15 @@ object V2Fleet:
     // carried it — so this is an unwrap, not a conversion, and the plugin receives the same object
     // it handed out. Reference identity is the whole contract: `coroutineResume(h, x)` resumes THAT
     // coroutine, not an equal one.
+    // A HANDLE THAT IS ITSELF A v2 VALUE goes back AS that value, not wrapped again. A closure
+    // returned by a provider arrives here as `ClosV`; re-wrapping it in `ForeignV` would hide it
+    // from every v2 site that pattern-matches a function, including `invoke`.
+    case Value.VForeign(h: ssc.Value, _) => h
     case Value.VForeign(h, _) => ssc.Value.ForeignV(h)
+    // Back the way it came, by NAME — the tag is what v2 uses, and it is the tag this value was
+    // built from, so a handle round-trips through v3 without the type table ever being consulted.
+    case Value.VHostData(tag, fs) =>
+      ssc.Value.DataV(tag, fs.map(f => toV2(m, f)).toIndexedSeq)
     // A CLOSURE CROSSES AS A v2 CLOSURE WHOSE BODY RE-ENTERS v3. This was refused until now, and the
     // refusal is what actually blocked coroutines: `coroutineCreate(body)` takes a function, and the
     // plugin calls it later through `context.invoke`, which accepts a `ClosV` and drives its `code`.
@@ -232,11 +328,19 @@ object V2Fleet:
     // argument position. The tag is the JVM class's simple name and is for diagnostics only — it is
     // what makes a later refusal say `<handle CoroutineState>` instead of naming nothing.
     case ssc.Value.ForeignV(h) => Value.VForeign(h, h.getClass.getSimpleName)
+    // A CLOSURE COMING BACK. It cannot be a `VClos` — that is an index into a module's function
+    // table and this function has none — so it travels as a handle and `Exec.hostApply` calls it.
+    case c: ssc.Value.ClosV => Value.VForeign(c, "function")
     case ssc.Value.DataV(tag, fs) =>
       val ix = m.types.indexWhere(t => t.name == tag)
-      if ix < 0 then throw ssc3.ExecError(
-        "a host function returned the constructor '" + tag + "', which this program does not declare")
-      Value.VData(ix, fs.map(f => toV3(m, f)).toArray)
+      // NOT A REFUSAL ANY MORE. This threw `a host function returned the constructor 'Yielded',
+      // which this program does not declare` — an unpositioned run-time failure, which the corpus
+      // ranks CRASH, below the honest refusal it replaced. Measured on the EXECUTOR lane, which the
+      // report does not read by default: CRASH 9 -> 15 against a control on the same tree, six
+      // honest refusals turned into crashes by my own change. A tag the program never declared is
+      // carried by name instead, and prints.
+      if ix < 0 then Value.VHostData(tag, fs.map(f => toV3(m, f)).toArray)
+      else Value.VData(ix, fs.map(f => toV3(m, f)).toArray)
     case other            => throw ssc3.ExecError(
       "a host function returned " + other.getClass.getSimpleName +
       ", which this plugin bridge does not convert yet")

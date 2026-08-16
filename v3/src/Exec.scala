@@ -82,6 +82,23 @@ enum Value:
     * inability is the point — an opaque handle that the executor could inspect would be a Tier 0
     * type addition (I-2), and this is a value the RUNTIME passes through, like `VBytes`. */
   case VForeign(handle: AnyRef, tag: String)
+  /** HOST DATA NAMED BY A STRING — a constructor the host returned and this program never declared.
+    *
+    * v2 names a constructor with a string and v3 numbers it, so a `VData` is an index into THIS
+    * program's type table and a tag with no entry cannot be built at all. `coroutineResume` answers
+    * `Yielded(1)`, and `coroutine-basic.ssc` only ever PRINTS it — the program has no reason to
+    * declare a type it never writes down, and the driver does not merge the prelude for a program
+    * that lowers cleanly without it.
+    *
+    * SO THE TWO CASES SPLIT CLEANLY AND NEITHER LOSES ANYTHING. A program that WRITES the
+    * constructor — `case Errored(_) =>` — declares it, and the ordinary indexed `VData` carries it
+    * with pattern matching intact. A program that only prints one gets this, which renders and
+    * nothing else. No pattern can mention a constructor the program does not declare, so being
+    * un-matchable costs exactly nothing.
+    *
+    * This is a value the RUNTIME passes through, like `VBytes` — not a Tier 0 type the language
+    * gained (invariant I-2). Nothing constructs one except the plugin bridge. */
+  case VHostData(tag: String, fields: Array[Value])
 
 final case class ExecError(message: String) extends RuntimeException(message)
 
@@ -335,6 +352,8 @@ object Exec:
     // catch-all, which is why the compiler named it and the other eight stayed silent.
     case Value.VBytes(b)   => "<" + b.length.toString + " bytes>"
     case Value.VForeign(_, tag) => "<handle " + tag + ">"
+    case Value.VHostData(tag, fs) =>
+      if fs.isEmpty then tag else tag + "(" + fs.toList.map(show).mkString(", ") + ")"
 
   /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
     * `.ssir` form. Sharing one helper between an IR serialisation and a program's output is the
@@ -729,6 +748,11 @@ object Exec:
                 throw ExecError("array index " + i + " out of bounds for length " + xs.length)
               regs(d) = xs(i.toInt); Signal.Done
             case v => throw ExecError("array index " + show(v))
+        // A HOST-OWNED VALUE MAY BE CALLABLE — v2 keeps a `taggedApply` table for exactly this, and
+        // `std-ui-i18n` reads a `NativeUiSignal` by calling it. Same door as a method, under the
+        // name `apply`; anything no provider claims still gets this refusal unchanged.
+        case v @ (Value.VForeign(_, _) | Value.VHostData(_, _)) =>
+          regs(d) = applyValue(m, v, as.map(r => regs(r))); Signal.Done
         case v                   => throw ExecError("calling a non-function: " + show(v))
     case Instr.MkClos(d, f, caps) => regs(d) = Value.VClos(f, caps.map(r => regs(r))); Signal.Done
     // The point of the whole file: this does NOT recurse. It hands the trampoline a new target.
@@ -1228,12 +1252,25 @@ object Exec:
     * being a special case. */
   def applyValue(m: Module, f: Value, args: List[Value]): Value = f match
     case Value.VClos(g, cap) => callFunc(m, g, cap ++ args)
+    case Value.VForeign(_, _) | Value.VHostData(_, _) => hostApply(m, f, args)
     case v => throw ExecError("not a function: " + show(v))
 
   private def apply1(m: Module, f: Value, x: Value): Value = f match
     case Value.VClos(g, cap) =>
       if fastApply then callClos1(m, g, cap, x) else callFunc(m, g, cap :+ x)
+    case Value.VForeign(_, _) | Value.VHostData(_, _) => hostApply(m, f, List(x))
     case v => throw ExecError("not a function: " + show(v))
+
+  /** CALLING A FUNCTION THE HOST OWNS. A plugin can RETURN a function — `signal-id-bridged` gets one
+    * back from the ui provider — and v3 cannot represent a foreign closure as a `VClos`, which is a
+    * function INDEX into this module. It travels as a handle instead, and calling it goes back out
+    * through the same door a method does, under the name `apply`.
+    *
+    * Refused with the ordinary "not a function" when no provider claims it, so a handle that is not
+    * callable reads exactly as any other non-function does. */
+  private def hostApply(m: Module, f: Value, args: List[Value]): Value =
+    Plugins.method(m, f, "apply", args)
+      .getOrElse(throw ExecError("not a function: " + show(f)))
 
   /** One argument appended to a capture list, without the list. The frame-filling loop is
     * `callFunc`'s, kept identical on purpose — including that the arity check counts what was
@@ -1836,8 +1873,27 @@ object Exec:
         // "`ssc3 run` uses the v2 runtime", which stopped being true on 2026-08-07 when `run`
         // switched to v3's own executor — a diagnostic that sends the reader to the wrong lane
         // is worse than one that says less.
-        case _ => throw ExecError("method '" + name + "' on " + show(recv) +
-                    "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2")
+        // A VALUE THE HOST OWNS GETS ASKED FIRST — and only a host-owned one, so nothing else in
+        // this dispatch changes. `<handle GeneratorValue>.next` and `ProcessResult(…).exitCode` are
+        // methods v2 resolves through its own tables; without this arm the programs that reach them
+        // die here instead of refusing, and reaching them is exactly what the plugin path made
+        // possible. Measured on the executor lane: five cases went from an honest refusal to a
+        // crash when the path opened, which is the wrong half of the floor.
+        // ASKED ONCE, and the `once` is load-bearing rather than tidy: `next` on a generator ADVANCES
+        // it, so a version that tested `isDefined` in a guard and called again in the body would
+        // consume two elements per call and produce a plausible, wrong answer.
+        //
+        // Only a host-owned receiver is offered. Everything else refuses with v3's own diagnostic,
+        // unchanged — `<handle GeneratorValue>.next` and `ProcessResult(…).exitCode` are methods v2
+        // resolves through tables of its own, and reaching them at all is what the plugin path made
+        // possible: five cases went from an honest refusal to a crash when it opened.
+        case _ =>
+          val hosted = recv match
+            case Value.VForeign(_, _) | Value.VHostData(_, _) =>
+              Plugins.method(m, recv, name, args)
+            case _ => None
+          hosted.getOrElse(throw ExecError("method '" + name + "' on " + show(recv) +
+                    "' is not implemented by v3's executor — `ssc3 run --bridge` runs it on v2"))
 
   private[ssc3] def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
