@@ -372,12 +372,12 @@ grown; `v1-jit-size` PASS.
 
 ## rust-named-ctor-args-drop-the-defaulted-fields — `ProcessOptions(cwd = Some("/tmp"))` does not build; the positional form does
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/rust-named-ctor-args-gate.sh
+     fixed-in: 6f4b9e6f2
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 6dce987e5
@@ -408,6 +408,38 @@ The fix fills every unmentioned field from its declared default, exactly as the 
 path already does — not a refusal, since the program is legal and every other lane runs it. The gate
 that closes this needs BOTH cells: a named argument for a middle field and one for the last, because
 filling only the tail is what the existing code already does and would pass a one-row check.
+
+### Fixed — by DELETING the second emitter rather than teaching it the same trick
+
+A probe on a LATE field settled which half was broken before any code was written:
+`ProcessOptions(inheritEnv = false)` emitted `ProcessOptions { inheritEnv: false }`, not
+`cwd: false`. The names were already correct; only the other fields were missing.
+
+The named branch was building the struct literal itself, from the named fields alone. The POSITIONAL
+path had already learned to fill trailing defaults (`_ctorDefaults`, added for a user whose live
+server called `ProcessOptions(None, Map(), None)`), and it also lifts an `Any` field to a `Value`,
+`Box`es a recursive field and wraps a closure field in `Rc`. Two emitters means those four behaviours
+have to be kept in step by hand — and this defect IS that drift, one behaviour deep.
+
+So the named form is now DESUGARED to the positional one: reorder into declaration order, fill every
+unnamed slot from its default, and hand the rewritten `Term.Apply` to the path that already existed.
+One construction site, so the other three behaviours arrive without being re-implemented and cannot
+diverge again.
+
+**It declines rather than guesses, in two cases**, and the old emitter is kept for exactly those so
+nothing that compiled before stops compiling: a name that is not a field of this constructor, and an
+unnamed field with no default. Both are genuinely incomplete calls, and rustc's own "missing field"
+is the message the caller needs — inventing a slot for a name we do not recognise is how a value
+lands in the wrong field and COMPILES.
+
+**Verified:** `tests/e2e/rust-named-ctor-args-gate.sh` PASS. Four rows compared against `run` row by
+row, and the fourth is the one that cannot pass by accident: `Point(y = 1, x = 2)` names two fields
+OUT of declaration order and omits a third, so a wrong reorder prints `1,2`, a dropped default does
+not compile, and a mis-filled slot loses the `d` — three distinguishable failures in one row. Plus a
+row asserting the oracle still answers `2,1,d`. Negative control with the walker reverted and the
+launcher rebuilt: the build fails with three E0063s. `v1-jit-size` PASS — `renderTerm` did not grow;
+the arm there is now two lines and the body lives in `namedCtorAsPositional`. `rust-std-survey-gate`
+77 REFUSED / 55 COMPILES, BADRUST not grown.
 
 ## rust-exec-ignores-processoptions-timeout — `timeout` is accepted by the type and never enforced
 
