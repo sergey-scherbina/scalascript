@@ -8,7 +8,7 @@
      reported-at: 2026-08-16
      confirmed: yes
      gate: tests/e2e/bugs-index-gate.sh --self-test
-     fixed-in: PENDING -->
+     fixed-in: 82267dd82 -->
 
 **`kind:` is optional and was the one header field with no enum check**, and both halves of that
 went wrong at once:
