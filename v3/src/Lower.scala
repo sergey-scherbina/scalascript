@@ -3376,7 +3376,38 @@ object Lower:
           }
           Expr.Handle(hb, hs, hp)
         case other => other))
-    val allDefsH = allDefsE.map(resolveHandles)
+    val allDefsR = allDefsE.map(resolveHandles)
+    // A `perform` OF AN OPERATION NO `handle` IN THIS MODULE HANDLES IS REFUSED HERE, where the
+    // position and the name still exist. At run time neither does: `Instr` has no position field,
+    // `Module` is `(consts, types, globals, prims, funcs, entry)` with no operation-name table, so
+    // the executor could only ever say `no handler for effect operation 0` — an index the program
+    // never wrote, and no `line:col`, which `corpus-report.sh` rightly classifies CRASH rather than
+    // an honest refusal. (BUGS `v3-no-handler-error-has-no-position`.)
+    //
+    // WHY THIS IS SOUND AND NOT A GUESS ABOUT THE FUTURE: `handle` is the only construct that
+    // installs a handler, the module here is the MERGED import closure, and `resolveHandles` has
+    // already run — so "no arm anywhere names this op" is a fact about the whole program, not about
+    // the current call path. A handler that exists but is not on the path is a DIFFERENT failure and
+    // still happens at run time, correctly: this check never sees it.
+    //
+    // It is the cheaper of the two shapes the entry proposed. The other — an operation-name table in
+    // `Module` — is a format change that `Ir.scala`, `Lower.scala`, `BridgeV2` and the text codec
+    // must agree on, with a checked-in golden to update, and it would improve the message for the
+    // on-the-path case only.
+    val handledOps: Set[Int] =
+      allDefsR.flatMap { d =>
+        var found: List[Int] = Nil
+        mapDeep(d.body, x => {
+          x match
+            case Expr.Handle(_, arms, _) => found = arms.map(_.op) ++ found
+            case _                       => ()
+          x
+        })
+        found
+      }.toSet
+    // `effectOps` is name -> id; this is the inverse, and it is what turns `0` into `Bump.tick`.
+    val opNameOf: Map[Int, String] = effectOps.map((k, v) => (v, k))
+    val allDefsH = allDefsR
       .map { d =>
         // THE ORIGIN IS ATTACHED HERE TOO, and leaving it off is P-2 of
         // `v3/PRELUDE-CORRECTNESS.md`. `LowerFail` has carried an `origin` since before the
@@ -3385,6 +3416,22 @@ object Lower:
         // `Main` fell back to the path the user named. A three-line fixture was told its error was
         // at line 38, which is a line in the PRELUDE: positions are already counted inside their
         // own file, it is the FILE that was lost.
+        // The unhandled-`perform` refusal rides in this `try` for the reason the paragraph above
+        // gives: it runs before the body lowering that attaches the origin, so without it the
+        // message names the file the USER typed rather than the file the `perform` is in.
+        var unhandled: Option[(Int, Pos)] = None
+        mapDeep(d.body, x => {
+          x match
+            case Expr.Perform(op, _, pp) if unhandled.isEmpty && !handledOps.contains(op) =>
+              unhandled = Some((op, pp))
+            case _ => ()
+          x
+        })
+        unhandled.foreach { (op, pp) =>
+          val nm = opNameOf.getOrElse(op, "#" + op.toString)
+          throw LowerFail(pp, "no handler for the effect operation '" + nm +
+            "' — nothing in this program handles it").at(p.origin.get(d.name))
+        }
         val e0 =
           try checkArity(fillDefaults(flattenCurried(expandPlaceholders(d.body), sigs), sigs), sigs, d.params.map(_.name).toSet)
           catch case e: LowerFail => throw e.at(p.origin.get(d.name))

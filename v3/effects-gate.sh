@@ -33,13 +33,20 @@ cd "$ROOT" || exit 2
 SSC3="v3/ssc3"
 DIR="v3/tests/effects"
 
-# ONE REFUSAL HAS NO POSITION, and it is declared rather than excused. `perform-no-handler` fails
-# at RUN time — `no handler for effect operation …` — and that message carries no `line:col`,
-# because the executor raises it from a frame that no longer knows where the perform was written.
-# A refusal without a position is what `corpus-report.sh` classifies as a CRASH, so this is a real
-# if small defect (BUGS.md v3-no-handler-error-has-no-position); declaring it keeps the gate honest
-# about the difference instead of weakening the rule for every fixture.
-declare -a KNOWN_UNPOSITIONED=(perform-no-handler)
+# EMPTY SINCE 2026-08-16, and kept because emptying it is the point. It held `perform-no-handler`,
+# whose refusal came from the EXECUTOR — `no handler for effect operation 0`, no `line:col` and an
+# index no program ever wrote — which `corpus-report.sh` rightly classifies CRASH rather than an
+# honest refusal. The fix was not to teach the executor a position it cannot have (`Instr` has no
+# position field and `Module` has no operation-name table) but to refuse a `perform` of an operation
+# NO `handle` in the merged module handles at LOWERING, where both still exist. The message is now
+# `no handler for the effect operation 'Bump.tick'` with a position.
+# (BUGS.md `v3-no-handler-error-has-no-position`, fixed.)
+#
+# A fixture belongs here only if its refusal genuinely cannot carry a position. That was true of the
+# one entry for as long as the failure lived in the executor, and stopped being true the moment it
+# moved; leaving the declaration behind would have made this gate green about a rule it no longer
+# tests.
+declare -a KNOWN_UNPOSITIONED=()
 
 fails=0
 ran=0
