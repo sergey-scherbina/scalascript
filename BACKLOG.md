@@ -620,6 +620,53 @@ unrelated claim. Blocked on that decision.
 
 </details>
 
+## generated-rust-unreachable-pattern-is-an-unread-diagnostic — rustc names a whole class of walker defects in every build and nothing reads it
+
+<!-- status: open
+     lane: native
+     area: apparatus
+     kind: apparatus
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 8f8c65b1d
+     repro: none
+     impact: workaround -->
+
+Found while fixing `rust-type-pattern-on-a-local-val-matches-anything` (BUGS.md). That defect was
+reported by a human comparing two implementations byte for byte, after it had reached a running
+server. The compiler had already found it, in the same build, twice:
+
+```text
+warning: unreachable pattern
+   = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+```
+
+one per broken function, printed and discarded. `build-rust` reads rustc's exit status and its
+errors; its warnings go nowhere.
+
+**In GENERATED code an unreachable pattern is not a style note.** A human writing a dead arm has
+made a tidiness mistake. The walker cannot: every arm it emits came from an arm the user wrote, so
+"this arm can never fire" means the walker dropped the thing that discriminated between them — which
+is precisely the defect above, and it is silent by construction, because the wrong arm still returns
+a plausible value.
+
+The proposal is narrow on purpose: fail `build-rust` on `unreachable_patterns` in the crate's own
+generated modules, not on user-visible warnings generally and not on the vendored runtime. Two
+questions to settle first, and neither is answered here:
+
+- **How many crates in the corpus emit it today?** If `std/` is full of them the gate cannot start
+  red; it starts as a baseline like `rust-std-survey-baseline.tsv` and ratchets. Measure before
+  choosing, because "surely only a few" is exactly the assumption that gets a gate reverted.
+- **Which other lints belong with it?** `unused_variables` fires on every arm binder the walker
+  emits and is pure noise; `unreachable_code` may be worth the same argument. Do not sweep in a
+  category — pick the lints whose meaning changes when the author is a compiler.
+
+Until then, individual gates assert it for their own crate (`rust-type-pattern-local-val-gate.sh`
+has such a row), which covers one file each and is why this entry exists rather than being closed by
+that gate.
+
 ## json-parse-has-no-fallible-spelling — a caller cannot ask "was this text JSON at all?": the strict parse aborts and the tolerant one answers `isNull` for invalid input AND for the literal `null`
 
 <!-- status: open

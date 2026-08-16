@@ -23,6 +23,83 @@ Newest first.
 
 
 
+## rust-type-pattern-on-a-local-val-matches-anything — a Map type pattern matches a JSON ARRAY when the scrutinee is a local val; the same match on a parameter is correct
+
+<!-- status: fixed
+     lane: native
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-type-pattern-local-val-gate.sh
+     fixed-in: 0f8482f54
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from 539079f43
+     repro: examples/reported/rust-type-pattern-on-a-local-val-matches-anything.ssc
+     impact: blocks
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
+
+Porting a small HTTP service from Rust to ScalaScript (rozum's UCC console), a reader that accepts
+either `[...]` or `{"rooms": [...]}` answered "no such room" for every room in a file that plainly
+listed them. Nothing failed — the answer was simply wrong, so it reached a running server and was
+found later by comparing the two implementations byte for byte.
+
+The discriminator turned out to be **where the matched value comes from**, and nothing else. The
+same match expression is correct when it matches a PARAMETER and wrong when it matches a local
+`val`. It does not depend on the JSON's source (a literal and a file behave the same), and it holds
+when the `Map` arm actually uses its binding — `m.get("rooms")` on an array just returns nothing,
+which is what made the wrong answer look plausible.
+
+Measured with `bin/ssc` and `bin/ssc-tools build-rust` from the same tree:
+
+```text
+                       interpreter      rust lane
+array via parameter    catch-all arm    catch-all arm
+array via local val    catch-all arm    MAP arm        <- wrong
+array, binding used    catch-all arm    MAP, no key    <- wrong
+object via parameter   MAP arm          MAP arm
+```
+
+Repro prints exactly those four lines on each lane.
+
+**Fixed, and the reporter's "where the value comes from, and nothing else" was literally the
+mechanism.** `renderMatch` chooses the variant-testing path by asking whether the subject is an
+`Any`, and `anyNames` was built from the def's PARAMETERS alone. A local `val` was therefore never
+an `Any`, so the typed path ran — and that path DROPS the ascription, which is correct when the
+ascription restates the subject's own type and catastrophic here:
+
+```rust
+pub fn viaParam(v: crate::value::Value) -> String {
+    { let __any = v; if matches!(__any, crate::value::Value::Map(_)) { … } else { … } }   // right
+}
+pub fn viaLocal() -> String {
+    let parsed = crate::runtime::_json_parse(&"[{\"name\":\"a\"}]".to_string());
+    match parsed { m => "MAP arm", other => "catch-all arm" }                             // bind-all
+}
+```
+
+`collectAnyLocals` adds the missing names: a `val`/`var` declared `: Any`, or bound to a call whose
+def is declared to return `Any` (read from `_returnTypes` — never inferred from the body, because a
+wrong `true` would put a genuinely typed local onto the `Value` path). `anyNames` is read at two
+other sites and both get more correct: it widens the set that SUPPRESSES the "calls a name this
+crate does not define" refusal, and it tells `needsAnyCoercion` that a local holding a `Value` needs
+coercion at a typed parameter — a conclusion it already drew for the inline form `g(f(x))`, so
+`val p = f(x); g(p)` now agrees with it.
+
+**rustc had already said so, twice, and the build swallowed it.** The generated crate carried two
+`warning: unreachable pattern` lines, one per broken function — the second arm of a bind-all first
+arm is dead by construction. Nothing in this repository reads warnings out of generated code; filed
+as `generated-rust-unreachable-pattern-is-an-unread-diagnostic` (BACKLOG.md). The gate asserts the
+absence of that warning as one of its rows, so this crate at least cannot regress silently.
+
+**Verified:** `tests/e2e/rust-type-pattern-local-val-gate.sh` PASS — the four reported rows now agree
+with `run`, plus a row asserting the ORACLE is still right (an array is not a Map on the interpreter
+either; agreement between two regressed lanes would otherwise pass every row) and the
+no-unreachable-pattern row. Negative control with the walker reverted and rebuilt: FAIL on exactly
+the two reported rows and the warning row, while BOTH parameter rows stay green — so the fix does
+not trade one wrong answer for another. Corpus unmoved: `rust-std-survey-gate` 77 REFUSED /
+55 COMPILES with BADRUST not grown, `v1-jit-size` PASS with no method new or grown.
 ## rust-serve-dies-permanently-after-one-handler-panic — one panic in one handler poisons the http runtime mutex, so the served program answers NOTHING afterwards while its process stays up
 
 <!-- status: fixed
