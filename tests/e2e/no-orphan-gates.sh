@@ -80,7 +80,6 @@ tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh
 v2/conformance/check.sh
 v3/plugin-classpath.sh
-v3/toolchain-gate.sh
 EOF
 
 # ── THE SECOND AXIS: can a WIRED gate fail at all? ──────────────────────────────────────────────

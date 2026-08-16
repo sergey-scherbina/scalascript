@@ -455,6 +455,27 @@ jobs:
         if: always()          # see the block above this job's steps
         run: v2/conformance/portable-capsule.sh
 
+      # The last of the three the triage froze as "blocked on a sibling claim". The claim cleared,
+      # and the blocker was worth re-checking rather than believing — that note was dated evidence.
+      #
+      # It asserts v3 builds on the compiler its own sources declare, with NO scala-cli. Read its
+      # header before touching it: the first version removed the Coursier directory from PATH, which
+      # took the RESOLVER away too, so the build only worked off a cached classpath and the gate was
+      # green for the wrong reason. It now shadows `scala-cli` with a FAILING shim and leaves every
+      # other tool reachable.
+      #
+      # NOT VACUOUS: drifting `//> using scala` in `v3/src/project.scala` to 3.9.9 makes it report
+      # `could not fetch the Scala 3.9.9 toolchain` and exit 1.
+      #
+      # It self-reports partial coverage — `uniml.cp is absent, so the second front could not be
+      # exercised here`. That is a NOTE, not a skip of the whole gate, and it is why `v3.yml`
+      # registers the uniml classpath before its own gates; here the first front is what is checked.
+      #
+      # TIER 2: 31 s and it builds the v3 kernel.
+      - name: v3 builds without scala-cli on its declared compiler
+        if: always()          # see the block above this job's steps
+        run: v3/toolchain-gate.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.
