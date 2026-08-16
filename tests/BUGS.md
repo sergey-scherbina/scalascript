@@ -96,14 +96,20 @@ green. Scoped to the parsed block it fails as it should. A plant has to land whe
 
 ### Not wired, and the reason is specific
 
-`v3/extension-gate.sh` is green in 0 s and checks a real invariant (`Lower`'s vocabulary covers the
-123 names `Exec` answers to). **It is not wired because its non-vacuity cannot be shown right now:**
-proving it needs a plant in `v3/src/Lower.scala` or `Exec.scala`, and a sibling claim holds both.
-Wiring a gate whose ability to fail has not been demonstrated is how a suite fills up with green
-that means nothing — so it waits for the claim to clear, rather than being wired on the strength of
-its output looking convincing.
+**`v3/extension-gate.sh` — WIRED after all, and the blocker was my own misreading.** I recorded that
+proving its non-vacuity needed a plant in `v3/src/Lower.scala` or `Exec.scala`, both held by a
+sibling claim. It needs no such thing: the gate ships its OWN `--self-test`, which narrows
+`lower_vocab` to drop a name `Exec` answers to and requires the check to go RED. It runs in 0.14 s
+and touches no claimed file. Reading the script before declaring a blocker would have cost less than
+the paragraph declaring it.
 
-The five remaining green ones cost 30–67 s (`v21-typeclass-dictionary-smoke`,
+Wiring it exposed a real defect in the gate. `--self-test` used to `exit`, so a suite wiring it got
+the rehearsal and never the answer to what the gate guards. Making it fall through to the real check
+— the pattern `no-orphan-gates.sh` and `v1-jit-size.sh` already use — showed that **the plant was
+never undone**: the check inherited the narrowed `lower_vocab` and reported RED on a GREEN tree. The
+self-test now restores the function before falling through, and both modes are asserted.
+
+The four remaining green ones cost 30–67 s (`v21-typeclass-dictionary-smoke`,
 `check-handler-markers`, `portable-capsule`, `v3/toolchain-gate`) and belong in tier 2 after the same
 treatment.
 

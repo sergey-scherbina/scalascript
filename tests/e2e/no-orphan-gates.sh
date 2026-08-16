@@ -81,7 +81,6 @@ v2/backend/check-handler-markers.sh
 v2/backend/check.sh
 v2/conformance/check.sh
 v2/conformance/portable-capsule.sh
-v3/extension-gate.sh
 v3/plugin-classpath.sh
 v3/toolchain-gate.sh
 EOF

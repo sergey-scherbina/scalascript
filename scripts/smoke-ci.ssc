@@ -842,6 +842,19 @@ val suite = List(
   // "10-core-ir.md's node inventory has drifted from CoreIR.scala".
   // (orphan-debt-triage-31-frozen-gates.)
   Check(".", "coreir-inventory", "specs/coreir-inventory-gate.sh", List(), 60000),
+  // A third orphan drained. `Lower` carries a hand-written copy of `Exec`'s built-in method names,
+  // and the stale direction is the silent one: if `Exec` gains a method `Lower` does not know, an
+  // extension with that name is rewritten and SHADOWS the built-in — a wrong answer weeks later, in
+  // a different file. This derives the list and compares, so the failure lands on the commit that
+  // adds the built-in.
+  // 0.14 s and no toolchain. `--self-test` first, and it carries its own plant: it narrows
+  // `lower_vocab` to drop one name Exec answers to and requires the check to go RED.
+  // THE FALL-THROUGH IS NEW AND WAS THE BUG WORTH CATCHING: `--self-test` used to `exit`, so a
+  // suite wiring it would have got the rehearsal and never the answer. Making it fall through
+  // exposed that the plant was never undone — the check inherited the narrowed vocabulary and
+  // reported RED on a GREEN tree. Both modes are asserted here now.
+  // (orphan-debt-triage-31-frozen-gates.)
+  Check(".", "v3-extension-vocab", "v3/extension-gate.sh", List("--self-test"), 60000),
   // Three of the 36 frozen orphans, drained. Each was RUN against a fresh launcher (6s, 6s, 7s) and
   // each was checked NOT to be vacuous: re-run with both launcher jars removed, all three go RED.
   // That control found one gate in twenty that stays green with no toolchain at all —

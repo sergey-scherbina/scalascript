@@ -96,6 +96,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # Plant: drop one name Exec answers to from Lower's view. Done by narrowing `lower_vocab`, not by
   # editing the file, so an interrupted run cannot leave the repository wrong.
   _victim="$(exec_vocab | head -1)"
+  # SAVED SO IT CAN BE UNPLANTED. The plant below REDEFINES `lower_vocab`, which was harmless while
+  # the self-test exited immediately after — and became wrong the moment it started falling through
+  # to the real check: the check inherited the narrowed vocabulary and reported RED against a tree
+  # that is GREEN. Caught by running both modes and comparing, not by reading the code.
+  _lower_vocab_orig="$(declare -f lower_vocab)"
   lower_vocab() {
     sed -n '/BUILTIN-VOCABULARY-BEGIN/,/BUILTIN-VOCABULARY-END/p' "$LOWER" |
       grep -oE '"[^"]+"' | sed 's/^"//; s/"$//' | grep -vxF "$_victim" | LC_ALL=C sort -u
@@ -106,10 +111,16 @@ if [ "${1:-}" = "--self-test" ]; then
   else
     echo "  ok   a name missing from Lower's vocabulary ('$_victim') goes RED"
   fi
+  eval "$_lower_vocab_orig"        # UNPLANT before the real check runs below
   echo
   [ "$fails" = 0 ] && echo "== extension gate self-test: the gate discriminates ==" \
                    || echo "== extension gate self-test: $fails rule(s) DID NOT FIRE =="
-  exit "$fails"
+  [ "$fails" = 0 ] || exit "$fails"
+  # FALLS THROUGH TO THE REAL CHECK, like `no-orphan-gates.sh` and `v1-jit-size.sh`: one invocation
+  # does both. It used to `exit` here, which meant a suite wiring `--self-test` got the proof that
+  # the gate CAN fail and never the answer to what it actually guards — a gate that only ever
+  # rehearses. Added 2026-08-16 while draining this script from the orphan list, where it had sat
+  # green and unrun.
 fi
 
 echo "── extension rewrite: Lower's vocabulary vs Exec's table ───────────────"
