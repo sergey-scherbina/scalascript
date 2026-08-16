@@ -354,6 +354,22 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/v21-unhandled-effect-smoke.sh
 
+      # Fourth orphan drained, and the fourth whose red was the GATE. Its golden was written
+      # 2026-07-11 with bare `# Template`; on 2026-07-30 the content renderer began emitting a
+      # heading's derived id as `{#template}`, and nothing went red because the gate runs nowhere.
+      # The golden is updated, and what makes that safe is CROSS-LANE AGREEMENT rather than the gate
+      # then passing: v2 standard, v2 native and the v1 JVM artifact produce byte-identical output,
+      # and v1 is the reference this renderer was changed to match.
+      #
+      # NOT VACUOUS: renaming a heading the golden covers turns it red. (Appending a NEW heading does
+      # not — that plant lands outside the rendered region, which is worth knowing before trusting a
+      # plant here.)
+      #
+      # TIER 2: 51 s, and it builds a JVM artifact.
+      - name: Native content binding agrees across lanes
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/v21-native-content-smoke.sh
+
       # The path→area map has to stay TOTAL (new code resolves to an area), DETERMINISTIC
       # (longest-prefix, order-independent) and CONSISTENT with the bugs-index enum — and it
       # also checks that a bug sits in a board owning the code it names.

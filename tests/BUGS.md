@@ -131,9 +131,9 @@ these scripts are invoked by nothing, so nothing has reported them.
 
 | gate | s | first failure |
 |---|---|---|
-| `tests/e2e/render-smoke.sh` | 14 | `[FAIL] headless render differs from served output` — the two disagree on generated CSS class names (`.root__Alert.error__Alert`) |
+| `tests/e2e/render-smoke.sh` | 14 | headless 4076 bytes vs served **54** — `native HTTP handler failed: unbound global: collectCss`. **Already filed**: `v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native` |
 | `tests/e2e/serve-view-frontend-v2-smoke.sh` | 36 | `--v2: no listener visible on :8099`, `http=000` — the v2 server never listened |
-| `tests/e2e/v21-native-content-smoke.sh` | 51 | binding output keeps its placeholders: `missing=${missing.path}; invalid=${bad-path}` |
+| ~~`tests/e2e/v21-native-content-smoke.sh`~~ | 51 | **RESOLVED — a stale golden. See below.** |
 | ~~`tests/e2e/v21-native-doc-render-smoke.sh`~~ | 71 | **RESOLVED — the GATE was stale, not the build. See below.** |
 | ~~`tests/e2e/v21-unhandled-effect-smoke.sh`~~ | 25 | **RESOLVED — the gate's third case was mis-specified. See below.** |
 
@@ -193,7 +193,37 @@ produces `unhandled runtime effect: MissingRuntime.call` on that lane too. The c
 the gate is green on all three lanes, and it is wired into tier 2. Not vacuous: replacing the
 fixture with a plain `println` turns all three cases red.
 
-**AGE UNKNOWN FOR THE REMAINING THREE, AND THAT IS THE POINT — not a claim of regression.** An
+### A third was a stale GOLDEN, and cross-lane agreement is what made it safe to accept
+
+`v21-native-content-smoke` compares five renderings of `content-binding.ssc` against one golden. The
+difference is two lines: golden `# Template`, actual `# Template {#template}` (and the same for
+`## Nested`). The fixture source has **no** `{#…}` anchors, so the renderer derives them.
+
+Dates again: the golden was written **2026-07-11** (`208ec4c60`); the renderer began emitting heading
+attr groups in v1's canonical order on **2026-07-30** (`d2349fe99`). Nineteen days, nothing red,
+because the gate runs nowhere.
+
+**Updating a golden to match current behaviour is how a regression gets blessed**, so the evidence
+matters more than the passing gate: the same fixture through v2 standard, v2 native and the **v1 JVM
+artifact** (`ssc build-jvm` → `java -jar`) is byte-identical. v1 is the reference implementation the
+renderer was changed to match, so a regression would appear here as a divergence — and there is
+none. The gate now carries that argument in its own comment, and is wired into tier 2.
+
+Method note: **the first non-vacuity plant was invalid, for the third time in this triage.** Appending
+a new `## Planted Heading` to the fixture left the gate GREEN — that plant lands outside the rendered
+region. Renaming a heading the golden actually covers turns it red.
+
+### The fourth red is a KNOWN product defect and was already filed
+
+`render-smoke`'s numbers say it plainly: headless 4076 bytes, served **54**. Those 54 bytes are
+`native HTTP handler failed: unbound global: collectCss`. That is
+`v2/BUGS.md collect-css-and-collect-js-exist-on-three-lanes-and-not-on-native`, filed 2026-08-15,
+open, confirmed — and **its `gate:` field names `tests/e2e/render-smoke.sh`, an orphan**. So the entry
+claimed coverage from a script nothing runs, which is the exact shape `no-orphan-gates.sh`'s header
+warns about. The gate stays frozen with that entry as the reason: it is a correct gate for an open
+defect, and wiring a known-red gate is what turns a suite into noise.
+
+**AGE UNKNOWN FOR THE ONE THAT REMAINS, AND THAT IS THE POINT — not a claim of regression.** An
 unwired gate has no history:
 nothing ran it, so no commit can be blamed and no bisect is meaningful without first wiring it.
 Whoever picks one up should wire it as the first step of the fix, not the last.
