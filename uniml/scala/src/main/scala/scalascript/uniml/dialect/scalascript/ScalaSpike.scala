@@ -596,7 +596,21 @@ object SpikeParse:
       var q = p + 1
       while q < toks.length && toks(q).kind == "spike.ws" do q += 1
       val b = if q < toks.length then Some(toks(q)) else None
-      a.isDefined && b.isDefined && a.get.span.end.offset == b.get.span.start.offset
+      // THE SAME LINE, as well as the same offset. The offset test alone did not reject a LINE
+      // BREAK — measured, not assumed:
+      //
+      //     val tag = "h" + level
+      //     "<" + tag + ">"
+      //
+      // read as `level"<"` and was refused as an interpolator outside Tier 0, on the DEFAULT front,
+      // while v3's own parser read the two lines as two expressions. A blank line between them did
+      // not help and parenthesising the first did, which is what says the test was passing rather
+      // than the tokens being genuinely adjacent. Since every identifier is an interpolator prefix
+      // here — `isInterpPrefix` accepts any word, whatever the comment above it says — this affects
+      // ordinary string-building code, where a name ends one line and a literal opens the next.
+      a.isDefined && b.isDefined &&
+        a.get.span.end.offset == b.get.span.start.offset &&
+        a.get.span.end.line == b.get.span.start.line
 
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(SpikeOp.meaning(peekLexeme)) else 0
     def peek2Lexeme: String = // the second significant (non-trivia) token's lexeme
