@@ -1,0 +1,11 @@
+slug: uniml-interpolator-adjacency
+branch: feature/uniml-interpolator-adjacency
+agent: claude-code
+started: 2026-08-16T15:25:01Z
+heartbeat: 2026-08-16T15:25:01Z
+status: claimed-before-planning
+items: uniml-reads-an-identifier-and-a-later-string-as-an-interpolator
+paths: file:uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/ScalaSpike.scala file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
