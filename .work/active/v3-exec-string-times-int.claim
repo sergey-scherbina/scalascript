@@ -1,0 +1,11 @@
+slug: v3-exec-string-times-int
+branch: feature/v3-exec-string-times-int
+agent: claude-code
+started: 2026-08-16T19:35:38Z
+heartbeat: 2026-08-16T19:35:38Z
+status: claimed-before-planning
+items: v3-exec-has-no-string-repetition
+paths: file:v3/src/Exec.scala file:BUGS.md file:v3/tests/front/string-repeat.ssc file:v3/tests/front/string-repeat.expected
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
