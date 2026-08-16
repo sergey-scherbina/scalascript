@@ -309,6 +309,19 @@ jobs:
         if: always()          # see the block above this job's steps
         run: .githooks/pre-push --self-test
 
+      # The same argument, for `pre-commit`'s `kind:` rule. `kind:` became required on 2026-08-16 and
+      # `bugs-index-gate` runs inside smoke-ci, so an entry filed without one turns EVERY agent's
+      # push red — it happened three times within hours of the field landing, each costing one word.
+      #
+      # The rule is scoped to entries the commit ADDS, and THAT is what needs a gate: 779 of 1052
+      # entries were kindless when the field arrived, so a hook that checked whole files would refuse
+      # nearly every board commit in the repo. The `legacy-untouched` row is the one that would catch
+      # that, and it is why the gate is not merely a refusal test — a hook that refuses everything
+      # passes a refusal-only gate perfectly.
+      - name: Verify pre-commit refuses only the kindless entries it ADDS (4 cases)
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/precommit-kind-required.sh
+
       # An orphan drained by the 2026-08-16 triage: it was invoked by nothing, and it is the gate
       # that keeps a caller-influenced name from being emitted VERBATIM into Core IR, where a
       # delimiter makes the decoder stop early and re-parse the remainder as structure. Core IR is

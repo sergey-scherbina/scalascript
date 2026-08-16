@@ -185,4 +185,67 @@ if [ -n "$staged_bugs" ]; then
     fi
   fi
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `kind:` must be PRESENT on an entry this commit ADDS — same reasoning as the `area:` check above,
+# one field over, and the same three-in-a-row to justify it.
+#
+# `kind:` became required on 2026-08-16. Within hours, three entries landed without one —
+# `v3-a-toplevel-def-used-as-a-value-is-an-unknown-name`, `math-round-and-f-round-disagree-at-a-tie`,
+# `js-mathround-is-not-in-isIntExpr` — and each turned `bugs-index-gate` red on main for EVERY agent,
+# because that gate runs inside `smoke-ci` and `smoke-ci` is the push path. Each cost one word. None
+# of the authors did anything unusual: they filed an entry the way entries have always been filed.
+#
+# SCOPED TO ADDED HEADINGS, AND THAT IS THE WHOLE DESIGN. 779 of 1052 entries carried no kind when
+# the field was introduced, and `classify-the-50-kindless` is still working through them. A check
+# that demanded `kind:` from every entry in a staged board would refuse nearly every commit that
+# touches one — worse than the problem it solves. So: only `## slug` lines the diff ADDS.
+#
+# `git diff --cached -U0` gives added lines only; an added heading is then looked up in the STAGED
+# file to read the header block that follows it.
+staged_bugs="$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)BUGS\.md$' || true)"
+if [ -n "$staged_bugs" ]; then
+  kindless=""
+  for f in $staged_bugs; do
+    # Headings this commit adds, without the leading '+'.
+    added_heads="$(git diff --cached -U0 -- "$f" | grep -E '^\+## ' | sed 's/^\+//' || true)"
+    [ -z "$added_heads" ] && continue
+    staged_content="$(git show ":$f" 2>/dev/null || true)"
+    while IFS= read -r head; do
+      [ -z "$head" ] && continue
+      # The entry's header block: from its heading to the first `-->`. If that window carries no
+      # `kind:`, the entry is the shape that reddens main.
+      #
+      # NOTE THE ASSIGNMENT: this was `printf … | awk … | grep -q` and it reported THIS FILE'S OWN
+      # entry as kindless while printing `printf: Broken pipe`. Under `set -o pipefail` a `grep -q`
+      # that matches EARLY closes the pipe, `printf` dies of SIGPIPE, and the pipeline's status makes
+      # a HIT read as a MISS. Capture first, match second — never `… | grep -q` where the status is
+      # the answer.
+      hdr="$(awk -v h="$head" 'index($0,h)==1{f=1} f{print} f&&/-->/{exit}' <<<"$staged_content")"
+      if ! grep -qE '^ *kind: *[a-z]' <<<"$hdr"; then
+        kindless="$kindless
+   $f: ${head}"
+      fi
+    done <<EOF
+$added_heads
+EOF
+  done
+  if [ -n "$kindless" ]; then
+    kind_enum="$(grep -m1 '^| `kind`' specs/bugs-index.md 2>/dev/null | grep -oE '`[a-z-]+`' | tr -d '`' | grep -v '^kind$' | tr '\n' ' ' || true)"
+    {
+      echo "✋ pre-commit: an entry this commit ADDS declares no \`kind:\`."
+      echo "$kindless"
+      echo ""
+      echo "   Allowed (specs/bugs-index.md): ${kind_enum:-bug perf feature regression apparatus programme}"
+      echo "   \`kind:\` is required since 2026-08-16 and \`bugs-index-gate\` runs inside smoke-ci, so"
+      echo "   an entry without one turns EVERY agent's push red until its author notices. That"
+      echo "   happened three times on the day the field became required, each costing one word."
+      echo "   Only entries this commit ADDS are checked — older kindless entries are somebody"
+      echo "   else's task (classify-the-50-kindless) and never fail this."
+      echo "   Override (rarely correct): git commit --no-verify"
+    } >&2
+    exit 1
+  fi
+fi
+
 exit 0

@@ -1,3 +1,55 @@
+## kind-required-only-after-the-push — three main-reds in one night, each one word
+
+<!-- status: open
+     kind: apparatus
+     lane: apparatus
+     area: docs
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/precommit-kind-required.sh -->
+
+**`kind:` became REQUIRED on 2026-08-16 and `bugs-index-gate` runs inside `smoke-ci`, so an entry
+that lands without one turns EVERY agent's push red until somebody notices.** It happened three
+times in the hours after the ratchet tightened:
+
+```text
+v3-a-toplevel-def-used-as-a-value-is-an-unknown-name   v3/BUGS.md                     fe19941c2
+math-round-and-f-round-disagree-at-a-tie               v2/BUGS.md                     03451e490
+js-mathround-is-not-in-isIntExpr                       v1/runtime/backend/js/BUGS.md  03451e490
+```
+
+Each cost one word. None of the authors did anything unusual — they filed an entry the way entries
+have always been filed, and the requirement is a day old.
+
+**`.githooks/pre-commit` already solves this exact problem for the neighbouring field.** It
+validates `area:` VALUES against the enum in `specs/bugs-index.md`, and its own comment is the
+argument for extending it:
+
+> THREE TIMES on 2026-08-04/05 an entry landed with a value that is not in `specs/bugs-index.md` …
+> Each turned `bugs-index-gate` red on main for EVERY agent until its author noticed, and each was a
+> single word. **The gate is not at fault: it caught all three. It just runs after the damage**, and
+> the suite it lives in takes minutes, so people push first.
+
+Word for word the same story, one field over. The hook checks that `area:` is a legal value; nothing
+checks that `kind:` is PRESENT.
+
+### The constraint that makes this more than a one-liner
+
+**779 of 1052 entries carried no kind when the field was introduced**, and `classify-the-50-kindless`
+is working through them. A hook that demanded `kind:` on every entry in a staged `BUGS.md` would
+refuse almost every commit that touches a board — worse than the problem.
+
+So the check must be scoped to entries **ADDED by this commit**: diff the staged file against `HEAD`,
+find added `## slug` headings, and require a `kind:` in the header block that follows. An untouched
+kindless entry elsewhere in the same file must not fail it — and the gate has to prove that, or it
+is the same "plant that also trips the old gate" mistake: a fixture that fails for the wrong reason
+proves nothing about the new rule.
+
+**Done when** a commit adding a kindless entry is refused at commit time, a commit adding a
+kind-bearing entry passes, and a commit touching a file that ALREADY contains kindless entries
+passes — all three asserted by `tests/e2e/precommit-kind-required.sh` against the real hook.
+
 ## effect-row-verifier-demands-a-declaration-it-never-checks — `! Nonsense` satisfies it
 
 <!-- status: fixed
