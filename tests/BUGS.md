@@ -534,6 +534,188 @@ constraints) — the second front change to land under one of my claims today. T
 rebuilt and re-run on the rebased tree, 8/8, rather than trusting a verdict taken against the older
 one.
 
+## typer-prelude-list-should-be-generated-from-std-exports — a hand-kept copy of something machine-readable
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes -->
+
+**`Typer.scala`'s `pluginBuiltins` is a hand-maintained list of names that exist**, and every module
+under `std/` already declares its own in machine-readable front-matter:
+
+```yaml
+exports:
+  - vstack
+  - hstack
+  - divider
+```
+
+`Parser.scala:271` already parses that block. The typer does not read it.
+
+**The cost, measured 2026-08-16 rather than argued.** Turning on argument inference made the
+undefined-name check reach into `println(...)` and every other variadic call for the first time. It
+rejected **11 of the examples CI type-checks on every push**:
+
+```text
+Node MapOp FilterOp FlatMapOp     std/mapreduce/{cluster,distributed}.ssc
+Transport                          std/mcp/server.ssc
+vstack                             std/ui/layout.ssc
+__ssc_quote__ __ssc_splice__       interpreter globals, siblings of the listed __ssc_macro__
+PureMarkupCodec                    sibling of the listed MarkupCodec
+get                                a route verb of `serve { … }`, like `suspend` in `generator`
+```
+
+Every one is REAL and every one is a sibling of a name already on the list — the list was built from
+whatever happened to fail, and nothing had ever type-checked a program using the rest. Adding those
+ten brought it from 11 files to one, whose next names — `text`, `textField`, `actionButton` — are
+three of the **~250 that `std/ui` alone exports**. That is the shape of the whole problem: hand-
+maintenance is not a task here, it is a treadmill.
+
+**Consequence carried today:** undefined-name reporting is OFF inside a variadic argument
+(`Typer.scala`, `variadicArgDepth`). Statement position and non-variadic arguments are unaffected.
+Arity and argument-type checks ARE on in that position — those two do not depend on knowing every
+name. Both halves of that boundary are pinned by `tests/e2e/v1-check-sees-what-it-runs.sh`.
+
+**Done when** the prelude is generated from the `exports:` blocks, the ten hand-added names above are
+DELETED from `pluginBuiltins` (a generated list that still needs its manual copy has not replaced
+anything — check both directions), and `variadicArgDepth` is removed so the third check comes back
+on with the corpus and examples both green.
+
+## a-flat-def-passed-where-a-curried-type-is-declared — `--v1` prints 3, native refuses
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes -->
+
+**Found 2026-08-16 by a probe, not by a sweep** — the corpus has no case of this shape, which is why
+it has never been noticed.
+
+```scalascript
+def flat(a: Int, b: Int): Int = a + b
+def use(f: Int => Int => Int): Int = f(1)(2)
+println(use(flat))
+```
+
+| lane | verdict |
+|---|---|
+| `bin/ssc-tools run --v1` | `3` |
+| `bin/ssc run` (native) | `ssc: arity: 2 expected, 1 given` |
+
+The **converse** direction agrees — a CURRIED def passed where a flat `(Int, Int) => Int` is
+declared prints `3` on both. So the disagreement is one-way: the interpreter auto-curries a flat
+function on partial application; the native lane does not.
+
+**Which is right is a language question, not a typer question**, and this entry exists so the answer
+is chosen rather than inherited from whichever lane a program happens to run on. Until then
+`ssc-tools check` ACCEPTS it, on the standing rule that the v1 checker must not reject what the v1
+runtime runs (`v1-check-never-looks-inside-a-println`).
+
+**Why it surfaced now:** modelling parameter clauses gave curried defs a nested type for the first
+time, so assignability had to have an opinion about the two directions. Before, everything was flat
+and the question could not be asked. See `v1-typer-flattens-parameter-clauses`.
+
+## v1-typer-flattens-parameter-clauses — so a curried def and an over-application have the SAME type
+
+<!-- status: open
+     lane: apparatus
+     area: front
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/v1-check-sees-what-it-runs.sh -->
+
+**Asked for by Sergiy 2026-08-16** — *"Сделай модель клауз чтобы тайпер правильно работал для
+каррированых функций"* — after the previous slice measured it and could not close it.
+
+`Typer.scala` built a def's type by flattening every parameter clause into one list, at both sites
+that build one (the `checkStat` pre-pass and the real `Defn.Def` case):
+
+```scala
+d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)   // (Int, Int) => Int
+```
+
+So `def two(a: Int)(b: Int): Int` had the same type as `def two(a: Int, b: Int): Int`, and
+`two(1)(2)(3)` — which dies at runtime with `Not callable: 3` — type-checked clean: `two(1)` reads
+as an underflow (permitted, since trailing parameters may carry defaults this typer does not track)
+and the OUTER apply re-reads the same flattened type.
+
+### The refutation that names the cause, and it is the valuable half of this entry
+
+The obvious catch — *applying a concrete primitive to arguments is an error* — was implemented,
+measured and **reverted**. Under flattening `two(1)` types as `Int`, so a LEGAL curried call is
+indistinguishable from applying a primitive. It rejected four correct corpus cases:
+
+```text
+curried-def-clauses.ssc        curried-def-three-clauses.ssc
+fewer-braces-colon.ssc         tagless-resolution.ssc
+```
+
+— two of them the very cases that pin currying as intended. **The check was right and the TYPE was
+wrong**, which is why no assertion layered on top of a flattened type could have worked.
+
+### The model
+
+One explicit clause = one arrow. `def two(a: Int)(b: Int): Int` is `Int => (Int => Int)`. Then
+`two(1)` is a Function, `two(1)(2)` is an `Int`, and `two(1)(2)(3)` applies an `Int` — caught by an
+ordinary "not a function" arm that needs no special case at all.
+
+Two things kept it from being a one-liner, and both were measured rather than guessed:
+
+* **`using` / `implicit` clauses are auto-supplied and must NOT become arrows.**
+  `def display[A](a: A)(using s: Show[A]): String` is CALLED as `display(x)`; nesting would make
+  that an under-application typed `Show[A] => String` and every use of it a mismatch. They are
+  folded onto the last explicit clause instead, where the existing underflow tolerance already
+  covers them — i.e. exactly today's treatment, unchanged. Corpus: 6 files use multiple clauses,
+  2 of them contextual (`tagless-*`).
+* **The "not a function" arm is a CLOSED, NAMED set**, not "anything that is not a Function". Most
+  things here ARE callable: `s(0)`, `xs(0)`, `m(k)` all index through `apply`, and an unknown
+  `Named` may define one. The set is the primitives — `Int Long Short Byte Double Float Boolean
+  Unit BigInt Decimal` — whose application is what the runtime reports as `Not callable: <value>`.
+
+**Class constructors keep the flat treatment deliberately.** `class C(a: Int)(using x: X)` is
+constructed as `C(1)`; nesting there would make a complete construction read as a partial one. The
+ask was curried *functions*, and for ctors flattening is not merely the smaller change, it is the
+correct one.
+
+### Measured
+
+| | |
+|---|---|
+| `two(1)(2)(3)` before / after | `OK` / `error: Not a function: Int cannot be applied to arguments` |
+| `two(1)(2)`, `tri(1)(2)(3)`, `val p = two(1); p(2)` | accepted, all three |
+| `two(1, 2)` — per-CLAUSE arity, not total | `error: Wrong number of arguments: expected 1, got 2` |
+| the four cases the reverted attempt rejected | accepted |
+| conformance corpus, 399 cases | **9 rejections, 0 new, 0 lost** against the same-session baseline |
+
+### The regression the corpus could not have caught, found by probing instead
+
+Once clauses became arrows, `def mk(a: Int)(b: Int)` passed to `def use(f: (Int, Int) => Int)` read
+as arity 1 against 2 and was REJECTED — while both runtimes print `3` for it. That is the same
+defect the whole programme is about (`check` refusing what its own runtime runs), reintroduced by
+the fix for it, and **no conformance case has that shape**, so the corpus differential was 0/0 and
+said nothing. Assignability now compares TOTAL arity, because both runtimes uncurry at a call.
+
+The reverse direction is accepted for the same reason and turned out to be a lane divergence:
+`a-flat-def-passed-where-a-curried-type-is-declared`.
+
+**The method note worth keeping:** a differential against a corpus answers only what the corpus
+contains. The clause model changes how FUNCTION TYPES COMPARE, and the corpus passes functions to
+functions in exactly one shape — so the sweep was green on a build that broke the other one. Both
+directions are now rows in the gate.
+
+The corpus number is the one that matters: a checker that rejects more is not better, and the four
+reverted cases are proof that the difference between "caught a real bug" and "broke the language" is
+one sweep.
+
 ## v1-check-never-looks-inside-a-println — one escape hides its arity and argument checks from every program
 
 <!-- status: open
@@ -541,7 +723,7 @@ one.
      area: front
      kind: bug
      confirmed: yes
-     gate: tests/e2e/declared-type-is-a-constraint.sh -->
+     gate: tests/e2e/v1-check-sees-what-it-runs.sh -->
 
 **Measured 2026-08-15.** `ssc-tools check` has working arity and argument-type checks. They simply
 never see anything a program writes inside `println(...)`:
@@ -603,8 +785,37 @@ correct programs, which is the same defect in the other direction.
 **Both changes are reverted rather than carried.** A correct-in-principle edit that makes the tool
 wrong is not an improvement, and an unmeasurable one is not a change worth keeping.
 
-**Done when** the 14 gaps close and argument inference is on — then `check` stops green-lighting
-`z(5)` and `two(1)(2)(3)`, both of which its own runtime refuses with `Not callable`.
+### CLOSED 2026-08-16 — argument inference is ON for TWO of the three checks it switched on
+
+**The split, and it is measured rather than chosen for convenience.** The escape hid three checks:
+arity, argument type, and undefined name. Arity and type are on — they are what rejects `z(5)`,
+`h("x")` and `two(1)(2)(3)` through a `println`, and they do not depend on the typer knowing every
+name that exists. Undefined-name reporting stays OFF inside a variadic argument, because it does
+depend on that and the typer's model of it is a hand-kept list: switching it on rejected **11 of the
+examples CI checks on every push**, all real `std/` exports. Filed with its fix as
+`typer-prelude-list-should-be-generated-from-std-exports`; the boundary is pinned in both directions
+by the gate, so neither half can move quietly.
+
+Final sweep: **9 rejections, 0 new, 0 lost** against the 9-case baseline, and `check examples/*.ssc`
+exits 0 — the same numbers the escape was hiding behind, now reached with the checker looking.
+
+Of the five gap fixes, two (Set `+`, parenless def) are TYPE and ARITY corrections and are
+load-bearing today. Three (in-fence imports, `suspend`, `direct[M]` binders) were undefined-NAME
+corrections; they are real scope fixes and are kept, but with reporting off in argument position they
+no longer isolate themselves — which the gate says out loud rather than implying coverage it has lost.
+
+| shape | fix |
+|---|---|
+| `+` / `-` on a Set, List, Vector, Seq, Map | an ADD, not arithmetic — the operator table returns the collection |
+| a PARENLESS def seen applied | no clause at all types as its RESULT; an explicit `()` keeps its Function type, so `z(5)` stays an over-application |
+| a name imported INSIDE a fence | in-fence `[name](path.ssc)` lines bind their names before the block is typed |
+| generator `suspend`, MCP `Transport` | added to the prelude |
+| `x = expr` inside `direct[M]` | a monadic BIND that INTRODUCES `x` — scoped to the `direct` call, not made a global rule |
+
+`z(5)` is now `Wrong number of arguments: expected 0, got 1` where the runtime says `Not callable: 1`.
+`two(1)(2)(3)` needed the parameter-clause model and is closed separately in
+`v1-typer-flattens-parameter-clauses` — with clauses flattened the check that catches it also
+rejects four correct programs, which is why it is a different entry and not a loose end of this one.
 
 **A METHOD NOTE, because it nearly cost the conclusion.** The first sweep measured BOTH edits at once
 and reported 14. Attributing that to either would have been guesswork: the three `expected 0` rows

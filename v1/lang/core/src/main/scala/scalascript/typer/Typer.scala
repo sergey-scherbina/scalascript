@@ -305,16 +305,36 @@ class Typer(
       // interpreter-core globals (no owning std plugin) — stay hardcoded.
       "Async", "Await", "Signal", "Future", "Storage",
       "Db", "KV", "ObjectStore", "State", "Events", "Sync", "InMemory", "IndexedDb",
-      "MarkupCodec", "awaitClient", "generator",
+      // `suspend` sits beside `generator` because it is that construct's keyword: it is only
+      // meaningful inside `generator[T] { ... }`, exactly as the actor keywords are only meaningful
+      // inside `runActors`. This typer models construct keywords as global names — that is its
+      // existing design, not a new one — and `suspend` was simply missing, so two corpus cases that
+      // run on every lane were reported as referencing an undefined name.
+      "MarkupCodec", "PureMarkupCodec", "awaitClient", "generator", "suspend",
+      // Route verbs of the `serve { … }` block, on the same footing as `suspend`: they are
+      // meaningful only inside that construct, and this typer models construct keywords as global
+      // names. Added as the COMPLETE verb set rather than the one that happened to fail — only
+      // `get` appears bare in the corpus today, and adding just `get` is how this list got into
+      // the state described below.
+      "get", "post", "put", "delete", "patch",
       // JVM/Scala interop names used bare in examples, + `apiClients` (synthesised by the
       // frontend/graphs frontmatter machinery).
       "Thread", "collection", "apiClients",
       // stdlib `.ssc` library modules (std.mapreduce / std.cluster / std.crypto — no compiled
       // plugin) — stay hardcoded until stdlib auto-import covers them.
-      "HandlerRegistry", "Cluster", "ShuffleStage", "Stage",
+      //
+      // THIS LIST IS A HAND-MAINTAINED COPY OF SOMETHING THE REPO ALREADY HAS MACHINE-READABLE.
+      // Every module under `std/` declares an `exports:` block in its front-matter; `Node`, `MapOp`,
+      // `FilterOp`, `FlatMapOp`, `Transport` and `vstack` below were all missing purely because
+      // nothing had ever type-checked a program that used them. Generating the list from those
+      // `exports:` blocks is the real fix — filed as `typer-prelude-list-should-be-generated-from-std-exports`.
+      "HandlerRegistry", "Cluster", "ShuffleStage", "Stage", "Node",
+      "MapOp", "FilterOp", "FlatMapOp",
       "runDistributed", "runDistributedShuffle", "localLoopbackCluster", "verifyEd25519",
+      // std/mcp/server.ssc and std/ui/layout.ssc exports used bare in examples.
+      "Transport", "vstack", "hstack", "divider", "spacer",
       // macro-expansion sentinels — appear in macro-expanded / quoted example bodies.
-      "__ssc_macro__", "__ssc_quote_expr__", "Expr",
+      "__ssc_macro__", "__ssc_quote_expr__", "__ssc_quote__", "__ssc_splice__", "Expr",
       // MIGRATED to plugin `preludeSymbols` (core-min-advanced-optin): Source → streams-plugin,
       // setHttpServerBackend → ws-plugin (both essential); Wallets/X402Client/X402/CardanoFacilitator/
       // PaymentConfig/DefaultSyncBackend/basicRequest → payments-plugin (advanced, opt-in);
@@ -367,6 +387,15 @@ class Typer(
         sqlCount += 1
         updateSqlCount(sqlCount)
       case cb: Content.CodeBlock if cb.tree.isDefined =>
+        // AN IMPORT WRITTEN INSIDE A FENCE IS STILL AN IMPORT. `[a, b](path.ssc)` is the import form
+        // wherever it stands, but only a link OUTSIDE a fence becomes a `Content.Import`; inside one
+        // it is parsed as code and its names were never bound. Four corpus cases reference names
+        // imported that way — Transport in the three MCP servers, square/cube in
+        // native-import-in-fence — and `check` reported every one as an undefined name while the
+        // programs run correctly on every lane. Same defect the CLI's own import discovery has
+        // (BUGS js-jvm-codegen-in-fence-imports-not-followed); this is the typer's half of it.
+        inFenceImportNames(cb.source).foreach(n =>
+          scope.define(Symbol(n, SType.Any, SymbolKind.Val)))
         cb.tree.foreach { node =>
           ScalaNode.fold(node) {
             case Source(stats)     => stats.foreach(predeclareStat(_, scope))
@@ -383,6 +412,16 @@ class Typer(
       predeclareSection(sub, scope, subsqlCount, { n => subsqlCount = n })
     }
     updateSqlCount(subsqlCount)
+
+  /** The Markdown-link import form, matched on a WHOLE line — the same shape
+    * `NativeSourceClosure` scans for, kept deliberately identical so the two do not drift about
+    * what counts as an import. A line that merely CONTAINS a link is prose; only a line that IS one
+    * binds names. */
+  private val InFenceImportLine = """^\s*\[([^\]]+)\]\([^)]+\.ssc\)\s*$""".r
+  private def inFenceImportNames(src: String): List[String] =
+    src.linesIterator.collect { case InFenceImportLine(names) => names }
+      .flatMap(_.split(",").iterator.map(_.trim).filter(_.nonEmpty))
+      .toList
 
   private def sectionIdent(text: String): Option[String] =
     val parts = text.split("[^A-Za-z0-9]+").filter(_.nonEmpty)
@@ -407,15 +446,14 @@ class Typer(
         case pat        => bindPatVars(pat, scope, declared)
       }
     case d: Defn.Def =>
-      val paramTypes = d.paramClauseGroups
-        .flatMap(_.paramClauses)
-        .flatMap(_.values)
-        .toList
-        .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
+      // One arrow per clause — see `defClauseSTypes`. This is the pre-pass that makes forward
+      // references resolve, so it must build the SAME shape as the real `Defn.Def` case below or a
+      // curried def would type one way when called before its definition and another when called
+      // after.
       val (retType, effects) = parseDeclReturnType(d.decltpe)
       scope.define(Symbol(
         d.name.value,
-        SType.Function(paramTypes, retType.getOrElse(SType.Any), effects),
+        curriedFnType(defClauseSTypes(d), retType.getOrElse(SType.Any), effects),
         SymbolKind.Def
       ))
     case d: Defn.Class =>
@@ -626,6 +664,10 @@ class Typer(
         .toList
       val paramSTypes = allParamVals
         .map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
+      // The FLAT list above still feeds `DefSummary.paramTypes` and the summary's `fnType`, which
+      // downstream consumers (the effect verifier, the artifact descriptors) read arity-wise. The
+      // CLAUSE list below is what a call site sees — see `defClauseSTypes`.
+      val clauseSTypes = defClauseSTypes(d)
       // Type-check body in a child scope with params bound, so we can infer
       // the return type when no explicit annotation is given.
       val bodyScope = scope.child(d.name.value)
@@ -646,7 +688,7 @@ class Typer(
       // Allow self-recursion: bind the function name in bodyScope before
       // typing the body so `def fib(n) = fib(n-1)` resolves correctly.
       bodyScope.define(Symbol(d.name.value,
-        SType.Function(paramSTypes, declaredRet.getOrElse(SType.Any), declaredEffects),
+        curriedFnType(clauseSTypes, declaredRet.getOrElse(SType.Any), declaredEffects),
         SymbolKind.Def))
       val retType =
         if isExternDef then declaredRet.getOrElse(SType.Any)
@@ -659,7 +701,17 @@ class Typer(
           }
           rt
       val fnType = SType.Function(paramSTypes, retType, declaredEffects)
-      scope.define(Symbol(d.name.value, fnType, SymbolKind.Def))
+      // A PARENLESS def is INVOKED AT ITS MENTION, so at a use site its type is its RESULT, not
+      // `() => result`. `def mkAdd: Int => Int = x => x + 1` makes `mkAdd` an `Int => Int`, and
+      // typing it `() => Int => Int` reported `useIt(mkAdd)` as a mismatch on a program that runs
+      // correctly on every lane. NOTE the distinction that matters: NO parameter clause at all is
+      // parenless; an explicit `()` (`def z(): Int`) is a zero-argument FUNCTION and keeps its
+      // Function type, so `z(5)` stays an over-application.
+      // Invisible until argument inference reached inside `println(...)`
+      // (tests/BUGS.md v1-check-never-looks-inside-a-println).
+      val isParenless = d.paramClauseGroups.isEmpty
+      val siteType    = if isParenless then retType else curriedFnType(clauseSTypes, retType, declaredEffects)
+      scope.define(Symbol(d.name.value, siteType, SymbolKind.Def))
       val hasMissingParamTypes = allParamVals.exists(_.decltpe.isEmpty)
       val hasDeclaredSignature = declaredRet.nonEmpty && !hasMissingParamTypes
       out += DefSummary(
@@ -871,7 +923,8 @@ class Typer(
           //  * starts with a letter or underscore (not an operator),
           //  * contains no `.` (selects go through `Term.Select`, not here),
           //  * is not a single-underscore placeholder.
-          if strict && isFlaggableName(name) then
+          // …and NOT inside a variadic argument. See `variadicArgDepth`.
+          if strict && variadicArgDepth == 0 && isFlaggableName(name) then
             errors += TypeError(
               s"Reference to undefined name: $name",
               posToSpan(t.pos)
@@ -900,6 +953,28 @@ class Typer(
       val bodyType = argClause.values.headOption.map(inferType(_, scope)).getOrElse(SType.Any)
       dischargeEffect(bodyType, effName)
 
+    // `direct[M] { x = expr; … }` — do-notation. `x = expr` is a monadic BIND that INTRODUCES `x`,
+    // not an assignment to an existing name, so the block's binders must be in scope before its
+    // statements are inferred. Without this the three direct-syntax corpus cases reported their own
+    // binders as undefined names while running correctly on every lane.
+    //
+    // Scoped to the `direct` call rather than made a global rule: "an assignment to an unknown name
+    // introduces it" would be true here and wrong everywhere else, and would quietly disable the
+    // undefined-name check that `ssc check` turns on deliberately (strict = true).
+    case Term.Apply.After_4_6_0(fun, argClause) if isDirectCall(fun) =>
+      val blockScope = scope.child("direct")
+      argClause.values.foreach {
+        case Term.Block(stats) =>
+          stats.foreach {
+            case Term.Assign(Term.Name(n), _) =>
+              blockScope.define(Symbol(n, SType.Any, SymbolKind.Val))
+            case _ => ()
+          }
+        case _ => ()
+      }
+      argClause.values.foreach(a => inferType(a, blockScope))
+      SType.Any
+
     case Term.Apply.After_4_6_0(fun, argClause) =>
       inferKnownApply(fun, argClause.values.toList, scope) match
         case Some(tpe) => tpe
@@ -912,18 +987,41 @@ class Typer(
               val isVariadic = paramTypes == List(SType.Any)
               // Underflow is permitted — trailing parameters may have defaults that
               // the lightweight typer does not track. Only flag overflow.
-              if !isVariadic && paramTypes.nonEmpty && args.length > paramTypes.length then
+              // `paramTypes.nonEmpty` was part of this condition and exempted exactly the shape the
+              // runtime is loudest about: `def z(): Int = 1; z(5)` has an empty parameter list, so
+              // the overflow check was skipped, `check` answered OK, and `run --v1` then died with
+              // `Not callable: 1`. A parenless `def f = …` is NOT this case — it types as its result
+              // and never reaches here — so the exemption protected nothing it needed to.
+              if !isVariadic && args.length > paramTypes.length then
                 errors += TypeError(
                   s"Wrong number of arguments: expected ${paramTypes.length}, got ${args.length}",
                   posToSpan(argClause.pos)
                 )
-              // Check argument types for known-param functions (only those provided).
-              if !isVariadic then
-                args.zip(paramTypes).foreach { (arg, expected) =>
-                  val actual = inferType(arg, scope)
-                  checkAssignable(actual, expected, arg.pos)
-                }
+              // Infer EVERY argument, variadic included. `inferType` on an argument is what finds
+              // the arity and type errors nested inside it, and it used to run only in the
+              // non-variadic branch — so nothing written inside a `println(...)` was ever checked,
+              // which is essentially everything anyone writes.
+              args.zip(paramTypes.padTo(args.length, SType.Any)).foreach { (arg, expected) =>
+                val actual = if isVariadic then withinVariadicArg(inferType(arg, scope)) else inferType(arg, scope)
+                if !isVariadic then checkAssignable(actual, expected, arg.pos)
+              }
               retType
+            // Applying something that is NOT a function. Only reportable now that clauses are
+            // modelled: while they were flattened, `two(1)` on `def two(a: Int)(b: Int): Int` typed
+            // as `Int`, so this arm could not tell an over-application from a legal curried call —
+            // it rejected four correct corpus cases and was reverted. With one arrow per clause
+            // `two(1)` is a Function and only a genuine over-application reaches here.
+            //
+            // Restricted to types this language cannot apply AT ALL. `String`, `List`, `Map`,
+            // `Array` and friends are all callable (`s(0)`, `xs(0)`, `m(k)`), and a `Named` this
+            // typer merely does not know about may have an `apply` — so the set is the primitives
+            // whose application is what the runtime reports as `Not callable: <value>`.
+            case notCallable if isNeverApplicable(notCallable) =>
+              errors += TypeError(
+                s"Not a function: ${notCallable.show} cannot be applied to arguments",
+                posToSpan(argClause.pos)
+              )
+              SType.Any
             case _ => SType.Any
 
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
@@ -1103,6 +1201,138 @@ class Typer(
       .flatMap(_.values)
       .map(p => p.name.value -> p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
       .toList
+
+  // ── THE CLAUSE MODEL ────────────────────────────────────────────────────────────────────────
+  //
+  // ONE PARAMETER CLAUSE = ONE ARROW. `def two(a: Int)(b: Int): Int` is `Int => (Int => Int)`, not
+  // the flattened `(Int, Int) => Int` this typer used to build.
+  //
+  // The flattening was not merely imprecise, it made a whole class of error UNDETECTABLE: with one
+  // list, `two(1)` reads as an underflow (permitted — trailing parameters may carry defaults this
+  // typer does not track) and the OUTER apply of `two(1)(2)(3)` re-reads the SAME type, so the
+  // over-application that dies at runtime with `Not callable: 3` type-checked clean. The obvious
+  // patch — "applying a concrete primitive is an error" — was implemented, measured and reverted:
+  // under flattening `two(1)` types as `Int`, so a LEGAL curried call is indistinguishable from
+  // applying a primitive, and it rejected four correct corpus cases including the two that pin
+  // currying as intended. The check was right and the TYPE was wrong.
+  //
+  // With one arrow per clause, nothing needs a special case: `two(1)` is a Function, `two(1)(2)` is
+  // an `Int`, and `two(1)(2)(3)` applies an `Int` — caught by the apply site's ordinary
+  // "not a function" arm.
+
+  /** Whether a clause is `(using …)` / `(implicit …)` — auto-supplied at the call site.
+    *
+    * These must NOT become arrows. `def display[A](a: A)(using s: Show[A]): String` is CALLED as
+    * `display(x)`, a complete call whose type is `String`; nesting would make it an
+    * under-application typed `Show[A] => String` and every use of it a mismatch. Both spellings are
+    * tested the same way `PreBodyApiDescriptorProducer` tests them — the modifier can sit on the
+    * clause or on its parameters depending on the syntax used.
+    */
+  private def isContextualClause(clause: Term.ParamClause): Boolean =
+    clause.mod.exists(m => m.is[Mod.Using] || m.is[Mod.Implicit]) ||
+      clause.values.exists(_.mods.exists(m => m.is[Mod.Using] || m.is[Mod.Implicit]))
+
+  /** A def's parameter clauses as types, one inner list per EXPLICIT clause.
+    *
+    * Contextual clauses are folded onto the last explicit one rather than dropped, so their
+    * parameters keep the treatment they have today: a call that omits them is an underflow, which
+    * this typer permits. Dropping them instead would silently stop checking anything about them;
+    * appending changes no verdict that exists.
+    *
+    * A def with NO clause at all (`def f = …`, parenless) yields `Nil` — the caller distinguishes
+    * that from `List(Nil)` (an explicit `()`), and the two mean different things at a use site.
+    */
+  private def defClauseSTypes(d: Defn.Def): List[List[SType]] =
+    val clauses = d.paramClauseGroups.flatMap(_.paramClauses).toList
+    val asTypes = (c: Term.ParamClause) =>
+      c.values.toList.map(p => p.decltpe.map(typeAnnotToSType).getOrElse(SType.Any))
+    val (explicit, contextual) = clauses.partition(c => !isContextualClause(c))
+    val ctxTypes = contextual.flatMap(asTypes)
+    explicit.map(asTypes) match
+      case Nil                       => if ctxTypes.isEmpty then Nil else List(ctxTypes)
+      case groups if ctxTypes.isEmpty => groups
+      case groups                    => groups.init :+ (groups.last ++ ctxTypes)
+
+  /** Fold clause groups right-to-left into nested arrows.
+    *
+    * The effect row goes on the OUTERMOST arrow. Strictly the effects happen when the LAST clause is
+    * applied and the body runs, not when an intermediate partial application produces a closure —
+    * but every consumer in this file reads the row off the type it looked up, with a flat
+    * `SType.Function(_, _, EffectRow(_, ops))` pattern (the effect verifier's `DefSummary` scan, and
+    * `dischargeEffect`). Putting the row anywhere else would not make those consumers smarter, it
+    * would make them silently stop seeing effects on every curried def.
+    */
+  private def curriedFnType(
+      clauses: List[List[SType]],
+      result: SType,
+      effects: SType.EffectRow = SType.EffectRow(-1, Set.empty)
+  ): SType =
+    clauses match
+      case Nil           => SType.Function(Nil, result, effects)
+      case single :: Nil => SType.Function(single, result, effects)
+      // inner arrows take Function's DEFAULT (empty) row rather than naming one
+      case head :: rest  => SType.Function(head, curriedFnType(rest, result), effects)
+
+  // ── WHY UNDEFINED-NAME REPORTING STOPS AT A VARIADIC ARGUMENT ───────────────────────────────
+  //
+  // Turning on argument inference switched on THREE checks at once inside `println(...)` and every
+  // other variadic call: arity, argument type, and undefined name. The first two are ready. The
+  // third is not, and the measurement says so plainly.
+  //
+  // This typer's model of what names exist is a HAND-MAINTAINED list (`pluginBuiltins` above) plus
+  // whatever plugins contribute. Reporting undefined names inside arguments rejected **11 of the
+  // examples CI already checks** — `Node`, `MapOp`, `Transport`, `vstack`, `__ssc_quote__` — all of
+  // them real exports of `std/` modules that simply were not on the list. Adding the ones that
+  // failed brought it to one file, whose next names (`text`, `textField`, `actionButton`) are three
+  // of the ~250 that `std/ui` alone exports. Hand-maintaining that is not a task, it is a treadmill.
+  //
+  // So the two checks that are ready are on, and the one that is not stays off in this position
+  // until the prelude is GENERATED from the `exports:` front-matter those modules already declare
+  // (`tests/BUGS.md typer-prelude-list-should-be-generated-from-std-exports`). Statement position is
+  // unaffected — it has always reported, and still does — and so are non-variadic arguments, which
+  // were already being inferred before this change and keep every diagnostic they had.
+  private var variadicArgDepth: Int = 0
+
+  private def withinVariadicArg[A](body: => A): A =
+    variadicArgDepth += 1
+    try body
+    finally variadicArgDepth -= 1
+
+  /** Flatten nested arrows into (every parameter, the final result).
+    *
+    * The inverse of `curriedFnType`, used ONLY for assignability. Note it cannot distinguish
+    * `def f(a: Int)(b: Int): Int` from `def f(a: Int): Int => Int` — and must not, because neither
+    * runtime distinguishes them at a call either.
+    */
+  private def uncurriedFn(t: SType): (List[SType], SType) = t match
+    case SType.Function(ps, r, _) =>
+      val (rest, res) = uncurriedFn(r)
+      (ps ++ rest, res)
+    case other => (Nil, other)
+
+  /** Types this language can never apply to an argument list.
+    *
+    * A CLOSED, NAMED set rather than "anything that is not a Function", because most things in this
+    * language ARE callable: `String`, `List`, `Vector`, `Seq`, `Array` and `Map` all index through
+    * `apply`, a class instance may define `apply`, and `Any` / `Var` / `Error` mean the typer does
+    * not know. Only the primitives below have nothing to apply — applying one is what the v1 runtime
+    * reports as `Not callable: <value>`, which is the observation this check exists to anticipate.
+    *
+    * `Unit` is in the set on the same footing; `Char` is not listed separately because this typer
+    * spells it `Named("Char", Nil)` only in artifact round-trips and never infers it here.
+    */
+  private val NeverApplicable: Set[String] =
+    Set("Int", "Long", "Short", "Byte", "Double", "Float", "Boolean", "Unit", "BigInt", "Decimal")
+
+  private def isNeverApplicable(t: SType): Boolean = t match
+    case SType.Named(n, Nil) => NeverApplicable.contains(n)
+    case _                   => false
+
+  /** `direct { … }` or `direct[M] { … }` — the do-notation head, in either spelling. */
+  private def isDirectCall(fun: Term): Boolean = fun match
+    case Term.Name("direct")                            => true
+    case Term.ApplyType.After_4_6_0(Term.Name("direct"), _) => true
+    case _                                              => false
 
   private def inferCallableType(fun: Term, scope: Scope): SType = fun match
     case Term.Select(qual, Term.Name("apply")) =>
@@ -1313,6 +1543,27 @@ class Typer(
         ap.zip(ep).forall((a, e) => a == SType.Any || e == SType.Any || isCompatible(e, a)) &&
           (ar == SType.Any || er == SType.Any || isCompatible(ar, er))
       case _ => false) ||
+    // …and the same comparison on TOTAL arity, because both runtimes uncurry at a call.
+    //
+    // MEASURED, not assumed — and it is why the clause model needed this arm at all. Given
+    // `def mk(a: Int)(b: Int): Int` and `def use(f: (Int, Int) => Int)`, `use(mk)` prints 3 on BOTH
+    // `run --v1` and `bin/ssc run`. Once clauses became arrows, `mk` typed as `Int => Int => Int`,
+    // the arity-wise arm above said 1 ≠ 2, and `check` rejected a program its own runtime runs —
+    // exactly the defect this whole programme exists to remove, reintroduced by the fix for it.
+    //
+    // The reverse direction (a FLAT def where a curried type is declared) is accepted here too, and
+    // that one is a LANE DIVERGENCE rather than a settled rule: `--v1` prints 3, native refuses with
+    // `arity: 2 expected, 1 given` (tests/BUGS.md a-flat-def-passed-where-a-curried-type-is-declared).
+    // `check` is the v1 tool and v1 runs it, so rejecting it here would be the same defect again.
+    // Deciding which lane is right is a language question, not a typer question.
+    ((actual, expected) match
+      case (af @ SType.Function(_, _, _), ef @ SType.Function(_, _, _)) =>
+        val (ap, ar) = uncurriedFn(af)
+        val (ep, er) = uncurriedFn(ef)
+        ap.length == ep.length &&
+          ap.zip(ep).forall((a, e) => a == SType.Any || e == SType.Any || isCompatible(e, a)) &&
+          (ar == SType.Any || er == SType.Any || isCompatible(ar, er))
+      case _ => false) ||
     // Quote lifting: a value of type `T` is assignable where `Expr[T]` is expected
     // (quoted-macro `${ }` / `'{ }` context — the checker does not model splices).
     (expected match
@@ -1396,6 +1647,12 @@ class Typer(
       case (_, "==" | "!=" | "<" | ">" | "<=" | ">=", _) => SType.Boolean
       // Logical
       case (SType.Boolean, "&&" | "||", SType.Boolean) => SType.Boolean
+      // A COLLECTION on the left of `+`/`-` is an ADD or a REMOVE, not arithmetic — `Set(1,2) + 3`
+      // is a Set, and `m - k` is a Map. Without this the arithmetic rule below reads `Set[Int]` as
+      // "not numeric or String" and reports `Operator '+' is not applicable to Set[Int]` on two
+      // corpus cases that run correctly on every lane. It was invisible until argument inference
+      // reached inside `println(...)` (tests/BUGS.md v1-check-never-looks-inside-a-println).
+      case (l @ SType.Named("Set" | "List" | "Vector" | "Seq" | "Map", _), "+" | "-", _) => l
       // Type mismatch for arithmetic on known incompatible types
       case (l, op2, r)
           if isArith(op2) && l != SType.Any && r != SType.Any &&

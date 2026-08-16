@@ -138,6 +138,55 @@ worked on belongs in `tests/BACKLOG.md`. Layout: [`../specs/work-tracking-layout
          and v3 do not"**. One line of work rather than a four-way reconciliation — and blocked
          behind the same 14 typer gaps as steps 2 and 3.
 
+      **5. [x] THE CLAUSE MODEL — DONE 2026-08-16. Asked for by Sergiy, and it is the one remainder
+         step 2 measured and could not close.** *"Сделай модель клауз чтобы тайпер правильно работал
+         для каррированых функций."*
+
+         **Landed:** one arrow per explicit clause at all three sites that build a def's type (the
+         `checkStat` pre-pass, the self-recursion binding, the use-site symbol), contextual clauses
+         folded onto the last explicit one, and a "not a function" arm restricted to a named set of
+         primitives. `two(1)(2)(3)` is rejected; `two(1)(2)`, `tri(1)(2)(3)`, `val p = two(1); p(2)`
+         and the four cases the reverted attempt broke are all accepted; the corpus keeps **9
+         rejections, 0 new, 0 lost** and `check examples/*.ssc` exits 0. Guarded by
+         `tests/e2e/v1-check-sees-what-it-runs.sh` (24 checks), where
+         every curried rejection is PAIRED with the legal call the first attempt broke — a gate
+         holding only the rejection would pass on a checker that rejects everything.
+         Full write-up: `tests/BUGS.md v1-typer-flattens-parameter-clauses`.
+
+         **The measured state, which is why this is its own step rather than a missing assertion.**
+         `Typer.scala` flattens every parameter clause into ONE list at both sites that build a
+         function's type (the `checkStat` pre-pass and the real `Defn.Def` case). So
+         `def two(a: Int)(b: Int): Int` types as `(Int, Int) => Int`, and:
+         * `two(1)(2)(3)` — over-applied, dies at runtime with `Not callable: 3` — is ACCEPTED,
+           because `two(1)` reads as an underflow (permitted: trailing params may have defaults)
+           and `(...)(...)`'s outer apply then re-reads the SAME flattened type.
+         * The obvious catch — "applying a concrete primitive is an error" — was implemented,
+           measured and **REVERTED**: with clauses flattened, `two(1)` types as `Int`, so a LEGAL
+           curried call is indistinguishable from applying a primitive. It rejected four correct
+           corpus cases, two of them the very cases that pin currying as intended
+           (`curried-def-clauses`, `curried-def-three-clauses`, `fewer-braces-colon`,
+           `tagless-resolution`). **That refutation is the evidence for this step:** the check is
+           not wrong, the TYPE is, and no assertion on top of a flattened type can be right.
+
+         **The model:** one clause = one arrow. `def two(a: Int)(b: Int): Int` becomes
+         `Int => (Int => Int)`. Then `two(1)` is a Function, `two(1)(2)` is `Int`, `two(1)(2)(3)`
+         applies an `Int` — an error that needs no special case, only a `case _` at the apply site.
+
+         **The two things that make this not a one-line change, both to be measured not guessed:**
+         * **`using`/`implicit` clauses are auto-supplied and must NOT become arrows.**
+           `def display[A](a: A)(using s: Show[A]): String` is called `display(x)`, and nesting
+           would make that an under-application whose type is a Function rather than a String.
+           Corpus: 6 files use multiple clauses, **2 of them are using-clauses** —
+           `tagless-*`. They keep today's flattening (appended to the last explicit clause, where
+           underflow tolerance already covers them).
+         * **`checkAssignable` compares `Function` arity-wise** (`ap.length == ep.length`), so a
+           curried def passed where a 2-arg function is expected changes verdict. Blast radius to
+           be counted before landing, not after.
+
+         **Acceptance, and it is a DIFFERENTIAL not a green run:** `two(1)(2)(3)` must be rejected
+         by `check`; the four reverted cases and the whole corpus must keep today's verdict count
+         (9 rejections, 0 new, 0 lost). Both numbers, or it did not land.
+
       **What I will not promise:** I cannot decide the contract, and I will not flip a language rule
       because a corpus number looked acceptable. What I can do is make the disagreement visible,
       priced, and impossible to reintroduce quietly.

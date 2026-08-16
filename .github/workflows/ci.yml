@@ -1144,6 +1144,23 @@ jobs:
       - name: what a declared type means, per lane — frozen table (46s incl. self-test)
         run: tests/e2e/declared-type-agreement.sh --self-test
 
+      # TYPES MUST BE RIGHT, the v1 slice. `ssc-tools check` used to green-light programs its OWN
+      # runtime refuses, because `println` is declared variadic and the only call that walks INTO an
+      # argument sat in the non-variadic branch — so nothing anyone writes inside a println was ever
+      # checked. Turning inference on revealed 12 gaps in the checker (not 12 bad programs); all are
+      # closed and each has a row here, because nothing else in the suite runs `check` on those
+      # constructs.
+      #
+      # The curried rows come in PAIRS on purpose. Catching `two(1)(2)(3)` was first attempted as
+      # "applying a primitive is an error" and REVERTED — with parameter clauses flattened into one
+      # list `two(1)` types as Int, so a legal curried call was indistinguishable from an
+      # over-application and four correct corpus cases were rejected. The fix was the TYPE (one arrow
+      # per clause), so each rejection is paired with the legal call that the reverted version broke:
+      # a gate holding only the rejection would pass on a checker that rejects everything.
+      # (tests/BUGS.md v1-typer-flattens-parameter-clauses.)
+      - name: check sees what it runs — println escape + the clause model (35s)
+        run: tests/e2e/v1-check-sees-what-it-runs.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 
