@@ -62,6 +62,52 @@ CAP=${CAP:-45}
 
 ssc_usable_or_skip f-output-agreement-gate "$ssc"
 
+# THE REFERENCE CACHE KEY, in one place because --self-test has to compute the same thing.
+#
+# It covers exactly two populations, and it took two wrong versions to get there:
+#
+#   1. every tracked `.ssc`/`.ssc0` a SUBJECT could import. Not just the subject — this gate has no
+#      import graph, so the whole tree stands in for the closure. `scripts/` and `v3/` are dropped:
+#      measured, no corpus subject imports from either (their imports go to `std/…` and to siblings),
+#      and `scripts/smoke-ci.ssc` is the file an F session touches on nearly every change — leaving
+#      it in meant registering a gate invalidated the whole cache. Measured: 93 of 347 reused.
+#
+#   2. the staged REFERENCE FRONT (`.ssc0` under `bin/lib`, minus F's two files) and the tracked
+#      `*.scala` SOURCES of the runtime — not the jars. Three versions of this line were wrong and
+#      each was caught by measurement rather than review:
+#
+#        * `bin/lib/.build-digest` — `scripts/launcher-input-digest` DELIBERATELY includes
+#          `specs/*.ssc` (see its comment near line 112) so an F edit marks the toolchain stale.
+#          Correct for ITS purpose, exactly wrong here: it invalidated the cache on the one change
+#          the exclusion exists for, the moment the tree was rebuilt.
+#        * `ssc.jar` — a jar's bytes carry the ZIP ENTRY MTIMES, so any rebuild that repackages moves
+#          them regardless of content. `bin/lib/ssc.jar` measured "byte-stable across rebuilds" only
+#          because an unchanged build never regenerates it; with F edited, `bin/lib/standard/ssc.jar`
+#          moved while containing no F at all. Hashing behaviour means hashing SOURCES.
+#        * unit rows alone — nine of them passed while the end-to-end (edit F, REBUILD, compare)
+#          failed, because they each touched one enumerated file and a real rebuild touches whatever
+#          it likes. The end-to-end check is the one that decides.
+#
+#      `*.scala` costs nothing measurable: 4,000 files hash in 0.27 s, once per run.
+#
+# F's own two files are dropped from BOTH populations — the source and its staged copy — and nothing
+# else is. `--self-test` proves each of those claims separately rather than trusting this comment.
+ref_world_digest() {
+  {
+    git -C "$ROOT" ls-files -z '*.ssc' '*.ssc0' '*.scala' \
+      | tr '\0' '\n' \
+      | grep -vFx 'specs/v2.2-p6.5-fsub.ssc' \
+      | grep -vE '^(scripts|v3)/' \
+      | tr '\n' '\0' \
+      | (cd "$ROOT" && xargs -0 shasum -a 256)
+    find "$ROOT/bin/lib" \
+         \( -name '*.ssc0' -o -name '*.ssc' \) -type f 2>/dev/null \
+      | grep -vE '/(fsub\.ssc|ssc1-run-fsub\.ssc0)$' \
+      | LC_ALL=C sort \
+      | xargs shasum -a 256 2>/dev/null
+  } | shasum -a 256 | cut -d' ' -f1
+}
+
 # ── --self-test: prove the reference cache's KEY, because the key is the only thing that can lie ──
 #
 # The main run cannot check these — they need the tree mutated — so they live here and must be run
@@ -72,13 +118,7 @@ ssc_usable_or_skip f-output-agreement-gate "$ssc"
 #      (the exclusion is SOUND — this is the claim, 2 is only the optimisation it buys)
 if [ "${1:-}" = "--self-test" ]; then
   st_fail=0
-  digest() {
-    { git -C "$ROOT" ls-files -z '*.ssc' '*.ssc0' \
-        | tr '\0' '\n' | grep -vFx 'specs/v2.2-p6.5-fsub.ssc' | tr '\n' '\0' \
-        | (cd "$ROOT" && xargs -0 shasum -a 256)
-      cat "$ROOT/bin/lib/.build-digest" 2>/dev/null
-    } | shasum -a 256 | cut -d' ' -f1
-  }
+  digest() { ref_world_digest; }
   # A probe that RUNS, not one that happens to fail: if both sides error for an unrelated reason the
   # comparison is vacuous and this row would pass while proving nothing. Written fresh so it cannot
   # drift with the corpus.
@@ -130,6 +170,72 @@ if [ "${1:-}" = "--self-test" ]; then
     echo "      after : $(printf '%s' "$after" | head -1)"
     echo "    The exclusion is unsound and the cache must not exclude F."
     st_fail=$((st_fail+1))
+  fi
+
+  # ── the rows the FIRST version of this key was missing ────────────────────────────────────────
+  #
+  # The original self-test proved the exclusion on an UNBUILT edit of F's source, and passed — while
+  # the real workflow is edit, REBUILD, run, and the rebuild moved `.build-digest`, which was in the
+  # key. So the cache was cold on exactly the change it was built to survive, and the self-test could
+  # not see it. These rows exercise what a rebuild actually changes instead of what an editor does.
+  st_holds() {   # <name> <file> — mutating this must NOT move the key
+    local nm=$1 f=$2 kb
+    if [ ! -f "$f" ]; then echo "  ⊘ $nm: $f absent, skipped"; return; fi
+    kb=$(mktemp); cp "$f" "$kb"; printf '\n// key probe\n' >> "$f"
+    if [ "$(digest)" = "$base" ]; then echo "  ✓ $nm does not invalidate the key"
+    else echo "  ✗ $nm INVALIDATED the key"; st_fail=$((st_fail+1)); fi
+    cp "$kb" "$f"; rm -f "$kb"
+  }
+  st_moves() {   # <name> <file> — mutating this MUST move the key
+    local nm=$1 f=$2 kb
+    if [ ! -f "$f" ]; then echo "  ✗ $nm: $f absent — cannot prove the key covers it"; st_fail=$((st_fail+1)); return; fi
+    kb=$(mktemp); cp "$f" "$kb"; printf '\n-- key probe\n' >> "$f"
+    if [ "$(digest)" != "$base" ]; then echo "  ✓ $nm invalidates the key"
+    else echo "  ✗ $nm did NOT invalidate the key — the reference front is not covered"; st_fail=$((st_fail+1)); fi
+    cp "$kb" "$f"; rm -f "$kb"
+  }
+
+  base=$(digest)
+  # what a REBUILD does to F: it restages the source. This is the row that would have caught the
+  # first version, where `.build-digest` carried the F edit into the key.
+  st_holds "the staged F front" "$ROOT/bin/lib/standard/native-front/tower/bin/fsub.ssc"
+  st_holds "the F runner"       "$ROOT/bin/lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0"
+  st_holds "the build digest"   "$ROOT/bin/lib/.build-digest"
+  # the narrowing that motivated this: registering a gate must not cost the whole cache
+  st_holds "scripts/smoke-ci.ssc" "$ROOT/scripts/smoke-ci.ssc"
+  # …and the other direction, because a key that holds for everything is not a key
+  st_moves "the reference lowerer" "$ROOT/bin/lib/standard/native-front/tower/lib/ssc1-lower.ssc0"
+  st_moves "the reference front"   "$ROOT/bin/lib/standard/native-front/tower/lib/ssc1-front.ssc0"
+  # the runtime is covered by its SOURCES, since its jars carry mtimes and cannot be hashed usefully
+  st_moves "the CLI runtime source" "$ROOT/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala"
+
+  # ── the row that DECIDES, opt-in because it rebuilds twice (~10 min) ──────────────────────────
+  #
+  # Ten unit rows above passed against a key that still broke in practice: each touches one file it
+  # was told about, and a real rebuild touches whatever it likes — the jar it repackages carries ZIP
+  # MTIMES, so its bytes moved while its content did not. Only this row saw it. Run it after any
+  # change to `ref_world_digest`; the unit rows are necessary and not sufficient, which is the whole
+  # lesson of this block.
+  if [ "${2:-}" = "--with-rebuild" ]; then
+    echo "── self-test: the real workflow (edit F, rebuild, compare) — two rebuilds, be patient"
+    rb=$(mktemp); cp "$fsub" "$rb"
+    k1=$(digest)
+    printf '\n// self-test rebuild probe\n' >> "$fsub"
+    if (cd "$ROOT" && ./install.sh --dev) > /dev/null 2>&1; then
+      k2=$(digest)
+      cp "$rb" "$fsub"; (cd "$ROOT" && ./install.sh --dev) > /dev/null 2>&1
+      if [ "$k1" = "$k2" ]; then echo "  ✓ the key survives an F edit followed by a rebuild"
+      else
+        echo "  ✗ the key moved across an F edit + rebuild — the cache is cold on the one change"
+        echo "    it exists to survive. Diff the staged tree before and after to find the input:"
+        echo "    find bin/lib -name '*.ssc0' -o -name '*.ssc' | xargs shasum -a 256"
+        st_fail=$((st_fail+1))
+      fi
+    else
+      cp "$rb" "$fsub"
+      echo "  ✗ the probe rebuild failed — cannot judge the key"; st_fail=$((st_fail+1))
+    fi
+    rm -f "$rb"
   fi
 
   if [ $st_fail -eq 0 ]; then echo "✓ f-output-agreement-gate --self-test PASSED"; exit 0; fi
@@ -190,14 +296,7 @@ REF_VERIFY_EVERY=${REF_VERIFY_EVERY:-12}
 refcache=""
 refworld=""
 if [ "${SSC_GATE_REF_CACHE:-on}" != "off" ]; then
-  # `git ls-files` is the file list; the CONTENT is hashed from the working tree, so an uncommitted
-  # edit counts. F's source is dropped here and nowhere else — grep for FSUB_EXCLUDE to find it.
-  FSUB_EXCLUDE='specs/v2.2-p6.5-fsub.ssc'
-  refworld=$( { git -C "$ROOT" ls-files -z '*.ssc' '*.ssc0' \
-                  | tr '\0' '\n' | grep -vFx "$FSUB_EXCLUDE" | tr '\n' '\0' \
-                  | (cd "$ROOT" && xargs -0 shasum -a 256)
-                cat "$ROOT/bin/lib/.build-digest" 2>/dev/null
-              } | shasum -a 256 | cut -d' ' -f1 )
+  refworld=$(ref_world_digest)
   refcache="${SSC_GATE_CACHE_DIR:-$HOME/.cache/ssc/agree-ref}/$refworld"
   mkdir -p "$refcache" 2>/dev/null || refcache=""
 fi
