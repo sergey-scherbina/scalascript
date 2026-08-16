@@ -1639,24 +1639,45 @@ object Lower:
           if retHead.contains(o + "." + m) => retHead.get(o + "." + m)
       case Expr.MethodCall(_, m, _, _)  => retHead.get(m)
       case Expr.Name(n, _)              => binds.get(n)
+      // A BLOCK IS ITS RESULT. `val itemAtCurrentIndent: Parser[Any] = Parser.readCtx { … }
+      // .flatMap(_ => p)` written across lines arrives as a `Block` whose result is the call, and
+      // stopping at the block is what left it untyped — which then left `firstItem`, bound to its
+      // NAME, untyped too. Neither half works without the other, which is why fixing only the name
+      // chain earlier moved nothing.
+      case Expr.Block(_, Some(r), _)    => receiverHead(r, binds)
       case _                            => None
     // WHAT A NAME IS BOUND TO, within the body being rewritten. A top-level `val bareValue:
     // Parser[Any] = …` has become `Expr.Assign` by the time this pass runs — the declared type is
     // gone and the INITIALISER is what remains, which is enough: it is a call whose callee's result
     // type is known. `Stmt.Val` covers the same inside a def.
     def bindingTypes(e: Expr): Map[String, String] =
-      var out = Map.empty[String, String]
+      // COLLECTED ONCE, THEN TYPED TO A FIXED POINT, because a binding's initialiser can be another
+      // binding's NAME — `val firstItem: Parser[Any] = itemAtCurrentIndent` two lines below the one
+      // that types. Each round can only add names and there are finitely many, so it settles; the
+      // bound is a backstop, not a policy.
+      var inits: List[(String, Expr)] = Nil
       mapDeep(e, x => {
         x match
-          case Expr.Assign(n, v, _) => receiverHead(v, Map.empty).foreach(t => out = out.updated(n, t))
+          case Expr.Assign(n, v, _) => inits = inits :+ (n, v)
           case Expr.Block(sts, _, _) =>
             sts.foreach {
-              case Stmt.Val(n, v, _, _) => receiverHead(v, Map.empty).foreach(t => out = out.updated(n, t))
+              case Stmt.Val(n, v, _, _) => inits = inits :+ (n, v)
               case _                    => ()
             }
           case _ => ()
         x
       })
+      var out = Map.empty[String, String]
+      var again = true
+      var rounds = 0
+      while again && rounds < 8 do
+        val next = inits.foldLeft(out)((acc, nv) =>
+          receiverHead(nv._2, acc) match
+            case Some(t) => acc.updated(nv._1, t)
+            case None    => acc)
+        again = next != out
+        out = next
+        rounds = rounds + 1
       out
     def eligibleTyped(recv: Expr, m: String, binds: Map[String, String]): Boolean =
       topLevel.contains(m) && builtins.contains(m) &&
