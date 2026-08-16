@@ -1,7 +1,8 @@
-# generation: 2485
+# generation: 2486
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-ref-cache	claude-code	2026-08-16T10:37:02Z	agree-gate-reference-side-is-recomputed-every-run	file:tests/e2e/f-output-agreement-gate.sh file:v2/SPRINT.md
 v3-local-def-var-capture	claude-code	2026-08-16T11:29:57Z	v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not	file:v3/src/Lower.scala file:v3/BUGS.md
 rust-serve-panic-poison	claude-code	2026-08-16T11:45:53Z	rust-serve-dies-permanently-after-one-handler-panic	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:tests/e2e/rust-serve-panic-gate.sh file:.github/workflows/ci.yml file:BUGS.md file:INBOX.md file:BACKLOG.md
 mcp-v2-server-prompt-and-resource-body	claude-code	2026-08-16T12:12:33Z	mcp-v2-srv-prompt-missing mcp-v2-resource-body-is-show-output	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:BUGS.md file:BACKLOG.md
+rust-type-pattern-local-val	claude-code	2026-08-16T12:16:08Z	rust-type-pattern-on-a-local-val-matches-anything	file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-type-pattern-local-val-gate.sh file:.github/workflows/ci.yml file:BUGS.md file:INBOX.md
