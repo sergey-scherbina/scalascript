@@ -71,6 +71,72 @@ any token satisfies the gate. Fixing the verifier first is what makes the annota
 this builds on, and its entry predicted `effects.ssc` would not be flagged because its effect
 declaration and its defs sat in different fenced blocks. They are in ONE block today, which is why
 it is flagged now.
+## server-gates-bind-fixed-ports — one gate against ITSELF in three worktrees, and it kills the loser
+
+<!-- status: fixed
+     kind: apparatus
+     lane: apparatus
+     area: build
+     reported-by: Sergiy
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: tests/e2e/std-ui-forms-smoke.sh + tests/e2e/request-validation-family-gate.sh
+     fixed-in: a31cfbefe -->
+
+**`std-ui-forms` and `request-validation-family` both failed in an ordinary `scripts/smoke-ci` run
+and both passed standalone minutes later at the same load.** Three agents were running their own
+suites on this Mac. Every server gate here picks a CONSTANT port, so the second suite to reach a
+gate finds the first one's server on it.
+
+**This is not the collision `no-leaked-servers.sh` guards.** That ratchet reads ports out of SOURCE
+and reports two DIFFERENT gates in ONE tree sharing a number — real, and already frozen for 8768
+and 8797. What bit here is ONE gate against ITSELF in three checkouts. Two copies of one line are
+not drift, so no amount of reading source can find it; only allocation fixes it. The ratchet's own
+text already prescribed the remedy — *"or have it allocate one instead of choosing"* — for new
+gates, and nothing had gone back to the existing ones.
+
+**AND THE LOSER DOES NOT JUST FAIL, IT GETS KILLED.** `std-ui-forms` cleaned up with
+`pkill -9 -f "examples/std-ui/demo\.ssc"` — a RELATIVE path present in every worktree's command
+line — and `lsof -ti :$PORT | xargs -r kill -9`, which kills whoever holds the port rather than
+whoever this run started. So a gate reached into a sibling agent's worktree and killed its server.
+The victim then reports *its own* server "never listened", i.e. the damage lands as a defect in the
+innocent run, attributed to the innocent tree. That is strictly worse than the collision: a
+collision is at least visible to the gate that loses.
+
+**WATCHED FAILING, then watched passing, on the same host at the same load.** Two copies of the
+gate as it was, run concurrently:
+
+    old-A rc=1   old-B rc=1
+    [FAIL] JVM: :8771 is answering, but NOT from the process this gate started (pid 4436)
+    [FAIL] JVM: :8771 is answering, but NOT from the process this gate started (pid 4242)
+    [skip] JS: launcher exited            <- the OTHER run's pkill killed this run's launcher
+
+Both symptoms in one control: the collision, and the cross-worktree kill. With the fix, two copies
+of each gate concurrently are `rc=0` with **3/3 `[PASS]` rows each and no `[skip]`** — the skip
+matters, because `run_serve_backend` reports an unreachable server as `[skip]` and returns 0, so a
+port failure can present as a green run in which nothing was checked.
+
+**THE FIX IS ALLOCATION, AND FOR `std-ui-forms` THAT FORCED A COPY.** `free_port`
+(`tests/e2e/lib/own-server.sh`) asks the kernel for a port and verifies nothing is listening.
+`request-validation-family` generates its own program, so it just interpolates the number. But
+`std-ui-forms` runs the SHIPPED `examples/std-ui/demo.ssc`, where `serve(8771)` lives in the
+program — so the gate now runs a per-run copy with the port substituted. The whole directory is
+copied because `demo.ssc` imports seven relative siblings; `std/ui/*` still resolves through the
+launcher's lib path. The substitution is ASSERTED, because a silent failure there would leave the
+copy serving 8771, the gate polling its own free port for 90s, and the result reported as `[skip]`.
+
+**`$RANDOM` WAS THE FIRST ATTEMPT AND IT REPRODUCED THE BUG INSIDE THE FIX.** `$(( 20000 + RANDOM
+% 20000 ))` returned the SAME port on three consecutive calls: a command substitution is a
+subshell, and zsh reseeds RANDOM identically in each one. Measured before it shipped.
+
+Cleanup is now `kill_own_listener`, same `lsof`, filtered through the existing `is_descendant` —
+leaks still get reaped, because `no-leaked-servers.sh` would rightly go red otherwise, but only
+this run's. The `8797` line is deleted from `FROZEN_COLLISIONS`, as that both-ways ratchet requires
+when a frozen pair is actually fixed.
+
+**NOT DONE:** the other ~18 gates that still hard-code a port. None is known to bite today, and
+each is somebody's blast radius; `free_port` exists for them to adopt one at a time. The two named
+here are the two that were observed failing.
 
 ## kind-was-optional-and-unchecked-so-half-the-board-declared-none — 50 blank, 16 invented
 
@@ -10355,7 +10421,7 @@ filed rather than fixed here.
 
 ## v21-explicit-lanes-gate-swift-em-dash-red — JVM launcher stdout is locale-dependent (non-ASCII → `?` on CI)
 <!-- status: fixed
-     kind: apparatus
+     kind: bug
      lane: apparatus
      area: runtime
      fixed-in: 54eae3197
@@ -10390,7 +10456,7 @@ silent-gate anti-pattern AGENTS.md warns about, and why this needed a manual Doc
 
 ## durable-save-run-verifier-red — effect verifier mis-flags a def that fully handles its own effect
 <!-- status: fixed
-     kind: apparatus
+     kind: bug
      lane: apparatus
      area: runtime
      fixed-in: af46212c3 -->
