@@ -70,17 +70,18 @@ as the whole surface makes this a native-only primitive by construction. Decidin
 is cheaper than discovering it when the second lane is attempted.
 ## process-needs-a-stdin-pipe — exec cannot write to a child's stdin, so a secret can only reach it through argv where every local process can read it
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: feature
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/process-stdin-gate.sh
+     fixed-in: d6b77103f
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-16
      ssc-version: bin/ssc-tools built from bad74ecdf
      repro: examples/reported/process-needs-a-stdin-pipe.ssc
-     impact: blocks -->
+     impact: blocks
+     confirmed: no -->
 
 Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
 
@@ -146,6 +147,53 @@ line (or the platform equivalent), because that absence is the whole point of th
 Blocked on nothing else. Sized ahead of `process-needs-a-detached-spawn` because it is one field
 rather than a new primitive, and because it is the only route of that port blocked for a security
 reason.
+
+### Done — one field, five implementations, and one hang found on the way
+
+`ProcessOptions.stdin: Option[String] = None` — written to the child, then the pipe is CLOSED so the
+child sees EOF. `None` leaves the previous behaviour. Implemented on all five backends that serve
+`std.process`, because a field honoured on one lane and dropped on another is the silent divergence
+this repository keeps paying for:
+
+```text
+v1/runtime/plugins/os-plugin/…/OsIntrinsics.scala          ssc-tools run --v1   ✓ gated
+v2/runtime/std/os-plugin/…/OsNativePlugin.scala            bin/ssc run          ✓ gated
+v1/runtime/backend/rust/…/RuntimeModRs                     build-rust           ✓ gated
+v1/runtime/backend/jvm/…/processRuntime                    jvm codegen          ✓ implemented, not gated here
+v1/runtime/backend/js/…/JsRuntimeFs.scala                  js codegen           ✓ implemented, not gated here
+```
+
+The jvm and js rows are honest about what the gate does NOT reach: exercising them needs a different
+harness, and claiming coverage a script does not have is worse than naming the gap.
+
+**THE CLOSE IS THE LOAD-BEARING HALF, and it exposed a hang that predates this feature.**
+`ProcessBuilder` pipes stdin by default, so a child that reads to EOF never sees one:
+`exec("cat", List(), ProcessOptions())` blocked FOREVER on the v1 lane, no output, no timeout. The
+v2 plugin had closed the pipe since it was written, with a comment saying exactly why; v1 and the
+jvm runtime had not. Both now close unconditionally, and the gate's fourth row plus a per-lane
+`timeout` is what keeps it that way — a gate without the timeout would not fail there, it would
+never finish. Filed as `v1-exec-hangs-when-the-child-reads-stdin` for the record.
+
+**The security property is asserted, not assumed, and its check is itself controlled.** The child
+prints its own command line (`ps -o command= -p $$`); one row asserts the token is ABSENT from it,
+and the next passes the same token as an ARGUMENT and asserts the same probe DOES see it. Without
+that second row the first could be green because `ps` was broken or the token never existed.
+
+**Rust needed a different shape, not just a field.** `Command::output()` wires stdin to null and
+hands back no handle, so the stdin path spawns, writes, drops the handle (that drop IS the EOF) and
+collects with `wait_with_output()`. The no-stdin path keeps `.output()` byte-for-byte, so every
+existing caller emits and runs exactly as before.
+
+**Not fixed, filed:** the js lane still ignores `cwd`, `env`, `timeout` and `inheritEnv` — `stdin`
+now works there while its four siblings are silently dropped, which is the same shape the rust lane
+had until this week (`js-exec-ignores-every-processoptions-field-but-stdin`).
+
+**Verified:** `tests/e2e/process-stdin-gate.sh` PASS, 12 rows over three lanes. Negative control with
+every implementation reverted and the launcher rebuilt: 9 rows red, and the `--v1` lane HANGS at row
+4, which is the pre-existing bug above showing itself. `rust-std-survey-gate` 77 REFUSED /
+55 COMPILES, BADRUST not grown; `v1-jit-size` PASS; `scripts/smoke-ci` green.
+
+`confirmed: no` — rozum has not checked this against their own build.
 ## sbt-plugin-build-tool-parity — make it an sbt plugin first, then widen it
 
 <!-- status: open

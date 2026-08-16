@@ -129,6 +129,94 @@ Any fix has to keep that case working.
 while no frame is on the stack and the executor says `no handler for effect operation 0` — the
 unpositioned message `v3-no-handler-error-has-no-position` describes, in the one shape its
 lowering-time refusal deliberately cannot see.
+## v1-exec-hangs-when-the-child-reads-stdin — `exec("cat", List(), ProcessOptions())` never returns
+
+<!-- status: fixed
+     lane: int
+     area: runtime
+     kind: bug
+     gate: tests/e2e/process-stdin-gate.sh
+     fixed-in: d6b77103f
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 3debf7393
+     repro: inline below
+     impact: blocks -->
+
+Found while implementing `process-needs-a-stdin-pipe` (BACKLOG.md): a probe that ran `cat` with
+nothing to give it never came back.
+
+```scalascript
+[exec, ProcessOptions](std/process.ssc)
+def main(): Unit =
+  val n = exec("cat", List(), ProcessOptions())
+  println("returned: " + (n.stdout == ""))
+main()
+```
+
+```text
+bin/ssc run            returned: true
+ssc-tools run --v1     (nothing; exit 124 under `timeout 60`)
+```
+
+`ProcessBuilder` PIPES stdin by default. Nothing wrote to that pipe and nothing closed it, so a
+child reading to EOF never saw one and `exec` waited on a process that would never exit. There is no
+timeout by default, so the program hangs rather than failing — the worst shape, because a hang has
+no message to search for.
+
+**The v2 os-plugin has closed that pipe since it was written**, with a comment saying exactly this:
+`process.getOutputStream.close() // no stdin: a child that reads would otherwise hang`. The v1
+plugin and the jvm runtime source did not. Two implementations of the same primitive, one of them
+carrying the fix and the knowledge of why, and it never travelled — the same shape as every
+two-front pair in this repository.
+
+**Fixed:** both now close the pipe UNCONDITIONALLY — `try opts.stdin.foreach(write) finally close`
+— so the None case behaves as v2 always did and the Some case gets its EOF after the write.
+
+**Gated by a row that has to be able to hang, and therefore by a timeout.** `no stdin, no hang` in
+`tests/e2e/process-stdin-gate.sh` runs every lane under `timeout`, because a gate without one does
+not go red here — it never finishes, and a CI job that is killed at its cap reports `cancelled`,
+which is not `failure`.
+
+## js-exec-ignores-every-processoptions-field-but-stdin — `cwd`, `env`, `timeout` and `inheritEnv` are accepted and dropped on the js lane
+
+<!-- status: open
+     lane: js
+     area: runtime
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: 3debf7393
+     repro: none — needs a node harness
+     impact: workaround -->
+
+Found while adding `stdin` to every backend for `process-needs-a-stdin-pipe`. The js implementation
+took `opts` and never read it:
+
+```js
+function exec(cmd, argsList, opts) {
+  if (_nodeProc) {
+    var result = _nodeProc.spawnSync(cmd, argsList, { encoding: 'utf8', shell: false });
+```
+
+`opts` is a parameter and appears nowhere in the body. So `cwd`, `env`, `timeout` and `inheritEnv`
+are accepted by the type and silently dropped — exactly the shape the rust lane had until
+`rust-exec-silently-ignores-every-processoptions-field` was fixed this week, and exactly as
+invisible: no refusal, no warning, a child running in the wrong directory with the wrong
+environment.
+
+`stdin` was wired here (`spawnSync`'s `input`), so the lane now honours ONE of five fields, which is
+recorded rather than tidy. The remaining four are one object literal away for `cwd`/`env`/`timeout`
+— `spawnSync` takes all three — but `inheritEnv: false` is not: it means scrubbing the parent
+environment and rebuilding it from `env`, which needs `{ env: {...} }` composed rather than passed
+through, and getting that half-right is how a "scrubbed" child keeps its secrets.
+
+**Not gated, and the reason is worth stating**: `tests/e2e/process-stdin-gate.sh` covers run, --v1
+and build-rust and deliberately claims nothing about js, because exercising the js lane needs a node
+harness this script does not have. A gate that "covers" a lane it cannot run is worse than an
+uncovered lane, because the coverage is believed.
 
 ## rust-exec-silently-ignores-every-processoptions-field — `cwd`, `env` and `inheritEnv` were obeyed under `run` and dropped under `build-rust`, with no diagnostic
 
