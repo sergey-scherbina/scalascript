@@ -81,3 +81,66 @@ assert_own_listener() {
   done
   return 1
 }
+
+# free_port — print a TCP port on 127.0.0.1 that nothing is listening on right now.
+#
+# WHY THIS EXISTS, and it is not the collision the sibling ratchet already guards. `no-leaked-
+# servers.sh` reads PORTS OUT OF SOURCE and reports two DIFFERENT gates in ONE tree sharing a
+# number. The collision that actually bit on 2026-08-16 was the SAME gate in THREE worktrees:
+# `std-ui-forms` and `request-validation-family` both failed in a `scripts/smoke-ci` run while
+# passing standalone minutes later at the same load, because two sibling agents were running their
+# own suites on the same Mac. A source-reading check cannot see that by construction — the two
+# ports are equal because it is the same line of the same file, which is not drift to detect.
+#
+# So the fix is the one that file's own text prescribes: "have it allocate one instead of choosing."
+#
+# THE PORT IS VERIFIED FREE, NOT ASSUMED. Binding :0 and reading the number back is the usual
+# trick and it is a lie here — the kernel hands back a port it has just released, and between the
+# close and the server's own bind a sibling suite can take it. That race is exactly the failure
+# being fixed, so this asks whether anything is listening and retries if so. It is still a TOCTOU
+# window, just a small one against a 16k-wide range instead of a certainty against one number.
+free_port() {
+  local p tries=0
+  while [[ $tries -lt 40 ]]; do
+    # THE KERNEL PICKS, NOT `$RANDOM`. The first version of this used
+    # `$(( 20000 + RANDOM % 20000 ))` and handed out the SAME port on three consecutive calls:
+    # a command substitution is a subshell, and zsh reseeds RANDOM identically in each one, so
+    # every caller in a run would have got one number. That is the bug this function exists to
+    # remove, reintroduced inside the fix. Asking the kernel for :0 cannot collide with a port
+    # that is currently bound, which no amount of guessing can promise.
+    p=$(python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()' 2>/dev/null) || p=""
+    if [[ -n "$p" ]] && ! lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
+      printf '%s\n' "$p"; return 0
+    fi
+    tries=$(( tries + 1 ))
+  done
+  # REFUSE rather than fall back to a constant. A fallback would reintroduce the exact bug: a
+  # caller that silently gets 8771 under load is the case this function was written to remove.
+  echo "free_port: no free port found in 40 tries — refusing to return a fixed one" >&2
+  return 1
+}
+
+# kill_own_listener <port> <pid> — kill whatever listens on <port>, but ONLY if it descends from
+# <pid>, i.e. only if this gate started it.
+#
+# The shape it replaces was `lsof -ti :$PORT | xargs -r kill -9`, which every server gate here
+# used both before booting and on cleanup. With a hard-coded port that is not a tidy-up, it is a
+# gate REACHING INTO ANOTHER WORKTREE AND KILLING ITS SERVER — the sibling suite then reports its
+# own server "never listened", so the damage surfaces as a defect in the innocent run. That is
+# strictly worse than the port collision it accompanies, because a collision is at least visible
+# to the gate that loses.
+#
+# Leaks still have to be cleaned, or `no-leaked-servers.sh` goes red for a real reason, so the
+# answer is ownership rather than restraint: same lsof, same kill, filtered by `is_descendant`.
+kill_own_listener() {
+  local port="$1" own="${2:-0}" p
+  [[ -z "$port" || "$own" == "0" ]] && return 0
+  for p in $(lsof -ti :"$port" 2>/dev/null); do
+    if is_descendant "$p" "$own"; then kill -9 "$p" 2>/dev/null; fi
+  done
+  return 0
+}

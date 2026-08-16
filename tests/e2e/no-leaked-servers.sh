@@ -71,9 +71,18 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 #   8769  RESOLVED 2026-08-15 — std-ui-forms-smoke.sh moved to 8771. It was the collision that
 #         actually bit: an ordinary smoke run had it answering on a neighbour's server. Kept as a
 #         line rather than deleted, so the next reader sees a frozen pair CAN be retired.
-#   8797  route-params-v2-smoke.sh (ci.yml) and request-validation-family-gate.sh (smoke-ci.ssc) — ditto
+#   8797  RETIRED 2026-08-16 — request-validation-family-gate.sh now ALLOCATES its port
+#         (`free_port`, tests/e2e/lib/own-server.sh) instead of choosing one, so the pair no longer
+#         exists and its line is deleted, as the both-ways ratchet requires.
 # So the hazard is a LOCAL one (two suites at once on a dev box) plus the day a second gate on one of
 # these ports gets wired into the suite that already has one. That day this check goes red first.
+#
+# WHAT THIS CHECK CANNOT SEE, and it is the one that actually bit. It compares ports ACROSS GATES IN
+# ONE TREE. On 2026-08-16 the collision was ONE gate against ITSELF in three worktrees — three agents
+# running `scripts/smoke-ci` on one Mac — and `std-ui-forms` and `request-validation-family` both
+# failed there while passing standalone minutes later at the same load. Two copies of one line are
+# not drift, so no amount of reading source finds it; the fix has to be allocation, and that is what
+# `free_port` is for. New server gates should call it rather than earn a line in this list.
 # NAMES ARE STORED WITHOUT THE `.sh`, AND THAT IS NOT COSMETIC. `no-orphan-gates.sh` decides whether
 # a gate is wired by searching `.github`, `scripts` and `tests` for its basename and keeping matches
 # that survive having the comment tail stripped. A frozen list written as `render-smoke.sh` is a
@@ -85,8 +94,7 @@ ports_of() { # ports_of <file> -> one port per line, comments stripped
 # not a caller. This is the third variant and the one it cannot defend against: a DATA string is not
 # a caller either, and unlike a comment there is nothing about it to strip. Anything else that lists
 # gate filenames as data belongs in a `.md`, which `callers_of` excludes, or here without the suffix.
-FROZEN_COLLISIONS="8768 components-smoke render-smoke v21-native-entry-smoke
-8797 request-validation-family-gate route-params-v2-smoke"
+FROZEN_COLLISIONS="8768 components-smoke render-smoke v21-native-entry-smoke"
 
 SELF="$(basename "${BASH_SOURCE[0]}")"
 

@@ -25,7 +25,6 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
-PORT="${SSC_REQUEST_VALIDATION_PORT:-8797}"
 
 # A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
 # and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
@@ -35,14 +34,33 @@ PORT="${SSC_REQUEST_VALIDATION_PORT:-8797}"
 . "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
   echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
   echo "  than report a healthy server as foreign." >&2; exit 2; }
+
+# ALLOCATED, NOT CHOSEN — and it has to be assigned AFTER the source line above, which is where
+# `free_port` comes from. It was 8797, shared with `route-params-v2-smoke.sh` and frozen as a known
+# collision in `no-leaked-servers.sh`. That freeze covers two gates in ONE tree; what actually
+# failed on 2026-08-16 was this gate racing ITSELF across three worktrees on one Mac, which no
+# source-reading check can see. An env override stays, for reproducing a failure on a known port.
+PORT="${SSC_REQUEST_VALIDATION_PORT:-$(free_port)}"
+[ -n "$PORT" ] || { echo "✗ could not allocate a port"; exit 1; }
 export SSC_NO_BUILD_CHECK=1
-echo "── request validation family (native lane)"
+echo "── request validation family (native lane)  [port $PORT]"
 
 [ -x "$BIN/ssc" ] || { echo "✗ no launcher at $BIN/ssc — build first"; exit 1; }
 command -v curl >/dev/null || { echo "✗ curl not available"; exit 1; }
 
 WORK="$(mktemp -d)"
-cleanup() { for p in "$PORT" "$(( PORT + 1 ))"; do lsof -ti :"$p" 2>/dev/null | xargs -r kill -9 2>/dev/null; done; rm -rf "$WORK"; }
+# Kills only what THIS gate started (see kill_own_listener). The old body killed whatever held
+# the port, which on a dev box with parallel worktrees is a sibling agent's server.
+cleanup() {
+  local f own
+  for f in "$WORK"/server.pid "$WORK"/server-v1.pid; do
+    [ -f "$f" ] || continue
+    own="$(cat "$f" 2>/dev/null || echo 0)"
+    kill_own_listener "$PORT" "$own"; kill_own_listener "${V1_PORT:-}" "$own"
+    kill -9 "$own" 2>/dev/null
+  done
+  rm -rf "$WORK"
+}
 trap cleanup EXIT
 
 cat > "$WORK/app.ssc" <<EOF
@@ -67,7 +85,8 @@ route("GET", "/opt"):
 serve($PORT)
 EOF
 
-lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
+# NO pre-boot `kill` of this port. It is freshly allocated and verified free, so anything
+# listening on it is a stranger's — and killing a stranger's server is what this change removes.
 # The boot deadline is 60s and the server's own timeout 120s. Both are CEILINGS: the poll loop
 # leaves the moment the server answers, so on an idle host this costs nothing — measured 4s to
 # listen. They were 22-25s and 30-40s, which is fine alone and wrong inside the suite: under a
@@ -78,8 +97,10 @@ lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
 # The pid is RECORDED rather than the launch restructured. `( cmd & )` detaches on purpose so the
 # script never waits on it, and `$!` inside the subshell is the `timeout` wrapper — its child is the
 # server, which `assert_own_listener` handles because it compares process TREES. Without a pid the
-# ownership question is simply unanswerable here, and this gate shares 8797 with
-# `route-params-v2-smoke.sh`. (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
+# ownership question is simply unanswerable here. The check STAYS now that the port is allocated
+# rather than shared: an allocated port narrows the window, and a leaked server from an earlier run
+# of this same gate can still be sitting on one.
+# (a-gate-that-starts-a-server-cannot-prove-it-is-talking-to-its-own.)
 ( timeout 120 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & echo $! > "$WORK/server.pid" )
 deadline=$(( $(date +%s) + 60 ))
 until [ -n "$(curl -sS -m 3 "http://localhost:$PORT/req?s=a&i=1&d=2.5&b=yes" 2>/dev/null)" ]; do
@@ -135,9 +156,13 @@ check_status "native: absent required field is a client error" "$PORT" "req" 400
 # that was wrong cannot see it come back the other way — if v1 later starts answering 500 here,
 # a native-only check stays green while the pair is broken again. v1 is a second boot and this
 # suite has a hard budget, so it is exactly one request: the one that differed.
-V1_PORT=$(( PORT + 1 ))
+# ALLOCATED SEPARATELY, not PORT+1: the neighbour of a free port is not itself known to be free,
+# and under the concurrency this fix targets it is exactly the port another suite just took.
+V1_PORT="$(free_port)"
+[ -n "$V1_PORT" ] || { echo "✗ could not allocate a v1 port"; exit 1; }
 sed "s/serve($PORT)/serve($V1_PORT)/" "$WORK/app.ssc" > "$WORK/app-v1.ssc"
-lsof -ti :"$V1_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
+grep -q "serve($V1_PORT)" "$WORK/app-v1.ssc" || {
+  echo "✗ v1 program still serves the native port — the substitution did not apply"; exit 1; }
 ( timeout 120 "$BIN/ssc-tools" run --v1 "$WORK/app-v1.ssc" > "$WORK/server-v1.log" 2>&1 & echo $! > "$WORK/server-v1.pid" )
 v1_deadline=$(( $(date +%s) + 60 ))
 v1_up=0
@@ -155,7 +180,7 @@ else
   sed 's/^/    /' "$WORK/server-v1.log" | head -5
   fail=1
 fi
-lsof -ti :"$V1_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
+kill_own_listener "$V1_PORT" "$(cat "$WORK/server-v1.pid" 2>/dev/null || echo 0)"
 
 # optional* on the same absent fields must be None, not a recorded error.
 check "optional*, fields absent" "opt" "s=None" "unbound"

@@ -26,14 +26,6 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
-DEMO="$ROOT/examples/std-ui/demo.ssc"
-# 8771, NOT 8769, since 2026-08-15. This gate and `health-defaults-smoke.sh` both bound 8769 — a
-# pair frozen in `no-leaked-servers.sh` rather than fixed — and a frozen collision is still a live
-# collision. Observed in an ordinary `scripts/smoke-ci` run: this gate failed with
-#     [FAIL] JVM: :8769 is answering, but NOT from the process this gate started (pid 43041)
-# while passing 3/3 standalone at the SAME load, so the holder was a sibling gate inside the same
-# run. The identity check below did its job; what it caught was a port two gates were told to share.
-PORT=8771
 
 # A MISSING HELPER MUST NOT READ AS A FOUND DEFECT. Sourced without this guard, `.` fails quietly
 # and every later `assert_own_listener` is "command not found" — non-zero — which the call sites
@@ -43,9 +35,54 @@ PORT=8771
 . "$(dirname "${BASH_SOURCE[0]}")/lib/own-server.sh" || {
   echo "$(basename "${BASH_SOURCE[0]}"): cannot source lib/own-server.sh — refusing to run rather" >&2
   echo "  than report a healthy server as foreign." >&2; exit 2; }
-INT_ERR="${TMPDIR:-/tmp}/std-ui-forms-int.err"
 
-trap 'pkill -9 -f "examples/std-ui/demo\.ssc" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
+# ── THE PORT IS ALLOCATED, AND THAT FORCES THE DEMO TO BE COPIED ────────────────────────────────
+# It was 8771 (and 8769 before that, moved on 2026-08-15 after a frozen collision bit). Moving a
+# constant only re-runs the same race later: on 2026-08-16 this gate failed inside `scripts/smoke-ci`
+# and passed 3/3 standalone minutes later at the SAME load, because two sibling agents were running
+# their own suites on the same Mac. Nothing in the tree is drifting there — it is one line of one
+# file, run three times at once — so `no-leaked-servers.sh`, which reads ports out of SOURCE, cannot
+# see it even in principle.
+#
+# The port lives in the PROGRAM (`serve(8771)` in the shipped example), not in this script, so the
+# gate cannot simply choose one: it runs a per-run COPY with the port substituted. The whole
+# directory is copied, not the one file, because `demo.ssc` imports `./input.ssc` and six more
+# siblings; `std/ui/*` imports keep resolving through the launcher's lib path. 308K.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/std-ui-forms.XXXXXX")"
+INT_ERR="$WORK/int.err"
+SERVER_PID=0
+# PORT is declared EMPTY before the trap that reads it. The trap is armed first so $WORK is always
+# removed, and this file runs under `set -u`: if `free_port` fails and the script exits, an unset
+# PORT would make the trap itself die on an unbound variable and leak the temp dir it exists to
+# delete. `kill_own_listener` treats an empty port as nothing to do.
+PORT=""
+
+# `pkill -f` is SCOPED TO $WORK, and the pattern it replaces is why. It was
+# `pkill -9 -f "examples/std-ui/demo\.ssc"` — a relative path that appears in EVERY worktree's
+# command line, so this gate reached across and killed sibling agents' servers. The victim then
+# reports its own server "never listened", i.e. the damage lands as a defect in the innocent run.
+# $WORK is an mktemp path, unique per run, so the same mechanism now matches only our own processes.
+trap 'pkill -9 -f "$WORK" 2>/dev/null; kill_own_listener "$PORT" "$SERVER_PID"; rm -rf "$WORK"' EXIT
+
+PORT="$(free_port)" || { echo "✗ could not allocate a port"; exit 1; }
+
+mkdir -p "$WORK/app"
+cp -R "$ROOT/examples/std-ui/." "$WORK/app/" || { echo "✗ could not copy examples/std-ui"; exit 1; }
+DEMO="$WORK/app/demo.ssc"
+# Matches ANY port the example declares, not the literal 8771, so this gate does not silently stop
+# substituting the day somebody renumbers the demo. The grep below is what makes that safe.
+sed -E "s/serve\([0-9]+\)/serve($PORT)/; s#localhost:[0-9]+#localhost:$PORT#g" \
+    "$ROOT/examples/std-ui/demo.ssc" > "$DEMO"
+# Announced because the port differs every run: a log that does not name it leaves the reader of a
+# future failure unable to tell which server was even being asked.
+echo "  (port $PORT, demo copy $DEMO)"
+
+# THE SUBSTITUTION IS VERIFIED, and a silent failure here would be invisible in the worst way: the
+# copy would still serve 8771, this gate would poll its own free port for 90s, and `run_serve_backend`
+# reports that as `[skip]` — a GREEN run in which nothing was checked. Assert on what is emitted.
+grep -q "serve($PORT)" "$DEMO" || {
+  echo "✗ the demo copy does not serve the allocated port — substitution failed against"
+  echo "  $ROOT/examples/std-ui/demo.ssc (has its \`serve(...)\` line changed?)"; exit 1; }
 
 assert_markers() {
     local label="$1"
@@ -76,8 +113,10 @@ assert_markers() {
     return $fail
 }
 
+# Only what THIS gate started. The old body killed whatever held the port — a sibling's server on a
+# dev box with parallel worktrees.
 kill_port() {
-    lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
+    kill_own_listener "$PORT" "$SERVER_PID"
     sleep 1
 }
 
@@ -122,11 +161,12 @@ run_serve_backend() {
     local launcher="$2"
     local sleep_min="$3"
     kill_port
-    $launcher "$DEMO" > "/tmp/std-ui-$label.log" 2>&1 &
+    $launcher "$DEMO" > "$WORK/std-ui-$label.log" 2>&1 &
     local pid=$!
+    SERVER_PID=$pid
     sleep $sleep_min
     if ! kill -0 $pid 2>/dev/null; then
-        echo "  [skip] $label: launcher exited (likely scala-cli compile gate — see /tmp/std-ui-$label.log)"
+        echo "  [skip] $label: launcher exited (likely scala-cli compile gate — see $WORK/std-ui-$label.log)"
         return 0
     fi
     if ! wait_for_server; then
