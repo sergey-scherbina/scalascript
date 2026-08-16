@@ -700,6 +700,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-serve-panic-gate.sh
 
+      # The quietest of the rozum reports and the most expensive: nothing failed, the answer was just
+      # wrong, so it reached a running server and was found by comparing two implementations byte for
+      # byte. A `case m: Map[String, Any]` matched a JSON ARRAY — but only when the scrutinee was a
+      # local `val`; through a parameter the same expression was correct. `renderMatch` decided
+      # "is the subject an Any?" from the def's PARAMETERS alone, so a local never was one, and the
+      # typed path then DROPPED the ascription and left a bind-all first arm.
+      # The gate compares the rust lane against `run` row by row rather than against four literals,
+      # because a change moving both lanes together is still a defect; it also asserts the oracle
+      # itself still says an array is not a Map, and that rustc reports no `unreachable pattern` in
+      # the generated crate — the diagnostic that was already there, twice, and unread.
+      # ~60 s, one cargo build plus one interpreter run.
+      - name: a type pattern discriminates wherever the value came from
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-type-pattern-local-val-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:

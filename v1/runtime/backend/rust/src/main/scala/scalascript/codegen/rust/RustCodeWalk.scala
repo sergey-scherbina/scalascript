@@ -1991,7 +1991,10 @@ object RustCodeWalk:
                         // of them is a signal read, not a call. A param states its type, so this
                         // reads the declaration rather than inferring anything.
                         localSignals = _moduleSignals ++ signalParams(d) ++ collectLocalSignals(d.body),
-                        anyNames = anyParams,
+                        // Params AND locals: a `val parsed = jsonParse(s)` holds a `Value` exactly
+                        // as a param declared `Any` does, and reading only the signature made a
+                        // type pattern on such a local irrefutable. See `collectAnyLocals`.
+                        anyNames = anyParams ++ collectAnyLocals(d.body),
                         valueLocals = collectValueLocals(d, ctorMap),
                         numericNames = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
                           .collect { case p if p.decltpe.exists {
@@ -2430,6 +2433,49 @@ object RustCodeWalk:
         case _ => ()
       t.children.foreach(walk)
     walk(d.body)
+    out.toSet
+
+  /** Locals that hold a `Value` because of what they were ASSIGNED — `val parsed = jsonParse(s)`.
+   *
+   *  `collectValueLocals` above answers the same question for a local bound to an `Any` FIELD; this
+   *  one answers it for a local bound to the result of an `Any`-returning def, and the two do not
+   *  overlap. Both spellings reach Rust as a `crate::value::Value`.
+   *
+   *  WHY IT MATTERS, and the failure is silent: `renderMatch` decides whether a `match` needs the
+   *  variant-testing path by asking whether the subject is an `Any`, and that question was answered
+   *  from the def's PARAMETERS alone. A local was therefore never an `Any`, so the typed path ran
+   *  and dropped the `case m: Map[String, Any]` ascription — leaving `match parsed { m => …, other
+   *  => … }`, whose first arm matches everything. Reported from rozum: the same match expression
+   *  answered `catch-all` for a JSON array through a parameter and `MAP` through a local, so a
+   *  reader accepting either `[…]` or `{"rooms": […]}` took the object branch for an array, found no
+   *  key, and told every caller the room did not exist. Nothing failed; the answer was just wrong.
+   *
+   *  Read from the DECLARED return type (`_returnTypes`, already computed for the module) or from
+   *  the local's own `: Any` ascription — never inferred from the body, because a wrong `true` here
+   *  would put a genuinely typed local on the `Value` path. */
+  private def collectAnyLocals(body: m.Term): Set[String] =
+    val out = scala.collection.mutable.Set.empty[String]
+    def isAnyRhs(rhs: m.Term): Boolean = rhs match
+      case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) =>
+        _returnTypes.get(f).contains("crate::value::Value")
+      case _ => false
+    def declaredAny(t: Option[m.Type]): Boolean = t.exists {
+      case m.Type.Name("Any") => true
+      case _                  => false
+    }
+    def walk(t: m.Tree): Unit =
+      t match
+        case v: m.Defn.Val => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            if declaredAny(v.decltpe) || isAnyRhs(v.rhs) then out += n
+          case _ => ()
+        case v: m.Defn.Var => v.pats match
+          case List(m.Pat.Var(m.Term.Name(n))) =>
+            if declaredAny(v.decltpe) || isAnyRhs(v.body) then out += n
+          case _ => ()
+        case _ => ()
+      t.children.foreach(walk)
+    walk(body)
     out.toSet
 
   /** Local val/var names bound to a `Signal`, mapped to their **element type**
