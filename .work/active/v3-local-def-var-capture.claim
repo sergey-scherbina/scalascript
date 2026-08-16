@@ -1,0 +1,11 @@
+slug: v3-local-def-var-capture
+branch: feature/v3-local-def-var-capture
+agent: claude-code
+started: 2026-08-16T11:29:57Z
+heartbeat: 2026-08-16T11:29:57Z
+status: claimed-before-planning
+items: v3-a-local-def-captures-a-var-by-value-while-a-lambda-does-not
+paths: file:v3/src/Lower.scala file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
