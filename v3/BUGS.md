@@ -294,7 +294,6 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > run that remains, read its job count — zero jobs means eviction is somehow still happening and this
 > diagnosis is wrong; two jobs means it ran and died of something else.
 >
-
 > **Not `no group at all`, which is what `smoke.yml` carries and what this entry points at.** That
 > position rests on a premise this suite does not share: smoke is ONE job of ~6 minutes that skips
 > sbt on a cache hit, so 25 runs/hour is affordable. This is ~26 minutes and builds an sbt project
@@ -348,7 +347,7 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > **This is not the measurement that closes it.** The window is about two hours and is dominated by
 > my own push burst, which is exactly the traffic shape the entry blames. Re-measure a day out, on
 > the same instrument, before deciding whether the remaining cancels justify dropping the group.
-
+>
 > **CLOSE THIS** when `gh run list --workflow v3.yml --limit 100 --json conclusion` shows `success`
 > well above 5 in 100 — the same instrument as the original measurement, at least a day later so the
 > window is not dominated by today's bursts. If `cancelled` is still the majority with a third of
