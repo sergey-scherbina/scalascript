@@ -38,6 +38,51 @@ it.
 `unknown name` bucket was led by names that no longer refuse; the census that named this one is the
 third of the day, and each earlier one was a lower bound taken behind a different first failure.
 
+## v3-the-content-provider-has-no-root-document — every entry point answers "no explicit root content"
+
+<!-- status: open
+     lane: v3
+     kind: bug
+     area: runtime
+     gate: v3/corpus-report.sh (content-binding and four more)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**`contentDocument() is unavailable: native compilation has no explicit root content`** — from
+`ContentNativePlugin`, on every content entry point. v2's compiler sets a root document from the
+`.ssc` it is compiling; neither of v3's lanes does, so the provider is installed and cannot answer.
+
+**IT WAS HARMLESS UNTIL A REFUSAL UPSTREAM WENT AWAY.** `std/content.ssc` passes a top-level `def` as
+a value, which v3 refused, so the five `content-*` cases never reached the provider. The moment
+eta-expansion landed they did, and all five turned from an honest refusal into a stack trace. The
+module is commented out of `v3/plugin-classpath.sh` with that reason written beside it.
+
+**WHAT IT WOULD TAKE:** v3 parses the `.ssc` including its front matter, so the document exists on
+this side; what is missing is handing it to the provider before the program runs, on BOTH lanes —
+the executor's install path and `V2Cli`'s. Until then the honest refusal is
+`the host function 'contentData' is not implemented on this lane`, with a position.
+
+## v3-has-no-decimal-so-the-json-core-cannot-cross — `DecimalV` has no counterpart
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: runtime
+     gate: v3/corpus-report.sh (json-self-hosted-import)
+     found-by: claude-code
+     found-at: 2026-08-16 -->
+
+**v2 has an EXACT decimal and v3 has none.** `json-self-hosted-import` exists to pin
+`jsonParse("0.0")` printing `0.0` rather than a float, and the json core answers `DecimalV`, which
+`V2Fleet.toV3` cannot convert to anything v3 has. Carrying it as a `VFloat` or a string would be a
+wrong answer with a plausible shape — the one trade the DIFF floor exists to refuse — so the module
+is commented out of `v3/plugin-classpath.sh` and the program is told at the host-function boundary.
+
+**THIS IS A LANGUAGE QUESTION, NOT AN ADAPTER ONE.** A decimal would be a runtime value like
+`VBytes` — reachable only through prims that consume it in the same expression — or a Tier 0 type,
+which is a different and larger decision (I-2). Nothing in the corpus needs decimal ARITHMETIC in
+v3; one case needs it to survive a round trip and print exactly.
+
 ## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
 
 <!-- status: fixed

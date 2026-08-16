@@ -27,8 +27,20 @@ MODULES=(
   # actors; `add` is http-fast. Two of the refused names — `actorGroupTell` and `webauthnChallenge`
   # — match no plugin source by name at all, so this list is not expected to answer them.
   v2NativeUiPlugin
-  v2NativeContentPlugin
-  v2NativeJsonPlugin
+  # CONTENT IS NOT WIRED, and the reason is measured rather than assumed. Its provider needs a ROOT
+  # DOCUMENT — v2's compiler sets one from the `.ssc` it is compiling, and neither of v3's lanes
+  # does — so every entry point answers
+  # `contentDocument() is unavailable: native compilation has no explicit root content`. While the
+  # `unknown name` refusal upstream kept those programs from running, the module was harmless; the
+  # moment a top-level `def` could be passed as a value they reached it, and five cases went from an
+  # honest refusal to a wrong answer. Filed as v3-the-content-provider-has-no-root-document.
+  # v2NativeContentPlugin
+  # JSON IS NOT WIRED EITHER, for the same measured reason and a different value: its core answers
+  # `DecimalV`, v2's EXACT decimal, and v3 has no decimal at all — `json-self-hosted-import` exists
+  # precisely to pin `jsonParse("0.0")` printing `0.0` rather than a float. Carrying it as anything
+  # v3 does have would be a wrong answer with a plausible shape. Refused at the host-function
+  # boundary instead, which is where the program can be told the truth.
+  # v2NativeJsonPlugin
   v2NativeCryptoPlugin
   v2NativeActorsPlugin
   # COROUTINES AND GENERATORS, which reach v3 through the registry's `globalValues` table rather

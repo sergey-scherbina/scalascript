@@ -239,6 +239,18 @@ object Lower:
           // val or var alongside a def, and every one of them was an "unknown name" before this.
           val (d, st1) = st0.fresh
           (List(Instr.GlobGet(d, st0.globalIdx(n))), d, st1)
+        // A TOP-LEVEL `def` USED AS A VALUE — eta-expansion, and it is one instruction because a
+        // closure over no captures is exactly what a top-level function is. `std/content.ssc` writes
+        // `values.map(contentBindValueText)` one line below the `def`, and that read as
+        // `unknown name` — the name was right there and only the ability to PASS it was missing.
+        //
+        // AFTER the zero-arity arm above, deliberately: `def empty: List[A] = Nil` referenced as
+        // `empty` is a CALL, not a function value, and swapping the two would turn every
+        // parameterless def into a closure nobody asked for. Passing a parameterless def as a value
+        // has no spelling in this language, so nothing is lost by the order.
+        case None if fns.contains(n) =>
+          val (d, st1) = st0.fresh
+          (List(Instr.MkClos(d, fns.indexOf(n), Nil)), d, st1)
         case None =>
           // A nullary constructor is spelled as a bare name — `Nil`, `None`, and every `case Red`
           // of an enum — which is why this arm exists rather than the lookup simply failing.
