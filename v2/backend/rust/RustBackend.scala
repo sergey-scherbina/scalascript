@@ -265,8 +265,9 @@ object RustBackend:
       case Lit(CBool(b)) => s"V::Bool($b)"
       case Lit(CInt(n))  => s"V::Int(${n}i64)"
       case Lit(CBig(n))  =>
-        // represent BigInt as i64 (lossy but handles common cases)
-        s"V::Int(${n.toLong}i64) /*big*/"
+        // The digits go through the STRING, not through `toLong`: a literal past Long range is
+        // exactly the case this type exists for, and parsing is the only lossless route.
+        s"""V::Big(num_bigint::BigInt::parse_bytes(b"${n.toString}", 10).expect("big literal"))"""
       case Lit(CFloat(d)) =>
         s"V::Float(${rustFloatLit(d)})"
       case Lit(CStr(s))  => s"V::Str(${rustStrLit(s)}.to_string())"
@@ -1220,6 +1221,22 @@ ${pad}    }));\n"""
       case HandlerDispatchShape.MissPrimitive =>
         s"{ let _ = $a0; panic!(\"match: no matching case\"); }"
       // Integer arithmetic
+      // TYPED BIG PRIMS. The dynamic operator already widens when either side is a Big (see
+      // `v_iadd` and friends), but a front that CAN see the type emits `big.mul` directly — and
+      // those arms did not exist, so the program compiled and panicked at runtime with
+      // "unimplemented prim: big.mul". Routed through the same helpers, so the typed and the
+      // dynamic spelling of one operation cannot disagree.
+      case "big.add"  => s"V::Big(as_big(&$a0) + as_big(&$a1))"
+      case "big.sub"  => s"V::Big(as_big(&$a0) - as_big(&$a1))"
+      case "big.mul"  => s"V::Big(as_big(&$a0) * as_big(&$a1))"
+      case "big.div"  => s"V::Big(as_big(&$a0) / as_big(&$a1))"
+      case "big.mod"  => s"V::Big(as_big(&$a0) % as_big(&$a1))"
+      case "big.neg"  => s"V::Big(-as_big(&$a0))"
+      case "big.eq"   => s"V::Bool(as_big(&$a0) == as_big(&$a1))"
+      case "big.lt"   => s"V::Bool(as_big(&$a0) <  as_big(&$a1))"
+      case "big.le"   => s"V::Bool(as_big(&$a0) <= as_big(&$a1))"
+      case "big.gt"   => s"V::Bool(as_big(&$a0) >  as_big(&$a1))"
+      case "big.ge"   => s"V::Bool(as_big(&$a0) >= as_big(&$a1))"
       case "i.add"  => s"v_iadd($a0, $a1)"
       case "i.sub"  => s"v_isub($a0, $a1)"
       case "i.mul"  => s"v_imul($a0, $a1)"
@@ -1263,17 +1280,20 @@ ${pad}    }));\n"""
       case "f.isNaN" => s"V::Bool(as_float($a0).is_nan())"
       case "f.isInf" => s"V::Bool(as_float($a0).is_infinite())"
       // Numeric conversions
-      case "i->big"   => a0  // keep as Int
-      case "big->i"   => a0
+      // `i->big` takes an Int OR a String — both fronts lower `BigInt(x)` to this prim whatever `x`
+      // is, because they are untyped and cannot route a String elsewhere. Accepting only the Int
+      // meant there was no way to WRITE a big integer that is actually big.
+      case "i->big"   => s"v_to_big($a0)"
+      case "big->i"   => s"V::Int(big_to_i64($a0))"
       case "i->f"     => s"V::Float(as_int($a0) as f64)"
       case "f->i"     => s"V::Int(as_float($a0) as i64)"
-      case "big->f"   => s"V::Float(as_int($a0) as f64)"
-      case "f->big"   => s"V::Int(as_float($a0) as i64)"
+      case "big->f"   => s"V::Float(big_to_f64($a0))"
+      case "f->big"   => s"v_to_big(V::Int(as_float($a0) as i64))"
       case "i->str"   => s"V::Str(as_int($a0).to_string())"
-      case "big->str" => s"V::Str(as_int($a0).to_string())"
+      case "big->str" => s"V::Str(show(&$a0))"
       case "f->str"   => s"V::Str(float_to_str(as_float($a0)))"
       case "str->i"   => s"v_str_to_i($a0)"
-      case "str->big" => s"v_str_to_i($a0)"
+      case "str->big" => s"v_to_big($a0)"
       case "str->f"   => s"v_str_to_f($a0)"
       // String
       case "slen"       => s"V::Int(as_str($a0).len() as i64)"
@@ -1397,6 +1417,12 @@ enum V {
     Unit,
     Bool(bool),
     Int(i64),
+    // `BigInt` is its own variant, not a wider Int: CoreIR keeps `CBig` distinct from `CInt`
+    // (v2/src/CoreIR.scala) and a backend that renders both into ONE host type has to guess at the
+    // operator — the only guess safe for the type they share is the 64-bit one, which is right for
+    // Long and TRUNCATES Big. `n.toLong` was that guess and it did not refuse, it answered a
+    // different number. (rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist.)
+    Big(num_bigint::BigInt),
     Float(f64),
     Str(String),
     Bytes(Vec<u8>),
@@ -1433,6 +1459,7 @@ fn show(v: &V) -> String {
         V::Unit        => "()".to_string(),
         V::Bool(b)     => b.to_string(),
         V::Int(n)      => n.to_string(),
+        V::Big(n)      => n.to_string(),
         V::Float(d)    => float_to_str(*d),
         V::Str(s)      => s.clone(),
         V::Bytes(b)    => format!("Bytes({})", b.iter().map(|x| format!("{:02x}", x)).collect::<String>()),
@@ -1711,7 +1738,65 @@ fn v_method(name: V, recv: V, args: Vec<V>) -> V {
 
 // ── Arithmetic ────────────────────────────────────────────────────────────────
 
+// ── BigInt helpers ────────────────────────────────────────────────────────────
+// `BigInt(x)` reaches the backend as `i->big` whatever `x` is — Int, String, or an existing Big —
+// because the fronts are untyped and cannot route a String to a different prim.
+fn v_to_big(v: V) -> V {
+    match v {
+        V::Big(b) => V::Big(b),
+        V::Int(n) => V::Big(num_bigint::BigInt::from(n)),
+        V::Str(s) => match num_bigint::BigInt::parse_bytes(s.trim().as_bytes(), 10) {
+            Some(b) => V::Big(b),
+            // Loud, and naming the input: `run` throws on a malformed number and a lane that
+            // answered zero here would differ from it silently.
+            None => panic!("BigInt: invalid integer: {:?}", s),
+        },
+        other => panic!("BigInt: cannot convert {:?}", other),
+    }
+}
+
+// `big->i` NARROWS, and a value that does not fit says so. Truncating quietly is the defect this
+// whole entry is about, one level down.
+fn big_to_i64(v: V) -> i64 {
+    match v {
+        // `i64::try_from` rather than `ToPrimitive::to_i64`: that trait lives in `num-traits`, and
+        // one dependency is enough for a lane that had none.
+        V::Big(b) => match i64::try_from(&b) {
+            Ok(n) => n,
+            Err(_) => panic!("BigInt.toLong: {} does not fit in 64 bits", b),
+        },
+        other => as_int(other),
+    }
+}
+
+fn big_to_f64(v: V) -> f64 {
+    match v {
+        // Through the decimal string, for the same reason: no second crate. A value past f64's
+        // range parses to infinity, which is what a float conversion of it means.
+        V::Big(b) => b.to_string().parse::<f64>().unwrap_or(f64::INFINITY),
+        other => as_int(other) as f64,
+    }
+}
+
+/// Both operands as `BigInt` when EITHER is one — the dynamic operator (`__arith__`) is how every
+/// real program spells arithmetic, and it sees only values. An Int beside a Big widens; two Ints
+/// never reach here, so Long wrapping is untouched.
+fn as_big(v: &V) -> num_bigint::BigInt {
+    match v {
+        V::Big(b) => b.clone(),
+        V::Int(n) => num_bigint::BigInt::from(*n),
+        V::Str(s) => num_bigint::BigInt::parse_bytes(s.trim().as_bytes(), 10)
+            .unwrap_or_else(|| panic!("BigInt: invalid integer: {:?}", s)),
+        other => panic!("BigInt: cannot convert {:?}", other),
+    }
+}
+
+fn is_big(v: &V) -> bool { matches!(v, V::Big(_)) }
+
 fn v_iadd(a: V, b: V) -> V {
+    // A Big on EITHER side makes this big arithmetic. Checked before the match so the
+    // 64-bit arms below keep their exact wrapping behaviour for Int/Int.
+    if is_big(&a) || is_big(&b) { return V::Big(as_big(&a) + as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x.wrapping_add(y)),
         (V::Float(x), V::Float(y)) => V::Float(x + y),
@@ -1722,6 +1807,9 @@ fn v_iadd(a: V, b: V) -> V {
 }
 
 fn v_isub(a: V, b: V) -> V {
+    // A Big on EITHER side makes this big arithmetic. Checked before the match so the
+    // 64-bit arms below keep their exact wrapping behaviour for Int/Int.
+    if is_big(&a) || is_big(&b) { return V::Big(as_big(&a) - as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x.wrapping_sub(y)),
         (V::Float(x), V::Float(y)) => V::Float(x - y),
@@ -1732,6 +1820,9 @@ fn v_isub(a: V, b: V) -> V {
 }
 
 fn v_imul(a: V, b: V) -> V {
+    // A Big on EITHER side makes this big arithmetic. Checked before the match so the
+    // 64-bit arms below keep their exact wrapping behaviour for Int/Int.
+    if is_big(&a) || is_big(&b) { return V::Big(as_big(&a) * as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x.wrapping_mul(y)),
         (V::Float(x), V::Float(y)) => V::Float(x * y),
@@ -1742,6 +1833,9 @@ fn v_imul(a: V, b: V) -> V {
 }
 
 fn v_idiv(a: V, b: V) -> V {
+    // A Big on EITHER side makes this big arithmetic. Checked before the match so the
+    // 64-bit arms below keep their exact wrapping behaviour for Int/Int.
+    if is_big(&a) || is_big(&b) { return V::Big(as_big(&a) / as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x / y),
         (V::Float(x), V::Float(y)) => V::Float(x / y),
@@ -1752,6 +1846,9 @@ fn v_idiv(a: V, b: V) -> V {
 }
 
 fn v_imod(a: V, b: V) -> V {
+    // A Big on EITHER side makes this big arithmetic. Checked before the match so the
+    // 64-bit arms below keep their exact wrapping behaviour for Int/Int.
+    if is_big(&a) || is_big(&b) { return V::Big(as_big(&a) % as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Int(x % y),
         (V::Float(x), V::Float(y)) => V::Float(x % y),
@@ -1807,6 +1904,7 @@ fn v_eqb(a: &V, b: &V) -> bool {
 fn v_eq(a: V, b: V) -> V { V::Bool(v_eqb(&a, &b)) }
 
 fn v_ieq(a: V, b: V) -> V {
+    if is_big(&a) || is_big(&b) { return V::Bool(as_big(&a) == as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x == y),
         (V::Float(x), V::Float(y)) => V::Bool(x == y),
@@ -1817,6 +1915,7 @@ fn v_ieq(a: V, b: V) -> V {
 }
 
 fn v_ilt(a: V, b: V) -> V {
+    if is_big(&a) || is_big(&b) { return V::Bool(as_big(&a) < as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x < y),
         (V::Float(x), V::Float(y)) => V::Bool(x < y),
@@ -1827,6 +1926,7 @@ fn v_ilt(a: V, b: V) -> V {
 }
 
 fn v_ile(a: V, b: V) -> V {
+    if is_big(&a) || is_big(&b) { return V::Bool(as_big(&a) <= as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x <= y),
         (V::Float(x), V::Float(y)) => V::Bool(x <= y),
@@ -1837,6 +1937,7 @@ fn v_ile(a: V, b: V) -> V {
 }
 
 fn v_igt(a: V, b: V) -> V {
+    if is_big(&a) || is_big(&b) { return V::Bool(as_big(&a) > as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x > y),
         (V::Float(x), V::Float(y)) => V::Bool(x > y),
@@ -1847,6 +1948,7 @@ fn v_igt(a: V, b: V) -> V {
 }
 
 fn v_ige(a: V, b: V) -> V {
+    if is_big(&a) || is_big(&b) { return V::Bool(as_big(&a) >= as_big(&b)); }
     match (a, b) {
         (V::Int(x), V::Int(y))     => V::Bool(x >= y),
         (V::Float(x), V::Float(y)) => V::Bool(x >= y),

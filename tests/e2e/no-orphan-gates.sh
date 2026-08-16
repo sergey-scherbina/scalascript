@@ -51,6 +51,11 @@ cd "$ROOT"
 # 291 scripts there carry only 284 distinct names. Widening took the census from 217 subjects / 8
 # orphans to 291 / 31 — the 23 new ones were never wired and were never VISIBLE either, which is a
 # different and worse thing. Several name themselves gates in their own first line:
+# `v2/backend/check.sh` WAS on this list and is not any more: since 2026-08-16 ci.yml invokes it
+# (filtered to the bigint fixtures, which had been skipped on the rust/wasm lanes until BigInt
+# existed there). An exemption that outlives its need is the same rot as a stale known-red, which is
+# what this gate said when it caught the leftover. The rest of the prose below is the original
+# triage note and still applies to the others:
 # `v2/backend/check.sh` is a parity harness over every `v2/conformance/*.coreir` fixture,
 # `v2/conformance/coreir-name-guard.sh` says the Writer "must refuse" a name, `v3/extension-gate.sh`
 # "keeps Lower's built-in vocabulary honest", `uniml/lint-portable-subset.sh` "guards" the portable
@@ -75,7 +80,6 @@ tests/interop-conformance/validation-test.sh
 tests/rust-build-smoke.sh
 v1/tools/scripts/v2-scale-bench.sh
 v2/backend/check-handler-markers.sh
-v2/backend/check.sh
 v2/conformance/check.sh
 v2/conformance/portable-capsule.sh
 v3/plugin-classpath.sh

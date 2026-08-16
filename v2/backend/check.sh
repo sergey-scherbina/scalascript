@@ -73,19 +73,46 @@ run_js() { # $1=ir-file $2=out-file
   scli run "$DIR/js" -q < "$1" > "$TMP/gen.js" 2>/dev/null || return 1
   node "$TMP/gen.js" > "$2" 2>/dev/null
 }
+# ONE CRATE, REUSED BY EVERY FIXTURE. The generated program is a cargo crate now, not a bare
+# `rustc gen.rs`, because `BigInt` needs `num-bigint` and a crate is the only way rustc takes a
+# dependency. Built in a single directory on purpose: cargo then compiles the dependency ONCE for
+# the whole run and each fixture pays only for its own `main.rs`. (rust-bigint-is-an-i64.)
+crate_init() {
+  [ -f "$TMP/crate/Cargo.toml" ] && return 0
+  mkdir -p "$TMP/crate/src"
+  cat > "$TMP/crate/Cargo.toml" <<'TOML'
+[package]
+name = "gen"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+num-bigint = "0.4"
+
+[profile.release]
+overflow-checks = false
+
+[[bin]]
+name = "gen"
+path = "src/main.rs"
+TOML
+}
 run_rust() { # $1=ir-file $2=out-file
-  scli run "$DIR/rust" -q < "$1" > "$TMP/gen.rs" 2>/dev/null || return 1
-  rustc -O "$TMP/gen.rs" -o "$TMP/gen-rust" 2>/dev/null || return 1
-  "$TMP/gen-rust" > "$2" 2>/dev/null
+  crate_init
+  scli run "$DIR/rust" -q < "$1" > "$TMP/crate/src/main.rs" 2>/dev/null || return 1
+  (cd "$TMP/crate" && cargo build --release --quiet) 2>/dev/null || return 1
+  "$TMP/crate/target/release/gen" > "$2" 2>/dev/null
 }
 # 512MB wasm-side stack (wasm-ld's default is ~1MB, far too small for this
 # backend's deep-native-recursion fixtures — see WASM_DEEP_RECURSION_SKIP
 # below for the ones even this isn't enough for).
 run_wasm() { # $1=ir-file $2=out-file — same Rust source as run_rust, cross-compiled
-  scli run "$DIR/rust" -q < "$1" > "$TMP/gen.rs" 2>/dev/null || return 1
-  rustc -O --target wasm32-wasip1 -C link-arg=-zstack-size=536870912 \
-    "$TMP/gen.rs" -o "$TMP/gen.wasm" 2>/dev/null || return 1
-  node --no-warnings "$V2/scripts/run-wasi.mjs" "$TMP/gen.wasm" > "$2" 2>/dev/null
+  crate_init
+  scli run "$DIR/rust" -q < "$1" > "$TMP/crate/src/main.rs" 2>/dev/null || return 1
+  (cd "$TMP/crate" && RUSTFLAGS="-C link-arg=-zstack-size=536870912" \
+     cargo build --release --quiet --target wasm32-wasip1) 2>/dev/null || return 1
+  node --no-warnings "$V2/scripts/run-wasi.mjs" \
+    "$TMP/crate/target/wasm32-wasip1/release/gen.wasm" > "$2" 2>/dev/null
 }
 
 # Fixtures needing ~1M frames of genuine (non-trampolined) native recursion —
@@ -107,10 +134,10 @@ WASM_DEEP_RECURSION_SKIP=" tco mutual-tco "
 #
 # Skipped with the reason printed rather than left out of the harness: the fixture is real coverage
 # for the VM, the JVM/bytecode generator and JS, and dropping it to keep one column green would
-# hide the defect it exists for. The Rust gap is filed as
-# `rust-bigint-is-an-i64-so-a-value-beyond-long-range-cannot-exist` (v2/BUGS.md); when that closes,
-# delete the fixture name from here and the row turns real.
-RUST_NO_BIGNUM_SKIP=" bigint-from-string bigint-dynamic-arith "
+# hide the defect it exists for. CLOSED 2026-08-16: the Rust generator has `V::Big(BigInt)` and both
+# rows are real on rust and wasm — the list is empty and stays here only so the next skip has a
+# shape to copy.
+RUST_NO_BIGNUM_SKIP=" "
 
 # The JS generator has the type and throws it away: `Lit(CBig(n))` renders as `${n}n`
 # (`v2/backend/js/JsBackend.scala:129`) — BYTE-IDENTICAL to what line 128 renders for `Lit(CInt)`.
