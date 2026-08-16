@@ -1494,7 +1494,7 @@ causes. The case now uses named givens and says why.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-16
-     fixed-in: e20997a8a
+     fixed-in: 48e4fe275
      ssc-version: 173d82a57
      repro: the driver in the body
      confirmed: yes -->
@@ -1538,7 +1538,7 @@ control: disabling the arm reds it with the message above.
      found-by: claude-code
      found-at: 2026-08-16
      fixed-at: 2026-08-16
-     fixed-in: e20997a8a
+     fixed-in: 48e4fe275
      ssc-version: 173d82a57
      repro: the driver in the body
      confirmed: yes -->
