@@ -1,5 +1,5 @@
 std/actors.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	31	7
-std/agent-mcp.ssc	REFUSED	Generic(def `_` emits 2 times (overloading); Rust has no overloading and this lane does not mangle names	4	3
+std/agent-mcp.ssc	REFUSED	Generic(def `_` reads `_` on a List and the rust backend has no lowering for it — written without parentheses,	3	2
 std/agent.ssc	REFUSED	Generic(def `_` reads `_` without parentheses and this lane does not lower it here; it is a collection member,	18	6
 std/auth.ssc	COMPILES	
 std/bench.ssc	COMPILES	
@@ -26,7 +26,7 @@ std/dsl/pretty.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot low
 std/dsl/walker.ssc	REFUSED	Generic(def `_` contains an unsupported expression: Term.ApplyType (a.asInstanceOf[A])	2	2
 std/dstreams.ssc	COMPILES	
 std/either.ssc	COMPILES	
-std/eq.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	2	1
+std/eq.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	3	2
 std/error-handling.ssc	REFUSED	Generic(def `_` extracts `_` with 1 args, expected 0	5	3
 std/foldable-traversable.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	25	4
 std/free.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	8	1
@@ -64,7 +64,7 @@ std/money.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not defin
 std/nfc.ssc	REFUSED	Unsupported(NfcNdef,rust)	1	1
 std/nodes.ssc	COMPILES	
 std/openapi.ssc	COMPILES	
-std/order.ssc	REFUSED	Generic(def `_` uses type `_`; R.2 accepts primitives, enums, function types, tuple, and List/Vec	7	1
+std/order.ssc	REFUSED	Generic(def `_` calls `_`, which this crate does not define — no def, no intrinsic, no local of that name	11	2
 std/os.ssc	COMPILES	
 std/parsing/combinators.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	20	6
 std/parsing/core.ssc	REFUSED	Generic(def `_` is an `_` member this lane cannot lower (generic group, operator name, or an untyped receiver)	1	1

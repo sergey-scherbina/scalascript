@@ -760,6 +760,69 @@ SSC
     failed=1
   fi
 
+  # OBJECT OWNERSHIP ACROSS AN IMPORT WHOSE PACKAGE DEPTH DIFFERS.
+  #
+  # `Parser.wrapSectionInPackage` nests each code block one `object` per `package:` segment, so an
+  # INLINED module carries ITS depth, not the importing module's. The owner scan used to skip as
+  # many levels as the MERGED manifest declares, and that is wrong in both directions: too deep
+  # (std/json.ssc importing std/json-core.ssc) renamed defs nothing renamed at the call sites; too
+  # shallow (std/agent-mcp.ssc importing std/mcp/types.ssc) made `object Tool` invisible as an owner
+  # and brought back the collision dc3cfeeef fixed.
+  #
+  # THE CASE NEEDS TWO FILES WITH DIFFERENT PACKAGE DEPTHS, which no single-file probe can express —
+  # the whole defect is the MISMATCH. lib is two segments, app is three, and the shared member name
+  # is what the qualification has to notice across that gap.
+  mkdir -p "$tmp/wd"
+  cat > "$tmp/wd/lib.ssc" <<'SSC'
+---
+name: wd-lib
+package: pkg.lib
+exports:
+  - Tool
+  - Resource
+---
+
+# lib
+
+```scalascript
+object Tool:
+  def text(s: String): String = "tool:" + s
+
+object Resource:
+  def text(s: String): String = "res:" + s
+```
+SSC
+  cat > "$tmp/wd/app.ssc" <<'SSC'
+---
+name: wd-app
+package: pkg.deeper.app
+---
+
+# app
+
+```scalascript
+[Tool, Resource](lib.ssc)
+
+def main(): Unit =
+  println(Tool.text("a"))
+  println(Resource.text("b"))
+```
+SSC
+  set +e
+  wdb=$("$SSC" build-rust "$tmp/wd/app.ssc" -o "$tmp/wdbin" 2>&1); wdrc=$?
+  wd_rust=$("$tmp/wdbin" 2>&1)
+  wd_ref=$("$ROOT/bin/ssc" run "$tmp/wd/app.ssc" 2>/dev/null)
+  set -e
+  if [[ $wdrc -ne 0 ]]; then
+    echo "build-rust-refuses-loudly: FAILED — object owners are lost across an import of a different package depth" >&2
+    echo "--- output: $(printf '%s' "$wdb" | tail -6)" >&2
+    failed=1
+  elif [[ "$wd_rust" != "$wd_ref" || -z "$wd_ref" ]]; then
+    echo "build-rust-refuses-loudly: FAILED — rust and the default lane disagree across the import" >&2
+    echo "--- rust: $(printf '%s' "$wd_rust" | tr '\n' '|')   ssc: $(printf '%s' "$wd_ref" | tr '\n' '|')" >&2
+    failed=1
+  fi
+
   # OBJECT MEMBERS — two objects sharing a member name, called from OUTSIDE and from INSIDE.
   #
   # THE CASE HAS TO CROSS THE BOUNDARY OR IT MEASURES NOTHING, and that is why it is here rather

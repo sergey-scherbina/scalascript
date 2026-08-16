@@ -1224,7 +1224,7 @@ constructor suppressed the gate fails and names the case.
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: tests/e2e/rust-std-survey-gate.sh
+     gate: tests/e2e/build-rust-refuses-loudly.sh
      found-by: claude-code
      found-at: 2026-08-15
      ssc-version: febd37e88
@@ -1259,6 +1259,28 @@ objects, each containing exactly one object and nothing else — identifies ever
 innermost, and cannot tell a genuine single-object file from a wrapped one. Doing it properly means
 either recording the origin manifest on the block at inline time, or having the inliner strip its own
 wrappers. Both are outside the Rust backend.
+
+**FIXED, AND THE PARAGRAPH ABOVE ASKS THE WRONG QUESTION.** It assumes the depth has to be computed.
+It does not have to be known at all. The skip existed to keep synthetic wrappers OUT of the owner
+list back when EVERY object member was renamed; since only CONTESTED names are renamed, a wrapper
+counted as an owner changes nothing for a name only it owns, and a name two owners DO share needs
+qualifying whoever they are. **The heuristic was deleted, not repaired**, and both failure directions
+went with it.
+
+(One correction to it as well: the AST does carry a signal — a wrapped block is parsed from
+`Input.VirtualFile("<package-wrap>", …)` while an ordinary one is parsed from a String, so
+`pos.input` distinguishes them. It was not needed, but "no per-block provenance" was too strong.)
+
+Measured: `overloading` refusals across the corpus **1 → 0** — this was the last one, and the whole
+category of that false refusal is now gone (it stood at 11 before the given-member fix). No status
+moved in the survey; three rows carry new reasons, agent-mcp's being the real blocker behind the
+false one: `reads … on a List and the rust backend has no lowering for it`. std/json.ssc keeps
+`jsonCoreParseArrayItems` unrenamed and std/ui/i18n.ssc and std/ui/state.ssc still emit clean — the
+three modules the two earlier versions of this machinery broke, checked by name rather than assumed.
+
+Gate: a TWO-FILE case — `package: pkg.lib` importing into `package: pkg.deeper.app`, two objects
+sharing a member name. One file cannot express it: the defect IS the mismatch. Negative control:
+re-imposing the manifest-derived skip brings back `E0425: cannot find value Tool`.
 
 ## setsid-is-not-on-macos-so-a-detached-gate-never-starts — and I read the empty log as "the gate died"
 

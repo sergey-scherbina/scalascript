@@ -888,22 +888,36 @@ object RustCodeWalk:
       case _ => None
 
   private def collectObjectOwnership(module: ast.Module): (Map[String, Set[String]], Map[Int, String]) =
-    val skip     = module.manifest.flatMap(_.pkg).map(_.size).getOrElse(0)
+    // NO DEPTH SKIP. It used to drop as many levels as the merged manifest's `package:` has
+    // segments, to keep `Parser.wrapSectionInPackage`'s synthetic `object std: object mcp:` out of
+    // the owner list. That was necessary when EVERY member was renamed, and it broke as soon as an
+    // INLINED module's wrapper depth differed from the importing one's: std/json.ssc
+    // (`package: std.json`) importing std/json-core.ssc (`package: std.json.core`) put `core` one
+    // level too deep and it was mistaken FOR a user object; std/agent-mcp.ssc
+    // (`package: std.agent.mcp`) importing std/mcp/types.ssc (`package: std.mcp`) put `Tool` one
+    // level too SHALLOW and it stopped being seen as an owner at all, bringing back the very
+    // collision this machinery exists to fix.
+    //
+    // Since only CONTESTED names are renamed, the skip has nothing left to protect: a synthetic
+    // wrapper counted as an owner changes nothing for a name only it owns, and a name two owners
+    // DO share needs qualifying whoever they are. Removing the heuristic removes both failures at
+    // once — measured, not argued: agent-mcp's refusal goes, json.ssc and the std/ui pair the
+    // earlier version regressed stay put.
     val members  = scala.collection.mutable.LinkedHashMap.empty[String, Set[String]]
     val byPos    = scala.collection.mutable.LinkedHashMap.empty[Int, String]
-    def scan(t: m.Tree, depth: Int): Unit = t match
+    def scan(t: m.Tree): Unit = t match
       case o: m.Defn.Object =>
         val stats     = o.templ.body.stats
         val hasMarker = stats.exists { case dd: m.Defn.Def => isEffectOpMarker(dd.body); case _ => false }
-        if depth >= skip && !hasMarker then
+        if !hasMarker then
           val defs = stats.collect { case dd: m.Defn.Def => dd }
           if defs.nonEmpty then
             members(o.name.value) = defs.map(_.name.value).toSet
             defs.foreach(dd => byPos(dd.pos.start) = o.name.value)
-        stats.foreach(scan(_, depth + 1))
-      case other => other.children.foreach(scan(_, depth))
+        stats.foreach(scan)
+      case other => other.children.foreach(scan)
     def content(c: ast.Content): Unit = c match
-      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) => scan(node.tree, 0)
+      case ast.Content.CodeBlock(lang, _, Some(node), _, _, _, _) if isScalaLang(lang) => scan(node.tree)
       case _ => ()
     def section(s: ast.Section): Unit =
       s.content.foreach(content); s.subsections.foreach(section)
