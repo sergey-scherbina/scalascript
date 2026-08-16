@@ -362,18 +362,28 @@ object Expr:
     * one set serves both. */
   def boundNames(e: Expr): Set[String] =
     var out = Set.empty[String]
-    mapDeep(e, x => { x match
-      case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
-      case Expr.Try(_, n, _, _)  => out = out + n
-      // PATTERN BINDERS, which this set did not carry when it served `checkArity` alone. `case
-      // rows => …` binds `rows`, and a module-level `def rows` of the same name is a different
-      // thing; leaving them out let both readers mistake the binder for the global.
-      case Expr.Match(_, arms, _) => arms.foreach(a => out = out ++ Pat.names(a.pat))
-      case Expr.Block(sts, _, _) => sts.foreach {
-        case Stmt.Val(n, _, _, _) => out = out + n
-        case Stmt.LocalDef(d)     => out = out + d.name ++ d.params.map(_.name)
-        case _                    => ()
-      }
-      case _ => ()
-    ; x })
+    // `mapDeep` wants a function that RETURNS the node, and this one only wants the walk — so the
+    // match runs for its effect on `out` and `x` is handed straight back. Written with the match
+    // indented under its own line and `x` at the body's indentation, because the previous spelling
+    // ended `; x })` dedented past the `case` arms and the compiler warned "Line is indented too far
+    // to the left, or a `}` is missing" on EVERY build of this tree. The code was correct; the
+    // warning was not free. This repository has had a build warning land in a gate's captured stderr
+    // and read as a program producing different output (`alt-pattern`, which is why `exec-gate.sh`
+    // warms up before it compares), so a permanent warning is a permanent hazard.
+    mapDeep(e, x => {
+      x match
+        case Expr.Lambda(ps, _, _) => out = out ++ ps.map(_.name)
+        case Expr.Try(_, n, _, _)  => out = out + n
+        // PATTERN BINDERS, which this set did not carry when it served `checkArity` alone. `case
+        // rows => …` binds `rows`, and a module-level `def rows` of the same name is a different
+        // thing; leaving them out let both readers mistake the binder for the global.
+        case Expr.Match(_, arms, _) => arms.foreach(a => out = out ++ Pat.names(a.pat))
+        case Expr.Block(sts, _, _) => sts.foreach {
+          case Stmt.Val(n, _, _, _) => out = out + n
+          case Stmt.LocalDef(d)     => out = out + d.name ++ d.params.map(_.name)
+          case _                    => ()
+        }
+        case _ => ()
+      x
+    })
     out

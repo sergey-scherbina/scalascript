@@ -3301,17 +3301,28 @@ Ordered so that each entry is measurable when the one before it lands. **Numbers
 after** — until the apparatus is fixed, "slow" and "measured wrong" are indistinguishable, and this
 repository has paid for that confusion more than once.
 
-- [ ] **R1 — EFFECTS CROSS THE BRIDGE, or the bridge refuses them BY NAME.** `BridgeV2` has zero
-      cases for `Instr.Handle`, `Instr.Perform` and `Instr.Resume` — measured, `grep -c` is 0 — so
-      an effectful program lowers to v2 Core IR with those instructions silently missing. Found on
-      2026-08-09 when a `handle` fixture printed the right answer on the executor and NOTHING on
-      the bridge; that is why `v3/tests/effects/` needed an executor-only gate.
-      **A silent nothing is the worst of the three outcomes.** The order of work is therefore:
-      refuse by name FIRST (so no program can quietly lose its effects), then carry what v2 can
-      express.
-      *Done when:* an effectful program either runs identically on both lanes or is refused with a
-      position naming the instruction, and `v3/tests/effects/` fixtures can move back beside the
-      differential.
+- [x] **R1 — EFFECTS CROSS THE BRIDGE, or the bridge refuses them BY NAME. DONE 2026-08-16 as
+      `2d890ceda`**, CI green. Both halves of the title happened, in the order this entry asked for:
+      the bridge refused them by name first, and then carried them.
+      **The original text, now falsified by the code:** "`BridgeV2` has zero cases for
+      `Instr.Handle`, `Instr.Perform` and `Instr.Resume` — measured, `grep -c` is 0 — so an effectful
+      program lowers to v2 Core IR with those instructions silently missing." That was found on
+      2026-08-09 when a `handle` fixture printed the right answer on the executor and NOTHING on the
+      bridge, and **a silent nothing is the worst of the three outcomes** — which is why the refusal
+      came first.
+      *Done when* said: an effectful program either runs identically on both lanes or is refused with
+      a position naming the instruction, and `v3/tests/effects/` fixtures can move back beside the
+      differential. **All three:** 13 of 13 effects fixtures now run identically on the executor and
+      the v2 lane, both encodings (CPS and tail-resumptive); what is not translatable is refused by
+      name; and rather than moving the fixtures to `tests/front/`, `v3/effects-gate.sh` BECAME the
+      differential — executor, bridge and the recorded answer, all three compared — which is the
+      property that entry wanted and keeps the "no `.expected` means it must be refused" contract
+      those fixtures also carry.
+      *Not through v2's own `effect.perform`/`effect.handle`*, and that is the design note worth
+      keeping: those rebuild a continuation from v2's term tree, while the bridge's frame is mutable,
+      so a v2-captured continuation resumed twice would see the first resumption's stores — a wrong
+      answer rather than a refusal. `two-performs-multi-shot` reads 8 where the answer is 12 the
+      moment the frame copy is removed. See SSC3-3e for what is emitted instead.
 - [x] **B1 — one timing wrapper for every column. DONE 2026-08-13 as `17fbdf00e`**, and the
       *Expect the v3 column to get SLOWER* warning at the end of this entry is now a statement of
       fact rather than a prediction. The four sub-items below (B1z, B1a, B1b, B1d) each landed; B1c
