@@ -1811,11 +1811,12 @@ that case with `object members do not build` and cargo exit 101.
 
 ## rust-member-names-are-flattened-so-two-receivers-cannot-share-a-member — `SqliteCursor.close` and `SqliteStatement.close` are reported as overloading and refuse the whole module
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-rust
      area: codegen
      kind: bug
-     gate: tests/e2e/rust-std-survey-gate.sh
+     gate: tests/e2e/rust-member-qualify-gate.sh
+     fixed-in: 1af25df98
      found-by: claude-code
      found-at: 2026-08-13
      ssc-version: db5dc1c3d
@@ -1962,6 +1963,41 @@ it was those three times.
 **Not fixed here.** Recorded with the measurement because the fix is in the emitter's naming
 scheme and deserves its own claim, and because the report it was found under can now be sized
 against the real obstacle instead of an assumed one.
+
+**CLOSED 2026-08-16 — by two changes, neither of them a mangling scheme, and the remaining
+collisions turn out not to be this defect.** Measured shape by shape, each on the reference lane
+first:
+
+| shape | before | now |
+|---|---|---|
+| two OBJECTS declaring `close` | `emits 2 times (overloading)` | both lanes print, member emits as `Owner_member` |
+| two CASE CLASSES declaring `close` | `emits 2 times (overloading)` | both lanes print, method emits into `impl Owner` |
+| a TYPECLASS with two instances | reported as overloading | refuses on `uses type Show[A]` — the DICTIONARY, not the name |
+
+The case-class half was fixed under `rust-case-class-method-cannot-read-its-own-fields`: methods
+moved into `impl <Owner>`, and a member inside an impl cannot collide with another type's. The
+object half was already qualified at the definition site. So the *census* in this entry — six
+modules, five of them scljet — was measuring a symptom that two unrelated fixes removed.
+
+**THE TYPECLASS ROW IS THE BOUNDARY AND IT IS WHY THIS CAN CLOSE.** `std/show.ssc`, `std/eq.ssc`,
+`std/hash.ssc` and `std/order.ssc` still refuse, and re-measuring them (2026-08-15, recorded above)
+showed the overloading reason never stood alone there: beside it sits `uses type Show[A]; R.2
+accepts primitives, enums, function types, tuple, and List/Vec`. A typeclass declares one member
+name per instance, so the flattening was a SYMPTOM of having no dictionary type on this lane.
+Qualifying the names would leave that type just as unlowerable — the work belongs to typeclass
+dispatch, not here.
+
+Gate: `tests/e2e/rust-member-qualify-gate.sh`. Two regression rows and one boundary row, which
+asserts that the typeclass refusal is the DICTIONARY one — if it ever comes back as
+`emits N times (overloading)`, the flattening has returned. Watched failing with the case-class
+`impl` emission disabled and the toolchain rebuilt: the `classes` row reds with the literal
+`def close emits 2 times (overloading)` while the object row stays green, so the two halves are
+distinguished rather than sharing a cause.
+
+**A probe that had to be thrown away, recorded because the mistake is easy to repeat:** my first
+attempt used two TRAITS with an inherited method. `run` answers that with
+`unhandled runtime effect: C1.close` — the oracle does not support the shape, so a "fix" measured
+against it would have made this lane invent behaviour no other lane has.
 
 ## string-param-moved-by-toint — A String param read twice where one read is .toInt is E0382 — _to_int takes it by value and clone-insertion does not reach the second read
 
