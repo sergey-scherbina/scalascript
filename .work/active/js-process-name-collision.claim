@@ -1,0 +1,11 @@
+slug: js-process-name-collision
+branch: feature/js-process-name-collision
+agent: claude-code
+started: 2026-08-16T23:08:28Z
+heartbeat: 2026-08-16T23:08:28Z
+status: claimed-before-planning
+items: js-exec-import-is-a-syntax-error
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/js-std-process-gate.sh file:.github/workflows/ci.yml file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
