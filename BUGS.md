@@ -1484,6 +1484,90 @@ Found while writing a gate case for the given-member double emission: the first 
 anonymous form and went red on THIS instead, which would have made the case ambiguous between
 causes. The case now uses named givens and says why.
 
+## mcp-v2-srv-prompt-missing — `prompt` is declared in std/mcp and the default lane had no such member
+
+<!-- status: fixed
+     lane: v2-jvm
+     area: runtime
+     kind: bug
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     found-by: claude-code
+     found-at: 2026-08-16
+     fixed-at: 2026-08-16
+     fixed-in: e20997a8a
+     ssc-version: 173d82a57
+     repro: the driver in the body
+     confirmed: yes -->
+
+`std/mcp/server.ssc` DECLARES `srv.prompt(name[, description])(handler)`. The v2 native provider
+implemented `tool` and `resource` and not `prompt`, so a program written against the declared
+surface served prompts on the interpreter and died on `ssc run` — the DEFAULT lane — with:
+
+```
+ssc: __method__: no field 'prompt' on named-method-obj (None)
+```
+
+The provider does have prompt code: `prompts(...)` decoding a `prompts/list` REPLY. That is the
+CLIENT half. Its presence is why a grep for "prompt" in the file reads as covered, and why this
+survived a census that counted names rather than driving them.
+
+Driver — `prompts/list` after `initialize`, same program both lanes:
+
+```
+{"jsonrpc":"2.0","id":2,"method":"prompts/list","params":{}}
+```
+
+  * interpreter: `{"prompts":[{"name":"greet","description":"say hi"}]}`
+  * v2 before:   `no field 'prompt'`
+  * v2 after:    byte-identical to the interpreter, `prompts/get` included
+
+FIXED by adding the member, curried and variadic-first exactly as `tool` is, registering through
+`McpServerBuilder.prompt(name, desc, Nil, handler)` — `Nil` arguments matching v1, which also
+registers with no argument list. Gated by the prompts/resource row in `v21-standard-mcp-smoke`;
+control: disabling the arm reds it with the message above.
+
+---
+
+## mcp-v2-resource-body-is-show-output — `resources/read` answered with the rendered VALUE, not the body
+
+<!-- status: fixed
+     lane: v2-jvm
+     area: runtime
+     kind: bug
+     gate: tests/e2e/v21-standard-mcp-smoke.sh
+     found-by: claude-code
+     found-at: 2026-08-16
+     fixed-at: 2026-08-16
+     fixed-in: e20997a8a
+     ssc-version: 173d82a57
+     repro: the driver in the body
+     confirmed: yes -->
+
+v2's `srv.resource` never decoded its handler's result. It wrapped `Show.show(...)` of whatever the
+handler returned, so a client reading a resource received the source-ish RENDERING of the
+`ResourceResult` value as the resource body:
+
+```
+v2:          {"contents":[{"uri":"mem://a","text":"ResourceResult(\"mem://a\", List(Text(\"BODY-42\")))"}]}
+interpreter: {"contents":[{"type":"text","text":"BODY-42"}]}
+```
+
+Note the shape differs too, not only the text: `{"uri","text"}` against `{"type","text"}`.
+
+WHY NOTHING WAS RED. `resource` RESOLVED — the member existed and the call succeeded — and every
+MCP case in the corpus asserts stdout or that a member resolves. Neither can see a member that
+answers the wrong bytes. This is the second defect in two days whose whole disguise was that the
+thing under it worked; a resolution check is not a behaviour check.
+
+FIXED by a total `resourceHandlerResult(requested, value)`: decodes `ResourceResult(uri, contents)`
+positionally through the existing `contentJson`, accepts a bare `String` as a text body, and falls
+back to `Show.show` only for a shape that is neither. Gated by the same row, which compares the
+BODIES both lanes put on the wire; control: making the `ResourceResult` arm unreachable restores
+the rendering above and reds it, while leaving prompts correct — so the two assertions are
+independent.
+
+---
+
 ## mcp-elicit-deadlocks-the-serve-loop — the answer can only arrive through the loop `elicit` blocks
 
 <!-- status: open

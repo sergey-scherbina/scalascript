@@ -532,10 +532,22 @@ that does, proven in both directions.
       which is what rules out the driver. Filed as `mcp-elicit-deadlocks-the-serve-loop`. The fix is
       to raise the MRTR `InputRequiredSignal` instead of waiting — the machinery exists and this is
       the one caller that does not use it.
-- [ ] **The remaining ~30 `srv` members on v2**, in groups that stand alone: auth (7),
+- [~] **The remaining `srv` members on v2**, in groups that stand alone: auth (7),
       roots/sampling (6), notifications and progress (7), registration —
-      `toolWithSchema`/`resourceTemplate`/`prompt` (3), completions (2), paging (2),
+      `toolWithSchema`/`resourceTemplate` (2 left of 3), completions (2), paging (2),
       subscriptions (2), `currentLogLevel`. The census is `specs/mcp-2026-07-28.md` §11.1.
+      ✓ 2026-08-16 — `prompt` done, and it was the one member on this list that was already
+      DECLARED in `std/mcp/server.ssc`: the declared surface and the default lane disagreed, so a
+      conforming program died on `ssc run` with `no field 'prompt'` while the interpreter served it.
+      Doing it surfaced a SECOND defect that was not on any list, in a member counted as DONE:
+      `srv.resource` never decoded its handler's result, so `resources/read` answered with
+      `ResourceResult("mem://a", List(Text("BODY-42")))` — the rendered VALUE — as the resource
+      body. The lesson for the rest of this item: **the census counted whether a member exists, and
+      a member that exists can still answer the wrong bytes.** Both filed
+      (`mcp-v2-srv-prompt-missing`, `mcp-v2-resource-body-is-show-output`) and gated by a row that
+      compares the WIRE on both lanes, since stdout and resolution checks are blind to it.
+      The remaining members should be taken the same way: implement, then drive against the
+      interpreter as the oracle, not against the fact that the call returns.
 - [ ] **`specs/mcp.md` §11 — 13 open design questions**, written before this migration. Some are
       answered by it; none has been re-read against the code. A review, not a build.
 - [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the
@@ -550,8 +562,11 @@ that does, proven in both directions.
 - [x] **`std/mcp/server.ssc` says "Not available on interpreter"** ✓ 2026-08-16 — and the line was
       HALF wrong, which is why it was checked rather than just corrected. The interpreter part is
       false: it declares `Feature.McpServer` and, driven over stdio, answers `initialize` with
-      `2025-06-18` advertising tools, resources, prompts, logging and completions — the fullest
-      surface of any lane. The `scalajs-spa` part is TRUE: that backend declares only
+      `2025-06-18` advertising tools, resources, prompts, logging and completions — capabilities
+      byte-identical to the native lane's, differing only in `serverInfo`. NOT compared against
+      `jvm`/`js`: an earlier draft of this line called it "the fullest surface of any lane", which
+      was a comparison against two lanes nobody had driven. The `scalajs-spa` part is TRUE: that
+      backend declares only
       `Feature.McpClient`. Both the descriptor and a second sentence in the prose said the same
       false thing; both now name the interpreter and the native lane and keep the scalajs-spa
       exclusion.
