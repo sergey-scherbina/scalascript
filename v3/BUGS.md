@@ -512,40 +512,51 @@ justified by a name collision.
 plugin's tagged-handle surface is invisible to v3. It FAILS SAFE rather than silently: lowering gates
 on the same table it bridges, so a tagged name is refused at compile time on BOTH lanes and I-3
 holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
-## v3-the-fleet-bridges-one-of-the-registrys-five-tables — tagged handles and plugin globals are invisible to v3
+## v3-the-fleet-bridges-one-of-the-registrys-five-tables — all five bridged; the chain was five links, not one
 
-<!-- status: open
-     kind: feature
+<!-- status: fixed
      lane: v3
      area: runtime
+     fixed-in: adf346eb1
      gate: v3/corpus-report.sh (with v3/.jars/plugins.cp present)
      found-by: claude-code
      found-at: 2026-08-15 -->
 
-**CORRECTED 2026-08-16: it is FIVE tables, not three, and the two I had missed are the ones with a
-corpus case behind them.** Besides `handlers`, `taggedApply` and `taggedMethods` there is
-`globalValues` — what `registerGlobal` fills, read with `allGlobalNames`/`lookupGlobal` — and the
-PROGRAM's own globals map handed over by `onProgram`. `suspend`, which blocks six corpus cases, is a
-`globalValues` entry registered by `generator-plugin`, not a Prim handler at all. The census that
-produced "three" read the block around `taggedMethods` and stopped there.
+**FIXED IN b519f4cc8 AND adf346eb1. Both lanes, each against a control on the SAME tree — other
+agents moved these numbers underneath the work, and reading the older baseline would have credited
+their CRASH 9 -> 1 to this:**
 
-**`ssc.V2PluginRegistry` keeps FIVE tables** (`v2/src/Runtime.scala:1283`): `handlers` for plain
-Prim ops, `taggedApply` for calling a tagged handle, and `taggedMethods` for `(tag, method)` pairs
-such as `registerTaggedMethod("WsRoom", "add")`. `v3/plugins/V2Fleet.scala` snapshots only
-`handlers`, so every plugin surface expressed as a handle with methods — sockets, rooms, sessions,
-cursors — is unreachable from v3 no matter how many modules `v3/plugin-classpath.sh` lists.
+    exec    control PASS 235  DIFF 2  CRASH 9   ->  PASS 248  DIFF 2  CRASH 8
+    bridge  control PASS 235  DIFF 5  CRASH 1   ->  PASS 246  DIFF 5  CRASH 1
 
-**IT FAILS SAFE, WHICH IS WHY THIS IS A GAP AND NOT A DEFECT.** `Lower.resolveExtern` emits a `Prim`
-only for names in the same table the adapter bridges, so a tagged name is refused with a position at
-compile time — on BOTH lanes, since lowering is shared. Invariant I-3 holds and no program gets a
-wrong answer; the surface is simply smaller than "the v2 plugins work in v3" suggests.
+Both floors held on both lanes, DIFF lists identical name for name, and the executor's CRASH ends
+one BELOW its control — `std-ui-i18n` and `tkv2-component` were crashing before any of this.
 
-**WHAT IT WOULD TAKE.** A handle is a `ForeignV` on the v2 side and has no v3 counterpart at all —
-`V2Fleet.toV3` converts a `ForeignV` only when it holds an `ArrayBuffer`, and refuses the rest by
-name deliberately. So this is not a table to copy but a representation to design: v3 needs a value
-that carries an opaque v2 handle plus the tag, and lowering needs to admit `x.method(…)` on it. No
-corpus case reaches it today, so it is filed rather than taken.
+**THE ENTRY ASKED FOR ONE TABLE AND THE ANSWER WAS A CHAIN OF FIVE LINKS, each invisible until the
+one before it was done.** `globalValues`, so `suspend` resolves at all. An OPAQUE HANDLE, because
+`coroutineCreate` answers a `CoroutineState` v3 must carry and hand back. CLOSURES v3 -> v2, which
+was the real blocker — the globals bridge alone bought ZERO cases, because the first thing every one
+of these programs does is pass a function. CLOSURES v2 -> v3, since a provider can RETURN one.
+Finally methods and calls on host-owned values: `taggedMethods`, `taggedApply` and the field-name
+vector, behind ONE dispatcher in `Plugins` rather than a table per mechanism, because the keys are
+v2's and mirroring them is how the two registries would drift.
 
+**THE EXECUTOR LANE IS NOT WHAT THE REPORT READS BY DEFAULT, and that nearly hid the damage.** On
+the bridge this looked finished at +9 while the executor had gone from CRASH 9 to 15: programs the
+work unblocked ran on to the next missing link and died there instead of refusing, which is an
+honest refusal traded for a crash. Measure `--exec` as well as the default whenever the plugin path
+changes; `corpus-report.sh` with no flag answers only its own question.
+
+**A CONSTRUCTOR THE PROGRAM NEVER DECLARED now travels by name** (`Value.VHostData`), because v2
+names constructors with a string and v3 numbers them. A program that WRITES `case Errored(_) =>`
+declares it and gets the ordinary indexed `VData` with matching intact; a program that only prints
+one gets the by-name value, which renders and nothing else. No pattern can mention a constructor the
+program does not declare, so being un-matchable costs nothing.
+
+**WHAT IS LEFT IS ONE CASE AND IT IS BY DESIGN.** `v2-native-result-unregistered-field` is about a
+native result whose case class was never declared in the compile unit — its field names are
+deliberately absent from the registry, so no lookup can answer `exitCode`. It is `backends: [int]`
+and unchanged by this work.
 ## v3-plugin-fleet-regresses-four-cases-when-enabled — it does not; the fleet now RAISES N by five
 
 <!-- status: fixed
