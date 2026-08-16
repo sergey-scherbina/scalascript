@@ -81,7 +81,7 @@ it is flagged now.
      reported-at: 2026-08-16
      confirmed: yes
      gate: tests/e2e/std-ui-forms-smoke.sh + tests/e2e/request-validation-family-gate.sh
-     fixed-in: 456531fd8 -->
+     fixed-in: 121e57e9e -->
 
 **`std-ui-forms` and `request-validation-family` both failed in an ordinary `scripts/smoke-ci` run
 and both passed standalone minutes later at the same load.** Three agents were running their own
@@ -2196,6 +2196,7 @@ reference said on every run, so the day it changes is visible.
 ## f-summon-and-context-bounds-are-unresolved — and the one-line fix is WRONG
 
 <!-- status: fixed
+     kind: bug
      lane: native
      area: front
      reported-by: claude-code

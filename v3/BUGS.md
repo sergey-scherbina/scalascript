@@ -526,6 +526,7 @@ holds. Filed as `v3-the-fleet-bridges-one-of-the-registrys-three-tables`.
 ## v3-the-fleet-bridges-one-of-the-registrys-five-tables — all five bridged; the chain was five links, not one
 
 <!-- status: fixed
+     kind: bug
      lane: v3
      area: runtime
      fixed-in: adf346eb1
