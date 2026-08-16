@@ -93,6 +93,10 @@ final class OsNativePlugin extends NativePlugin:
         val inheritEnv = field(3) match
           case Some(Value.BoolV(value)) => value
           case _                        => true
+        // field(4) — `stdin`, appended to the record so indices 0..3 above keep their meaning.
+        val stdinText = field(4) match
+          case Some(Value.DataV("Some", Seq(Value.StrV(text)))) => Some(text)
+          case _                                                => None
 
         val builder = new ProcessBuilder((cmd :: argv)*)
         builder.redirectErrorStream(false)
@@ -102,7 +106,15 @@ final class OsNativePlugin extends NativePlugin:
           val target = builder.environment()
           env.foreach { case (key, value) => target.put(key, value) }
         val process = builder.start()
-        process.getOutputStream.close()   // no stdin: a child that reads would otherwise hang
+        // `opts.stdin` is written and then the pipe is CLOSED — the close is the load-bearing half
+        // and was already here for the no-stdin case: a child reading to EOF blocks forever on an
+        // open pipe, so `exec` would hang rather than return. Writing happens before the drain
+        // threads below start, for the same deadlock reason those reads are on threads.
+        // (rozum `process-needs-a-stdin-pipe`: without it a secret can only go through argv, where
+        // `ps` shows it to every local process.)
+        val stdinStream = process.getOutputStream
+        try stdinText.foreach(text => stdinStream.write(text.getBytes("UTF-8")))
+        finally stdinStream.close()
         val outBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
         val errBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
         val outT = new Thread(() =>

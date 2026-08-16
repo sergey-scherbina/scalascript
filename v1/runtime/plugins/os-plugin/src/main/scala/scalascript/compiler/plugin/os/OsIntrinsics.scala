@@ -152,12 +152,28 @@ object OsIntrinsics:
                            case (Str(k), Str(v)) => Some(k -> v); case _ => None }
         val timeoutMs  = f.get("timeout").flatMap(Opt.unapply).flatten.flatMap(Num.unapply)
         val inheritEnv = f.get("inheritEnv").flatMap(Bool.unapply).getOrElse(true)
+        val stdinText  = f.get("stdin").flatMap(Opt.unapply).flatten.flatMap(Str.unapply)
         val pb   = new ProcessBuilder((cmd :: args)*)
         pb.redirectErrorStream(false)
         cwd.foreach(d => pb.directory(new java.io.File(d)))                 // honor opts.cwd
         if !inheritEnv then pb.environment().clear()                        // L3: scrub parent env
         if env.nonEmpty then { val e = pb.environment(); env.foreach { case (k, v) => e.put(k, v) } }
         val proc = pb.start()
+        // opts.stdin — write it if there is one, and CLOSE THE PIPE EITHER WAY.
+        //
+        // THE UNCONDITIONAL CLOSE IS A BUG FIX, not tidiness, and it was here before `stdin` was:
+        // `ProcessBuilder` PIPES stdin by default, so a child that reads to EOF never sees one and
+        // blocks forever — `exec("cat", List(), ProcessOptions())` hung this lane with no output and
+        // no timeout. The v2 os-plugin has closed it since it was written, with a comment saying
+        // exactly this; v1 did not, and the divergence only surfaced when a probe for `stdin`
+        // happened to run `cat` with nothing to give it.
+        //
+        // Written BEFORE the drain threads below start, for the same deadlock reason those reads are
+        // on threads. (rozum `process-needs-a-stdin-pipe`: the alternative to a pipe is argv, where
+        // `ps` shows a token to every local process.)
+        val stdinPipe = proc.getOutputStream
+        try stdinText.foreach(text => stdinPipe.write(text.getBytes("UTF-8")))
+        finally stdinPipe.close()
         // M4/M5: drain stdout AND stderr on threads. Reading a stream to EOF blocks
         // until the child exits — inline it would deadlock on >64KB stderr AND defeat
         // opts.timeout (the read wouldn't return until the process already finished).

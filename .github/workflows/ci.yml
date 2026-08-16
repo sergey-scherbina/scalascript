@@ -804,6 +804,21 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-exec-options-gate.sh
 
+      # `ProcessOptions.stdin`, asked for by rozum (`process-needs-a-stdin-pipe`) because a route
+      # handing a bot token to a child could otherwise only pass it in argv, where `ps -axo command`
+      # shows it to every local process — the only route of their port blocked for a SECURITY reason
+      # rather than a capability one. Row 2 is the point and row 3 is what makes row 2 mean anything:
+      # the child prints its OWN command line and row 2 asserts the token is absent from it, while
+      # row 3 passes the same token as an ARGUMENT and asserts the same probe DOES see it. Without
+      # row 3, row 2 could be green because `ps` was broken. Row 4 is a HANG check — `exec("cat", …)`
+      # with no stdin blocked forever on the v1 lane until the pipe was closed unconditionally, and a
+      # gate without a timeout would not fail there, it would never finish. Three lanes, because a
+      # field honoured on one and dropped on another is the divergence this repo keeps paying for.
+      # ~45 s, one cargo build plus two interpreter runs.
+      - name: a secret travels on stdin, not on the command line
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/process-stdin-gate.sh
+
       # WHERE a server binds, asserted from the OS with lsof rather than from a log line. `serve`
       # took a port and nothing else, so a .ssc service was LAN-reachable whether or not it was
       # meant to be (rozum, `serve-binds-all-interfaces`) — and the lanes did not even agree:

@@ -184,7 +184,23 @@ function hostname() {
 // ── std.process ───────────────────────────────────────────────────────────────
 function exec(cmd, argsList, opts) {
   if (_nodeProc) {
-    var result = _nodeProc.spawnSync(cmd, argsList, { encoding: 'utf8', shell: false });
+    // `input` is `opts.stdin`, written to the child and then the pipe is closed by spawnSync —
+    // which is the whole point: a child reading to EOF would otherwise never see one.
+    // (rozum `process-needs-a-stdin-pipe`: without it a secret can only travel through argv, where
+    // any local process can read it off the command line.)
+    //
+    // THE OTHER FIELDS ARE STILL IGNORED HERE, and that is not fixed by this line. `cwd`, `env`,
+    // `timeout` and `inheritEnv` are dropped on this lane exactly as they were dropped on the rust
+    // lane until 2026-08-16 — accepted, silently unused, no diagnostic. Filed as
+    // `js-exec-ignores-every-processoptions-field-but-stdin`; it is a bigger change than one
+    // property because `inheritEnv` needs the parent env scrubbed and rebuilt, and it deserves its
+    // own gate rather than riding along here.
+    // `_Some(v)` is `{_type: '_Some', value: v}` here (core-dispatch.mjs) — NOT a `$tag`/`_1`
+    // shape, which is what a case object uses two functions up in this same file. Reading the wrong
+    // one would leave `stdin` silently unset on this lane, which is the exact failure this feature
+    // exists to avoid.
+    var _sscStdin = (opts && opts.stdin && opts.stdin._type === '_Some') ? opts.stdin.value : undefined;
+    var result = _nodeProc.spawnSync(cmd, argsList, { encoding: 'utf8', shell: false, input: _sscStdin });
     return {
       stdout:   result.stdout || '',
       stderr:   result.stderr || '',

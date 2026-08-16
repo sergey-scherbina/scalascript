@@ -22,7 +22,21 @@ case class ProcessOptions(
   cwd:        Option[String]       = None,
   env:        Map[String, String]  = Map(),
   timeout:    Option[Int]          = None,
-  inheritEnv: Boolean              = true  // false → scrub the parent env before applying `env` (JVM codegen)
+  inheritEnv: Boolean              = true, // false → scrub the parent env before applying `env` (JVM codegen)
+  // Written to the child's stdin, then CLOSED so the child sees EOF and does not hang waiting for
+  // more. `None` leaves stdin inherited, which is what every caller written before this got.
+  //
+  // IT EXISTS FOR SECRETS. Reported from rozum (`process-needs-a-stdin-pipe`): a route installing a
+  // Telegram bot must hand a token to a child, and the only other way to pass it is argv — where
+  // `ps -axo command` shows it to every local process. A temp file is worse: it puts the secret on
+  // disk. A string is enough because the value is short and known before the call; a streaming
+  // handle would be more and is not what was blocked.
+  //
+  // LAST IN THE DECLARATION ON PURPOSE. Several backends read this record POSITIONALLY — the rust
+  // runtime by `f.get(0..3)`, the v2 os-plugin by `field(3)` — because `Value::Obj` carries no field
+  // names. Appending keeps every existing index valid; inserting anywhere above would silently
+  // re-point each of those readers at a neighbouring field, on lanes whose tests would still pass.
+  stdin:      Option[String]       = None
 )
 
 case class ProcessResult(

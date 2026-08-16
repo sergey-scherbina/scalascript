@@ -7,7 +7,7 @@
        |// (split --bytecode/run-jvm path), so `exec` resolves cross-module the same
        |// way `readFile` does. ssc Int is 64-bit → Long. `exec` honours
        |// opts.cwd / opts.env (the interpreter ignores them).
-       |case class ProcessOptions(cwd: Option[String] = None, env: Map[String, String] = Map(), timeout: Option[Long] = None, inheritEnv: Boolean = true)
+       |case class ProcessOptions(cwd: Option[String] = None, env: Map[String, String] = Map(), timeout: Option[Long] = None, inheritEnv: Boolean = true, stdin: Option[String] = None)
        |case class ProcessResult(stdout: String, stderr: String, exitCode: Long)
        |def exec(cmd: String, args: List[String], opts: ProcessOptions): ProcessResult =
        |  val _sscPb = new java.lang.ProcessBuilder((cmd :: args)*)
@@ -18,6 +18,15 @@
        |    val _sscEnv = _sscPb.environment()
        |    opts.env.foreach { case (_k, _v) => _sscEnv.put(_k, _v) }
        |  val _sscProc = _sscPb.start()
+       |  // opts.stdin — write it if there is one, and CLOSE THE PIPE EITHER WAY. The unconditional
+       |  // close is a bug fix that predates `stdin`: ProcessBuilder PIPES stdin, so a child reading
+       |  // to EOF never sees one and blocks forever — `exec("cat", Nil, ProcessOptions())` hung.
+       |  // Done BEFORE the drain threads start, for the same deadlock reason those reads are on
+       |  // threads.
+       |  // (rozum `process-needs-a-stdin-pipe` — the alternative is argv, where `ps` shows a secret
+       |  // to every local process.)
+       |  val _sscIn = _sscProc.getOutputStream
+       |  try opts.stdin.foreach(_t => _sscIn.write(_t.getBytes("UTF-8"))) finally _sscIn.close()
        |  // Drain BOTH stdout and stderr on separate threads: reading a stream to EOF blocks
        |  // until the child exits, which would defeat opts.timeout AND (stderr >~64 KB) deadlock.
        |  val _sscOutBuf = new java.util.concurrent.atomic.AtomicReference[String]("")

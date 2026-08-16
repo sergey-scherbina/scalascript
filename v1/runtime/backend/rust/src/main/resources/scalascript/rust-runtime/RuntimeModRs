@@ -433,6 +433,7 @@
       |pub fn _exec<O: Into<crate::value::Value>>(cmd: String, args: Vec<String>, opts: O) -> ProcessResult {
       |    let mut command = std::process::Command::new(&cmd);
       |    command.args(&args);
+      |    let mut stdin_text: Option<String> = None;
       |    if let crate::value::Value::Obj("ProcessOptions", f) = opts.into() {
       |        // cwd — field 0, an Option lowered as `Obj("Some", [v])` / `Obj("None", [])`.
       |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(0) {
@@ -448,11 +449,47 @@
       |                if let crate::value::Value::Str(s) = v { command.env(k, s); }
       |            }
       |        }
+      |        // stdin — field 4. Read here, ACTED ON below, because the write needs a spawned
+      |        // child and this block only configures the command.
+      |        if let Some(crate::value::Value::Obj("Some", inner)) = f.get(4) {
+      |            if let Some(crate::value::Value::Str(text)) = inner.get(0) {
+      |                stdin_text = Some(text.clone());
+      |            }
+      |        }
       |        // timeout — field 2, and it is NOT applied here. `std::process::Command` has no
       |        // timeout, so honouring it means spawning, polling and killing, which changes this
       |        // function's shape and its failure contract. Left unapplied DELIBERATELY and recorded
       |        // in `rust-exec-ignores-processoptions-timeout` rather than half-done, because a
       |        // timeout that is accepted and not enforced is the same silent lie this change fixes.
+      |    }
+      |    // stdin — field 4, appended to the record so 0..3 above keep their meaning.
+      |    //
+      |    // `.output()` cannot be used when there is something to WRITE: it wires stdin to /dev/null
+      |    // and gives no handle. So the stdin case spawns, writes, CLOSES (dropping the handle is
+      |    // what sends EOF — a child reading to the end would otherwise block forever and `exec`
+      |    // would hang), and then collects. The no-stdin case keeps `.output()` byte-for-byte, so
+      |    // every existing caller is emitted and runs exactly as before.
+      |    // (rozum `process-needs-a-stdin-pipe`: the alternative is argv, where `ps` shows a secret
+      |    // to every local process.)
+      |    if let Some(text) = stdin_text {
+      |        use std::io::Write;
+      |        command.stdin(std::process::Stdio::piped());
+      |        command.stdout(std::process::Stdio::piped());
+      |        command.stderr(std::process::Stdio::piped());
+      |        let mut child = command.spawn().unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
+      |        {
+      |            let mut pipe = child.stdin.take()
+      |                .unwrap_or_else(|| panic!("exec({}): stdin pipe was not created", cmd));
+      |            pipe.write_all(text.as_bytes())
+      |                .unwrap_or_else(|e| panic!("exec({}): writing stdin: {}", cmd, e));
+      |        }
+      |        let out = child.wait_with_output()
+      |            .unwrap_or_else(|e| panic!("exec({}): {}", cmd, e));
+      |        return ProcessResult {
+      |            stdout:   String::from_utf8_lossy(&out.stdout).into_owned(),
+      |            stderr:   String::from_utf8_lossy(&out.stderr).into_owned(),
+      |            exitCode: out.status.code().unwrap_or(-1) as i64,
+      |        };
       |    }
       |    let out = command
       |        .output()
