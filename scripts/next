@@ -85,17 +85,26 @@ def main():
     ready = [r for r in free if has_gate(r)]
     undefined = [r for r in free if not has_gate(r)]
 
+    # `or "bug"` is a RANKING default and nothing more. It used to leak into the display below, where
+    # an entry that declares no `kind:` was printed as `kind:bug` — indistinguishable from one that
+    # says so. Measured 2026-08-16: 50 of 82 open entries declare no kind, and 3 of the 8 this
+    # command was recommending were in that state. A tool that decides what everyone works on next
+    # must not assert a field its data does not carry.
     ready.sort(key=lambda r: (KIND_ORDER.get(r.get("kind") or "bug", 9),
                               0 if (r.get("confirmed") or "").lower() == "yes" else 1,
                               r.get("reported-at") or "9999"))
 
+    nokind = sum(1 for r in all_open if not r.get("kind"))
     print(f"{len(all_open)} open · {len(free)} unclaimed · {len(ready)} ready to take · "
           f"{len(undefined)} need an acceptance test first")
+    if nokind:
+        print(f"{nokind} declare no kind: — ranked as `bug` and shown as `bug?`, so the assumption is visible")
     print()
     print("READY — has a gate, so you can tell when you are done, and nobody holds it:")
     for r in ready[:10]:
         print(f"\n  {r['slug']}")
-        print(f"      {r['module']}/BUGS.md · kind:{r.get('kind') or 'bug'} · "
+        kind_shown = r.get("kind") or "bug?"   # trailing ? = not declared, ranked as bug
+        print(f"      {r['module']}/BUGS.md · kind:{kind_shown} · "
               f"lane:{r.get('lane') or '?'} · confirmed:{r.get('confirmed') or '?'}")
         print(f"      done when: {r['gate']}")
         print(f"      scripts/coord-claim <slug> --items \"{r['slug']}\" --paths \"file:{r['module']}/BUGS.md ...\"")
@@ -157,6 +166,14 @@ def self_test():
     t("'none — open defect' counts as no gate", has_gate({"gate": "none — open defect"}), False)
     t("a real path still counts as a gate", has_gate({"gate": "tests/e2e/x.sh (two lanes)"}), True)
     t("empty counts as no gate", has_gate({"gate": ""}), False)
+
+    # A DECLARED kind and an ASSUMED one must not render identically. `or "bug"` is a ranking
+    # default; it leaked into the display until 2026-08-16, so this command asserted `kind:bug` for
+    # 50 of 82 open entries that say nothing — including 3 of the 8 it was recommending.
+    shown = lambda r: r.get("kind") or "bug?"
+    t("a declared kind renders as itself", shown({"kind": "perf"}), "perf")
+    t("an undeclared kind renders as bug?", shown({}), "bug?")
+    t("declared bug and assumed bug differ", shown({"kind": "bug"}) != shown({}), True)
 
     if fails:
         print(f"next self-test: {fails} FAILED")

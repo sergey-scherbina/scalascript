@@ -1,3 +1,44 @@
+## next-displays-a-defaulted-kind-as-if-declared — the tool that picks everyone's work asserted a field its data lacks
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     kind: bug
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     confirmed: yes
+     gate: scripts/next --self-test
+     fixed-in: PENDING -->
+
+**`scripts/next` ranks on `kind:` with `KIND_ORDER.get(r.get("kind") or "bug", 9)` — a sensible
+ranking default — and the same `or "bug"` leaked into the DISPLAY:**
+
+```python
+print(f"      … kind:{r.get('kind') or 'bug'} · lane:… · confirmed:{r.get('confirmed') or '?'}")
+```
+
+So an entry that declares nothing printed `kind:bug`, indistinguishable from one that says so.
+`confirmed` in the very same line renders `?` when absent, which is what makes this an oversight
+rather than a convention.
+
+**Measured 2026-08-16: 50 of 82 open entries declare no `kind:`, and 3 of the 8 this command was
+recommending were among them** — including `f-gap-tail-2026-08-15`, shown as `kind:bug` with no
+`kind:` anywhere in its header.
+
+**Fixed by showing the assumption**: `kind:bug?` when defaulted, and a header line counting the debt
+— `50 declare no kind: — ranked as bug and shown as bug?, so the assumption is visible`. Ranking is
+unchanged; `bug` remains a reasonable prior, and now a reader can tell a prior from a statement.
+
+**Why this rather than backfilling the 50.** Filling `kind:` on 50 of other agents' entries is
+judgement applied to prose, which is exactly how this repository acquired a 191-entry board-routing
+debt from a keyword heuristic (`board-routing-debt-191-entries-sit-where-their-fix-does-not`). One
+line in the tool removes the false assertion and makes the debt countable, which is the part that was
+actually missing — nobody could see there was a debt.
+
+**Both new self-test rows observed FAILING** with the display default reverted to `"bug"`
+(`got 'bug', wanted 'bug?'` and `declared bug and assumed bug differ: got False`), then passing —
+because a row that has only ever been seen green is not a check.
+
 ## sbt-test-shard-enumeration-produces-zero-suites — all four shards refuse, and the refusal could not say why
 
 <!-- status: fixed
