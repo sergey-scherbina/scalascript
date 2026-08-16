@@ -1,16 +1,17 @@
 ## process-needs-a-detached-spawn — std/process can only run children it WAITS for, so a served program cannot start anything that outlives the request
 
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: feature
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/process-spawn-gate.sh
+     fixed-in: ef44b001d
      reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
      reported-at: 2026-08-16
      ssc-version: bin/ssc-tools built from bad74ecdf
      repro: examples/reported/process-needs-a-detached-spawn.ssc
-     impact: blocks -->
+     impact: blocks
+     confirmed: no -->
 
 Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
 
@@ -63,11 +64,60 @@ gated), which is the prerequisite for either ask here.
   spelling anyone would write, does not build at all (E0063, the defaulted fields are not filled in).
   Whatever field this entry adds will be unusable in named form until that is fixed.
 
-**On the shape of the ask itself, unmeasured and worth deciding before implementing.** The report
-says `pid` alone carries them and that killing already works through `exec("kill", [pid], …)`. That
-is true on a POSIX host and has no meaning on the JS or JVM lanes in the same form, so `Child(pid)`
-as the whole surface makes this a native-only primitive by construction. Deciding that consciously
-is cheaper than discovering it when the second lane is attempted.
+**On the shape of the ask itself — I raised a concern and then checked it, and it was wrong.** I
+wrote that `Child(pid)` makes this native-only by construction, because `exec("kill", [pid], …)` has
+no meaning on js or jvm. A pid does: `Process.pid()` (Java 9) and Node's `child.pid` both give one.
+Killing BY SHELLING OUT is the POSIX part, and that is the CALLER's idiom, not this type's. The
+concern was mine, not the reporter's, and looking dissolved it — so nothing was blocked on an answer
+nobody needed to give.
+
+### Done — `spawn(cmd, args, opts): Child`, five lanes
+
+```scalascript
+case class Child(pid: Int)
+extern def __spawnPid(cmd: String, args: List[String], opts: ProcessOptions): Int
+def spawn(cmd: String, args: List[String], opts: ProcessOptions): Child =
+  Child(__spawnPid(cmd, args, opts))
+```
+
+**The extern returns an Int and the WRAPPER builds the `Child`**, which is not a style choice: on the
+rust lane that struct is GENERATED into the crate from the `case class`, and the runtime template —
+emitted verbatim, knowing no user type — cannot name it. Every backend can return an Int.
+Constructing `Child` in `.ssc` means all five lanes build the same value from one source, instead of
+five hand-written constructions that can disagree about a field.
+
+**The child must OUTLIVE the parent, and that is where an implementation goes wrong quietly.** On the
+JVM lanes the standard streams are redirected to `DISCARD` rather than inherited — a child holding
+this process's pipes keeps its descriptors alive and shares its fate; on rust, stdio is null and the
+`Child` handle is dropped without `wait`, which does not kill or reap; on js it needs BOTH
+`detached: true` (its own process group) and `unref()` (release node's event-loop reference), and one
+without the other looks correct until the parent tries to exit.
+
+**`timeout` is the one option `spawn` cannot honour, and it does not pretend to** — the call returns
+before there is anything to time. `cwd`, `env`, `inheritEnv` and `stdin` all apply. On v2 the option
+reading is now a SHARED helper used by both `exec` and `spawn`, so a `cwd` honoured by one and
+dropped by the other is not merely absent today, it is unreachable.
+
+**js REFUSES `opts.stdin` for `spawn` rather than dropping it.** With `stdio: 'ignore'` there is no
+pipe, and wiring one back means holding a handle open across a call that has already returned. A
+refusal is the honest half: the alternative is a token that silently never arrives, which is exactly
+what `process-needs-a-stdin-pipe` exists to prevent.
+
+**Not captured, by design:** no stdout/stderr. Reading a pipe means staying to drain it, and staying
+is what `spawn` exists not to do. A caller who wants output wants `exec`, or a child that writes its
+own file.
+
+**Verified:** `tests/e2e/process-spawn-gate.sh` PASS, 12 rows over run / --v1 / build-rust. Row 4 is
+asserted from OUTSIDE the program, because the program is the parent: the child writes a marker three
+seconds later and the gate looks for it after the parent has exited. Row 3 asserts "returned before
+the child finished" by a FACT — the marker is not there yet — rather than by a stopwatch, which on a
+contended host measures JVM startup as much as the primitive. Negative control with every
+implementation reverted and the launcher rebuilt: 11 rows red, both interpreter lanes producing
+nothing and `build-rust` refusing `spawn` by name. Sibling gates re-run and still green
+(`process-stdin-gate`, `rust-exec-options-gate`); `rust-std-survey-gate` 77 REFUSED / 55 COMPILES,
+BADRUST not grown; `v1-jit-size` PASS.
+
+`confirmed: no` — rozum has not checked this against their own build.
 ## process-needs-a-stdin-pipe — exec cannot write to a child's stdin, so a secret can only reach it through argv where every local process can read it
 
 <!-- status: fixed
