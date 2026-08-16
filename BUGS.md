@@ -394,12 +394,12 @@ Not gated: no gate is filed with an open entry here. The gate that closes this a
 binary that then panics.
 ## rust-mkstring-on-a-non-string-list-emits-join — `List(1,2,3).mkString(",")` does not build, in five lines
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
-     gate: -
-     fixed-in: -
+     gate: tests/e2e/rust-mkstring-parity-gate.sh
+     fixed-in: db8c38633
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 315059ad7
@@ -438,6 +438,44 @@ rendering must agree with what `println` produces for the same value, or the lan
 `1,2,3` here and something else one line down. The gate that closes this compares BOTH lanes'
 output for a list of Int, Double, Boolean and String — not just that it compiles, because a join
 that stringifies differently compiles fine and prints the wrong thing.
+
+### Fixed — and the worse half of it was not the one in the title
+
+Each element is now rendered through `format!("{}", …)` before joining. For a `Vec<String>` that
+produces the SAME string, so nothing that compiled before changes; and it is what `"x = " + v`
+already emits for every other value, which is the property that matters — two spellings of "show me
+this value" must not disagree. `Value` implements `Display`, so a `List[Any]` joins too, which
+`join` never could.
+
+**The THREE-argument form was silently WRONG, not merely unsupported, and that is the more serious
+half.** The separator was read with `headOption`, so `xs.mkString("[", ",", "]")` emitted
+`join("[")`. Measured on the reverted walker, one line of source:
+
+```text
+bin/ssc run                 wrapped: [a,b,c]
+build-rust (before)         wrapped: a[b[c      ← compiled, ran, printed the wrong answer
+build-rust (after)          wrapped: [a,b,c]
+```
+
+A build-only check passes on that, which is why every row of the gate compares OUTPUT against `run`
+rather than asserting a literal. Arity is now read explicitly and any other arity refuses rather
+than guessing which argument was meant.
+
+The body lives in `renderMkString`, not in the `renderTerm` arm: `renderTerm` is frozen by
+`tests/e2e/v1-jit-size.sh` past HotSpot's `HugeMethodLimit`, so the arm is one line and the
+20 it would have added stay out of a method the interpreter walks forever.
+
+**Two neighbouring gaps this does NOT fix**, both hit while writing the probe and both still open —
+`xs.mkString` written with NO parentheses is refused before it reaches this lowering (`mkString` is
+in `CollectionOnlyMembers`), and `List[String]()`, a typed empty list literal, is "calls
+`List[String]` which has no resolvable name", so the empty-list case is untested here.
+
+**Verified:** `tests/e2e/rust-mkstring-parity-gate.sh` PASS — seven rows, Int/String/Boolean/Double,
+empty separator, the three-argument form and a single-element list, each compared against `run`,
+plus a row asserting the oracle itself still answers `[a,b,c]`. Negative control with the walker
+reverted and rebuilt: the build FAILS with `join` on `Vec<i64>`, `Vec<bool>` and `Vec<f64>`, and the
+String-only three-argument case compiles and prints `a[b[c`. Corpus unmoved: `rust-std-survey-gate`
+77 REFUSED / 55 COMPILES with BADRUST not grown; `v1-jit-size` PASS, no method new or grown.
 
 ## rust-multi-statement-match-arm-emitted-without-braces — the walker emits Rust that does not PARSE, and only behind a refusal that hides it
 
