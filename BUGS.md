@@ -26,6 +26,7 @@ Newest first.
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: runtime
      reported-by: claude-code
@@ -3743,6 +3744,7 @@ the other nine after splitting the interpreter suite into lanes that finish (`2c
 ## v3-ci-gates-job-has-never-been-green — one red gate hid five others on every run
 
 <!-- status: fixed
+     kind: apparatus
      lane: v3
      area: build
      gate: .github/workflows/v3.yml
@@ -5281,6 +5283,7 @@ inside the bodies that use them, so an unused one appears nowhere and would be v
 ## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
 
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: tests/e2e/parameterless-def-import-gate.sh
@@ -6303,6 +6306,7 @@ cells capture; if a cell here ever disagrees with a manual run again, start ther
 ## v2-three-parameter-clauses-fail-typecheck — `def f(a)(b)(c)` dies with "cannot unify Tuple with non-Tuple"
 
 <!-- status: fixed
+     kind: bug
      lane: native
      area: front
      gate: tests/conformance/curried-def-three-clauses.ssc
@@ -6498,6 +6502,7 @@ leaves that pin intact, and choosing between them is the work.
 
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: build
      fixed-in: unrecorded
@@ -6532,6 +6537,7 @@ deletes the class rather than gating it, and it is smaller than the gate would b
 
 ## tui-interactive-widgets-have-no-compile-coverage — the emitted focus ring is never built by a test
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: build
      fixed-in: unrecorded
@@ -6564,6 +6570,7 @@ existing `snapshotViaCargo` harness already does the hard part.
 ## keyword-import-of-a-missing-module-is-a-silent-no-op — the link form of the same import says "not found"
 
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: f467a9ba8
@@ -6785,6 +6792,7 @@ lane before the fix lands, with the red count in the commit message (P-6.1).
 
 ## ssc-tools-info-rejects-front-report-at-exit-0 — an unsupported flag becomes a silent empty report
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: cli
      fixed-in: 8e145984b
@@ -6841,6 +6849,7 @@ visible to `orphaned-gates-runner-sweep`; editing another agent's claimed files 
 
 ## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` was `(x, y)` on the golden lane
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded
@@ -6874,6 +6883,7 @@ assertion.
 
 ## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checked, then died at runtime (three lanes when filed, one when fixed)
 <!-- status: fixed
+     kind: bug
      lane: native
      area: runtime
      fixed-in: d7ca80629
@@ -7343,6 +7353,7 @@ honestly test.
 
 ## std-ui-fetchUrlSignalTo-declared-never-implemented — a std primitive that exists only as documentation
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt fetchPlugin/test
@@ -7406,6 +7417,7 @@ board names them**. `sbt fetchPlugin/test` is 14 passing, 2 failing.
 
 ## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      gate: tests/conformance/curried-def-clauses.ssc
@@ -7507,6 +7519,7 @@ non-Tuple` on the unmodified toolchain too. Filed as `v2-three-parameter-clauses
 
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: 611795277 -->
@@ -7564,6 +7577,7 @@ does, moving the banner to stderr changes nothing and only churns the goldens.
 
 ## v2-native-program-tail-quotes-strings — a program's tail value printed as a debug dump, not as output
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -7605,6 +7619,7 @@ needed its own fix.
 
 ## v2-native-case-unit-pattern-matches-where-int-does-not — `case _: Unit` was true on native, false on INT and JS
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: c3490e939
@@ -7646,6 +7661,7 @@ reading of it.
 
 ## type-ascription-tuple-and-set-arms-missing — `case _: Set` cannot be answered on two lanes: Set is not a type there
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: tests/conformance/set-distinct.ssc
@@ -7801,6 +7817,7 @@ lane and a different cause: `int-set-apply-is-not-membership`,
 
 ## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: build
      fixed-in: 680181feb
@@ -7860,6 +7877,7 @@ commit the check reports on.**
 
 ## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: front
      gate: sbt unimlYaml/testOnly *YamlOfficialCorpusSpec*
@@ -7991,6 +8009,7 @@ the invalid tree without sorting or reparsing it.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: 94873f54d -->
@@ -8041,6 +8060,7 @@ and index-range paths, with complete-token fail-closed coverage.
 
 ## corpus-contract-delta-false-improvements — unobserved lanes and status changes look improved
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: conformance
      fixed-in: fc5f07f28 -->
@@ -8068,6 +8088,7 @@ real improvement.
 
 ## ci-status-blind-to-non-ci-workflows — the tool agents trust for a verdict could not see 4 of 5 workflows
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: front
      fixed-in: unrecorded -->
@@ -8121,6 +8142,7 @@ NEVER-RUN` and each workflow's real verdict on one line.
 
 ## scljet-ipk-update-numeric-affinity — INSERT auto-assigns invalid IPKs and UPDATE refuses valid affinity
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: a00db1967 -->
@@ -8173,6 +8195,7 @@ collisions, and indexed paths.
 
 ## scljet-ipk-move-indexed-corrupts-btree — an IPK move on an INDEXED table wrote an out-of-order b-tree
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: build
      fixed-in: b65bbb637 -->
@@ -8223,6 +8246,7 @@ against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (sa
 
 ## ci-vthread-carrier-starvation-hang — `Test via sbt` hangs to its 200-min timeout under CI load
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -8256,6 +8280,7 @@ convert a future hang into a re-runnable failure; and JDK 24 removes `synchroniz
 
 ## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: 6c6fcf21b -->
@@ -8290,6 +8315,7 @@ successful second body. `frontendTui/test` passes 36/36, including all emitted-C
 
 ## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -8334,6 +8360,7 @@ not exist, rather than changing the engine's SQL semantics.
 
 ## swift-renderer-inventory-missing-shipped-tag — backend inventory omits a lowerer tag
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: unrecorded -->
@@ -8360,6 +8387,7 @@ on Linux.
 
 ## coreir-abi-int-width-declared-i32-actually-i64 — the v3 descriptor tells every foreign host that `Int` is 32-bit, when it is 64-bit
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: 9c49438d4 -->
@@ -8437,6 +8465,7 @@ the contract change was announced in the rozum `scalascript` room before landing
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -8530,6 +8559,7 @@ but intentionally does not change this bug's status or claim to protect adversar
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      gate: v2/conformance/check.sh
@@ -8623,6 +8653,7 @@ commit that is reachable instead.
 
 ## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
@@ -8673,6 +8704,7 @@ landing.
 
 ## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
@@ -8725,6 +8757,7 @@ fresh review and landing.
 
 ## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
 <!-- status: fixed
+     kind: bug
      lane: multi
      fixed-in: 21ae17ec0
      area: front -->
@@ -8785,6 +8818,7 @@ commit is not a fix SHA on `origin/main`.
 
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
@@ -8826,6 +8860,7 @@ until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
 <!-- status: fixed
+     kind: bug
      lane: multi
      fixed-in: d80611194
      area: front -->
@@ -8875,6 +8910,7 @@ are green. Status remains `open` until fresh independent approval and landing.
 
 ## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: conformance
      gate: sbt core/testOnly *PreBodyApiDescriptorProducerTest*
@@ -8948,6 +8984,7 @@ any real module in the suite.
 
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
@@ -8996,6 +9033,7 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
 
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
 <!-- status: fixed
+     kind: bug
      lane: multi
      fixed-in: 52a193593
      area: front -->
@@ -9049,6 +9087,7 @@ until fresh independent approval and landing on `origin/main`.
 
 ## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9101,6 +9140,7 @@ Pinned by `prefix and explicit apply calls retain structural members`. **Read in
 
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: a8f321d5c -->
@@ -9153,6 +9193,7 @@ Pinned by `a captured owner singleton type is rebound through the rank-2 body`. 
 
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: cli
      fixed-in: a8f321d5c -->
@@ -9205,6 +9246,7 @@ Pinned by `strict local values, givens, and pattern binds cross capture`. Matche
 
 ## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9252,6 +9294,7 @@ Pinned by `unused forward and mutual parameterless givens retain laziness`. Matc
 
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: cli
      fixed-in: a8f321d5c -->
@@ -9310,6 +9353,7 @@ Pinned by `a direct marker in a nested reset prompt remains in the outer ShiftBo
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9356,6 +9400,7 @@ Pinned by `a captured suffix cannot defer boundary break`. Matched by SUBJECT, n
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9396,6 +9441,7 @@ Pinned by `a transparent inline wrapper reports its invocation position`. Matche
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: a8f321d5c -->
@@ -9438,6 +9484,7 @@ Pinned by `a direct marker nested in ShiftBody fails at the inner call`. Matched
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: a8f321d5c -->
@@ -9485,6 +9532,7 @@ Pinned by `a generic wrapper cannot erase the owner's path-dependent type`. Matc
 
 ## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9524,6 +9572,7 @@ Pinned by `a marker in a lazy binding remains behind the lazy capture barrier`. 
 
 ## scala-direct-prefix-owner-split — local declarations lose ownership across capture
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: sbt scala3ControlApi/test
@@ -9569,6 +9618,7 @@ Pinned by `a lazy local cannot cross a later capture`. Matched by SUBJECT, not r
 
 ## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: npm test (v2/host/js/control-direct)
@@ -9618,6 +9668,7 @@ you are holding. `npm ci` in that directory first.
 
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: c19d42401 -->
@@ -9664,6 +9715,7 @@ you are holding. `npm ci` in that directory first.
 
 ## scljet-update-ipk-does-not-move-rowid — `UPDATE t SET <ipk>=N` rewrites the column but leaves the rowid
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -9735,6 +9787,7 @@ which store the rowid as their tail.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 <!-- status: fixed
+     kind: apparatus
      lane: multi
      area: build
      fixed-in: 1497623b5 -->
@@ -9760,6 +9813,7 @@ files; `npm pack --dry-run --json` reports exactly five entries, including the
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: cf8f96200 -->
@@ -9798,6 +9852,7 @@ the exact cast-free second-review repros.
 
 ## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      gate: v1/lang/core/src/test/scala/scalascript/artifact/PreBodyApiDescriptorProducerTest.scala
@@ -9837,6 +9892,7 @@ until fresh independent approval and landing on `origin/main`.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: 956b42539
@@ -9875,6 +9931,7 @@ exact `100000`, `100000`, `20007`, `20000`.
 
 ## scala3-control-effect-key-row-elimination — FIXED / awaiting confirmation (2026-07-14, Codex)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: 528d73af3
@@ -9903,6 +9960,7 @@ same-owner equivalence and distinct-owner forwarding. The full 39-test suite is 
 
 ## control-companion-relative-links — FIXED (2026-07-14, Codex)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: 96fc5adfb -->
@@ -9923,6 +9981,7 @@ exist, the changed companion/control links resolve, and Markdown lint passes.
 
 ## interp-jit-nested-match-duplicate-var — a nested `match` binding the same value-type miscompiles on the JIT
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: unrecorded -->
@@ -10107,6 +10166,7 @@ bundle SHOULD carry std modules at all, which the warning's author may have had 
 
 ## js-userspace-long-arith-native-operator-mixes-bigint — no longer reproduces; the userspace workaround is removable (verified 2026-08-02)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: unrecorded -->
@@ -10157,6 +10217,7 @@ helper returns, or emit `_arith` for any not-provably-Int operand as the non-CPS
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: d54d02126 -->
@@ -10227,6 +10288,7 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -10308,6 +10370,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-nativeui-root-transaction — failed Apple extraction leaks root/runtime state
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: conformance
      fixed-in: 1f3ca3962 -->
@@ -10330,6 +10393,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-nativeui-portable-graph — canonicalization/equality can leak host values or miscompare cycles
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: 1f3ca3962 -->
@@ -10355,6 +10419,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## parser-trysplitparse-quadratic-hang — `fixed` (2026-06-28)
 <!-- status: fixed
+     kind: perf
      lane: multi
      area: front
      fixed-in: unrecorded -->
@@ -10368,6 +10433,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## rust-index-read-moves-noncopy — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: codegen
      fixed-in: unrecorded -->
@@ -10387,6 +10453,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## interp-js-string-map-nonchar — `fixed (interp + js)`
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: runtime
      fixed-in: unrecorded -->
@@ -10399,6 +10466,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## interp-cons-in-effect-handler — `fixed` (example) (2026-06-13, `721ee62b9`)
 <!-- status: fixed
+     kind: bug
      lane: multi
      area: front
      fixed-in: unrecorded -->

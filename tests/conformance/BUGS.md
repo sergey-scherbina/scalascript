@@ -107,6 +107,7 @@ but "no answer" reproduces the original defect in the instrument.
 
 ## corpus-contract-freeze-pairing-unchecked — editing the baseline without the roster header bricks the whole gate, and the freeze gate does not notice
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: 261607982
@@ -439,6 +440,7 @@ improves the count while leaving that digest untouched has measured nothing.
 
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: cfcdae1ab
@@ -467,6 +469,7 @@ the live `scripts/coord-status --no-fetch` invalid-marker section now prints `no
 
 ## corpus-contract-freeze-digest-unbound — roster edits do not invalidate the paired freeze
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: fc5f07f28 -->
@@ -494,6 +497,7 @@ outside every observed scope.
 
 ## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: 7cc1ff978 -->
@@ -571,6 +575,7 @@ outside every observed scope.
 
 ## v2-http-json-renderer-test-contract — native HTTP test omits the required self-hosted renderer
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: conformance
      fixed-in: ff3a52eba

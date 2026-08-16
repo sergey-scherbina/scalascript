@@ -297,6 +297,7 @@ The jvm fix for the same row is the shape worth reading first: `JvmGen.aliasBloc
 ## a-char-literal-is-not-boxed-so-its-methods-are-not-found
 
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: bf7f833da
@@ -359,6 +360,7 @@ boxed, not another `case` in the String branch, and picking between those is the
 ## char-classification-diverges-from-the-interpreter-on-seven-predicates
 
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: b8b58dfc3
@@ -417,6 +419,7 @@ reproducible from the entry above.
 ## js-package-import-emits-a-second-self-referential-const — `SyntaxError: Identifier 'org' has already been declared`
 
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: c338542dfff45e34e942b7c805032fab05fa2282
@@ -475,6 +478,7 @@ this. Three diagnoses that were one blank.
 ## js-collection-companion-empty-is-not-callable — `Set.empty` dies with "Method not found: empty on <function>"
 
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/set-ops-infix.ssc
@@ -517,6 +521,7 @@ the reference semantics, not a js defect, and it has no lane to be graded agains
 
 ## js-object-apply-not-callable — `O(7)` on an object with an `apply` member throws `not callable`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 84fc359e7
@@ -608,6 +613,7 @@ Declared `known-red: js` on the case meanwhile, naming this entry.
 
 ## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 261607982
@@ -1106,6 +1112,7 @@ gain `js` in the same commit that fixes this.
 
 ## js-object-var-member-is-never-emitted — the codegen drops `var` members of an `object`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 4b1460e20
@@ -1159,6 +1166,7 @@ Same source shape, three lanes, three different failures — this one is the onl
 
 ## js-int-and-double-are-the-same-type-test — five type names shared one predicate, so ARM ORDER decided the answer
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -1272,6 +1280,7 @@ INT and the reference all answer Char" no longer holds for `bin/ssc`.
 
 ## js-pass-error-not-formatted-by-its-module-function — a case class from a PACKAGED module lost its body methods, so `toString` printed the raw record
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -1328,6 +1337,7 @@ and folding it in would have made a three-lane claim out of a one-lane fix.
 
 ## js-unused-val-drops-side-effecting-call — `val unused = eff()` elides the call, side effect and all
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 4f8c8cb9f
@@ -1385,6 +1395,7 @@ effect check on the initialiser, or it must simply not drop initialisers that ar
 
 ## js-imported-extension-method-not-dispatched — an extension body was hoisted OUT of its module's scope, so its free names were undefined
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -1490,6 +1501,7 @@ family rather than as this one case.
 
 ## js-toplevel-assignment-auto-printed — `r = expr` as a block's last statement printed its value; an assignment is Unit
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -1517,6 +1529,7 @@ in one day that fixing one defect exposed the next — worth expecting rather th
 
 ## jsgen-char-literal-escape — an escaped Char literal was emitted RAW, so the generated JS did not parse
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 409939e3e
@@ -1553,6 +1566,7 @@ split.
 
 ## js-class-method-named-arg-nan — a named arg to a CLASS method is `NaN` on the JS lane
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 4f8c8cb9f
@@ -1612,6 +1626,7 @@ odd lane and the JVM answer is the target.
 
 ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -1645,6 +1660,7 @@ those counters `x = x + 1`.
 
 ## scljet-full-suite-int-lane-drops-one-case — exactly one INT case per full run produces no output at all
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: conformance
      fixed-in: unrecorded
@@ -1746,6 +1762,7 @@ distinction is the whole diagnosis). Owner lane: `scljet-*`.
 
 ## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/v2-mirror-surface.ssc
@@ -1794,6 +1811,7 @@ the same change.
 
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: dd56c4b8d -->
@@ -2196,6 +2214,7 @@ pairing is the acceptance test; the corpus count is the report.
 
 ## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 3341a35a9 -->
@@ -2223,6 +2242,7 @@ representation spelling, and malformed-percent rejection.
 
 ## uniml-yaml-bare-tag-missing-separation — `![...]` is accepted as a tagged collection
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 3341a35a9 -->
@@ -2248,6 +2268,7 @@ end-of-input case remains a valid non-specific tag.
 
 ## uniml-yaml-alias-resolution-last-wins — earlier aliases bind to a later duplicate anchor
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      gate: uniml/yaml/src/test/scala/scalascript/uniml/dialect/yaml/YamlDialectSpec.scala
@@ -2307,6 +2328,7 @@ keep expansion/cycle/node limits bounded.
 
 ## js-worker-source-joined-with-literal-backslash-n — every outbound HTTP request timed out
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      gate: tests/e2e/js-selfcall-gate.sh
@@ -2641,6 +2663,7 @@ known gaps in things that DO run.
 
 ## MEASURED, NOT YET EXPLAINED — the non-extern residue
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: runtime
      fixed-in: unrecorded -->
@@ -2660,6 +2683,7 @@ and bisect it down, rather than from a plausible-looking shape.
 
 ## js-extern-shim-shadows-globalthis-implementation — the shim bound `undefined` over a working runtime function
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -2701,6 +2725,7 @@ are left open rather than papered over.
 
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 9d96146b3 -->
@@ -2732,6 +2757,7 @@ Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-numeric-comparison-rounds-through-double — INTEGER/REAL loses precision above 2^53
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 9d96146b3 -->
@@ -2762,6 +2788,7 @@ checks also pass. Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 9d96146b3 -->
@@ -2814,6 +2841,7 @@ preparation are not yet complete.
 
 ## scljet-correlated-dml-predicates-ignored — UPDATE/DELETE turn correlated predicates into no-op
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 71d19c6ef -->
@@ -2853,6 +2881,7 @@ physical-NULL-IPK delete.
 
 ## scljet-correlated-nested-same-name-shadowing — nested local table is replaced by outer binding
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 71d19c6ef -->
@@ -2889,6 +2918,7 @@ the deliberately correlated grandparent controls retain their narrower result.
 
 ## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: ffb7b4695 -->
@@ -2923,6 +2953,7 @@ named local gates are the full-repository markdownlint command (exit 0),
 
 ## coroutine-started-after-resume-int-vs-v2 — INT and the native lane disagree on a coroutine's started flag
 <!-- status: fixed
+     kind: bug
      lane: js
      area: conformance
      fixed-in: 57d107739 -->
@@ -2948,6 +2979,7 @@ against `specs/` before changing either — the flag is observable API.
 
 ## js-int-boundary-const-lambda — JS `Int` normalization assigns to immutable typed-lambda bindings
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 57d107739 -->
@@ -2990,6 +3022,7 @@ the named local gates above are green and no job for the fixed SHA had reported 
 
 ## js-int-division-by-zero-yields-infinity — `10 / 0` is `Infinity` on the JS lane instead of throwing
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -3033,6 +3066,7 @@ the restriction.
 
 ## coroutine-demo-js-not-callable — the coroutine demo dies on the v1 JS backend
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -3077,6 +3111,7 @@ message.
 
 ## portable-capsule-frame-unvalidated — the capsule's frame half escapes the fail-closed admission
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -3139,6 +3174,7 @@ carries `scljet-jdbc-facade-bytecode-class-too-large`, so it may be two problems
 
 ## f-bytecode-default-switch-int64-ci-red — RESOLVED: NOT-A-BUG (misattribution; v2-bytecode is int64-exact, the CI divergence lines were the v1-codegen KNOWN-RED)
 <!-- status: wontfix
+     kind: apparatus
      lane: js
      area: codegen -->
 
@@ -3227,6 +3263,7 @@ Do NOT edit `RunNativeV2.frontIsF` (sibling-owned).
 
 ## scljet-js-conformance-stale-prebuilt-jar-after-symlink-drop — dropped compat symlink breaks scljet JS emit against the pre-built bin/lib jar
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: 638b4f610
@@ -3267,6 +3304,7 @@ stays true for the JS lane.
 
 ## f-enum-case-default-arg-qualified — F skipped trailing defaults on the QUALIFIED enum-case ctor path
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 886df94fe -->
@@ -3303,6 +3341,7 @@ byte-identical (385 827 B) with the new `d enum_case_dflt` tower case; semantic.
 
 ## v2-native-import-wildcard-drops-ssc-case-classes — `import std.x.*` misses pure-`.ssc` definitions
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 49cc3b0e5 -->
@@ -3377,6 +3416,7 @@ green without switching to the markdown-link form.
 
 ## v1-cluster-bully-no-convergence-over-ws — multi-node Bully election does not converge to lex-greatest
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: da63bb96a -->
@@ -3435,6 +3475,7 @@ quorum=3 → minority leaderless, majority elects node-e; healing → node-e on 
 
 ## cli-cluster-election-timing-flake-under-ci-load — snapshot-based WS cluster tests flake in CI
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: runtime
      fixed-in: 648dbfec5 -->
@@ -3469,6 +3510,7 @@ tests to the status-polling pattern of `ClusterBullyStatusConvergenceTest`.
 
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: b672b0d41 -->
@@ -3533,6 +3575,7 @@ consumer is widened and green:
 
 ## ci-testtimeout — "Test via sbt" CI budget expires (cumulative runtime, NOT a WS hang)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: cli
      fixed-in: e25faeb79 -->
@@ -3589,6 +3632,7 @@ phase back under ~60 min without losing the interp==JVM==JS coverage.
 
 ## scljet-js-large-page-byteslice-recursion-overflow — a 4096-byte page overflows the JS stack on a byte-slice update
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: unrecorded
@@ -3631,6 +3675,7 @@ conformance use 512-byte pages (as the existing scljet cases already do). Filed 
 
 ## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 34685277c
@@ -3670,6 +3715,7 @@ passes 2/2 with all three lanes.
 
 ## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 4a4425f68
@@ -3694,6 +3740,7 @@ JVM-codegen + JS-codegen Bully matrix passes 1/1 with zero cancellations, and
 
 ## cluster-multibackend-js-actor-mixes-bigint-number — generated node dies before Bully convergence
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 4a4425f68
@@ -3736,6 +3783,7 @@ converges on `node-bbb`, and `actors-supervision` passes INT/JS/JVM.
 
 ## examples-run-all-standard-launcher-tools-command — all JS/JVM example lanes call forbidden commands
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: ef335ee2c
@@ -3766,6 +3814,7 @@ byte-identical output on all three lanes; the v2 gap remains independently open.
 
 ## v2-js-regfields-unimplemented — installed `run-js --v2` crashes before a case-class program starts
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 2f23fd9ec
@@ -3796,6 +3845,7 @@ test passes, and a direct backend unit test prevents the primitive from falling 
 
 ## dataset-from-generator-js-compound-assign-dispatch — generated JS calls method `+=` on a number
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 1e6ccb394
@@ -3833,6 +3883,7 @@ the full CI conformance job is green.
 
 ## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 8333cf97a
@@ -3898,6 +3949,7 @@ it in a `finally`; what the DEFAULT handler does was not checked and is the next
 
 ## cli-launcher-default-stack-platform-dependent — every `scljet-*` case fails on Linux and passes on macOS
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: runtime
      fixed-in: unrecorded
@@ -3950,6 +4002,7 @@ consecutive red runs, zero green**. See `ci-red-main` in SPRINT.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
 <!-- status: fixed
+     kind: bug
      fixed-in: unrecorded
      lane: js
      area: runtime
@@ -3995,6 +4048,7 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
 <!-- status: fixed
+     kind: bug
      fixed-in: unrecorded
      lane: js
      area: runtime
@@ -4043,6 +4097,7 @@ where the pin is the implementation itself, which is quoted with its file and li
 
 ## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: build
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4090,6 +4145,7 @@ open until landing and a new independent reviewer confirmation.
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4127,6 +4183,7 @@ direct package passes 38/38.
 
 ## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4164,6 +4221,7 @@ package; the full direct package passes 38/38.
 
 ## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4201,6 +4259,7 @@ production-without-marker regressions; the full direct package passes 38/38.
 
 ## js-control-direct-type-only-export-false-positive — erased exports are rejected
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4237,6 +4296,7 @@ package tests pass 35/35.
 
 ## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4274,6 +4334,7 @@ file-atomic diagnostic with unchanged ignored-diagnostic emit.
 
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4313,6 +4374,7 @@ keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
 
 ## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4345,6 +4407,7 @@ regressions prove that no owned marker call survives a clean emit.
 
 ## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4380,6 +4443,7 @@ both present and missing consumer compilers through the packed installed bin.
 
 ## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4415,6 +4479,7 @@ package.
 
 ## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4448,6 +4513,7 @@ compiles and invalid options fail non-zero.
 
 ## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      gate: tests/e2e/js-control-direct-gate.sh
@@ -4481,6 +4547,7 @@ declaration; real JavaScript const/let/mutation/collision tests are green.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: codegen
      fixed-in: cf8f96200 -->
@@ -4505,6 +4572,7 @@ remains unchanged in shape.
 
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 1497623b5 -->
@@ -4535,6 +4603,7 @@ and forged prompts. The complete package suite passes 30/30.
 
 ## scala3-control-operation-key-snapshot — FIXED / awaiting confirmation (2026-07-14, Codex)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 528d73af3
@@ -4564,6 +4633,7 @@ operation id owned by another descriptor; the full 39-test suite is green.
 
 ## interp-boolean-operators-no-short-circuit — `&&`/`||` evaluate both operands in the interpreter
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 14d707653 -->
@@ -4600,6 +4670,7 @@ are no longer required for short-circuit safety.)
 
 ## coreir-spec-node-inventory-drift — frozen CoreIR spec omits canonical `While` and `Seq`
 <!-- status: fixed
+     kind: apparatus
      lane: native
      area: front
      gate: none
@@ -4657,6 +4728,7 @@ status remains open until the dedicated reconciliation is implemented and verifi
 
 ## js-imported-def-int-division-loses-truncation — FIXED (2026-07-14, opus)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -4693,6 +4765,7 @@ graph. (Found via the портируем DIVERGE sweep; the contract's js column
 
 ## js-examples-differential-sweep-0713 — INT-vs-JS over the examples corpus: 55 PASS, 11 DIVERGE, 44 JS-FAIL
 <!-- status: unknown
+     kind: apparatus
      lane: js
      area: front -->
 
@@ -4768,6 +4841,7 @@ green full `backendInterpreter/test`.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: b61a78b24 -->
@@ -4921,6 +4995,7 @@ smoke assertion, asserting the repro above matches `bin/ssc-tools run`'s output.
 
 ## js-effect-multishot-in-while-loop — multi-shot effect handled inside a `while` crashes on JS
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -4945,6 +5020,7 @@ full `backendInterpreter/test` **1828 pass, 0 failed** (was 1827 pass + this 1 f
 
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 8204d588a -->
@@ -4981,6 +5057,7 @@ then run under node — pre-fix it threw at the first `_dispatch(vfs, 'fullPath'
 
 ## js-char-int-eq-namescope-collision — Char `==` Int miscompiles to strict `===` on JS
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: d034e2798 -->
@@ -5006,6 +5083,7 @@ numeric, so it stays in intVars).
 
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -5041,6 +5119,7 @@ JavaScript capability probe.
 
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded
@@ -5066,6 +5145,7 @@ v1-js-long-precision-and-bitops — which are out of scope for this bug.)
 
 ## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded
@@ -5093,6 +5173,7 @@ differential after byte updates became portable.
 
 ## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -5148,6 +5229,7 @@ differential.
 
 ## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -5187,6 +5269,7 @@ companion and list-pattern lowering were repaired.
 
 ## v1-js-list-pattern-array-mismatch — Cons/Nil reject emitted List literals
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 830c0db27
@@ -5212,6 +5295,7 @@ program to begin execution.
 
 ## v1-js-case-companion-duplicate-declaration — imported companion redeclares ByteSlice
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 830c0db27
@@ -5238,6 +5322,7 @@ found by codex while running the SclJet M1 cross-backend verification.
 
 ## v21-scljet-readonly-unclassified-lane — new read-only JVM example became both-fail
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: 2b61b6611
@@ -5259,6 +5344,7 @@ found by codex when `examples/scljet-readonly.ssc` landed during the final
 
 ## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: c9f599589
@@ -5284,6 +5370,7 @@ found by codex while extending the UniML YAML alias-cycle verification after
 
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 1ecbc80ca -->
@@ -5328,6 +5415,7 @@ independent of that fix (which is Scala-only).
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 422a5b7c8 -->
@@ -5350,6 +5438,7 @@ the explicit companion.
 
 ## wasm-emitter-js-import-name-mismatch — generated JS cannot find emitted module
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 422a5b7c8
@@ -5376,6 +5465,7 @@ found by codex while retiring the v2.1 WASM `both-fail` target row.
 
 ## v21-native-direct-do-unlowered — direct[M] remains an unbound call
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: e8065f02b
@@ -5401,6 +5491,7 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: runtime
      fixed-in: 7e4b2e563
@@ -5419,6 +5510,7 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 ## tkv2-js-duplicate-nodecrypto — generated JS declares `_nodeCrypto` twice
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: aab53ab3c
@@ -5449,6 +5541,7 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 5b16df6df -->
@@ -5476,6 +5569,7 @@ advanced `dsl-json-parser.ssc` beyond `unbound global: NoContext`.
 
 ## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 70bee065d
@@ -5496,6 +5590,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 70bee065d
@@ -5530,6 +5625,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
 <!-- status: fixed
+     kind: bug
      lane: js
      area: conformance
      fixed-in: 70bee065d
@@ -5553,6 +5649,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v2-swiftui-owner-hint-fifo-swap — reversed tree construction exchanges repeated-site state
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 70bee065d
@@ -5574,6 +5671,7 @@ read-only SwiftUI store/renderer review in Rozum.
 
 ## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: d4c953b9c
@@ -5603,6 +5701,7 @@ found by codex while starting the TI-8.2d4 example/config blocker sweep.
 
 ## v2-swiftui-keyed-owner-lifecycle — deleted keys retain and resurrect component state
 <!-- status: fixed
+     kind: bug
      lane: js
      area: other
      fixed-in: 70bee065d
@@ -5628,6 +5727,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v2-swiftui-unobserved-signal-read — dynamic nodes do not rerender
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: 70bee065d
@@ -5649,6 +5749,7 @@ read-only Apple store/renderer review in Rozum.
 
 ## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      fixed-in: 07c1d9b55
@@ -5688,6 +5789,7 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
 
 ## v21-native-front-dsl-pair-match-crash — valid tuple pattern aborts the self-hosted frontend
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: d4513cb8a
@@ -5724,6 +5826,7 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
 
 ## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 6e8464ea8
@@ -5761,6 +5864,7 @@ before `done`.
 
 ## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 0ccecb44d
@@ -5802,6 +5906,7 @@ before `done`.
 
 ## tkv2-spa-i18n-serve-intrinsic-shadow — emitted custom SPA calls bare `serve` instead of imported `serve__ssc`
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 7e5d55e4f
@@ -5835,6 +5940,7 @@ before `done`.
 
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: 4def0c749
@@ -5886,6 +5992,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## scripts-bench-wall-all-na — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: codegen
      fixed-in: 966a530e6
@@ -5916,6 +6023,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jvmgen-litdoc-mapped-string-mkstring — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      gate: tests/conformance/litdoc.ssc
@@ -5950,6 +6058,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-litdoc-inline-bold-parity — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/litdoc.ssc
@@ -5985,6 +6094,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: unrecorded -->
@@ -6024,6 +6134,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-standard-scala-fences-skipped — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6071,6 +6182,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6109,6 +6221,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-case-class-instance-methods-stub — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6155,6 +6268,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-mapreduce-handler-registry-tuple-lookup — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: runtime
      fixed-in: unrecorded -->
@@ -6208,6 +6322,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-ssc0-target-display-drift — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6247,6 +6362,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## root-test-js-rowpost-runtime-contract — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6282,6 +6398,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## root-test-sbt-aggregate-heap-oom — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: conformance
      fixed-in: unrecorded -->
@@ -6322,6 +6439,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## root-test-cluster-cli-runtime-readiness — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6365,6 +6483,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-jvm-std-ui-generated-braces — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 9bd6cb87d
@@ -6393,6 +6512,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-js-json-stringify-missing-global — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: 718d04027
@@ -6413,6 +6533,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/run.sh
@@ -6439,6 +6560,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-jvm-cps-any-typing-and-effect-args — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/run.sh
@@ -6470,6 +6592,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-http-client-external-httpbin — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: front
      gate: tests/conformance/http-client.ssc
@@ -6490,6 +6613,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## conformance-parsing-int-empty-output — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      gate: tests/conformance/run.sc
@@ -6525,6 +6649,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6561,6 +6686,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## v2-content-document-context — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6591,6 +6717,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## scalajs-jsenv-run-terminated — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: conformance
      gate: tests/conformance/run.sh
@@ -6617,6 +6744,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-signal-type-import-vs-preamble — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/tkv2-component.ssc
@@ -6637,6 +6765,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-reserved-param-body-rename — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/tkv2-component.ssc
@@ -6657,6 +6786,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## green-main-full-sbt-test-gating — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: apparatus
      lane: js
      area: codegen
      fixed-in: cea0c3aed -->
@@ -6720,6 +6850,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## js-spa-hashchange-bridge-sync — `fixed` (2026-06-29)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6743,6 +6874,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-emitjs-capability-standalone — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6759,6 +6891,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-emitjs-effect-handler — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/effect-import
@@ -6779,6 +6912,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-toplevel-name-vs-preamble — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      gate: tests/conformance/mcp-types.ssc
@@ -6820,6 +6954,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-fn-typed-field-autoinvoke — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6833,6 +6968,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-dup-enum-global — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6845,6 +6981,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## effect-op-trailing-comment — `fixed` (2026-06-20)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6864,6 +7001,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-module-section-scope — `fixed` (2026-06-22)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6876,6 +7014,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## collection-ctor-aliases — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: feature
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6886,6 +7025,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-enum-payload-extract — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6896,6 +7036,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## interp-collect-partial / jsgen-collect-partial — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6906,6 +7047,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-option-fold-curried — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6916,6 +7058,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## xbackend-range-by-step — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6926,6 +7069,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-collection-method-gaps / jsgen-string-padto — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: feature
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6936,6 +7080,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded -->
@@ -6946,6 +7091,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-structural-equality — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6956,6 +7102,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-set-constructor — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6966,6 +7113,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## interp-num-string-concat — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -6976,6 +7124,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## js-supertype-typetest — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7020,6 +7169,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-collection-dispatch-gaps — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7030,6 +7180,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## jsgen-match-guard-bind — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7040,6 +7191,7 @@ commit SHA until the reporter confirms, then they can be trimmed.
 
 ## xbackend-wave4-jvm-transient — `wontfix` (2026-06-15, not reproduced)
 <!-- status: wontfix
+     kind: apparatus
      lane: js
      area: codegen -->
 
@@ -7053,6 +7205,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## jvmgen-js-curried-partial — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7063,6 +7216,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## effect-perform-in-fordo — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7087,6 +7241,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## jvmgen-returnclause-effect-in-recursion — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7117,6 +7272,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## interp-typed-data-not-callable (a.k.a. bare-fn-ref auto-invoke) — `fixed` (2026-06-13, `175c01d72`)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7138,6 +7294,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
 <!-- status: fixed
+     kind: bug
      lane: js
      area: codegen
      fixed-in: unrecorded -->
@@ -7185,6 +7342,7 @@ that — a report closed without a fix because there was nothing to fix.
 
 ## v2-db-url-scheme-not-jdbc — `databases:` front-matter parser only recognizes `jdbc:`-prefixed URLs
 <!-- status: fixed
+     kind: bug
      lane: js
      area: front
      fixed-in: unrecorded
@@ -7212,6 +7370,7 @@ Found+minimized 2026-07-09 by busi (fable).
 
 ## js-passerror-tostring-not-used — DUPLICATE of js-pass-error-not-formatted-by-its-module-function
 <!-- status: fixed
+     kind: bug
      fixed-in: 4b92ac864
      lane: js
      area: front -->

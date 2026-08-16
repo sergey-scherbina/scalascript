@@ -9,6 +9,7 @@ Query: `scripts/bugs-report --module v3`.
 ## v3-capability-list-outlived-the-divergence-it-declared — the front-capability gate was RED in CI for four rows that had already closed
 
 <!-- status: fixed
+     kind: apparatus
      fixed-in: 4222bd4d0
      lane: v3
      area: build
@@ -217,6 +218,7 @@ repository already chose once for the same numbers.
 ## v3-parser-rejects-opaque-type — `opaque` fell through to the expression parser, and the tool could not read its own standard library
 
 <!-- status: fixed
+     kind: bug
      fixed-in: 28c34951e
      lane: v3
      area: front
@@ -273,6 +275,7 @@ not grow to cover whatever the next file needs.
 ## v3-gates-open-red-in-every-fresh-worktree-because-uniml-cp-is-per-checkout — and nothing warns you until a gate run has been spent
 
 <!-- status: fixed
+     kind: apparatus
      fixed-in: 5758cdb0d
      lane: v3
      area: build
@@ -344,6 +347,7 @@ unreachable. The whole cost fell on local work and never appeared in a run anybo
 ## v3-workflow-does-not-trigger-on-uniml-and-uniml-is-half-of-what-the-front-gate-runs
 
 <!-- status: fixed
+     kind: apparatus
      lane: v3
      area: build
      gate: .github/workflows/v3.yml
@@ -405,6 +409,7 @@ of a parser fix.
 ## v3-extern-member-in-an-object-has-no-meaning — one front refused it, the other silently made it an unpositioned crash
 
 <!-- status: fixed
+     kind: bug
      fixed-in: 9ca1f4da2
      lane: v3
      area: front
@@ -469,6 +474,7 @@ while the executor answered 4. Moving the declaration into the object would move
 ## v3-the-fleet-wires-two-plugin-modules-of-twenty-six — wired seven; the rest is not a wiring problem
 
 <!-- status: fixed
+     kind: bug
      lane: v3
      area: runtime
      fixed-in: 93726d1da
@@ -543,6 +549,7 @@ corpus case reaches it today, so it is filed rather than taken.
 ## v3-plugin-fleet-regresses-four-cases-when-enabled — it does not; the fleet now RAISES N by five
 
 <!-- status: fixed
+     kind: apparatus
      lane: v3
      area: runtime
      fixed-in: fbf16fb97
@@ -594,6 +601,7 @@ second front's is. Turning it on by default is a separate decision with a separa
 ## v3-a-toplevel-extension-shadows-a-given-instance-one-of-the-same-name — was: v3-handleError-on-a-val-bound-None-matches-no-arm
 
 <!-- status: fixed
+     kind: bug
      lane: v3
      area: runtime
      fixed-in: 5e8b9c2dc
@@ -654,6 +662,7 @@ Fixing that refusal is what exposes this.
 ## v3-given-instance-as-a-receiver-is-refused — `intSum.combine(a, b)` is a member call, not extension dispatch
 
 <!-- status: fixed
+     kind: bug
      lane: v3
      area: front
      fixed-in: 86ba35237
@@ -717,6 +726,7 @@ higher than 220.
 ## v3-stmt-val-discards-a-type-the-author-wrote — WORKED AROUND, not fixed: the resolver follows the initialiser instead
 
 <!-- status: wontfix
+     kind: bug
      lane: v3
      area: front
      gate: v3/tests/conformance/std-bifunctor.ssc (via the corpus report)
@@ -772,6 +782,7 @@ fixed and the default front now keeps the parameter's type.
 ## v3-uniml-drops-a-parenthesised-parameter-type — `def go(t: (Int, String))` loses its type on the default front
 
 <!-- status: fixed
+     kind: bug
      fixed-in: 482e3393b
      lane: v3
      area: front
@@ -837,6 +848,7 @@ over: there was nothing to fix on the other side, and this side needed no help t
 ## v2-f-round-is-three-different-roundings-across-the-backends — `rint`, `Math.round` and `.round()` disagreed at exactly `.5`
 
 <!-- status: fixed
+     kind: bug
      fixed-in: d47dbf7e3
      lane: multi
      area: codegen
@@ -878,6 +890,7 @@ consequence of this decision rather than part of it, and changing v1's semantics
 ## v3-math-pow-fractional-needs-a-v2-prim — a fractional exponent had no answer on the bridge, and no v3-only fix could match
 
 <!-- status: fixed
+     kind: feature
      lane: multi
      area: runtime
      fixed-in: 58f866033
@@ -935,6 +948,7 @@ fractional exponent. Ten v3 gates green; the four non-VM backends are COMPILED a
 ## v3-concat-nonlist-splits-three-ways — `List ++ nonList` wrapped on native, refused on the v2 VM, and v3 picked one
 
 <!-- status: fixed
+     kind: bug
      fixed-in: 2e6da244d
      lane: multi
      area: runtime
@@ -991,6 +1005,7 @@ shipped lane's semantics rather than a consequence of this decision.
 ## v3-flatmap-nonlist-lane-divergence — `flatMap` and `++` refused a non-list that v3's OWN BRIDGE accepted (was: v3-multishot-handler-without-a-return-clause)
 
 <!-- status: fixed
+     kind: bug
      lane: v3
      area: runtime
      fixed-in: 54eccf31f

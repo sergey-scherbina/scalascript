@@ -808,6 +808,7 @@ declaration and close this entry.
 
 ## jvm-string-literal-s-concat-inserts-x — the string `"s"` on the left of a `+` emits an extra `x`
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: f2941736a
@@ -893,6 +894,7 @@ interesting way to break this fix is to delete the rewrites and bring `4.0` back
 
 ## run-jvm-silent-success — `ssc-tools run-jvm` prints nothing and exits 0, including for a file that does not exist
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: cli
      gate: none
@@ -969,6 +971,7 @@ identical failures. That is a gap in the harness, not in this lane, and it outli
 
 ## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
 <!-- status: fixed
+     kind: apparatus
      lane: jvm
      area: codegen
      fixed-in: unrecorded
@@ -1047,6 +1050,7 @@ that gap is the work.
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: ea21eb8a5
@@ -1085,6 +1089,7 @@ plugin is 5/5, and the partial/map/heterogeneous/shuffle neighbors are exact
 
 ## v2-generator-provider — Dataset cannot consume the native Generator provider
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: 2f5bb135b
@@ -1147,6 +1152,7 @@ an expiring `known-red` while the additive native VM and direct-ASM lanes compar
 
 ## jvmgen-forked-e2e-wire-core-unpublished-snapshot — clean CI cannot resolve generated scripts
 <!-- status: fixed
+     kind: apparatus
      lane: jvm
      area: front
      fixed-in: 2e097848b -->
@@ -1182,6 +1188,7 @@ the three exact CI failures pass 3/3; the complete affected suites pass 4/4 and 
 
 ## jvm-swiftui-row-path-invalid-escape — generated Scala emits `"\."`
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: 236a02de2
@@ -1207,6 +1214,7 @@ found by codex in the combined Swift CLI release gate and corrected in the
 
 ## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
 <!-- status: fixed
+     kind: feature
      lane: jvm
      area: front
      fixed-in: eb69124e2
@@ -1241,6 +1249,7 @@ blocking taxonomy after distributed local-loopback landed.
 
 ## v2-swift-distribution-authority-gaps — signed routes can rebuild or select an unverified product
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: c75f49fe2 -->
@@ -1384,6 +1393,7 @@ this entry was opened for were verified end-to-end against a real Xcode and are 
 
 ## v21-native-zero-arg-println-arity — blank println fails before later statements
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: e74241f5e
@@ -1410,6 +1420,7 @@ found by codex while running the new core-free YAML provider against
 
 ## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: 7192cd6e4
@@ -1453,6 +1464,7 @@ before `done`.
 
 ## v2-indent-conformance-demos-skipped — indent demo cases are skipped by conformance but fail directly
 <!-- status: fixed
+     kind: apparatus
      lane: jvm
      area: front
      fixed-in: 886502d64
@@ -1491,6 +1503,7 @@ before `done`.
 
 ## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: unrecorded -->
@@ -1520,6 +1533,7 @@ before `done`.
 
 ## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      gate: tests/conformance/litdoc.ssc
@@ -1551,6 +1565,7 @@ before `done`.
 
 ## v1-jvm-state-threaded-handler-codegen — `fixed` (2026-07-12, opus)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1585,6 +1600,7 @@ before `done`.
 
 ## jvm-scjvm-cache-codegen-version — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: 322ee868f
@@ -1616,6 +1632,7 @@ before `done`.
 
 ## conformance-int-variables-while-update — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: cli
      fixed-in: 4e67a2f41
@@ -1640,6 +1657,7 @@ before `done`.
 
 ## conformance-std-typeclass-int-jvm-gaps — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: f92d147b0
@@ -1673,6 +1691,7 @@ before `done`.
 
 ## conformance-dsl-multi-pass-js — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      gate: tests/conformance/run.sc
@@ -1707,6 +1726,7 @@ before `done`.
 
 ## bytecode-shared-runtime-routes-unbound — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1735,6 +1755,7 @@ before `done`.
 
 ## scjvm-artifact-cache-ignores-compiler-version — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: 322ee868f -->
@@ -1759,6 +1780,7 @@ before `done`.
 
 ## jvmgen-block-call-empty-parens — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: front
      fixed-in: unrecorded -->
@@ -1810,6 +1832,7 @@ before `done`.
 
 ## jvmgen-handle-result-mainpath — `fixed` (2026-06-15, all contexts incl. Any-taint propagation)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1827,6 +1850,7 @@ before `done`.
 
 ## agent-streaming-test-port-collision — `fixed` (2026-06-15, 26dae7699)
 <!-- status: fixed
+     kind: apparatus
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1849,6 +1873,7 @@ before `done`.
 
 ## jvmgen-handle-result-arith — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1863,6 +1888,7 @@ before `done`.
 
 ## jvmgen-multishot-handle-result-any — `fixed` (2026-06-15, 23a33c976)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1876,6 +1902,7 @@ before `done`.
 
 ## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->
@@ -1897,6 +1924,7 @@ before `done`.
 
 ## jvmgen-handle-in-arg-position — `fixed` (2026-06-15, 91fc574f5)
 <!-- status: fixed
+     kind: bug
      lane: jvm
      area: codegen
      fixed-in: unrecorded -->

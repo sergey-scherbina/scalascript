@@ -1182,6 +1182,7 @@ open and reading as unprotected.
 ## launchers-not-dead-red-in-every-fresh-worktree — the gate refuses on an empty bin/, by design, every time
 
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/e2e/launchers-are-not-dead-on-arrival.sh
@@ -1222,6 +1223,7 @@ both times.
 ## url-import-flakes-under-suite-load — green standalone, red inside the smoke suite
 
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/e2e/url-import-smoke.sh
@@ -1431,6 +1433,7 @@ right and wants whoever owns the digest to say so.
 ## build-ram-guard-gate-fails-under-ambient-load — same tree, two verdicts, minutes apart
 
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/e2e/build-ram-guard-gate.sh
@@ -1496,6 +1499,7 @@ in the guard, which is the one thing this gate exists to catch.
 
 ## bugs-index-gate-allows-a-detached-header — an unterminated header passes the gate and is invisible to every query
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: 363b53267
@@ -1535,6 +1539,7 @@ they were unqueryable.
 
 ## bugs-index-selftest-cannot-pass-in-a-shallow-clone — main red on EVERY push, on the gate's own self-test
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: f078f9a35
@@ -1668,6 +1673,7 @@ covers neither this nor that one.
 
 ## coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing
 <!-- status: fixed
+     kind: apparatus
      lane: n/a
      area: build
      fixed-in: 7c8b3eda8
@@ -1733,6 +1739,7 @@ learn the vocabulary separately, so they will keep drifting until it lives in on
 
 ## coord-claim-broad-flag-writes-a-claim-its-own-ledger-contradicts
 <!-- status: fixed
+     kind: apparatus
      lane: n/a
      area: build
      fixed-in: 3325b91e3
@@ -1772,6 +1779,7 @@ which is exactly why the wrong way above gets reached for.
 
 ## bugs-index-gate-rejects-an-all-digit-sha — a real abbreviated sha can look like a CI run id
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: 9194a90c7
@@ -1812,6 +1820,7 @@ sends the reader to look for a mistake that does not exist.
 
 ## corpus-breadth-slice-bloop-server-timeout — Bloop takes over 30 s to start on a 2-core runner
 <!-- status: fixed
+     kind: apparatus
      fixed-in: 1bd6b0984
      lane: apparatus
      area: build
@@ -1887,6 +1896,7 @@ one revert.
 
 ## reaper-aborts-when-a-builder-exits-mid-scan — set -e turns a routine race into a red gate
 <!-- status: fixed
+     kind: apparatus
      fixed-in: b3c7fc250
      lane: apparatus
      area: build
@@ -1915,6 +1925,7 @@ thing it checks cannot explain its own failure.**
 
 ## corpus-breadth-slice-crashes-scala-cli-on-ci — Bloop downloaded on every cache-hit run
 <!-- status: fixed
+     kind: apparatus
      fixed-in: 5d397bd26
      lane: apparatus
      area: build
@@ -1957,6 +1968,7 @@ Two method notes worth keeping:
 
 ## git-stash-is-repo-global-across-worktrees — an A/B stash can pop ANOTHER agent's work into your tree
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      gate: scripts/wt-stash --self-test
@@ -2009,6 +2021,7 @@ different states.
 
 ## submodule-pointer-not-a-real-commit — main records a `.agents/plugins` commit that does not exist
 <!-- status: fixed
+     kind: apparatus
      fixed-in: d5149ee32
      lane: apparatus
      area: build
@@ -2073,6 +2086,7 @@ runs it — which is the same hole this entry is about.
 
 ## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
 <!-- status: fixed
+     kind: apparatus
      fixed-in: f7e1e687e
      lane: apparatus
      area: build
@@ -2251,6 +2265,7 @@ behaviour is not.
 
 ## coord-claim-second-positional-overwrites-slug — an unquoted `--items A B` claimed under a name the caller never typed
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: unrecorded
@@ -2285,6 +2300,7 @@ reproduces the incident rather than merely describing it.
 
 ## install-sh-exits-0-when-sbt-project-load-fails — a build that produced nothing reported success
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      gate: tests/e2e/install-sh-reports-failure-gate.sh
@@ -2404,6 +2420,7 @@ claim while a produced file is evidence.
 
 ## uniml-root-standalone-target-cache-collision — prescribed root→standalone verification corrupts UniML compilation state
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: 3e52e6909 -->
@@ -2451,6 +2468,7 @@ second round compiled zero sources. Independent review accepted the isolation an
 
 ## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: unrecorded -->
@@ -2506,6 +2524,7 @@ describes, made mechanical instead of manual.
 
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: 2f7052ba3 -->
@@ -2610,6 +2629,7 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: c278b4b37 -->
@@ -2638,6 +2658,7 @@ jobs successfully, including the full Linux sbt test; `scripts/ci-status` return
 
 ## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: unrecorded -->
@@ -2668,6 +2689,7 @@ Deterministic: `busy_timeout` (30 s) ≫ the 2 s window, and the query cannot re
 
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 <!-- status: fixed
+     kind: apparatus
      lane: apparatus
      area: build
      fixed-in: 90c5599dc
@@ -2708,6 +2730,7 @@ closes confirmation.
 
 ## v2-swiftui-online-derived-owner-gap — computed online readers do not own monitoring
 <!-- status: fixed
+     kind: bug
      lane: apparatus
      area: build
      fixed-in: 0ade8bf7c -->
@@ -2730,6 +2753,7 @@ closes confirmation.
 
 ## v2-swiftui-keyed-fetch-metadata-stale — surviving fetch keeps its first request descriptor
 <!-- status: fixed
+     kind: bug
      lane: apparatus
      area: build
      fixed-in: 5c0b38ad9 -->

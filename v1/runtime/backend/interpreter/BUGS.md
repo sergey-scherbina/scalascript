@@ -10,6 +10,7 @@ Newest first.
 ## int-concat-nonlist-builds-a-tuple — `List(1,2) ++ 5` was a TUPLE here and a list everywhere else
 
 <!-- status: fixed
+     kind: bug
      fixed-in: 3a95a474e
      lane: int
      area: runtime
@@ -111,6 +112,7 @@ time, so a loaded host can still read it.
 ## int-no-paren-sibling-method-is-undefined — `Undefined: twice` for a sibling declared without parens
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 0a4da7284
@@ -154,6 +156,7 @@ in `int-no-paren-def-leaks-into-globals`.
 ## int-no-paren-def-leaks-into-globals — NOT A BUG, kept so the same wrong reading is not filed twice
 
 <!-- status: wontfix
+     kind: apparatus
      lane: int
      area: runtime
      gate: tests/e2e/no-paren-sibling-gate.sh -->
@@ -195,6 +198,7 @@ before measuring in a checkout you have only fast-forwarded.
 ## int-sibling-call-missed-the-single-arg-dispatch-site — `Undefined: withHeader` from a one-argument method
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: b70a1e92cc2c368a09170017eb25db6b04f5640d
@@ -228,6 +232,7 @@ comment now describes the resolved cause rather than the third guess.
 
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      gate: tests/e2e/int-imported-registry-gate.sh
@@ -420,6 +425,7 @@ gate. Pin it with the fix, not before.
 ## int-case-class-method-cannot-call-a-sibling-method — `Undefined: twice` from inside the same class
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: c04de5df12518209a5ea3ce7260bbf86675c02cf
@@ -468,6 +474,7 @@ surfaced it, and it deserves its own measurement rather than a patch bolted onto
 ## int-object-var-mutation-does-not-persist — a `var` inside an `object` never changes
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 6683a457f
@@ -677,6 +684,7 @@ suite's reference lane, so a case built on that pattern is graded against the la
 ## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: cb620c16a
@@ -710,6 +718,7 @@ here; whoever wants it should start from the fixed parser rather than from this 
 ## int-set-apply-is-not-membership — `Set(1, 2)(2)` says "Not callable" where real Scala says `true`
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      gate: tests/conformance/set-ops-infix.ssc
@@ -745,6 +754,7 @@ rather than on the lane the bug was filed against.
 ## int-set-element-order-differs-from-scala — `Set(3, 1, 2)` prints `Set(1, 2, 3)` where real Scala keeps insertion order
 
 <!-- status: wontfix
+     kind: bug
      lane: int
      area: runtime
      gate: tests/conformance/set-distinct.ssc -->
@@ -806,6 +816,7 @@ narrow to see which behaviour was the contract.
 ## int-v1-lane-loses-a-builtin-companion-to-its-own-case-class — `Response.html` dies, `Response(...)` works
 
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: eb759d10c
@@ -876,6 +887,7 @@ interpolator does not reproduce on its own.
 
 ## int-jit-two-object-applies-collide — two objects with an `apply` generate one Java class and refuse to compile
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: 4e88f7d2a
@@ -935,6 +947,7 @@ Not diagnosed further: it is the interpreter's JIT, a different module from the 
 
 ## int-field-valued-default-undefined-on-empty-call — a default that reads a field works with an argument, not without one
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 5e64aca07
@@ -996,6 +1009,7 @@ it, so `10/2` is not in doubt. js only started agreeing in the same commit that 
 
 ## object-var-member-assignment-writes-a-top-level-global — an object's `var` is not scoped to the object
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: b8a41142a
@@ -1080,6 +1094,7 @@ it for free.
 
 ## int-char-literal-pattern-never-matches — `case '*' =>` silently fell through, so every Char-dispatching parser took its fallback
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded
@@ -1472,6 +1487,7 @@ being chased. No wall-clock number is claimed for any of the three splits.
 
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: b7916b6f7
@@ -1531,6 +1547,7 @@ one has no named args at all, so a single commit would have made the A/B unreada
 
 ## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 1e3b5223c -->
@@ -1617,6 +1634,7 @@ the same gap `v2-optin-provider-cases` describes, one step further.
 
 ## v2-json-number-keeps-trailing-zero — `jsonParse("2.0")` prints `2.0` on v2 and `2` on INT
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded
@@ -1723,6 +1741,7 @@ leaned toward, and it would trade away exactness that v1's own source says is re
 
 ## int-extension-on-function-type-alias-does-not-dispatch — `extension (p: Pass[A,B])` never fired, because the receiver is a `FunV` at runtime
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded
@@ -1784,6 +1803,7 @@ fail-first test per alias shape (function / tuple / collection), not a spot fix 
 
 ## std-import-resolver-blind-to-type-alias-and-extension — `[Pass](std/dsl/passes.ssc)` said "not found" for a name the module defines and exports
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 91c326d1f
@@ -1844,6 +1864,7 @@ walks `def`/`class` declarations only.
 
 ## v1-json-two-contradictory-number-policies — `jsonParse` truncated fractional numbers to binary64 while v1's own JSON core promised exactness
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 6596c1c52
@@ -1899,6 +1920,7 @@ wrong.
 
 ## v2-object-apply-unbound — `object O { def apply(x) }` is unbound on the native lane
 <!-- status: fixed
+     kind: bug
      lane: native
      area: front
      fixed-in: de5760462
@@ -1971,6 +1993,7 @@ suspicion is that the object itself is never registered as a global when its onl
 
 ## v1-interp-object-method-named-arg-wrong-slot — a method's named arg bound to the wrong parameter
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 17d854036
@@ -2023,6 +2046,7 @@ regressions.
 
 ## v2-method-dispatch-never-jits — every method call in every v2 program ran interpreted, forever
 <!-- status: fixed
+     kind: perf
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -2082,6 +2106,7 @@ from silently un-JITing the whole bytecode emitter. Queued as slice 2 in
 
 ## v2-json-read-native-representation-parity — native JSON read differs from established output
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: codegen
      fixed-in: 1edd8cd6c
@@ -2140,6 +2165,7 @@ its output is byte-identical through native VM, direct ASM, and
 
 ## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
 <!-- status: fixed
+     kind: feature
      lane: int
      area: runtime
      fixed-in: b63206552 -->
@@ -2174,6 +2200,7 @@ integrity checks.
 
 ## scljet-correlated-subquery-errors-swallowed — NOT turns subquery execution failure into TRUE
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: b63206552 -->
@@ -2204,6 +2231,7 @@ compares phase and semantic category rather than unstable vendor message text.
 
 ## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: runtime
      fixed-in: 0fade8820
@@ -2263,6 +2291,7 @@ that would hide the mechanism.
 
 ## parser-package-wrap-drops-fence-attrs — a `package:` module silently loses EVERY fence attribute
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -2292,6 +2321,7 @@ literate `std/` modules DO use to hit the combination.
 
 ## imported-builtin-native-runs-callback-in-defining-interpreter — an imported builtin runs your closure in the WRONG scope
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -2340,6 +2370,7 @@ suite was the affected slice, not a slice of it.
 
 ## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -2384,6 +2415,7 @@ output as the golden when a case has no `expected/` file, an INT that cannot run
 
 ## jdk-backend-accept-teardown-race — uncaught `RejectedExecutionException` on `jdk-backend-accept` thread at teardown
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -2446,6 +2478,7 @@ e.g. add to the catch at `JdkServerBackend.scala:110-112`:
 
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: front
      fixed-in: 5aee0cd35 -->
@@ -2480,6 +2513,7 @@ numbers prove routing only and are not the Q2 optimization baseline. The regress
 
 ## v1-interp-int-literal-above-2^31-becomes-null — the INT conformance REFERENCE silently prints `null`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 5b71ad2f6
@@ -2540,6 +2574,7 @@ can be simplified — but do not simplify it before then.
 
 ## scljet-jdbc-stable-spi-import-regression — JDBC plugin bypasses the stable value surface
 <!-- status: fixed
+     kind: regression
      lane: int
      area: runtime
      fixed-in: aca439fcc -->
@@ -2573,6 +2608,7 @@ the real migration to `scalascript-plugin-api` — this exemption is valid ONLY 
 
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 6131e17a3 -->
@@ -2614,6 +2650,7 @@ belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs
 
 ## v2-native-scala-import-parse-only-noop — module-defined names stay unbound after `import std.*`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -2845,6 +2882,7 @@ five rows longer. The smoke budget (180 s) is untouched.
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
 <!-- status: fixed
+     kind: regression
      lane: int
      area: front
      fixed-in: f81d86e98 -->
@@ -2905,6 +2943,7 @@ matrix: `make v2-web-e2e-v1` 9/9 in 4.4 minutes and `make v2-web-e2e-v2` 9/9 in 
 
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 3449c588c -->
@@ -2970,6 +3009,7 @@ completeness gap of the same family as `interp-collection-stdlib-completeness-ga
 
 ## v2-native-front-multiline-curried-def — a curried `def` whose second clause starts on a new line is mis-parsed
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: d0722478e -->
@@ -3001,6 +3041,7 @@ the same-line form remains green, and `std/agent.ssc` advances to the independen
 
 ## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
 <!-- status: fixed
+     kind: feature
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3025,6 +3066,7 @@ takes no radix; `intrinsics/Core.scala` + an `Integer` object in `BuiltinsRuntim
 
 ## v2-native-string-map-filter-char-methods — `String.map`/`.filter` + char methods on v2-native
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -3046,6 +3088,7 @@ Remaining separate gap: `String.padTo` on v2-native.
 
 ## v2-native-toDouble-toFloat-noop — `.toDouble`/`.toFloat` dropped by the native frontend → integer division
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3065,6 +3108,7 @@ correct → the bug was purely the native frontend lowering. Verified via native
 
 ## interp-string-interp-open-bracket-in-nested-string — `[` in a string literal inside `${…}` mangles the interpolation
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3090,6 +3134,7 @@ could have an analogous latent issue — not observed, left as-is.
 
 ## control-interop-harness-rust-multishot-drift — FIXED (2026-07-14, claude)
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: runtime
      fixed-in: cbdc4791a -->
@@ -3110,6 +3155,7 @@ v2 JS still lacks `effect.*`; harness 9/9 measurable-now still green.
 
 ## control-interop-portable-vm-oneshot-guard-absent — FIXED / awaiting confirmation (2026-07-14, claude)
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: front
      fixed-in: cbdc4791a
@@ -3150,6 +3196,7 @@ VM guard bug.
 
 ## spec-effect-example-platform-type — FIXED (2026-07-14, Codex)
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: runtime
      fixed-in: 96fc5adfb -->
@@ -3173,6 +3220,7 @@ platform work. This was documentation-only; no runtime behavior changed.
 
 ## v2-bridged-ui-emit-name-collision — `emit` resolves to the streams plugin, not the UI plugin, on `run --v2`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3220,6 +3268,7 @@ NOT BLOCKING: `appcore-nativeui.ssc` runs end-to-end on `--native` (its real lan
 
 ## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3258,6 +3307,7 @@ resolve `id` (and the other declared `NativeUiSignal` fields), mirroring the nat
 
 ## v2-swift-at-global-cell-vivification — mutated signals crash "unbound global: @x"
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3278,6 +3328,7 @@ authorizes `@`-cells; real-swift auto-vivify).
 
 ## interp-tco-tail-call-in-match — NOT A BUG (investigated 2026-07-13)
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -3306,6 +3357,7 @@ commit message repeats the wrong claim; disregard it.)
 
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -3363,6 +3415,7 @@ position. Needs a fix in the interpreter's block/if lowering.
 
 ## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -3448,6 +3501,7 @@ workaround stands: unique `var` names down each call chain.
 
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 7399fad95
@@ -3481,6 +3535,7 @@ found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
 
 ## scljet-readonly-close-imported-selector — facade close selects the wrong pager handle
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: c281958bd
@@ -3508,6 +3563,7 @@ found by codex during the SclJet M2c assembled JVM VFS example.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 <!-- status: fixed
+     kind: feature
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3539,6 +3595,7 @@ larger change, tracked under the Done-when text API).
 
 ## scljet-vfs-plugin-not-packaged — installBin registry/package list diverged
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: conformance
      fixed-in: 2a594b870
@@ -3559,6 +3616,7 @@ found by codex in the real assembled-distribution gate for SclJet M1.
 
 ## v21-scljet-jvm-vfs-unclassified-lane — new explicit tools example became both-fail
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: conformance
      fixed-in: 5cd86bf1c
@@ -3585,6 +3643,7 @@ found by codex when the strict zero-gap freeze caught the concurrently landed
 
 ## v21-empty-runtime-taxonomy-total — zero-row summary printed a blank total
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: front
      fixed-in: 0efc3dd75
@@ -3603,6 +3662,7 @@ found by codex in the zero-`both-fail` negative release gate.
 
 ## v2-frontend-tkv2-pwa-fast-provider-missing — unit classpath contradicts assembled default
 <!-- status: fixed
+     kind: apparatus
      lane: int
      area: front
      fixed-in: 3a87eb29c
@@ -3629,6 +3689,7 @@ found by codex during the Swift NativeUi release gate and reported in the
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -3670,6 +3731,7 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
 
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 1f7ea78d7 -->
@@ -3707,6 +3769,7 @@ browser E2E. Fix commit: `1f7ea78d7`.
 
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: 7a4cc0c00 -->
@@ -3737,6 +3800,7 @@ now byte-identical across `ssc-tools run --v1` / `ssc-standard run --native` /
 
 ## v2-nativeui-component-scope-compat — new scope extern is unbound in legacy INT/JS lanes
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: 1f3ca3962
@@ -3780,6 +3844,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -3816,6 +3881,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -3857,6 +3923,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      gate: tests/conformance/run.sh
@@ -3882,6 +3949,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## root-test-sealed-extension-option-dispatch — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: 1e503de04 -->
@@ -3916,6 +3984,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## conformance-int-std-semigroup-monoid — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: cli
      fixed-in: e571fd3ae
@@ -3946,6 +4015,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## conformance-int-sql-block-scope — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: c31389b25
@@ -3973,6 +4043,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## conformance-effects-choose-one-shot — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      gate: tests/conformance/effects.ssc
@@ -3996,6 +4067,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## conformance-actors-exit-os-shadow — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      gate: tests/conformance/actors-supervision.ssc
@@ -4023,6 +4095,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -4065,6 +4138,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -4105,6 +4179,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## plugin-lazyload-extern-imports — `fixed` (2026-07-07)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -4135,6 +4210,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
 <!-- status: fixed
+     kind: perf
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -4159,6 +4235,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-monadic-forcomp — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -4171,6 +4248,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-returnclause-effect-in-while — `fixed` (2026-06-15)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -4200,6 +4278,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-import-cycle-stackoverflow — `fixed` (2026-06-14)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -4231,6 +4310,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-parameterized-effect-decl — `fixed` (2026-06-13, `2a818e45c`)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded -->
@@ -4245,6 +4325,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-effect-multishot-in-subsection — `fixed` (2026-06-13, `2a818e45c`)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -4264,6 +4345,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: codegen
      fixed-in: unrecorded -->
@@ -4294,6 +4376,7 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 ## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
 <!-- status: fixed
+     kind: bug
      lane: int
      area: runtime
      fixed-in: unrecorded -->
@@ -4330,6 +4413,7 @@ discriminating observable, which is why the fixture prints on load rather than a
 
 ## v2-native-result-unregistered-field — fieldAt crashes on a native result whose case class isn't imported
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded
@@ -4375,6 +4459,7 @@ Found+minimized 2026-07-09 by busi (fable).
 
 ## v2-route-params-stub — req.params(name) always returns Stub on v2
 <!-- status: fixed
+     kind: bug
      lane: int
      area: front
      fixed-in: unrecorded
