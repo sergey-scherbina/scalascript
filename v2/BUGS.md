@@ -119,6 +119,23 @@ two examples stop claiming it. The prose is specific enough — "until then, exe
 directly from a rust block" — that it reads as a planned feature rather than an accident, which is
 why this is `kind: feature` and not a bug against the examples.
 
+**FIXED by implementing the mechanism `Lang.scala` already specified.** Nothing had to be designed:
+`Lang.isNativeBackendBlock` already classifies `rust` as opaque-exec, and the doc comment beside it
+says "Rust source for the Rust backend. Emitted verbatim into `mod inline_native` in the generated
+crate". Only two things were missing — `RustCapabilities.blockLanguages` was `Set.empty`, so
+`CapabilityCheck` refused before the backend saw anything, and `RustGen` had no emitter. `grep
+inline_native` found exactly one hit in the tree: that doc comment.
+
+`collectInlineNative` is `NodeBackend.collectNodeGlue`'s shape deliberately — same walk, same
+document order, same empty-string-when-absent so a module without such a block is byte-identical to
+before. The asset is emitted ONLY when a block exists, because an unused `mod inline_native` is a
+rustc warning in every other crate.
+
+**Evidence is behavioural, not "it compiles":** `examples/rust/mixed.ssc` now prints
+`Hello via rust block` — a line that can only come from the inline block — and `effect-runtime.ssc`
+prints `8`. The whole gate reports `all rust smoke fixtures green (17 fixture(s))` in 12 m 54 s,
+where it had four failures this morning.
+
 **Never observed before because nothing ran them.** `tests/rust-build-smoke.sh` compiles every
 example under `examples/rust/`, and it is an orphan: it exceeded the census cap on 2026-08-16 and had
 never been run to completion. The examples date from 2026-06.

@@ -86,9 +86,13 @@ object RustGen:
           if effectiveBin == hasMain then cargoToml
           else renderCargoToml(regexUsage, crateName, version, descr, effectiveBin, cryptoUsage, httpUsage, authUsage, wsUsage, mcpUsage ++ mcpClientUsage, uiUsage, tuiTarget, httpClientUsage)
         val generatedMod = renderGeneratedMod(crateName)
+        // ```rust blocks, emitted verbatim into `mod inline_native` — the mechanism `Lang.scala`
+        // has specified all along and nothing implemented.
+        val inlineNativeSrc = collectInlineNative(module)
+        val hasInlineNative = inlineNativeSrc.nonEmpty
         val rootFile     =
-          if effectiveBin then renderMainRs(crateName, entry.get)
-          else                 renderLibRs()
+          if effectiveBin then renderMainRs(crateName, entry.get, hasInlineNative)
+          else                 renderLibRs(hasInlineNative)
         val rootName     = if effectiveBin then "src/main.rs" else "src/lib.rs"
         val runtimeMod =
           val sb = new StringBuilder(RustRuntimeTemplates.RuntimeModRs)
@@ -144,6 +148,17 @@ object RustGen:
           Segment.Asset(s"src/generated/$crateName.rs", walked.generated.getBytes("UTF-8"),     "text/x-rust"),
           Segment.Asset(rootName,                       rootFile.getBytes("UTF-8"),             "text/x-rust")
         )
+        // Emitted ONLY when a block exists: an empty `mod inline_native` is dead weight, and an
+        // unused module is a rustc warning in every crate that has no such block — which is all of
+        // them today.
+        val inlineNativeAsset =
+          if !hasInlineNative then Nil
+          else List(Segment.Asset(
+            "src/inline_native.rs",
+            (s"//! Verbatim ```rust blocks from the .ssc source.  Emitted by RustGen.\n\n" +
+             inlineNativeSrc + "\n").getBytes("UTF-8"),
+            "text/x-rust"
+          ))
         val effectAsset =
           if effectUsage.isEmpty then Nil
           else List(Segment.Asset(
@@ -227,7 +242,7 @@ object RustGen:
             RustRuntimeTemplates.TuiRs.getBytes("UTF-8"),
             "text/x-rust"
           ))
-        CompileResult.Segmented(baseAssets ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ httpClientAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ mcpClientAsset ++ uiAsset ++ tuiAsset)
+        CompileResult.Segmented(baseAssets ++ inlineNativeAsset ++ effectAsset ++ taglessEffectAsset ++ httpAsset ++ httpClientAsset ++ authAsset ++ wsAsset ++ mcpAsset ++ mcpClientAsset ++ uiAsset ++ tuiAsset)
 
   /** R.3.2 — IR walk for crypto-intrinsic usage.  Returns the set of
    *  intrinsic names actually reached so RustGen can decide which
@@ -388,26 +403,26 @@ object RustGen:
 
   /** `src/main.rs` shim for a binary crate.  Wires the three top-level
    *  modules and calls the `@main`-annotated entry point. */
-  private[rust] def renderMainRs(crateName: String, entry: String): String =
+  private[rust] def renderMainRs(crateName: String, entry: String, inlineNative: Boolean = false): String =
     s"""//! Crate entry point.  Emitted by RustGen; do not edit by hand.
        |
        |mod runtime;
        |mod value;
        |mod generated;
-       |
+       |${if inlineNative then "mod inline_native;\n" else ""}
        |fn main() {
        |    generated::$crateName::$entry();
        |}
        |""".stripMargin
 
   /** `src/lib.rs` for a library crate (no `@main` in the source). */
-  private[rust] def renderLibRs(): String =
-    """//! Crate library root.  Emitted by RustGen; do not edit by hand.
-      |
-      |pub mod runtime;
-      |pub mod value;
-      |pub mod generated;
-      |""".stripMargin
+  private[rust] def renderLibRs(inlineNative: Boolean = false): String =
+    s"""//! Crate library root.  Emitted by RustGen; do not edit by hand.
+       |
+       |pub mod runtime;
+       |pub mod value;
+       |pub mod generated;
+       |${if inlineNative then "pub mod inline_native;\n" else ""}""".stripMargin
 
   /** Render the `Cargo.toml` text for a crate with no dependencies and
    *  a single `[[bin]]` entry when `hasMain` is true, or a `[lib]` entry
@@ -608,6 +623,35 @@ object RustGen:
   private def isScalaFence(lang: String): Boolean =
     val l = lang.trim.toLowerCase
     l == "scala" || l == "scalascript" || l == "ssc" || l.isEmpty
+
+  /** Concatenate the source of every ```` ```rust ```` `EmbeddedBlock`, in document order.
+    *
+    *  `Lang.scala` has specified this since the block language was introduced — "`rust` — Rust
+    *  source for the Rust backend. Emitted verbatim into `mod inline_native` in the generated
+    *  crate" — and nothing implemented it: `RustCapabilities.blockLanguages` was empty, so
+    *  `CapabilityCheck` answered `UnknownBlockLanguage(rust)` and the block never reached here.
+    *  `examples/rust/effect-runtime.ssc` and `mixed.ssc` have carried such a block, and said so in
+    *  their prose, since 2026-06.
+    *
+    *  The shape is `NodeBackend.collectNodeGlue`'s, deliberately: same walk, same document order,
+    *  same "empty string when there is no such block" so a module without one is byte-identical to
+    *  before. Verbatim means verbatim — no interpolation, no parsing; the block is the author's
+    *  Rust, and `rustc` is the thing that judges it. */
+  private[rust] def collectInlineNative(module: ir.NormalizedModule): String =
+    val sb = StringBuilder()
+
+    def walkContent(c: ir.Content): Unit = c match
+      case ir.Content.EmbeddedBlock(language, source, _, _) if ast.Lang.isRust(language) =>
+        if sb.nonEmpty then sb.append("\n")
+        sb.append(source.stripTrailing())
+      case _ => ()
+
+    def walkSection(s: ir.Section): Unit =
+      s.content.foreach(walkContent)
+      s.subsections.foreach(walkSection)
+
+    module.sections.foreach(walkSection)
+    sb.toString
 
   private[rust] def moduleDeclaresMain(module: ir.NormalizedModule): Boolean =
     module.sections.exists(sectionDeclaresMain)

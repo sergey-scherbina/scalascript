@@ -71,5 +71,10 @@ val RustCapabilities: Capabilities = Capabilities(
   outputs        = Set(OutputKind.RustSource),
   options        = Set("optimizationLevel", "emitAssertions", "cargoEdition"),
   spiRange       = SpiVersionRange(SpiVersion.Current, SpiVersion.Current),
-  blockLanguages = Set.empty
+  // ```rust blocks: `Lang.scala` documents them as "Rust source for the Rust backend, emitted
+  // verbatim into `mod inline_native`", and `Lang.isNativeBackendBlock` already classifies them as
+  // opaque-exec. Only this declaration was missing, so `CapabilityCheck` answered
+  // `UnknownBlockLanguage(rust)` and two examples that carry such a block — and say so in their own
+  // prose since 2026-06 — could not build. RustGen emits the module now.
+  blockLanguages = Set(scalascript.ast.Lang.Rust)
 )
