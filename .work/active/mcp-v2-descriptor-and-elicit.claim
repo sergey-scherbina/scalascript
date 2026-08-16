@@ -3,9 +3,15 @@ branch: feature/mcp-v2-descriptor-and-elicit
 agent: claude-code
 started: 2026-08-16T10:30:05Z
 heartbeat: 2026-08-16T10:30:05Z
-status: claimed-before-planning
+status: implementing
 items: std-mcp-server-descriptor-says-not-available-on-interpreter mcp-elicit-on-v2
-paths: file:std/mcp/server.ssc file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md
+paths: file:std/mcp/server.ssc file:std/mcp/types.ssc file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:BACKLOG.md file:BUGS.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Declare `elicit` + `ElicitationResult` in std/mcp, implement `elicit` on the v2 native plugin,
+  correct the server descriptor's "not available on interpreter or native" line, and gate the
+  request reaching the wire on both lanes.
+  WIDENED mid-task: types.ssc (the result type has to be DECLARED somewhere, and server.ssc
+  re-exports it) and BUGS.md (mcp-elicit-deadlocks-the-serve-loop — the deadlock is why the gate
+  asserts the request rather than the answer). BUGS.md is append-only and already shared with
+  rust-serve-panic-poison and ssc-http-bind-address; my edit is one new entry + its index row.
+next: gates + smoke, then push and release
