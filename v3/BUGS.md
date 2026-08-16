@@ -89,6 +89,17 @@ does not re-derive it. Gate GREEN locally: "the two fronts differ on exactly the
 > runs can execute at once against ~15 commits a day reaching these paths. Beyond that cap GitHub
 > QUEUES rather than cancels, so the worst case is slowness, not a lost verdict.
 >
+> **INTERIM MEASUREMENT, 2.5 HOURS AFTER `d2c84c5a2` — the prediction is holding and this is NOT yet
+> the closing evidence.** Ten runs since the group changed: NINE `success`, one still running, and
+> **zero `cancelled`**, all of them `push` events. Against 75 cancelled in the preceding 100 that is
+> the shape predicted, and the mechanism is structural rather than statistical — no two pushes share
+> a group now, so eviction cannot happen at all.
+>
+> It stays open anyway, because this entry has been closed and reopened on premature evidence twice
+> and its own rule asks for a day. Ten runs cannot distinguish "fixed" from "a quiet couple of
+> hours"; what would is the same command a day out, split at this commit's time. Recorded now so the
+> next reader inherits a number rather than an intention.
+>
 > **STILL OPEN, AND THE PREDICTION IS SHARPER NOW SO IT CAN FAIL CLEANLY.** With one group per commit
 > on `main`, eviction is structurally impossible: `cancelled` on a push event should go to ZERO, and
 > anything that remains is a genuine cancellation — a run killed by hand, or the 45/60-minute job
