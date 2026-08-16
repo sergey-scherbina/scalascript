@@ -23,6 +23,137 @@ Newest first.
 
 
 
+## rust-serve-dies-permanently-after-one-handler-panic — one panic in one handler poisons the http runtime mutex, so the served program answers NOTHING afterwards while its process stays up
+
+<!-- status: fixed
+     lane: native
+     area: runtime
+     kind: bug
+     gate: tests/e2e/rust-serve-panic-gate.sh
+     fixed-in: b876ca0d8
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from 539079f43
+     repro: examples/reported/rust-serve-dies-permanently-after-one-handler-panic.ssc
+     impact: blocks
+     confirmed: no -->
+
+Routed from `INBOX.md` on 2026-08-16. Everything below is the reporter's, in their words.
+
+A handler read a `.jsonl` file line by line and passed each line to `jsonParse`. The file's last
+line was empty — every file written by appending has one — so `jsonParse` aborted the thread. That
+much is arguably fine.
+
+What is not: the process **stayed up and stopped answering everything**, permanently. One panic is
+followed by an unbounded run of
+
+```text
+thread 'tokio-rt-worker' panicked at src/runtime/http.rs:224:37:
+called `Result::unwrap()` on an `Err` value: PoisonError { .. }
+```
+
+and every later request — including requests to unrelated routes — fails the same way. From
+outside: healthy port, healthy process, no answers. That is the hardest failure shape to diagnose,
+and one malformed byte from a caller is enough to cause it.
+
+Measured with the attached repro (rust lane):
+
+```text
+curl /ok    -> alive
+curl /boom  -> (nothing; the handler panicked)
+curl /ok    -> (nothing, and never again; the process is still running)
+```
+
+Either of these would be enough on its own:
+
+1. A handler panic must not take the server with it — answer 500 at the route boundary, or do not
+   hold a lock across handler execution. A poisoned mutex turns one bad request into a permanent
+   outage.
+2. A fallible JSON parse. There is no `jsonParse` spelling returning `Option`/`Either`, so a server
+   handling input it did not write cannot refuse it. Our workaround is to inspect the text first
+   and only hand `jsonParse` something starting with `{` or `[`, which cannot be right in general.
+
+On the interpreter the same input ends the program with `ssc: invalid JSON at 0: expected JSON
+value` — a clean refusal rather than a panic, and there is no server left running to poison.
+
+**Fixed — and the panic was never the mechanism.** `HttpRs` called the handler while still holding
+`routes().lock()`. The unwind therefore travelled through the guard and POISONED the mutex, after
+which every later request died on `lock().unwrap()` before it could look at its own path. That is
+why an unrelated route stops answering too, and why the log fills with `PoisonError` rather than
+with the handler's own panic: the second line onwards is a different failure from the first.
+
+The dispatch now selects the route under the lock and clones the handler `Arc` out of it — a
+refcount bump, nothing copied — then DROPS the guard before calling anything, and catches the unwind
+at the route boundary. All three lock sites are poison-tolerant
+(`unwrap_or_else(|p| p.into_inner())`), so a panic anywhere else in the runtime cannot bring the
+outage back.
+
+**A panic answers 500, not 404, and my first version got that wrong.** `catch_unwind(...).ok()`
+collapsed "this route failed" into the same `None` as "no such route", so the gate went green while
+the server told every caller the route did not exist — a second wrong answer standing in for the
+first. A registered route that blew up says 500; a path that was never registered still says 404,
+and the gate now asserts both in the same run.
+
+**The report's point 2 is NOT fixed here, and measuring it turned up something the report could not
+have seen.** `std/json.ssc` does have a total parse — `jsonValue` never fails — so the missing thing
+is not totality but DISCRIMINATION: `""`, `"not json"` and the literal `"null"` all answer
+`isNull`, so "was this text JSON at all?" has no spelling on any lane. Filed as
+`json-parse-has-no-fallible-spelling` (BACKLOG.md).
+
+And the reason the reporter concluded the spelling does not exist is that ON THEIR LANE IT DOES NOT:
+`build-rust` refuses `std/json.ssc`'s tolerant path while the panicking strict path builds and runs,
+so the only reachable parse on the rust lane is the one that kills the thread. That is a defect, not
+an API decision, and is filed as
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds`. What changed HERE is
+that hitting either of them now costs one request instead of the server.
+
+**Verified:** `tests/e2e/rust-serve-panic-gate.sh` PASS over a real socket — `/ok` 200, `/boom` 500,
+`/ok` 200 again, `/nosuch` 404, `/ok` 200, process up, zero `PoisonError`. Negative control: with
+`HttpRs` reverted and the launcher rebuilt, the same gate fails 5 rows and reproduces the report
+exactly — `/boom` answers nothing, then so do `/ok` AND `/nosuch`, 3 `PoisonError` lines, process
+still alive. `scripts/smoke-ci` 111/111.
+## rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds — `jsonValue` cannot be lowered, so the only JSON parse reachable on this lane is the one that aborts the thread
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: -
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-16
+     ssc-version: bcfe44e01
+     repro: none
+     impact: workaround -->
+
+Found while fixing `rust-serve-dies-permanently-after-one-handler-panic`, and it is the part that
+report could not contain: it explains why the reporter believed no non-panicking parse exists.
+
+`std/json.ssc` offers a strict parse that aborts on bad input (`jsonParse`, `jsonRead`) and a
+tolerant one that never fails (`jsonValue`). On the rust lane only the first kind builds. Measured
+from the same tree, two files that differ only in which name they import:
+
+```text
+build-rust, imports jsonParse  → builds, runs
+build-rust, imports jsonValue  → REFUSED:
+  Generic(def `jsonCoreParseArrayItems` reads `reverse` without parentheses and this lane does not
+  lower it here; it is a collection member, not a field, and would be emitted as a Rust FIELD access)
+  Generic(def `jsonCoreContinueObjectValue` reads `reverse` without parentheses …)
+```
+
+So the advice one would normally give — "use the tolerant parse if you cannot trust the input" — is
+not available to anyone on this lane, and the refusal names an internal helper rather than the
+function the user actually imported, which is why it does not read as "jsonValue is unavailable".
+
+The refusal itself is honest and is the kind this walker is supposed to make: a parenthesis-less
+`reverse` would be emitted as a Rust field access. The fix is to LOWER it — `reverse` on a
+collection is a member call, and the walker already lowers the same shape for other members — not
+to weaken the refusal. Both sites are in `std/json.ssc`'s tolerant path; there may be more behind
+them, since a refusal short-circuits and every count from one is a lower bound.
+
+Not gated: no gate is filed with an open entry here. The gate that closes this asserts a
+`jsonValue` program BUILDS and answers `isNull` for `""` — a compile-only row would pass on a
+binary that then panics.
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 
 <!-- status: fixed

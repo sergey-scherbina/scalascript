@@ -605,6 +605,62 @@ unrelated claim. Blocked on that decision.
 
 </details>
 
+## json-parse-has-no-fallible-spelling — a caller cannot ask "was this text JSON at all?": the strict parse aborts and the tolerant one answers `isNull` for invalid input AND for the literal `null`
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: -
+     fixed-in: -
+     reported-by: rozum (sergey-scherbina/rozum, agent claude-code)
+     reported-at: 2026-08-16
+     ssc-version: bin/ssc-tools built from 539079f43
+     repro: none
+     impact: workaround -->
+
+Split out of `rust-serve-dies-permanently-after-one-handler-panic` (BUGS.md), whose second ask this
+is. That entry is closed on its first ask — a handler panic no longer takes the server down — and
+deliberately does not close this one.
+
+**The report says there is no `Option`/`Either` spelling and that a server handling input it did not
+write therefore cannot refuse it. Measured, the shape is slightly different and the gap is real
+anyway.** `std/json.ssc` has three entry points, and one of them IS total:
+
+```text
+jsonValue(s)  tolerant  → JsonValue, never fails
+jsonParse(s)  strict    → Any, aborts the thread on bad input
+jsonRead(s)   strict    → JsonValue, aborts the thread on bad input
+```
+
+so the reporter's workaround was not needed for TOTALITY. It was needed for something the total
+spelling cannot express. Measured on the interpreter (`bin/ssc run`), one row per input:
+
+```text
+""          → isNull
+"not json"  → isNull
+"null"      → isNull      ← the literal JSON null is indistinguishable from "this was not JSON"
+"{\"a\":"   → isNull
+"{\"a\":1}" → value
+```
+
+A caller who must tell a malformed body from a body that legitimately contains `null` has no
+spelling for it on any lane. That is the ask: an `Option`/`Either`-returning parse (or an
+`isInvalid` distinct from `isNull`), so refusing bad input does not mean inspecting the first
+byte by hand.
+
+**On the rust lane the total spelling is not merely awkward, it is UNREACHABLE**, which is why the
+report concluded no such spelling exists — from where they stand, correct. `build-rust` refuses
+`std/json.ssc`'s tolerant path outright while the panicking strict path builds and runs. That half
+is a defect, not an API decision, and is filed separately as
+`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds` in BUGS.md. Until it is
+fixed, this feature would land on a lane that cannot call it.
+
+**Decide the API before implementing.** The same argument `std-fs-failure-contract` (below) is still
+open on applies here — total variants add surface to `std`, and the sibling entry records a reporter
+arguing AGAINST making a library total by default for exactly this reason: a caller must be able to
+tell "empty" from "not there". These two should be decided together rather than one at a time.
+
 ## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
 
 <!-- status: open
