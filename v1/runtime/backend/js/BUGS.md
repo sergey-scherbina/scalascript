@@ -11,6 +11,7 @@ Newest first.
 
 <!-- status: fixed
      fixed-in: 6cec41220
+     kind: bug
      lane: js
      area: codegen
      gate: tests/conformance/math-round-ties.ssc

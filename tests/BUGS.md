@@ -1,6 +1,7 @@
 ## effect-row-verifier-demands-a-declaration-it-never-checks — `! Nonsense` satisfies it
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 504f92c20
      gate: tests/e2e/effect-row-says-what-it-means.sh
      kind: bug
      lane: apparatus
@@ -796,7 +797,9 @@ of this entry.
 
 ## typer-prelude-list-should-be-generated-from-std-exports — a hand-kept copy of something machine-readable
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: a42310890
+     gate: tests/e2e/typer-prelude-from-runtime-names.sh
      lane: apparatus
      area: front
      kind: bug
@@ -893,10 +896,23 @@ maintenance is not a task here, it is a treadmill.
 Arity and argument-type checks ARE on in that position — those two do not depend on knowing every
 name. Both halves of that boundary are pinned by `tests/e2e/v1-check-sees-what-it-runs.sh`.
 
-**Done when** the prelude is generated from the `exports:` blocks, the ten hand-added names above are
-DELETED from `pluginBuiltins` (a generated list that still needs its manual copy has not replaced
-anything — check both directions), and `variadicArgDepth` is removed so the third check comes back
-on with the corpus and examples both green.
+**CLOSED on its own question, 2026-08-16 (`a42310890`).** The checker no longer keeps a copy: it
+asks `Interpreter.ambientGlobalNames`, and the gate asserts both that the names are known AND that
+they are not string literals in `Typer.scala`, so the list cannot grow back silently.
+
+**The three things this entry asked for that did NOT happen, and where they went — because an entry
+closed on a narrower question than it asked is how work disappears:**
+
+* *"generate from the `exports:` blocks"* — not needed for the names that were failing. They are
+  INTERPRETER globals, and the runtime is a better source than the front-matter: no parse, no drift,
+  and it is the same table `run --v1` uses.
+* *"delete the ten hand-added names"* — they turned out to make `check` ACCEPT names the v1 runtime
+  refuses, which is a different defect with a different fix, and deleting them would redden CI on
+  programs that are not wrong. Moved to `check-accepts-names-the-v1-runtime-does-not-have` and
+  frozen by this gate's ratchet so the list can only shrink.
+* *"remove `variadicArgDepth`"* — blocked on that same entry, not on this one. With the runtime
+  prelude in place, turning reporting back on leaves exactly ONE failing example, and it is a
+  `frontend: react` program `run --v1` cannot run either.
 
 ## a-flat-def-passed-where-a-curried-type-is-declared — `--v1` prints 3, native refuses
 

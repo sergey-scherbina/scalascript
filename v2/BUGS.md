@@ -54,6 +54,7 @@ mirrored `Character` case would have been dead code sitting above an unreachable
 
 <!-- status: fixed
      fixed-in: 6cec41220
+     kind: bug
      lane: multi
      area: runtime
      gate: tests/conformance/math-round-ties.ssc (+ v3 via corpus-report)
