@@ -6072,7 +6072,17 @@ object RustCodeWalk:
     // is the one that gives exhaustiveness checking.
     val subjectIsAny = subject match
       case m.Term.Name(n) => ctx.anyNames.contains(n)
-      case _              => false
+      // A CALL to a def DECLARED `Any` is just as much an `Any` subject as a name is, and asking
+      // only the name left `step(n) match { case Ok(v, k) => … }` on the typed path, where the
+      // struct pattern reads `expected Value, found Ok` (E0308). It is what
+      // `rust-multi-statement-match-arm-emitted-without-braces` was hiding: the same json-core
+      // match failed to PARSE first, so this never got a chance to be the error.
+      // `_returnTypes` is the same table `collectAnyLocals` already asks this question of, and it
+      // is read from the DECLARED type — never inferred, because a wrong `true` here would push a
+      // genuinely typed subject onto the `Value` path.
+      case m.Term.Apply.After_4_6_0(m.Term.Name(f), _) =>
+        _returnTypes.get(f).contains("crate::value::Value")
+      case _ => false
     val hasStructCtorArm = cases1.exists(_.pat match
       case m.Pat.Extract.After_4_6_0(m.Term.Name(ctor), _) => ctx.ctorMap.get(ctor).exists(_.isStruct)
       // A typed arm against an `Any` needs the same path: it has to TEST the variant, and the
@@ -6118,16 +6128,44 @@ object RustCodeWalk:
         // Type tests FIRST, so `&&` short-circuits before a user guard that assumes the narrowed
         // type ever runs — `case Some(s: String) if s.length > 2` reads the guard on a `Value`.
         guard <- (c.cond match
-                    case Some(g) => renderTerm(g, ctx).map(gr => List(s"($gr)"))
+                    case Some(g) => renderTerm(g, ctx).map(gr => List(gr))
                     case None    => Right(Nil)
                  ).map { userGuards =>
                    val all = typedBinders.map(_._3) ++ userGuards
-                   if all.isEmpty then "" else s" if ${all.mkString(" && ")}"
+                   // Parenthesised only where the parens DO something — joining two conjuncts. A
+                   // lone guard was wrapped as well, and since `renderTerm` already brackets a
+                   // comparison the arm came out `x if ((x > 0i64)) =>`: valid Rust, an
+                   // `unused_parens` warning on every guarded arm in the corpus, and a red
+                   // `RustGenControlFlowTest` that had been standing long enough for two entries in
+                   // this file to quote `backendRust/test` as 278/278.
+                   if all.isEmpty then ""
+                   else if all.sizeIs == 1 then s" if ${all.head}"
+                   else s" if ${all.map(conj => s"($conj)").mkString(" && ")}"
                  }
         bod   <- if armTail then renderValueTail(c.body, ctx) else renderTerm(c.body, ctx)
       yield
         val bodW = if armTail then bod else wrapArm(bod)
-        if prefix.isEmpty then s"$pat$guard => $bodW,"
+        // A MULTI-STATEMENT ARM BODY NEEDS BRACES OF ITS OWN — but only on the `armTail` path,
+        // and that is measured, not assumed. `renderTerm` already renders a Scala block as a Rust
+        // block, so an ordinary typed match arm arrives braced. `renderValueTail` does NOT: its
+        // contract is to hand back a STATEMENT SEQUENCE, because every other caller drops it
+        // somewhere already bracketed (an `if` branch, a fn body). A match arm is the one caller
+        // that splices it after `=>`, where Rust wants an expression, so a def declared to return
+        // `Any` whose body is a match emitted `"a" => let n = 10i64;` — and
+        // `error: expected expression, found 'let' statement` makes the whole crate unparseable,
+        // which buries every other diagnostic in the file behind it.
+        // (rust-multi-statement-match-arm-emitted-without-braces.)
+        //
+        // Asked of the AST rather than of the rendered string, because a `let`-prefix test would
+        // miss the other statement forms; the `startsWith("{")` half then keeps this a no-op for
+        // the already-braced typed path — verified by emitting a typed enum match on both trees:
+        // the arm comes out `Shape::Circle { r } => { let d = …` either way, and that crate
+        // compiled before this change as it does after it.
+        val bodyIsMultiStat = c.body match
+          case b: m.Term.Block => b.stats.sizeIs > 1
+          case _               => false
+        val needsBlock = prefix.nonEmpty || (bodyIsMultiStat && !bodW.trim.startsWith("{"))
+        if !needsBlock then s"$pat$guard => $bodW,"
         else s"$pat$guard => { $prefix$bodW },"
     }
     val (errs, ok) = caseRendered.partitionMap(identity)

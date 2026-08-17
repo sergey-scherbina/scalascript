@@ -1164,61 +1164,222 @@ String-only three-argument case compiles and prints `a[b[c`. Corpus unmoved: `ru
      lane: native
      area: codegen
      kind: bug
-     gate: -
+     gate: tests/e2e/rust-match-arm-braces-gate.sh
      fixed-in: -
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 315059ad7
-     repro: none — see "what I could not reduce" below
+     repro: tests/e2e/rust-match-arm-braces-gate.sh, row `tail`
      impact: workaround -->
 
-Found by removing the `reverse` refusal in
-`rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds` and looking at what came
-out from behind it. `std/json-core.ssc` then produced 43 rustc errors, and two of them are not type
-errors at all — the generated crate does not PARSE:
+**Reduced 2026-08-17, and the reduction corrects this heading: the defect is NOT behind a refusal.**
+Fourteen lines of ordinary ScalaScript — no `reverse`, no `std/json-core.ssc`, no bypass of anything
+— produce an unparseable crate on a clean tree:
 
-```text
-error: expected expression, found `let` statement
-   --> src/generated/json_core.rs:305:39
-    |
-305 |         JsonCoreOk { value, next } => let separator = jsonCoreSkipWhitespace(source.clone(), next);
-    |                                       ^^^
-    = note: only supported directly in conditions of `if` and `while` expressions
+```scalascript
+def pick(k: String): String = k
+
+def label(k: String): Any =
+  pick(k) match {
+    case "a" =>
+      val n = 10
+      n + 1
+    case _ =>
+      val m = 20
+      m + 2
+  }
+
+def main(): Unit =
+  println(label("a"))
 ```
 
-A match arm whose body is more than one statement (`val` then `if`) is emitted with no braces around
-it. Two sites, `json_core.rs:305` and `:341`, both the same shape.
+```text
+"a" => let n = 10i64;
+error: expected expression, found `let` statement
+```
 
-**This is worse than the type errors around it, and worth its own entry for that reason.** A type
-error names a line the user can look at; an unparseable crate means the walker produced something
-that is not Rust, and every other diagnostic in the file becomes noise behind it.
+`run` and `run --v1` both answer `11`. So the entry's own instruction — *do not take this until the
+repro exists, a fix here cannot be falsified by anything that runs today* — is discharged: it is
+falsifiable by a fourteen-line program, in both directions.
 
-### What I could NOT reduce, and that is the finding
+### The mechanism, and the three guesses it refutes
 
-The obvious repro does not reproduce. A case class matched with a multi-statement arm body —
+The trigger is **the declared return type of the enclosing def**, not anything about the match. A def
+returning `Any` puts its body in a tail position that must produce a `Value`, so each arm renders
+through `renderValueTail`, whose contract is to hand back a STATEMENT SEQUENCE. That contract is
+right for every other caller — they splice it somewhere already bracketed, an `if` branch or a fn
+body. A match arm is the one caller that splices it directly after `=>`.
+
+Measured against the three candidates this entry listed as unmeasured:
+
+| guess | verdict |
+|---|---|
+| the scrutinee is a call, not a parameter | **load-bearing, but not the cause** — a NAME scrutinee routes to `renderAnyMatch`, which brackets its own arms, so it hides the defect rather than causing it |
+| a struct-ctor arm routes it through `renderAnyMatch` | **refuted** — `renderAnyMatch` is the path that is CORRECT here; the broken one is `renderMatch`, and the minimum has no case class at all |
+| the arm sits in the tail of a recursive parse | **refuted** — recursion is irrelevant; `Any` as the return type is the whole of it |
+
+The `case class` probe recorded above as "does not reproduce" was right for a reason nobody guessed:
+it declares `def step(r: Any): String`. `String`, not `Any` — so no `Value` tail, no defect. One word
+apart from the failing case, and the entry read it as evidence about case classes.
+
+### The fix
+
+`RustCodeWalk.renderMatch` braced an arm only for its `prefix` (the typed-binder `let`s). It now also
+braces a body that is a `Block` of more than one statement and did not already come back braced. The
+second half of that condition is what keeps it a no-op for the ordinary typed path, which
+`renderTerm` already renders as a Rust block — verified by the gate's `typed` row, which passes
+identically with and without the change.
+
+Behind it sits a SECOND defect, invisible until this one was fixed and filed separately as
+`rust-any-returning-call-scrutinee-keeps-the-typed-match-path`: the original json-core shape now
+parses and then fails `E0308`, because `subjectIsAny` is asked only of a bare `Term.Name`.
+
+## rust-any-returning-call-scrutinee-keeps-the-typed-match-path — E0308, and the parse error hid it
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: bug
+     gate: tests/e2e/rust-match-arm-braces-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: tests/e2e/rust-match-arm-braces-gate.sh, row `anyctor`
+     impact: workaround -->
+
+Found by fixing `rust-multi-statement-match-arm-emitted-without-braces` and rebuilding: the crate
+that used to be unparseable now parses, and this is the error standing behind it.
 
 ```scalascript
 case class Ok(value: Int, next: Int)
-def step(r: Any): String =
-  r match {
-    case Ok(value, next) =>
-      val sum = value + next
-      if sum > 3 then "big " + sum else "small " + sum
-    case Err(message) => "err " + message
-    case _ => "other"
+case class Err(message: String)
+
+def step(n: Int): Any = if n > 2 then Err("too big") else Ok(n, n + 1)
+
+def label(n: Int): String =
+  step(n) match {
+    case Ok(value, next) => "ok " + (value + next)
+    case Err(message)    => "err " + message
   }
 ```
 
-— builds on this lane and prints the same three lines as `run`. So the defect needs something else
-json-core does: the arm sits inside a def that is itself the tail of a recursive parse, the scrutinee
-is a call result rather than a parameter, and the match has a struct-ctor arm that routes it through
-`renderAnyMatch` rather than `renderMatch`. Which of those is load-bearing is unmeasured.
+```text
+error[E0308]: mismatched types
+   |     match step(n) {          this expression has type `Value`
+   |         Ok { value, next } => …
+   |         ^^^^^^^^^^^^^^^^^^ expected `Value`, found `Ok`
+```
 
-**Do not take this entry by editing the brace emission until the repro exists.** The path is
-currently unreachable behind a refusal, so a fix here cannot be falsified by anything that runs
-today — a change would be tested against nothing. Reduce first: start from `jsonCoreParseArrayItems`
-and cut DOWN toward a minimum, since building UP from the passing probe above reproduces only my own
-guess about the cause.
+`renderMatch` diverts to `renderAnyMatch` — the `ssc_is`/`ssc_field` chain that can actually look
+inside a `Value::Obj` — when the subject is an `Any` and some arm destructures a case class. The
+first half was asked only of a bare name:
+
+```scala
+val subjectIsAny = subject match
+  case m.Term.Name(n) => ctx.anyNames.contains(n)
+  case _              => false        // a CALL lands here
+```
+
+So `step(n) match { … }` stayed on the typed path and emitted a struct pattern against a `Value`.
+
+**Why it was invisible.** Both defects need the same conditions, and the parse error comes first:
+rustc stops at `expected expression, found let` and never type-checks the file. `std/json-core.ssc`
+carries both at once, which is why that entry's reduction attributed the whole thing to
+`renderAnyMatch` — the one component that turns out to be the CORRECT path here.
+
+### The fix
+
+`_returnTypes` already answers this question for calls, and `collectAnyLocals` already asks it that
+way — `_returnTypes.get(f).contains("crate::value::Value")`, read from the DECLARED type, never
+inferred. `subjectIsAny` now uses the same test for `Apply(Name(f), _)`.
+
+The neighbouring site, `needsAnyCoercion`, spells the same question a THIRD way and already handles
+calls, signal reads and map applies. It was not touched: it is about argument coercion, not match
+lowering, and its own comment records that widening it rewrites every emitted call. Worth knowing
+that "is this an `Any`?" now has three implementations in `RustCodeWalk.scala`.
+
+## backendRust-test-stood-at-276-of-278-while-two-entries-here-quoted-it-as-278 — stale assertions, not defects
+
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: apparatus
+     gate: sbt backendRust/test
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: sbt --client "backendRust/test"
+     impact: none -->
+
+Found while using `backendRust/test` as the regression control for a codegen change. It came back
+276 succeeded / 2 failed, and the control — the same two classes on a clean tree — failed
+IDENTICALLY, so the change was not the cause. The two reds were already standing.
+
+That matters because two entries in this file quote this suite as `278/278` while arguing about a
+defect's blast radius, and one of them (`two-suites-two-blind-spots`) leans on it as the half that
+sees what the corpus cannot. A suite with two permanent reds cannot play that role: the next reader
+runs it, sees red, and has no cheap way to tell an old red from their own.
+
+Neither red was a product defect. Both are assertions that outlived a deliberate emission change:
+
+| test | asserts | emits now |
+|---|---|---|
+| `RustGenControlFlowTest`, match case guard | `if (x > 0i64) =>` | `if ((x > 0i64)) =>` |
+| `RustGenR23Test:230`, Map `getOrElse` | `.unwrap_or(0i64)` | `.unwrap_or(0i64.into())` |
+
+**They were fixed on opposite sides, and which side is which is the whole judgement.** The double
+parens are the EMITTER's fault: `renderTerm` already brackets a comparison, and the arm assembly
+wrapped the user guard again so it could `&&` it with the typed-binder tests — a real feature, but
+one that pays only when there are two conjuncts. Wrapping a lone guard bought nothing and cost an
+`unused_parens` warning on every guarded arm in the corpus, so the emitter now parenthesises only
+when it joins. The `.into()` is the opposite: a HashMap read hands back the map's value type, which
+on this lane may be a `Value`, so coercing the default at the call site is correct and the ASSERTION
+is what was stale. Note the Option `getOrElse` a few tests below emits a bare `.unwrap_or(0i64)` and
+still asserts it — the two spellings differ for a reason, which is why neither was "fixed" by
+matching on a shared prefix.
+
+Suite is 278/278 again. What is NOT fixed by this entry is the reason it went unnoticed: nothing
+reported the count, so the drop from 278 to 276 was silent and dateable only by reading git history.
+
+## rust-toint-parity-gate-compiled-v2-output-with-a-bare-rustc — E0433, and the rows asserted nothing
+
+<!-- status: open
+     lane: native
+     area: build
+     kind: apparatus
+     gate: tests/e2e/rust-toint-parity-gate.sh
+     fixed-in: -
+     reported-by: claude-code
+     reported-at: 2026-08-17
+     repro: tests/e2e/rust-toint-parity-gate.sh, rows `v2 conv-toint` and `v2 conv-tolong`
+     impact: none -->
+
+Found in a 17-gate regression sweep for an unrelated codegen change: sixteen green, this one red on
+two rows, and the control showed the red had nothing to do with the change under test.
+
+```text
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `num_bigint`
+341 |         V::Int(n) => V::Big(num_bigint::BigInt::from(n)),
+```
+
+The v2 Rust generator's prelude reaches for `num_bigint::BigInt`, and this gate compiled its output
+with `rustc -O one-file.rs`, which has no way to resolve a dependency. **The third instance of the
+same migration gap** — `v2/backend/check.sh` moved to a cargo crate when `BigInt` landed
+(`rust-bigint-is-an-i64`) and its own header says why; the callers it left behind then failed
+`E0433` one by one, as each was next run. See `a-guard-dissolves-when-its-replacement-lands`.
+
+Fixed by porting that file's `crate_init` verbatim in shape: one crate directory reused by both
+rows, so `num-bigint` compiles once for the gate. The rows PASS and answer `8|8|8|8|7|` and `8|8|`,
+which is the point of the repair — they were not merely red, they were asserting nothing about the
+second generator's numeric conversions, the exact defect this gate exists for.
+
+Cost moved 9 s → 15 s warm, and the header's claim that "the crates carry no external dependencies"
+was corrected rather than left standing: it is now true of the v1 half only.
+
+**What is not fixed.** Nothing looks for the NEXT caller of the v2 generator. Today there is exactly
+one outside `v2/backend` (`grep -rln 'v2/backend/rust' tests/e2e/*.sh`), so a census is cheap; a gate
+that pins that number would be cheaper than finding the fourth instance the way the first three were
+found.
 
 ## uniml-markdown-left-the-portable-subset-while-its-guard-ran-nowhere
 

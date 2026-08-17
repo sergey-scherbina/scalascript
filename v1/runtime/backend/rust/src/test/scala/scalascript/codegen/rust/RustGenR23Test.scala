@@ -227,7 +227,12 @@ class RustGenR23Test extends AnyFunSuite:
     // which `String` — the most common Map value in real code — does not implement, so
     // `Map[String,String].getOrElse` did not compile at all (E0277). `cloned` accepts everything
     // `copied` did and costs the same for a Copy type.
-    assert(g.contains(".get(&k).cloned().unwrap_or(0i64)"))
+    // `.into()` on the default, and only here: a HashMap read hands back the map's VALUE type,
+    // which on this lane may be a `crate::value::Value`, so the default is coerced at the call
+    // site. The Option `getOrElse` further down emits a bare `.unwrap_or(0i64)` and still asserts
+    // it — the difference between the two is the reason both are spelled out in full rather than
+    // matched on a shared prefix that would stop distinguishing them.
+    assert(g.contains(".get(&k).cloned().unwrap_or(0i64.into())"))
 
   test("Either[L, R] lowers to pub enum and supports map/flatMap/fold"):
     val src =

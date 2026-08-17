@@ -916,6 +916,19 @@ jobs:
         if: always()          # see the block above this job's steps
         run: tests/e2e/rust-case-class-method-gate.sh
 
+      # TWO defects, and the first one HID the second. A def declared to return `Any` renders its
+      # match arms through `renderValueTail`, which by contract hands back a statement SEQUENCE —
+      # spliced after `=>` that is `let n = 10i64;`, so the crate does not PARSE and every other
+      # diagnostic in it disappears. Behind that, once it parses: a match whose scrutinee is a CALL
+      # to an `Any`-declared def stayed on the typed path and read `expected Value, found Ok`.
+      # `std/json-core.ssc` carries both at once, which is why the reduction blamed the one
+      # component that was innocent. The `typed` row is the anti-row and passes with the fix
+      # REVERTED — the ordinary enum match already arrived braced, and must stay untouched.
+      # ~80 s, four cargo builds.
+      - name: a multi-statement match arm parses, and an Any-returning call scrutinee type-checks
+        if: always()          # see the block above this job's steps
+        run: tests/e2e/rust-match-arm-braces-gate.sh
+
       # `map + (k -> v)` reached rustc as an ADDITION — E0369 — and `std/http.ssc`'s `withHeader` is
       # written exactly that way, so no builder chain compiled on this lane. The lowering was never
       # missing, only unreachable: `.updated(k, v)` a few arms below renders the same operation. The

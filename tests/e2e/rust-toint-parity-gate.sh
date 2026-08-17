@@ -40,9 +40,10 @@
 # Scala answers a UTF-16 index, so a fix that returns `find`'s number is right for ASCII and quietly
 # wrong for anything else. `"héllo</head>x"` is 5 in Scala and 6 in bytes, and the row pins 5.
 #
-# COST: three cargo builds, measured 9 s standalone on a WARM cargo cache — the crates carry no
-# external dependencies, which is why it is nothing like `build-rust-refuses-loudly` (74.8 s, one of
-# its crates pulls serde_json). It still runs in `ci.yml` beside that gate rather than on the push
+# COST: five cargo builds, measured 15 s standalone on a WARM cargo cache. Three are the v1 half's
+# and carry no external dependencies; the two v2 rows share one crate that pulls `num-bigint`, so
+# the dependency compiles once for the gate. Still nothing like `build-rust-refuses-loudly` (74.8 s,
+# one of its crates pulls serde_json). It still runs in `ci.yml` beside that gate rather than on the push
 # path, because 9 s is the warm number and a CI runner compiles the crate cold; smoke was hitting
 # its own job timeout when cargo gates lived there, and that is not a thing to re-learn.
 # Without cargo it SKIPS loudly rather than passing quietly: a rust gate that silently becomes a
@@ -172,11 +173,32 @@ echo "── and the SECOND Rust generator, which carried the same silent zero"
 #
 # The wanted values are `run-ir`'s, re-derivable with:
 #     java -jar <v2 jar> run-ir <the .coreir written below>
-if ! command -v rustc >/dev/null 2>&1; then
-  echo "  [skip] rustc is not on PATH — the v2 generator half cannot run."
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "  [skip] cargo is not on PATH — the v2 generator half cannot run."
 elif ! command -v scala-cli >/dev/null 2>&1; then
   echo "  [skip] scala-cli is not on PATH — the v2 generator half cannot run."
 else
+  crate_init() {
+    [ -f "$sandbox/crate/Cargo.toml" ] && return 0
+    mkdir -p "$sandbox/crate/src"
+    cat > "$sandbox/crate/Cargo.toml" <<'TOML'
+[package]
+name = "gen"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+num-bigint = "0.4"
+
+[profile.release]
+overflow-checks = false
+
+[[bin]]
+name = "gen"
+path = "src/main.rs"
+TOML
+  }
+
   v2_says() { # $1 name, $2 expected stdout (newlines as |), $3 1 if it must abort, $4 CoreIR
     local name=$1 want=$2 mustabort=$3 ir=$4 out rc
     printf '%s\n' "$ir" > "$sandbox/$name.coreir"
@@ -185,10 +207,19 @@ else
       echo "  ✗ v2 $name: the generator could not emit Rust"
       tail -3 "$sandbox/$name.genlog" | sed 's/^/        /'; fails=$((fails + 1)); return
     fi
-    if ! rustc -O "$sandbox/$name.rs" -o "$sandbox/$name-bin" 2>"$sandbox/$name.rustc"; then
-      echo "  ✗ v2 $name: rustc refused the emitted source"
+    # A CARGO CRATE, NOT `rustc gen.rs`. The v2 generator's prelude reaches for
+    # `num_bigint::BigInt`, and a bare rustc has no way to resolve a dependency — this row failed
+    # `E0433: unlinked crate num_bigint` from the day of that migration, because the sibling that
+    # moved (`v2/backend/check.sh`) left this caller behind. Same shape and same reason as its
+    # `crate_init`, down to reusing ONE crate directory so cargo compiles num-bigint once for the
+    # whole gate. (rust-toint-parity-gate-compiled-v2-output-with-a-bare-rustc.)
+    crate_init
+    cp "$sandbox/$name.rs" "$sandbox/crate/src/main.rs"
+    if ! (cd "$sandbox/crate" && cargo build --release --quiet) 2>"$sandbox/$name.rustc"; then
+      echo "  ✗ v2 $name: cargo refused the emitted source"
       tail -3 "$sandbox/$name.rustc" | sed 's/^/        /'; fails=$((fails + 1)); return
     fi
+    cp "$sandbox/crate/target/release/gen" "$sandbox/$name-bin"
     out=$("$sandbox/$name-bin" 2>/dev/null | head -12 | tr '\n' '|')
     "$sandbox/$name-bin" >/dev/null 2>&1; rc=$?
     if [[ "$out" == "$want" ]] && { [[ "$mustabort" == 1 && "$rc" -ne 0 ]] || [[ "$mustabort" != 1 && "$rc" -eq 0 ]]; }; then
