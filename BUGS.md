@@ -3243,6 +3243,7 @@ lines of `awk` plus `test -f` would have caught all 107 the day the first one br
      found-by: claude-code
      found-at: 2026-08-17
      fixed-at: 2026-08-17
+     fixed-in: 5b80227fafe4509d15c1d4a49e946210533e30ed
      repro: the body
      confirmed: yes -->
 
