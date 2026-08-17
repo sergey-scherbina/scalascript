@@ -3207,7 +3207,7 @@ worth keeping, since the interpreter's version was loud and this one is silent.
 
 ## interp-declaring-a-plain-extern-class-member-breaks-it — a member works UNDECLARED and dies the moment you declare it
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
      kind: bug

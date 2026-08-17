@@ -1,3 +1,58 @@
+## bugs-index-gate-reads-prose-for-a-stale-open-entry-not-the-header — 18 entries carry a fix sha and read as open
+
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     kind: apparatus
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-17
+     repro: the census in the body
+     confirmed: yes -->
+
+The gate DOES look for an entry whose fix has landed while it still reads `open`. What it keys on is
+BODY PROSE: the `STALE_HINT` pattern in `tests/e2e/bugs-index-gate.sh` — read it there rather than
+here, and the next paragraph says why it is not quoted — plus a commit id in the body that is already
+an ancestor. Deliberately narrow, and the comment beside it says why: "a broad `pending` would match
+half the board, and a check that cries wolf is not read."
+
+WHAT IT NEVER READS is the header. `fixed-in:` and `fixed-at:` under `status: open` are invisible to
+it, so an entry can name the very commit that fixed it and stay open with the gate green. That is not
+a hypothetical: `interp-declaring-a-plain-extern-class-member-breaks-it` carried
+`fixed-at: 2026-08-16` and `fixed-in: bdd48657d` under `status: open`, its TWIN — fixed by that same
+commit — said `fixed`, and every run of the gate printed `stale-looking open entries: 0`.
+
+WHY ONE OF THE PAIR AND NOT THE OTHER: the `status` key sits on the same line as the opening `<!--`,
+while every other key is indented on its own line. An edit written for the indented shape silently
+misses it. That is the second time this exact line has been missed here.
+
+THE CENSUS, stated as a question rather than a verdict — across the nine BUGS files, 18 entries have
+`fixed-in:` or `fixed-at:` in the header without `status: fixed`:
+
+    BUGS.md                      4
+    v2/BUGS.md                  11
+    scripts/BUGS.md              2
+    tests/conformance/BUGS.md    1
+
+ONLY ONE IS ESTABLISHED TO BE WRONG — the one above, checked against its commit before it was
+touched. The other 17 are NOT claimed to be stale: a commit id on an open entry can be honest — a
+partial fix that closed one of two claims, a census row citing somebody else's work, or an entry
+reopened after a regression. Reading 18 rows as 18 defects is the mistake this entry exists to
+prevent; each needs its own look by whoever owns that area.
+
+MEASURED WHILE WRITING THIS, and it sizes the fix better than the census does: this entry TRIPPED the
+heuristic twice, and the second time for a reason worth keeping. The first draft used a phrase that
+happened to match. The rewrite then QUOTED the trigger phrases in order to explain them — and that
+was enough on its own, because the pattern cannot tell a use from a mention. An entry documenting a
+prose rule cannot state the rule without breaking it, so this one now points at the pattern in the
+gate instead of reproducing it. The header keys have no such failure mode: `fixed-in:` means the same
+thing whether an entry is using it or describing it. That is the argument for reading them.
+
+WHAT A HEADER CHECK COULD SAY WITHOUT GUESSING: not "this must be fixed", but "this header claims a
+fix and a status that disagree — say which". The honest cases then need one line of prose or a
+distinct key; the accidental ones become impossible to leave unnoticed. Costed, not built: the rule
+belongs with whoever owns the gate, and this is the measurement they need to size it.
+
 ## kind-required-only-after-the-push — three main-reds in one night, each one word
 
 <!-- status: fixed

@@ -5,7 +5,7 @@ started: 2026-08-17T14:45:29Z
 heartbeat: 2026-08-17T14:45:29Z
 status: claimed-before-planning
 items: interp-declaring-a-plain-extern-class-member-breaks-it
-paths: file:BUGS.md
+paths: file:BUGS.md file:tests/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement

@@ -4,4 +4,4 @@ ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interface
 v3-interpolator-as-a-call	claude-code	2026-08-17T14:36:28Z	v3-an-interpolator-prefix-is-hardcoded-in-both-fronts	file:v3/src/Lexer.scala file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/BUGS.md file:v3/BACKLOG.md
 paren-wildcard-cons	claude-code	2026-08-17T14:42:36Z	v2-parenthesised-head-in-a-cons-pattern-misses-the-arm	file:BUGS.md file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-cons-wildcard-head-gate.sh
 json-parse-either	claude-code	2026-08-17T14:42:41Z	json-parse-has-no-fallible-spelling	file:std/json.ssc file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustIntrinsics.scala file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/JsonRs file:tests/e2e/json-parse-either-gate.sh file:.github/workflows/ci.yml file:BACKLOG.md
-bugs-fixed-sha-without-fixed-status	claude-code	2026-08-17T14:45:29Z	interp-declaring-a-plain-extern-class-member-breaks-it	file:BUGS.md
+bugs-fixed-sha-without-fixed-status	claude-code	2026-08-17T14:45:29Z	interp-declaring-a-plain-extern-class-member-breaks-it	file:BUGS.md file:tests/BUGS.md
