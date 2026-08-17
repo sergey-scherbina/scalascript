@@ -7,7 +7,7 @@ grepping for status.
 
 Newest first.
 
-## v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests — one name, eight cases
+## v2-ui-provider-lacks-forJsonView-and-blocks-eight-unrelated-tests — five primitives, and each needs THREE parts
 
 <!-- status: open
      lane: v2
@@ -17,26 +17,33 @@ Newest first.
      found-by: claude-code
      found-at: 2026-08-17 -->
 
-**`std/ui/primitives.ssc:111` declares `extern def forJsonView(items: Signal[String], key: String,
-render: Any => View): View` and `UiNativePlugin` never implemented it.** `std/ui/lower.ssc:209` calls
-it, so EVERY program importing the UI lowering reaches the name — and the refusal is positioned and
-honest, which is why it went unnoticed as a single-name problem.
+**THE SIZE IS A CENSUS, NOT AN ESTIMATE.** `std/ui/primitives.ssc` declares 53 `extern def`s;
+`UiNativePlugin` registers 48. The five missing are `emptyHeaders`, `fetchStreamSignal`,
+`intervalTick`, `itemField` and `selectFromView` — plus `forJsonView`, which is what this entry was
+opened for.
 
-**EIGHT CORPUS CASES STAND ON IT AND NONE OF THEM IS ABOUT IT:** `tkv2-button-size`,
+**EIGHT CORPUS CASES STAND ON THEM AND NONE IS ABOUT THEM:** `tkv2-button-size`,
 `tkv2-button-variant`, `tkv2-keyed-for`, `tkv2-raw-html`, `tkv2-select`, `tkv2-select-reactive`,
-`tkv2-textfield-reactive-label`, `tkv2-tri-state`. It is the largest single named gap left in the
-host-function bucket, at eight against two for the next.
+`tkv2-textfield-reactive-label`, `tkv2-tri-state`. They import `std/ui/lower.ssc`, which calls
+`forJsonView` at line 209, so the whole family is reached by any UI program.
 
-**IT IS A DESCRIPTOR, NOT AN ALGORITHM, which is what makes it small.** Its twin `forKeyedView`
-(`UiNativePlugin.scala:645`) packages `NativeUiForKeyed(site, items, keyClosure, renderClosure)` and
-does no diffing whatsoever — the CONSUMER does that. `forJsonView` differs only in taking a field
-NAME where the twin takes a key closure.
+**I WROTE TWO OF THEM AS DESCRIPTORS AND DID NOT LAND THEM, and the reason is the useful part.**
+`forJsonView` and `selectFromView` package a `DataV` exactly as their twin `forKeyedView` does, the
+plugin's 20 tests stayed green, and the corpus did NOT move: exec 259 DIFF 1 CRASH 3 with and
+without. Each case simply advanced to the next missing name — `forJsonView`, then `selectFromView`,
+then `unknown name 'sp'` inside `std/ui/lower.ssc`, which is no longer a provider gap at all.
 
-**WHAT IS NOT COVERED BY WRITING IT:** the descriptor's consumers — `SwiftNativeUiApple` and
-`SwiftNativeUiHost` — would not know the new tag. Whether the eight cases need that depends on what
-they assert, and unblocking them is what will show it: this is the "unblocking reveals the next
-defect" shape, and the floors are the instrument.
+**A PRIMITIVE IS THREE PARTS HERE, WHICH IS WHY HALF OF ONE IS WORSE THAN NONE.** `forKeyedView`
+has a constructor (`UiNativePlugin.scala:645`), a RENDERER arm (`:466`) and a FIELD-NAME
+registration (`:486`) — and the Swift host has its own arm besides. A constructor alone lets a
+program build a node nothing can render, which trades an honest positioned refusal for a failure
+further downstream. That is the same trade this repository has paid for twice this week.
 
+**WHAT EACH ONE ACTUALLY NEEDS**, so the next person can size it before starting: `selectFromView`
+and `forJsonView` are descriptors plus a renderer arm plus field names; `itemField` reads a field
+off a parsed JSON row; `intervalTick` is a timer-backed signal; `emptyHeaders` is a constant signal;
+`fetchStreamSignal` is streaming HTTP. Only the first two are mechanical, and only once their
+renderers exist.
 ## v2-persisted-signal-declares-its-stored-value-as-its-default — declared and initial are separate now
 
 <!-- status: fixed
