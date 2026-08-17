@@ -1,6 +1,5 @@
-# generation: 2627
+# generation: 2628
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
-mcp-v2-http-sse	claude-code	2026-08-17T12:13:06Z	mcp-v2-http-transport-has-no-sse	file:v2/runtime/providers/mcp-plugin/src/main/scala/ssc/plugin/mcp/McpNativePlugin.scala file:tests/e2e/v21-standard-mcp-smoke.sh file:docs/mcp.md file:BUGS.md
 varargs-after-fixed	claude-code	2026-08-17T13:10:41Z	f-curried-def-gate-red-on-varargs-after-a-fixed-parameter	file:BUGS.md
