@@ -99,6 +99,29 @@ def main(): Unit = println(f())'
 lowered_and_correct varargs-after-fixed 3 'def f(n: Int, xs: String*): Int = n + xs.toList.length
 def main(): Unit = println(f(1, "a", "b"))'
 
+# THE ANTI-ROW, and it is the reason `varargs-after-fixed` above is a fix and not a hole. Those two
+# rows were red because `registerParamTypes` records a def as soon as ONE parameter has a known type,
+# and recording a signature fixes its ARITY — which a vararg def does not have. The repair skips the
+# registration for a trailing-vararg def, so the obvious way to "pass" those rows is to weaken the
+# registry for everyone. This row is what that costs: `h` has no vararg, three arguments for two
+# parameters is a real error, and it must still be REFUSED. `--v1` prints 3 here — the reference lane
+# is the permissive one — so the expectation is deliberately the v2 message and not the other lane's
+# answer. (f-curried-def-gate-red-on-varargs-after-a-fixed-parameter.)
+refuses_overapplication() {
+  local name=$1 src=$2 out
+  printf '%s\n' "$src" > "$sandbox/$name.ssc"
+  out=$(timeout 200 "$ssc" run "$sandbox/$name.ssc" 2>&1 | head -1)
+  if grep -qF 'TYPEERR' <<<"$out"; then
+    echo "  ✓ $name: refused — $out"
+  else
+    echo "  ✗ $name: answered '$out'; over-applying a NON-vararg def must stay a type error"
+    fails=$((fails + 1))
+  fi
+}
+
+refuses_overapplication overapply-non-vararg 'def h(a: Int, b: Int): Int = a + b
+def main(): Unit = println(h(1, 2, 3))'
+
 lowered_and_correct varargs-curried 3 'def f(n: Int)(xs: String*): Int = n + xs.toList.length
 def main(): Unit = println(f(1)("a", "b"))'
 

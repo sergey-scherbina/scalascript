@@ -2149,7 +2149,26 @@ def parseDef = (toks) =>
   -- Context dictionaries are injected separately by the lowerer and therefore
   -- are not part of the source-call arity/default registry.
   let callParams = append(params, append(prV(rp2), prV(rp3))) in
-  let _rty = registerParamTypes(name, callParams) in
+  -- A TRAILING-VARARG DEF IS NOT REGISTERED, and the reason is the one TYPES-1 already gives above:
+  -- "a partially-understood type is worse than an absent one, because it constrains where it should
+  -- not". Registering a signature fixes its ARITY as well as its types, and a vararg def HAS no
+  -- fixed arity. `def f(n: Int, xs: String*)` was recorded as exactly two parameters, so the
+  -- checker's curried application rule over-applied on the third argument and reported
+  -- `cannot unify Int: Int vs (String -> t4)` for a correct program.
+  --
+  -- It survived because the failure needs a MIXED signature. `registerParamTypes` only records a def
+  -- when some parameter has a known type (`anyTy`), and `xs: String*` is never known — `simpleDeclTy`
+  -- wants `,` or `)` immediately after the type name and finds `*`. So a def whose ONLY parameter is
+  -- a vararg was never registered and always worked; adding one typed parameter in front of it broke
+  -- it. Measured: `g(xs: String*)` takes any number of arguments, `f(n: Int, xs: String*)` takes at
+  -- most two, `k(a: Int, b: Int, xs: String*)` at most three — the cap is the parameter COUNT.
+  --
+  -- Skipping loses type checking on the fixed parameters of vararg defs, which is the smaller loss:
+  -- today those defs cannot be CALLED with more than `n` arguments at all. The larger fix is an
+  -- arity-`>= n` signature, which this checker has no way to say yet.
+  -- (f-curried-def-gate-red-on-varargs-after-a-fixed-parameter.)
+  let _rty = if #cell.get(lastParamVarargCell) then 0
+             else registerParamTypes(name, callParams) in
   let _reg = registerParamDflts(name, callParams) in
   -- Curried = a non-empty SECOND clause; snapshot the first clause's defaults so the
   -- lowerer's curry-collapse can fill them when the first clause is called empty.

@@ -1587,7 +1587,7 @@ so a fix that dropped it unconditionally prints nothing and fails there.
      repro: tests/e2e/f-curried-def-gate.sh, rows `varargs-after-fixed` and `varargs-curried`
      impact: workaround -->
 
-Found as an unexplained red in a regression sweep for an unrelated front change, and it is not that
+Found as an unexplained red in a regression sweep for an unrelated front change, and it was not that
 change: the failing programs contain no `match` and no `case`, and `parseArm` is reachable only from
 `parseArms0` behind a `case` token.
 
@@ -1600,20 +1600,45 @@ def main(): Unit = println(f(1, "a", "b"))
 ssc: TYPEERR: in def main: cannot unify Int: Int vs (String -> t4)
 ```
 
-Same for the curried spelling `def f(n: Int)(xs: String*)`. **Varargs alone are fine** — the gate's
-`varargs-plain`, `varargs-single` and `varargs-empty` rows pass — so the defect is a vararg
-parameter that FOLLOWS a fixed one. The unification message reading `(String -> t4)` says the
-vararg parameter is being typed as a function rather than a sequence at the call site.
+### It is about ARITY, not about varargs
 
-**It runs in CI** (`.github/workflows/ci.yml:2196`) and is red there, which is the part worth
-recording: two rows of a wired gate have been failing with nobody's name on them.
+`registerParamTypes` records a def as soon as SOME parameter has a known type (`anyTy`). Recording a
+signature fixes its ARITY as well as its types, and a vararg def has no fixed arity — so the
+checker's curried application rule over-applies on the extra argument and unifies the RESULT type
+with a function type.
 
-**A note on how nearly this was mis-attributed.** The first control run — the same gate in the main
-checkout — reproduced the failure, which looked conclusive. It was not: that checkout's toolchain
-was built from `4b717804c` while its HEAD was `b1cb21fe6`, and the gate exports
-`SSC_NO_BUILD_CHECK=1`, so the staleness warning that would have said so was suppressed. The
-argument that actually holds is the reachability one above. A gate that silences the build check
-cannot be used as a control without rebuilding first.
+**The failure needs a MIXED signature, which is why it lasted.** `xs: String*` is never a known type:
+`simpleDeclTy` wants `,` or `)` immediately after the type name and finds `*`. A def whose ONLY
+parameter is a vararg therefore fails `anyTy`, is never registered, and works at any arity. Put one
+typed parameter in front of it and the cap becomes the parameter COUNT:
+
+| def | accepts |
+|---|---|
+| `g(xs: String*)` | any number of arguments |
+| `f(n: Int, xs: String*)` | at most 2 |
+| `k(a: Int, b: Int, xs: String*)` | at most 3 |
+
+**No two-front pair here, and that was checked rather than assumed.** F has no parameter-type
+registry of its own; the CHECK phase always runs through the legacy front's parser
+(`ssc1-check-run.ssc0`), which is why `SSC_FRONT=legacy` and the default F lane failed identically.
+
+### The fix, and what it costs
+
+The registration is skipped for a trailing-vararg def, on the principle TYPES-1 states a few lines
+above it: "a partially-understood type is worse than an absent one, because it constrains where it
+should not". Fixing an arity that is variable is exactly that.
+
+The cost is that the FIXED parameters of a vararg def are no longer type-checked. That is the smaller
+loss: today those defs cannot be CALLED with more than `n` arguments at all. The real repair is a
+signature meaning "arity >= n", which this checker has no way to express yet, and that is the shape
+the next person should reach for rather than re-deriving this.
+
+**The gate gained an ANTI-ROW rather than a new gate**, since `f-curried-def-gate` already covered
+the defect and was already wired into CI. `overapply-non-vararg` calls a two-parameter def with
+three arguments and requires it to STAY a type error — the obvious way to pass the two red rows is to
+weaken the registry for everyone, and this row is what that costs. Its expectation is deliberately
+the v2 message rather than the other lane's answer: `--v1` prints `3` for that program, so on this
+one point the reference lane is the permissive one.
 
 ## bugs-index-gate-hides-the-enum-it-rejects-against — three agents, one day, the same rejected value
 
