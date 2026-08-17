@@ -62,6 +62,105 @@ CAP=${CAP:-45}
 
 ssc_usable_or_skip f-output-agreement-gate "$ssc"
 
+# The per-file classifier, in a FUNCTION so `--self-test` can drive it directly. It used to be an
+# inline heredoc, which meant the only way to exercise a classification rule was to run all 640
+# subjects and hope one of them had the shape you were testing.
+write_worker() {
+  cat > "$1" <<'WORKER'
+#!/usr/bin/env bash
+f=$1
+o="$WORK/$(echo "$f" | tr '/' '_')"
+SSC_FRONT_STRICT=1 timeout "$CAP" "$SSC_BIN" run "$f" > "$o.f" 2>&1; frc=$?
+[ $frc -eq 124 ] && { printf 'TIMEOUT\t%s\n' "$f"; rm -f "$o.f"; exit 0; }
+fout=$(head -8 "$o.f"); rm -f "$o.f"
+case "$fout" in *"refusing to fall back"*) printf 'DECLINED\t%s\n' "$f"; exit 0 ;; esac
+# The reference run, memoized. A TIMEOUT is never cached — it is a property of the host, not of the
+# program, and caching one would freeze a busy afternoon into every later run.
+refrun() { SSC_FRONT=legacy timeout "$CAP" "$SSC_BIN" run "$1" > "$2" 2>&1; }
+rkey=""; rhit=0
+if [ -n "$REFCACHE" ]; then rkey="$REFCACHE/$(printf '%s' "$f" | shasum -a 256 | cut -d' ' -f1)"; fi
+if [ -n "$rkey" ] && [ -f "$rkey" ]; then
+  rout=$(cat "$rkey"); rhit=1
+  # Sampled re-verification: recompute anyway on one hit in REF_VERIFY_EVERY and demand a match.
+  if [ $(( 0x$(printf '%s' "$f" | shasum -a 256 | cut -c1-4) % REF_VERIFY_EVERY )) -eq 0 ]; then
+    refrun "$f" "$o.r"; rrc=$?
+    if [ $rrc -ne 124 ]; then
+      fresh=$(head -8 "$o.r")
+      if [ "$fresh" != "$rout" ]; then
+        # Before blaming the cache, ask whether the SUBJECT is stable: a program that answers
+        # differently on two fresh runs makes any stored answer "wrong" without the key being wrong.
+        refrun "$f" "$o.r3"; r3rc=$?
+        fresh2=$(head -8 "$o.r3"); rm -f "$o.r3"
+        if [ $r3rc -ne 124 ] && [ "$fresh2" != "$fresh" ]; then
+          rm -f "$rkey" "$o.r"; printf 'FLAKY\t%s\n' "$f"; exit 0
+        fi
+        rm -f "$o.r"; printf 'CACHE-MISMATCH\t%s\n' "$f"; exit 0
+      fi
+    fi
+    rm -f "$o.r"
+  fi
+  printf 'REFHIT\n' >> "$WORK/refstats.txt"
+else
+  refrun "$f" "$o.r"; rrc=$?
+  [ $rrc -eq 124 ] && { printf 'TIMEOUT\t%s\n' "$f"; rm -f "$o.r"; exit 0; }
+  rout=$(head -8 "$o.r"); rm -f "$o.r"
+  [ -n "$rkey" ] && printf '%s' "$rout" > "$rkey"
+  printf 'REFMISS\n' >> "$WORK/refstats.txt"
+fi
+if [ "$fout" = "$rout" ]; then
+  case "$rout" in
+    *"ssc: "*) printf 'BOTHFAIL\t%s\n' "$f" ;;
+    *)         printf 'AGREE\t%s\n' "$f" ;;
+  esac
+  exit 0
+fi
+# A DIVERGENCE MUST REPRODUCE BEFORE IT IS JUDGED.
+#
+# `examples/v2-http-sql-demo.ssc` makes a REAL HTTP REQUEST, and it landed in `all three lanes
+# differ` twice — with F seeing `HTTP GET failed: request timed out` and the reference seeing
+# `HTTP status: 200`. Nothing about that is a property of either front; it is a property of the
+# network that afternoon. Excluding the file by name was the obvious fix and the wrong one: the
+# subject set here is a RULE precisely so that nobody has to maintain a list, and the next
+# nondeterministic subject — a clock, a port, a random seed — would arrive unannounced.
+#
+# So both fronts are run once more. If the second pair AGREES, or if either front's own answer
+# changed between the two runs, the subject is nondeterministic and goes to a bucket that is
+# reported and never judged — the same treatment a timeout already gets, for the same reason.
+# Costs two runs per DIVERGENT row only, and divergences are the small bucket.
+#
+# THE STAKES ARE HIGHER THAN "NOISE IN THE REPORT". Measured by disabling this rule and re-running
+# the self-test: the nondeterministic subject came back classified **F-WRONG** — the one bucket this
+# gate has a ceiling on. A network hiccup could therefore fail the gate and name F as the cause, and
+# the next reader would go looking for a regression that never existed.
+SSC_FRONT_STRICT=1 timeout "$CAP" "$SSC_BIN" run "$f" > "$o.f2" 2>&1; f2rc=$?
+SSC_FRONT=legacy   timeout "$CAP" "$SSC_BIN" run "$f" > "$o.r2" 2>&1; r2rc=$?
+fout2=$(head -8 "$o.f2"); rout2=$(head -8 "$o.r2"); rm -f "$o.f2" "$o.r2"
+if [ $f2rc -eq 124 ] || [ $r2rc -eq 124 ]; then printf 'TIMEOUT\t%s\n' "$f"; exit 0; fi
+if [ "$fout2" = "$rout2" ] || [ "$fout2" != "$fout" ] || [ "$rout2" != "$rout" ]; then
+  # A flaky subject must not stay in the reference cache either: a stored answer for a program that
+  # answers differently each time would be reported as a CACHE MISMATCH by the sampling below, which
+  # is a hard failure — a false one, blamed on the cache instead of on the program.
+  [ -n "$rkey" ] && rm -f "$rkey"
+  printf 'FLAKY\t%s\n' "$f"; exit 0
+fi
+
+# Both failed, with different messages: a divergence worth seeing, but neither front is usable here.
+case "$rout" in
+  *"ssc: "*) printf 'DISAGREE\t%s\n' "$f"; exit 0 ;;
+esac
+# THE REFERENCE FRONT IS NOT AN ORACLE, and treating it as one is what this gate got wrong until
+# 2026-08-12. Of the five divergences the conformance sweep found, THREE were reference-front
+# defects with F in the right, and the gate counted every one of them against F. So a divergence is
+# put to a THIRD lane, the v1 interpreter, and charged to whichever front the other two contradict.
+# It costs one extra run per DIVERGENT row only, and divergences are the small bucket.
+iout=$(timeout "$CAP" "$SSC_BIN"-tools run --v1 "$f" 2>&1 | head -8)
+if [ "$fout" = "$iout" ]; then printf 'REF-WRONG\t%s\n' "$f"; exit 0; fi
+if [ "$rout" = "$iout" ]; then printf 'F-WRONG\t%s\n' "$f"; exit 0; fi
+printf 'UNRESOLVED\t%s\n' "$f"
+WORKER
+  chmod +x "$1"
+}
+
 # THE REFERENCE CACHE KEY, in one place because --self-test has to compute the same thing.
 #
 # It covers exactly two populations, and it took two wrong versions to get there:
@@ -209,6 +308,42 @@ if [ "${1:-}" = "--self-test" ]; then
   # the runtime is covered by its SOURCES, since its jars carry mtimes and cannot be hashed usefully
   st_moves "the CLI runtime source" "$ROOT/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala"
 
+  # ── a divergence that does not reproduce must not be judged ───────────────────────────────────
+  #
+  # `examples/v2-http-sql-demo.ssc` makes a real HTTP request and reached `all three lanes differ`
+  # on a timeout — a property of the network, not of either front. Excluding it by name would have
+  # contradicted this gate's own rule that the subject set is a RULE and not a list, and would have
+  # done nothing about the next nondeterministic subject.
+  #
+  # This row drives the classifier directly on a program whose FIRST run differs from every later
+  # one: it prints A and drops a marker, then prints B forever. F runs first and sees A, the
+  # reference runs second and sees B — a divergence — and the re-run pair both see B and agree. That
+  # is exactly the shape the rule exists for, produced deterministically so the row cannot flake
+  # itself.
+  echo "── self-test: a divergence that does not reproduce"
+  stw="$(mktemp -d)"
+  write_worker "$stw/one.sh"
+  marker="$stw/marker"
+  cat > "$stw/flaky.ssc" <<SSCEOF
+[exists, writeFile](std/fs.ssc)
+
+def main(): Unit =
+  if exists("$marker") then println("B")
+  else
+    writeFile("$marker", "x")
+    println("A")
+SSCEOF
+  verdict=$(SSC_BIN="$ssc" CAP="$CAP" WORK="$stw" REFCACHE="" REF_VERIFY_EVERY=999999 \
+            SSC_NO_BUILD_CHECK=1 bash "$stw/one.sh" "$stw/flaky.ssc" 2>/dev/null | cut -f1)
+  if [ "$verdict" = "FLAKY" ]; then
+    echo "  ✓ a non-reproducing divergence is bucketed FLAKY, not judged"
+  else
+    echo "  ✗ a non-reproducing divergence was classified '$verdict' — it should be FLAKY"
+    echo "    (a program answering differently each run would be charged to a front)"
+    st_fail=$((st_fail+1))
+  fi
+  rm -rf "$stw"
+
   # ── the row that DECIDES, opt-in because it rebuilds twice (~10 min) ──────────────────────────
   #
   # Ten unit rows above passed against a key that still broke in practice: each touches one file it
@@ -317,59 +452,7 @@ fi
 # So the exit code is read, and a kill (124) puts the file in its own bucket that is never judged.
 # Under contention the gate then degrades to "fewer subjects measured" — which the SUBJECT_MIN floor
 # reports honestly — instead of manufacturing regressions.
-cat > "$work/one.sh" <<'WORKER'
-#!/usr/bin/env bash
-f=$1
-o="$WORK/$(echo "$f" | tr '/' '_')"
-SSC_FRONT_STRICT=1 timeout "$CAP" "$SSC_BIN" run "$f" > "$o.f" 2>&1; frc=$?
-[ $frc -eq 124 ] && { printf 'TIMEOUT\t%s\n' "$f"; rm -f "$o.f"; exit 0; }
-fout=$(head -8 "$o.f"); rm -f "$o.f"
-case "$fout" in *"refusing to fall back"*) printf 'DECLINED\t%s\n' "$f"; exit 0 ;; esac
-# The reference run, memoized. A TIMEOUT is never cached — it is a property of the host, not of the
-# program, and caching one would freeze a busy afternoon into every later run.
-refrun() { SSC_FRONT=legacy timeout "$CAP" "$SSC_BIN" run "$1" > "$2" 2>&1; }
-rkey=""; rhit=0
-if [ -n "$REFCACHE" ]; then rkey="$REFCACHE/$(printf '%s' "$f" | shasum -a 256 | cut -d' ' -f1)"; fi
-if [ -n "$rkey" ] && [ -f "$rkey" ]; then
-  rout=$(cat "$rkey"); rhit=1
-  # Sampled re-verification: recompute anyway on one hit in REF_VERIFY_EVERY and demand a match.
-  if [ $(( 0x$(printf '%s' "$f" | shasum -a 256 | cut -c1-4) % REF_VERIFY_EVERY )) -eq 0 ]; then
-    refrun "$f" "$o.r"; rrc=$?
-    if [ $rrc -ne 124 ]; then
-      fresh=$(head -8 "$o.r")
-      if [ "$fresh" != "$rout" ]; then printf 'CACHE-MISMATCH\t%s\n' "$f"; rm -f "$o.r"; exit 0; fi
-    fi
-    rm -f "$o.r"
-  fi
-  printf 'REFHIT\n' >> "$WORK/refstats.txt"
-else
-  refrun "$f" "$o.r"; rrc=$?
-  [ $rrc -eq 124 ] && { printf 'TIMEOUT\t%s\n' "$f"; rm -f "$o.r"; exit 0; }
-  rout=$(head -8 "$o.r"); rm -f "$o.r"
-  [ -n "$rkey" ] && printf '%s' "$rout" > "$rkey"
-  printf 'REFMISS\n' >> "$WORK/refstats.txt"
-fi
-if [ "$fout" = "$rout" ]; then
-  case "$rout" in
-    *"ssc: "*) printf 'BOTHFAIL\t%s\n' "$f" ;;
-    *)         printf 'AGREE\t%s\n' "$f" ;;
-  esac
-  exit 0
-fi
-# Both failed, with different messages: a divergence worth seeing, but neither front is usable here.
-case "$rout" in
-  *"ssc: "*) printf 'DISAGREE\t%s\n' "$f"; exit 0 ;;
-esac
-# THE REFERENCE FRONT IS NOT AN ORACLE, and treating it as one is what this gate got wrong until
-# 2026-08-12. Of the five divergences the conformance sweep found, THREE were reference-front
-# defects with F in the right, and the gate counted every one of them against F. So a divergence is
-# put to a THIRD lane, the v1 interpreter, and charged to whichever front the other two contradict.
-# It costs one extra run per DIVERGENT row only, and divergences are the small bucket.
-iout=$(timeout "$CAP" "$SSC_BIN"-tools run --v1 "$f" 2>&1 | head -8)
-if [ "$fout" = "$iout" ]; then printf 'REF-WRONG\t%s\n' "$f"; exit 0; fi
-if [ "$rout" = "$iout" ]; then printf 'F-WRONG\t%s\n' "$f"; exit 0; fi
-printf 'UNRESOLVED\t%s\n' "$f"
-WORKER
+write_worker "$work/one.sh"
 chmod +x "$work/one.sh"
 printf '%s\n' "$corpus" | grep . | xargs -P "${JOBS:-8}" -I{} "$work/one.sh" {} > "$work/rows.txt" 2>/dev/null
 
@@ -382,16 +465,18 @@ fwrong=$(grep -c '^F-WRONG' "$work/rows.txt" || true)
 refwrong=$(grep -c '^REF-WRONG' "$work/rows.txt" || true)
 unresolved=$(grep -c '^UNRESOLVED' "$work/rows.txt" || true)
 cachemismatch=$(grep -c '^CACHE-MISMATCH' "$work/rows.txt" || true)
+flaky=$(grep -c '^FLAKY' "$work/rows.txt" || true)
 refhits=$(grep -c '^REFHIT' "$work/refstats.txt" 2>/dev/null || true)
 refmiss=$(grep -c '^REFMISS' "$work/refstats.txt" 2>/dev/null || true)
 worse=$fwrong   # kept for the threshold block below
 subjects=$((agree + bothfail + disagree + fwrong + refwrong + unresolved))
 
-echo "    F declined (coverage, not judged here): $declined   timed out (not judged): $timedout"
+echo "    F declined (coverage, not judged here): $declined   timed out (not judged): $timedout   nondeterministic (not judged): $flaky"
 echo "    measured: $subjects   agree: $agree   both fail identically: $bothfail   disagree: $disagree"
 echo "    divergences arbitrated by the v1 interpreter:"
 echo "      F contradicted by BOTH other lanes: $fwrong   reference contradicted: $refwrong   all three differ: $unresolved"
 if [ -n "$refcache" ]; then echo "    reference cache: ${refhits:-0} reused, ${refmiss:-0} computed"; fi
+if [ "${flaky:-0}" -gt 0 ]; then echo "── nondeterministic (divergence did not reproduce; verdict is not a property of either front):"; awk -F'\t' '$1=="FLAKY"{print "  " $2}' "$work/rows.txt"; fi
 if [ "$disagree" -gt 0 ]; then echo "── disagreements (both fail, different message):"; awk -F'\t' '$1=="DISAGREE"{print "  " $2}' "$work/rows.txt"; fi
 if [ "$fwrong" -gt 0 ]; then echo "── where F is WRONG (interpreter agrees with the reference):"; awk -F'\t' '$1=="F-WRONG"{print "  " $2}' "$work/rows.txt"; fi
 if [ "$refwrong" -gt 0 ]; then echo "── where the REFERENCE is wrong (interpreter agrees with F) — not F's work:"; awk -F'\t' '$1=="REF-WRONG"{print "  " $2}' "$work/rows.txt"; fi
