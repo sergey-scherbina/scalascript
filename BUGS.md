@@ -2804,6 +2804,46 @@ re-running the matrix — all eight now answer, and the MCP gate drives them end
 
 ---
 
+## docs-readme-links-107-of-143-point-at-files-that-are-not-there
+
+<!-- status: open
+     lane: n/a
+     area: docs
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-17
+     repro: the census in the body
+     confirmed: yes -->
+
+`docs/README.md` is the index for the whole documentation set. **107 of its 143 links resolve to
+nothing.** Each names a file that exists — under `specs/` — while the link is written relative to
+`docs/`:
+
+```
+docs/dsl.md               NO        specs/dsl.md               yes
+docs/streams.md           NO        specs/streams.md           yes
+docs/mcp-x402-wallet.md   NO        specs/mcp-x402-wallet.md   yes
+```
+
+ONE CAUSE, 107 INSTANCES. Every one of them is `X.md` where `../specs/X.md` was meant; NONE of the
+143 is broken in any other way (the census checked: zero links point at a file that exists nowhere).
+That uniformity is what makes it a defect rather than 107 typos, and it is also why the fix is
+mechanical.
+
+HOW IT WAS FOUND, and the part worth keeping: I set out to fix TWO links — the MCP ones my own work
+had a stake in. `docs/mcp.md` did not exist (now written) and `mcp-x402-wallet.md` pointed nowhere.
+Rather than fix the second one and move on, I counted the population. Fixing the two I cared about
+and reporting "the README links are fixed" would have been true about my two and false about the
+index.
+
+The one link this session touches is the x402 one, repaired in place because it sits inside a claim
+that already owns `docs/README.md`. The other 106 are left for a claim that can also add the thing
+whose absence let this happen: **there is no gate that resolves the links in `docs/`.** A dozen
+lines of `awk` plus `test -f` would have caught all 107 the day the first one broke.
+
+---
+
 ## mcp-v2-auth-cannot-be-ported-until-v2-serves-http — the members would set state nothing reads
 
 <!-- status: open

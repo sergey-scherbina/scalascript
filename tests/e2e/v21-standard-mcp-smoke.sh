@@ -521,4 +521,56 @@ for lane in --v1 --v2; do
   }
 done
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request)'
+# ── docs/mcp.md — the documented server, EXTRACTED FROM THE DOC and run ──────
+#
+# The MCP examples that used to be the documentation were written from member names and did not
+# compile: `Message.user(...)` and `Transport.stdio` do not exist. Prose cannot be trusted to stay
+# true, so this row does not read the doc — it EXTRACTS the program out of it and runs it. If
+# someone edits the example into something that no longer works, this goes red; if someone changes
+# the API, the same. A doc that is only proofread is a doc that rots.
+#
+# The extraction is deliberately literal: the FIRST fenced scalascript block in docs/mcp.md.
+# Backticks are kept out of every double-quoted string in this row on purpose: inside double quotes
+# bash reads them as command substitution, which is how the first draft died with
+# 'unexpected EOF while looking for matching'. Keeping it
+# dumb means a reader can see what runs by looking at the page.
+doc_md="$ROOT/docs/mcp.md"
+[[ -f $doc_md ]] || { echo "v21-standard-mcp-smoke: docs/mcp.md is missing" >&2; exit 1; }
+awk '/^```scalascript$/{n++; if (n==1) {inblk=1; next}} inblk && /^```$/{exit} inblk' "$doc_md" \
+  > "$tmp/doc.ssc"
+[[ -s $tmp/doc.ssc ]] || {
+  echo 'v21-standard-mcp-smoke: no fenced scalascript block found in docs/mcp.md' >&2; exit 1
+}
+# The doc claims a specific surface; if the extracted block lost it, say so here rather than let a
+# vaguer failure downstream explain it.
+for needed in 'srv.tool(' 'srv.toolWithSchema(' 'srv.resource(' 'srv.prompt(' 'serveMcp('; do
+  grep -qF "$needed" "$tmp/doc.ssc" || {
+    echo "v21-standard-mcp-smoke: the doc's example no longer contains $needed" >&2; exit 1
+  }
+done
+doc_in='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"greet","arguments":{"who":"ann"}}}
+{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"notes://today"}}
+{"jsonrpc":"2.0","id":5,"method":"prompts/get","params":{"name":"summarise","arguments":{}}}'
+for lane in --v1 --v2; do
+  if [[ $lane == --v1 ]]; then bin="$ROOT/bin/ssc-tools"; else bin="$LAUNCHER"; fi
+  printf '%s\n' "$doc_in" | "$bin" run $lane "$tmp/doc.ssc" >"$tmp/doc$lane.out" 2>"$tmp/doc$lane.err" || true
+  # Exactly the answers the doc prints. The open `{"type":"object"}` for `greet` against the WRITTEN
+  # schema for `add` is the doc's own point about toolWithSchema, so it is asserted, not glossed.
+  for want in \
+    '"name":"greet","description":"Greet someone by name","inputSchema":{"type":"object"}' \
+    '"name":"add","description":"Add two numbers","inputSchema":{"type":"object","properties":{"a":{"type":"number"},"b":{"type":"number"}}}' \
+    '"text":"hello ann"' \
+    '"text":"buy milk"' \
+    '"role":"user","content":{"type":"text","text":"Summarise my notes."}'
+  do
+    grep -qF "$want" "$tmp/doc$lane.out" || {
+      echo "v21-standard-mcp-smoke: docs/mcp.md's example does not answer as the page says, on $lane" >&2
+      echo "  wanted: $want" >&2
+      tail -4 "$tmp/doc$lane.out" "$tmp/doc$lane.err" >&2; exit 1
+    }
+  done
+done
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example)'

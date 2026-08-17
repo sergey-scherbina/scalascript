@@ -177,7 +177,7 @@ nested into topic subdirectories. This index is the map for both sets.
 - [wallet-vault-ledger.md](wallet-vault-ledger.md) — Ledger Hardware Wallet Vault
 - [wallet-vault-trezor.md](wallet-vault-trezor.md) — Trezor Hardware Wallet Vault
 - [wallet-vault-mpc.md](wallet-vault-mpc.md) — MPC Wallet Vault
-- [mcp-x402-wallet.md](mcp-x402-wallet.md) — MCP × x402 × Wallet plan
+- [mcp-x402-wallet.md](../specs/mcp-x402-wallet.md) — MCP × x402 × Wallet plan
 
 ## Deploy, debug & tooling
 

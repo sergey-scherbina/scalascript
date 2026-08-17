@@ -866,15 +866,20 @@ that does, proven in both directions.
         DERIVING the schema from a type.
 - [ ] **Generator-backed streaming resources** — §11.5's precondition is met (`std/generators.ssc`
       0.1.0) and nothing in `std/mcp/` consumes it. This is the item §11.5 was waiting for.
-- [ ] **User-facing MCP documentation.** `docs/` has no MCP page and MCP has been part of the
-      STANDARD surface since 2026-07-31, so the `.ssc` contracts that now matter — `srv.asTask()`,
-      the three MRTR modes, and the idempotence precondition two of them carry — live only in
-      intrinsic comments. **Write the examples by RUNNING them.** A draft written from the Scala
-      member names was wrong in every line: the real shape is a bracketed import list,
-      `[mcpServer, Tool, requireString](std/mcp/server.ssc)`, inside a fenced block in a markdown
-      document, with `Tool.text(...)` and `requireString(args, ...)`. It was discarded rather
-      than landed. Ordering matters here too: a guide teaching `srv.asTask()` while the default
-      lane errors on it is worse than no guide, so this follows the v2 items.
+- [x] **User-facing MCP documentation** ✓ 2026-08-17 — `docs/mcp.md`, written by RUNNING every
+      example, and the outputs on the page are pasted from the run. The complete server is
+      EXTRACTED FROM THE PAGE by `tests/e2e/v21-standard-mcp-smoke.sh` and driven on both lanes, so
+      the doc cannot drift silently: the control that changes one greeting word in the example reds
+      the gate with `wanted: "text":"hello ann"`.
+      The warning in the old version of this item was right and now has evidence: **the MCP examples
+      already in `docs/tutorial.md` did not compile.** `Message.user(...)` — no such method, `Message`
+      is a case class — and `Transport.stdio`, where the enum case is `Stdio`. Both fixed, and the
+      tutorial now points at the page that is actually driven.
+      Found on the way, and NOT fixed here: 107 of the 143 links in `docs/README.md` resolve to
+      nothing, all with one cause (`X.md` where `../specs/X.md` was meant). I repaired the one link
+      this claim owns and filed the census as
+      `docs-readme-links-107-of-143-point-at-files-that-are-not-there` — fixing the two I cared about
+      and calling the index fixed would have been true about my two and false about the index.
 - [x] **`std/mcp/server.ssc` says "Not available on interpreter"** ✓ 2026-08-16 — and the line was
       HALF wrong, which is why it was checked rather than just corrected. The interpreter part is
       false: it declares `Feature.McpServer` and, driven over stdio, answers `initialize` with

@@ -535,6 +535,10 @@ The WebSocket endpoint is now automatically available as `wss://your-host:8443/w
 
 Add an MCP server so LLMs can use the todo API as a tool.
 
+> The snippet below is an excerpt shaped to this tutorial's app, not a standalone program.
+> For a complete server that is extracted and RUN by the test suite — and for the parts of
+> the surface this excerpt does not touch — see [mcp.md](mcp.md).
+
 ```scalascript
 // MCP server — exposes todo operations as LLM-callable tools
 mcpServer { srv =>
@@ -576,7 +580,7 @@ mcpServer { srv =>
   srv.prompt("summarize_todos") { args =>
     val user = requireString(args, "user")
     Prompt.messages(
-      Message.user(s"Please summarize the todo list for user $user and suggest what to work on next.")
+      Message(Role.User, Content.Text(s"Please summarize the todo list for user $user and suggest what to work on next."))
     )
   }
 }
@@ -585,7 +589,7 @@ mcpServer { srv =>
 val mcpTransport = getenv("MCP_TRANSPORT", "stdio") match
   case "http" => Transport.Http(getenv("MCP_PORT", "3001").toInt)
   case "ws"   => Transport.Ws(getenv("MCP_PORT", "3001").toInt)
-  case _      => Transport.stdio
+  case _      => Transport.Stdio
 
 serveMcp(mcpTransport)
 ```
