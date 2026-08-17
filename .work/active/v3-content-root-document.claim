@@ -1,0 +1,11 @@
+slug: v3-content-root-document
+branch: feature/v3-content-root-document
+agent: claude-code
+started: 2026-08-17T14:25:09Z
+heartbeat: 2026-08-17T14:25:09Z
+status: claimed-before-planning
+items: v3-the-content-provider-has-no-root-document
+paths: file:v3/plugins/V2Fleet.scala file:v3/plugins/V2Cli.scala file:v3/plugin-classpath.sh file:v3/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
