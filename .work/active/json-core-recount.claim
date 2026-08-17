@@ -1,0 +1,11 @@
+slug: json-core-recount
+branch: feature/json-core-recount
+agent: claude-code
+started: 2026-08-17T10:16:36Z
+heartbeat: 2026-08-17T10:16:36Z
+status: claimed-before-planning
+items: rust-lane-refuses-the-tolerant-json-parse-while-the-panicking-one-builds
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
