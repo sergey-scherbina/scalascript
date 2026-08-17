@@ -1,5 +1,5 @@
-# generation: 2594
+# generation: 2595
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 agree-gate-flaky-subjects	claude-code	2026-08-17T08:15:41Z	agree-gate-judges-nondeterministic-subjects	file:tests/e2e/f-output-agreement-gate.sh
-rust-match-arm-repro	claude-code	2026-08-17T08:56:13Z	rust-multi-statement-match-arm-emitted-without-braces	file:BUGS.md file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala
+rust-match-arm-repro	claude-code	2026-08-17T08:56:13Z	rust-multi-statement-match-arm-emitted-without-braces	file:BUGS.md file:v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustCodeWalk.scala file:tests/e2e/rust-match-arm-braces-gate.sh file:.github/workflows/ci.yml dir:v1/runtime/backend/rust/src/test
