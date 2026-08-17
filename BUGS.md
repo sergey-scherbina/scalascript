@@ -1160,12 +1160,13 @@ String-only three-argument case compiles and prints `a[b[c`. Corpus unmoved: `ru
 
 ## rust-multi-statement-match-arm-emitted-without-braces — the walker emits Rust that does not PARSE, and only behind a refusal that hides it
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
      gate: tests/e2e/rust-match-arm-braces-gate.sh
-     fixed-in: -
+     fixed-in: 679c66b17
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-16
      ssc-version: 315059ad7
@@ -1236,12 +1237,13 @@ parses and then fails `E0308`, because `subjectIsAny` is asked only of a bare `T
 
 ## rust-any-returning-call-scrutinee-keeps-the-typed-match-path — E0308, and the parse error hid it
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: bug
      gate: tests/e2e/rust-match-arm-braces-gate.sh
-     fixed-in: -
+     fixed-in: 679c66b17
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/rust-match-arm-braces-gate.sh, row `anyctor`
@@ -1300,12 +1302,13 @@ that "is this an `Any`?" now has three implementations in `RustCodeWalk.scala`.
 
 ## backendRust-test-stood-at-276-of-278-while-two-entries-here-quoted-it-as-278 — stale assertions, not defects
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: codegen
      kind: apparatus
      gate: sbt backendRust/test
-     fixed-in: -
+     fixed-in: 679c66b17
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: sbt --client "backendRust/test"
@@ -1343,12 +1346,13 @@ reported the count, so the drop from 278 to 276 was silent and dateable only by 
 
 ## rust-toint-parity-gate-compiled-v2-output-with-a-bare-rustc — E0433, and the rows asserted nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: build
      kind: apparatus
      gate: tests/e2e/rust-toint-parity-gate.sh
-     fixed-in: -
+     fixed-in: 679c66b17
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/rust-toint-parity-gate.sh, rows `v2 conv-toint` and `v2 conv-tolong`
