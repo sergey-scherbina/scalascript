@@ -259,9 +259,17 @@ object Lexer:
       var text = ""
       while !done(s) && Chars.isIdPart(at(s)) do
         text = text + at(s); s = adv(s)
-      // `s"…"` — an identifier immediately followed by a quote is an interpolator. `f` and `raw`
-      // lex the same way and are refused later BY NAME, rather than being silently treated as `s`.
-      if !done(s) && at(s) == '"' && (text == "s" || text == "f" || text == "raw") then
+      // ANY identifier immediately followed by a quote is an interpolator — which is what the rule
+      // always said, while the code allowed three names. The list was harmless when every prefix but
+      // `s` was refused anyway; once a prefix became an ordinary CALL it turned into a divergence,
+      // because uniml accepts any word here and v3's own front lexed `tag"…"` as an identifier and a
+      // separate string. `front-diff` caught it on the first run, on the fixture added with this
+      // change and on no corpus case.
+      //
+      // ADJACENCY IS THE WHOLE TEST, and it is enough: a name touching a quote with nothing between
+      // them has no other meaning in this language. A line break between them is not adjacency —
+      // that is the same-line rule the uniml lexer needed on 2026-08-16.
+      if !done(s) && at(s) == '"' then
         var t = adv(s)
         var raw = ""
         var closed = false
