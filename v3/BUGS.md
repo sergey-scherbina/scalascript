@@ -207,30 +207,43 @@ cases and `json-self-hosted-import` went from an honest refusal to a wrong answe
 refusal upstream had been keeping them out of providers v3 cannot actually serve. See
 `v3-the-content-provider-has-no-root-document` and `v3-has-no-decimal-so-the-json-core-cannot-cross`.
 Unwiring both keeps every floor and still leaves +3 on each lane.
-## v3-the-content-provider-has-no-root-document — every entry point answers "no explicit root content"
+## v3-the-content-provider-has-no-root-document — it is a pipeline to integrate, not a value to hand over
 
 <!-- status: open
      lane: v3
-     kind: bug
+     kind: feature
      area: runtime
      gate: v3/corpus-report.sh (content-binding and four more)
      found-by: claude-code
      found-at: 2026-08-16 -->
 
 **`contentDocument() is unavailable: native compilation has no explicit root content`** — from
-`ContentNativePlugin`, on every content entry point. v2's compiler sets a root document from the
-`.ssc` it is compiling; neither of v3's lanes does, so the provider is installed and cannot answer.
+`ContentNativePlugin`, on every content entry point, so `v2NativeContentPlugin` stays out of
+`v3/plugin-classpath.sh` and five `content-*` cases stay honest refusals.
 
-**IT WAS HARMLESS UNTIL A REFUSAL UPSTREAM WENT AWAY.** `std/content.ssc` passes a top-level `def` as
-a value, which v3 refused, so the five `content-*` cases never reached the provider. The moment
-eta-expansion landed they did, and all five turned from an honest refusal into a stack trace. The
-module is commented out of `v3/plugin-classpath.sh` with that reason written beside it.
+**SIZED PROPERLY 2026-08-17, AND THE EARLIER NOTE IN THIS ENTRY UNDER-ESTIMATED IT.** It said v3
+parses the `.ssc` including its front matter so "the document exists on this side". It does not. The
+chain, read end to end:
 
-**WHAT IT WOULD TAKE:** v3 parses the `.ssc` including its front matter, so the document exists on
-this side; what is missing is handing it to the provider before the program runs, on BOTH lanes —
-the executor's install path and `V2Cli`'s. Until then the honest refusal is
-`the host function 'contentData' is not implemented on this lane`, with a position.
+1. `NativePluginHost.loadAll(config)` DOES take `NativeRuntimeConfig(contentModules = …)` — the door
+   exists, and `V2Fleet` currently calls the no-argument overload. That part is one line.
+2. A `NativeContentModule` carries `document: Value`, which must be a validated `DocumentContent/6`.
+3. `std/content.ssc` does NOT build one: it declares `extern def contentDocument(): DocumentContent`
+   and receives it. Nothing self-hosted turns source text into that value on its own.
+4. The values come from a SELF-HOSTED STRUCTURAL PASS whose output the v1 CLI decodes
+   (`NativeV2Structural.scala:35` destructures `(programValue, manifestValues, markdownValues,
+   sourceValues)`), with ABI checks on source identity and root identity, and only then are they
+   encoded into `META-INF/scalascript/content.bin` for the runtime to read.
 
+**SO THE WORK IS AN INTEGRATION, NOT A HAND-OVER:** v3 would have to run that structural pass over
+the program's source, decode `NativeContentModule` values from its result, and pass them through
+`loadAll`. Feasible — it lives in `v3/plugins`, so invariant I-1 is untouched — but it couples v3's
+runtime to v1's front, which is a decision rather than a slice, and it is a day of work rather than
+an hour.
+
+**THE FIVE CASES ARE NOT BLOCKED BY ANYTHING SMALLER.** `content-tables` and `content-to-markdown`
+consume real parsed markdown; a synthesised empty document would satisfy the provider's check and
+then produce wrong answers, which is the trade the DIFF floor exists to refuse.
 ## v3-has-no-decimal-so-the-json-core-cannot-cross — `DecimalV` has no counterpart
 
 <!-- status: open
