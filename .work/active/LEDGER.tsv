@@ -1,4 +1,4 @@
-# generation: 2650
+# generation: 2651
 #slug	agent	started	items	paths
 ssc-http-bind-address	claude-code	2026-08-14T21:39:49Z	serve-binds-all-interfaces	file:v1/runtime/backend/rust/src/main/resources/scalascript/rust-runtime/HttpRs file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/JdkServerBackend.scala file:v1/runtime/http-server/jvm-fast/src/main/scala/scalascript/server/jvm/fast/FastServerBackend.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:tests/e2e/http-bind-address-gate.sh file:.github/workflows/ci.yml file:INBOX.md file:BUGS.md
 v3-interpolator-as-a-call	claude-code	2026-08-17T14:36:28Z	v3-an-interpolator-prefix-is-hardcoded-in-both-fronts	file:v3/src/Lexer.scala file:v3/src/Parser.scala file:v3/uniml/UniFront.scala file:v3/BUGS.md file:v3/BACKLOG.md
@@ -6,3 +6,4 @@ json-parse-either	claude-code	2026-08-17T14:42:41Z	json-parse-has-no-fallible-sp
 f-ui-signal-counter	claude-code	2026-08-17T15:09:47Z	two-fronts-number-generated-ui-signals-differently	file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/f-ui-signal-counter-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/nativeui/src/main/scala/ssc/NativeUiSites.scala
 typer-coroutine-intrinsics	claude-code	2026-08-17T15:12:37Z	typer-does-not-know-the-coroutine-intrinsics	file:v1/lang/core/src/main/scala/scalascript/typer/Typer.scala file:tests/BUGS.md
 v3-effects-cross-frame	claude-code	2026-08-17T15:17:01Z	v3-handler-arm-value-dropped-when-the-perform-is-a-statement v3-an-escaped-continuation-resumes-without-the-return-clause	file:BUGS.md
+v2-overload-arity	claude-code	2026-08-17T15:19:02Z	v2-overloaded-class-method-returns-a-wrong-value-instead-of-refusing	file:v2/src/Runtime.scala file:BUGS.md file:tests/e2e/v21-standard-mcp-smoke.sh
