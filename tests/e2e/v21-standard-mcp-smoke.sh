@@ -573,4 +573,70 @@ for lane in --v1 --v2; do
   done
 done
 
-echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example)'
+# ── Transport.Http on v2, and the authorisation it exists to carry ───────────
+#
+# The native provider served stdio only, and the whole auth surface runs in
+# `McpServerCore.authorizeHttp` <- `handleHttpRequest` — a route that did not exist here. So the
+# transport and the auth members land together, and this row asserts them together: a route with no
+# validator cannot be shown to guard anything, and a validator with no route does nothing.
+#
+# THREE OUTCOMES FROM ONE SERVER, because a one-sided case passes against a route that rejects
+# everything (or accepts everything): no token -> 401 carrying WWW-Authenticate with the realm the
+# program set; a WRONG token -> 401; the right token -> 200 and the tool's answer.
+#
+# The port is randomised. A fixed one is how `:8769 is held by a process this gate did not start`
+# became somebody's red.
+http_port=$(( 26000 + RANDOM % 3000 ))
+cat > "$tmp/http.ssc" <<SSC
+[mcpServer, serveMcp, Transport, Tool, Content](std/mcp/server.ssc)
+
+def main(): Unit =
+  mcpServer(srv =>
+    srv.setAuthRealm("notes")
+    srv.setTokenValidator(token =>
+      if token == "good" then Map("subject" -> "ann", "scopes" -> List("read"))
+      else false)
+    srv.tool("who", "w")(args => Tool.text("auth=" + srv.authEnabled().toString)))
+  serveMcp(Transport.Http($http_port, "/mcp"))
+SSC
+"$LAUNCHER" run --v2 "$tmp/http.ssc" >"$tmp/http.log" 2>&1 &
+http_pid=$!
+# The server needs a moment to bind; poll rather than sleep a guessed constant.
+http_up=no
+for _ in $(seq 1 60); do
+  if curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$http_port/mcp" 2>/dev/null; then http_up=yes; break; fi
+  sleep 0.5
+done
+[[ $http_up == yes ]] || {
+  echo "v21-standard-mcp-smoke: the v2 HTTP transport never came up on port $http_port" >&2
+  cat "$tmp/http.log" >&2; kill $http_pid 2>/dev/null; exit 1
+}
+http_req='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"who","arguments":{}}}'
+http_fail() { echo "v21-standard-mcp-smoke: $1" >&2; cat "$tmp/http.log" >&2; kill $http_pid 2>/dev/null; exit 1; }
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" -d "$http_req")
+[[ $code == 401 ]] || http_fail "no bearer token should be 401 on the v2 HTTP route, got $code"
+curl -s -D - -o /dev/null --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" -d "$http_req" \
+  | grep -qi 'www-authenticate:.*realm="notes"' \
+  || http_fail "the 401 did not carry WWW-Authenticate with the realm the program set"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" \
+         -H 'Authorization: Bearer nope' -d "$http_req")
+[[ $code == 401 ]] || http_fail "a REJECTED token should be 401 on the v2 HTTP route, got $code"
+
+body=$(curl -s --max-time 10 -X POST "http://127.0.0.1:$http_port/mcp" \
+         -H 'Authorization: Bearer good' -d "$http_req")
+grep -qF '"text":"auth=true"' <<<"$body" \
+  || http_fail "an ACCEPTED token should reach the tool; got: $body"
+
+# GET is not a JSON-RPC frame, and the metadata route answers honestly when nothing was published.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$http_port/mcp")
+[[ $code == 405 ]] || http_fail "GET on the MCP route should be 405, got $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+         "http://127.0.0.1:$http_port/.well-known/oauth-protected-resource")
+[[ $code == 404 ]] || http_fail "the metadata route should be 404 when nothing was published, got $code"
+
+kill $http_pid 2>/dev/null
+wait $http_pid 2>/dev/null || true
+
+echo 'PASS v21-standard-mcp-smoke (2 rows VM/ASM + server vs int + 2026 surface both lanes + elicit on the wire + prompts/resource bodies + toolWithSchema/resourceTemplate + 8 notification members + subscriptions/paging/completions + roots both ways + raw request + the documented example + Transport.Http with auth)'

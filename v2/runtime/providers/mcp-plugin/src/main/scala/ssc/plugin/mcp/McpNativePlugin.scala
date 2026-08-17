@@ -2,8 +2,10 @@ package ssc.plugin.mcp
 
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.jdk.CollectionConverters.*
-import scalascript.mcp.{McpClientCore, McpProtocol, McpServerBuilder, McpServerCore,
+import scalascript.mcp.{McpAuth, McpClientCore, McpProtocol, McpServerBuilder, McpServerCore,
                         PromptHandlerResult, ResourceHandlerResult, ToolHandlerResult}
+import com.sun.net.httpserver.{HttpExchange, HttpServer}
+import java.net.InetSocketAddress
 import ssc.{Done, Prims, Runtime, Show, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 import ssc.plugin.json.NativeJsonCodec
@@ -250,6 +252,42 @@ final class McpNativePlugin extends NativePlugin:
       }.toList
     case Value.StrV(s) => List(s)
     case _             => Nil
+
+  /** String-keyed entries of a `.ssc` Map. A non-Map, or a non-string key, yields nothing rather
+   *  than throwing: every caller here treats "no usable fields" as its own answer. */
+  private def mapFields(value: Value): Map[String, Value] = value match
+    case Value.MapV(entries) => entries.iterator.collect { case (Value.StrV(k), v) => k -> v }.toMap
+    case _                   => Map.empty
+
+  /** A `.ssc` token validator's answer -> the typed decision `McpServerCore` wants.
+   *
+   *  Accepted shapes, in the order a caller is likely to reach for them: a Boolean, a Map carrying
+   *  `subject` (and optionally `scopes`), or anything else. ANYTHING ELSE IS INVALID, never valid —
+   *  a validator whose result cannot be read must fail closed. */
+  private def authResult(value: Value): McpAuth.AuthResult = value match
+    case Value.BoolV(true)  => McpAuth.AuthResult.Valid(McpAuth.AuthClaims("", Set.empty))
+    case Value.BoolV(false) => McpAuth.AuthResult.Invalid("invalid_token", "validator returned false")
+    case other =>
+      val fields = mapFields(other)
+      fields.get("subject") match
+        case Some(Value.StrV(subject)) =>
+          val scopes = fields.get("scopes").map(stringList).getOrElse(Nil).toSet
+          McpAuth.AuthResult.Valid(McpAuth.AuthClaims(subject, scopes))
+        case _ =>
+          McpAuth.AuthResult.Invalid("invalid_token", "validator answered no subject")
+
+  /** `srv.setProtectedResourceMetadata(...)` takes a Map; only `resource` is required. */
+  private def prmOf(value: Value): McpAuth.ProtectedResourceMetadata =
+    val fields = mapFields(value)
+    def str(key: String): Option[String] = fields.get(key).collect { case Value.StrV(v) => v }
+    def strs(key: String): List[String]  = fields.get(key).map(stringList).getOrElse(Nil)
+    McpAuth.ProtectedResourceMetadata(
+      resource               = str("resource").getOrElse(""),
+      authorizationServers   = strs("authorizationServers"),
+      scopesSupported        = strs("scopesSupported"),
+      bearerMethodsSupported = if strs("bearerMethodsSupported").isEmpty then List("header")
+                               else strs("bearerMethodsSupported"),
+      resourceDocumentation  = str("resourceDocumentation"))
 
   private def messageJson(value: Value): ujson.Value = value match
     case Value.DataV("Message", IndexedSeq(role, content)) =>
@@ -574,6 +612,55 @@ final class McpNativePlugin extends NativePlugin:
             case Right(js)   => json(js)
         })
 
+        // ── authorisation ────────────────────────────────────────────────
+        //
+        // These were absent from v2 for a reason that has just stopped being true: the validator
+        // runs in `McpServerCore.authorizeHttp`, reached only from `handleHttpRequest`, and this
+        // provider served stdio only — so they would have set state nothing read
+        // (mcp-v2-auth-cannot-be-ported-until-v2-serves-http). `Transport.Http` above is the route
+        // that reads them, which is why the two land together: the transport with no auth member
+        // cannot be shown to enforce anything, and the members with no route do nothing.
+        //
+        // STILL ABSENT, and not by oversight: `useAuthServer`. It resolves its argument through
+        // `OAuthBridge.authServers`, a registry the v1 oauth-plugin owns, and v2/runtime/providers
+        // has no oauth plugin at all.
+        case "setTokenValidator" => Some(closure(1) { args =>
+          val handler = args.head
+          builder.setTokenValidator(Some(token =>
+            // A validator that throws, or answers something that is not a decision, must not be
+            // read as "valid" — that would turn a broken check into an open door.
+            try authResult(context.invoke(handler, List(Value.StrV(token))))
+            catch case _: Throwable =>
+              McpAuth.AuthResult.Invalid("invalid_token", "validator threw")))
+          Value.UnitV
+        })
+        case "useHmacValidator" => Some(closure(1) { args =>
+          builder.setTokenValidator(Some(
+            McpAuth.hmacValidator(text(args.head, "srv.useHmacValidator(secret)"))))
+          Value.UnitV
+        })
+        case "setAuthRealm" => Some(closure(1) { args =>
+          builder.setAuthRealm(text(args.head, "srv.setAuthRealm(realm)"))
+          Value.UnitV
+        })
+        case "setProtectedResourceMetadata" => Some(closure(1) { args =>
+          builder.setProtectedResourceMetadata(prmOf(args.head))
+          Value.UnitV
+        })
+        case "authEnabled" => Some(closure(0) { _ => Value.BoolV(builder.authEnabled) })
+        case "currentAuth" => Some(closure(0) { _ =>
+          builder.currentAuth match
+            case None => Value.DataV("None", Vector.empty)
+            case Some(c) =>
+              // A Map, not a record: `AuthClaims` is DECLARED NOWHERE in std/mcp, and inventing a
+              // positional shape here is what `ElicitationResult` and `Root` each cost a day for.
+              // A Map is honest about being untyped and cannot silently disagree with a future
+              // declaration.
+              Value.DataV("Some", Vector(map(Iterator(
+                Value.StrV("subject") -> Value.StrV(c.subject),
+                Value.StrV("scopes")  -> list(c.scopes.iterator.toVector.sorted.map(Value.StrV.apply))))))
+        })
+
         case "onConnected" => Some(closure(1) { args =>
           val cb = args.head
           builder.setOnConnected(() => { context.invoke(cb, Nil); () })
@@ -585,6 +672,106 @@ final class McpNativePlugin extends NativePlugin:
           Value.UnitV
         })
         case _ => None)
+
+  /** `Transport.Http(port, path)` — POSITIONAL, matching std/mcp/types.ssc. The default path is in
+   *  the declaration, so a value that reached here already carries it. */
+  private def httpConfig(transport: Value): (Int, String) = transport match
+    case Value.DataV("Http", IndexedSeq(Value.IntV(port), Value.StrV(path))) => (port.toInt, path)
+    case Value.DataV("Http", IndexedSeq(Value.IntV(port)))                   => (port.toInt, "/mcp")
+    case other =>
+      throw new IllegalArgumentException(s"serveMcp: expected Transport.Http(port[, path]), got ${Show.show(other)}")
+
+  /** Serve MCP over HTTP on the JDK's own server.
+   *
+   *  WHY THIS EXISTS AT ALL, since the provider served stdio happily: the authorisation surface —
+   *  `setTokenValidator`, `useHmacValidator`, `currentAuth` and the rest — runs in
+   *  `McpServerCore.authorizeHttp`, which is reached only from `handleHttpRequest`. The stdio loop
+   *  never consults the validator. So on a stdio-only provider those members would set state
+   *  nothing reads (mcp-v2-auth-cannot-be-ported-until-v2-serves-http). This route is the thing
+   *  that has to exist first.
+   *
+   *  `com.sun.net.httpserver` and not the http-fast plugin: this provider's dependencies are the
+   *  plugin SPI, the JSON plugin and mcp-common. Reaching for another plugin's server would couple
+   *  two providers to load one route, and the JDK's server is already what `JdkServerBackend` uses
+   *  on the v1 side. No new dependency for a few dozen lines.
+   *
+   *  WHAT THIS DOES NOT DO: SSE. `Accept: text/event-stream` gets the same single JSON reply as any
+   *  other request. Server-to-client pushes — `notify`, and the answer half of `elicit` /
+   *  `listRoots` / `request` — need a held-open stream, which is its own piece of work; v1's route
+   *  has it and this one does not. Filed as `mcp-v2-http-transport-has-no-sse` so nobody reads this
+   *  route as making `elicit` work.
+   */
+  private def serveHttp(builder: McpServerBuilder, port: Int, path: String): Unit =
+    val server = HttpServer.create(InetSocketAddress(port), 0)
+
+    def headersOf(ex: HttpExchange): Map[String, String] =
+      val out = Map.newBuilder[String, String]
+      ex.getRequestHeaders.forEach((k, v) => if !v.isEmpty then out += (k -> v.get(0)))
+      out.result()
+
+    def respond(ex: HttpExchange, status: Int, body: String, extra: Map[String, String]): Unit =
+      val bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      extra.foreach((k, v) => ex.getResponseHeaders.add(k, v))
+      // 204 carries no body, and the JDK server insists the length be -1 rather than 0 for that.
+      if status == 204 || bytes.isEmpty then
+        ex.sendResponseHeaders(status, -1)
+      else
+        ex.sendResponseHeaders(status, bytes.length.toLong)
+        val os = ex.getResponseBody
+        try os.write(bytes) finally os.close()
+      ex.close()
+
+    server.createContext(path, ex =>
+      try
+        if ex.getRequestMethod != "POST" then
+          respond(ex, 405, """{"error":"method_not_allowed"}""",
+                  Map("Content-Type" -> "application/json", "Allow" -> "POST"))
+        else
+          val body    = String(ex.getRequestBody.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+          val headers = headersOf(ex)
+          McpServerCore.authorizeHttp(builder, McpAuth.extractBearer(headers)) match
+            case McpServerCore.AuthOutcome.Reject(code, descr) =>
+              // RFC 6750: the 401 has to say what is wrong and where to authenticate, or a client
+              // cannot recover from it.
+              val www = McpAuth.wwwAuthenticate(builder.authRealm, code, Some(descr))
+              respond(ex, 401,
+                ujson.Obj("error" -> code, "error_description" -> descr).render(),
+                Map("WWW-Authenticate" -> www, "Content-Type" -> "application/json"))
+            case McpServerCore.AuthOutcome.Allowed(claims) =>
+              // withAuth so a handler can read `srv.currentAuth` for the request it is serving.
+              val reply = builder.withAuth(claims) {
+                McpServerCore.handleHttpRequest(builder, body, "ssc-mcp-native", "2.1", headers)
+              }
+              if reply.isEmpty then respond(ex, 204, "", Map.empty)
+              else respond(ex, 200, reply, Map("Content-Type" -> "application/json"))
+      catch
+        case e: Throwable =>
+          // A handler that throws must not take the server down with it, and the client is owed an
+          // answer rather than a dropped connection.
+          try respond(ex, 500,
+                ujson.Obj("error" -> "internal_error",
+                          "error_description" -> String.valueOf(e.getMessage)).render(),
+                Map("Content-Type" -> "application/json"))
+          catch case _: Throwable => ()
+    )
+
+    // `/.well-known/oauth-protected-resource` — how a client discovers WHERE to get a token. Served
+    // only when the program set it; otherwise 404, which is the honest answer for "this server does
+    // not publish that".
+    server.createContext("/.well-known/oauth-protected-resource", ex =>
+      try
+        builder.protectedResourceMetadata match
+          case Some(prm) => respond(ex, 200, prm.toJson.render(), Map("Content-Type" -> "application/json"))
+          case None      => respond(ex, 404, """{"error":"not_found"}""", Map("Content-Type" -> "application/json"))
+      catch case _: Throwable => ()
+    )
+
+    server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool())
+    server.start()
+    // `serveMcp` BLOCKS on every transport — the stdio branch blocks on stdin, and a program whose
+    // `main` returned here would exit with the server still starting. Park instead.
+    try java.util.concurrent.CountDownLatch(1).await()
+    finally server.stop(0)
 
   private def transportTag(transport: Value): String = transport match
     case Value.DataV(tag, _) => tag
@@ -620,11 +807,15 @@ final class McpNativePlugin extends NativePlugin:
               line => { writer.write(line); writer.flush() },
               "ssc-mcp-native", "2.1")
             Value.UnitV
+          case "Http" =>
+            val (port, path) = httpConfig(transport)
+            serveHttp(builder, port, path)
+            Value.UnitV
           case other =>
-            // Http/Ws need a server runtime this provider does not carry; refusing by name beats
+            // Ws still needs a socket runtime this provider does not carry; refusing by name beats
             // pretending to serve.
             throw new IllegalArgumentException(
-              s"serveMcp: the native provider supports Transport.Stdio, not '$other'")
+              s"serveMcp: the native provider supports Transport.Stdio and Transport.Http, not '$other'")
       case _ => throw new IllegalArgumentException("serveMcp(transport)")
     }
     context.register("mcpConnect") {

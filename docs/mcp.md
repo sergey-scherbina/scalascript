@@ -15,14 +15,59 @@ resources, and reuse your prompts.
 
 | Lane | `ssc run` flag | MCP server |
 |---|---|---|
-| interpreter | `--v1` | yes, over `Transport.Stdio` |
-| native (the default) | `--v2` | yes, over `Transport.Stdio` |
+| interpreter | `--v1` | yes, over `Transport.Stdio` and `Transport.Http` |
+| native (the default) | `--v2` | yes, over `Transport.Stdio` and `Transport.Http` |
 | `jvm`, `js` (Node) | — | yes, wrapping the vendor SDKs |
 | `scalajs-spa` | — | no — it declares `Feature.McpClient` only |
 
-`Transport.Http` and `Transport.Ws` exist in the type but the native provider refuses them by name:
-`serveMcp: the native provider supports Transport.Stdio, not 'Http'`. Stdio is what Claude Desktop
-and most editors launch anyway.
+`Transport.Ws` exists in the type and the native provider still refuses it by name. Stdio is what
+Claude Desktop and most editors launch; HTTP is what you want when the server has to be reachable
+over a network or to check a token — see below.
+
+### Serving over HTTP
+
+`serveMcp(Transport.Http(8080, "/mcp"))` starts a server that takes one JSON-RPC frame per
+`POST /mcp` and answers with one frame. A `GET` on that path is `405`; a request that produced no
+reply (a notification) is `204`.
+
+**It does NOT do SSE.** `Accept: text/event-stream` gets the same single JSON reply as anything
+else. That matters for exactly one thing: server-to-client pushes still have nowhere to go, so
+`notify` reaches no HTTP client and `elicit` / `listRoots` / `request` still cannot receive their
+answers. Tracked as `mcp-v2-http-transport-has-no-sse`.
+
+### Authorisation
+
+Auth runs on the HTTP route and nowhere else — over stdio the parent process is implicitly trusted,
+and no validator is consulted.
+
+```scalascript
+srv.setAuthRealm("notes")
+srv.setTokenValidator(token =>
+  if token == "good" then Map("subject" -> "ann", "scopes" -> List("read"))
+  else false)
+```
+
+A validator returns `false` to reject, or a `Map` with `subject` (and optionally `scopes`) to
+accept. Anything it returns that is neither — including a throw — is a REJECTION: a check that
+cannot be read must not become an open door. `srv.useHmacValidator(secret)` is the batteries-included
+version.
+
+What a client sees, measured:
+
+```
+no Authorization header  -> 401, WWW-Authenticate: Bearer realm="notes", error="invalid_request", …
+Bearer nope              -> 401
+Bearer good              -> 200 {"jsonrpc":"2.0","id":1,"result":{…}}
+```
+
+Inside a handler, `srv.currentAuth()` is `Some(Map("subject" -> …, "scopes" -> …))` for an
+authenticated request and `None` otherwise; `srv.authEnabled()` says whether a validator is
+installed at all. `srv.setProtectedResourceMetadata(Map("resource" -> "https://…"))` publishes
+`/.well-known/oauth-protected-resource` so a client can discover where to get a token — without it
+that path answers `404`.
+
+`srv.useAuthServer(...)` is the one auth member the native lane does NOT have: it resolves through
+the v1 oauth plugin's registry, and there is no oauth plugin on this lane.
 
 ## A complete server
 
@@ -158,13 +203,12 @@ timeoutMs]])`, and the predicates `clientSupportsRoots()`, `clientSupportsElicit
 
 ## Not available
 
-**Authorisation.** `setTokenValidator`, `useHmacValidator`, `setAuthRealm`,
-`setProtectedResourceMetadata`, `authEnabled`, `currentAuth` and `useAuthServer` exist on the
-interpreter's `srv` and are NOT implemented on the native lane. That is not an oversight: the
-validator only runs on the HTTP route, and the native provider serves stdio only, so the members
-would set state nothing reads. Tracked as
-`mcp-v2-auth-cannot-be-ported-until-v2-serves-http`. On stdio the parent process is implicitly
-trusted; if you need per-tool checks today, do them inside the handler.
+**`useAuthServer`.** The other six auth members ship on both lanes (see *Authorisation* above);
+this one resolves its argument through the v1 oauth plugin's registry and `v2/runtime/providers/`
+has no oauth plugin, so it is interpreter-only.
+
+**Server-to-client over HTTP.** No SSE, so `notify` does not reach an HTTP client and the blocking
+asks cannot receive answers there either.
 
 **Streaming resources.** One response is one full payload. Generator-backed streaming is a backlog
 item now that `std/generators.ssc` has landed.
