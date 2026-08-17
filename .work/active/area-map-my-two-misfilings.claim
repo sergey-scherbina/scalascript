@@ -2,10 +2,10 @@ slug: area-map-my-two-misfilings
 branch: feature/area-map-my-two-misfilings
 agent: claude-code
 started: 2026-08-17T12:32:54Z
-heartbeat: 2026-08-17T12:32:54Z
-status: claimed-before-planning
+heartbeat: 2026-08-17T12:34:01Z
+status: in-progress
 items: area-map-gate-red-on-two-entries-i-filed
-paths: file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md
+paths: file:v2/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/fixtures/board-ownership-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: move the js entry, baseline the cross-lane one, drop the two stale rows
