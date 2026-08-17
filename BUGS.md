@@ -1456,12 +1456,13 @@ because the bypass removed it. The other 30 are the real queue that entry descri
 
 ## v2-cons-pattern-with-a-wildcard-head-returns-a-closure — a wrong ANSWER, not a refusal
 
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: front
      kind: bug
      gate: tests/e2e/v2-cons-wildcard-head-gate.sh
-     fixed-in: -
+     fixed-in: 7a693c9eb
+     confirmed: yes
      reported-by: claude-code
      reported-at: 2026-08-17
      repro: tests/e2e/v2-cons-wildcard-head-gate.sh, row `wildhead`
