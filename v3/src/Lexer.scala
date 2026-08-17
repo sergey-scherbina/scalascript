@@ -269,7 +269,26 @@ object Lexer:
       // ADJACENCY IS THE WHOLE TEST, and it is enough: a name touching a quote with nothing between
       // them has no other meaning in this language. A line break between them is not adjacency —
       // that is the same-line rule the uniml lexer needed on 2026-08-16.
-      if !done(s) && at(s) == '"' then
+      // A TRIPLE-QUOTED INTERPOLATOR — `html"""<li>${it}</li>"""`, and `md"""` spanning lines. Raw
+      // like the plain triple-quoted string below, with no escapes, and `${…}` still applies: the
+      // holes are found by the same parser that reads a single-quoted one, so the two spellings
+      // cannot drift. Missing this arm was not a hypothetical — broadening the prefix rule without
+      // it made v3's own front stop reading `content` and both `std-ui-native-html-lambda` cases,
+      // which `front-diff` counted as three files moving to uniml-only.
+      if !done(s) && at(s) == '"' && !done(adv(s)) && at(adv(s)) == '"'
+         && !done(adv(adv(s))) && at(adv(adv(s))) == '"' then
+        var t = adv(adv(adv(s)))
+        var raw = ""
+        var closed = false
+        while !closed do
+          if done(t) then throw LexError(p, "unterminated triple-quoted interpolated string")
+          else if at(t) == '"' && !done(adv(t)) && at(adv(t)) == '"'
+                  && !done(adv(adv(t))) && at(adv(adv(t))) == '"' then
+            t = adv(adv(adv(t))); closed = true
+          else
+            raw = raw + at(t); t = adv(t)
+        (Tok.TInterp(text, raw, p), t)
+      else if !done(s) && at(s) == '"' then
         var t = adv(s)
         var raw = ""
         var closed = false

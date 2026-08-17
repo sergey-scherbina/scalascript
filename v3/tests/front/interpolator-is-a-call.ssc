@@ -12,5 +12,7 @@ val name = "ada"
 println(tag"a${x}b")
 println(tag"${x}${name}")
 println(twice"ab")
+// TRIPLE-QUOTED too, and with a hole: the two spellings share one hole parser.
+println(tag"""x${x}y""")
 // `s` is still the built-in one and is unchanged by any of this.
 println(s"still ${x} and ${name}")
