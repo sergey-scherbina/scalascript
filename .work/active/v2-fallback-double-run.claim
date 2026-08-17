@@ -1,0 +1,11 @@
+slug: v2-fallback-double-run
+branch: feature/v2-fallback-double-run
+agent: claude-code
+started: 2026-08-17T11:57:01Z
+heartbeat: 2026-08-17T11:57:01Z
+status: claimed-before-planning
+items: v2-front-fallback-runs-the-program-twice
+paths: file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
