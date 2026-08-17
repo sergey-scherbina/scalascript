@@ -6,6 +6,42 @@ belong in the repository-root `BUGS.md` instead, not here.
 
 Query: `scripts/bugs-report --module v3`.
 
+## v3-an-interpolator-prefix-is-hardcoded-in-both-fronts — make it an ordinary call instead
+
+<!-- status: open
+     lane: v3
+     kind: feature
+     area: front
+     gate: v3/corpus-report.sh (std-ui-native-html-lambda-lib and five more)
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**Both fronts refuse every prefix but `s`, by name, in one line each:**
+
+    Lexer.scala:289    if text != "s" then throw LexError(p, "the `" + text + "` interpolator is outside SSC3 core Tier 0")
+    UniFront.scala:522 if prefix != "s" then no("the `" + prefix + "\"…\"` interpolator", s)
+
+and `Expr.Interp(parts, exprs, pos)` carries no prefix at all — the AST already assumes there is only
+one interpolator. Six corpus cases stand on this: `html"…"` (4), `md"…"` (1), `f"…"` (1).
+
+**THE OWNER'S QUESTION IS THE DESIGN: an interpolator must be definable OUTSIDE the kernel.** It can
+be, without extending Tier 0, because the language already has the construct it needs — a CALL.
+Scala's own model is `StringContext(parts).pfx(args)`; the Tier 0 shape of the same idea is
+
+    pfx"a${x}b"   ==>   pfx(List("a", "b"), List(x))
+
+so `def html(parts: List[String], args: List[Any]): String` in `std` — or in a plugin — makes
+`html"…"` work with nothing added to the kernel. The kernel never learns what `html` is; it sees a
+call by name, of which it already has plenty.
+
+**`s` STAYS BUILT IN.** It is hot, its meaning is fixed, and it is the one prefix the AST node was
+built for; turning it into a call would cost every string interpolation a function call for no gain.
+
+**WHAT MOVES:** the lexer carries the prefix instead of discarding it, both fronts build a `Call` for
+a non-`s` prefix, and lowering does not change at all — a call is already the thing it lowers best.
+The refusals that remain are then honest in a new way: `unknown function 'html'` names something a
+program can go and define.
+
 ## v3-a-plugin-global-that-is-a-plain-value-cannot-answer-a-zero-arg-extern — it can now
 
 <!-- status: fixed
