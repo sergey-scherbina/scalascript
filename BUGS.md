@@ -79,6 +79,35 @@ answers 503. So a green run cannot be the outage having quietly healed — the s
 down, and the workflow simply no longer asks it anything. Had the limit cleared first, a green would
 have proved nothing and this note would say so.
 
+### The fix was pushed, FAILED, and was reverted — the diagnosis above is incomplete
+
+`5be0e4883` carried it. Its own first run went red too, and where it failed is the finding:
+
+```text
+Set up job
+  Failed to download action 'https://codeload.github.com/actions/setup-java/…'  503
+  Failed to download action 'https://codeload.github.com/carabiner-dev/actions/…'  429
+  ##[error]Response status code does not indicate success: 502 (Bad Gateway)
+```
+
+Not `Setup Scala CLI` any more — `Set up job`. GitHub cannot serve the ACTION TARBALLS themselves.
+So this is a GitHub-wide incident, and the coursier index answering 429 was a SYMPTOM of it rather
+than a separate cause. I diagnosed the first thing that broke and treated it as the thing that was
+broken.
+
+**No workflow change can help while that is true.** If action downloads fail, nothing in any
+workflow runs, whatever it says.
+
+**Reverted in the same claim, deliberately.** The change is defensible on its own merits — it removes
+a real dependency on a flaky external index — but it is now UNVERIFIABLE, and parking an unverified
+CI change in the shared path during an outage is a trap: when GitHub recovers, if `jvm: system` is
+wrong in some job, everyone goes red with a cause that points at nothing they did. Re-land it when a
+run can actually report, and verify it the way this note already described — check the index is
+still failing immediately before the push, so a green attributes.
+
+**What holds until then:** local `scripts/smoke-ci` is the only usable evidence, and `evidence
+level 1` is unavailable to everybody. Releases in this window should say so rather than wait.
+
 ## js-exec-import-is-a-syntax-error — `[exec, …](std/process.ssc)` emits a bundle that does not PARSE
 
 <!-- status: fixed
