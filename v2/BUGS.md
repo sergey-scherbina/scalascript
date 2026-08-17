@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## mixed-concat-operands-mean-three-things-on-three-lanes — `"x" ++ 1` is a tuple, a string, or a tuple
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: none
+     found-by: claude-code
+     found-at: 2026-08-17 -->
+
+**MEASURED on a fresh build, 2026-08-17, while fixing `js-string-concat-chain-answers-a-tuple`.**
+Five cells of `++`, three lanes that answer:
+
+    expression            int              native          js (v1 emitter)
+    "x" ++ "y"            xy               xy              xy      (fixed 15718485a)
+    (1,2) ++ (3,4)        (1, 2, 3, 4)     (1, 2, 3, 4)    (1, 2, 3, 4)
+    List(1) ++ "x"        List(1, x)       List(1, x)      List(1, x)
+    "x" ++ 1              (x, 1)           x1              (x, 1)
+    "x" ++ List(1)        (x, List(1))     xList(1)        List(x, 1)
+
+The first three agree — the last two do not, and the third row agreeing is recent: it was
+`(List(1), x)` on the interpreter until `3a95a474e` this week.
+
+**THE TWO OPEN ROWS ARE A STRING ON THE LEFT WITH A NON-STRING ON THE RIGHT.** native treats `++` as
+"render both and concatenate", int builds a PAIR, and js appends into a list. Three implementations,
+three readings of the same operator, none of them a refusal — so a program gets a plausible value
+whichever lane runs it.
+
+**WHY IT IS FILED RATHER THAN FIXED.** Which one is right is a language question, not a typo: Scala
+answers `"x" ++ List(1)` as `xList(1)` only if `List(1)` is a `Seq[Char]`, which it is not — real
+Scala refuses this at compile time, and none of the three lanes refuses. So the choice is between
+adopting native's "stringify and concatenate", adopting a refusal that would be Scala's, or leaving
+three answers. That is the std/spec owner's call.
+
+**What a fix would need beside it:** the matrix above as a gate row per cell, on the model of
+`tests/e2e/list-concat-chain-gate.sh`, so the day one lane moves the others are told.
+
 ## js-v2-lane-has-no-Char-at-all — `println('a')` dies on `unimplemented primitive: char`
 
 <!-- status: open
@@ -13566,81 +13603,40 @@ unnoticed: `println(a == b)` prints `false` correctly.
 **Not fixed here** — found while holding a claim on the VM and the bytecode generator, and this is
 the JS generator's method table. Filed with the one-line repro rather than carried.
 
-## js-string-concat-chain-answers-a-tuple — the DEPRECATED js wrapper; the live lane had the opposite defect
+## js-string-concat-chain-answers-a-tuple — the LIVE v1 emitter, not the deprecated wrapper
 
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 15718485a
      lane: js
      area: codegen
      kind: bug
-     gate: tests/e2e/list-concat-chain-gate.sh
-     fixed-in: - -->
+     gate: tests/e2e/list-concat-chain-gate.sh (js-v1 lane, added with the fix) -->
 
-**Status:** OPEN (found 2026-08-09 by running the v2 concat subject on every lane —
-`corpus-contract-scljet-jdbc-v2-timeout`).
+**FIXED, and the scope in the old body was wrong in the way that mattered.** It called this "the
+DEPRECATED js wrapper" and the gate's own comment repeated it, so the whole v1 emitter went
+unmeasured. `bin/jssc`, `run-js` (without `--v2`) and `emit-js` are ONE emitter, and `emit-js` is how
+`tests/conformance/run.sc` defines its **js column** — the lane 211 corpus cases are scored on.
 
-MEASURED, not inferred. Seven rows, `bin/jssc`:
+**MEASURED on a fresh build, four lanes:**
 
-    List(1, 2, 3, 4, 5)        ok
-    List(1, 2, 3, 4, 5, 6)     ok
-    (x, y, z)                  <- WRONG; int and v2 both print `xyz`
-    List(p, q, r, s)           ok
-    (1, 2, 3, 4, 5, 6)         ok
-    List(1, 2, 3)              ok
-    List(1, 2, 3)              ok
+    "x" ++ "y" ++ "z"     int xyz    native xyz    jvm xyz    v1 js (x, y, z)
 
-**It is the MIRROR of the v2 defect, not the same one.** v2 got the lists wrong and the strings
-right; js gets the lists right and the strings wrong. So the cause cannot be the shared `sconcat`
-shape — `JsBackend.scala`'s `sconcat` is `(''+(a)+(b))`, which would answer `xyz`. Something on
-this lane routes a string `++` chain into a tuple concat instead, and finding what is the first
-step; do not start from the Rust/VM diagnosis.
+Two strings fell through `_tupleConcat`'s array path, which wraps each non-array and marks the
+result `_isTuple`. Fixed there — `typeof a === 'string' && typeof b === 'string'` concatenates —
+rather than in `JsGen`, because JS is dynamically typed and the emitter cannot know.
 
-**Recorded as a separate entry deliberately.** Reading the two backends' source suggested one
-defect in three places. Running the subject found two different defects, and this row is the one
-that would have been "fixed" by copying the v2 patch to a lane that did not have the v2 bug.
+**WHY IT SURVIVED EIGHT DAYS WITH A GREEN GATE BESIDE IT.** `list-concat-chain-gate.sh` measured
+`run-js --v2` and deliberately skipped the v1 lane *because row 3 was red there* — the note said so
+in as many words. A gate that routes around a red lane reports the lane it chose, not the language.
+The lane is measured now; all seven rows agree, so adding it cost nothing.
 
-### CORRECTED 2026-08-09 — I measured the wrong js lane, and the right one was broken elsewhere
+**Control:** with the string arm removed and the toolchain rebuilt, the gate FAILS and prints its
+row-3 advice; with it, PASS on every lane including `js-v1`. Conformance 368 / 0 — and no corpus
+case writes a string `++` chain, which is the other half of why this lived.
 
-`bin/jssc` is `ssc-tools emit-js | node`. `emit-js`'s own help says it is **NON-CONFORMING** (folds
-integers at 32 bits) and is *"slated for deletion with the v1 hybrid tier; use `run-js --v2`
-instead."* So the row above is a defect in a deprecated wrapper, and the fix would land in
-`v1/runtime/backend/js` — not where this entry sits.
-
-**Measured on BOTH js paths, seven rows each:**
-
-| row | int | `bin/jssc` (v1, deprecated) | `run-js --v2` (the live lane) |
-|---|---|---|---|
-| `"x" ++ "y" ++ "z"` | `xyz` | **`(x, y, z)`** | `xyz` |
-| `(1,2) ++ (3,4) ++ (5,6)` | `(1, 2, 3, 4, 5, 6)` | `(1, 2, 3, 4, 5, 6)` | **`(1, 2)(3, 4)(5, 6)`** |
-| the five list rows | correct | correct | correct |
-
-**Each lane fails a different row, and neither fails the lists** — so "the js lane has the concat
-bug" was wrong in both directions.
-
-**The live lane's defect is FIXED here, and it is the VM's missing arm exactly.** `$arith` in
-`v2/backend/js/JsBackend.scala` had a list arm and **no tuple arm**, so two tuples fell past every
-case to the bottom line
-
-```js
-if(op==='+'||op==='++') return $bridgeShow(l)+$bridgeShow(r);
-```
-
-and `(1,2) ++ (3,4)` returned the STRING `(1, 2)(3, 4)`. Two operands are enough — this was never
-about chains on this lane. The VM's `arithOp` has carried the matching
-`lt.startsWith("Tuple") && rt.startsWith("Tuple")` arm all along.
-
-`sconcat` on this backend was `(''+(a)+(b))`, wrong for every non-string chain for the same reason
-it was wrong on the VM (F types `++` by its left operand and reads `++` itself as String). It now
-delegates to `$arith('++', …)` — the same choice, for the same reason: that is what the expression
-lowers to when the front cannot type it, and the two paths must not disagree.
-
-**The gate now runs the js lane**, `tests/e2e/list-concat-chain-gate.sh`, and row 5 is the reason:
-verified RED on the unpatched toolchain naming `js` alone with the other three green, and green
-after. Its failure text now maps each ROW to the copy that owns it, because three lanes have now
-failed three different rows of the same seven and "one cause fixes all" has been wrong every time.
-
-**The deprecated-wrapper row above stays open and unfixed**, deliberately: `v1/runtime/backend/js`
-is held by another claim, the lane is slated for deletion, and `run-js --v2` — the replacement it
-points users at — is now correct on all seven rows.
+**NOT FIXED HERE, deliberately:** `"x" ++ 1` and `"x" ++ List(1)`. The answering lanes disagree three
+ways on those, so a fix here would invent a fourth answer rather than join a consensus. Filed with
+the matrix as `mixed-concat-operands-mean-three-things-on-three-lanes`.
 
 ## rust-list-concat-moves-its-operands — a list used after `++` fails to COMPILE on the Rust lane
 
