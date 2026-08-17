@@ -330,6 +330,16 @@ object RunNativeV2:
           }
         case None =>
           lowerWith(layout.runner, None)
+      // SSC_DUMP_DEFS on the LEGACY lane too. The dump used to exist in two places — the F branch
+      // above, and the delegate-fallback below — so with `SSC_FRONT=legacy` it printed nothing, and
+      // with F succeeding it printed only F. Comparing the two fronts' definition lists, which is
+      // the one thing this flag exists for, was therefore impossible for any file F can compile:
+      // the reference side came back EMPTY and an empty list reads as "zero definitions" rather
+      // than "this path was never wired". Measured while chasing why two fronts number a generated
+      // UI signal differently — `d346` versus `d364` is the INDEX of the definition in
+      // `program.defs`, so the question was exactly how many definitions each front emits.
+      if System.getenv("SSC_DUMP_DEFS") != null && layout.fsubSrc.isEmpty then
+        structural.program.defs.foreach(d => System.err.println("REF-DEF " + d.name))
       if mutableFieldSentinel(structural.program) then
         throw new IllegalArgumentException(
           "mutable class fields (a `var` field in a class) are disabled by default; " +
