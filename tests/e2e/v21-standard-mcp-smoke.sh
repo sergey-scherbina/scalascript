@@ -529,15 +529,22 @@ done
 # someone edits the example into something that no longer works, this goes red; if someone changes
 # the API, the same. A doc that is only proofread is a doc that rots.
 #
-# The extraction is deliberately literal: the FIRST fenced scalascript block in docs/mcp.md.
+# WHICH block: the one that is a COMPLETE PROGRAM — it has `def main` and calls `serveMcp`. Not
+# "the first one", which is what this row used to say and what broke the moment the page grew an
+# authorisation SNIPPET above the full example: position is the wrong key for "the runnable one",
+# and the gate caught it rather than a reader. Fragments can now be added anywhere on the page.
+#
 # Backticks are kept out of every double-quoted string in this row on purpose: inside double quotes
 # bash reads them as command substitution, which is how the first draft died with
-# 'unexpected EOF while looking for matching'. Keeping it
-# dumb means a reader can see what runs by looking at the page.
+# 'unexpected EOF while looking for matching'.
 doc_md="$ROOT/docs/mcp.md"
 [[ -f $doc_md ]] || { echo "v21-standard-mcp-smoke: docs/mcp.md is missing" >&2; exit 1; }
-awk '/^```scalascript$/{n++; if (n==1) {inblk=1; next}} inblk && /^```$/{exit} inblk' "$doc_md" \
-  > "$tmp/doc.ssc"
+awk '
+  /^```scalascript$/ { inblk=1; blk=""; next }
+  inblk && /^```$/   { if (blk ~ /def main/ && blk ~ /serveMcp\(/) { printf "%s", blk; exit }
+                       inblk=0; next }
+  inblk              { blk = blk $0 "\n" }
+' "$doc_md" > "$tmp/doc.ssc"
 [[ -s $tmp/doc.ssc ]] || {
   echo 'v21-standard-mcp-smoke: no fenced scalascript block found in docs/mcp.md' >&2; exit 1
 }
