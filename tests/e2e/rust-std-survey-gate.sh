@@ -198,6 +198,27 @@ classify() { # classify <file> → "<class>\t<detail>"
     shapes=$(LC_ALL=C sort -u <<< "$refusals" | grep -c . || true)
     printf 'REFUSED\t%s\t%s\t%s' "$(head -1 <<< "$refusals")" "$sites" "$shapes"
   elif [[ $rc -eq 0 ]] || printf '%s' "$out" | grep -q 'expected binary not found'; then
+    # AN `unreachable pattern` IN GENERATED CODE IS A DROPPED DISCRIMINATOR, not a style note, and
+    # rustc reports it for free on a build this sweep is already paying for. A human who writes a
+    # dead arm has made a tidiness mistake; the walker cannot — every arm it emits came from an arm
+    # the user wrote, so "this arm can never fire" means the thing that told them apart was lost. It
+    # is silent by construction, because the surviving arm still returns something plausible: that is
+    # exactly how `rust-type-pattern-on-a-local-val-matches-anything` reached a running server while
+    # rustc had said so twice in the same build.
+    #
+    # RECORDED HERE RATHER THAN REFUSED IN `build-rust`, and that distinction was measured: a
+    # three-arm `match` on a Boolean with a trailing `case _` is a LEGAL program that emits this
+    # warning, so failing the compiler on it would break working code to catch a codegen defect.
+    # The corpus has no such arm — census 2026-08-17, 0 of 55 compiling modules, instrument checked
+    # against a planted arm that did produce one — so this can start at zero and stay there.
+    local unreach
+    unreach=$(grep -c 'warning: unreachable pattern' <<< "$out" || true)
+    # `if`, NOT `[[ … ]] && printf`: with no warnings that idiom returns 1, and `classify` runs
+    # under `set -e` inside a command substitution — the subshell would exit before printing
+    # `COMPILES`, so every clean module would come back blank and the whole survey would misread.
+    if [[ "${unreach:-0}" -gt 0 ]]; then
+      printf '%s\t%s\n' "$f" "$unreach" >> "$tmp/unreachable.tsv"
+    fi
     printf 'COMPILES\t'
   else
     printf 'OTHER\t%s' "$(head -1 <<< "$out" | cut -c1-40)"
@@ -208,9 +229,21 @@ modules=$(cd "$ROOT" && find std -name '*.ssc' | LC_ALL=C sort)
 echo "rust-std-survey: $(printf '%s\n' "$modules" | grep -c .) modules — this takes several minutes" >&2
 
 : > "$tmp/now.tsv"
+: > "$tmp/unreachable.tsv"
 for f in $modules; do
   printf '%s\t%s\n' "$f" "$(classify "$f")" >> "$tmp/now.tsv"
 done
+
+# The unreachable-pattern check, read off builds this sweep already ran. Zero extra cargo work.
+if [[ -s "$tmp/unreachable.tsv" ]]; then
+  echo "rust-std-survey: generated code contains UNREACHABLE MATCH ARMS — a dropped discriminator" >&2
+  while IFS=$'\t' read -r uf un; do printf '  %-44s %s warning(s)\n' "$uf" "$un" >&2; done < "$tmp/unreachable.tsv"
+  echo >&2
+  echo "Every arm the walker emits came from an arm the user wrote, so an arm that can never fire" >&2
+  echo "means the thing that discriminated between them was lost. It fails silently: the surviving" >&2
+  echo "arm still returns something plausible. Read the emitted match before assuming rustc is fussy." >&2
+  exit 1
+fi
 
 # THE DEPTH COLUMNS CHECK THEMSELVES, before anything is written or compared. A column that is
 # written but never read passes every byte-equality gate no matter what is in it, and these two are
